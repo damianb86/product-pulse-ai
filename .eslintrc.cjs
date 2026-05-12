@@ -50,6 +50,7 @@ module.exports = {
       },
       rules: {
         "react/no-unknown-property": ["error", { ignore: ["variant"] }],
+        "react/prop-types": "off",
       },
     },
 
@@ -81,6 +82,8 @@ module.exports = {
       files: [
         ".eslintrc.cjs",
         "vite.config.{js,ts}",
+        "vitest.config.{js,ts}",
+        "playwright.config.{js,ts}",
         ".graphqlrc.{js,ts}",
         "shopify.server.{js,ts}",
         "**/*.server.{js,ts}",

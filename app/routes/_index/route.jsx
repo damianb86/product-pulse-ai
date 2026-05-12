@@ -18,9 +18,9 @@ export default function App() {
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>ProductPulse AI</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          Detect why products create returns, refunds and bad reviews, then turn the evidence into Shopify-ready catalog actions.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -36,16 +36,13 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Catalog Signal Scan</strong>. Product, order, refund, return and review signals are ranked by product risk.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>AI Product Diagnosis</strong>. Deep diagnosis explains likely cause, evidence, impact and recommended actions.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Draft Shopify actions</strong>. Fit notes, FAQs, tags and support notes are prepared for merchant review.
           </li>
         </ul>
       </div>

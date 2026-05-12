@@ -1,8 +1,6 @@
-import { useEffect } from "react";
 import { useActionData, useLoaderData } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import { DashboardScreen } from "../components/ProductPulseScreens";
+import { RunningJobsScreen } from "../components/ProductPulseScreens";
 import { getAppViewData, runCatalogSignalScan } from "../lib/product-pulse-data";
 
 export const loader = async ({ request }) => {
@@ -18,19 +16,11 @@ export const action = async ({ request }) => {
     return runCatalogSignalScan();
   }
 
-  return { status: "validation_error", message: "Unsupported dashboard action." };
+  return { status: "validation_error", message: "Unsupported job action." };
 };
 
-export default function Index() {
+export default function RunningJobs() {
   const data = useLoaderData();
   const actionData = useActionData();
-  const shopify = useAppBridge();
-
-  useEffect(() => {
-    if (actionData?.status === "success") {
-      shopify.toast.show(actionData.message);
-    }
-  }, [actionData, shopify]);
-
-  return <DashboardScreen data={data} actionData={actionData} />;
+  return <RunningJobsScreen data={data} actionData={actionData} />;
 }

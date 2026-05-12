@@ -9,8 +9,8 @@ generator client {
 // enough when changing adapters.
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
@@ -31,4 +31,105 @@ model Session {
   emailVerified Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+}
+
+model ProductPulseSource {
+  id             String    @id @default(cuid())
+  shop           String
+  sourceKey      String
+  category       String
+  name           String
+  connected      Boolean   @default(false)
+  health         String    @default("not_connected")
+  coverageWeight Int
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([shop, sourceKey])
+  @@index([shop])
+}
+
+model CatalogSignalJob {
+  id           String    @id @default(cuid())
+  shop         String
+  kind         String
+  source       String
+  status       String
+  progress     Int       @default(0)
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@index([shop, status])
+}
+
+model ProductRiskSnapshot {
+  id             String   @id @default(cuid())
+  shop           String
+  productGid     String
+  productTitle   String
+  handle         String
+  riskScore      Int
+  impactScore    Int
+  confidence     Int
+  primaryIssue   String
+  sourceCoverage Json
+  metrics        Json
+  calculatedAt   DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([shop, productGid])
+  @@index([shop, riskScore])
+}
+
+model ProductDiagnosis {
+  id              String          @id @default(cuid())
+  shop            String
+  productGid      String
+  productTitle    String
+  status          String
+  riskScore       Int
+  confidence      Int
+  likelyCause     String
+  issues          Json
+  evidence        Json
+  recommendations Json
+  creditsConsumed Int             @default(1)
+  createdAt       DateTime        @default(now())
+  completedAt     DateTime?
+  actions         ProductAction[]
+
+  @@index([shop, status])
+  @@index([shop, productGid])
+}
+
+model ProductAction {
+  id          String            @id @default(cuid())
+  shop        String
+  diagnosisId String?
+  diagnosis   ProductDiagnosis? @relation(fields: [diagnosisId], references: [id], onDelete: SetNull)
+  productGid  String
+  actionType  String
+  label       String
+  status      String            @default("draft")
+  payload     Json
+  createdAt   DateTime          @default(now())
+  appliedAt   DateTime?
+
+  @@index([shop, status])
+  @@index([shop, productGid])
+}
+
+model CreditLedgerEntry {
+  id           String   @id @default(cuid())
+  shop         String
+  direction    String
+  amount       Int
+  reason       String
+  balanceAfter Int
+  createdAt    DateTime @default(now())
+
+  @@index([shop, createdAt])
 }

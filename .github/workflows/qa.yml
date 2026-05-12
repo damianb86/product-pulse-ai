@@ -1,0 +1,65 @@
+name: QA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    env:
+      SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY || 'placeholder' }}
+      SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET || 'placeholder' }}
+      SHOPIFY_APP_URL: ${{ secrets.SHOPIFY_APP_URL || 'https://example.com' }}
+      SCOPES: read_products,read_orders,read_returns
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/product_pulse_ai
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: product_pulse_ai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      - run: npm run shopify:validate
+        continue-on-error: true
+      - run: npm run shopify:build
+        continue-on-error: true
+      - name: Install Playwright browsers
+        if: ${{ vars.RUN_E2E == 'true' }}
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E
+        if: ${{ vars.RUN_E2E == 'true' }}
+        env:
+          PLAYWRIGHT_START_SERVER: "true"
+        run: npm run test:e2e
+      - name: Run accessibility
+        if: ${{ vars.RUN_E2E == 'true' }}
+        env:
+          PLAYWRIGHT_START_SERVER: "true"
+        run: npm run test:a11y
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-product-pulse-ai
+          path: |
+            playwright-report
+            test-results

@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+psql -v ON_ERROR_STOP=1 <<SQL
+SELECT 'CREATE DATABASE "' || :'APP_DB_NAME' || '"'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'APP_DB_NAME')\gexec
+
+DO
+\$do\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${APP_DB_USER}') THEN
+    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', '${APP_DB_USER}', '${APP_DB_PASSWORD}');
+  ELSE
+    EXECUTE format('ALTER ROLE %I WITH PASSWORD %L', '${APP_DB_USER}', '${APP_DB_PASSWORD}');
+  END IF;
+END
+\$do\$;
+
+GRANT ALL PRIVILEGES ON DATABASE :"APP_DB_NAME" TO :"APP_DB_USER";
+SQL

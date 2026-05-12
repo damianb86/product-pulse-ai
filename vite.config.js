@@ -17,6 +17,9 @@ if (
 
 const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost")
   .hostname;
+const allowedHosts = Array.from(
+  new Set(["localhost", "127.0.0.1", ".trycloudflare.com", host].filter(Boolean)),
+);
 let hmrConfig;
 
 if (host === "localhost") {
@@ -37,7 +40,7 @@ if (host === "localhost") {
 
 export default defineConfig({
   server: {
-    allowedHosts: [host],
+    allowedHosts,
     cors: {
       preflightContinue: true,
     },
