@@ -1,6 +1,6 @@
 import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
-import { ConnectSourcesScreen } from "../components/ProductPulseScreens";
+import { ConnectScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 
 export const loader = async ({ request }) => {
@@ -8,7 +8,7 @@ export const loader = async ({ request }) => {
   return getAppViewData();
 };
 
-export default function ConnectSources() {
+export default function Connect() {
   const data = useLoaderData();
-  return <ConnectSourcesScreen data={data} />;
+  return <ConnectScreen data={data} />;
 }
