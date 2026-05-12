@@ -40,8 +40,15 @@ model ProductPulseSource {
   category       String
   name           String
   connected      Boolean   @default(false)
+  active         Boolean   @default(true)
+  ignored        Boolean   @default(false)
+  available      Boolean   @default(false)
   health         String    @default("not_connected")
   coverageWeight Int
+  config         Json?
+  credentials    Json?
+  connectedAt    DateTime?
+  disabledAt     DateTime?
   lastSyncedAt   DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

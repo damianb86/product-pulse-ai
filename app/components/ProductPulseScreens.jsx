@@ -1,5 +1,12 @@
-import { useState } from "react";
-import { Form, Link } from "react-router";
+import { useEffect, useState } from "react";
+import { Form, Link, useNavigation, useRevalidator, useSubmit } from "react-router";
+import {
+  buildConnectViewData,
+  chatMeConnectionLinks,
+  judgeMeConnectionLinks,
+  setLocalCategoryIgnored,
+  upsertLocalConnectionRecord,
+} from "../lib/product-pulse-connect";
 
 export function DashboardScreen({ data, actionData }) {
   const diagnosisHref = `/app/products/${data.startHere.slug}`;
@@ -288,142 +295,6 @@ const suggestedFixes = [
   { icon: "note", label: "Clarify material & care information", impact: "Medium impact", tone: "warning" },
 ];
 
-const productsQueueRows = [
-  {
-    title: "Linen Shirt",
-    variant: "shirt",
-    selected: true,
-    risk: "High",
-    riskTone: "critical",
-    riskScore: 84,
-    status: "Needs attention",
-    statusTone: "critical",
-    signals: 184,
-    signalTone: "red",
-    signalBars: [42, 62, 82, 98, 72, 50, 22],
-    issue: "Fit & sizing",
-    sources: ["star", "globe", "chat"],
-    sourceOverflow: 1,
-    lastAnalysis: "2h ago",
-    credits: 4,
-    href: "/app/products/core-linen-trouser",
-  },
-  {
-    title: "Red Dress",
-    variant: "dress",
-    selected: true,
-    risk: "High",
-    riskTone: "critical",
-    riskScore: 75,
-    status: "Needs attention",
-    statusTone: "critical",
-    signals: 167,
-    signalTone: "red",
-    signalBars: [30, 50, 76, 94, 64, 38, 18],
-    issue: "Color not as expected",
-    sources: ["star", "globe", "chat"],
-    sourceOverflow: 1,
-    lastAnalysis: "4h ago",
-    credits: 4,
-    href: "/app/products/trail-run-vest",
-  },
-  {
-    title: "Sneakers X",
-    variant: "sneaker",
-    selected: false,
-    risk: "Medium",
-    riskTone: "warning",
-    riskScore: 56,
-    status: "Monitor",
-    statusTone: "warning",
-    signals: 96,
-    signalTone: "orange",
-    signalBars: [18, 32, 48, 74, 92, 24, 12],
-    issue: "Durability",
-    sources: ["star", "chat", "globe"],
-    sourceOverflow: 1,
-    lastAnalysis: "6h ago",
-    credits: 4,
-    href: "/app/products/ceramic-pour-over",
-  },
-  {
-    title: "Summer Tee",
-    variant: "tee",
-    selected: false,
-    risk: "Medium",
-    riskTone: "warning",
-    riskScore: 49,
-    status: "Monitor",
-    statusTone: "warning",
-    signals: 74,
-    signalTone: "orange",
-    signalBars: [24, 44, 66, 84, 58, 28, 12],
-    issue: "Material quality",
-    sources: ["star", "globe", "chat"],
-    sourceOverflow: 0,
-    lastAnalysis: "8h ago",
-    credits: 4,
-    href: "/app/products/minimal-canvas-tote",
-  },
-  {
-    title: "Canvas Tote",
-    variant: "tote",
-    selected: false,
-    risk: "Low",
-    riskTone: "success",
-    riskScore: 28,
-    status: "Good",
-    statusTone: "success",
-    signals: 32,
-    signalTone: "green",
-    signalBars: [16, 28, 48, 62, 18, 8, 5],
-    issue: "Zipper quality",
-    sources: ["star", "chat"],
-    sourceOverflow: 0,
-    lastAnalysis: "10h ago",
-    credits: 3,
-    href: "/app/products/minimal-canvas-tote",
-  },
-  {
-    title: "Everyday Hoodie",
-    variant: "hoodie",
-    selected: false,
-    risk: "Low",
-    riskTone: "success",
-    riskScore: 21,
-    status: "Good",
-    statusTone: "success",
-    signals: 26,
-    signalTone: "green",
-    signalBars: [12, 24, 38, 52, 14, 8, 5],
-    issue: "Pilling",
-    sources: ["star", "chat"],
-    sourceOverflow: 0,
-    lastAnalysis: "12h ago",
-    credits: 3,
-    href: "/app/products/minimal-canvas-tote",
-  },
-  {
-    title: "Insulated Bottle",
-    variant: "bottle",
-    selected: false,
-    risk: "Low",
-    riskTone: "success",
-    riskScore: 18,
-    status: "Good",
-    statusTone: "success",
-    signals: 18,
-    signalTone: "green",
-    signalBars: [10, 18, 30, 40, 12, 7, 4],
-    issue: "Leakage",
-    sources: ["star", "globe"],
-    sourceOverflow: 0,
-    lastAnalysis: "14h ago",
-    credits: 3,
-    href: "/app/products/minimal-canvas-tote",
-  },
-];
-
 const productEvidenceSources = [
   {
     icon: "return",
@@ -538,66 +409,6 @@ const businessImpactMetrics = [
   { label: "Cost to fix (est.)", value: "$4,210", icon: "shield-check-mark", tone: "blue", trend: "12%", context: "vs prior 90 days" },
 ];
 
-const connectSignalCategories = [
-  {
-    id: "reviews",
-    title: "Reviews",
-    tag: "Surface sentiment & feedback",
-    icon: "star",
-    tone: "purple",
-    weight: 60,
-    connected: true,
-    coverageNote: "Primary feedback signal. Reviews carry the largest coverage weight.",
-    sources: [
-      { name: "Judge.me Reviews", logoUrl: "https://www.google.com/s2/favicons?domain=judge.me&sz=64", tone: "teal", source: "Product & store reviews, ratings, photos", provides: "Sentiment, topics, pros & cons", status: "Connected", detail: "Last synced 2h ago", action: "Manage" },
-      { name: "Yotpo Reviews", logoUrl: "https://www.google.com/s2/favicons?domain=yotpo.com&sz=64", tone: "blue", source: "Reviews, Q&A and UGC content", provides: "Sentiment, topics, photos, Q&A", status: "Available", action: "Connect" },
-      { name: "ChatMe Reviews", logoUrl: "https://www.google.com/s2/favicons?domain=chatme.ai&sz=64", tone: "cyan", source: "Product reviews & Q&A", provides: "Sentiment, topics, pros & cons", status: "Connected", detail: "Last synced 2h ago", action: "Manage" },
-      { name: "CSV Upload", logoUrl: "https://cdn.jsdelivr.net/npm/@tabler/icons@latest/icons/file-type-csv.svg", tone: "green", source: "Import reviews from any source", provides: "Sentiment, topics, ratings", status: "Available", action: "Upload CSV" },
-    ],
-  },
-  {
-    id: "returns",
-    title: "Returns & Refunds",
-    tag: "Understand return reasons",
-    icon: "return",
-    tone: "red",
-    weight: 25,
-    connected: false,
-    coverageNote: "Counts specialized return-reason systems. Shopify returns are baseline data and stay visible below.",
-    sources: [
-      { name: "Shopify Returns & Refunds", logoUrl: "https://www.google.com/s2/favicons?domain=shopify.com&sz=64", tone: "green", source: "Default Shopify return events", provides: "Items, outcomes, baseline reasons", status: "Always on", detail: "Real-time sync", action: "Included", locked: true },
-      { name: "Return Prime", logoUrl: "https://www.google.com/s2/favicons?domain=returnprime.com&sz=64", tone: "black", source: "Third-party return data & reasons", provides: "Reasons, frequency, impact", status: "Available", action: "Connect" },
-      { name: "Loop Returns", logoUrl: "https://www.google.com/s2/favicons?domain=loopreturns.com&sz=64", tone: "purple", source: "Return reasons & insights", provides: "Reasons, frequency, impact", status: "Available", action: "Connect" },
-    ],
-  },
-  {
-    id: "support",
-    title: "Chat & Support",
-    tag: "Capture support conversations",
-    icon: "chat",
-    tone: "blue",
-    weight: 15,
-    connected: false,
-    coverageNote: "Adds buyer intent, friction themes and support sentiment.",
-    sources: [
-      { name: "Gorgias", logoUrl: "https://www.google.com/s2/favicons?domain=gorgias.com&sz=64", tone: "black", source: "Support tickets & conversation transcripts", provides: "Topics, issues, sentiment", status: "Available", action: "Connect" },
-      { name: "Zendesk", logoUrl: "https://www.google.com/s2/favicons?domain=zendesk.com&sz=64", tone: "green", source: "Support tickets & conversation transcripts", provides: "Topics, issues, sentiment", status: "Available", action: "Connect" },
-    ],
-  },
-];
-
-const shopifyProductDataCategory = {
-  id: "product-data",
-  title: "Product data",
-  tag: "Power enrichment & context",
-  icon: "product",
-  tone: "green",
-  coverageNote: "Shopify product data is enabled by default and excluded from the customer-signal percentage.",
-  sources: [
-    { name: "Shopify data", logoUrl: "https://www.google.com/s2/favicons?domain=shopify.com&sz=64", tone: "green", source: "Products, variants, collections, tags", provides: "Specs, attributes, taxonomy", status: "Always on", detail: "Real-time sync", action: "Included", locked: true },
-  ],
-};
-
 const coverageUnlocks = [
   { icon: "target", title: "More accurate issue detection", detail: "ProductPulse can separate product defects from expectation gaps." },
   { icon: "clock", title: "Faster root-cause analysis", detail: "Signals from reviews, returns and support are grouped into one diagnosis." },
@@ -605,28 +416,139 @@ const coverageUnlocks = [
   { icon: "shield-check-mark", title: "Cleaner coverage score", detail: "Ignored categories stop creating false missing-data warnings." },
 ];
 
-export function ConnectScreen() {
-  const [ignoredCategories, setIgnoredCategories] = useState([]);
-  const ignoredSet = new Set(ignoredCategories);
-  const effectiveCoverage = connectSignalCategories.reduce((total, category) => {
-    if (category.connected || ignoredSet.has(category.id)) return total + category.weight;
-    return total;
-  }, 0);
-  const activeWeight = connectSignalCategories.reduce((total, category) => (
-    ignoredSet.has(category.id) ? total : total + category.weight
-  ), 0);
+export function ConnectScreen({ data, actionData }) {
+  const submit = useSubmit();
+  const navigation = useNavigation();
+  const [records, setRecords] = useState(() => data?.connect?.records || []);
+  const [activeModal, setActiveModal] = useState(null);
+  const [localToast, setLocalToast] = useState(null);
+  const [localConnecting, setLocalConnecting] = useState(false);
+  const persistConnectState = Boolean(data?.persistConnectState);
+  const connectView = buildConnectViewData(records);
+  const isSubmitting = navigation.state === "submitting";
+  const pendingAction = isSubmitting ? String(navigation.formData?.get("_action") || "") : "";
+  const pendingSourceKey = isSubmitting ? String(navigation.formData?.get("sourceKey") || "") : "";
+  const judgeMeSource = connectView.signalCategories
+    .flatMap((category) => category.sources)
+    .find((source) => source.key === "judgemeReviews");
+  const chatMeSource = connectView.signalCategories
+    .flatMap((category) => category.sources)
+    .find((source) => source.key === "chatmeReviews");
+  const csvSource = connectView.signalCategories
+    .flatMap((category) => category.sources)
+    .find((source) => source.key === "csvReviews");
 
-  const toggleIgnored = (categoryId) => {
-    setIgnoredCategories((current) => (
-      current.includes(categoryId)
-        ? current.filter((id) => id !== categoryId)
-        : [...current, categoryId]
-    ));
+  useEffect(() => {
+    setRecords(data?.connect?.records || []);
+  }, [data?.connect?.records]);
+
+  useEffect(() => {
+    if (actionData?.status === "success") {
+      setActiveModal(null);
+    }
+  }, [actionData]);
+
+  const toggleIgnored = (category) => {
+    const ignored = !category.ignored;
+    setRecords((current) => setLocalCategoryIgnored(current, category.id, ignored));
+    if (persistConnectState) {
+      const formData = new FormData();
+      formData.set("_action", "set-category-ignored");
+      formData.set("categoryId", category.id);
+      formData.set("ignored", String(ignored));
+      submit(formData, { method: "post" });
+    }
+  };
+
+  const handleLocalJudgeMeConnect = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const token = String(formData.get("privateApiToken") || "").trim();
+    if (!token) {
+      setLocalToast({ status: "validation_error", message: "Enter the Judge.me private API token before connecting." });
+      return;
+    }
+
+    setLocalConnecting(true);
+    window.setTimeout(() => {
+      setRecords((current) => upsertLocalConnectionRecord(current, "judgemeReviews", {
+        connected: true,
+        active: true,
+        ignored: false,
+        available: true,
+        health: "connected",
+        config: { tokenLast4: token.slice(-4), provider: "Judge.me Reviews" },
+        connectedAt: new Date().toISOString(),
+        lastSyncedAt: new Date().toISOString(),
+      }));
+      setLocalConnecting(false);
+      setActiveModal(null);
+      setLocalToast({ status: "success", message: "Connected to Judge.me." });
+    }, 450);
+  };
+
+  const handleLocalChatMeConnect = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const token = String(formData.get("privateApiToken") || "").trim();
+    if (!token) {
+      setLocalToast({ status: "validation_error", message: "Enter the ChatMe private API token before connecting." });
+      return;
+    }
+
+    setLocalConnecting(true);
+    window.setTimeout(() => {
+      setRecords((current) => upsertLocalConnectionRecord(current, "chatmeReviews", {
+        connected: true,
+        active: true,
+        ignored: false,
+        available: true,
+        health: "connected",
+        config: { tokenLast4: token.slice(-4), provider: "ChatMe Reviews" },
+        connectedAt: new Date().toISOString(),
+        lastSyncedAt: new Date().toISOString(),
+      }));
+      setLocalConnecting(false);
+      setActiveModal(null);
+      setLocalToast({ status: "success", message: "Connected to ChatMe." });
+    }, 450);
+  };
+
+  const handleLocalCsvUpload = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const file = formData.get("csvFile");
+    const fileName = file?.name || "reviews.csv";
+    setRecords((current) => upsertLocalConnectionRecord(current, "csvReviews", {
+      connected: true,
+      active: true,
+      ignored: false,
+      available: true,
+      health: "connected",
+      config: { fileName, uploadedAt: new Date().toISOString() },
+      connectedAt: new Date().toISOString(),
+      lastSyncedAt: new Date().toISOString(),
+    }));
+    setActiveModal(null);
+    setLocalToast({ status: "success", message: `${fileName} is ready for review analysis.` });
+  };
+
+  const handleLocalActiveChange = (source, active) => {
+    setRecords((current) => upsertLocalConnectionRecord(current, source.key, {
+      connected: source.connected,
+      available: source.available,
+      active,
+      health: active ? "connected" : "paused",
+      disabledAt: active ? null : new Date().toISOString(),
+    }));
   };
 
   return (
     <FullWidthPage label="Connect" className="ppConnectPage">
       <ScreenShell className="ppDashboard ppConnectScreen">
+        <ActionBanner actionData={localToast || actionData} />
+        <ConnectionToast actionData={localToast || actionData} />
+
         <div className="ppConnectHeader">
           <div>
             <h1>Connect your sources</h1>
@@ -636,15 +558,25 @@ export function ConnectScreen() {
 
         <div className="ppConnectLayout">
           <div className="ppConnectMain">
-            {connectSignalCategories.map((category) => (
+            {connectView.signalCategories.map((category) => (
               <ConnectCategoryCard
                 key={category.id}
                 category={category}
-                ignored={ignoredSet.has(category.id)}
                 onToggleIgnored={toggleIgnored}
+                onOpenJudgeMe={() => setActiveModal("judgeme")}
+                onOpenChatMe={() => setActiveModal("chatme")}
+                onOpenCsv={() => setActiveModal("csv")}
+                onLocalActiveChange={handleLocalActiveChange}
+                persistConnectState={persistConnectState}
+                pendingSourceKey={pendingSourceKey}
               />
             ))}
-            <ConnectCategoryCard category={shopifyProductDataCategory} locked />
+            <ConnectCategoryCard
+              category={connectView.productDataCategory}
+              locked
+              persistConnectState={persistConnectState}
+              pendingSourceKey={pendingSourceKey}
+            />
 
             <p className="ppConnectHelp">
               Need help connecting a source? <s-link href="/app/connect">View our setup guide</s-link>
@@ -655,10 +587,9 @@ export function ConnectScreen() {
           <aside className="ppConnectAside">
             <s-section padding="none">
               <ConnectCoverageCard
-                categories={connectSignalCategories}
-                ignoredSet={ignoredSet}
-                coverage={effectiveCoverage}
-                activeWeight={activeWeight}
+                categories={connectView.signalCategories}
+                coverage={connectView.coverage}
+                activeWeight={connectView.activeWeight}
               />
             </s-section>
 
@@ -696,9 +627,39 @@ export function ConnectScreen() {
         </div>
 
         <div className="ppConnectFooter">
-          <span>{effectiveCoverage}% effective customer-signal coverage</span>
+          <span>{connectView.coverage}% effective customer-signal coverage</span>
           <button className="ppPrimaryButton" type="button">Continue</button>
         </div>
+
+        {activeModal === "judgeme" && (
+          <JudgeMeConnectionModal
+            source={judgeMeSource}
+            persistConnectState={persistConnectState}
+            isConnecting={pendingAction === "connect-judgeme" || localConnecting}
+            onCancel={() => setActiveModal(null)}
+            onLocalSubmit={handleLocalJudgeMeConnect}
+          />
+        )}
+
+        {activeModal === "chatme" && (
+          <ChatMeConnectionModal
+            source={chatMeSource}
+            persistConnectState={persistConnectState}
+            isConnecting={pendingAction === "connect-chatme" || localConnecting}
+            onCancel={() => setActiveModal(null)}
+            onLocalSubmit={handleLocalChatMeConnect}
+          />
+        )}
+
+        {activeModal === "csv" && (
+          <CsvUploadModal
+            source={csvSource}
+            persistConnectState={persistConnectState}
+            isUploading={pendingAction === "upload-csv"}
+            onCancel={() => setActiveModal(null)}
+            onLocalSubmit={handleLocalCsvUpload}
+          />
+        )}
       </ScreenShell>
     </FullWidthPage>
   );
@@ -727,12 +688,45 @@ export function RunningJobsScreen({ data, actionData }) {
   );
 }
 
-export function ProductsScreen({ data, filters }) {
-  const productCount = Math.max(142, data.products.length);
+export function ProductsScreen({ data, filters, actionData }) {
+  const revalidator = useRevalidator();
+  const navigation = useNavigation();
+  const submit = useSubmit();
+  const [localFastScan, setLocalFastScan] = useState(false);
+  const productRows = data.productTable?.rows || [];
+  const productCount = data.productTable?.total ?? productRows.length;
+  const activeScanJob = data.productTable?.activeScanJob || null;
+  const persistProductJobs = Boolean(data.persistProductJobs);
+  const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
+  const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
+
+  useEffect(() => {
+    if (!activeScanJob || !persistProductJobs) return undefined;
+    const interval = window.setInterval(() => revalidator.revalidate(), 2000);
+    return () => window.clearInterval(interval);
+  }, [activeScanJob, persistProductJobs, revalidator]);
+
+  const handleLocalFastScan = () => {
+    setLocalFastScan(true);
+    window.setTimeout(() => setLocalFastScan(false), 15_000);
+  };
+
+  const handleStartFastScan = () => {
+    if (fastScanRunning) return;
+    if (!persistProductJobs) {
+      handleLocalFastScan();
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("_action", "fast-product-scan");
+    submit(formData, { method: "post" });
+  };
 
   return (
     <FullWidthPage heading="Products">
       <ScreenShell className="ppDashboard ppProductsScreen">
+        <ActionBanner actionData={actionData} />
         <p className="ppDashboardSubtitle">
           Browse products, review risk signals and run AI diagnosis.
         </p>
@@ -752,6 +746,10 @@ export function ProductsScreen({ data, filters }) {
               </div>
             </div>
             <div className="ppProductsActions">
+              <FastScanButton
+                pending={fastScanRunning}
+                onStart={handleStartFastScan}
+              />
               <s-button href="/app/products" variant="secondary">Clear filters</s-button>
               <s-button type="submit" variant="secondary">
                 <s-icon type="refresh" size="small"></s-icon>
@@ -761,7 +759,7 @@ export function ProductsScreen({ data, filters }) {
                 <s-icon type="import" size="small"></s-icon>
                 Export
               </s-button>
-              <button className="ppPrimaryButton" type="button">Analyze selected (2)</button>
+              <button className="ppPrimaryButton" type="button" disabled={productRows.length === 0}>Analyze selected ({productRows.length})</button>
             </div>
             <div className="ppProductsFilters" aria-label="Product filters">
               <label className="ppCompactSelect">
@@ -818,16 +816,23 @@ export function ProductsScreen({ data, filters }) {
 
         <s-section padding="none">
           <div className="ppProductsTableStatus">
-            <div className="ppSelectionPill">
-              <span>2</span>
-              selected
-              <button type="button" aria-label="Clear selected products">
-                <s-icon type="x" size="small"></s-icon>
-              </button>
-            </div>
-            <span>50 of {productCount} products</span>
+            {productRows.length > 0 ? (
+              <div className="ppSelectionPill">
+                <span>0</span>
+                selected
+                <button type="button" aria-label="Clear selected products">
+                  <s-icon type="x" size="small"></s-icon>
+                </button>
+              </div>
+            ) : (
+              <span>No products in ProductPulse yet</span>
+            )}
+            <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products` : "0 products"}</span>
           </div>
-          <div className="ppProductsTableWrap">
+          {data.productTable?.scanWindowLabel && (
+            <p className="ppProductsScanNote">{data.productTable.scanWindowLabel}</p>
+          )}
+          <div className={`ppProductsTableWrap ${fastScanRunning ? "isScanning" : ""}`.trim()}>
             <table className="ppProductsTable" data-testid="products-table">
               <thead>
                 <tr>
@@ -850,7 +855,24 @@ export function ProductsScreen({ data, filters }) {
                 </tr>
               </thead>
               <tbody>
-                {productsQueueRows.map((product) => (
+                {productRows.length === 0 && (
+                  <tr className="ppProductsEmptyRow">
+                    <td colSpan="10">
+                      <div className="ppProductsEmptyState">
+                        <DashboardIcon type="search" tone="blue" />
+                        <div>
+                          <h2>No scanned products yet</h2>
+                          <p>Run a quick catalog scan to look for early product quality signals across your store.</p>
+                        </div>
+                        <FastScanButton
+                          pending={fastScanRunning}
+                          onStart={handleStartFastScan}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {productRows.map((product) => (
                   <tr key={product.title}>
                     <td>
                       <input type="checkbox" checked={product.selected} readOnly aria-label={`Select ${product.title}`} />
@@ -893,32 +915,56 @@ export function ProductsScreen({ data, filters }) {
                 ))}
               </tbody>
             </table>
+            {fastScanRunning && (
+              <div className="ppProductsScanOverlay" role="status">
+                <div>
+                  <span className="ppScanSpinner" aria-hidden="true" />
+                  <h2>Fast product scan running</h2>
+                  <p>
+                    ProductPulse is checking the catalog for potential quality signals. You can leave this page;
+                    the backend job will keep running.
+                  </p>
+                  <small>{activeScanJob ? activeScanJob.source : "Starting scan..."}</small>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="ppProductsPagination">
-            <label className="ppRowsSelect">
-              Rows per page
-              <select defaultValue="25">
-                <option value="25">25</option>
-                <option value="50">50</option>
-              </select>
-            </label>
-            <div className="ppPageControls" aria-label="Pagination">
-              <button type="button" aria-label="Previous page">
-                <s-icon type="chevron-left" size="small"></s-icon>
-              </button>
-              {[1, 2, 3, 4, 5].map((page) => (
-                <button className={page === 1 ? "isActive" : ""} type="button" key={page}>
-                  {page}
+          {productRows.length > 0 && (
+            <div className="ppProductsPagination">
+              <label className="ppRowsSelect">
+                Rows per page
+                <select defaultValue="25">
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                </select>
+              </label>
+              <div className="ppPageControls" aria-label="Pagination">
+                <button type="button" aria-label="Previous page">
+                  <s-icon type="chevron-left" size="small"></s-icon>
                 </button>
-              ))}
-              <button type="button" aria-label="Next page">
-                <s-icon type="chevron-right" size="small"></s-icon>
-              </button>
+                {[1, 2, 3, 4, 5].map((page) => (
+                  <button className={page === 1 ? "isActive" : ""} type="button" key={page}>
+                    {page}
+                  </button>
+                ))}
+                <button type="button" aria-label="Next page">
+                  <s-icon type="chevron-right" size="small"></s-icon>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </s-section>
       </ScreenShell>
     </FullWidthPage>
+  );
+}
+
+function FastScanButton({ pending, onStart }) {
+  return (
+    <button className="ppPrimaryButton" type="button" disabled={pending} onClick={onStart}>
+      <s-icon type="wand" size="small"></s-icon>
+      {pending ? "Scan running..." : "Run quick scan"}
+    </button>
   );
 }
 
@@ -1649,13 +1695,23 @@ function ProductRecommendedAction({ action, product }) {
   );
 }
 
-function ConnectCategoryCard({ category, ignored = false, locked = false, onToggleIgnored }) {
-  const status = locked ? "Always on" : ignored ? "Ignored" : category.connected ? "Connected" : "Needs source";
-  const statusTone = locked || category.connected || ignored ? "success" : "warning";
+function ConnectCategoryCard({
+  category,
+  locked = false,
+  onToggleIgnored,
+  onOpenJudgeMe,
+  onOpenChatMe,
+  onOpenCsv,
+  onLocalActiveChange,
+  persistConnectState = false,
+  pendingSourceKey = "",
+}) {
+  const status = locked ? "Always on" : category.ignored ? "Ignored" : category.connected ? "Connected" : "Needs source";
+  const statusTone = locked || category.connected || category.ignored ? "success" : "warning";
 
   return (
     <s-section padding="none">
-      <article className={`ppConnectCategory ${ignored ? "isIgnored" : ""}`.trim()}>
+      <article className={`ppConnectCategory ${category.ignored ? "isIgnored" : ""}`.trim()}>
         <div className="ppConnectCategoryHeader">
           <div>
             <h2>
@@ -1673,10 +1729,10 @@ function ConnectCategoryCard({ category, ignored = false, locked = false, onTogg
               <button
                 className="ppIgnoreCategoryButton"
                 type="button"
-                aria-pressed={ignored}
-                onClick={() => onToggleIgnored(category.id)}
+                aria-pressed={category.ignored}
+                onClick={() => onToggleIgnored(category)}
               >
-                {ignored ? "Use category" : "Ignore category"}
+                {category.ignored ? "Use category" : "Ignore category"}
               </button>
             )}
           </div>
@@ -1691,16 +1747,18 @@ function ConnectCategoryCard({ category, ignored = false, locked = false, onTogg
                 <th>Signals extracted</th>
                 <th>Status</th>
                 <th>Action</th>
-                <th aria-label="More actions"></th>
               </tr>
             </thead>
             <tbody>
               {category.sources.map((source) => (
-                <tr key={source.name}>
+                <tr className={!source.available && !source.locked ? "isUnavailable" : ""} key={source.name}>
                   <td>
                     <div className="ppConnectSourceName">
                       <ConnectSourceLogo source={source} />
-                      <span>{source.name}</span>
+                      <span>
+                        {source.name}
+                        {!source.available && !source.locked && <small>{source.detail}</small>}
+                      </span>
                     </div>
                   </td>
                   <td>{source.source}</td>
@@ -1713,12 +1771,15 @@ function ConnectCategoryCard({ category, ignored = false, locked = false, onTogg
                     </div>
                   </td>
                   <td>
-                    <s-button type="button" variant="secondary" disabled={source.locked}>{source.action}</s-button>
-                  </td>
-                  <td>
-                    <button className="ppIconButton" type="button" aria-label={`More actions for ${source.name}`}>
-                      <s-icon type="menu-horizontal" size="small"></s-icon>
-                    </button>
+                    <ConnectSourceActions
+                      source={source}
+                      persistConnectState={persistConnectState}
+                      pending={pendingSourceKey === source.key}
+                      onOpenJudgeMe={onOpenJudgeMe}
+                      onOpenChatMe={onOpenChatMe}
+                      onOpenCsv={onOpenCsv}
+                      onLocalActiveChange={onLocalActiveChange}
+                    />
                   </td>
                 </tr>
               ))}
@@ -1730,12 +1791,86 @@ function ConnectCategoryCard({ category, ignored = false, locked = false, onTogg
   );
 }
 
-function ConnectCoverageCard({ categories, ignoredSet, coverage, activeWeight }) {
+function ConnectSourceActions({
+  source,
+  persistConnectState,
+  pending,
+  onOpenJudgeMe,
+  onOpenChatMe,
+  onOpenCsv,
+  onLocalActiveChange,
+}) {
+  if (source.locked) {
+    return <button className="ppConnectSmallButton" type="button" disabled>Included</button>;
+  }
+
+  if (!source.available) {
+    return <button className="ppConnectSmallButton" type="button" disabled>Coming soon</button>;
+  }
+
+  const activeButton = source.connected && (
+    persistConnectState ? (
+      <Form method="post" className="ppInlineForm">
+        <input type="hidden" name="_action" value="set-source-active" />
+        <input type="hidden" name="sourceKey" value={source.key} />
+        <input type="hidden" name="active" value={source.active ? "false" : "true"} />
+        <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="submit">
+          {pending ? "Saving..." : source.active ? "Disable" : "Enable"}
+        </button>
+      </Form>
+    ) : (
+      <button
+        className="ppConnectSmallButton ppConnectSmallButton-ghost"
+        type="button"
+        onClick={() => onLocalActiveChange(source, !source.active)}
+      >
+        {source.active ? "Disable" : "Enable"}
+      </button>
+    )
+  );
+
+  if (source.actionKind === "judgeme") {
+    return (
+      <div className="ppConnectActions">
+        <button className="ppConnectSmallButton" type="button" onClick={onOpenJudgeMe}>
+          {source.connected ? "Manage" : "Manage"}
+        </button>
+        {activeButton}
+      </div>
+    );
+  }
+
+  if (source.actionKind === "chatme") {
+    return (
+      <div className="ppConnectActions">
+        <button className="ppConnectSmallButton" type="button" onClick={onOpenChatMe}>
+          {source.connected ? "Manage" : "Manage"}
+        </button>
+        {activeButton}
+      </div>
+    );
+  }
+
+  if (source.actionKind === "csv") {
+    return (
+      <div className="ppConnectActions">
+        <button className="ppConnectSmallButton" type="button" onClick={onOpenCsv}>
+          {source.action}
+        </button>
+        {activeButton}
+      </div>
+    );
+  }
+
+  return <button className="ppConnectSmallButton" type="button" disabled>{source.action}</button>;
+}
+
+function ConnectCoverageCard({ categories, coverage, activeWeight }) {
   const ignoredWeight = categories.reduce((total, category) => (
-    ignoredSet.has(category.id) ? total + category.weight : total
+    category.ignored ? total + category.weight : total
   ), 0);
   const connectedWeight = categories.reduce((total, category) => (
-    category.connected && !ignoredSet.has(category.id) ? total + category.weight : total
+    category.connected && !category.ignored ? total + category.weight : total
   ), 0);
   const missingWeight = Math.max(0, 100 - coverage);
 
@@ -1752,7 +1887,7 @@ function ConnectCoverageCard({ categories, ignoredSet, coverage, activeWeight })
       <div className="ppConnectPieWrap">
         <div
           className="ppConnectPie"
-          style={{ "--coverage-gradient": getConnectCoverageGradient(categories, ignoredSet) }}
+          style={{ "--coverage-gradient": getConnectCoverageGradient(categories) }}
           aria-label={`${coverage}% effective customer-signal coverage`}
         >
           <strong>{coverage}%</strong>
@@ -1768,7 +1903,7 @@ function ConnectCoverageCard({ categories, ignoredSet, coverage, activeWeight })
 
       <div className="ppConnectCoverageLegend">
         {categories.map((category) => {
-          const ignored = ignoredSet.has(category.id);
+          const ignored = category.ignored;
           const complete = category.connected || ignored;
           return (
             <div className={complete ? "isComplete" : ""} key={category.id}>
@@ -1782,6 +1917,158 @@ function ConnectCoverageCard({ categories, ignoredSet, coverage, activeWeight })
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function JudgeMeConnectionModal({ source, persistConnectState, isConnecting, onCancel, onLocalSubmit }) {
+  const formProps = persistConnectState ? { method: "post" } : { onSubmit: onLocalSubmit };
+  return (
+    <div className="ppConnectionModalOverlay" role="presentation">
+      <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="judgeme-connect-title">
+        <div className="ppConnectionModalHeader">
+          <ConnectSourceLogo source={source} />
+          <div>
+            <span>Judge.me</span>
+            <h2 id="judgeme-connect-title">Judge.me Reviews</h2>
+            <p>Enter your credentials to connect ProductPulse AI.</p>
+          </div>
+        </div>
+
+        <Form {...formProps} className="ppConnectionForm">
+          <input type="hidden" name="_action" value="connect-judgeme" />
+          <label className="ppConnectionField">
+            <span>Private API token</span>
+            <input
+              name="privateApiToken"
+              type="password"
+              autoComplete="off"
+              placeholder="Paste your Judge.me private API token"
+              required
+            />
+          </label>
+          <p className="ppConnectionHint">
+            ProductPulse tests the token before saving it and stores the connection for future syncs.
+          </p>
+
+          <div className="ppConnectionLinkRow">
+            <a href={judgeMeConnectionLinks.app} target="_blank" rel="noreferrer">
+              Open Judge.me API settings
+              <s-icon type="external" size="small"></s-icon>
+            </a>
+            <a href={judgeMeConnectionLinks.docs} target="_blank" rel="noreferrer">
+              Judge.me API documentation
+              <s-icon type="external" size="small"></s-icon>
+            </a>
+          </div>
+
+          <div className="ppConnectionModalFooter">
+            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="ppPrimaryButton" type="submit" disabled={isConnecting}>
+              {isConnecting ? "Connecting..." : "Connect"}
+            </button>
+          </div>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
+function ChatMeConnectionModal({ source, persistConnectState, isConnecting, onCancel, onLocalSubmit }) {
+  const formProps = persistConnectState ? { method: "post" } : { onSubmit: onLocalSubmit };
+  return (
+    <div className="ppConnectionModalOverlay" role="presentation">
+      <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="chatme-connect-title">
+        <div className="ppConnectionModalHeader">
+          <ConnectSourceLogo source={source} />
+          <div>
+            <span>ChatMe</span>
+            <h2 id="chatme-connect-title">ChatMe Reviews</h2>
+            <p>Enter your credentials to connect ProductPulse AI.</p>
+          </div>
+        </div>
+
+        <Form {...formProps} className="ppConnectionForm">
+          <input type="hidden" name="_action" value="connect-chatme" />
+          <label className="ppConnectionField">
+            <span>Private API token</span>
+            <input
+              name="privateApiToken"
+              type="password"
+              autoComplete="off"
+              placeholder="Paste your private API token"
+              required
+            />
+          </label>
+          <p className="ppConnectionHint">
+            ProductPulse tests the token before saving it and stores the connection for future syncs.
+          </p>
+
+          <div className="ppConnectionLinkRow">
+            <a href={chatMeConnectionLinks.app} target="_blank" rel="noreferrer">Open ChatMe</a>
+            <a href={chatMeConnectionLinks.docs} target="_blank" rel="noreferrer">Where to find the API token</a>
+          </div>
+
+          <div className="ppConnectionModalFooter">
+            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="ppPrimaryButton" type="submit" disabled={isConnecting}>
+              {isConnecting ? "Connecting..." : "Connect"}
+            </button>
+          </div>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
+function CsvUploadModal({ source, persistConnectState, isUploading, onCancel, onLocalSubmit }) {
+  const formProps = persistConnectState ? { method: "post", encType: "multipart/form-data" } : { onSubmit: onLocalSubmit };
+  return (
+    <div className="ppConnectionModalOverlay" role="presentation">
+      <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="csv-upload-title">
+        <div className="ppConnectionModalHeader">
+          <ConnectSourceLogo source={source} />
+          <div>
+            <span>CSV reviews</span>
+            <h2 id="csv-upload-title">Upload review data</h2>
+            <p>Upload a CSV with product handles, ratings and review text.</p>
+          </div>
+        </div>
+
+        <Form {...formProps} className="ppConnectionForm">
+          <input type="hidden" name="_action" value="upload-csv" />
+          <label className="ppConnectionField">
+            <span>CSV file</span>
+            <input name="csvFile" type="file" accept=".csv,text/csv" required />
+          </label>
+          <p className="ppConnectionHint">
+            The file is registered as an active reviews source and can be replaced at any time.
+          </p>
+
+          <div className="ppConnectionModalFooter">
+            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="ppPrimaryButton" type="submit" disabled={isUploading}>
+              {isUploading ? "Uploading..." : "Upload CSV"}
+            </button>
+          </div>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
+function ConnectionToast({ actionData }) {
+  if (!actionData?.message || actionData.status !== "success") return null;
+  return (
+    <div className="ppConnectionToast" role="status">
+      <s-icon type="check-circle" size="small"></s-icon>
+      {actionData.message}
     </div>
   );
 }
@@ -1800,7 +2087,7 @@ function getConnectStatusTone(status) {
   return "gray";
 }
 
-function getConnectCoverageGradient(categories, ignoredSet) {
+function getConnectCoverageGradient(categories) {
   let cursor = 0;
   const colors = {
     reviews: "var(--pp-pulse-blue)",
@@ -1813,7 +2100,7 @@ function getConnectCoverageGradient(categories, ignoredSet) {
     const start = cursor;
     const end = cursor + category.weight;
     cursor = end;
-    const color = ignoredSet.has(category.id)
+    const color = category.ignored
       ? colors.ignored
       : category.connected
         ? colors[category.id]

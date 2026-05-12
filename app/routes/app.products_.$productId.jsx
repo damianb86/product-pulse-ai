@@ -7,22 +7,32 @@ import {
   getProductBySlug,
   startProductDiagnosis,
 } from "../lib/product-pulse-data";
+import { getProductSnapshotForShop } from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request, params }) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+  const snapshotProduct = await getProductSnapshotForShop(session.shop, params.productId);
   return {
     data: getAppViewData(),
-    product: getProductBySlug(params.productId),
+    product: snapshotProduct || getProductBySlug(params.productId),
   };
 };
 
 export const action = async ({ request, params }) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const formData = await request.formData();
   const actionType = formData.get("_action");
   const productId = String(formData.get("productId") || params.productId || "");
 
   if (actionType === "diagnose") {
+    const snapshotProduct = await getProductSnapshotForShop(session.shop, productId);
+    if (snapshotProduct) {
+      return {
+        status: "success",
+        message: `AI Product Diagnosis started for ${snapshotProduct.title}. One credit was consumed.`,
+        product: snapshotProduct,
+      };
+    }
     return startProductDiagnosis(productId);
   }
 
