@@ -103,6 +103,11 @@ describe("ProductPulse screens", () => {
           href: "/app/products/linen-shirt",
           handle: "linen-shirt",
           productGid: "gid://shopify/Product/1",
+          diagnosisJob: {
+            id: "job-product-diagnosis-1",
+            status: "Running",
+            displaySubtitle: "Running AI product diagnostics",
+          },
           imageUrl: "https://cdn.example.com/linen-shirt.jpg",
           imageAlt: "Linen product",
           signalDetails: {
@@ -120,6 +125,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: /Run quick scan/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Linen Shirt/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
+    expect(screen.getByText("Diagnosis running")).toBeInTheDocument();
+    expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
+    expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
     fireEvent.click(screen.getByRole("button", { name: "Risk score" }));
     expect(screen.getByText("↓")).toBeInTheDocument();
     expect(screen.getByText("Return rate contribution.")).toBeInTheDocument();

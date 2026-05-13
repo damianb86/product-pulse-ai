@@ -80,15 +80,17 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
 
 export async function getProductsQueueForShop(shop, admin, filters = {}) {
   await failStaleFastProductScans(shop);
-  const [snapshots, activeJob] = await Promise.all([
+  const [snapshots, activeJob, activeDiagnosisJobs] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
     }),
     getActiveFastProductScan(shop),
+    getActiveProductDiagnosisJobs(shop),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
+  if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const filterOptions = getProductTableFilterOptions(snapshots);
   const filteredSnapshots = sortProductSnapshots(
     filterProductSnapshots(snapshots, filters),
@@ -100,9 +102,10 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
   const rows = pageSnapshots.map(formatProductRow);
   const rowsWithImages = await attachProductImages(rows, admin);
+  const rowsWithJobs = attachActiveProductDiagnosisJobs(rowsWithImages, activeDiagnosisJobs);
 
   return {
-    rows: rowsWithImages,
+    rows: rowsWithJobs,
     total: filteredSnapshots.length,
     totalAll: snapshots.length,
     page,
@@ -110,6 +113,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
     totalPages,
     filterOptions,
     activeScanJob: activeJob ? formatJob(activeJob) : null,
+    activeDiagnosisJobs: activeDiagnosisJobs.map(formatJob),
   };
 }
 
@@ -339,6 +343,17 @@ async function getActiveFastProductScan(shop) {
       status: { in: ["Queued", "Running"] },
     },
     orderBy: { startedAt: "desc" },
+  });
+}
+
+async function getActiveProductDiagnosisJobs(shop) {
+  return prisma.catalogSignalJob.findMany({
+    where: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      status: { in: ["Queued", "Running"] },
+    },
+    orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
   });
 }
 
@@ -647,6 +662,39 @@ function formatProductRow(snapshot) {
     credits: 1,
     href: `/app/products/${snapshot.handle}`,
   };
+}
+
+function attachActiveProductDiagnosisJobs(rows, jobs) {
+  if (!jobs.length) return rows;
+  const jobByProductKey = new Map();
+
+  jobs.forEach((job) => {
+    getProductDiagnosisJobKeys(job).forEach((key) => {
+      const current = jobByProductKey.get(key);
+      if (!current || isPreferredProductDiagnosisJob(job, current)) {
+        jobByProductKey.set(key, job);
+      }
+    });
+  });
+
+  return rows.map((row) => {
+    const job = jobByProductKey.get(row.productGid) || jobByProductKey.get(row.handle);
+    return job ? { ...row, diagnosisJob: formatJob(job) } : row;
+  });
+}
+
+function getProductDiagnosisJobKeys(job) {
+  return [
+    job.payload?.productGid,
+    job.payload?.handle,
+    job.payload?.productId,
+  ].filter(Boolean).map(String);
+}
+
+function isPreferredProductDiagnosisJob(candidate, current) {
+  if (candidate.status === "Running" && current.status !== "Running") return true;
+  if (candidate.status !== "Running" && current.status === "Running") return false;
+  return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime();
 }
 
 function filterProductSnapshots(snapshots, filters = {}) {

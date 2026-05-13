@@ -3897,6 +3897,14 @@ s-page[inline-size="large-500"] {
   border-bottom: 0;
 }
 
+.ppProductsTable tbody tr.isDiagnosing td {
+  background: linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.075), rgba(var(--pp-info-cyan-rgb), 0.035));
+}
+
+.ppProductsTable tbody tr.isDiagnosing td:first-child {
+  box-shadow: inset 3px 0 0 var(--pp-pulse-blue);
+}
+
 .ppProductsEmptyRow td {
   height: 260px;
   background: var(--pp-cloud-white);
@@ -4006,6 +4014,49 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-900);
   font-weight: 550;
   text-decoration: none;
+}
+
+.ppProductImageWrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.ppProductDiagnosisLoader {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 19px;
+  height: 19px;
+  display: inline-grid;
+  place-items: center;
+  border: 2px solid var(--pp-cloud-white);
+  border-radius: 999px;
+  background: var(--pp-pulse-blue);
+  box-shadow: 0 4px 10px rgba(var(--pp-pulse-blue-rgb), 0.35);
+}
+
+.ppProductDiagnosisLoader span {
+  width: 10px;
+  height: 10px;
+  display: block;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: var(--pp-cloud-white);
+  border-radius: 999px;
+  animation: ppSpin 0.72s linear infinite;
+}
+
+.ppProductsProductText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ppProductsProductText small {
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.1;
 }
 
 .ppProductsProductCell:hover {

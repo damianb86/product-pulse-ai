@@ -650,6 +650,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const rowsPerPage = data.productTable?.rowsPerPage || Number(filters.rows || 25);
   const totalPages = data.productTable?.totalPages || 1;
   const activeScanJob = data.productTable?.activeScanJob || null;
+  const activeDiagnosisJobs = data.productTable?.activeDiagnosisJobs || [];
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
   const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
@@ -666,10 +667,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   };
 
   useEffect(() => {
-    if (!activeScanJob || !persistProductJobs) return undefined;
+    const hasProductDiagnosisJobs = activeDiagnosisJobs.length > 0 || productRows.some((product) => product.diagnosisJob);
+    if ((!activeScanJob && !hasProductDiagnosisJobs) || !persistProductJobs) return undefined;
     const interval = window.setInterval(() => revalidator.revalidate(), 2000);
     return () => window.clearInterval(interval);
-  }, [activeScanJob, persistProductJobs, revalidator]);
+  }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, productRows, revalidator]);
 
   useEffect(() => {
     setLocalSortConfig(null);
@@ -932,9 +934,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 {productRows.map((product) => {
                   const actionKey = getProductActionKey(product);
                   const selected = selectedProducts.has(actionKey);
+                  const diagnosisState = getProductDiagnosisState(product, pendingAnalyzeIds);
 
                   return (
-                    <tr key={actionKey}>
+                    <tr className={diagnosisState ? "isDiagnosing" : ""} key={actionKey}>
                       <td>
                         <input
                           type="checkbox"
@@ -945,13 +948,23 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       </td>
                       <td>
                         <Link className="ppProductsProductCell" to={product.href}>
-                          <ProductArt
-                            variant={product.variant}
-                            label={product.title}
-                            imageUrl={product.imageUrl}
-                            imageAlt={product.imageAlt}
-                          />
-                          <span>{product.title}</span>
+                          <span className="ppProductImageWrap">
+                            <ProductArt
+                              variant={product.variant}
+                              label={product.title}
+                              imageUrl={product.imageUrl}
+                              imageAlt={product.imageAlt}
+                            />
+                            {diagnosisState && (
+                              <span className="ppProductDiagnosisLoader" aria-label={`${diagnosisState.label} for ${product.title}`}>
+                                <span aria-hidden="true" />
+                              </span>
+                            )}
+                          </span>
+                          <span className="ppProductsProductText">
+                            <span>{product.title}</span>
+                            {diagnosisState && <small>{diagnosisState.label}</small>}
+                          </span>
                         </Link>
                       </td>
                       <td>
@@ -1201,6 +1214,36 @@ function getVisiblePages(currentPage, totalPages) {
 
 function getProductActionKey(product) {
   return product.productGid || product.handle || product.href || product.title;
+}
+
+function getProductDiagnosisState(product, pendingAnalyzeIds = []) {
+  const productKey = getProductActionKey(product);
+  const pendingKeys = new Set((pendingAnalyzeIds || []).map(String));
+  const persistedJob = product.diagnosisJob;
+
+  if (pendingKeys.has(String(productKey))) {
+    return {
+      status: "Queued",
+      label: "Queuing diagnosis",
+    };
+  }
+
+  if (!persistedJob) return null;
+  const status = String(persistedJob.status || "").toLowerCase();
+  if (status === "running") {
+    return {
+      status: persistedJob.status,
+      label: "Diagnosis running",
+    };
+  }
+  if (status === "queued") {
+    return {
+      status: persistedJob.status,
+      label: "Diagnosis queued",
+    };
+  }
+
+  return null;
 }
 
 function getProductDetailModel(product) {
