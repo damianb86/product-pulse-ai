@@ -1528,6 +1528,14 @@ function getBadgeToneFromRiskTone(tone) {
   return "warning";
 }
 
+function getBadgeToneFromSeverity(severity, fallbackTone = "warning") {
+  const normalized = String(severity || "").toLowerCase();
+  if (normalized.includes("high") || normalized.includes("critical")) return "critical";
+  if (normalized.includes("medium") || normalized.includes("moderate")) return "warning";
+  if (normalized.includes("low") || normalized.includes("success") || normalized.includes("healthy")) return "success";
+  return getBadgeToneFromRiskTone(fallbackTone);
+}
+
 function getDashboardToneFromRiskTone(tone) {
   if (tone === "critical") return "red";
   if (tone === "success") return "green";
@@ -1734,7 +1742,7 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
       issue: issue.issue || issue.label || `Issue ${index + 1}`,
       issueCode: issue.issueCode || "",
       severity: issue.severity || getProductRiskScoreLabel(product.riskScore || 0),
-      tone: getBadgeToneFromRiskTone(issue.tone || product.riskTone),
+      tone: getBadgeToneFromSeverity(issue.severity, issue.tone || product.riskTone),
       confidence: typeof issue.confidence === "number" ? `${issue.confidence}%` : issue.confidence || `${product.confidence || 0}%`,
       signals: issue.signals || product.metrics?.signalCount || 0,
       evidence: Array.isArray(issue.evidence) ? issue.evidence.filter(Boolean) : [],
@@ -1754,7 +1762,7 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
     {
       issue: product.primaryIssue,
       severity: getProductRiskScoreLabel(product.riskScore),
-      tone: product.riskTone,
+      tone: getBadgeToneFromSeverity(getProductRiskScoreLabel(product.riskScore), product.riskTone),
       confidence: `${product.confidence}%`,
       signals: primarySignals,
       trend: product.metrics?.signalTrend || [],
@@ -1764,7 +1772,7 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
     {
       issue: `${issueCategory} signal cluster`,
       severity: product.riskScore >= 75 ? "High" : product.riskScore >= 55 ? "Medium" : "Low",
-      tone: product.riskScore >= 75 ? "critical" : product.riskScore >= 55 ? "warning" : "success",
+      tone: getBadgeToneFromSeverity(product.riskScore >= 75 ? "High" : product.riskScore >= 55 ? "Medium" : "Low"),
       confidence: `${Math.max(product.confidence - 9, 35)}%`,
       signals: Math.max(Math.round(primarySignals * 0.62), 1),
       trend: product.metrics?.signalTrend || [],

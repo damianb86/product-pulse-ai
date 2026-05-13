@@ -3005,8 +3005,11 @@ function getSeverityLabel(score) {
 
 function getRiskToneFromSeverity(severity, score) {
   const normalized = String(severity || "").toLowerCase();
-  if (normalized.includes("high") || score >= 75) return "critical";
-  if (normalized.includes("medium") || score >= 55) return "warning";
+  if (normalized.includes("high") || normalized.includes("critical")) return "critical";
+  if (normalized.includes("medium") || normalized.includes("moderate")) return "warning";
+  if (normalized.includes("low")) return "success";
+  if (score >= 75) return "critical";
+  if (score >= 55) return "warning";
   return "success";
 }
 
