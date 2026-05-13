@@ -656,6 +656,7 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
             refunds {
               id
               createdAt
+              note
               refundLineItems(first: $refundLineItemsFirst) {
                 nodes {
                   id
@@ -703,7 +704,7 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
     (data?.orders?.nodes || []).forEach((order) => {
       (order.refunds || []).forEach((refund) => {
         getNodes(refund.refundLineItems).forEach((refundLineItem) => {
-          events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt || order.createdAt, orderId: order.id }));
+          events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt || order.createdAt, orderId: order.id, note: refund.note }));
         });
       });
     });
@@ -861,7 +862,7 @@ function normalizeBulkOrderEvents(lines) {
       orders.set(line.id, { id: line.id, createdAt: line.createdAt });
       (line.refunds || []).forEach((refund) => {
         getNodes(refund.refundLineItems).forEach((refundLineItem) => {
-          events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt, orderId: line.id }));
+          events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt, orderId: line.id, note: refund.note }));
         });
       });
       return;
@@ -869,7 +870,7 @@ function normalizeBulkOrderEvents(lines) {
 
     if (line.__typename === "Refund") {
       const order = orders.get(line.__parentId);
-      refunds.set(line.id, { id: line.id, createdAt: line.createdAt || order?.createdAt, orderId: line.__parentId });
+      refunds.set(line.id, { id: line.id, createdAt: line.createdAt || order?.createdAt, orderId: line.__parentId, note: line.note });
       return;
     }
 
@@ -934,6 +935,7 @@ function normalizeRefundLineItemEvent(refundLineItem, refund) {
     quantity: toNumber(refundLineItem.quantity),
     amount: moneyAmount(refundLineItem.subtotalSet),
     reason: refundLineItem.restockType || "Refund",
+    note: refund?.note || "",
     variantTitle: variant.title,
     variantSku: variant.sku || lineItem.sku,
     variantOptions: variant.selectedOptions || [],
@@ -1003,6 +1005,7 @@ function getProductAggregate(aggregates, product) {
       totalSignalUnits: 0,
       returnReasons: new Map(),
       notes: [],
+      refundNotes: [],
       affectedVariants: new Map(),
       lastSignalAt: null,
       signalEvents: [],
@@ -1024,6 +1027,7 @@ function applyEventToAggregate(aggregate, event) {
   if (event.type === "refund") {
     aggregate.refundUnits += quantity;
     aggregate.refundAmount += toNumber(event.amount);
+    if (event.note) aggregate.refundNotes.push(event.note);
   }
 
   if (event.type === "return") {
@@ -1080,13 +1084,15 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     signalUnits: aggregate.returnUnits,
     maxScore: 48,
   });
-  const refundRisk = getRateRiskScore({
+  const rawRefundRisk = getRateRiskScore({
     rate: refundRate,
     average: storeTotals.avgRefundRate,
     signalUnits: aggregate.refundUnits,
     maxScore: 40,
   });
+  const refundRisk = rawRefundRisk * getQuickScanRefundRiskSupport({ aggregate, refundRate });
   const impactRisk = getRefundImpactRiskScore(aggregate, storeTotals);
+  const refundPressureRisk = getRefundPressureRiskScore({ aggregate, refundRate });
   const repeatedReasons = getRepeatedReasonRiskScore(topReasons);
   const variantConcentration = getVariantConcentrationScore(aggregate, affectedVariants);
   const recentSpike = getRecentSpikeScore(aggregate);
@@ -1095,6 +1101,7 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     returnRisk: roundScore(returnRisk),
     refundRisk: roundScore(refundRisk),
     impactRisk: roundScore(impactRisk),
+    refundPressureRisk: roundScore(refundPressureRisk),
     repeatedReasonRisk: roundScore(repeatedReasons),
     variantConcentration: roundScore(variantConcentration),
     recentSpike: roundScore(recentSpike),
@@ -1104,6 +1111,7 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     returnRisk,
     refundRisk,
     impactRisk,
+    refundPressureRisk,
     repeatedReasons,
     variantConcentration,
     recentSpike,
@@ -1112,7 +1120,7 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
 
   const primaryIssue = getPrimaryIssue({
     topReasons,
-    notes: aggregate.notes,
+    notes: [...aggregate.notes, ...aggregate.refundNotes],
     refundRate,
     returnRate,
   });
@@ -1157,6 +1165,9 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       storeAvgReturnRate: roundPercent(storeTotals.avgReturnRate),
       storeAvgRefundRate: roundPercent(storeTotals.avgRefundRate),
       refundAmount: roundMoney(aggregate.refundAmount),
+      refundNoteCount: aggregate.refundNotes.length,
+      refundNotes: aggregate.refundNotes.slice(0, 5),
+      refundPressure: getRefundPressureSummary({ aggregate, refundRate: refundRatePercent }),
       revenueAtRisk: roundMoney(Math.max(aggregate.refundAmount, aggregate.salesAmount * Math.max(returnRate, refundRate))),
       marginAtRisk: roundMoney(Math.max(aggregate.refundAmount * 0.38, aggregate.salesAmount * Math.max(returnRate, refundRate) * 0.28)),
       signalCount,
@@ -1287,6 +1298,7 @@ function isPersistableCandidate(candidate, storeTotals) {
   return (
     candidate.riskScore >= 50 ||
     candidate.metrics.returnRate >= Math.max(storeTotals.avgReturnRate * 100 * 2, 8) ||
+    (candidate.metrics.soldUnits > 10 && candidate.metrics.refundRate > 20) ||
     candidate.metrics.refundAmount >= Math.max(storeTotals.avgRefundAmount, 250) ||
     candidate.metrics.topReturnReasons.length >= 2
   );
@@ -1296,6 +1308,7 @@ function calculateQuickScanRiskScore({
   returnRisk,
   refundRisk,
   impactRisk,
+  refundPressureRisk,
   repeatedReasons,
   variantConcentration,
   recentSpike,
@@ -1304,10 +1317,43 @@ function calculateQuickScanRiskScore({
   const evidenceRisks = [returnRisk, refundRisk, repeatedReasons].sort((a, b) => b - a);
   const dominantEvidence = evidenceRisks[0] || 0;
   const supportingEvidence = evidenceRisks.slice(1).reduce((sum, score) => sum + score, 0) * 0.38;
-  const operationalRisk = impactRisk * 0.75 + variantConcentration * 0.6 + recentSpike * 0.7 + volumeWeight * 0.35;
+  const operationalRisk = impactRisk * 0.75 + refundPressureRisk * 0.6 + variantConcentration * 0.6 + recentSpike * 0.7 + volumeWeight * 0.35;
   const rawRisk = dominantEvidence + supportingEvidence + operationalRisk;
 
   return Math.round(clamp(100 * (1 - Math.exp(-rawRisk / 52)), 0, 100));
+}
+
+function getRefundPressureRiskScore({ aggregate, refundRate }) {
+  if (!aggregate.refundUnits || aggregate.refundUnits < 3) return 0;
+  const soldUnits = Number(aggregate.soldUnits || 0);
+  if (soldUnits > 10 && refundRate > 0.2) {
+    return clamp(4 + (refundRate - 0.2) * 45 + Math.log2(aggregate.refundUnits + 1) * 1.1, 0, 12);
+  }
+  if (refundRate >= 0.1) {
+    return clamp(1.4 + refundRate * 10 + Math.log2(aggregate.refundUnits + 1) * 0.35, 0, 4);
+  }
+  return 0;
+}
+
+function getQuickScanRefundRiskSupport({ aggregate, refundRate }) {
+  const refundUnits = Number(aggregate.refundUnits || 0);
+  if (refundUnits <= 0) return 0;
+  if (Number(aggregate.soldUnits || 0) > 10 && Number(refundRate || 0) > 0.2) return 1;
+  if (refundUnits <= 2) return 0.42;
+  if (Number(aggregate.soldUnits || 0) > 0 && Number(aggregate.soldUnits || 0) <= 10) return 0.62;
+  return 0.82;
+}
+
+function getRefundPressureSummary({ aggregate, refundRate }) {
+  const highPressure = Number(aggregate.soldUnits || 0) > 10 && Number(refundRate || 0) > 20;
+  return {
+    highPressure,
+    level: highPressure ? "high" : aggregate.refundUnits >= 3 && refundRate >= 10 ? "monitor" : "low",
+    refundUnits: aggregate.refundUnits,
+    soldUnits: aggregate.soldUnits,
+    refundRate,
+    noteCount: aggregate.refundNotes.length,
+  };
 }
 
 function getRateRiskScore({ rate, average, signalUnits, maxScore }) {

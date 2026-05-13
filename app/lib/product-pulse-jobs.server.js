@@ -1554,14 +1554,19 @@ function getSnapshotRecommendedActions(snapshot, metrics) {
     });
   }
 
-  if (Number(metrics.refundAmount || 0) > 0) {
+  if (metrics.refundPressure?.highPressure || Number(metrics.refundUnits || 0) >= 3) {
     actions.push({
       id: "review-refund-impact",
       label: "Review refund impact",
       type: "Workflow",
       effort: "Low",
       status: "Ready",
-      payload: { refundAmount: metrics.refundAmount, refundUnits: metrics.refundUnits || 0 },
+      payload: {
+        refundAmount: metrics.refundAmount,
+        refundUnits: metrics.refundUnits || 0,
+        refundRate: metrics.refundRate || 0,
+        refundPressure: metrics.refundPressure || null,
+      },
     });
   }
 

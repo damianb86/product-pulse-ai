@@ -132,6 +132,80 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates[0].confidence).toBeLessThanOrEqual(70);
   });
 
+  it("uses repeated high refund pressure as a lightweight risk signal", () => {
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products: [{
+        id: "gid://shopify/Product/1",
+        handle: "fragile-lamp",
+        title: "Fragile Lamp",
+        productType: "Home",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "LAMP" }],
+      }],
+      events: [
+        ...Array.from({ length: 20 }, () => ({
+          type: "sale",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 55,
+        })),
+        ...Array.from({ length: 5 }, () => ({
+          type: "refund",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 55,
+          note: "Refunded because the lamp arrived broken",
+          occurredAt: new Date().toISOString(),
+        })),
+      ],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].metrics.refundRate).toBe(25);
+    expect(candidates[0].metrics.refundPressure).toMatchObject({
+      highPressure: true,
+      level: "high",
+      noteCount: 5,
+    });
+    expect(candidates[0].metrics.refundNotes[0]).toContain("arrived broken");
+    expect(candidates[0].riskScore).toBeGreaterThanOrEqual(50);
+  });
+
+  it("does not surface one isolated low-value refund as a risky candidate", () => {
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products: [{
+        id: "gid://shopify/Product/1",
+        handle: "steady-mug",
+        title: "Steady Mug",
+        productType: "Home",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "MUG" }],
+      }],
+      events: [
+        ...Array.from({ length: 20 }, () => ({
+          type: "sale",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 25,
+        })),
+        {
+          type: "refund",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 25,
+          note: "One-off goodwill refund",
+          occurredAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    expect(candidates).toEqual([]);
+  });
+
   it("keeps refund line item connections out of the orders bulk query", () => {
     const query = buildOrdersBulkQuery(60);
 

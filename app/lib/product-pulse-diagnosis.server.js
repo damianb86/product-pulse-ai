@@ -377,6 +377,7 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
             refunds {
               id
               createdAt
+              note
               refundLineItems(first: $refundLineItemsFirst) {
                 nodes {
                   id
@@ -433,6 +434,7 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
             quantity: Number(refundLineItem.quantity || 0),
             amount: Number(refundLineItem.subtotalSet?.shopMoney?.amount || 0),
             restockType: refundLineItem.restockType || "",
+            note: refund.note || "",
             title: lineItem.title || product.title,
             sku: lineItem.sku || lineItem.variant?.sku || "",
             variantId: lineItem.variant?.id || null,
@@ -883,6 +885,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const deterministicContent = analyzeProductContentDeterministically(product);
   const textInsights = buildCustomerTextInsights({ returns, reviews });
+  const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const trendOptions = {
@@ -893,6 +896,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   const signalTrend = signalTrendResult.values;
   const issueSignalTrends = buildIssueTrendMap(signalEvents, trendOptions);
   const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
+  applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights);
   const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + count, 0);
   deterministicContent.issues.forEach((issue) => {
     issueSignalCounts[issue.issueCode] = (issueSignalCounts[issue.issueCode] || 0) + 1;
@@ -923,6 +927,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       contentIssueCount: deterministicContent.issues.length,
       contentQualityRisk: deterministicContent.riskLift,
       textInsights,
+      refundInsights,
       sourceCoverage,
       signalEvents,
       affectedVariants,
@@ -984,6 +989,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       salesAmount,
       avgUnitRevenue: estimatedImpact.avgUnitRevenue,
       refundAmount,
+      refundInsights,
       returnUnits,
       refundUnits,
       soldUnits,
@@ -1211,6 +1217,7 @@ function buildAiDeterministicInput(deterministic) {
       contentIssueCount: deterministic.metrics.contentIssueCount,
       contentIssues: deterministic.metrics.contentIssues,
       textInsights: deterministic.metrics.textInsights,
+      refundInsights: deterministic.metrics.refundInsights,
       descriptionWordCount: deterministic.metrics.descriptionWordCount,
       hasDescription: deterministic.metrics.hasDescription,
       topReturnReasons: deterministic.metrics.topReturnReasons,
@@ -1350,14 +1357,19 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (deterministic.metrics.refundAmount > 0) {
+  if (deterministic.metrics.refundInsights?.shouldSurface || (deterministic.metrics.refundUnits >= 3 && deterministic.metrics.refundAmount > 0)) {
     recommendations.push({
       id: "review-refund-impact",
       label: "Review refund impact",
       type: "Workflow",
       effort: "Low",
       status: "Ready",
-      payload: { refundAmount: deterministic.metrics.refundAmount, refundUnits: deterministic.metrics.refundUnits },
+      payload: {
+        refundAmount: deterministic.metrics.refundAmount,
+        refundUnits: deterministic.metrics.refundUnits,
+        refundRate: deterministic.metrics.refundRate,
+        refundInsights: deterministic.metrics.refundInsights,
+      },
     });
   }
 
@@ -1442,12 +1454,47 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     });
   }
 
+  const refundIssue = buildRefundOperationalIssue(deterministic, recommendations);
+  if (refundIssue && !mappedIssues.some((issue) => issue.issueCode === refundIssue.issueCode)) {
+    mappedIssues.push(refundIssue);
+  }
+
   return mappedIssues
     .map((issue) => scaleSubjectiveIssueForEvidence(issue, deterministic))
     .map((issue) => scaleWeakReviewIssueForEvidence(issue, deterministic))
     .filter((issue) => isMerchantFacingIssueSupported(issue, deterministic))
     .reduce(mergeRelatedMerchantIssues, [])
     .slice(0, 10);
+}
+
+function buildRefundOperationalIssue(deterministic, recommendations) {
+  const refundInsights = deterministic.metrics.refundInsights || {};
+  if (!refundInsights.shouldSurface) return null;
+  const issueCode = refundInsights.dominantIssueCode && refundInsights.dominantIssueCode !== "product_quality"
+    ? refundInsights.dominantIssueCode
+    : "refund_impact";
+  const trend = getIssueTrend(deterministic, issueCode);
+  const severity = refundInsights.highPressure ? "medium" : "low";
+  const signals = Math.max(Number(refundInsights.total || 0), Number(refundInsights.noteCount || 0));
+  return {
+    issue: refundInsights.highPressure ? "High refund pressure" : "Refund pattern needs review",
+    issueCode,
+    severity: capitalize(severity),
+    tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
+    confidence: Math.max(40, Math.min(86, deterministic.confidence - (refundInsights.highPressure ? 8 : 16))),
+    signals,
+    sourceTypes: ["shopify_refund_note", "shopify_refunds"],
+    evidence: [
+      `${refundInsights.total} refunded unit${refundInsights.total === 1 ? "" : "s"} across ${refundInsights.soldUnits} sold unit${refundInsights.soldUnits === 1 ? "" : "s"} (${refundInsights.refundRate}% refund rate).`,
+      refundInsights.highPressure ? "Refund pressure is above the high-signal threshold: refund rate >20% and sold units >10." : "",
+      refundInsights.noteCount ? `${refundInsights.noteCount} refund note${refundInsights.noteCount === 1 ? "" : "s"} available for operational pattern review.` : "",
+      ...((refundInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated refund-note language: "${item.term}" (${item.count})`)),
+      ...((refundInsights.examples || []).slice(0, 2).map((item) => `Refund note: "${item.text}"`)),
+    ].filter(Boolean),
+    trend,
+    trendTone: getTrendTone(trend, deterministic.riskScore),
+    action: recommendations.find((item) => item.id === "review-refund-impact")?.label || "Review refund impact",
+  };
 }
 
 function buildGranularTextIssues({ deterministic, ai, recommendations }) {
@@ -1940,10 +1987,24 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
   }
 
   if (deterministic.metrics.refundUnits > 0 || deterministic.metrics.refundAmount > 0) {
+    const refundInsights = deterministic.metrics.refundInsights || {};
     evidence.push({
       source: "Shopify refunds",
       quote: `${formatMoney(deterministic.metrics.refundAmount)} refunded`,
       weight: `${deterministic.metrics.refundUnits} refunded units, ${deterministic.metrics.refundRate}% refund rate`,
+      points: [
+        refundInsights.highPressure
+          ? `High refund pressure: ${refundInsights.refundRate}% refund rate across ${refundInsights.soldUnits} sold units`
+          : "",
+        refundInsights.noteCount
+          ? `Operational refund notes: ${refundInsights.noteCount} analyzed`
+          : "",
+        refundInsights.sentiment?.total
+          ? `Refund-note tone: ${refundInsights.sentiment.negative} negative, ${refundInsights.sentiment.neutral} neutral, ${refundInsights.sentiment.positive} positive`
+          : "",
+        ...((refundInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated refund-note language: "${item.term}" (${item.count})`)),
+        ...((refundInsights.examples || []).slice(0, 3).map((item) => `Refund note: "${item.text}"`)),
+      ].filter(Boolean),
     });
   }
 
@@ -1980,6 +2041,9 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
           : "",
         textInsights.reviews?.sentiment?.total
           ? `Reviews sentiment: ${textInsights.reviews.sentiment.negative} negative, ${textInsights.reviews.sentiment.neutral} neutral, ${textInsights.reviews.sentiment.positive} positive`
+          : "",
+        deterministic.metrics.refundInsights?.noteCount
+          ? `Refund-note patterns: ${deterministic.metrics.refundInsights.noteCount} operational note${deterministic.metrics.refundInsights.noteCount === 1 ? "" : "s"} analyzed separately from customer sentiment`
           : "",
         textInsights.emotions?.length
           ? `Known emotion taxonomy: ${formatEmotionCounts(textInsights.emotions)}`
@@ -2225,6 +2289,18 @@ function getReturnCustomerLanguageText(item) {
   return [reason, noteText].filter(Boolean).join(" - ");
 }
 
+function getRefundOperationalText(item) {
+  const note = String(item?.note || item?.refundNote || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const restockType = String(item?.restockType || "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const reason = isDefaultCustomerLanguageTerm(restockType) ? "" : restockType;
+  return [note, reason].filter(Boolean).join(" - ");
+}
+
 function getCustomerAnalysisText(item) {
   return String(item?.analysisText || item?.noteText || item?.text || "")
     .replace(/\s+/g, " ")
@@ -2269,7 +2345,7 @@ function buildSignalEvents({ returns, refunds, negativeReviews }) {
       };
     }),
     ...refunds.map((item) => {
-      const text = item.restockType || "Refund impact";
+      const text = getRefundOperationalText(item) || "Refund impact";
       const issueCode = classifyIssueText(text);
       return {
         type: "refund",
@@ -2303,7 +2379,7 @@ function buildIssueSignalCounts({ returns, refunds, reviews }) {
     counts[issue] = (counts[issue] || 0) + 1;
   });
   refunds.forEach((item) => {
-    const text = item.restockType || "Refund impact";
+    const text = getRefundOperationalText(item) || "Refund impact";
     const issue = classifyIssueText(text);
     const issueCode = issue === "product_quality" ? "refund_impact" : issue;
     counts[issueCode] = (counts[issueCode] || 0) + Number(item.quantity || 1);
@@ -2381,6 +2457,88 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
     repeatedLanguage,
     granularIssues,
   };
+}
+
+function buildRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnits = 0, refundUnits = 0, refundAmount = 0 }) {
+  const refundTexts = refunds
+    .map((item) => {
+      const text = getRefundOperationalText(item);
+      if (!text.trim()) return null;
+      return {
+        source: "refunds",
+        text,
+        analysisText: text,
+        issueCode: classifyIssueText(text),
+        sentiment: classifyCustomerSentiment(text),
+        emotion: classifyCustomerEmotion(text),
+        createdAt: item.createdAt,
+        variant: item.variantTitle || item.sku || "",
+        amount: Number(item.amount || 0),
+        restockType: item.restockType || "",
+      };
+    })
+    .filter(Boolean);
+  const sentiment = summarizeSentiment(refundTexts);
+  const repeatedLanguage = extractRepeatedLanguage(refundTexts).slice(0, 5);
+  const issueCounts = countTopValues(refundTexts.map((item) => item.issueCode).filter(Boolean), 5);
+  const highPressure = Number(soldUnits || 0) > 10 && Number(refundRate || 0) > 20;
+  const monitorPressure = Number(refundUnits || 0) >= 3 && Number(refundRate || 0) >= 10;
+  const dominantIssue = issueCounts[0]?.label || "refund_impact";
+  const riskLift = calculateRefundOperationalRiskLift({ refundUnits, refundRate, soldUnits, noteCount: refundTexts.length });
+
+  return {
+    total: Number(refundUnits || 0),
+    noteCount: refundTexts.length,
+    refundRate: Number(refundRate || 0),
+    refundAmount: Number(refundAmount || 0),
+    soldUnits: Number(soldUnits || 0),
+    highPressure,
+    monitorPressure,
+    level: highPressure ? "high" : monitorPressure ? "monitor" : "low",
+    shouldSurface: highPressure || (monitorPressure && Number(refundUnits || 0) >= 3) || refundTexts.length >= 2,
+    dominantIssueCode: normalizeIssueCode(dominantIssue) || "refund_impact",
+    sentiment,
+    repeatedLanguage,
+    issueCounts,
+    riskLift,
+    examples: refundTexts.slice(0, 4).map((item) => ({
+      text: truncateText(item.text, 180),
+      sentiment: item.sentiment,
+      emotion: item.emotion,
+      issueCode: item.issueCode,
+      variant: item.variant || "",
+      amount: item.amount,
+    })),
+  };
+}
+
+function calculateRefundOperationalRiskLift({ refundUnits = 0, refundRate = 0, soldUnits = 0, noteCount = 0 }) {
+  const units = Number(refundUnits || 0);
+  const rate = Number(refundRate || 0);
+  if (units < 3) return 0;
+  const noteSupport = noteCount >= 2 ? 1.2 : noteCount === 1 ? 0.5 : 0;
+  if (Number(soldUnits || 0) > 10 && rate > 20) {
+    return Math.min(10, 3.5 + (rate - 20) * 0.22 + Math.log2(units + 1) * 0.8 + noteSupport);
+  }
+  if (rate >= 10) {
+    return Math.min(4, 1 + rate * 0.08 + Math.log2(units + 1) * 0.35 + noteSupport);
+  }
+  return 0;
+}
+
+function applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights) {
+  if (!refundInsights?.shouldSurface) return;
+  issueSignalCounts.refund_impact = Math.max(
+    Number(issueSignalCounts.refund_impact || 0),
+    Number(refundInsights.total || 0),
+  );
+  const dominantIssue = normalizeIssueCode(refundInsights.dominantIssueCode);
+  if (dominantIssue && dominantIssue !== "product_quality" && dominantIssue !== "refund_impact") {
+    issueSignalCounts[dominantIssue] = Math.max(
+      Number(issueSignalCounts[dominantIssue] || 0),
+      Math.max(2, Number(refundInsights.noteCount || 0)),
+    );
+  }
 }
 
 function summarizeTextSource(items) {
@@ -3063,7 +3221,7 @@ function calculateRiskScore({ snapshot, metrics }) {
   const storeAvgReturnRate = Number(snapshot.metrics?.storeAvgReturnRate || 0);
   const storeAvgRefundRate = Number(snapshot.metrics?.storeAvgRefundRate || 0);
   const returnSampleSupport = getHardSignalSampleSupport(metrics.returnUnits);
-  const refundSampleSupport = getHardSignalSampleSupport(metrics.refundUnits);
+  const refundSampleSupport = getRefundRiskSampleSupport(metrics);
   const supportedSignalCount = getSupportedRiskSignalCount(metrics);
   const returnAnomaly = (storeAvgReturnRate > 0
     ? Math.max(0, Math.min(25, ((metrics.returnRate / storeAvgReturnRate) - 1) * 14))
@@ -3086,7 +3244,8 @@ function calculateRiskScore({ snapshot, metrics }) {
   const volumeWeight = metrics.soldUnits ? Math.min(7, Math.log10(metrics.soldUnits + 1) * 3) : 0;
   const contentRisk = Math.min(16, Number(metrics.contentQualityRisk || 0));
   const textSentimentRisk = calculateTextSentimentRisk(metrics.textInsights);
-  const calculated = Math.round(8 + returnAnomaly + refundAnomaly + refundImpact + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk + textSentimentRisk);
+  const refundOperationalRisk = Math.min(10, Number(metrics.refundInsights?.riskLift || 0));
+  const calculated = Math.round(8 + returnAnomaly + refundAnomaly + refundImpact + refundOperationalRisk + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk + textSentimentRisk);
 
   if (!metrics.signalCount && !metrics.contentIssueCount && Number(snapshot.riskScore || 0) > 0) return Number(snapshot.riskScore);
   return clamp(calculated, 0, 100);
@@ -3128,6 +3287,18 @@ function getHardSignalSampleSupport(count) {
   if (signalCount === 3) return 0.74;
   if (signalCount === 4) return 0.86;
   return 1;
+}
+
+function getRefundRiskSampleSupport(metrics) {
+  const refundUnits = Number(metrics.refundUnits || 0);
+  if (refundUnits <= 0) return 0;
+  const base = getHardSignalSampleSupport(refundUnits);
+  const soldUnits = Number(metrics.soldUnits || 0);
+  const refundRate = Number(metrics.refundRate || 0);
+  if (soldUnits > 10 && refundRate > 20) return 1;
+  if (refundUnits <= 2) return base * 0.45;
+  if (soldUnits > 0 && soldUnits <= 10) return base * 0.62;
+  return Math.min(1, base * 0.85);
 }
 
 function calculateSubjectiveTextRisk({ count, ratio }) {
@@ -3314,9 +3485,12 @@ function buildEvidenceSnippets({ returns, refunds, reviews, product }) {
     });
   });
   refunds.slice(0, 20).forEach((item) => {
+    const operationalText = getRefundOperationalText(item);
     snippets.push({
-      source: "shopify_refund",
-      text: `${item.quantity} unit refund${item.restockType ? `, restock ${item.restockType}` : ""}`,
+      source: operationalText ? "shopify_refund_note" : "shopify_refund",
+      text: operationalText
+        ? `${item.quantity} unit refund: ${operationalText}`
+        : `${item.quantity} unit refund${item.restockType ? `, restock ${item.restockType}` : ""}`,
       createdAt: item.createdAt,
       variant: item.variantTitle || item.sku || "",
       amount: item.amount,
@@ -3446,6 +3620,7 @@ function normalizeIssueCode(value) {
   if (normalized.includes("defect") || normalized.includes("quality") || normalized.includes("soft") || normalized.includes("rough") || normalized.includes("scratchy") || normalized.includes("stiff") || normalized.includes("material") || normalized.includes("fabric") || normalized.includes("texture")) return "quality_defect";
   if (normalized.includes("compat")) return "compatibility";
   if (normalized.includes("shipping")) return "shipping_delivery";
+  if (normalized.includes("refund")) return "refund_impact";
   if (normalized.includes("content") || normalized.includes("description") || normalized.includes("metadata")) return "product_content";
   if (normalized.includes("product_quality")) return "product_quality";
   return normalized;
@@ -3621,6 +3796,7 @@ export const __productPulseDiagnosisTestHooks = {
   getReturnReasonValue,
   getNodes,
   buildCustomerTextInsights,
+  buildRefundOperationalInsights,
   calculateConfidence,
   calculateRiskScore,
   buildSignalRelevanceGuidance,

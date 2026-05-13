@@ -188,6 +188,29 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.repeatedLanguage).toEqual([]);
   });
 
+  it("summarizes operational refund notes separately from customer return language", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildRefundOperationalInsights({
+      soldUnits: 20,
+      refundUnits: 5,
+      refundRate: 25,
+      refundAmount: 250,
+      refunds: Array.from({ length: 5 }, (_, index) => ({
+        note: index < 3 ? "Refunded because item arrived broken" : "Refunded for damaged quality issue",
+        restockType: "NO_RESTOCK",
+        quantity: 1,
+        amount: 50,
+        createdAt: `2026-05-13T12:0${index}:00Z`,
+      })),
+    });
+
+    expect(insights.highPressure).toBe(true);
+    expect(insights.shouldSurface).toBe(true);
+    expect(insights.noteCount).toBe(5);
+    expect(insights.riskLift).toBeGreaterThan(0);
+    expect(insights.repeatedLanguage.map((item) => item.term)).toContain("refunded");
+    expect(insights.examples[0].text).toContain("arrived broken");
+  });
+
   it("keeps single subjective signals low-confidence while repeated subjective evidence escalates", () => {
     const baseMetrics = {
       soldUnits: 0,
