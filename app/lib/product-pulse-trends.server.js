@@ -23,8 +23,12 @@ export function buildDatedSignalTrend(events = [], options = {}) {
   }
 
   const eventTimes = normalizedEvents.map((event) => event.time);
-  const earliest = Math.min(...eventTimes);
-  const latest = Math.max(...eventTimes);
+  const requestedStart = parseTrendTimestamp(options.startAt);
+  const requestedEnd = parseTrendTimestamp(options.endAt || options.now);
+  const earliestEvent = Math.min(...eventTimes);
+  const latestEvent = Math.max(...eventTimes);
+  const earliest = Number.isFinite(requestedStart) ? Math.min(earliestEvent, requestedStart) : earliestEvent;
+  const latest = Number.isFinite(requestedEnd) ? Math.max(latestEvent, requestedEnd) : latestEvent;
   const observedSpan = Math.max(latest - earliest, 0);
   const shortWindow = observedSpan < bucketCount * minBucketMs;
   const range = shortWindow
@@ -58,6 +62,8 @@ export function buildDatedSignalTrend(events = [], options = {}) {
       sourceEventCount: normalizedEvents.length,
       totalSignalUnits: roundTrendValue(rawValues.reduce((total, value) => total + value, 0)),
       observedDays: Math.max(1, Math.ceil(observedSpan / DAY_MS)),
+      requestedStartAt: Number.isFinite(requestedStart) ? new Date(requestedStart).toISOString() : null,
+      requestedEndAt: Number.isFinite(requestedEnd) ? new Date(requestedEnd).toISOString() : null,
       startAt: buckets[0]?.startAt,
       endAt: buckets[buckets.length - 1]?.endAt,
       shortWindow,
@@ -111,6 +117,12 @@ function normalizeTrendEvents(events, { dateField, valueField }) {
     .filter(Boolean);
 }
 
+function parseTrendTimestamp(value) {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
 function buildShortObservedRange(latest, bucketCount, bucketMs) {
   const latestDayStart = startOfUtcDay(latest);
   return {
@@ -145,8 +157,15 @@ function buildVisualTrendValues(values, { shortWindow = false } = {}) {
   if (!shortWindow || values.length < 3) return values;
   const max = Math.max(...values, 0);
   if (max <= 0) return values;
-  const firstPositiveIndex = values.findIndex((value) => value > 0);
+  const positiveIndexes = values
+    .map((value, index) => (value > 0 ? index : -1))
+    .filter((index) => index >= 0);
+  const firstPositiveIndex = positiveIndexes[0];
+  const lastPositiveIndex = positiveIndexes[positiveIndexes.length - 1];
   if (firstPositiveIndex <= 1) return values;
+  const isRecentOnlyTrend = lastPositiveIndex >= values.length - 2
+    && positiveIndexes.every((index) => index >= values.length - 2);
+  if (!isRecentOnlyTrend) return values;
 
   return values.map((value, index) => {
     if (value > 0) return value;

@@ -1116,10 +1116,15 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     refundRate,
     returnRate,
   });
-  const signalTrendResult = buildDatedSignalTrend(aggregate.signalEvents, { dateField: "occurredAt" });
+  const trendOptions = {
+    dateField: "occurredAt",
+    startAt: getSinceDate(windowDays),
+    endAt: new Date().toISOString(),
+  };
+  const signalTrendResult = buildDatedSignalTrend(aggregate.signalEvents, trendOptions);
   const signalTrend = signalTrendResult.values;
   const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore);
-  const issueSignalTrends = buildIssueTrendMap(aggregate.signalEvents, { dateField: "occurredAt" });
+  const issueSignalTrends = buildIssueTrendMap(aggregate.signalEvents, trendOptions);
   const sourceCoverage = getSourceCoverage(aggregate);
   const confidenceResult = calculateQuickScanConfidence({
     aggregate,

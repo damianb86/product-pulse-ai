@@ -3112,19 +3112,10 @@ function normalizeSparklineValues(values, size = "base") {
 function normalizeTrendForSparkline(values) {
   const cleaned = values.map((value) => Math.max(0, Number(value) || 0));
   if (!cleaned.some((value) => value > 0)) return cleaned.map(() => 0);
-  const smoothed = cleaned.map((value, index) => {
+  return cleaned.map((value, index) => {
     const previous = cleaned[index - 1] ?? value;
     const next = cleaned[index + 1] ?? value;
     return previous * 0.2 + value * 0.6 + next * 0.2;
-  });
-
-  return smoothed.map((value, index) => {
-    if (index === 0 || index === smoothed.length - 1) return value;
-    const previous = smoothed[index - 1];
-    const next = smoothed[index + 1];
-    if (next > previous && value < previous) return previous + (next - previous) * 0.35;
-    if (next < previous && value > previous) return previous - (previous - next) * 0.35;
-    return value;
   });
 }
 

@@ -689,9 +689,13 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   const deterministicContent = analyzeProductContentDeterministically(product);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
-  const signalTrendResult = buildDatedSignalTrend(signalEvents);
+  const trendOptions = {
+    startAt: getSinceDate(DIAGNOSIS_WINDOW_DAYS),
+    endAt: new Date().toISOString(),
+  };
+  const signalTrendResult = buildDatedSignalTrend(signalEvents, trendOptions);
   const signalTrend = signalTrendResult.values;
-  const issueSignalTrends = buildIssueTrendMap(signalEvents);
+  const issueSignalTrends = buildIssueTrendMap(signalEvents, trendOptions);
   const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
   const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + count, 0);
   deterministicContent.issues.forEach((issue) => {

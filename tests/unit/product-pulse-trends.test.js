@@ -32,6 +32,37 @@ describe("ProductPulse trend modeling", () => {
     expect(trend.meta.shortWindow).toBe(true);
   });
 
+  it("shows a declining trend when stronger signals are older than the scan end", () => {
+    const trend = buildDatedSignalTrend([
+      { createdAt: "2026-05-01T12:00:00.000Z", value: 8 },
+      { createdAt: "2026-05-05T12:00:00.000Z", value: 2 },
+    ], {
+      startAt: "2026-05-01T00:00:00.000Z",
+      endAt: "2026-06-01T00:00:00.000Z",
+    });
+
+    expect(trend.values[0]).toBeGreaterThan(trend.values[trend.values.length - 1]);
+    expect(trend.values[trend.values.length - 1]).toBe(0);
+    expect(trend.meta.requestedEndAt).toBe("2026-06-01T00:00:00.000Z");
+  });
+
+  it("preserves a middle spike when the problem appeared and then faded", () => {
+    const trend = buildDatedSignalTrend([
+      { createdAt: "2026-05-15T12:00:00.000Z", value: 7 },
+    ], {
+      startAt: "2026-05-01T00:00:00.000Z",
+      endAt: "2026-06-01T00:00:00.000Z",
+    });
+    const peak = Math.max(...trend.values);
+    const peakIndex = trend.values.indexOf(peak);
+
+    expect(peak).toBe(100);
+    expect(peakIndex).toBeGreaterThan(0);
+    expect(peakIndex).toBeLessThan(trend.values.length - 1);
+    expect(trend.values[0]).toBeLessThan(peak);
+    expect(trend.values[trend.values.length - 1]).toBeLessThan(peak);
+  });
+
   it("keeps issue trends isolated by issue code", () => {
     const trends = buildIssueTrendMap([
       { createdAt: "2026-05-01T12:00:00.000Z", value: 1, issueCode: "fit_sizing" },
