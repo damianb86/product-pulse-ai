@@ -17,7 +17,7 @@ export const loader = async ({ request, params }) => {
 };
 
 export const action = async ({ request, params }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const actionType = formData.get("_action");
   const productId = String(formData.get("productId") || params.productId || "");
@@ -36,7 +36,9 @@ export const action = async ({ request, params }) => {
       {
         label: String(formData.get("label") || ""),
         draftText: String(formData.get("draftText") || ""),
+        applyMode: String(formData.get("applyMode") || ""),
       },
+      admin,
     );
     if (snapshotAction) return snapshotAction;
     return { status: "validation_error", message: "Run QuickScan before saving product actions." };

@@ -1130,6 +1130,67 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
   );
 }
 
+function RecommendedActionConfirmModal({ confirmation, product, pending, onCancel }) {
+  const action = confirmation.action || {};
+  const application = confirmation.application || getRecommendedActionApplication(action);
+  const editedText = String(confirmation.editedText ?? application.value ?? "");
+  const isTagChange = String(application.target || "").toLowerCase().includes("tag");
+  const valuePreview = editedText || "No value supplied.";
+  const submitLabel = pending ? "Applying change..." : "Accept and apply change";
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal ppActionConfirmModal" role="dialog" aria-modal="true" aria-labelledby="action-confirm-title">
+        <div className="ppAnalysisConfirmHeader">
+          <span className="ppAnalysisConfirmIcon" aria-hidden="true">
+            <s-icon type={isTagChange ? "tag" : "wand"} size="small"></s-icon>
+          </span>
+          <div>
+            <span>{application.target}</span>
+            <h2 id="action-confirm-title">{application.confirmationTitle || "Confirm product update"}</h2>
+            <p>{application.confirmationDetail || "ProductPulse will apply this change to the Shopify product."}</p>
+          </div>
+        </div>
+
+        <div className="ppActionConfirmMeta">
+          <div>
+            <span>Product</span>
+            <strong>{product.title}</strong>
+          </div>
+          <div>
+            <span>Operation</span>
+            <strong>{application.operation}</strong>
+          </div>
+        </div>
+
+        <div className="ppActionConfirmChange">
+          <span>{application.valueLabel || "New value"}</span>
+          <pre>{valuePreview}</pre>
+        </div>
+
+        <div className="ppActionConfirmNotice">
+          <s-icon type="info" size="small"></s-icon>
+          <p>This will modify the Shopify product only after you confirm. ProductPulse will store the action in the product history.</p>
+        </div>
+
+        <Form method="post" className="ppAnalysisConfirmFooter">
+          <input type="hidden" name="_action" value="apply-action" />
+          <input type="hidden" name="productId" value={product.slug} />
+          <input type="hidden" name="actionId" value={action.id || ""} />
+          <input type="hidden" name="label" value={action.title || action.label || ""} />
+          <input type="hidden" name="draftText" value={editedText} />
+          <input type="hidden" name="applyMode" value="apply" />
+          <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim()}>
+            <s-icon type={isTagChange ? "tag" : "wand"} size="small"></s-icon>
+            {submitLabel}
+          </button>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
 function getPendingAnalysisLabel(pendingIds) {
   const count = Array.isArray(pendingIds) ? pendingIds.length : 0;
   return count > 1 ? "Queuing analyses..." : "Queuing analysis...";
@@ -1555,6 +1616,7 @@ function getProductRecommendedActions(product) {
     reason: getRecommendedActionReason(action, product),
     evidence: getRecommendedActionEvidence(action, product),
     priority: index === 0 ? "Primary next step" : getRecommendedActionPriority(action, product),
+    application: getRecommendedActionApplication(action),
     meta: getRecommendedActionMeta(action),
     action: getRecommendedActionButtonLabel(action, index),
     mode: getRecommendedActionMode(action, index),
@@ -1572,6 +1634,96 @@ function getRecommendedActionDetail(action) {
   if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) return payload.affectedVariants.join(", ");
   if (Number(payload.refundAmount || 0) > 0) return `${formatMoney(payload.refundAmount)} refunded across ${formatInteger(payload.refundUnits || 0)} units`;
   return "Ready from current stored product signals.";
+}
+
+function getRecommendedActionApplication(action) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+
+  if (payload.tag || normalized.includes("shopify tag") || normalized.includes("product tag")) {
+    const tag = String(payload.tag || "").trim();
+    return {
+      kind: "shopify_product",
+      editable: false,
+      target: "Product tags",
+      operation: "Add tag",
+      intro: `This will add the Shopify product tag "${tag}" so the product can be segmented, filtered, or reviewed later.`,
+      confirmationTitle: "Confirm product tag update",
+      confirmationDetail: "ProductPulse will add this tag to the Shopify product. Existing tags will stay untouched.",
+      applyLabel: "Add tag to product",
+      valueLabel: "Tag to add",
+      value: tag,
+    };
+  }
+
+  if (payload.draftText && (normalized.includes("pdp") || normalized.includes("description") || normalized.includes("faq") || normalized.includes("fit"))) {
+    const operation = getDescriptionOperationForAction(action);
+    return {
+      kind: "shopify_product",
+      editable: true,
+      target: "Product description",
+      operation: getDescriptionOperationText(operation),
+      intro: getDescriptionActionIntro(operation),
+      confirmationTitle: "Confirm product description update",
+      confirmationDetail: getDescriptionConfirmationDetail(operation),
+      applyLabel: operation === "replace" ? "Replace product description" : "Apply to product",
+      valueLabel: "Description text to apply",
+      value: payload.draftText,
+    };
+  }
+
+  if (payload.note) {
+    return {
+      kind: "clipboard",
+      editable: true,
+      target: "Internal note",
+      operation: "Copy note",
+      intro: "This is an internal support note. It does not change Shopify product data; copy it and use it in your support workflow.",
+      applyLabel: "Copy note",
+      valueLabel: "Note text",
+      value: payload.note,
+    };
+  }
+
+  return {
+    kind: "review",
+    editable: false,
+    target: "Product evidence",
+    operation: "Review",
+    intro: "This action opens the supporting evidence so you can inspect the signal before deciding whether to change the product.",
+    applyLabel: "Review evidence",
+    valueLabel: "Evidence",
+    value: getRecommendedActionDetail(action),
+  };
+}
+
+function getDescriptionOperationForAction(action) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("rewrite") || normalized.includes("description")) return "replace";
+  if (normalized.includes("faq")) return "append";
+  return "prepend";
+}
+
+function getDescriptionOperationText(operation) {
+  if (operation === "replace") return "Replace description";
+  if (operation === "append") return "Append to description";
+  return "Add to top of description";
+}
+
+function getDescriptionActionIntro(operation) {
+  if (operation === "replace") {
+    return "ProductPulse suggests replacing the current Shopify product description with the editable text below. Review it carefully before applying it to the product.";
+  }
+  if (operation === "append") {
+    return "ProductPulse suggests adding this section to the end of the Shopify product description. You can edit the text before applying it.";
+  }
+  return "ProductPulse suggests adding this note to the beginning of the Shopify product description so shoppers see it before buying. You can edit the text before applying it.";
+}
+
+function getDescriptionConfirmationDetail(operation) {
+  if (operation === "replace") return "This will replace the current Shopify product description with the text below.";
+  if (operation === "append") return "This will append the text below to the existing Shopify product description.";
+  return "This will add the text below to the top of the existing Shopify product description.";
 }
 
 function getRecommendedActionReason(action, product) {
@@ -1738,17 +1890,19 @@ function getProductCheckedItems(product) {
 function getRecommendedActionMode(action, index) {
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
+  const payload = action.payload || {};
+  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag);
   if (normalizedId.includes("run-ai-diagnosis")) return "diagnose";
   if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
   if (normalizedType.includes("workflow") || normalizedId.includes("review-return")) return "review";
-  if (normalizedType.includes("pdp copy") && action.status === "Draft") return "edit";
-  if (index === 0 && action.status === "Draft") return "edit";
+  if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
+  if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
   return "submit";
 }
 
 function getRecommendedActionButtonLabel(action, index) {
   const mode = getRecommendedActionMode(action, index);
-  if (mode === "edit") return "Edit";
+  if (mode === "apply-product") return getRecommendedActionApplication(action).applyLabel;
   if (mode === "copy") return "Copy note";
   if (mode === "review") return "Review";
   if (mode === "diagnose") return "Run";
@@ -1778,6 +1932,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [dismissedActionIds, setDismissedActionIds] = useState(() => new Set());
   const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
+  const [actionConfirmation, setActionConfirmation] = useState(null);
   const [draftText, setDraftText] = useState("");
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
@@ -1793,6 +1948,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     if (actionData?.status === "success" && actionData?.action?.id === "mark-resolved") {
       setResolvedLocally(true);
     }
+    if (actionData?.status === "success") setActionConfirmation(null);
   }, [actionData]);
 
   useEffect(() => {
@@ -1876,6 +2032,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       // Clipboard is not available in every embedded test/browser surface.
     }
     showToast(`${action.title} copied.`);
+  };
+
+  const handleRequestApplyAction = (action, editedText) => {
+    setActionConfirmation({
+      action,
+      editedText,
+      application: action.application || getRecommendedActionApplication(action),
+    });
   };
 
   const handleDismissAction = (action) => {
@@ -2016,6 +2180,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   onEdit={handleEditAction}
                   onCopy={handleCopyAction}
                   onReview={() => handleReviewEvidence(0)}
+                  onRequestApply={handleRequestApplyAction}
                   onDismiss={handleDismissAction}
                 />
               ))}
@@ -2155,6 +2320,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             </div>
           </div>
         </s-section>
+        {actionConfirmation && (
+          <RecommendedActionConfirmModal
+            confirmation={actionConfirmation}
+            product={product}
+            pending={pendingActionType === "apply-action"}
+            onCancel={() => setActionConfirmation(null)}
+          />
+        )}
       </ScreenShell>
     </FullWidthPage>
   );
@@ -2747,21 +2920,26 @@ function normalizeSparklineValues(values, size = "base") {
   }));
 }
 
-function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onDismiss }) {
+function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
   const [detailExpanded, setDetailExpanded] = useState(false);
+  const [editedText, setEditedText] = useState(action.application?.value || action.detail || "");
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const buttonText = applied ? "Applied" : drafted ? "Draft saved" : pending ? "Working..." : action.action;
-  const detailText = String(action.detail || "");
+  const application = action.application || getRecommendedActionApplication(action);
+  const detailText = String(application.editable ? editedText : action.detail || "");
   const hasLongDetail = detailText.length > 300;
   const disabled = pending || applied;
   const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
     actionId,
+    application,
+    editedText,
     product,
     onCopy,
     onEdit,
+    onRequestApply,
     onReview,
   });
 
@@ -2776,7 +2954,22 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
         {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
       </div>
       <div className="ppProductActionBody">
-        <p className={`ppActionDetailText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
+        <div className="ppActionApplicationIntro">
+          <strong>{application.operation}</strong>
+          <p>{application.intro}</p>
+        </div>
+        {application.editable ? (
+          <label className="ppActionInlineEditor">
+            <span>{application.valueLabel}</span>
+            <textarea
+              value={editedText}
+              rows={detailExpanded ? 10 : 6}
+              onChange={(event) => setEditedText(event.target.value)}
+            />
+          </label>
+        ) : (
+          <p className={`ppActionDetailText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
+        )}
         {hasLongDetail && (
           <button className="ppActionDetailToggle" type="button" onClick={() => setDetailExpanded((expanded) => !expanded)}>
             {detailExpanded ? "Show less" : "Show more"}
@@ -2816,7 +3009,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
 }
 
 function getRecommendedActionButton(action, mode, buttonText, disabled, context) {
-  const { actionId, product, onCopy, onEdit, onReview } = context;
+  const { actionId, application, editedText, product, onCopy, onEdit, onRequestApply, onReview } = context;
   const content = (
     <>
       <span>{buttonText}</span>
@@ -2831,9 +3024,25 @@ function getRecommendedActionButton(action, mode, buttonText, disabled, context)
       </button>
     );
   }
-  if (mode === "copy") {
+  if (mode === "apply-product") {
     return (
-      <button className="ppActionCtaButton" type="button" onClick={() => onCopy(action)}>
+      <button className="ppActionCtaButton" type="button" disabled={disabled} onClick={() => onRequestApply(action, application.editable ? editedText : application.value)}>
+        {content}
+      </button>
+    );
+  }
+  if (mode === "copy") {
+    const copyAction = {
+      ...action,
+      payload: {
+        ...(action.payload || {}),
+        note: application.editable ? editedText : action.payload?.note,
+        draftText: application.editable ? editedText : action.payload?.draftText,
+      },
+      detail: application.editable ? editedText : action.detail,
+    };
+    return (
+      <button className="ppActionCtaButton" type="button" onClick={() => onCopy(copyAction)}>
         {content}
       </button>
     );

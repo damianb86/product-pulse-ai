@@ -154,8 +154,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Re-run diagnosis")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
-    fireEvent.click(screen.getAllByText("Edit")[0]);
-    expect(screen.getByLabelText("Draft")).toBeInTheDocument();
+    fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Apply to product" })[0]);
+    expect(screen.getByRole("heading", { name: "Confirm product description update" })).toBeInTheDocument();
+    expect(screen.getAllByText("Updated fit guidance for shoppers.").length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
     expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
   });
@@ -175,11 +177,11 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    expect(screen.getByText(longDetail)).toHaveClass("isClamped");
+    expect(screen.getByLabelText("Description text to apply")).toHaveAttribute("rows", "6");
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
-    expect(screen.getByText(longDetail)).not.toHaveClass("isClamped");
+    expect(screen.getByLabelText("Description text to apply")).toHaveAttribute("rows", "10");
     fireEvent.click(screen.getByRole("button", { name: "Show less" }));
-    expect(screen.getByText(longDetail)).toHaveClass("isClamped");
+    expect(screen.getByLabelText("Description text to apply")).toHaveAttribute("rows", "6");
   });
 
   it("renders product diagnosis from snapshot dates and supports issue actions", () => {

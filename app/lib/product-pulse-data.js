@@ -141,9 +141,36 @@ const rawProducts = [
       { source: "Refunds", quote: "Refund amount spiked after variant restock", weight: "$4.8k refunded" },
     ],
     recommendedActions: [
-      { id: "fit-note", label: "Add fit note", type: "PDP copy", effort: "Low", status: "Draft" },
-      { id: "faq-sizing", label: "Add sizing FAQ", type: "FAQ", effort: "Low", status: "Ready" },
-      { id: "tag-fit-risk", label: "Tag product as fit-risk", type: "Shopify tag", effort: "Low", status: "Ready" },
+      {
+        id: "fit-note",
+        label: "Add fit note",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: "Fit note: customers report this trouser runs small around the waist and inseam. If you are between sizes or prefer a relaxed fit, consider sizing up.",
+          issue: "fit_sizing",
+        },
+      },
+      {
+        id: "faq-sizing",
+        label: "Add sizing FAQ",
+        type: "FAQ",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          draftText: "How does this trouser fit?\nThis trouser has a closer fit around the waist and inseam. Customers between sizes should consider sizing up for a more comfortable fit.",
+          issue: "fit_sizing",
+        },
+      },
+      {
+        id: "tag-fit-risk",
+        label: "Tag product as fit-risk",
+        type: "Shopify tag",
+        effort: "Low",
+        status: "Ready",
+        payload: { tag: "fit_issue" },
+      },
     ],
   },
   {
@@ -171,8 +198,24 @@ const rawProducts = [
       { source: "Support", quote: "Replacement requests cluster on size M", weight: "Future connector" },
     ],
     recommendedActions: [
-      { id: "support-note", label: "Create support note", type: "Internal note", effort: "Low", status: "Ready" },
-      { id: "qa-tag", label: "Tag for QA follow-up", type: "Shopify tag", effort: "Low", status: "Draft" },
+      {
+        id: "support-note",
+        label: "Create support note",
+        type: "Internal note",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          note: "Trail Run Vest: customers are reporting zipper failures after first use, especially around size M. Offer replacement guidance and flag repeated cases for product QA.",
+        },
+      },
+      {
+        id: "qa-tag",
+        label: "Tag for QA follow-up",
+        type: "Shopify tag",
+        effort: "Low",
+        status: "Draft",
+        payload: { tag: "qa_follow_up" },
+      },
     ],
   },
   {
@@ -199,8 +242,26 @@ const rawProducts = [
       { source: "PDP Q&A", quote: "Does this fit V60 filters?", weight: "Future source" },
     ],
     recommendedActions: [
-      { id: "compatibility-faq", label: "Add compatibility FAQ", type: "FAQ", effort: "Low", status: "Ready" },
-      { id: "description-copy", label: "Clarify PDP description", type: "PDP copy", effort: "Medium", status: "Draft" },
+      {
+        id: "compatibility-faq",
+        label: "Add compatibility FAQ",
+        type: "FAQ",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          draftText: "Which filters are compatible with this pour over?\nThis pour over is designed for cone-style filters. Check the filter size before purchase to confirm it matches your brewing setup.",
+        },
+      },
+      {
+        id: "description-copy",
+        label: "Clarify PDP description",
+        type: "PDP copy",
+        effort: "Medium",
+        status: "Draft",
+        payload: {
+          draftText: "Clarify filter compatibility near the top of the product description so shoppers can quickly confirm whether this pour over works with their existing filters.",
+        },
+      },
     ],
   },
   {

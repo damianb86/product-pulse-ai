@@ -228,7 +228,7 @@ export async function queueProductDiagnosisForShop(shop, productId) {
   };
 }
 
-export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}) {
+export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}, admin = null) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
@@ -258,11 +258,17 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     return { status: "validation_error", message: "Recommended action was not found." };
   }
 
-  const status = action.id === "mark-resolved" || action.applyImmediately ? "applied" : "draft";
   const payload = {
     ...(action.payload || {}),
     ...(payloadOverride.draftText ? { draftText: payloadOverride.draftText } : {}),
   };
+  const shouldApplyToShopify = payloadOverride.applyMode === "apply";
+  const applyResult = shouldApplyToShopify
+    ? await applyProductRecommendationAction({ admin, snapshot, action, payload })
+    : null;
+  if (applyResult?.status === "validation_error") return applyResult;
+
+  const status = action.id === "mark-resolved" || action.applyImmediately || applyResult ? "applied" : "draft";
   await prisma.productAction.create({
     data: {
       shop,
@@ -271,18 +277,182 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       actionType: action.id,
       label: action.label,
       status,
-      payload,
+      payload: applyResult ? { ...payload, appliedChange: applyResult.change } : payload,
       appliedAt: status === "applied" ? new Date() : null,
     },
   });
 
   return {
     status: "success",
-    message: status === "applied"
+    message: applyResult?.message || (status === "applied"
       ? `${action.label} was applied for ${snapshot.productTitle}.`
-      : `${action.label} was saved as a draft for ${snapshot.productTitle}.`,
+      : `${action.label} was saved as a draft for ${snapshot.productTitle}.`),
     action,
   };
+}
+
+async function applyProductRecommendationAction({ admin, snapshot, action, payload }) {
+  if (!admin?.graphql) {
+    return { status: "validation_error", message: "Shopify Admin access is required to apply this action." };
+  }
+
+  const normalizedType = String(action.type || "").toLowerCase();
+  const normalizedId = String(action.id || "").toLowerCase();
+
+  if (payload.tag || normalizedType.includes("tag")) {
+    const tag = String(payload.tag || "").trim();
+    if (!tag) return { status: "validation_error", message: "This action does not include a product tag to apply." };
+    const result = await addProductTag(admin, snapshot.productGid, tag);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Product tag "${tag}" was added to ${snapshot.productTitle}.`,
+      change: {
+        target: "Product tags",
+        operation: "add",
+        value: tag,
+      },
+    };
+  }
+
+  if (payload.draftText && (normalizedType.includes("pdp") || normalizedType.includes("faq") || normalizedId.includes("description") || normalizedId.includes("fit"))) {
+    const operation = getDescriptionOperationForAction(action);
+    const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
+    if (currentProduct.status === "validation_error") return currentProduct;
+    const descriptionHtml = buildUpdatedProductDescriptionHtml({
+      currentHtml: currentProduct.descriptionHtml || "",
+      draftText: payload.draftText,
+      operation,
+      action,
+    });
+    const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `${getDescriptionOperationLabel(operation)} for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product description",
+        operation,
+        value: payload.draftText,
+      },
+    };
+  }
+
+  return { status: "validation_error", message: "This recommended action is not connected to an automatic Shopify product change yet." };
+}
+
+async function getProductDescriptionForUpdate(admin, productGid) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query ProductPulseProductDescription($id: ID!) {
+        product(id: $id) {
+          id
+          descriptionHtml
+          tags
+        }
+      }`,
+      { variables: { id: productGid } },
+    );
+    const json = await response.json();
+    const userErrors = json.errors || [];
+    if (userErrors.length) return { status: "validation_error", message: userErrors.map((error) => error.message).join(" ") };
+    if (!json.data?.product) return { status: "validation_error", message: "Shopify product was not found." };
+    return json.data.product;
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to read product description: ${error.message}` };
+  }
+}
+
+async function updateProductDescription(admin, productGid, descriptionHtml) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseUpdateProductDescription($product: ProductUpdateInput!) {
+        productUpdate(product: $product) {
+          product {
+            id
+            title
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+      { variables: { product: { id: productGid, descriptionHtml } } },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.productUpdate?.userErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return { status: "success" };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to update product description: ${error.message}` };
+  }
+}
+
+async function addProductTag(admin, productGid, tag) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseAddProductTags($id: ID!, $tags: [String!]!) {
+        tagsAdd(id: $id, tags: $tags) {
+          node {
+            id
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+      { variables: { id: productGid, tags: [tag] } },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.tagsAdd?.userErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return { status: "success" };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to add product tag: ${error.message}` };
+  }
+}
+
+function getDescriptionOperationForAction(action) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("rewrite") || normalized.includes("description")) return "replace";
+  if (normalized.includes("faq")) return "append";
+  return "prepend";
+}
+
+function getDescriptionOperationLabel(operation) {
+  if (operation === "replace") return "Product description was replaced";
+  if (operation === "append") return "Product description was appended";
+  return "Product description was updated";
+}
+
+function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action }) {
+  const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action);
+  if (operation === "replace") return suggestionHtml;
+  if (operation === "append") return [currentHtml, suggestionHtml].filter(Boolean).join("\n");
+  return [suggestionHtml, currentHtml].filter(Boolean).join("\n");
+}
+
+function buildProductPulseDescriptionBlock(text, action) {
+  const heading = String(action.id || "").includes("faq") ? "Product FAQ" : "Product note";
+  const paragraphs = String(text || "")
+    .split(/\n{2,}|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join("\n");
+  return `<section data-productpulse-action="${escapeHtml(action.id || "product-action")}">\n<h3>${heading}</h3>\n${paragraphs}\n</section>`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function findProductRiskSnapshot(shop, productId) {
