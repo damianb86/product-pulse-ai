@@ -2190,17 +2190,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
         <div className="ppProductSummaryGrid">
           <s-section padding="none">
-            <div className="ppMainFindingCard">
-              <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
-              <div>
-                <span>Main finding</span>
-                <h2>{detail.mainFindingTitle}</h2>
-                <p>{detail.mainFindingDetail}</p>
-              </div>
-            </div>
-          </s-section>
-
-          <s-section padding="none">
             <div className="ppRiskSnapshot">
               <ProductInsightMetric
                 title="Risk score"
@@ -2236,6 +2225,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 value={detail.recommendedFix}
                 detail={detail.recommendedFixDetail}
               />
+            </div>
+          </s-section>
+
+          <s-section padding="none">
+            <div className="ppMainFindingCard">
+              <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
+              <div>
+                <span>Main finding</span>
+                <h2>{detail.mainFindingTitle}</h2>
+                <p>{detail.mainFindingDetail}</p>
+              </div>
             </div>
           </s-section>
         </div>

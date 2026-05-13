@@ -1467,18 +1467,22 @@ s-page[inline-size="large-500"] {
 
 .ppProductSummaryGrid {
   display: grid;
-  grid-template-columns: minmax(420px, 0.92fr) minmax(620px, 1.68fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
-  align-items: stretch;
+  align-items: start;
+}
+
+.ppProductSummaryGrid > s-section {
+  min-width: 0;
+  align-self: start;
 }
 
 .ppMainFindingCard {
-  min-height: 164px;
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 16px;
   align-items: start;
-  padding: 22px 24px;
+  padding: 20px 22px;
 }
 
 .ppMainFindingCard span,
@@ -1492,9 +1496,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppMainFindingCard h2 {
-  margin: 7px 0 12px;
+  margin: 6px 0 10px;
   color: var(--pp-slate-900);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   line-height: 1.25;
 }
@@ -1503,15 +1507,15 @@ s-page[inline-size="large-500"] {
   max-width: 600px;
   margin: 0;
   color: var(--pp-slate-700);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
 .ppRiskSnapshot {
-  min-height: 164px;
   display: grid;
-  grid-template-columns: 0.72fr 0.72fr 0.92fr 0.92fr 1.18fr;
-  align-items: stretch;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: start;
+  overflow: hidden;
 }
 
 .ppProductInsight {
@@ -1519,8 +1523,9 @@ s-page[inline-size="large-500"] {
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 8px;
-  padding: 22px 22px 18px;
+  gap: 6px;
+  min-height: 126px;
+  padding: 16px 14px 14px;
   border-left: 1px solid var(--pp-slate-200);
 }
 
@@ -1532,6 +1537,7 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  font-size: 11px;
 }
 
 .ppInsightInfoWrap {
@@ -1577,7 +1583,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductInsight strong {
   color: var(--pp-slate-900);
-  font-size: 23px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.08;
 }
@@ -1585,7 +1591,7 @@ s-page[inline-size="large-500"] {
 .ppProductInsight small,
 .ppProductInsight em {
   color: var(--pp-slate-700);
-  font-size: 13px;
+  font-size: 11px;
   font-style: normal;
   line-height: 1.35;
 }
@@ -1605,8 +1611,8 @@ s-page[inline-size="large-500"] {
 
 .ppProductInsightProgress {
   width: 100%;
-  max-width: 136px;
-  height: 7px;
+  max-width: 110px;
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--pp-slate-200);
@@ -1640,8 +1646,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppMiniTrend-large {
-  width: 86px;
-  height: 34px;
+  width: 70px;
+  height: 26px;
 }
 
 .ppMiniTrend span {
