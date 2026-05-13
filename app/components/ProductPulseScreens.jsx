@@ -896,14 +896,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       onSort={() => handleSort("lastAnalysis")}
                     />
                   </th>
-                  <th>Credits</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {productRows.length === 0 && (
                   <tr className="ppProductsEmptyRow">
-                    <td colSpan="11">
+                    <td colSpan="10">
                       <div className="ppProductsEmptyState">
                         <DashboardIcon type="search" tone="blue" />
                         <div>
@@ -968,7 +967,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       <td>{product.issue}</td>
                       <td><ProductSourceIconGroup sources={product.sources} overflow={product.sourceOverflow} /></td>
                       <td>{product.lastAnalysis}</td>
-                      <td>{product.credits}</td>
                       <td>
                         <div className="ppTableAction">
                           <button

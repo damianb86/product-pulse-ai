@@ -61,6 +61,7 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
     const table = screen.getByTestId("products-table");
     expect(within(table).getByText("No scanned products yet")).toBeInTheDocument();
+    expect(within(table).queryByText("Credits")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Run quick scan/ }).length).toBeGreaterThan(1);
     expect(within(table).queryByRole("link", { name: /Linen Shirt/ })).not.toBeInTheDocument();
   });

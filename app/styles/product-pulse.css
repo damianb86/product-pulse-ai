@@ -1792,7 +1792,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
+  grid-template-columns: minmax(620px, 1.46fr) minmax(260px, 0.54fr);
   gap: 14px;
   align-items: start;
 }
@@ -1917,27 +1917,27 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(1),
 .ppIssuesTable td:nth-child(1) {
-  width: 32%;
+  width: 29%;
 }
 
 .ppIssuesTable th:nth-child(2),
 .ppIssuesTable td:nth-child(2) {
-  width: 11%;
+  width: 10%;
 }
 
 .ppIssuesTable th:nth-child(3),
 .ppIssuesTable td:nth-child(3) {
-  width: 11%;
+  width: 10%;
 }
 
 .ppIssuesTable th:nth-child(4),
 .ppIssuesTable td:nth-child(4) {
-  width: 9%;
+  width: 7%;
 }
 
 .ppIssuesTable th:nth-child(5),
 .ppIssuesTable td:nth-child(5) {
-  width: 12%;
+  width: 11%;
 }
 
 .ppIssuesTable th:nth-child(6),
@@ -1947,15 +1947,15 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(7),
 .ppIssuesTable td:nth-child(7) {
-  width: 8%;
+  width: 15%;
 }
 
 .ppIssuesTable th,
 .ppIssuesTable td {
-  padding: 6px 10px;
+  padding: 6px 7px;
   border-bottom: 1px solid var(--pp-slate-200);
   color: var(--pp-slate-700);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.25;
   text-align: left;
   vertical-align: middle;
@@ -1985,15 +1985,15 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable td:last-child {
   position: relative;
-  width: 48px;
+  min-width: 88px;
   text-align: right;
 }
 
 .ppIssueNameCell {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   color: var(--pp-slate-900);
   font-weight: 650;
@@ -2005,11 +2005,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppIssueIcon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: inline-grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--pp-slate-100);
   color: var(--pp-slate-700);
 }
@@ -2492,19 +2492,19 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 3px;
   overflow: visible;
 }
 
 .ppIssueInlineActions button {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: inline-grid;
   place-items: center;
   padding: 0;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   cursor: pointer;
@@ -4347,7 +4347,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductsTable {
   width: 100%;
-  min-width: 1280px;
+  min-width: 1180px;
   border-collapse: collapse;
 }
 
