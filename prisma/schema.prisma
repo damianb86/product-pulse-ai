@@ -64,12 +64,25 @@ model CatalogSignalJob {
   source       String
   status       String
   progress     Int       @default(0)
+  payload      Json?
   errorMessage String?
   startedAt    DateTime  @default(now())
   finishedAt   DateTime?
   updatedAt    DateTime  @updatedAt
 
   @@index([shop, status])
+  @@index([shop, kind, status])
+}
+
+model ProductPulseAiProviderState {
+  id                 String    @id @default(cuid())
+  provider           String    @unique
+  currentModel       String
+  lastPrimaryRetryAt DateTime?
+  failureCount       Int       @default(0)
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 model ProductPulseJobLog {

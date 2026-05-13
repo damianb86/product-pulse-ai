@@ -4,6 +4,7 @@ import {
   getQuickScanWindowDays,
   runShopifyQuickScan,
 } from "./product-pulse-quick-scan.server";
+import { generateProductDiagnosisTestText } from "./product-pulse-ai.server";
 import {
   getJobLogsForShop,
   recordJobLog,
@@ -11,11 +12,18 @@ import {
 } from "./product-pulse-job-logs.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
+const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const PRODUCT_DIAGNOSIS_MINIMUM_DURATION_MS = process.env.NODE_ENV === "test" ? 10 : 15_000;
 const activeWorkers = global.productPulseJobWorkers || new Set();
+const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 
 if (!global.productPulseJobWorkers) {
   global.productPulseJobWorkers = activeWorkers;
+}
+
+if (!global.productPulseDiagnosisQueueWorkers) {
+  global.productPulseDiagnosisQueueWorkers = activeDiagnosisQueueWorkers;
 }
 
 export async function startFastProductScan(input, adminArg, scopesArg) {
@@ -112,16 +120,23 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = []) 
     return { status: "validation_error", message: "Select at least one product to analyze." };
   }
 
-  const results = await Promise.all(uniqueProductIds.map((productId) => rerunProductDiagnosisForShop(shop, productId)));
-  const completed = results.filter(Boolean).length;
-  if (!completed) {
+  const jobs = [];
+  for (const productId of uniqueProductIds) {
+    const job = await createProductDiagnosisJob(shop, productId);
+    if (job) jobs.push(job);
+  }
+
+  if (!jobs.length) {
     return { status: "validation_error", message: "Selected products were not found in ProductPulse snapshots." };
   }
 
+  ensureProductDiagnosisQueueWorker(shop);
+
   return {
     status: "success",
-    message: `${completed} selected product${completed === 1 ? "" : "s"} queued for AI diagnosis.`,
-    analyzedCount: completed,
+    message: `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
+    queuedCount: jobs.length,
+    jobs: jobs.map(formatJob),
   };
 }
 
@@ -135,6 +150,9 @@ export async function getRecentJobsForShop(shop) {
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
   });
+  if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
+    ensureProductDiagnosisQueueWorker(shop);
+  }
   return jobs.map(formatJob);
 }
 
@@ -152,6 +170,9 @@ export async function getJobMonitorForShop(shop) {
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
   });
+  if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
+    ensureProductDiagnosisQueueWorker(shop);
+  }
 
   return {
     activeJobs: jobs.filter((job) => isActiveStatus(job.status)).map(formatJob),
@@ -181,12 +202,34 @@ export async function getProductDetailForShop(shop, productId, admin) {
 }
 
 export async function rerunProductDiagnosisForShop(shop, productId) {
-  const snapshot = await findProductRiskSnapshot(shop, productId);
+  return queueProductDiagnosisForShop(shop, productId);
+}
+
+export async function queueProductDiagnosisForShop(shop, productId) {
+  const job = await createProductDiagnosisJob(shop, productId);
+  if (!job) return null;
+  ensureProductDiagnosisQueueWorker(shop);
+
+  return {
+    status: "success",
+    message: `AI Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
+    job: formatJob(job),
+  };
+}
+
+async function completeProductDiagnosisForSnapshot(shop, snapshot, aiResult) {
   if (!snapshot) return null;
 
   const metrics = snapshot.metrics || {};
   const recommendations = getSnapshotRecommendedActions(snapshot, metrics);
-  const evidence = getSnapshotEvidence(snapshot, metrics);
+  const evidence = [
+    ...getSnapshotEvidence(snapshot, metrics),
+    ...(aiResult?.text ? [{
+      source: `${aiResult.provider} ${aiResult.model}`,
+      quote: aiResult.text,
+      weight: "AI connection test paragraph",
+    }] : []),
+  ];
   const diagnosis = await prisma.productDiagnosis.create({
     data: {
       shop,
@@ -212,7 +255,14 @@ export async function rerunProductDiagnosisForShop(shop, productId) {
       actionType: "run-ai-diagnosis",
       label: "Run AI Product Diagnosis",
       status: "applied",
-      payload: { diagnosisId: diagnosis.id, riskScore: snapshot.riskScore, confidence: snapshot.confidence },
+      payload: {
+        diagnosisId: diagnosis.id,
+        riskScore: snapshot.riskScore,
+        confidence: snapshot.confidence,
+        aiProvider: aiResult?.provider || null,
+        aiModel: aiResult?.model || null,
+        generatedText: aiResult?.text || null,
+      },
       appliedAt: new Date(),
     },
   });
@@ -284,6 +334,44 @@ async function findProductRiskSnapshot(shop, productId) {
       ],
     },
   });
+}
+
+async function createProductDiagnosisJob(shop, productId) {
+  const snapshot = await findProductRiskSnapshot(shop, productId);
+  if (!snapshot) return null;
+
+  const job = await prisma.catalogSignalJob.create({
+    data: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      source: `Queued AI Product Diagnosis - ${snapshot.productTitle}`,
+      status: "Queued",
+      progress: 0,
+      payload: {
+        productId,
+        productGid: snapshot.productGid,
+        handle: snapshot.handle,
+        productTitle: snapshot.productTitle,
+        riskScore: snapshot.riskScore,
+        queuedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  await recordJobLog({
+    shop,
+    jobId: job.id,
+    event: "product_diagnosis.queued",
+    message: "Product diagnosis queued as a persistent background job.",
+    data: {
+      productGid: snapshot.productGid,
+      handle: snapshot.handle,
+      title: snapshot.productTitle,
+      riskScore: snapshot.riskScore,
+    },
+  });
+
+  return job;
 }
 
 async function getActiveFastProductScan(shop) {
@@ -358,12 +446,208 @@ function ensureFastProductScanWorker(job, options = {}) {
   }, 0);
 }
 
+function ensureProductDiagnosisQueueWorker(shop) {
+  if (!shop || activeDiagnosisQueueWorkers.has(shop)) return;
+
+  activeDiagnosisQueueWorkers.add(shop);
+  setTimeout(async () => {
+    try {
+      await requeueRecoveredProductDiagnosisJobs(shop);
+
+      for (;;) {
+        const job = await claimNextProductDiagnosisJob(shop);
+        if (!job) break;
+
+        try {
+          await runProductDiagnosisJob(job);
+        } catch (error) {
+          await recordJobLog({
+            shop,
+            jobId: job.id,
+            level: "error",
+            event: "product_diagnosis.worker_failed",
+            message: "Product diagnosis worker failed.",
+            data: { error: serializeError(error), payload: job.payload },
+          });
+          await markJobFailed(job.id, error, "AI Product Diagnosis failed");
+        }
+      }
+    } finally {
+      activeDiagnosisQueueWorkers.delete(shop);
+    }
+  }, 0);
+}
+
+async function requeueRecoveredProductDiagnosisJobs(shop) {
+  const recovered = await prisma.catalogSignalJob.updateMany({
+    where: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      status: "Running",
+    },
+    data: {
+      status: "Queued",
+      progress: 0,
+      source: "Requeued AI Product Diagnosis after worker recovery",
+    },
+  });
+
+  if (recovered.count > 0) {
+    const jobs = await prisma.catalogSignalJob.findMany({
+      where: { shop, kind: PRODUCT_DIAGNOSIS_KIND, status: "Queued" },
+      orderBy: [{ updatedAt: "desc" }],
+      take: recovered.count,
+    });
+
+    await Promise.all(jobs.map((job) => recordJobLog({
+      shop,
+      jobId: job.id,
+      event: "product_diagnosis.requeued",
+      message: "Recovered running product diagnosis job and returned it to the queue.",
+      data: { payload: job.payload },
+    })));
+  }
+}
+
+async function claimNextProductDiagnosisJob(shop) {
+  const nextJob = await prisma.catalogSignalJob.findFirst({
+    where: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      status: "Queued",
+    },
+    orderBy: [{ startedAt: "asc" }],
+  });
+
+  if (!nextJob) return null;
+
+  const claimed = await prisma.catalogSignalJob.updateMany({
+    where: {
+      id: nextJob.id,
+      status: "Queued",
+    },
+    data: {
+      status: "Running",
+      progress: 5,
+      source: `Running AI Product Diagnosis - ${nextJob.payload?.productTitle || "selected product"}`,
+    },
+  });
+
+  if (claimed.count !== 1) return null;
+  return prisma.catalogSignalJob.findUnique({ where: { id: nextJob.id } });
+}
+
+async function runProductDiagnosisJob(job) {
+  const startedAt = Date.now();
+  const productId = job.payload?.productGid || job.payload?.handle || job.payload?.productId;
+  const snapshot = await findProductRiskSnapshot(job.shop, productId);
+  if (!snapshot) throw new Error("Product snapshot was not found for queued diagnosis job.");
+
+  const product = formatSnapshotForDiagnosis(snapshot, []);
+  const metrics = product.metrics || {};
+
+  await recordJobLog({
+    shop: job.shop,
+    jobId: job.id,
+    event: "product_diagnosis.started",
+    message: "Product diagnosis job started from the persisted queue.",
+    data: {
+      productGid: snapshot.productGid,
+      handle: snapshot.handle,
+      title: snapshot.productTitle,
+      riskScore: snapshot.riskScore,
+      confidence: snapshot.confidence,
+      primaryIssue: snapshot.primaryIssue,
+      sourceCoverage: snapshot.sourceCoverage,
+      metrics: {
+        signalCount: metrics.signalCount,
+        returnRate: metrics.returnRate,
+        refundRate: metrics.refundRate,
+        topReturnReasons: metrics.topReturnReasons,
+      },
+    },
+  });
+
+  await updateProductDiagnosisJob(job.id, {
+    progress: 28,
+    source: `Waiting 15 seconds before AI request - ${snapshot.productTitle}`,
+  });
+  await sleep(PRODUCT_DIAGNOSIS_MINIMUM_DURATION_MS);
+
+  await updateProductDiagnosisJob(job.id, {
+    progress: 62,
+    source: `Generating AI test paragraph - ${snapshot.productTitle}`,
+  });
+
+  const aiResult = await generateProductDiagnosisTestText({
+    shop: job.shop,
+    jobId: job.id,
+    product,
+  });
+
+  await recordJobLog({
+    shop: job.shop,
+    jobId: job.id,
+    event: "product_diagnosis.ai_generated",
+    message: "AI generated the test paragraph for this product.",
+    data: {
+      provider: aiResult.provider,
+      model: aiResult.model,
+      productTitle: snapshot.productTitle,
+      generatedText: aiResult.text,
+    },
+  });
+
+  await updateProductDiagnosisJob(job.id, {
+    progress: 86,
+    source: `Persisting AI Product Diagnosis - ${snapshot.productTitle}`,
+  });
+
+  const diagnosis = await completeProductDiagnosisForSnapshot(job.shop, snapshot, aiResult);
+
+  await updateProductDiagnosisJob(job.id, {
+    status: "Completed",
+    progress: 100,
+    source: `AI Product Diagnosis completed - ${snapshot.productTitle}`,
+    finishedAt: new Date(),
+  });
+
+  await recordJobLog({
+    shop: job.shop,
+    jobId: job.id,
+    event: "product_diagnosis.completed",
+    message: "Product diagnosis completed.",
+    data: {
+      durationMs: Date.now() - startedAt,
+      diagnosisId: diagnosis?.diagnosisId,
+      provider: aiResult.provider,
+      model: aiResult.model,
+      generatedText: aiResult.text,
+    },
+  });
+}
+
 async function getOfflineAdmin(shop) {
   const { admin, session } = await unauthenticated.admin(shop);
   return Object.assign(admin, { productPulseScopes: session.scope });
 }
 
-async function markJobFailed(jobId, error) {
+async function updateProductDiagnosisJob(jobId, data) {
+  await prisma.catalogSignalJob.updateMany({
+    where: {
+      id: jobId,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      status: { in: ["Queued", "Running"] },
+    },
+    data,
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function markJobFailed(jobId, error, source = "QuickScan failed") {
   await prisma.catalogSignalJob.updateMany({
     where: {
       id: jobId,
@@ -372,7 +656,7 @@ async function markJobFailed(jobId, error) {
     data: {
       status: "Failed",
       progress: 100,
-      source: "QuickScan failed",
+      source,
       errorMessage: error instanceof Error ? error.message : String(error),
       finishedAt: new Date(),
     },
@@ -1005,7 +1289,7 @@ function getPdpCopyActionLabel(issueCategory) {
 function formatJob(job) {
   return {
     id: job.id,
-    name: job.kind === FAST_PRODUCT_SCAN_KIND ? "Fast product scan" : job.kind,
+    name: getJobDisplayName(job.kind),
     source: job.errorMessage || job.source,
     status: job.status,
     progress: job.progress,
@@ -1017,6 +1301,12 @@ function formatJob(job) {
     finishedAtIso: toIso(job.finishedAt),
     elapsedMs: getElapsedMs(job.startedAt, job.finishedAt),
   };
+}
+
+function getJobDisplayName(kind) {
+  if (kind === FAST_PRODUCT_SCAN_KIND) return "Fast product scan";
+  if (kind === PRODUCT_DIAGNOSIS_KIND) return "AI Product Diagnosis";
+  return kind;
 }
 
 function formatJobLog(log) {
