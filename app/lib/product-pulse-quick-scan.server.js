@@ -491,11 +491,6 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
                       customerNote
                       returnReason
                       returnReasonNote
-                      returnReasonDefinition {
-                        id
-                        handle
-                        name
-                      }
                       fulfillmentLineItem {
                         lineItem {
                           id
@@ -699,8 +694,6 @@ function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
   const lineItem = returnLineItem.fulfillmentLineItem?.lineItem || {};
   const product = lineItem.product || {};
   const variant = lineItem.variant || {};
-  const reasonDefinition = returnLineItem.returnReasonDefinition || {};
-
   return {
     type: "return",
     occurredAt: returnLineItem.createdAt || itemReturn?.createdAt,
@@ -710,8 +703,8 @@ function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
     title: product.title || lineItem.title,
     quantity: toNumber(returnLineItem.quantity || returnLineItem.processedQuantity || returnLineItem.refundedQuantity),
     amount: moneyAmount(returnLineItem.withCodeDiscountedTotalPriceSet),
-    reason: reasonDefinition.name || returnLineItem.returnReason || "Return",
-    reasonHandle: reasonDefinition.handle || returnLineItem.returnReason,
+    reason: returnLineItem.returnReason || "Return",
+    reasonHandle: returnLineItem.returnReason,
     note: [returnLineItem.returnReasonNote, returnLineItem.customerNote].filter(Boolean).join(" "),
     variantTitle: variant.title,
     variantSku: variant.sku || lineItem.sku,
@@ -1246,11 +1239,6 @@ function buildOrdersBulkQuery(windowDays) {
                         customerNote
                         returnReason
                         returnReasonNote
-                        returnReasonDefinition {
-                          id
-                          handle
-                          name
-                        }
                         fulfillmentLineItem {
                           lineItem {
                             id

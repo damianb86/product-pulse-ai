@@ -4,8 +4,8 @@ import { useFetcher } from "react-router";
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
   const [minimized, setMinimized] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("productPulseDevJobsMinimized") === "true";
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("productPulseDevJobsMinimized") !== "false";
   });
   const [now, setNow] = useState(() => Date.now());
   const monitor = fetcher.data?.jobMonitor || initialMonitor || {};
@@ -71,7 +71,9 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
           <strong>{activeJobs.length} background job{activeJobs.length === 1 ? "" : "s"} running</strong>
           <p>{activeJobs.map((job) => `${job.name}: ${job.source}`).join(" | ")}</p>
         </div>
-        <button type="button" onClick={toggleMinimized}>Minimize</button>
+        <button className="ppJobMinimizeButton" type="button" onClick={toggleMinimized} aria-label="Minimize job monitor" title="Minimize">
+          <span aria-hidden="true" />
+        </button>
       </aside>
     );
   }
@@ -83,7 +85,9 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
           <span>Development jobs</span>
           <strong>{activeJobs.length} running / {recentJobs.length} recent</strong>
         </div>
-        <button type="button" onClick={toggleMinimized}>Minimize</button>
+        <button className="ppJobMinimizeButton" type="button" onClick={toggleMinimized} aria-label="Minimize development job monitor" title="Minimize">
+          <span aria-hidden="true" />
+        </button>
       </div>
 
       <div className="ppDevJobPanelBody">
