@@ -114,8 +114,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
                   aria-pressed={selectedJobId === job.id}
                 >
                   <span className={`ppDevJobStatus ppDevJobStatus-${job.status.toLowerCase()}`}>{job.status}</span>
-                  <strong>{job.name}</strong>
-                  <small>{formatElapsed(job, now)} | {job.source}</small>
+                  <strong>{getJobTitle(job)}</strong>
+                  <small>{formatElapsed(job, now)} | {getJobSubtitle(job)}</small>
                 </button>
               ))}
             </div>
@@ -123,7 +123,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
           <section>
             <div className="ppDevLogHeader">
-              <h2>{selectedJob ? `Logs: ${selectedJob.name}` : "Logs"}</h2>
+              <h2>{selectedJob ? `Logs: ${getJobTitle(selectedJob)}` : "Logs"}</h2>
               {selectedJob && (
                 <button type="button" onClick={() => setSelectedJobId(null)}>
                   All logs
@@ -180,8 +180,8 @@ function GlobalJobActivityIndicator({ jobs, now }) {
             <li key={job.id}>
               <span className={`ppGlobalJobStatus ppGlobalJobStatus-${job.status.toLowerCase()}`}>{job.status}</span>
               <div>
-                <strong>{job.name}</strong>
-                <small>{job.source}</small>
+                <strong>{getJobTitle(job)}</strong>
+                <small>{getJobSubtitle(job)}</small>
               </div>
               <em>{formatElapsed(job, now)}</em>
             </li>
@@ -197,16 +197,16 @@ function JobCard({ job, logs, now }) {
     <article className="ppDevJobCard">
       <header>
         <div>
-          <strong>{job.name}</strong>
+          <strong>{getJobTitle(job)}</strong>
           <span>{job.status}</span>
         </div>
         <small>{formatElapsed(job, now)}</small>
       </header>
-      <p>{job.source}</p>
+      <p>{getJobSubtitle(job)}</p>
       <dl>
         <div>
           <dt>Started</dt>
-          <dd>{formatTimestamp(job.startedAtIso)}</dd>
+          <dd>{job.status === "Queued" ? "Waiting" : formatTimestamp(job.executionStartedAtIso || job.startedAtIso)}</dd>
         </div>
         <div>
           <dt>Updated</dt>
@@ -222,7 +222,8 @@ function JobCard({ job, logs, now }) {
 }
 
 function formatElapsed(job, now) {
-  const start = new Date(job.startedAtIso || job.startedAt || Date.now()).getTime();
+  if (job.status === "Queued") return "Queued";
+  const start = new Date(job.executionStartedAtIso || job.startedAtIso || job.startedAt || Date.now()).getTime();
   const end = job.finishedAtIso ? new Date(job.finishedAtIso).getTime() : now;
   if (Number.isNaN(start) || Number.isNaN(end)) return "0s";
   const seconds = Math.max(0, Math.floor((end - start) / 1000));
@@ -232,6 +233,14 @@ function formatElapsed(job, now) {
   if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+function getJobTitle(job) {
+  return job.displayTitle || job.productTitle || job.name;
+}
+
+function getJobSubtitle(job) {
+  return job.displaySubtitle || job.source || job.name;
 }
 
 function formatTimestamp(value) {

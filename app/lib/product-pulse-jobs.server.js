@@ -488,6 +488,7 @@ async function claimNextProductDiagnosisJob(shop) {
       status: "Running",
       progress: 5,
       source: `Running AI Product Diagnosis - ${nextJob.payload?.productTitle || "selected product"}`,
+      startedAt: new Date(),
     },
   });
 
@@ -1251,9 +1252,18 @@ function getPdpCopyActionLabel(issueCategory) {
 }
 
 function formatJob(job) {
+  const productTitle = getJobProductTitle(job);
+  const displayTitle = getJobDisplayTitle(job, productTitle);
+  const displaySubtitle = getJobDisplaySubtitle(job, productTitle);
+  const executionStartedAt = job.status === "Queued" ? null : job.startedAt;
+
   return {
     id: job.id,
+    kind: job.kind,
     name: getJobDisplayName(job.kind),
+    productTitle,
+    displayTitle,
+    displaySubtitle,
     source: job.errorMessage || job.source,
     status: job.status,
     progress: job.progress,
@@ -1261,9 +1271,11 @@ function formatJob(job) {
     updatedAtIso: toIso(job.updatedAt),
     startedAt: job.startedAt,
     startedAtIso: toIso(job.startedAt),
+    executionStartedAt,
+    executionStartedAtIso: toIso(executionStartedAt),
     finishedAt: job.finishedAt,
     finishedAtIso: toIso(job.finishedAt),
-    elapsedMs: getElapsedMs(job.startedAt, job.finishedAt),
+    elapsedMs: job.status === "Queued" ? 0 : getElapsedMs(job.startedAt, job.finishedAt),
   };
 }
 
@@ -1271,6 +1283,26 @@ function getJobDisplayName(kind) {
   if (kind === FAST_PRODUCT_SCAN_KIND) return "Fast product scan";
   if (kind === PRODUCT_DIAGNOSIS_KIND) return "AI Product Diagnosis";
   return kind;
+}
+
+function getJobProductTitle(job) {
+  return typeof job.payload?.productTitle === "string" && job.payload.productTitle.trim()
+    ? job.payload.productTitle.trim()
+    : null;
+}
+
+function getJobDisplayTitle(job, productTitle) {
+  if (job.kind === PRODUCT_DIAGNOSIS_KIND && productTitle) return productTitle;
+  return getJobDisplayName(job.kind);
+}
+
+function getJobDisplaySubtitle(job, productTitle) {
+  if (job.kind !== PRODUCT_DIAGNOSIS_KIND || !productTitle) return job.errorMessage || job.source;
+  if (job.status === "Queued") return "Queued AI product diagnostics";
+  if (job.status === "Running") return "Running AI product diagnostics";
+  if (job.status === "Completed") return "AI product diagnostics completed";
+  if (job.status === "Failed") return "AI product diagnostics failed";
+  return "AI product diagnostics";
 }
 
 function formatJobLog(log) {
