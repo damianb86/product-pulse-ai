@@ -182,16 +182,9 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
     try {
       orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId });
     } catch (orderError) {
-      if (!isShopifyOrderAccessDeniedError(orderError)) throw orderError;
+      if (!isShopifyOrderAccessDeniedError(orderError, "orders")) throw orderError;
       orderAccessDenied = true;
-      await recordJobLog({
-        shop,
-        jobId,
-        level: "warn",
-        event: "quick_scan.orders_unavailable",
-        message: "Shopify denied access to orders. QuickScan will complete with product catalog data only until Order object access is approved.",
-        data: { error: getErrorMessage(orderError) },
-      });
+      await recordOrderAccessUnavailableLog({ shop, jobId, mode: "bulk" });
     }
 
     const bulkData = normalizeBulkQuickScanData(catalogLines, orderLines);
@@ -207,6 +200,20 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
       },
     };
   } catch (bulkError) {
+    if (isShopifyOrderAccessDeniedError(bulkError, "orders")) {
+      await recordOrderAccessUnavailableLog({ shop, jobId, mode: "bulk-recovery" });
+      const products = await extractProductsWithPaginatedQueries({ admin });
+      return {
+        products: products.map(normalizeProduct),
+        events: [],
+        meta: {
+          extractionMode: "catalog-only",
+          windowDays,
+          orderAccessDenied: true,
+        },
+      };
+    }
+
     await recordJobLog({
       shop,
       jobId,
@@ -225,6 +232,21 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
       },
     };
   }
+}
+
+async function recordOrderAccessUnavailableLog({ shop, jobId, mode }) {
+  await recordJobLog({
+    shop,
+    jobId,
+    level: "warn",
+    event: "quick_scan.orders_unavailable",
+    message: "Shopify denied access to orders. QuickScan will complete with product catalog data only until Order object access is approved.",
+    data: {
+      code: "SHOPIFY_ORDER_ACCESS_DENIED",
+      mode,
+      recovery: "catalog-only",
+    },
+  });
 }
 
 async function runBulkQuery(admin, bulkQuery, label, context) {
@@ -1297,9 +1319,10 @@ function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function isShopifyOrderAccessDeniedError(error) {
+export function isShopifyOrderAccessDeniedError(error, contextLabel = "") {
   const message = getErrorMessage(error);
-  return /ACCESS_DENIED|not approved to access/i.test(message) && /Order object|orders?\b/i.test(message);
+  if (!/ACCESS_DENIED|not approved to access/i.test(message)) return false;
+  return /orders?/i.test(contextLabel) || /Order object|orders?\b/i.test(message);
 }
 
 async function waitForMinimumDuration(startedAt, minimumDurationMs) {
