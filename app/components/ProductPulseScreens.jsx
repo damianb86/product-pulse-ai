@@ -792,9 +792,15 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     <FullWidthPage heading="Products">
       <ScreenShell className={`ppDashboard ppProductsScreen ${fastScanRunning ? "isScanning" : ""}`.trim()}>
         <div className="ppProductsContent">
-          <p className="ppDashboardSubtitle">
-            Browse products, review risk signals and run AI diagnosis.
-          </p>
+          <div className="ppProductsHeader">
+            <p className="ppDashboardSubtitle">
+              Browse products, review risk signals and run AI diagnosis.
+            </p>
+            <FastScanButton
+              pending={fastScanRunning}
+              onStart={handleStartFastScan}
+            />
+          </div>
           <ActionBanner actionData={actionData} />
 
           <s-section padding="none">
@@ -806,21 +812,15 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
                 <ProductFilterSelect name="vendor" label="Vendor or Collection" value={filters.vendor || "all"} options={filterOptions.vendors} vendor />
               </div>
-              <div className="ppProductsActions">
-                <FastScanButton
-                  pending={fastScanRunning}
-                  onStart={handleStartFastScan}
-                />
-                <div className="ppProductsSecondaryActions">
-                  <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
-                    <s-icon type="wand" size="small"></s-icon>
-                    {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
-                  </button>
-                  <Link className="ppSecondaryActionButton" to="/app/products">
-                    <s-icon type="x" size="small"></s-icon>
-                    Clear filters
-                  </Link>
-                </div>
+              <div className="ppProductsSecondaryActions">
+                <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
+                  <s-icon type="wand" size="small"></s-icon>
+                  {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
+                </button>
+                <Link className="ppSecondaryActionButton" to="/app/products">
+                  <s-icon type="x" size="small"></s-icon>
+                  Clear filters
+                </Link>
               </div>
             </div>
           </s-section>
@@ -1379,12 +1379,15 @@ function getProductAnalysisDisplay(product = {}) {
   };
 }
 
-function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true }) {
+function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true, titleIcon = false, completionOnly = false }) {
   const analysis = getProductAnalysisDisplay(product);
-  const popoverTitle = getAnalysisPopoverTitle(analysis);
+  const popoverTitle = completionOnly && analysis.depth === "full" ? "Deep analysis completed" : getAnalysisPopoverTitle(analysis);
+  const popoverDetail = completionOnly
+    ? formatProductAnalysisDate(analysis.completedAt || product.lastAnalysis)
+    : analysis.detail;
   return (
-    <button className="ppAnalysisStatusWrap" type="button" aria-label={`${popoverTitle}. ${analysis.detail}`}>
-      <span className={`ppAnalysisStatus ppAnalysisStatus-${analysis.depth} ${detail ? "ppAnalysisStatus-detail" : ""}`.trim()}>
+    <button className={`ppAnalysisStatusWrap ${titleIcon ? "ppAnalysisStatusWrap-titleIcon" : ""}`.trim()} type="button" aria-label={`${popoverTitle}. ${popoverDetail}`}>
+      <span className={`ppAnalysisStatus ppAnalysisStatus-${analysis.depth} ${detail ? "ppAnalysisStatus-detail" : ""} ${titleIcon ? "ppAnalysisStatus-titleIcon" : ""}`.trim()}>
         <span className="ppAnalysisStatusIcon" aria-hidden="true">
           <s-icon type={analysis.icon} size="small"></s-icon>
         </span>
@@ -1397,7 +1400,7 @@ function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true 
       </span>
       <span className="ppAnalysisStatusPopover" role="tooltip">
         <strong>{popoverTitle}</strong>
-        <small>{analysis.detail}</small>
+        <small>{popoverDetail}</small>
       </span>
     </button>
   );
@@ -2232,7 +2235,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               />
             </span>
             <div>
-              <h1>{detail.title}</h1>
+              <div className="ppProductTitleHeading">
+                <h1>{detail.title}</h1>
+                {detail.hasFullDiagnosis && (
+                  <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly />
+                )}
+              </div>
               <p>
                 {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
                 {" - Last analyzed "}
@@ -2242,7 +2250,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
                   {resolved ? "Resolved" : detail.riskLabel}
                 </InlineBadge>
-                <ProductAnalysisStatusBadge product={product} />
                 {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
                 {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
               </div>
@@ -2273,13 +2280,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               </button>
             </Form>
           </div>
-        </div>
-
-        <div className={`ppProductAnalysisNotice ppProductAnalysisNotice-${detail.analysisDepth}`.trim()}>
-          <ProductAnalysisStatusBadge product={product} detail />
-          {!detail.hasFullDiagnosis && (
-            <p>QuickScan can rank preliminary risk, but ProductPulse will not show recommended actions until the full product diagnosis runs for this item.</p>
-          )}
         </div>
 
         <div className="ppProductSummaryGrid">

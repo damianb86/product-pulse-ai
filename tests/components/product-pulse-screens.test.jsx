@@ -158,7 +158,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("$9,200 estimated margin at risk")).toBeInTheDocument();
     expect(screen.getByText("Too tight in waist")).toBeInTheDocument();
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Full diagnosis").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Deep analysis completed").length).toBeGreaterThan(0);
     expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
@@ -263,7 +263,7 @@ describe("ProductPulse screens", () => {
   it("locks recommended actions until a full product diagnosis runs", () => {
     const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);
-    expect(screen.getAllByText("QuickScan only").length).toBeGreaterThan(0);
+    expect(screen.getByText(/QuickScan product signals/)).toBeInTheDocument();
     expect(screen.getByText("Run product diagnosis")).toBeInTheDocument();
     expect(screen.getByText("Recommended actions will appear after you run the full product diagnosis for this product.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Add compatibility FAQ" })).not.toBeInTheDocument();

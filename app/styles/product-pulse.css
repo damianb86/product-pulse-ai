@@ -1358,6 +1358,19 @@ s-page[inline-size="large-500"] {
   line-height: 1.15;
 }
 
+.ppProductTitleHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0 0 4px;
+}
+
+.ppProductTitleHeading h1 {
+  min-width: 0;
+  margin: 0;
+}
+
 .ppProductTitleRow p {
   margin: 0 0 10px;
   color: var(--pp-slate-700);
@@ -1410,37 +1423,6 @@ s-page[inline-size="large-500"] {
   background: var(--pp-blue-soft);
 }
 
-.ppProductAnalysisNotice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 11px 14px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 10px;
-  background: var(--pp-cloud-white);
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.05);
-}
-
-.ppProductAnalysisNotice-quickscan {
-  border-color: rgba(var(--pp-info-cyan-rgb), 0.24);
-  background: linear-gradient(90deg, rgba(var(--pp-info-cyan-rgb), 0.08), var(--pp-cloud-white));
-}
-
-.ppProductAnalysisNotice-full {
-  border-color: rgba(var(--pp-insight-violet-rgb), 0.2);
-  background: linear-gradient(90deg, rgba(var(--pp-insight-violet-rgb), 0.07), var(--pp-cloud-white));
-}
-
-.ppProductAnalysisNotice p {
-  max-width: 680px;
-  margin: 0;
-  color: var(--pp-slate-700);
-  font-size: 13px;
-  line-height: 1.4;
-  text-align: right;
-}
-
 .ppAnalysisStatusWrap {
   position: relative;
   display: inline-flex;
@@ -1452,6 +1434,10 @@ s-page[inline-size="large-500"] {
   font: inherit;
   cursor: help;
   outline: none;
+}
+
+.ppAnalysisStatusWrap-titleIcon {
+  flex: 0 0 auto;
 }
 
 .ppAnalysisStatus {
@@ -1564,6 +1550,12 @@ s-page[inline-size="large-500"] {
 .ppAnalysisStatus-detail .ppAnalysisStatusIcon {
   width: 34px;
   height: 34px;
+}
+
+.ppAnalysisStatus-titleIcon .ppAnalysisStatusIcon {
+  width: 32px;
+  height: 32px;
+  box-shadow: 0 8px 20px rgba(var(--pp-insight-violet-rgb), 0.16);
 }
 
 .ppProductSummaryGrid {
@@ -4126,10 +4118,21 @@ s-page[inline-size="large-500"] {
   user-select: none;
 }
 
+.ppProductsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ppProductsHeader .ppDashboardSubtitle {
+  margin: 0;
+}
+
 .ppProductsToolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: end;
   gap: 12px;
   padding: 18px;
 }
@@ -4165,19 +4168,13 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
 }
 
-.ppProductsActions {
-  display: grid;
-  align-items: center;
-  justify-items: end;
-  gap: 8px;
-}
-
 .ppProductsSecondaryActions {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: max-content;
 }
 
 .ppProductsFilters {
@@ -5848,13 +5845,14 @@ s-page[inline-size="large-500"] {
     justify-content: flex-start;
   }
 
-  .ppProductAnalysisNotice {
+  .ppProductsHeader {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .ppProductAnalysisNotice p {
-    text-align: left;
+  .ppProductsSecondaryActions {
+    justify-content: flex-start;
+    min-width: 0;
   }
 
   .ppAnalyticsBarRow {
@@ -5897,10 +5895,6 @@ s-page[inline-size="large-500"] {
   .ppEvidenceSourceCard:first-child,
   .ppCheckedItem:first-child {
     border-top: 0;
-  }
-
-  .ppProductsActions {
-    justify-content: flex-end;
   }
 
   .ppBulkHint {
