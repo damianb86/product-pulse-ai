@@ -120,7 +120,7 @@ function buildSignalClassificationPrompt(input) {
       classified_signals: [{
         source: "judgeme_review|shopify_return_note|shopify_return_reason",
         text: "short evidence snippet",
-        issue_category: "fit_sizing|quality_defect|durability|color_expectation|compatibility|shipping_delivery|support_conversation|other",
+        issue_category: "fit_sizing|quality_defect|durability|color_expectation|compatibility|shipping_delivery|safety_concern|support_conversation|other",
         issue_detail: "snake_case_detail",
         affected_area: "optional",
         sentiment: "negative|neutral|positive",

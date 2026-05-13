@@ -638,7 +638,7 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
   const events = [];
   let ordersCursor;
   let hasNextOrdersPage = true;
-  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
+  const orderQuery = `updated_at:>=${getSinceDate(windowDays)}`;
 
   while (hasNextOrdersPage) {
     const data = await shopifyGraphql(
@@ -718,7 +718,7 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
   const events = [];
   let ordersCursor;
   let hasNextOrdersPage = true;
-  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
+  const orderQuery = `updated_at:>=${getSinceDate(windowDays)}`;
 
   while (hasNextOrdersPage) {
     const data = await shopifyGraphql(
@@ -1395,6 +1395,7 @@ function getSourceCoverage(aggregate) {
 function getPrimaryIssue({ topReasons, notes, refundRate, returnRate }) {
   const text = `${topReasons.map((reason) => reason.label).join(" ")} ${notes.join(" ")}`.toLowerCase();
   if (/too small|too large|size|fit|waist|inseam|tight|loose/.test(text)) return "Fit & sizing";
+  if (/scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror/.test(text)) return "Fear or safety concern";
   if (/defect|damaged|broken|quality|faulty|zipper|tear|crack/.test(text)) return "Product defect or durability";
   if (/color|not as described|description|photo|image|style/.test(text)) return "Expectation mismatch";
   if (returnRate > refundRate && returnRate > 0) return "Return rate anomaly";
@@ -1405,6 +1406,7 @@ function getPrimaryIssue({ topReasons, notes, refundRate, returnRate }) {
 function classifyQuickScanIssueEvent(event) {
   const text = `${event.reason || ""} ${event.reasonHandle || ""} ${event.note || ""}`.toLowerCase();
   if (/too small|too large|size|fit|waist|inseam|tight|loose/.test(text)) return "fit_sizing";
+  if (/scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror/.test(text)) return "safety_concern";
   if (/defect|damaged|broken|quality|faulty|zipper|tear|crack/.test(text)) return "quality_defect";
   if (/color|not as described|description|photo|image|style/.test(text)) return "color_expectation";
   if (event.type === "refund") return "refund_impact";

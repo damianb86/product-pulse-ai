@@ -1528,6 +1528,7 @@ function getSnapshotIssueCategory(issue) {
   const normalized = String(issue || "").toLowerCase();
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("waist") || normalized.includes("small")) return "Fit & sizing";
   if (normalized.includes("zipper") || normalized.includes("defect") || normalized.includes("break")) return "Durability";
+  if (normalized.includes("fear") || normalized.includes("scare") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("miedo") || normalized.includes("asusta")) return "Fear or safety concern";
   if (normalized.includes("compat")) return "Compatibility";
   return "Product quality";
 }

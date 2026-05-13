@@ -175,15 +175,15 @@ describe("ProductPulse screens", () => {
     const product = {
       ...defaultView.startHere,
       issues: [{
-        issue: "Negative customer sentiment cluster",
+        issue: "Fear or safety concern",
         severity: "Medium",
         confidence: 72,
         signals: 4,
         evidence: [
-          "4 of 6 customer text signals read as negative.",
-          "Returns: 2 negative. Reviews: 2 negative.",
+          "4 generic return reasons reclassified from customer text as Fear or safety concern.",
+          "Example: \"Scares me more than nothing. I want them to take him away.\"",
         ],
-        action: "Review customer sentiment evidence",
+        action: "Review fear/safety language",
       }],
       evidence: [{
         source: "Shopify returns",
@@ -197,8 +197,8 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    expect(screen.getByText("Negative customer sentiment cluster")).toBeInTheDocument();
-    expect(screen.getByText(/4 of 6 customer text signals read as negative/)).toBeInTheDocument();
+    expect(screen.getByText("Fear or safety concern")).toBeInTheDocument();
+    expect(screen.getByText(/Scares me more than nothing/)).toBeInTheDocument();
     expect(screen.getByText("Return-note sentiment: 2 negative, 1 neutral, 0 positive")).toBeInTheDocument();
     expect(screen.getByText("\"Other\" notes classified as Fit & sizing 2 times")).toBeInTheDocument();
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();

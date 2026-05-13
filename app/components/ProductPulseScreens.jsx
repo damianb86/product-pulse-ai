@@ -1574,6 +1574,7 @@ function getProductIssueCategory(issue) {
   const normalized = issue.toLowerCase();
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("waist") || normalized.includes("inseam")) return "Fit & sizing";
   if (normalized.includes("zipper") || normalized.includes("defect")) return "Durability";
+  if (normalized.includes("fear") || normalized.includes("scare") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("miedo") || normalized.includes("asusta")) return "Fear or safety concern";
   if (normalized.includes("compat")) return "Compatibility";
   if (normalized.includes("content") || normalized.includes("description") || normalized.includes("metadata")) return "Product content";
   if (normalized.includes("monitor")) return "Monitoring";
@@ -1584,6 +1585,7 @@ function getMainFindingTitle(issueCategory) {
   if (issueCategory === "Fit & sizing") return "Sizing & fit expectations are not being met";
   if (issueCategory === "Durability") return "Durability signals are affecting buyer confidence";
   if (issueCategory === "Compatibility") return "Compatibility expectations need clearer guidance";
+  if (issueCategory === "Fear or safety concern") return "Customer language suggests fear or safety concern";
   if (issueCategory === "Product content") return "Product content needs clearer shopper guidance";
   if (issueCategory === "Monitoring") return "Product is healthy and should stay monitored";
   return `${issueCategory} signals need review`;
@@ -1710,6 +1712,7 @@ function getIssueActionLabel(issue, issueCategory) {
   const normalized = String(issue || issueCategory || "").toLowerCase();
   if (normalized.includes("return")) return "Review return evidence";
   if (normalized.includes("refund")) return "Review refund impact";
+  if (normalized.includes("fear") || normalized.includes("safety") || normalized.includes("scare")) return "Review fear/safety language";
   if (normalized.includes("variant")) return "Review affected variants";
   if (normalized.includes("fit") || normalized.includes("sizing")) return "Draft shopper-facing fit guidance";
   return "Review product signals";
@@ -1720,6 +1723,7 @@ function getIssueIcon(issue) {
   if (normalized.includes("return")) return "return";
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("sentiment") || normalized.includes("language")) return "note";
+  if (normalized.includes("fear") || normalized.includes("safety") || normalized.includes("scare")) return "alert-circle";
   if (normalized.includes("variant")) return "product";
   if (normalized.includes("expectation") || normalized.includes("description") || normalized.includes("color")) return "tag";
   if (normalized.includes("content") || normalized.includes("metadata")) return "note";

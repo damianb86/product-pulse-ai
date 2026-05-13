@@ -38,6 +38,9 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       refundAmount: deterministic.metrics.refundAmount,
       reviewCount: deterministic.metrics.reviewCount,
       negativeReviewCount: deterministic.metrics.negativeReviewCount,
+      customerTextSignals: deterministic.metrics.textInsights?.sentiment?.total || 0,
+      negativeTextSignals: deterministic.metrics.textInsights?.sentiment?.negative || 0,
+      otherReturnClassifications: deterministic.metrics.textInsights?.otherReturnClassifications || [],
       riskScore: deterministic.riskScore,
       confidence: deterministic.confidence,
       estimatedImpact: deterministic.estimatedImpact,
@@ -377,7 +380,7 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
           }
         }
       }`,
-      { after: cursor, query: `created_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}` },
+      { after: cursor, query: `updated_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}` },
     );
 
     (data?.orders?.nodes || []).forEach((order) => {
@@ -472,7 +475,7 @@ async function fetchShopifyReturnEvents({ admin, product, snapshot }) {
           }
         }
       }`,
-      { after: cursor, query: `created_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}` },
+      { after: cursor, query: `updated_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}` },
     );
 
     (data?.orders?.nodes || []).forEach((order) => {
@@ -1016,6 +1019,7 @@ function buildRuleRecommendationCandidates(deterministic) {
     candidates.push({ id: "create-fit-faq", type: "FAQ", reason: "Repeated size questions deserve shopper-facing guidance." });
   }
   if (issue === "color_expectation") candidates.push({ id: "draft-color-expectation-note", type: "PDP copy", reason: "Customers mention color expectation mismatch." });
+  if (issue === "safety_concern") candidates.push({ id: "draft-safety-expectation-note", type: "PDP copy", reason: "Customer return text expresses fear, safety concern, or discomfort." });
   if (issue === "quality_defect" || issue === "durability") candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
   if (deterministic.metrics.affectedVariants.length) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
   if (deterministic.metrics.topReturnReasons.length) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
@@ -1827,7 +1831,7 @@ function extractRepeatedLanguage(items) {
 
 function classifyCustomerSentiment(text, rating = 0) {
   const normalized = normalizeText(text);
-  const negativeMatches = countRegexMatches(normalized, /(bad|poor|cheap|thin|broken|defect|damaged|disappointed|return|refund|small|large|tight|loose|wrong|issue|problem|unhappy|terrible|awful|not fit|doesn t fit|doesnt fit|not as pictured|late)/g);
+  const negativeMatches = countRegexMatches(normalized, /(bad|poor|cheap|thin|broken|defect|damaged|disappointed|return|refund|small|large|tight|loose|wrong|issue|problem|unhappy|terrible|awful|not fit|doesn t fit|doesnt fit|not as pictured|late|scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/g);
   const positiveMatches = countRegexMatches(normalized, /(great|good|love|loved|perfect|excellent|happy|quality|comfortable|recommend|works well|beautiful)/g);
   if (rating > 0 && rating <= 2) return "negative";
   if (negativeMatches > positiveMatches) return "negative";
@@ -1873,6 +1877,7 @@ function getMainIssueFromCounts(counts, fallback) {
 function classifyIssueText(text) {
   const normalized = normalizeText(text);
   if (/(fit|size|sizing|small|large|tight|loose|waist|chest|shoulder|length)/.test(normalized)) return "fit_sizing";
+  if (/(scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/.test(normalized)) return "safety_concern";
   if (/(color|colour|pictured|photo|image|shade|looks different)/.test(normalized)) return "color_expectation";
   if (/(break|broken|defect|damaged|quality|thin|poor|cheap|durability|durable)/.test(normalized)) return "quality_defect";
   if (/(compatible|compatibility|fit with|works with)/.test(normalized)) return "compatibility";
@@ -2272,6 +2277,7 @@ function normalizeIssueCode(value) {
   if (!normalized) return "";
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("size")) return "fit_sizing";
   if (normalized.includes("color")) return "color_expectation";
+  if (normalized.includes("safety") || normalized.includes("fear") || normalized.includes("scare") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("miedo") || normalized.includes("asusta")) return "safety_concern";
   if (normalized.includes("durability")) return "durability";
   if (normalized.includes("defect") || normalized.includes("quality")) return "quality_defect";
   if (normalized.includes("compat")) return "compatibility";
@@ -2291,6 +2297,7 @@ function getHumanIssueLabel(issue) {
     shipping_delivery: "Shipping or delivery",
     product_content: "Product content",
     product_quality: "Product quality",
+    safety_concern: "Fear or safety concern",
     negative_sentiment: "Negative customer sentiment",
     repeated_language: "Repeated customer language",
     return_rate_anomaly: "Return rate anomaly",
@@ -2302,6 +2309,7 @@ function getHumanIssueLabel(issue) {
 function getPdpActionId(issue) {
   if (issue === "fit_sizing") return "draft-fit-note";
   if (issue === "color_expectation") return "draft-color-expectation-note";
+  if (issue === "safety_concern") return "draft-safety-expectation-note";
   if (issue === "compatibility") return "draft-compatibility-faq";
   if (issue === "product_content") return "rewrite-product-description";
   return "draft-pdp-copy";
@@ -2310,6 +2318,7 @@ function getPdpActionId(issue) {
 function getPdpActionLabel(issue) {
   if (issue === "fit_sizing") return "Draft fit note for product description";
   if (issue === "color_expectation") return "Draft color expectation note";
+  if (issue === "safety_concern") return "Draft safety expectation note";
   if (issue === "compatibility") return "Draft compatibility FAQ";
   if (issue === "durability") return "Draft durability expectation note";
   if (issue === "product_content") return "Rewrite product description";
@@ -2321,6 +2330,7 @@ function getIssueTag(issue) {
   if (issue === "color_expectation") return "color_expectation_issue";
   if (issue === "durability") return "durability_issue";
   if (issue === "quality_defect") return "quality_issue";
+  if (issue === "safety_concern") return "safety_concern";
   if (issue === "product_content") return "content_issue";
   return "";
 }
