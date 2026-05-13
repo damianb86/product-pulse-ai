@@ -26,6 +26,14 @@ export const action = async ({ request }) => {
     return applyDraftAction(productId, String(formData.get("actionId") || ""));
   }
 
+  if (actionType === "mark-resolved") {
+    return {
+      status: "success",
+      message: "Product was marked as resolved.",
+      action: { id: "mark-resolved" },
+    };
+  }
+
   return { status: "validation_error", message: "Unsupported preview action." };
 };
 

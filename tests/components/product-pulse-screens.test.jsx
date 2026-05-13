@@ -139,6 +139,26 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Too tight in waist")).toBeInTheDocument();
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getByText("Re-run diagnosis")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
+    expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    expect(screen.getByLabelText("Draft")).toBeInTheDocument();
+  });
+
+  it("renders product diagnosis from snapshot dates and supports issue actions", () => {
+    const snapshotProduct = {
+      ...defaultView.startHere,
+      lastAnalysis: new Date("2026-05-12T12:30:00.000Z"),
+      imageUrl: "https://cdn.example.com/product.jpg",
+      imageAlt: "Snapshot product",
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={snapshotProduct} />);
+    expect(screen.getByText(/Last analyzed May 12, 2026/)).toBeInTheDocument();
+    expect(screen.getByAltText("Snapshot product")).toHaveAttribute("src", "https://cdn.example.com/product.jpg");
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Fit runs small around waist and inseam" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create action draft" }));
+    expect(screen.getByLabelText("Draft").value).toMatch(/Investigate Fit runs small/);
   });
 
   it("renders the product diagnosis for the selected product", () => {

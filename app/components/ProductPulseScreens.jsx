@@ -1051,6 +1051,8 @@ function getProductDetailModel(product) {
   return {
     title: product.title,
     variant: getProductArtVariant(product),
+    imageUrl: product.imageUrl,
+    imageAlt: product.imageAlt,
     lastAnalysis: formatProductAnalysisDate(product.lastAnalysis),
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
@@ -1068,14 +1070,16 @@ function getProductDetailModel(product) {
     issueDetail: issueText,
     issueTone: product.riskScore >= 55 ? "blue" : "green",
     findingTone: getDashboardToneFromRiskTone(product.riskTone),
-    evidenceLabel: product.sourceCoverage.length >= 4 ? "Strong evidence" : "Partial evidence",
+    evidenceLabel: (product.sourceCoverage || []).length >= 4 ? "Strong evidence" : "Partial evidence",
     mainFindingTitle: getMainFindingTitle(issueCategory),
-    mainFindingDetail: `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${product.sourceCoverage.join(", ")}.`,
+    mainFindingDetail: `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${(product.sourceCoverage || []).join(", ")}.`,
     recommendedFix: firstAction?.label || "Keep monitoring this product",
     recommendedFixDetail: firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No immediate action required",
     evidenceSources,
     detectedIssues: detectedIssueRows,
     recommendedActions,
+    actionHistory: product.actionHistory || [],
+    resolvedAt: product.resolvedAt || null,
   };
 }
 
@@ -1092,8 +1096,10 @@ function getProductArtVariant(product) {
 
 function formatProductAnalysisDate(value) {
   if (!value || value === "Not analyzed") return "Not analyzed";
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = value instanceof Date
+    ? value
+    : new Date(String(value).includes("T") ? value : `${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
@@ -1193,15 +1199,41 @@ function getProductDetectedIssues(product, issueCategory) {
 }
 
 function getProductRecommendedActions(product) {
+  const actionHistory = Array.isArray(product.actionHistory) ? product.actionHistory : [];
   if (!product.recommendedActions?.length) return productRecommendedActions;
 
   return product.recommendedActions.map((action, index) => ({
+    id: action.id,
     icon: getActionIcon(action.type),
     title: action.label,
     detail: `${action.type} - ${action.status} - ${action.effort} effort`,
-    action: index === 0 ? "Edit" : action.status === "Draft" ? "Apply to Shopify" : "Apply",
-    submit: action.id === "fit-note",
+    action: getRecommendedActionButtonLabel(action, index),
+    mode: getRecommendedActionMode(action, index),
+    payload: action.payload || {},
+    appliedRecord: actionHistory.find((record) => record.actionId === action.id),
+    submit: getRecommendedActionMode(action, index) === "submit",
   }));
+}
+
+function getRecommendedActionMode(action, index) {
+  const normalizedType = String(action.type || "").toLowerCase();
+  const normalizedId = String(action.id || "").toLowerCase();
+  if (normalizedId.includes("run-ai-diagnosis")) return "diagnose";
+  if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
+  if (normalizedType.includes("workflow") || normalizedId.includes("review-return")) return "review";
+  if (normalizedType.includes("pdp copy") && action.status === "Draft") return "edit";
+  if (index === 0 && action.status === "Draft") return "edit";
+  return "submit";
+}
+
+function getRecommendedActionButtonLabel(action, index) {
+  const mode = getRecommendedActionMode(action, index);
+  if (mode === "edit") return "Edit";
+  if (mode === "copy") return "Copy note";
+  if (mode === "review") return "Review";
+  if (mode === "diagnose") return "Run";
+  if (String(action.type || "").toLowerCase().includes("tag")) return "Apply tag";
+  return action.status === "Draft" ? "Apply to Shopify" : "Apply";
 }
 
 function getActionIcon(type) {
@@ -1214,6 +1246,33 @@ function getActionIcon(type) {
 }
 
 export function ProductDiagnosisScreen({ product, actionData }) {
+  const navigation = useNavigation();
+  const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
+  const [openIssueMenu, setOpenIssueMenu] = useState(null);
+  const [ignoredIssues, setIgnoredIssues] = useState(() => new Set());
+  const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
+  const [localActionData, setLocalActionData] = useState(null);
+  const [editingAction, setEditingAction] = useState(null);
+  const [draftText, setDraftText] = useState("");
+  const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
+  const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
+
+  useEffect(() => {
+    setResolvedLocally(Boolean(product?.resolvedAt));
+    setIgnoredIssues(new Set());
+    setSelectedEvidenceIndex(0);
+  }, [product?.slug, product?.resolvedAt]);
+
+  useEffect(() => {
+    if (actionData?.status === "success" && actionData?.action?.id === "mark-resolved") {
+      setResolvedLocally(true);
+    }
+  }, [actionData]);
+
+  useEffect(() => {
+    if (navigation.state === "submitting") setLocalActionData(null);
+  }, [navigation.state]);
+
   if (!product) {
     return (
       <FullWidthPage heading="Product not found">
@@ -1228,11 +1287,62 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }
 
   const detail = getProductDetailModel(product);
+  const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
+  const resolved = resolvedLocally || Boolean(detail.resolvedAt);
+  const diagnosisPending = pendingActionType === "diagnose";
+  const resolvingPending = pendingActionType === "mark-resolved";
+
+  const handleReviewEvidence = (index = 0) => {
+    setSelectedEvidenceIndex(Math.max(0, Math.min(index, detail.evidenceSources.length - 1)));
+    setOpenIssueMenu(null);
+    setLocalActionData({ status: "success", message: "Evidence source selected for review." });
+  };
+
+  const handleIgnoreIssue = (issue) => {
+    setIgnoredIssues((current) => {
+      const next = new Set(current);
+      next.add(issue.issue);
+      return next;
+    });
+    setOpenIssueMenu(null);
+    setLocalActionData({ status: "success", message: `${issue.issue} will be ignored in this review session.` });
+  };
+
+  const handleCreateIssueAction = (issue) => {
+    setEditingAction({
+      id: `issue-${issue.issue}`,
+      title: `Draft action for ${issue.issue}`,
+      payload: { draftText: `Investigate ${issue.issue} and apply the suggested action: ${issue.action}.` },
+    });
+    setDraftText(`Investigate ${issue.issue} and apply the suggested action: ${issue.action}.`);
+    setOpenIssueMenu(null);
+  };
+
+  const handleEditAction = (action) => {
+    setEditingAction(action);
+    setDraftText(action.payload?.draftText || action.detail);
+  };
+
+  const handleSaveDraft = () => {
+    setLocalActionData({ status: "success", message: `${editingAction.title} was saved as a draft.` });
+    setEditingAction(null);
+    setDraftText("");
+  };
+
+  const handleCopyAction = async (action) => {
+    const text = action.payload?.note || action.payload?.draftText || `${detail.title}: ${action.title}. ${action.detail}`;
+    try {
+      await window.navigator?.clipboard?.writeText(text);
+    } catch {
+      // Clipboard is not available in every embedded test/browser surface.
+    }
+    setLocalActionData({ status: "success", message: `${action.title} copied.` });
+  };
 
   return (
     <FullWidthPage label={`${detail.title} product`} className="ppProductDetailPage">
       <ScreenShell className="ppDashboard ppProductDetailScreen">
-        <ActionBanner actionData={actionData} />
+        <ActionBanner actionData={localActionData || actionData} />
 
         <div className="ppProductDetailHeader">
           <Link className="ppAnalyzeLinkButton" to="/app/products">
@@ -1240,12 +1350,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             Back
           </Link>
           <div className="ppProductTitleRow">
-            <ProductArt variant={detail.variant} label={detail.title} size="hero" />
+            <ProductArt
+              variant={detail.variant}
+              label={detail.title}
+              size="hero"
+              imageUrl={detail.imageUrl}
+              imageAlt={detail.imageAlt}
+            />
             <div>
               <h1>{detail.title}</h1>
               <p>AI Product Diagnosis - Last analyzed {detail.lastAnalysis}</p>
               <div className="ppBadgeRow">
-                <InlineBadge tone={detail.riskBadgeTone} icon="alert-circle">{detail.riskLabel}</InlineBadge>
+                <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
+                  {resolved ? "Resolved" : detail.riskLabel}
+                </InlineBadge>
                 <InlineBadge tone="warning" icon="person">{detail.issueBadge}</InlineBadge>
                 <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>
               </div>
@@ -1255,15 +1373,19 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <Form method="post">
               <input type="hidden" name="_action" value="diagnose" />
               <input type="hidden" name="productId" value={product.slug} />
-              <s-button type="submit" variant="secondary">
+              <s-button type="submit" variant="secondary" disabled={diagnosisPending}>
                 <s-icon type="refresh" size="small"></s-icon>
-                Re-run diagnosis
+                {diagnosisPending ? "Running..." : "Re-run diagnosis"}
               </s-button>
             </Form>
-            <button className="ppPrimaryButton" type="button">
-              <s-icon type="check" size="small"></s-icon>
-              Mark as resolved
-            </button>
+            <Form method="post">
+              <input type="hidden" name="_action" value="mark-resolved" />
+              <input type="hidden" name="productId" value={product.slug} />
+              <button className="ppPrimaryButton" type="submit" disabled={resolved || resolvingPending}>
+                <s-icon type="check" size="small"></s-icon>
+                {resolved ? "Resolved" : resolvingPending ? "Resolving..." : "Mark as resolved"}
+              </button>
+            </Form>
           </div>
         </div>
 
@@ -1324,11 +1446,22 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <s-section padding="none">
               <div className="ppProductPanel">
                 <h2>Evidence by source</h2>
-                <div className="ppEvidenceSourceGrid">
-                  {detail.evidenceSources.map((source) => (
-                    <EvidenceSourceCard key={source.title} source={source} />
+                <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
+                  {detail.evidenceSources.map((source, index) => (
+                    <button
+                      className={index === selectedEvidenceIndex ? "isActive" : ""}
+                      type="button"
+                      role="tab"
+                      aria-selected={index === selectedEvidenceIndex}
+                      key={source.title}
+                      onClick={() => setSelectedEvidenceIndex(index)}
+                    >
+                      <s-icon type={source.icon} size="small"></s-icon>
+                      {source.title}
+                    </button>
                   ))}
                 </div>
+                {selectedEvidence && <EvidenceSourceCard source={selectedEvidence} featured />}
               </div>
             </s-section>
 
@@ -1349,24 +1482,35 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.detectedIssues.map((issue) => (
-                        <tr key={issue.issue}>
-                          <td>
-                            <s-icon type="product" size="small"></s-icon>
-                            {issue.issue}
-                          </td>
-                          <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
-                          <td>{issue.confidence}</td>
-                          <td>{issue.signals}</td>
-                          <td><MiniTrend tone={issue.trendTone} /></td>
-                          <td>{issue.action}</td>
-                          <td>
-                            <button className="ppIconButton" type="button" aria-label={`More actions for ${issue.issue}`}>
-                              <s-icon type="menu-horizontal" size="small"></s-icon>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {detail.detectedIssues.map((issue, index) => {
+                        const ignored = ignoredIssues.has(issue.issue);
+
+                        return (
+                          <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
+                            <td>
+                              <s-icon type="product" size="small"></s-icon>
+                              {issue.issue}
+                              {ignored && <s-badge tone="success">Ignored</s-badge>}
+                            </td>
+                            <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
+                            <td>{issue.confidence}</td>
+                            <td>{issue.signals}</td>
+                            <td><MiniTrend tone={issue.trendTone} /></td>
+                            <td>{issue.action}</td>
+                            <td>
+                              <IssueActionMenu
+                                issue={issue}
+                                open={openIssueMenu === issue.issue}
+                                onToggle={() => setOpenIssueMenu((current) => (current === issue.issue ? null : issue.issue))}
+                                onReview={() => handleReviewEvidence(index % detail.evidenceSources.length)}
+                                onCreateAction={() => handleCreateIssueAction(issue)}
+                                onIgnore={() => handleIgnoreIssue(issue)}
+                                ignored={ignored}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1380,9 +1524,31 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               <h2>Recommended actions</h2>
               <div className="ppRecommendedActionList">
                 {detail.recommendedActions.map((action) => (
-                  <ProductRecommendedAction key={action.title} action={action} product={product} />
+                  <ProductRecommendedAction
+                    key={action.title}
+                    action={action}
+                    product={product}
+                    pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
+                    onEdit={handleEditAction}
+                    onCopy={handleCopyAction}
+                    onReview={() => handleReviewEvidence(0)}
+                  />
                 ))}
               </div>
+              {editingAction && (
+                <div className="ppActionDraftEditor">
+                  <label htmlFor="pp-action-draft">Draft</label>
+                  <textarea
+                    id="pp-action-draft"
+                    value={draftText}
+                    onChange={(event) => setDraftText(event.target.value)}
+                  />
+                  <div>
+                    <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
+                    <button className="ppPrimaryButton" type="button" onClick={handleSaveDraft}>Save draft</button>
+                  </div>
+                </div>
+              )}
               <s-link href="/app/analyses">View all actions & history</s-link>
             </div>
           </s-section>
@@ -1860,9 +2026,9 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
   );
 }
 
-function EvidenceSourceCard({ source }) {
+function EvidenceSourceCard({ source, featured = false }) {
   return (
-    <article className="ppEvidenceSourceCard">
+    <article className={`ppEvidenceSourceCard ${featured ? "isFeatured" : ""}`.trim()}>
       <h3>
         <s-icon type={source.icon} size="small"></s-icon>
         {source.title}
@@ -1873,6 +2039,38 @@ function EvidenceSourceCard({ source }) {
         ))}
       </ul>
     </article>
+  );
+}
+
+function IssueActionMenu({ issue, open, onToggle, onReview, onCreateAction, onIgnore, ignored }) {
+  return (
+    <span className="ppActionMenuWrap">
+      <button
+        className="ppIconButton"
+        type="button"
+        aria-expanded={open}
+        aria-label={`More actions for ${issue.issue}`}
+        onClick={onToggle}
+      >
+        <s-icon type="menu-horizontal" size="small"></s-icon>
+      </button>
+      {open && (
+        <span className="ppActionMenu ppIssueActionMenu" role="menu">
+          <button role="menuitem" type="button" onClick={onReview}>
+            <s-icon type="view" size="small"></s-icon>
+            Review evidence
+          </button>
+          <button role="menuitem" type="button" onClick={onCreateAction}>
+            <s-icon type="pen" size="small"></s-icon>
+            Create action draft
+          </button>
+          <button role="menuitem" type="button" onClick={onIgnore} disabled={ignored}>
+            <s-icon type="check" size="small"></s-icon>
+            {ignored ? "Ignored" : "Ignore for now"}
+          </button>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -1888,25 +2086,45 @@ function MiniTrend({ tone = "red", size = "base" }) {
   );
 }
 
-function ProductRecommendedAction({ action, product }) {
-  const button = <s-button type={action.submit ? "submit" : "button"} variant="secondary">{action.action}</s-button>;
+function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview }) {
+  const applied = action.appliedRecord?.status === "applied";
+  const drafted = action.appliedRecord?.status === "draft";
+  const mode = action.mode || (action.submit ? "submit" : "edit");
+  const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const buttonText = applied ? "Applied" : drafted ? "Draft saved" : pending ? "Working..." : action.action;
 
   return (
-    <article className="ppProductActionItem">
+    <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""}`.trim()}>
       <s-icon type={action.icon} size="small"></s-icon>
       <div>
         <h3>{action.title}</h3>
         <p>{action.detail}</p>
       </div>
-      {action.submit ? (
+      {mode === "edit" ? (
+        <s-button type="button" variant="secondary" disabled={pending || applied} onClick={() => onEdit(action)}>
+          {buttonText}
+        </s-button>
+      ) : mode === "copy" ? (
+        <s-button type="button" variant="secondary" onClick={() => onCopy(action)}>
+          {buttonText}
+        </s-button>
+      ) : mode === "review" ? (
+        <s-button type="button" variant="secondary" onClick={onReview}>
+          {buttonText}
+        </s-button>
+      ) : mode === "diagnose" ? (
+        <Form method="post">
+          <input type="hidden" name="_action" value="diagnose" />
+          <input type="hidden" name="productId" value={product.slug} />
+          <s-button type="submit" variant="secondary" disabled={pending || applied}>{buttonText}</s-button>
+        </Form>
+      ) : (
         <Form method="post">
           <input type="hidden" name="_action" value="apply-action" />
           <input type="hidden" name="productId" value={product.slug} />
-          <input type="hidden" name="actionId" value="fit-note" />
-          {button}
+          <input type="hidden" name="actionId" value={actionId} />
+          <s-button type="submit" variant="secondary" disabled={pending || applied}>{buttonText}</s-button>
         </Form>
-      ) : (
-        button
       )}
     </article>
   );

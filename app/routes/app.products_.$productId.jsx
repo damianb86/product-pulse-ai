@@ -7,11 +7,15 @@ import {
   getProductBySlug,
   startProductDiagnosis,
 } from "../lib/product-pulse-data";
-import { getProductSnapshotForShop } from "../lib/product-pulse-jobs.server";
+import {
+  getProductSnapshotForShop,
+  recordProductDetailActionForShop,
+  rerunProductDiagnosisForShop,
+} from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request, params }) => {
-  const { session } = await authenticate.admin(request);
-  const snapshotProduct = await getProductSnapshotForShop(session.shop, params.productId);
+  const { admin, session } = await authenticate.admin(request);
+  const snapshotProduct = await getProductSnapshotForShop(session.shop, params.productId, admin);
   return {
     data: getAppViewData(),
     product: snapshotProduct || getProductBySlug(params.productId),
@@ -25,19 +29,21 @@ export const action = async ({ request, params }) => {
   const productId = String(formData.get("productId") || params.productId || "");
 
   if (actionType === "diagnose") {
-    const snapshotProduct = await getProductSnapshotForShop(session.shop, productId);
-    if (snapshotProduct) {
-      return {
-        status: "success",
-        message: `AI Product Diagnosis started for ${snapshotProduct.title}. One credit was consumed.`,
-        product: snapshotProduct,
-      };
-    }
+    const snapshotDiagnosis = await rerunProductDiagnosisForShop(session.shop, productId);
+    if (snapshotDiagnosis) return snapshotDiagnosis;
     return startProductDiagnosis(productId);
   }
 
   if (actionType === "apply-action") {
+    const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, String(formData.get("actionId") || ""));
+    if (snapshotAction) return snapshotAction;
     return applyDraftAction(productId, String(formData.get("actionId") || ""));
+  }
+
+  if (actionType === "mark-resolved") {
+    const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
+    if (snapshotAction) return snapshotAction;
+    return { status: "success", message: "Product was marked as resolved." };
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

@@ -447,6 +447,29 @@ s-page[inline-size="large-500"] {
   transform: none;
 }
 
+.ppSecondaryButton {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ppSecondaryButton:hover {
+  border-color: var(--pp-pulse-blue);
+  color: var(--pp-pulse-blue);
+}
+
 .ppEvidenceGlance {
   min-height: 132px;
   padding-left: 26px;
@@ -1311,10 +1334,53 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
+.ppEvidenceTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px 8px 0 0;
+  background: var(--pp-slate-100);
+}
+
+.ppEvidenceTabs button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid var(--pp-slate-200);
+  background: transparent;
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ppEvidenceTabs button:first-child {
+  border-left: 0;
+}
+
+.ppEvidenceTabs button.isActive {
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  box-shadow: inset 0 2px 0 var(--pp-pulse-blue);
+}
+
 .ppEvidenceSourceCard {
   min-height: 154px;
   padding: 12px 16px;
   border-left: 1px solid var(--pp-slate-200);
+}
+
+.ppEvidenceSourceCard.isFeatured {
+  border: 1px solid var(--pp-slate-300);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  box-shadow: inset 0 2px 0 var(--pp-pulse-blue);
 }
 
 .ppEvidenceSourceCard:first-child {
@@ -1377,6 +1443,10 @@ s-page[inline-size="large-500"] {
   border-bottom: 0;
 }
 
+.ppIssuesTable tr.isIgnored {
+  opacity: 0.58;
+}
+
 .ppIssuesTable td:first-child {
   display: flex;
   align-items: center;
@@ -1415,6 +1485,11 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
+.ppProductActionItem.isApplied {
+  border-color: rgba(var(--pp-success-green-rgb), 0.35);
+  background: rgba(var(--pp-success-green-rgb), 0.06);
+}
+
 .ppProductActionItem h3 {
   margin: 0 0 4px;
   color: var(--pp-slate-900);
@@ -1433,6 +1508,45 @@ s-page[inline-size="large-500"] {
 .ppProductActionItem s-button,
 .ppProductActionItem form {
   justify-self: end;
+}
+
+.ppIssueActionMenu {
+  width: 210px;
+}
+
+.ppActionDraftEditor {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+}
+
+.ppActionDraftEditor label {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppActionDraftEditor textarea {
+  min-height: 104px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ppActionDraftEditor > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .ppCheckedPanel {
