@@ -1410,63 +1410,11 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
-.ppProductImageFrame {
-  --pp-diagnosis-frame-rgb: var(--pp-slate-500-rgb);
-  --pp-diagnosis-frame-alpha: 0.11;
-  --pp-diagnosis-frame-border: 0.2;
-  position: relative;
+.ppProductHeroImageWrap {
   display: inline-flex;
   flex: 0 0 auto;
-  isolation: isolate;
-  padding: 3px;
-  border: 1px solid rgba(var(--pp-diagnosis-frame-rgb), var(--pp-diagnosis-frame-border));
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.86), transparent 34%),
-    linear-gradient(135deg, rgba(var(--pp-diagnosis-frame-rgb), var(--pp-diagnosis-frame-alpha)), rgba(var(--pp-diagnosis-frame-rgb), calc(var(--pp-diagnosis-frame-alpha) * 0.42)));
-  box-shadow:
-    0 8px 18px rgba(var(--pp-diagnosis-frame-rgb), calc(var(--pp-diagnosis-frame-alpha) * 0.62)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
-.ppProductImageFrame::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  z-index: 0;
-  border-radius: inherit;
-  background: rgba(var(--pp-diagnosis-frame-rgb), calc(var(--pp-diagnosis-frame-alpha) * 0.5));
-  filter: blur(9px);
-  pointer-events: none;
-}
-
-.ppProductImageFrame .ppProductArt {
-  z-index: 1;
-  border-color: rgba(var(--pp-diagnosis-frame-rgb), 0.26);
-}
-
-.ppProductImageFrame-full {
-  --pp-diagnosis-frame-rgb: var(--pp-insight-violet-rgb);
-  --pp-diagnosis-frame-alpha: 0.32;
-  --pp-diagnosis-frame-border: 0.4;
-}
-
-.ppProductImageFrame-quickscan {
-  --pp-diagnosis-frame-rgb: var(--pp-info-cyan-rgb);
-  --pp-diagnosis-frame-alpha: 0.15;
-  --pp-diagnosis-frame-border: 0.22;
-}
-
-.ppProductImageFrame-catalog {
-  --pp-diagnosis-frame-rgb: var(--pp-slate-500-rgb);
-  --pp-diagnosis-frame-alpha: 0.08;
-  --pp-diagnosis-frame-border: 0.18;
-}
-
-.ppProductImageFrame-hero {
-  padding: 6px;
-  border-radius: 16px;
-}
 
 .ppAnalysisStatusIcon {
   width: 24px;

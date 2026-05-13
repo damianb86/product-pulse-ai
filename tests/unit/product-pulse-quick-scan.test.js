@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildOrdersBulkQuery,
   buildQuickScanCandidates,
+  getPersistableQuickScanCandidates,
   isShopifyOrderAccessDeniedError,
 } from "../../app/lib/product-pulse-quick-scan.server";
 
@@ -83,5 +84,20 @@ describe("ProductPulse QuickScan", () => {
     expect(isShopifyOrderAccessDeniedError(new Error("orders bulk operation failed: ACCESS_DENIED. This app is not approved to access the Order object"))).toBe(true);
     expect(isShopifyOrderAccessDeniedError(new Error("bulk operation failed: ACCESS_DENIED."), "orders")).toBe(true);
     expect(isShopifyOrderAccessDeniedError(new Error("products bulk operation failed: ACCESS_DENIED."))).toBe(false);
+  });
+
+  it("does not persist QuickScan candidates that already have full diagnoses", () => {
+    const result = getPersistableQuickScanCandidates(
+      [
+        { productGid: "gid://shopify/Product/1", title: "Full diagnosis product" },
+        { productGid: "gid://shopify/Product/2", title: "QuickScan product" },
+      ],
+      ["gid://shopify/Product/1"],
+    );
+
+    expect(result.ignoredFullDiagnosisProducts).toBe(1);
+    expect(result.persistableCandidates).toEqual([
+      { productGid: "gid://shopify/Product/2", title: "QuickScan product" },
+    ]);
   });
 });

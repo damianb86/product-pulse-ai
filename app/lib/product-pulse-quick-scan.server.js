@@ -96,14 +96,16 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     },
   });
 
-  await persistQuickScanCandidates(shop, candidates);
+  const persistence = await persistQuickScanCandidates(shop, candidates);
   await recordJobLog({
     shop,
     jobId,
     event: "quick_scan.persisted",
-    message: "QuickScan persisted only products above the risk threshold.",
+    message: "QuickScan persisted only products above the risk threshold and skipped products with full diagnoses.",
     data: {
-      persistedCandidates: candidates.length,
+      persistedCandidates: persistence.persistedCandidates,
+      ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
+      retainedFullDiagnosisProducts: persistence.retainedFullDiagnosisProducts,
       persistenceRule: "risk_score >= 50 OR return anomaly/refund impact/repeated reasons threshold",
     },
   });
@@ -114,7 +116,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     progress: 100,
     source: extraction.meta.orderAccessDenied
       ? "QuickScan completed with catalog only - Shopify order access unavailable"
-      : `QuickScan completed - ${candidates.length} product${candidates.length === 1 ? "" : "s"} needing attention`,
+      : getQuickScanCompletionSource(persistence),
     finishedAt: new Date(),
   });
   await recordJobLog({
@@ -125,6 +127,8 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     data: {
       durationMs: Date.now() - startedAt,
       candidateCount: candidates.length,
+      persistedCandidates: persistence.persistedCandidates,
+      ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
       orderAccessDenied: extraction.meta.orderAccessDenied,
     },
   });
@@ -1136,21 +1140,24 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
 }
 
 async function persistQuickScanCandidates(shop, candidates) {
-  const productGids = candidates.map((candidate) => candidate.productGid);
+  const fullDiagnosisProductGids = await getFullDiagnosisProductGids(shop);
+  const { persistableCandidates, ignoredFullDiagnosisProducts } = getPersistableQuickScanCandidates(candidates, fullDiagnosisProductGids);
+  const productGids = persistableCandidates.map((candidate) => candidate.productGid);
+  const retainedProductGids = Array.from(new Set([...productGids, ...fullDiagnosisProductGids]));
 
   await prisma.$transaction(async (tx) => {
-    if (productGids.length) {
+    if (retainedProductGids.length) {
       await tx.productRiskSnapshot.deleteMany({
         where: {
           shop,
-          productGid: { notIn: productGids },
+          productGid: { notIn: retainedProductGids },
         },
       });
     } else {
       await tx.productRiskSnapshot.deleteMany({ where: { shop } });
     }
 
-    await Promise.all(candidates.map((candidate) => tx.productRiskSnapshot.upsert({
+    await Promise.all(persistableCandidates.map((candidate) => tx.productRiskSnapshot.upsert({
       where: {
         shop_productGid: {
           shop,
@@ -1182,6 +1189,43 @@ async function persistQuickScanCandidates(shop, candidates) {
       },
     })));
   });
+
+  return {
+    persistedCandidates: persistableCandidates.length,
+    ignoredFullDiagnosisProducts,
+    retainedFullDiagnosisProducts: fullDiagnosisProductGids.length,
+  };
+}
+
+export function getPersistableQuickScanCandidates(candidates = [], fullDiagnosisProductGids = []) {
+  const fullDiagnosisProductGidSet = new Set(fullDiagnosisProductGids.filter(Boolean));
+  const persistableCandidates = candidates.filter((candidate) => !fullDiagnosisProductGidSet.has(candidate.productGid));
+
+  return {
+    persistableCandidates,
+    ignoredFullDiagnosisProducts: candidates.length - persistableCandidates.length,
+  };
+}
+
+async function getFullDiagnosisProductGids(shop) {
+  const diagnoses = await prisma.productDiagnosis.findMany({
+    where: {
+      shop,
+      status: "Completed",
+      completedAt: { not: null },
+    },
+    select: { productGid: true },
+  });
+
+  return Array.from(new Set(diagnoses.map((diagnosis) => diagnosis.productGid).filter(Boolean)));
+}
+
+function getQuickScanCompletionSource(persistence) {
+  const persisted = persistence.persistedCandidates;
+  const ignored = persistence.ignoredFullDiagnosisProducts;
+  const productLabel = `${persisted} product${persisted === 1 ? "" : "s"} needing attention`;
+  if (!ignored) return `QuickScan completed - ${productLabel}`;
+  return `QuickScan completed - ${productLabel}; ${ignored} full diagnosis product${ignored === 1 ? "" : "s"} ignored`;
 }
 
 async function updateQuickScanJob(jobId, data) {

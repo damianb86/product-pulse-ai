@@ -68,6 +68,10 @@ describe("ProductPulse screens", () => {
   it("shows a scan overlay when a quick scan starts", () => {
     renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
     fireEvent.click(screen.getAllByRole("button", { name: /Run quick scan/ })[0]);
+    expect(screen.getByRole("heading", { name: "Confirm quick product scan" })).toBeInTheDocument();
+    expect(screen.getByText("QuickScan costs 1 credit and runs as a background job.")).toBeInTheDocument();
+    expect(screen.getByText(/Products that already have a full AI product diagnosis will be ignored/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Accept cost and run QuickScan" }));
     expect(screen.getByText("Fast product scan running")).toBeInTheDocument();
     expect(screen.getByText(/backend job will keep running/)).toBeInTheDocument();
     expect(screen.queryByText(/8%/)).not.toBeInTheDocument();

@@ -617,6 +617,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [selectedProducts, setSelectedProducts] = useState(() => new Set());
   const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
   const [searchValue, setSearchValue] = useState(filters.query || "");
+  const [quickScanConfirmation, setQuickScanConfirmation] = useState(false);
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
@@ -698,6 +699,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const handleStartFastScan = () => {
     if (fastScanRunning) return;
+    setQuickScanConfirmation(true);
+  };
+
+  const handleConfirmFastScan = () => {
+    if (fastScanRunning) return;
+    setQuickScanConfirmation(false);
     if (!persistProductJobs) {
       handleLocalFastScan();
       return;
@@ -913,7 +920,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   const actionKey = getProductActionKey(product);
                   const selected = selectedProducts.has(actionKey);
                   const diagnosisState = getProductDiagnosisState(product, pendingAnalyzeIds);
-                  const analysisDisplay = getProductAnalysisDisplay(product);
 
                   return (
                     <tr className={diagnosisState ? "isDiagnosing" : ""} key={actionKey}>
@@ -927,10 +933,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       </td>
                       <td>
                         <Link className="ppProductsProductCell" to={product.href}>
-                          <span
-                            className={`ppProductImageWrap ppProductImageFrame ppProductImageFrame-${analysisDisplay.depth}`.trim()}
-                            title={`${analysisDisplay.label}: ${analysisDisplay.detail}`}
-                          >
+                          <span className="ppProductImageWrap">
                             <ProductArt
                               variant={product.variant}
                               label={product.title}
@@ -1054,7 +1057,56 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           onConfirm={handleConfirmAnalysis}
         />
       )}
+      {quickScanConfirmation && (
+        <QuickScanConfirmModal
+          pending={pendingFastScan}
+          onCancel={() => setQuickScanConfirmation(false)}
+          onConfirm={handleConfirmFastScan}
+        />
+      )}
     </FullWidthPage>
+  );
+}
+
+function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal" role="dialog" aria-modal="true" aria-labelledby="quick-scan-confirm-title">
+        <div className="ppAnalysisConfirmHeader">
+          <span className="ppAnalysisConfirmIcon" aria-hidden="true">
+            <s-icon type="search" size="small"></s-icon>
+          </span>
+          <div>
+            <span>QuickScan</span>
+            <h2 id="quick-scan-confirm-title">Confirm quick product scan</h2>
+            <p>
+              ProductPulse will run a lightweight Shopify scan across the catalog to refresh preliminary risk signals.
+            </p>
+          </div>
+        </div>
+
+        <div className="ppAnalysisConfirmCost">
+          <div>
+            <span>Estimated cost</span>
+            <strong>1 credit</strong>
+          </div>
+          <small>QuickScan costs 1 credit and runs as a background job.</small>
+        </div>
+
+        <div className="ppActionConfirmNotice">
+          <s-icon type="info" size="small"></s-icon>
+          <p>Products that already have a full AI product diagnosis will be ignored so their detailed analysis is not overwritten.</p>
+        </div>
+
+        <div className="ppAnalysisConfirmFooter">
+          <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className="ppPrimaryButton" type="button" onClick={onConfirm} disabled={pending}>
+            <s-icon type="search" size="small"></s-icon>
+            {pending ? "Starting QuickScan..." : "Accept cost and run QuickScan"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -2157,10 +2209,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             Back
           </button>
           <div className="ppProductTitleRow">
-            <span
-              className={`ppProductImageFrame ppProductImageFrame-hero ppProductImageFrame-${detail.analysisDepth}`.trim()}
-              title={`${detail.analysisLabel}: ${detail.analysisDetail}`}
-            >
+            <span className="ppProductHeroImageWrap">
               <ProductArt
                 variant={detail.variant}
                 label={detail.title}
