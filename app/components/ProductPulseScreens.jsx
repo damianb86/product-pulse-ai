@@ -773,76 +773,76 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   return (
     <FullWidthPage heading="Products">
-      <ScreenShell className="ppDashboard ppProductsScreen">
-        <p className="ppDashboardSubtitle">
-          Browse products, review risk signals and run AI diagnosis.
-        </p>
-        <ActionBanner actionData={actionData} />
+      <ScreenShell className={`ppDashboard ppProductsScreen ${fastScanRunning ? "isScanning" : ""}`.trim()}>
+        <div className="ppProductsContent">
+          <p className="ppDashboardSubtitle">
+            Browse products, review risk signals and run AI diagnosis.
+          </p>
+          <ActionBanner actionData={actionData} />
 
-        <s-section padding="none">
-          <div className="ppProductsToolbar">
-            <div className="ppProductsFilters" aria-label="Product filters" onChange={handleFilterChange}>
-              <ProductFilterSelect name="risk" label="Risk" value={filters.risk || "all"} options={filterOptions.risks} />
-              <ProductFilterSelect name="status" label="Status" value={filters.status || "all"} options={filterOptions.statuses} />
-              <ProductFilterSelect name="issue" label="Issue type" value={filters.issue || "all"} options={filterOptions.issues} />
-              <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
-              <ProductFilterSelect name="vendor" label="Vendor or Collection" value={filters.vendor || "all"} options={filterOptions.vendors} vendor />
+          <s-section padding="none">
+            <div className="ppProductsToolbar">
+              <div className="ppProductsFilters" aria-label="Product filters" onChange={handleFilterChange}>
+                <ProductFilterSelect name="risk" label="Risk" value={filters.risk || "all"} options={filterOptions.risks} />
+                <ProductFilterSelect name="status" label="Status" value={filters.status || "all"} options={filterOptions.statuses} />
+                <ProductFilterSelect name="issue" label="Issue type" value={filters.issue || "all"} options={filterOptions.issues} />
+                <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
+                <ProductFilterSelect name="vendor" label="Vendor or Collection" value={filters.vendor || "all"} options={filterOptions.vendors} vendor />
+              </div>
+              <div className="ppProductsActions">
+                <FastScanButton
+                  pending={fastScanRunning}
+                  onStart={handleStartFastScan}
+                />
+                <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
+                  <s-icon type="wand" size="small"></s-icon>
+                  {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
+                </button>
+                <Link className="ppSecondaryActionButton" to="/app/products">
+                  <s-icon type="x" size="small"></s-icon>
+                  Clear filters
+                </Link>
+              </div>
             </div>
-            <div className="ppProductsActions">
-              <FastScanButton
-                pending={fastScanRunning}
-                onStart={handleStartFastScan}
-              />
-              <s-button href="/app/products" variant="secondary">Clear filters</s-button>
-              <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
-                <s-icon type="wand" size="small"></s-icon>
-                {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
-              </button>
-            </div>
-          </div>
-        </s-section>
+          </s-section>
 
-        <s-section padding="none">
-          <div className="ppProductsTableStatus">
-            {productRows.length > 0 ? (
+          <s-section padding="none">
+            <div className="ppProductsTableStatus">
+              {selectedCount > 0 && productRows.length > 0 && (
               <div className="ppSelectionPill">
                 <span>{selectedCount}</span>
                 selected
-                {selectedCount > 0 && (
-                  <button type="button" aria-label="Clear selected products" onClick={() => setSelectedProducts(new Set())}>
-                    <s-icon type="x" size="small"></s-icon>
-                  </button>
+                <button type="button" aria-label="Clear selected products" onClick={() => setSelectedProducts(new Set())}>
+                  <s-icon type="x" size="small"></s-icon>
+                </button>
+              </div>
+              )}
+              <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products${totalAllProducts !== productCount ? ` (${totalAllProducts} scanned)` : ""}` : "No products in ProductPulse yet"}</span>
+              <div className="ppProductsTableTools">
+                <button
+                  className="ppTableSearchButton"
+                  type="button"
+                  aria-label="Search products"
+                  aria-expanded={searchOpen}
+                  onClick={() => setSearchOpen((open) => !open)}
+                >
+                  <s-icon type="search" size="small"></s-icon>
+                </button>
+                {searchOpen && (
+                  <div className="ppTableSearchControl">
+                    <s-icon type="search" size="small"></s-icon>
+                    <input
+                      aria-label="Search products"
+                      value={searchValue}
+                      onChange={(event) => setSearchValue(event.target.value)}
+                      placeholder="Search products"
+                      type="search"
+                    />
+                  </div>
                 )}
               </div>
-            ) : (
-              <span>No products in ProductPulse yet</span>
-            )}
-            <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products${totalAllProducts !== productCount ? ` (${totalAllProducts} scanned)` : ""}` : "0 products"}</span>
-            <div className="ppProductsTableTools">
-              <button
-                className="ppTableSearchButton"
-                type="button"
-                aria-label="Search products"
-                aria-expanded={searchOpen}
-                onClick={() => setSearchOpen((open) => !open)}
-              >
-                <s-icon type="search" size="small"></s-icon>
-              </button>
-              {searchOpen && (
-                <div className="ppTableSearchControl">
-                  <s-icon type="search" size="small"></s-icon>
-                  <input
-                    aria-label="Search products"
-                    value={searchValue}
-                    onChange={(event) => setSearchValue(event.target.value)}
-                    placeholder="Search products"
-                    type="search"
-                  />
-                </div>
-              )}
             </div>
-          </div>
-          <div className={`ppProductsTableWrap ${fastScanRunning ? "isScanning" : ""}`.trim()}>
+            <div className="ppProductsTableWrap">
             <table className="ppProductsTable" data-testid="products-table">
               <thead>
                 <tr>
@@ -955,19 +955,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 })}
               </tbody>
             </table>
-            {fastScanRunning && (
-              <div className="ppProductsScanOverlay" role="status">
-                <div>
-                  <span className="ppScanSpinner" aria-hidden="true" />
-                  <h2>Fast product scan running</h2>
-                  <p>
-                    ProductPulse is checking the catalog for potential quality signals. You can leave this page;
-                    the backend job will keep running.
-                  </p>
-                  <small>{activeScanJob ? activeScanJob.source : "Starting scan..."}</small>
-                </div>
-              </div>
-            )}
           </div>
           {productRows.length > 0 && (
             <div className="ppProductsPagination">
@@ -1009,8 +996,22 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               </div>
             </div>
           )}
-        </s-section>
+          </s-section>
+        </div>
       </ScreenShell>
+      {fastScanRunning && (
+        <div className="ppProductsScanOverlay" role="status">
+          <div>
+            <span className="ppScanSpinner" aria-hidden="true" />
+            <h2>Fast product scan running</h2>
+            <p>
+              ProductPulse is checking the catalog for potential quality signals. You can leave this page;
+              the backend job will keep running.
+            </p>
+            <small>{activeScanJob ? activeScanJob.source : "Starting scan..."}</small>
+          </div>
+        </div>
+      )}
     </FullWidthPage>
   );
 }
@@ -1128,11 +1129,13 @@ function getProductDetailModel(product) {
     revenueAtRisk: metrics.revenueAtRisk || 0,
     riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
     issueBadge: issueCategory,
+    showIssueBadge: Boolean(issueText),
     issueCategory,
     issueDetail: issueText || "No deterministic product issue stored yet.",
     issueTone: product.riskScore >= 55 ? "blue" : "green",
     findingTone: getDashboardToneFromRiskTone(product.riskTone),
-    evidenceLabel: sourceCoverage.length >= 4 ? "Strong evidence" : sourceCoverage.length > 0 ? "Stored evidence" : "No signal evidence",
+    evidenceLabel: getEvidenceLabel(evidenceSources, sourceCoverage),
+    showEvidenceBadge: evidenceSources.length > 0,
     mainFindingTitle: issueText ? getMainFindingTitle(issueCategory) : "No ProductPulse issue stored for this product",
     mainFindingDetail: issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
@@ -1204,6 +1207,14 @@ function getProductRiskScoreLabel(score) {
   return "Low";
 }
 
+function getEvidenceLabel(evidenceSources, sourceCoverage) {
+  if (evidenceSources.length >= 4) return "Strong evidence";
+  if (evidenceSources.length > 1) return `${evidenceSources.length} evidence sources`;
+  if (evidenceSources.length === 1) return evidenceSources[0].title;
+  if (sourceCoverage.length > 0) return `${sourceCoverage.length} signal sources`;
+  return "No signal evidence";
+}
+
 function getTrendTone(values, fallbackScore = 0) {
   const trendValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
   if (trendValues.length >= 2) {
@@ -1241,12 +1252,43 @@ function getProductEvidenceSources(product) {
   return product.evidence.map((item) => ({
     icon: getEvidenceIcon(item.source),
     title: `${item.source}`,
-    points: [
-      item.quote,
-      item.weight,
-      `${product.metrics?.signalCount || 0} total signals in current diagnosis`,
-    ],
+    points: getEvidencePoints(item, product),
   }));
+}
+
+function getEvidencePoints(item, product) {
+  const metrics = product.metrics || {};
+  const normalized = String(item.source || "").toLowerCase();
+  const points = [item.quote, item.weight].filter(Boolean);
+
+  if (normalized.includes("return")) {
+    if (Number(metrics.returnUnits || 0) > 0) points.push(`${formatInteger(metrics.returnUnits)} return units analyzed`);
+    if (Number(metrics.returnRate || 0) > 0) points.push(`${metrics.returnRate}% return rate in the scan window`);
+    if (Array.isArray(metrics.topReturnReasons) && metrics.topReturnReasons.length) points.push(`Top reasons: ${metrics.topReturnReasons.join(", ")}`);
+  }
+
+  if (normalized.includes("refund")) {
+    if (Number(metrics.refundUnits || 0) > 0) points.push(`${formatInteger(metrics.refundUnits)} refunded units`);
+    if (Number(metrics.refundAmount || 0) > 0) points.push(`${formatMoney(metrics.refundAmount)} refunded amount`);
+    if (Number(metrics.refundRate || 0) > 0) points.push(`${metrics.refundRate}% refund rate`);
+  }
+
+  if (normalized.includes("product") || normalized.includes("shopify")) {
+    if (metrics.vendor) points.push(`Vendor: ${metrics.vendor}`);
+    if (metrics.productType) points.push(`Product type: ${metrics.productType}`);
+    if (Number(metrics.variantCount || 0) > 0) points.push(`${formatInteger(metrics.variantCount)} variants available`);
+    if (Array.isArray(metrics.collections) && metrics.collections.length) points.push(`Collections: ${metrics.collections.join(", ")}`);
+    if (Array.isArray(metrics.tags) && metrics.tags.length) points.push(`${formatInteger(metrics.tags.length)} product tags stored`);
+  }
+
+  if (normalized.includes("variant") && Array.isArray(metrics.affectedVariants) && metrics.affectedVariants.length) {
+    points.push(`Affected variants: ${metrics.affectedVariants.join(", ")}`);
+  }
+
+  if (Number(metrics.signalCount || 0) > 0) points.push(`${formatInteger(metrics.signalCount)} total signals in current diagnosis`);
+  if (metrics.lastSignalAt) points.push(`Last signal captured ${formatProductAnalysisDate(metrics.lastSignalAt)}`);
+
+  return [...new Set(points)].slice(0, 6);
 }
 
 function getEvidenceIcon(source) {
@@ -1311,6 +1353,17 @@ function getIssueActionLabel(issue, issueCategory) {
   return "Review product signals";
 }
 
+function getIssueIcon(issue) {
+  const normalized = String(issue || "").toLowerCase();
+  if (normalized.includes("return")) return "return";
+  if (normalized.includes("refund")) return "cash-dollar";
+  if (normalized.includes("variant")) return "product";
+  if (normalized.includes("expectation") || normalized.includes("description") || normalized.includes("color")) return "tag";
+  if (normalized.includes("fit") || normalized.includes("sizing")) return "person";
+  if (normalized.includes("defect") || normalized.includes("durability")) return "alert-circle";
+  return "product";
+}
+
 function getProductRecommendedActions(product) {
   const actionHistory = Array.isArray(product.actionHistory) ? product.actionHistory : [];
   if (!product.recommendedActions?.length) return [];
@@ -1319,13 +1372,40 @@ function getProductRecommendedActions(product) {
     id: action.id,
     icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     title: action.label,
-    detail: `${action.type} - ${action.status} - ${action.effort} effort`,
+    detail: getRecommendedActionDetail(action),
+    meta: getRecommendedActionMeta(action),
     action: getRecommendedActionButtonLabel(action, index),
     mode: getRecommendedActionMode(action, index),
     payload: action.payload || {},
     appliedRecord: actionHistory.find((record) => record.actionId === action.id),
     submit: getRecommendedActionMode(action, index) === "submit",
   }));
+}
+
+function getRecommendedActionDetail(action) {
+  const payload = action.payload || {};
+  if (payload.draftText) return payload.draftText;
+  if (payload.note) return payload.note;
+  if (Array.isArray(payload.topReturnReasons) && payload.topReturnReasons.length) return payload.topReturnReasons.join(", ");
+  if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) return payload.affectedVariants.join(", ");
+  if (Number(payload.refundAmount || 0) > 0) return `${formatMoney(payload.refundAmount)} refunded across ${formatInteger(payload.refundUnits || 0)} units`;
+  return "Ready from current stored product signals.";
+}
+
+function getRecommendedActionMeta(action) {
+  return [
+    { icon: getActionIcon(action.type), label: action.type },
+    { icon: getActionStatusIcon(action.status), label: action.status },
+    { icon: "wand", label: `${action.effort} effort` },
+  ].filter((item) => item.label);
+}
+
+function getActionStatusIcon(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized.includes("draft")) return "pen";
+  if (normalized.includes("ready")) return "check";
+  if (normalized.includes("applied")) return "check";
+  return "info";
 }
 
 function getProductCheckedItems(product) {
@@ -1566,8 +1646,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
                   {resolved ? "Resolved" : detail.riskLabel}
                 </InlineBadge>
-                <InlineBadge tone="warning" icon="person">{detail.issueBadge}</InlineBadge>
-                <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>
+                {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
+                {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
               </div>
             </div>
           </div>
@@ -1656,31 +1736,29 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
         <div className="ppProductDetailGrid">
           <div className="ppProductLeftColumn">
-            <s-section padding="none">
-              <div className="ppProductPanel">
-                <h2>Evidence by source</h2>
-                <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
-                  {detail.evidenceSources.map((source, index) => (
-                    <button
-                      className={index === selectedEvidenceIndex ? "isActive" : ""}
-                      type="button"
-                      role="tab"
-                      aria-selected={index === selectedEvidenceIndex}
-                      key={source.title}
-                      onClick={() => setSelectedEvidenceIndex(index)}
-                    >
-                      <s-icon type={source.icon} size="small"></s-icon>
-                      {source.title}
-                    </button>
-                  ))}
-                </div>
-                {selectedEvidence ? (
+            {detail.evidenceSources.length > 0 && (
+              <s-section padding="none">
+                <div className="ppProductPanel">
+                  <h2>Evidence by source</h2>
+                  <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
+                    {detail.evidenceSources.map((source, index) => (
+                      <button
+                        className={index === selectedEvidenceIndex ? "isActive" : ""}
+                        type="button"
+                        role="tab"
+                        aria-selected={index === selectedEvidenceIndex}
+                        key={source.title}
+                        onClick={() => setSelectedEvidenceIndex(index)}
+                      >
+                        <s-icon type={source.icon} size="small"></s-icon>
+                        {source.title}
+                      </button>
+                    ))}
+                  </div>
                   <EvidenceSourceCard source={selectedEvidence} featured />
-                ) : (
-                  <EmptyProductDetailState message="No stored evidence sources for this product yet." />
-                )}
-              </div>
-            </s-section>
+                </div>
+              </s-section>
+            )}
 
             <s-section padding="none">
               <div className="ppProductPanel">
@@ -1712,9 +1790,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         return (
                           <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
                             <td>
-                              <s-icon type="product" size="small"></s-icon>
-                              {issue.issue}
-                              {ignored && <s-badge tone="success">Ignored</s-badge>}
+                              <span className="ppIssueNameCell">
+                                <span className="ppIssueIcon" aria-hidden="true">
+                                  <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                                </span>
+                                <span>{issue.issue}</span>
+                                {ignored && <s-badge tone="success">Ignored</s-badge>}
+                              </span>
                             </td>
                             <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
                             <td>{issue.confidence}</td>
@@ -2369,6 +2451,14 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       <div>
         <h3>{action.title}</h3>
         <p>{action.detail}</p>
+        <span className="ppActionMetaRow">
+          {action.meta.map((meta) => (
+            <span key={`${actionId}-${meta.label}`}>
+              <s-icon type={meta.icon} size="small"></s-icon>
+              {meta.label}
+            </span>
+          ))}
+        </span>
       </div>
       {mode === "edit" ? (
         <s-button type="button" variant="secondary" disabled={pending || applied} onClick={() => onEdit(action)}>

@@ -39,6 +39,11 @@ body {
   color: var(--pp-slate-700);
 }
 
+s-app-nav s-link[data-active="true"] {
+  color: var(--pp-pulse-blue);
+  font-weight: 700;
+}
+
 .ppShell {
   display: flex;
   flex-direction: column;
@@ -468,6 +473,31 @@ s-page[inline-size="large-500"] {
 .ppSecondaryButton:hover {
   border-color: var(--pp-pulse-blue);
   color: var(--pp-pulse-blue);
+}
+
+.ppSecondaryActionButton {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppSecondaryActionButton:hover {
+  border-color: var(--pp-pulse-blue);
+  background: var(--pp-blue-soft);
+  text-decoration: none;
 }
 
 .ppEvidenceGlance {
@@ -1501,7 +1531,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppIssuesTableWrap {
-  overflow-x: auto;
+  position: relative;
+  overflow: visible;
   border: 1px solid var(--pp-slate-300);
   border-radius: 8px;
   background: var(--pp-cloud-white);
@@ -1539,12 +1570,42 @@ s-page[inline-size="large-500"] {
   opacity: 0.58;
 }
 
-.ppIssuesTable .ppIssuesEmptyRow td,
-.ppIssuesTable td:first-child {
+.ppIssuesTable .ppIssuesEmptyRow td {
   display: flex;
   align-items: center;
   gap: 7px;
   font-weight: 550;
+}
+
+.ppIssuesTable td:last-child {
+  position: relative;
+  width: 48px;
+  text-align: right;
+}
+
+.ppIssueNameCell {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--pp-slate-900);
+  font-weight: 650;
+}
+
+.ppIssueNameCell > span:nth-child(2) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ppIssueIcon {
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
 }
 
 .ppIssuesTable .ppIssuesEmptyRow td {
@@ -1631,13 +1692,42 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
 }
 
+.ppActionMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.ppActionMetaRow > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.ppActionMetaRow s-icon {
+  color: var(--pp-pulse-blue);
+}
+
 .ppProductActionItem s-button,
 .ppProductActionItem form {
   justify-self: end;
+  align-self: center;
 }
 
 .ppIssueActionMenu {
   width: 210px;
+  z-index: 90;
 }
 
 .ppActionDraftEditor {
@@ -3004,11 +3094,24 @@ s-page[inline-size="large-500"] {
   gap: 12px;
 }
 
+.ppProductsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ppProductsScreen.isScanning .ppProductsContent {
+  filter: blur(3px);
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
 .ppProductsToolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
   gap: 12px;
-  padding: 22px;
+  padding: 18px;
 }
 
 .ppProductsSearch {
@@ -3051,7 +3154,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductsActions {
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .ppProductsFilters {
@@ -3192,13 +3295,6 @@ s-page[inline-size="large-500"] {
   overflow-y: visible;
 }
 
-.ppProductsTableWrap.isScanning .ppProductsTable {
-  filter: blur(3px);
-  opacity: 0.58;
-  pointer-events: none;
-  user-select: none;
-}
-
 .ppProductsTable {
   width: 100%;
   min-width: 1180px;
@@ -3299,14 +3395,14 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductsScanOverlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 5;
+  z-index: 80;
   display: grid;
   place-items: center;
-  min-width: 1180px;
   padding: 32px;
-  background: rgba(var(--pp-slate-100-rgb), 0.34);
+  background: rgba(var(--pp-slate-100-rgb), 0.18);
+  backdrop-filter: blur(2px);
 }
 
 .ppProductsScanOverlay > div {
@@ -3440,12 +3536,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductsPagination {
-  min-height: 74px;
+  min-height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 24px;
+  padding: 8px 18px;
   border-top: 1px solid var(--pp-slate-200);
 }
 
@@ -4405,7 +4501,7 @@ s-page[inline-size="large-500"] {
 
   .ppProductActionItem s-button,
   .ppProductActionItem form {
-    justify-self: start;
+    justify-self: end;
   }
 
   .ppProductsActions {
