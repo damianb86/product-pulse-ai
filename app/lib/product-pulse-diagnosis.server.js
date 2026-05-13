@@ -2073,6 +2073,24 @@ function normalizeJudgeMeReview(review, snapshot, product) {
   };
 }
 
+function getReturnCustomerLanguageText(item) {
+  const rawReason = String(item?.reason || item?.reasonLabel || "").replace(/\s+/g, " ").trim();
+  const reason = isGenericOtherReason(rawReason) || isDefaultCustomerLanguageTerm(rawReason)
+    ? ""
+    : rawReason;
+  const noteText = [item?.reasonNote, item?.customerNote]
+    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ");
+  return [reason, noteText].filter(Boolean).join(" - ");
+}
+
+function getCustomerAnalysisText(item) {
+  return String(item?.analysisText || item?.noteText || item?.text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function getJudgeMeReviewMatchConfidence(review, snapshot, product) {
   const numericId = String(product.numericId || extractNumericShopifyId(snapshot.productGid) || "");
   const identifiers = [
@@ -2101,7 +2119,7 @@ function getJudgeMeReviewMatchConfidence(review, snapshot, product) {
 function buildSignalEvents({ returns, refunds, negativeReviews }) {
   return [
     ...returns.map((item) => {
-      const text = [item.reason, item.reasonNote, item.customerNote].filter(Boolean).join(" ");
+      const text = getReturnCustomerLanguageText(item);
       return {
         type: "return",
         createdAt: item.createdAt,
@@ -2131,19 +2149,16 @@ function buildSignalEvents({ returns, refunds, negativeReviews }) {
         issueCode: classifyIssueText(text),
       };
     }),
-  ].filter((item) => item.createdAt);
+  ].filter((item) => item.createdAt && String(item.text || "").trim());
 }
 
 function buildIssueSignalCounts({ returns, refunds, reviews }) {
   const counts = {};
   [...returns, ...reviews].forEach((item) => {
-    const text = [
-      item.reason,
-      item.reasonNote,
-      item.customerNote,
-      item.title,
-      item.body,
-    ].filter(Boolean).join(" ");
+    const text = item.source === "returns" || item.reason || item.reasonNote || item.customerNote
+      ? getReturnCustomerLanguageText(item)
+      : [item.title, item.body].filter(Boolean).join(" ");
+    if (!text.trim()) return;
     const issue = classifyIssueText(text);
     counts[issue] = (counts[issue] || 0) + 1;
   });
@@ -2161,21 +2176,24 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
     .map((item) => {
       const reason = String(item.reason || "").trim();
       const noteText = [item.reasonNote, item.customerNote].filter(Boolean).join(" ");
-      const text = [reason, noteText].filter(Boolean).join(" - ");
-      if (!text.trim()) return null;
-      const issueCode = classifyIssueText(noteText || reason);
+      const isOther = isGenericOtherReason(reason);
+      const analysisText = getReturnCustomerLanguageText(item);
+      const text = analysisText || noteText;
+      if (!analysisText.trim()) return null;
+      const issueCode = classifyIssueText(analysisText);
       return {
         source: "returns",
         text,
+        analysisText,
         reason,
         noteText,
         issueCode,
-        sentiment: classifyCustomerSentiment(text),
-        emotion: classifyCustomerEmotion(text),
-        subjectiveNegative: isSubjectiveNegativeText(text),
+        sentiment: classifyCustomerSentiment(analysisText),
+        emotion: classifyCustomerEmotion(analysisText),
+        subjectiveNegative: isSubjectiveNegativeText(analysisText),
         createdAt: item.createdAt,
         variant: item.variantTitle || item.sku || "",
-        isOther: isGenericOtherReason(reason),
+        isOther,
       };
     })
     .filter(Boolean);
@@ -2186,6 +2204,7 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
       return {
         source: "reviews",
         text,
+        analysisText: text,
         rating: Number(review.rating || 0),
         issueCode: classifyIssueText(text),
         sentiment: classifyCustomerSentiment(text, Number(review.rating || 0)),
@@ -2432,13 +2451,15 @@ function getSubjectiveEvidencePolicyText(summary) {
 function extractRepeatedLanguage(items) {
   const counts = new Map();
   items.forEach((item) => {
-    const tokens = meaningfulTokens(item.text).filter((token) => token.length > 3);
+    const analysisText = getCustomerAnalysisText(item);
+    if (!analysisText) return;
+    const tokens = meaningfulTokens(analysisText).filter((token) => token.length > 3);
     const phrases = new Set([
       ...tokens,
       ...tokens.slice(0, -1).map((token, index) => `${token} ${tokens[index + 1]}`),
     ]);
     phrases.forEach((term) => {
-      if (term.length < 4 || CUSTOMER_TEXT_STOP_WORDS.has(term)) return;
+      if (term.length < 4 || isDefaultCustomerLanguageTerm(term)) return;
       const current = counts.get(term) || {
         term,
         count: 0,
@@ -2450,7 +2471,7 @@ function extractRepeatedLanguage(items) {
       current.count += 1;
       current.sources.add(item.source);
       current.sentiments[item.sentiment] = (current.sentiments[item.sentiment] || 0) + 1;
-      if (!current.example) current.example = truncateText(item.text, 140);
+      if (!current.example) current.example = truncateText(analysisText, 140);
       counts.set(term, current);
     });
   });
@@ -2512,6 +2533,15 @@ function isGenericOtherReason(value) {
   return /(^|\s)(other|unknown|not listed|uncategorized|misc|miscellaneous)(\s|$)/i.test(String(value || ""));
 }
 
+function isDefaultCustomerLanguageTerm(value) {
+  const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return true;
+  if (CUSTOMER_TEXT_STOP_WORDS.has(normalized)) return true;
+  if (DEFAULT_CUSTOMER_LANGUAGE_PHRASES.has(normalized)) return true;
+  const tokens = normalized.split(" ").filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => CUSTOMER_TEXT_STOP_WORDS.has(token));
+}
+
 const CUSTOMER_TEXT_STOP_WORDS = new Set([
   "with",
   "from",
@@ -2523,13 +2553,44 @@ const CUSTOMER_TEXT_STOP_WORDS = new Set([
   "very",
   "product",
   "return",
+  "returns",
   "returned",
+  "reason",
+  "reasons",
   "refund",
+  "refunds",
   "order",
   "item",
   "customer",
   "review",
+  "selected",
+  "select",
+  "default",
   "other",
+  "unknown",
+  "misc",
+  "miscellaneous",
+  "uncategorized",
+]);
+
+const DEFAULT_CUSTOMER_LANGUAGE_PHRASES = new Set([
+  "other reason",
+  "other reasons",
+  "return reason",
+  "return reasons",
+  "refund reason",
+  "refund reasons",
+  "reason selected",
+  "selected reason",
+  "default reason",
+  "customer reason",
+  "customer note",
+  "reason note",
+  "not listed",
+  "unknown reason",
+  "misc reason",
+  "miscellaneous reason",
+  "uncategorized reason",
 ]);
 
 function getMainIssueFromCounts(counts, fallback) {
@@ -2856,7 +2917,7 @@ function calculateEstimatedImpact({
 function buildEvidenceSnippets({ returns, refunds, reviews, product }) {
   const snippets = [];
   returns.slice(0, 30).forEach((item) => {
-    const text = [item.reason, item.reasonNote, item.customerNote].filter(Boolean).join(" - ");
+    const text = getReturnCustomerLanguageText(item);
     if (!text) return;
     snippets.push({
       source: "shopify_return_note",

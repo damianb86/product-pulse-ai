@@ -146,6 +146,48 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.returns.examples[0].text).toContain("Scares me");
   });
 
+  it("excludes default return-reason context from repeated customer language", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [
+        {
+          reason: "Other reason",
+          reasonNote: "Scares me more than nothing.",
+          customerNote: "",
+          createdAt: "2026-05-13T12:00:00Z",
+        },
+        {
+          reason: "Other reason",
+          reasonNote: "Scares me more than anything.",
+          customerNote: "",
+          createdAt: "2026-05-13T12:05:00Z",
+        },
+      ],
+      reviews: [],
+    });
+    const terms = insights.repeatedLanguage.map((item) => item.term);
+
+    expect(terms).toContain("scares");
+    expect(terms).not.toContain("other");
+    expect(terms).not.toContain("reason");
+    expect(terms).not.toContain("other reason");
+    expect(insights.returns.examples[0].text).not.toContain("Other reason");
+  });
+
+  it("ignores generic Other return reasons when there is no customer note", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [{
+        reason: "Other reason",
+        reasonNote: "",
+        customerNote: "",
+        createdAt: "2026-05-13T12:00:00Z",
+      }],
+      reviews: [],
+    });
+
+    expect(insights.sentiment.total).toBe(0);
+    expect(insights.repeatedLanguage).toEqual([]);
+  });
+
   it("keeps single subjective signals low-confidence while repeated subjective evidence escalates", () => {
     const baseMetrics = {
       soldUnits: 0,
