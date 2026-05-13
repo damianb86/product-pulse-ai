@@ -3198,6 +3198,140 @@ s-page[inline-size="large-500"] {
   color: var(--pp-success-green);
 }
 
+.ppAnalysisConfirmOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 82;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(var(--pp-shadow-rgb), 0.44);
+}
+
+.ppAnalysisConfirmModal {
+  width: min(520px, 100%);
+  padding: 22px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  box-shadow: 0 28px 80px rgba(var(--pp-shadow-rgb), 0.24);
+}
+
+.ppAnalysisConfirmHeader {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.ppAnalysisConfirmIcon {
+  width: 46px;
+  height: 46px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--pp-pulse-blue), var(--pp-insight-violet));
+  color: var(--pp-cloud-white);
+}
+
+.ppAnalysisConfirmIcon s-icon,
+.ppAnalysisConfirmFooter .ppPrimaryButton s-icon {
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
+}
+
+.ppAnalysisConfirmHeader span {
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppAnalysisConfirmHeader h2 {
+  margin: 2px 0 5px;
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+
+.ppAnalysisConfirmHeader p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ppAnalysisConfirmCost {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-top: 18px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 10px;
+  background: var(--pp-blue-soft);
+}
+
+.ppAnalysisConfirmCost span,
+.ppAnalysisConfirmProducts span {
+  display: block;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppAnalysisConfirmCost strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--pp-midnight-ink);
+  font-size: 18px;
+}
+
+.ppAnalysisConfirmCost small {
+  max-width: 250px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.ppAnalysisConfirmProducts {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-mist-gray);
+}
+
+.ppAnalysisConfirmProducts ul {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppAnalysisConfirmProducts li {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppAnalysisConfirmFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .ppProductsScreen {
   gap: 12px;
 }

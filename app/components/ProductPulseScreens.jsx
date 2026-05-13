@@ -640,6 +640,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [selectedProducts, setSelectedProducts] = useState(() => new Set());
   const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
   const [searchValue, setSearchValue] = useState(filters.query || "");
+  const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const productCount = data.productTable?.total ?? productRows.length;
@@ -652,6 +653,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
   const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
+  const pendingAnalyzeIds = pendingBulkAnalyze ? Array.from(navigation.formData?.getAll("productId") || []).map(String) : [];
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
   const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
   const visibleProductKeys = productRows.map(getProductActionKey);
@@ -704,8 +706,9 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   ]);
 
   useEffect(() => {
-    if (actionData?.status === "success" && actionData?.analyzedCount) {
+    if (actionData?.status === "success" && (actionData?.analyzedCount || actionData?.queuedCount)) {
       setSelectedProducts(new Set());
+      setAnalysisConfirmation(null);
     }
   }, [actionData]);
 
@@ -765,9 +768,37 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const handleAnalyzeSelected = () => {
     if (!selectedCount || pendingBulkAnalyze) return;
+    const selectedIds = Array.from(selectedProducts);
+    const selectedRows = productRows.filter((product) => selectedProducts.has(getProductActionKey(product)));
+    setAnalysisConfirmation({
+      mode: "bulk",
+      title: "Confirm selected product analysis",
+      products: selectedIds,
+      productTitles: selectedRows.map((product) => product.title),
+      count: selectedIds.length,
+      credits: selectedIds.length,
+    });
+  };
+
+  const handleAnalyzeProduct = (product) => {
+    if (pendingBulkAnalyze) return;
+    const productId = getProductActionKey(product);
+    setOpenActionProduct(null);
+    setAnalysisConfirmation({
+      mode: "single",
+      title: "Confirm product analysis",
+      products: [productId],
+      productTitles: [product.title],
+      count: 1,
+      credits: product.credits || 1,
+    });
+  };
+
+  const handleConfirmAnalysis = () => {
+    if (!analysisConfirmation?.products?.length || pendingBulkAnalyze) return;
     const formData = new FormData();
     formData.set("_action", "bulk-diagnose");
-    selectedProducts.forEach((productId) => formData.append("productId", productId));
+    analysisConfirmation.products.forEach((productId) => formData.append("productId", productId));
     submit(formData, { method: "post" });
   };
 
@@ -939,9 +970,15 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       <td>{product.credits}</td>
                       <td>
                         <div className="ppTableAction">
-                          <Link className="ppAnalyzeLinkButton ppAnalyzeIconOnly" to={product.href} aria-label="Analyze product">
+                          <button
+                            className="ppAnalyzeLinkButton ppAnalyzeIconOnly"
+                            type="button"
+                            aria-label={`Analyze ${product.title}`}
+                            disabled={pendingBulkAnalyze}
+                            onClick={() => handleAnalyzeProduct(product)}
+                          >
                             <s-icon type="wand" size="small"></s-icon>
-                          </Link>
+                          </button>
                           <ProductActionMenu
                             product={product}
                             open={openActionProduct === actionKey}
@@ -1012,8 +1049,77 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           </div>
         </div>
       )}
+      {analysisConfirmation && (
+        <ProductAnalysisConfirmModal
+          confirmation={analysisConfirmation}
+          pending={pendingBulkAnalyze}
+          pendingIds={pendingAnalyzeIds}
+          onCancel={() => setAnalysisConfirmation(null)}
+          onConfirm={handleConfirmAnalysis}
+        />
+      )}
     </FullWidthPage>
   );
+}
+
+function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCancel, onConfirm }) {
+  const productTitles = Array.isArray(confirmation.productTitles) ? confirmation.productTitles.filter(Boolean) : [];
+  const hiddenCount = Math.max(0, confirmation.count - productTitles.length);
+  const isSingle = confirmation.count === 1;
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal" role="dialog" aria-modal="true" aria-labelledby="analysis-confirm-title">
+        <div className="ppAnalysisConfirmHeader">
+          <span className="ppAnalysisConfirmIcon" aria-hidden="true">
+            <s-icon type="wand" size="small"></s-icon>
+          </span>
+          <div>
+            <span>AI Product Diagnosis</span>
+            <h2 id="analysis-confirm-title">{confirmation.title}</h2>
+            <p>
+              {isSingle
+                ? "This will queue a detailed AI diagnosis for this product."
+                : `This will queue detailed AI diagnoses for ${confirmation.count} selected products. Jobs will run one at a time.`}
+            </p>
+          </div>
+        </div>
+
+        <div className="ppAnalysisConfirmCost">
+          <div>
+            <span>Estimated cost</span>
+            <strong>{confirmation.credits} credit{confirmation.credits === 1 ? "" : "s"}</strong>
+          </div>
+          <small>1 credit per product diagnosis. Confirming will start background jobs.</small>
+        </div>
+
+        {productTitles.length > 0 && (
+          <div className="ppAnalysisConfirmProducts">
+            <span>{isSingle ? "Product" : "Products"}</span>
+            <ul>
+              {productTitles.slice(0, 5).map((title) => (
+                <li key={title}>{title}</li>
+              ))}
+              {hiddenCount > 0 && <li>{hiddenCount} more selected product{hiddenCount === 1 ? "" : "s"}</li>}
+            </ul>
+          </div>
+        )}
+
+        <div className="ppAnalysisConfirmFooter">
+          <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className="ppPrimaryButton" type="button" onClick={onConfirm} disabled={pending}>
+            <s-icon type="wand" size="small"></s-icon>
+            {pending ? getPendingAnalysisLabel(pendingIds) : "Accept cost and run analysis"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function getPendingAnalysisLabel(pendingIds) {
+  const count = Array.isArray(pendingIds) ? pendingIds.length : 0;
+  return count > 1 ? "Queuing analyses..." : "Queuing analysis...";
 }
 
 function FastScanButton({ pending, onStart }) {
