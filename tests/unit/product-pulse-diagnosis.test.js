@@ -87,9 +87,22 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(latestQuery).toContain("returnReasonNote");
     expect(latestQuery).toContain("customerNote");
     expect(latestQuery).toContain("sortKey: UPDATED_AT");
+    expect(latestQuery).toContain("orders(first: $ordersFirst");
+    expect(latestQuery).toContain("returns(first: $returnsFirst");
+    expect(latestQuery).toContain("returnLineItems(first: $returnLineItemsFirst");
     expect(legacyQuery).not.toContain("returnReasonDefinition");
     expect(legacyQuery).toContain("returnReasonNote");
     expect(legacyQuery).toContain("customerNote");
+  });
+
+  it("can omit variant product data for the lowest-cost return query fallback", () => {
+    const fallbackQuery = __productPulseDiagnosisTestHooks.buildDiagnosisReturnsQuery({
+      includeReasonDefinition: true,
+      includeVariantProduct: false,
+    });
+
+    expect(fallbackQuery).toContain("variant {");
+    expect(fallbackQuery).not.toMatch(/variant\s*{[\s\S]*?product\s*{/);
   });
 
   it("uses return status queries as a fallback to updated order search", () => {
@@ -102,6 +115,12 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       "inspection_complete",
       "returned",
     ]);
+  });
+
+  it("detects Shopify query-cost limit errors for retry", () => {
+    const error = new Error("Query cost is 1492, which exceeds the single query max cost limit (1000).");
+
+    expect(__productPulseDiagnosisTestHooks.isShopifyQueryCostLimitError(error)).toBe(true);
   });
 
   it("classifies fear language without objective danger as a subjective negative reaction", () => {

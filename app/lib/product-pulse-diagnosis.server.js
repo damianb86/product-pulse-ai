@@ -12,6 +12,14 @@ const MAX_ORDER_PAGES = 5;
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
+const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
+const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
+const DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
+const DIAGNOSIS_RETURN_QUERY_PLANS = [
+  { label: "balanced", ordersFirst: 8, returnsFirst: 3, returnLineItemsFirst: 15, includeVariantProduct: true },
+  { label: "low-cost", ordersFirst: 5, returnsFirst: 2, returnLineItemsFirst: 10, includeVariantProduct: true },
+  { label: "minimal", ordersFirst: 4, returnsFirst: 2, returnLineItemsFirst: 8, includeVariantProduct: false },
+];
 
 export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
   const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot });
@@ -275,8 +283,8 @@ async function fetchShopifySalesEvents({ admin, product, snapshot }) {
     const data = await shopifyGraphql(
       admin,
       `#graphql
-      query ProductPulseDiagnosisSales($after: String, $query: String!) {
-        orders(first: 20, after: $after, query: $query) {
+      query ProductPulseDiagnosisSales($after: String, $query: String!, $ordersFirst: Int!, $lineItemsFirst: Int!) {
+        orders(first: $ordersFirst, after: $after, query: $query) {
           pageInfo {
             hasNextPage
             endCursor
@@ -284,7 +292,7 @@ async function fetchShopifySalesEvents({ admin, product, snapshot }) {
           nodes {
             id
             createdAt
-            lineItems(first: 50) {
+            lineItems(first: $lineItemsFirst) {
               nodes {
                 id
                 quantity
@@ -314,7 +322,12 @@ async function fetchShopifySalesEvents({ admin, product, snapshot }) {
           }
         }
       }`,
-      { after: cursor, query: `created_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}` },
+      {
+        after: cursor,
+        query: `created_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}`,
+        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
+        lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
+      },
     );
 
     (data?.orders?.nodes || []).forEach((order) => {
@@ -351,8 +364,8 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
     const data = await shopifyGraphql(
       admin,
       `#graphql
-      query ProductPulseDiagnosisRefunds($after: String, $query: String!) {
-        orders(first: 20, after: $after, query: $query) {
+      query ProductPulseDiagnosisRefunds($after: String, $query: String!, $ordersFirst: Int!, $refundLineItemsFirst: Int!) {
+        orders(first: $ordersFirst, after: $after, query: $query) {
           pageInfo {
             hasNextPage
             endCursor
@@ -363,7 +376,7 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
             refunds {
               id
               createdAt
-              refundLineItems(first: 25) {
+              refundLineItems(first: $refundLineItemsFirst) {
                 nodes {
                   id
                   quantity
@@ -398,7 +411,12 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
           }
         }
       }`,
-      { after: cursor, query: `updated_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}` },
+      {
+        after: cursor,
+        query: `updated_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}`,
+        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
+        refundLineItemsFirst: DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE,
+      },
     );
 
     (data?.orders?.nodes || []).forEach((order) => {
@@ -449,6 +467,32 @@ async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot 
 }
 
 async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition }) {
+  for (const [index, queryPlan] of DIAGNOSIS_RETURN_QUERY_PLANS.entries()) {
+    try {
+      return await fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan });
+    } catch (error) {
+      const nextPlan = DIAGNOSIS_RETURN_QUERY_PLANS[index + 1];
+      if (!isShopifyQueryCostLimitError(error) || !nextPlan) throw error;
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.shopify_return_query_cost_retried",
+        message: `Shopify rejected the ${queryPlan.label} return query cost; retrying with ${nextPlan.label} limits.`,
+        data: {
+          productGid: snapshot.productGid,
+          failedPlan: queryPlan,
+          nextPlan,
+          error: serializeError(error),
+        },
+      });
+    }
+  }
+
+  return [];
+}
+
+async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan }) {
   if (!admin?.graphql) return [];
   const events = [];
   let cursor = null;
@@ -460,6 +504,13 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
     queryModes: [],
     unmatchedSamples: [],
     includeReasonDefinition,
+    queryPlan: queryPlan.label,
+    queryLimits: {
+      ordersFirst: queryPlan.ordersFirst,
+      returnsFirst: queryPlan.returnsFirst,
+      returnLineItemsFirst: queryPlan.returnLineItemsFirst,
+      includeVariantProduct: queryPlan.includeVariantProduct,
+    },
   };
   const seenReturnLineItemIds = new Set();
   const orderQueries = buildReturnOrderQueries(DIAGNOSIS_WINDOW_DAYS);
@@ -471,8 +522,14 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
     for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
       const data = await shopifyGraphql(
         admin,
-        buildDiagnosisReturnsQuery({ includeReasonDefinition }),
-        { after: cursor, query: orderQuery.query },
+        buildDiagnosisReturnsQuery({ includeReasonDefinition, includeVariantProduct: queryPlan.includeVariantProduct }),
+        {
+          after: cursor,
+          query: orderQuery.query,
+          ordersFirst: queryPlan.ordersFirst,
+          returnsFirst: queryPlan.returnsFirst,
+          returnLineItemsFirst: queryPlan.returnLineItemsFirst,
+        },
       );
 
       getNodes(data?.orders).forEach((order) => {
@@ -559,10 +616,16 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
   return events;
 }
 
-function buildDiagnosisReturnsQuery({ includeReasonDefinition = true } = {}) {
+function buildDiagnosisReturnsQuery({ includeReasonDefinition = true, includeVariantProduct = true } = {}) {
   return `#graphql
-      query ProductPulseDiagnosisReturns($after: String, $query: String!) {
-        orders(first: 20, after: $after, query: $query, sortKey: UPDATED_AT, reverse: true) {
+      query ProductPulseDiagnosisReturns(
+        $after: String,
+        $query: String!,
+        $ordersFirst: Int!,
+        $returnsFirst: Int!,
+        $returnLineItemsFirst: Int!
+      ) {
+        orders(first: $ordersFirst, after: $after, query: $query, sortKey: UPDATED_AT, reverse: true) {
           pageInfo {
             hasNextPage
             endCursor
@@ -570,12 +633,12 @@ function buildDiagnosisReturnsQuery({ includeReasonDefinition = true } = {}) {
           nodes {
             id
             createdAt
-            returns(first: 20) {
+            returns(first: $returnsFirst) {
               nodes {
                 id
                 createdAt
                 status
-                returnLineItems(first: 50) {
+                returnLineItems(first: $returnLineItemsFirst) {
                   nodes {
                     ... on ReturnLineItem {
                       id
@@ -610,12 +673,13 @@ function buildDiagnosisReturnsQuery({ includeReasonDefinition = true } = {}) {
                               name
                               value
                             }
+                            ${includeVariantProduct ? `
                             product {
                               id
                               legacyResourceId
                               handle
                               title
-                            }
+                            }` : ""}
                           }
                         }
                       }
@@ -3052,6 +3116,11 @@ function isMissingReturnReasonDefinitionError(error) {
   return message.includes("returnreasondefinition") && message.includes("doesn") && message.includes("returnlineitem");
 }
 
+function isShopifyQueryCostLimitError(error) {
+  const message = `${error?.message || ""} ${JSON.stringify(error?.graphqlErrors || [])}`.toLowerCase();
+  return message.includes("query cost") && message.includes("exceeds") && message.includes("max cost");
+}
+
 function extractNumericShopifyId(gid) {
   return String(gid || "").split("/").pop() || "";
 }
@@ -3103,6 +3172,7 @@ export const __productPulseDiagnosisTestHooks = {
   calculateConfidence,
   calculateRiskScore,
   classifyIssueText,
+  isShopifyQueryCostLimitError,
   lineItemMatchesProduct,
 };
 
