@@ -200,6 +200,10 @@ describe("ProductPulse screens", () => {
         action: "Review fear/safety language",
       }],
       evidence: [{
+        source: "Customer language analysis",
+        quote: "Dominant sentiment: negative",
+        weight: "4 customer text signals analyzed",
+      }, {
         source: "Shopify returns",
         quote: "OTHER, too small",
         weight: "4 return units, 18% return rate",
@@ -208,13 +212,45 @@ describe("ProductPulse screens", () => {
           "\"Other\" notes classified as Fit & sizing 2 times",
         ],
       }],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        textInsights: {
+          sentiment: { total: 4, negative: 3, neutral: 1, positive: 0 },
+          returns: {
+            sentiment: { total: 3, negative: 2, neutral: 1, positive: 0 },
+            emotions: [{ code: "fear", label: "Fear", polarity: "negative", count: 2 }],
+            examples: [{
+              text: "Other - Scares me more than nothing. I want them to take him away.",
+              sentiment: "negative",
+              emotion: "fear",
+            }],
+          },
+          reviews: {
+            sentiment: { total: 1, negative: 1, neutral: 0, positive: 0 },
+            emotions: [{ code: "disappointment", label: "Disappointment", polarity: "negative", count: 1 }],
+            examples: [],
+          },
+          emotions: [
+            { code: "fear", label: "Fear", polarity: "negative", count: 2 },
+            { code: "disappointment", label: "Disappointment", polarity: "negative", count: 1 },
+          ],
+          aiKnownEmotions: [{ code: "fear", label: "Fear", polarity: "negative", count: 2 }],
+          aiEmergentSentiments: [{ label: "Superstitious discomfort", normalizedLabel: "superstitious_discomfort", polarity: "negative", signals: 2 }],
+          otherReturnClassifications: [{ issueCode: "fit_sizing", label: "Fit & sizing", count: 2 }],
+        },
+      },
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     expect(screen.getByText("Fear or safety concern")).toBeInTheDocument();
-    expect(screen.getByText(/Scares me more than nothing/)).toBeInTheDocument();
-    expect(screen.getByText("Return-note sentiment: 2 negative, 1 neutral, 0 positive")).toBeInTheDocument();
-    expect(screen.getByText("\"Other\" notes classified as Fit & sizing 2 times")).toBeInTheDocument();
+    expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("tab", { name: /Customer language analysis/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("All customer text sentiment: 3 negative, 1 neutral, 0 positive")).toBeInTheDocument();
+    expect(screen.getByText("Deterministic emotion taxonomy: Fear 2, Disappointment 1")).toBeInTheDocument();
+    expect(screen.getByText("AI emotion taxonomy: Fear 2")).toBeInTheDocument();
+    expect(screen.getByText("Emergent emotions: Superstitious discomfort 2")).toBeInTheDocument();
+    expect(screen.getByText("Return notes sentiment: 2 negative, 1 neutral, 0 positive")).toBeInTheDocument();
+    expect(screen.getByText("\"Other\" return notes classified as Fit & sizing 2 times")).toBeInTheDocument();
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
   });
 

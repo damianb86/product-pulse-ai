@@ -1594,15 +1594,19 @@ function getMainFindingTitle(issueCategory) {
 function getProductEvidenceSources(product) {
   if (!product.evidence?.length) return [];
 
-  return product.evidence.map((item) => ({
-    icon: getEvidenceIcon(item.source),
-    title: `${item.source}`,
-    points: getEvidencePoints(item, product),
-  }));
+  return product.evidence
+    .map((item) => ({
+      icon: getEvidenceIcon(item.source),
+      title: `${item.source}`,
+      points: getEvidencePoints(item, product),
+      priority: getEvidenceSourcePriority(item.source),
+    }))
+    .sort((first, second) => first.priority - second.priority);
 }
 
 function getEvidencePoints(item, product) {
   const metrics = product.metrics || {};
+  const textInsights = metrics.textInsights || {};
   const normalized = String(item.source || "").toLowerCase();
   const points = [
     item.quote,
@@ -1615,6 +1619,8 @@ function getEvidencePoints(item, product) {
     if (Number(metrics.returnUnits || 0) > 0) points.push(`${formatInteger(metrics.returnUnits)} return units analyzed`);
     if (Number(metrics.returnRate || 0) > 0) points.push(`${metrics.returnRate}% return rate in the scan window`);
     if (Array.isArray(metrics.topReturnReasons) && metrics.topReturnReasons.length) points.push(`Top reasons: ${metrics.topReturnReasons.join(", ")}`);
+    if (textInsights.returns?.sentiment?.total) points.push(formatSentimentPoint("Return notes", textInsights.returns.sentiment));
+    if (Array.isArray(textInsights.returns?.emotions) && textInsights.returns.emotions.length) points.push(`Return-note emotions: ${formatEvidenceEmotionCounts(textInsights.returns.emotions)}`);
   }
 
   if (normalized.includes("refund")) {
@@ -1629,6 +1635,32 @@ function getEvidencePoints(item, product) {
     if (Number(metrics.negativeReviewCount || 0) > 0) points.push(`${formatInteger(metrics.negativeReviewCount)} negative reviews`);
     if (Number(metrics.negativeReviewRate || 0) > 0) points.push(`${metrics.negativeReviewRate}% negative review rate`);
     if (Number(metrics.recentNegativeReviewCount || 0) > 0) points.push(`${formatInteger(metrics.recentNegativeReviewCount)} recent negative reviews`);
+    if (textInsights.reviews?.sentiment?.total) points.push(formatSentimentPoint("Review text", textInsights.reviews.sentiment));
+    if (Array.isArray(textInsights.reviews?.emotions) && textInsights.reviews.emotions.length) points.push(`Review emotions: ${formatEvidenceEmotionCounts(textInsights.reviews.emotions)}`);
+  }
+
+  if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) {
+    if (textInsights.sentiment?.total) points.push(formatSentimentPoint("All customer text", textInsights.sentiment));
+    if (textInsights.returns?.sentiment?.total) points.push(formatSentimentPoint("Return notes", textInsights.returns.sentiment));
+    if (textInsights.reviews?.sentiment?.total) points.push(formatSentimentPoint("Review text", textInsights.reviews.sentiment));
+    if (Array.isArray(textInsights.emotions) && textInsights.emotions.length) points.push(`Deterministic emotion taxonomy: ${formatEvidenceEmotionCounts(textInsights.emotions)}`);
+    if (Array.isArray(textInsights.aiKnownEmotions) && textInsights.aiKnownEmotions.length) points.push(`AI emotion taxonomy: ${formatEvidenceEmotionCounts(textInsights.aiKnownEmotions)}`);
+    if (Array.isArray(textInsights.aiEmergentSentiments) && textInsights.aiEmergentSentiments.length) points.push(`Emergent emotions: ${formatEvidenceEmotionCounts(textInsights.aiEmergentSentiments)}`);
+    if (Array.isArray(textInsights.otherReturnClassifications) && textInsights.otherReturnClassifications.length) {
+      textInsights.otherReturnClassifications.slice(0, 5).forEach((item) => {
+        points.push(`"Other" return notes classified as ${item.label} ${item.count} time${Number(item.count || 0) === 1 ? "" : "s"}`);
+      });
+    }
+    if (Array.isArray(textInsights.returns?.examples) && textInsights.returns.examples.length) {
+      textInsights.returns.examples.slice(0, 4).forEach((example) => {
+        points.push(`Return note example (${example.sentiment}${example.emotion && example.emotion !== "none" ? `, ${formatEvidenceEmotionLabel(example.emotion)}` : ""}): "${example.text}"`);
+      });
+    }
+    if (Array.isArray(textInsights.reviews?.examples) && textInsights.reviews.examples.length) {
+      textInsights.reviews.examples.slice(0, 3).forEach((example) => {
+        points.push(`Review example (${example.sentiment}${example.emotion && example.emotion !== "none" ? `, ${formatEvidenceEmotionLabel(example.emotion)}` : ""}): "${example.text}"`);
+      });
+    }
   }
 
   if (normalized.includes("product") || normalized.includes("shopify")) {
@@ -1648,7 +1680,36 @@ function getEvidencePoints(item, product) {
   if (Number(metrics.signalCount || 0) > 0) points.push(`${formatInteger(metrics.signalCount)} total signals in current diagnosis`);
   if (metrics.lastSignalAt) points.push(`Last signal captured ${formatProductAnalysisDate(metrics.lastSignalAt)}`);
 
-  return [...new Set(points)].slice(0, 10);
+  const maxPoints = normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer") ? 22 : 12;
+  return [...new Set(points)].slice(0, maxPoints);
+}
+
+function getEvidenceSourcePriority(source) {
+  const normalized = String(source || "").toLowerCase();
+  if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) return 0;
+  if (normalized.includes("return")) return 1;
+  if (normalized.includes("review") || normalized.includes("judge")) return 2;
+  if (normalized.includes("refund")) return 3;
+  if (normalized.includes("product") || normalized.includes("shopify")) return 4;
+  if (normalized.includes("variant")) return 5;
+  return 10;
+}
+
+function formatSentimentPoint(label, sentiment = {}) {
+  return `${label} sentiment: ${Number(sentiment.negative || 0)} negative, ${Number(sentiment.neutral || 0)} neutral, ${Number(sentiment.positive || 0)} positive`;
+}
+
+function formatEvidenceEmotionCounts(items = []) {
+  return items
+    .filter((item) => item?.label && Number(item.count || item.signals || 0) > 0)
+    .map((item) => `${item.label} ${Number(item.count || item.signals || 0)}`)
+    .join(", ");
+}
+
+function formatEvidenceEmotionLabel(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getEvidenceIcon(source) {

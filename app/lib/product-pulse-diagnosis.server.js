@@ -40,6 +40,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       negativeReviewCount: deterministic.metrics.negativeReviewCount,
       customerTextSignals: deterministic.metrics.textInsights?.sentiment?.total || 0,
       negativeTextSignals: deterministic.metrics.textInsights?.sentiment?.negative || 0,
+      deterministicEmotionCounts: deterministic.metrics.textInsights?.emotions || [],
       otherReturnClassifications: deterministic.metrics.textInsights?.otherReturnClassifications || [],
       riskScore: deterministic.riskScore,
       confidence: deterministic.confidence,
@@ -51,6 +52,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
 
   const ai = await runProductDiagnosisAiAnalysis({ shop, jobId, input: aiInput });
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
+  const knownEmotions = normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights);
   await recordJobLog({
     shop,
     jobId,
@@ -60,6 +62,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       : "AI did not find emergent customer sentiments with enough evidence.",
     data: {
       productGid: snapshot.productGid,
+      knownEmotions,
       emergentSentiments,
       discardedSuggestions: ai.emergentSentiments?.discarded_suggestions || [],
     },
@@ -847,6 +850,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
 function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
+  const knownEmotions = normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights);
   const adjustedRiskScore = clamp(deterministic.riskScore + contentAnalysis.additionalRiskLift, 0, 100);
   const scoredDeterministic = {
     ...deterministic,
@@ -855,6 +859,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
       ...deterministic.metrics,
       textInsights: {
         ...(deterministic.metrics.textInsights || {}),
+        aiKnownEmotions: knownEmotions,
         aiEmergentSentiments: emergentSentiments,
       },
       contentAnalysis,
@@ -892,6 +897,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
       evidenceSummary: mainFinding.summary,
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
+      knownEmotions,
       emergentSentiments,
       checkedSources: buildCheckedSources(deterministic),
     },
@@ -1352,6 +1358,76 @@ const KNOWN_CUSTOMER_SENTIMENT_CODES = new Set([
   "none",
 ]);
 
+function normalizeAiKnownEmotions(ai, textInsights = {}) {
+  const grouped = new Map();
+  let aiEmotionCount = 0;
+
+  const addEmotion = ({ code, count = 1, source = "", evidence = "" }) => {
+    const normalizedCode = normalizeEmotionCode(code);
+    if (!normalizedCode || normalizedCode === "none" || !KNOWN_CUSTOMER_SENTIMENT_CODES.has(normalizedCode)) return;
+    const current = grouped.get(normalizedCode) || {
+      code: normalizedCode,
+      label: getEmotionLabel(normalizedCode),
+      polarity: getEmotionPolarity(normalizedCode),
+      count: 0,
+      sources: new Set(),
+      examples: [],
+    };
+    current.count += Math.max(1, Number(count || 1));
+    if (source) current.sources.add(source);
+    if (evidence && current.examples.length < 3) current.examples.push(truncateText(evidence, 140));
+    grouped.set(normalizedCode, current);
+  };
+
+  (Array.isArray(ai?.classification?.classified_signals) ? ai.classification.classified_signals : []).forEach((signal) => {
+    if (normalizeEmotionCode(signal.known_emotion) && normalizeEmotionCode(signal.known_emotion) !== "none") aiEmotionCount += 1;
+    addEmotion({
+      code: signal.known_emotion,
+      source: signal.source,
+      evidence: signal.text,
+    });
+  });
+
+  (Array.isArray(ai?.classification?.granular_findings) ? ai.classification.granular_findings : []).forEach((finding) => {
+    if (normalizeEmotionCode(finding.known_emotion) && normalizeEmotionCode(finding.known_emotion) !== "none") aiEmotionCount += 1;
+    addEmotion({
+      code: finding.known_emotion,
+      count: finding.signals,
+      source: Array.isArray(finding.source_types) ? finding.source_types.join(", ") : "",
+      evidence: Array.isArray(finding.evidence) ? finding.evidence[0] : finding.finding,
+    });
+  });
+
+  (Array.isArray(ai?.classification?.repeated_language) ? ai.classification.repeated_language : []).forEach((item) => {
+    if (normalizeEmotionCode(item.known_emotion) && normalizeEmotionCode(item.known_emotion) !== "none") aiEmotionCount += 1;
+    addEmotion({
+      code: item.known_emotion,
+      count: item.count,
+      source: Array.isArray(item.source_types) ? item.source_types.join(", ") : "",
+      evidence: item.term,
+    });
+  });
+
+  if (!aiEmotionCount) {
+    (Array.isArray(textInsights.emotions) ? textInsights.emotions : []).forEach((item) => {
+      addEmotion({
+        code: item.code,
+        count: item.count,
+        source: Array.isArray(item.sources) ? item.sources.join(", ") : "",
+        evidence: Array.isArray(item.examples) ? item.examples[0] : "",
+      });
+    });
+  }
+
+  return Array.from(grouped.values())
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .map((item) => ({
+      ...item,
+      sources: Array.from(item.sources),
+    }))
+    .slice(0, 8);
+}
+
 function normalizeAiEmergentSentiments(ai) {
   const items = Array.isArray(ai?.emergentSentiments?.emergent_sentiments)
     ? ai.emergentSentiments.emergent_sentiments
@@ -1399,6 +1475,45 @@ function normalizeAiEmergentSentiment(item) {
   };
 }
 
+function normalizeEmotionCode(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+function getEmotionLabel(code) {
+  const labels = {
+    frustration: "Frustration",
+    disappointment: "Disappointment",
+    anger: "Anger",
+    fear: "Fear",
+    confusion: "Confusion",
+    distrust: "Distrust",
+    regret: "Regret",
+    uncertainty: "Uncertainty",
+    indifference: "Indifference",
+    satisfaction: "Satisfaction",
+    trust: "Trust",
+    relief: "Relief",
+    delight: "Delight",
+  };
+  return labels[code] || capitalize(String(code || "Emotion").replace(/_/g, " "));
+}
+
+function getEmotionPolarity(code) {
+  if (["satisfaction", "trust", "relief", "delight"].includes(code)) return "positive";
+  if (["uncertainty", "indifference"].includes(code)) return "neutral";
+  return "negative";
+}
+
+function formatEmotionCounts(items) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item?.label && Number(item.count || item.signals || 0) > 0)
+    .map((item) => `${item.label} ${Number(item.count || item.signals || 0)}`)
+    .join(", ");
+}
+
 function normalizePolarity(value) {
   const normalized = String(value || "").toLowerCase();
   if (normalized.includes("positive")) return "positive";
@@ -1440,6 +1555,7 @@ function getIssueTrend(deterministic, issueCode) {
 
 function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
   const textInsights = deterministic.metrics.textInsights || {};
+  const aiKnownEmotions = normalizeAiKnownEmotions(ai, textInsights);
   const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
   const evidence = [{
     source: "Shopify product",
@@ -1466,6 +1582,9 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
         returnInsights.sentiment?.total
           ? `Return-note sentiment: ${returnInsights.sentiment.negative} negative, ${returnInsights.sentiment.neutral} neutral, ${returnInsights.sentiment.positive} positive`
           : "",
+        returnInsights.emotions?.length
+          ? `Return-note emotions: ${formatEmotionCounts(returnInsights.emotions)}`
+          : "",
         ...otherClassifications.map((item) => `"Other" notes classified as ${item.label} ${item.count} time${item.count === 1 ? "" : "s"}`),
         ...((returnInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated return language: "${item.term}" (${item.count})`)),
         ...((returnInsights.examples || []).slice(0, 3).map((item) => `Return text: "${item.text}"`)),
@@ -1491,6 +1610,9 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
         reviewInsights.sentiment?.total
           ? `Review sentiment: ${reviewInsights.sentiment.negative} negative, ${reviewInsights.sentiment.neutral} neutral, ${reviewInsights.sentiment.positive} positive`
           : "",
+        reviewInsights.emotions?.length
+          ? `Review emotions: ${formatEmotionCounts(reviewInsights.emotions)}`
+          : "",
         ...((reviewInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated review language: "${item.term}" (${item.count})`)),
         ...((reviewInsights.examples || []).slice(0, 3).map((item) => `Review text: "${item.text}"`)),
       ].filter(Boolean),
@@ -1506,6 +1628,19 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
         textInsights.sentiment?.total
           ? `${textInsights.sentiment.negative} negative, ${textInsights.sentiment.neutral} neutral, ${textInsights.sentiment.positive} positive text signals`
           : "",
+        textInsights.returns?.sentiment?.total
+          ? `Returns sentiment: ${textInsights.returns.sentiment.negative} negative, ${textInsights.returns.sentiment.neutral} neutral, ${textInsights.returns.sentiment.positive} positive`
+          : "",
+        textInsights.reviews?.sentiment?.total
+          ? `Reviews sentiment: ${textInsights.reviews.sentiment.negative} negative, ${textInsights.reviews.sentiment.neutral} neutral, ${textInsights.reviews.sentiment.positive} positive`
+          : "",
+        textInsights.emotions?.length
+          ? `Known emotion taxonomy: ${formatEmotionCounts(textInsights.emotions)}`
+          : "",
+        aiKnownEmotions.length
+          ? `AI emotion taxonomy: ${formatEmotionCounts(aiKnownEmotions)}`
+          : "",
+        ...((Array.isArray(textInsights.otherReturnClassifications) ? textInsights.otherReturnClassifications : []).slice(0, 5).map((item) => `"Other" return notes classified as ${item.label} ${item.count} time${item.count === 1 ? "" : "s"}`)),
         ...((textInsights.repeatedLanguage || []).slice(0, 5).map((item) => `"${item.term}" repeated ${item.count} time${item.count === 1 ? "" : "s"} across ${item.sources.join(" and ")}`)),
         ...((Array.isArray(ai.classification?.repeated_language) ? ai.classification.repeated_language : []).slice(0, 3).map((item) => `AI repeated-language finding: "${item.term}" - ${item.explanation || item.sentiment || "review"}`)),
         ...aiEmergentSentiments.slice(0, 4).map((item) => `Emergent sentiment: ${item.label} (${item.signals} signal${item.signals === 1 ? "" : "s"}) - ${item.merchantSummary}`),
@@ -1778,6 +1913,7 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
         noteText,
         issueCode,
         sentiment: classifyCustomerSentiment(text),
+        emotion: classifyCustomerEmotion(text),
         createdAt: item.createdAt,
         variant: item.variantTitle || item.sku || "",
         isOther: isGenericOtherReason(reason),
@@ -1794,12 +1930,14 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
         rating: Number(review.rating || 0),
         issueCode: classifyIssueText(text),
         sentiment: classifyCustomerSentiment(text, Number(review.rating || 0)),
+        emotion: classifyCustomerEmotion(text, Number(review.rating || 0)),
         createdAt: review.createdAt,
       };
     })
     .filter(Boolean);
   const allTexts = [...returnTexts, ...reviewTexts];
   const sentiment = summarizeSentiment(allTexts);
+  const emotions = summarizeEmotionCounts(allTexts);
   const returnsSummary = summarizeTextSource(returnTexts);
   const reviewsSummary = summarizeTextSource(reviewTexts);
   const otherReturnClassifications = summarizeOtherReturnClassifications(returnTexts);
@@ -1814,6 +1952,7 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
 
   return {
     sentiment,
+    emotions,
     returns: returnsSummary,
     reviews: reviewsSummary,
     otherReturnClassifications,
@@ -1824,9 +1963,11 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
 
 function summarizeTextSource(items) {
   const sentiment = summarizeSentiment(items);
+  const emotions = summarizeEmotionCounts(items);
   return {
     total: items.length,
     sentiment,
+    emotions,
     repeatedLanguage: extractRepeatedLanguage(items).slice(0, 5),
     examples: items
       .filter((item) => item.sentiment === "negative" || item.isOther)
@@ -1834,11 +1975,39 @@ function summarizeTextSource(items) {
       .map((item) => ({
         text: truncateText(item.text, 180),
         sentiment: item.sentiment,
+        emotion: item.emotion,
         issueCode: item.issueCode,
         reason: item.reason || "",
         variant: item.variant || "",
       })),
   };
+}
+
+function summarizeEmotionCounts(items) {
+  const grouped = new Map();
+  items.forEach((item) => {
+    const code = normalizeEmotionCode(item.emotion);
+    if (!code || code === "none") return;
+    const current = grouped.get(code) || {
+      code,
+      label: getEmotionLabel(code),
+      polarity: getEmotionPolarity(code),
+      count: 0,
+      sources: new Set(),
+      examples: [],
+    };
+    current.count += 1;
+    if (item.source) current.sources.add(item.source);
+    if (current.examples.length < 3 && item.text) current.examples.push(truncateText(item.text, 140));
+    grouped.set(code, current);
+  });
+
+  return Array.from(grouped.values())
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .map((item) => ({
+      ...item,
+      sources: Array.from(item.sources),
+    }));
 }
 
 function summarizeSentiment(items) {
@@ -1975,6 +2144,23 @@ function classifyCustomerSentiment(text, rating = 0) {
   if (rating >= 4 && positiveMatches >= negativeMatches) return "positive";
   if (positiveMatches > negativeMatches) return "positive";
   return "neutral";
+}
+
+function classifyCustomerEmotion(text, rating = 0) {
+  const normalized = normalizeText(text);
+  if (/(scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/.test(normalized)) return "fear";
+  if (/(angry|mad|furious|rage|annoyed|irritated|enojado|enojo|furioso|bronca)/.test(normalized)) return "anger";
+  if (/(confusing|confused|unclear|don t understand|doesnt understand|hard to use|no entiendo|confuso|confundido)/.test(normalized)) return "confusion";
+  if (/(disappointed|let down|not as expected|expected better|decepcion|decepcionado)/.test(normalized)) return "disappointment";
+  if (/(regret|waste|wish i hadn|shouldn t have|arrepent|arrepentido)/.test(normalized)) return "regret";
+  if (/(trust|fake|misleading|dishonest|not real|engaño|enganoso|desconf)/.test(normalized)) return "distrust";
+  if (/(frustrated|frustrating|problem|issue|return|refund|doesn t work|doesnt work|frustra|frustrante)/.test(normalized)) return "frustration";
+  if (/(not sure|maybe|uncertain|unsure|doubt|duda|incierto)/.test(normalized)) return "uncertainty";
+  if (rating >= 4 && /(love|great|excellent|perfect|beautiful|happy|encanta|excelente|perfecto)/.test(normalized)) return "delight";
+  if (rating >= 4 && /(works|good|satisfied|quality|recom|bien|satisfecho)/.test(normalized)) return "satisfaction";
+  if (rating >= 4 && /(relief|solved|easy|finally|alivio|resolvio|facil)/.test(normalized)) return "relief";
+  if (rating >= 4) return "satisfaction";
+  return "none";
 }
 
 function countRegexMatches(value, regex) {
