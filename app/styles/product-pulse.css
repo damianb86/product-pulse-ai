@@ -4211,6 +4211,198 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 12px 34px rgba(var(--pp-shadow-rgb), 0.16);
 }
 
+.ppGlobalJobIndicator {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  z-index: 96;
+  font-family: inherit;
+}
+
+.ppGlobalJobButton {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.35);
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--pp-midnight-ink), color-mix(in srgb, var(--pp-midnight-ink) 82%, var(--pp-pulse-blue)));
+  color: var(--pp-cloud-white);
+  font: inherit;
+  cursor: default;
+  box-shadow: 0 18px 40px rgba(var(--pp-shadow-rgb), 0.22);
+}
+
+.ppGlobalJobGlyph {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--pp-cloud-white);
+}
+
+.ppGlobalJobGlyph::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--pp-midnight-ink);
+  border-radius: 999px;
+  background: var(--pp-signal-teal);
+  box-shadow: 0 0 0 4px rgba(var(--pp-signal-teal-rgb), 0.16);
+}
+
+.ppGlobalJobGlyph s-icon {
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
+  animation: ppGlobalJobSpin 1.6s linear infinite;
+}
+
+.ppGlobalJobButton strong {
+  min-width: 20px;
+  color: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+
+.ppGlobalJobButton > span:last-child {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ppGlobalJobPopover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(380px, calc(100vw - 40px));
+  display: none;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--pp-slate-900);
+  box-shadow: 0 24px 70px rgba(var(--pp-shadow-rgb), 0.2);
+}
+
+.ppGlobalJobIndicator:hover .ppGlobalJobPopover,
+.ppGlobalJobIndicator:focus-within .ppGlobalJobPopover {
+  display: block;
+}
+
+.ppGlobalJobPopover header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppGlobalJobPopover header strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+}
+
+.ppGlobalJobPopover header span {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppGlobalJobPopover ul {
+  display: grid;
+  gap: 8px;
+  max-height: 330px;
+  margin: 10px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.ppGlobalJobPopover li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 9px;
+  background: var(--pp-slate-100);
+}
+
+.ppGlobalJobStatus {
+  min-width: 58px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.ppGlobalJobStatus-running {
+  background: var(--pp-teal-soft);
+  color: var(--pp-signal-teal);
+}
+
+.ppGlobalJobStatus-queued {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppGlobalJobPopover li strong,
+.ppGlobalJobPopover li small {
+  display: block;
+}
+
+.ppGlobalJobPopover li strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppGlobalJobPopover li small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppGlobalJobPopover li em {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@keyframes ppGlobalJobSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ppJobDockMinimized strong {
   color: inherit;
   font-size: 12px;
@@ -4697,5 +4889,23 @@ s-page[inline-size="large-500"] {
     left: auto;
     width: auto;
     max-width: calc(100vw - 20px);
+  }
+
+  .ppGlobalJobIndicator {
+    top: 10px;
+    right: 10px;
+  }
+
+  .ppGlobalJobPopover {
+    width: calc(100vw - 20px);
+  }
+
+  .ppGlobalJobPopover li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ppGlobalJobStatus {
+    grid-column: 1 / -1;
+    width: max-content;
   }
 }

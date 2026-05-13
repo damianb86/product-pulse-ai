@@ -134,6 +134,7 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = []) 
 
   return {
     status: "success",
+    suppressBanner: true,
     message: `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
     queuedCount: jobs.length,
     jobs: jobs.map(formatJob),
@@ -212,6 +213,7 @@ export async function queueProductDiagnosisForShop(shop, productId) {
 
   return {
     status: "success",
+    suppressBanner: true,
     message: `AI Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
     job: formatJob(job),
   };

@@ -1536,7 +1536,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }, [actionData]);
 
   useEffect(() => {
-    if (actionData?.message) setToastData(actionData);
+    if (actionData?.message && !actionData.suppressBanner) setToastData(actionData);
   }, [actionData]);
 
   useEffect(() => {
@@ -2382,7 +2382,7 @@ function EmptyProductDetailState({ message }) {
 }
 
 function ProductDetailToast({ actionData, onDismiss }) {
-  if (!actionData?.message) return null;
+  if (!actionData?.message || actionData.suppressBanner) return null;
   const tone = actionData.status === "success" ? "success" : actionData.status === "validation_error" ? "warning" : "critical";
 
   return (

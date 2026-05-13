@@ -37,7 +37,8 @@ function buildProductDiagnosisPrompt(product) {
     : "none captured";
 
   return [
-    "Write one concise Spanish test paragraph for ProductPulse AI.",
+    "Write one single Spanish test text for ProductPulse AI, around 90 to 130 words.",
+    "It should feel clearly AI-generated, a bit imaginative and slightly random, but still useful and product-specific.",
     "This is only a connection test, not a final product diagnosis.",
     `Product title: ${product.title}.`,
     `Handle: ${product.handle || "unknown"}.`,
@@ -45,7 +46,7 @@ function buildProductDiagnosisPrompt(product) {
     `Primary issue: ${product.primaryIssue || "not available"}.`,
     `Stored sources: ${sources}.`,
     `Top return reasons: ${returnReasons}.`,
-    "Return only the paragraph. Do not include bullets, markdown, JSON, recommendations or headings.",
+    "Return only one paragraph. Do not include bullets, markdown, JSON, recommendations or headings.",
   ].join("\n");
 }
 
@@ -73,7 +74,7 @@ async function generateWithOpenAI({ shop, jobId, prompt }) {
     body: JSON.stringify({
       model,
       input: prompt,
-      max_output_tokens: 220,
+      max_output_tokens: 420,
     }),
   });
 
@@ -200,7 +201,7 @@ async function requestGeminiText({ apiKey, model, prompt }) {
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 220,
+          maxOutputTokens: 420,
         },
       }),
     },

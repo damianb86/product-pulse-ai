@@ -11,6 +11,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const recentJobs = useMemo(() => monitor.recentJobs || [], [monitor.recentJobs]);
   const logs = useMemo(() => monitor.logs || [], [monitor.logs]);
   const hasActiveJobs = activeJobs.length > 0;
+  const globalIndicator = hasActiveJobs ? <GlobalJobActivityIndicator jobs={activeJobs} now={now} /> : null;
   const selectedJob = useMemo(
     () => recentJobs.find((job) => job.id === selectedJobId) || activeJobs.find((job) => job.id === selectedJobId) || null,
     [activeJobs, recentJobs, selectedJobId],
@@ -58,101 +59,136 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   if (!developmentMode && !hasActiveJobs) return null;
 
-  if (minimized) {
+  if (developmentMode && minimized) {
     return (
-      <button className="ppJobDockMinimized" type="button" onClick={toggleMinimized} aria-label={developmentMode ? "Open development job monitor" : "Open background job monitor"}>
-        <span className={`ppJobDockPulse${hasActiveJobs ? " isRunning" : ""}`} />
-        <strong>{hasActiveJobs ? `${activeJobs.length} job${activeJobs.length === 1 ? "" : "s"} running` : "Dev jobs"}</strong>
-        <span className="ppJobExpandIcon" aria-hidden="true" />
-      </button>
+      <>
+        {globalIndicator}
+        <button className="ppJobDockMinimized" type="button" onClick={toggleMinimized} aria-label="Open development job monitor">
+          <span className={`ppJobDockPulse${hasActiveJobs ? " isRunning" : ""}`} />
+          <strong>Dev jobs</strong>
+          <span className="ppJobExpandIcon" aria-hidden="true" />
+        </button>
+      </>
     );
   }
 
   if (!developmentMode) {
-    return (
-      <aside className="ppJobFloatingBar" aria-label="Background jobs">
-        <span className="ppJobPulse" aria-hidden="true" />
-        <div>
-          <strong>{activeJobs.length} background job{activeJobs.length === 1 ? "" : "s"} running</strong>
-          <p>{activeJobs.map((job) => `${job.name}: ${job.source}`).join(" | ")}</p>
-        </div>
-        <button className="ppJobMinimizeButton" type="button" onClick={toggleMinimized} aria-label="Minimize job monitor" title="Minimize">
-          <span aria-hidden="true" />
-        </button>
-      </aside>
-    );
+    return globalIndicator;
   }
 
   return (
-    <aside className="ppDevJobPanel" aria-label="Development job monitor">
-      <div className="ppDevJobPanelHeader">
-        <div>
-          <span>Development jobs</span>
-          <strong>{activeJobs.length} running / {recentJobs.length} recent</strong>
+    <>
+      {globalIndicator}
+      <aside className="ppDevJobPanel" aria-label="Development job monitor">
+        <div className="ppDevJobPanelHeader">
+          <div>
+            <span>Development jobs</span>
+            <strong>{activeJobs.length} running / {recentJobs.length} recent</strong>
+          </div>
+          <button className="ppJobMinimizeButton" type="button" onClick={toggleMinimized} aria-label="Minimize development job monitor" title="Minimize">
+            <span aria-hidden="true" />
+          </button>
         </div>
-        <button className="ppJobMinimizeButton" type="button" onClick={toggleMinimized} aria-label="Minimize development job monitor" title="Minimize">
-          <span aria-hidden="true" />
-        </button>
-      </div>
 
-      <div className="ppDevJobPanelBody">
-        <section>
-          <h2>Active</h2>
-          {activeJobs.length ? (
-            activeJobs.map((job) => (
-              <JobCard key={job.id} job={job} logs={groupedLogs.get(job.id) || []} now={now} />
-            ))
-          ) : (
-            <p className="ppDevJobEmpty">No background jobs running.</p>
-          )}
-        </section>
+        <div className="ppDevJobPanelBody">
+          <section>
+            <h2>Active</h2>
+            {activeJobs.length ? (
+              activeJobs.map((job) => (
+                <JobCard key={job.id} job={job} logs={groupedLogs.get(job.id) || []} now={now} />
+              ))
+            ) : (
+              <p className="ppDevJobEmpty">No background jobs running.</p>
+            )}
+          </section>
 
-        <section>
-          <h2>Recent jobs</h2>
-          <div className="ppDevJobList">
-            {recentJobs.map((job) => (
-              <button
-                className={`ppDevJobListRow${selectedJobId === job.id ? " isSelected" : ""}`}
-                type="button"
-                key={job.id}
-                onClick={() => setSelectedJobId(job.id)}
-                aria-pressed={selectedJobId === job.id}
-              >
-                <span className={`ppDevJobStatus ppDevJobStatus-${job.status.toLowerCase()}`}>{job.status}</span>
+          <section>
+            <h2>Recent jobs</h2>
+            <div className="ppDevJobList">
+              {recentJobs.map((job) => (
+                <button
+                  className={`ppDevJobListRow${selectedJobId === job.id ? " isSelected" : ""}`}
+                  type="button"
+                  key={job.id}
+                  onClick={() => setSelectedJobId(job.id)}
+                  aria-pressed={selectedJobId === job.id}
+                >
+                  <span className={`ppDevJobStatus ppDevJobStatus-${job.status.toLowerCase()}`}>{job.status}</span>
+                  <strong>{job.name}</strong>
+                  <small>{formatElapsed(job, now)} | {job.source}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <div className="ppDevLogHeader">
+              <h2>{selectedJob ? `Logs: ${selectedJob.name}` : "Logs"}</h2>
+              {selectedJob && (
+                <button type="button" onClick={() => setSelectedJobId(null)}>
+                  All logs
+                </button>
+              )}
+            </div>
+            <div className="ppDevLogList">
+              {visibleLogs.length ? visibleLogs.slice(0, 24).map((log) => (
+                <article className={`ppDevLog ppDevLog-${log.level}`} key={log.id}>
+                  <header>
+                    <span>{log.level}</span>
+                    <strong>{log.event}</strong>
+                    <small>{formatTimestamp(log.createdAtIso)}</small>
+                  </header>
+                  <p>{log.message}</p>
+                  {log.data && <pre>{JSON.stringify(log.data, null, 2)}</pre>}
+                </article>
+              )) : (
+                <p className="ppDevJobEmpty">{selectedJob ? "No logs recorded for this job yet." : "No development logs recorded yet."}</p>
+              )}
+            </div>
+          </section>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function GlobalJobActivityIndicator({ jobs, now }) {
+  const runningCount = jobs.filter((job) => job.status === "Running").length;
+  const queuedCount = jobs.filter((job) => job.status === "Queued").length;
+  const totalCount = jobs.length;
+  const summary = [
+    runningCount ? `${runningCount} running` : null,
+    queuedCount ? `${queuedCount} queued` : null,
+  ].filter(Boolean).join(" / ");
+
+  return (
+    <div className="ppGlobalJobIndicator" role="status" aria-live="polite">
+      <button className="ppGlobalJobButton" type="button" aria-label={`${totalCount} background process${totalCount === 1 ? "" : "es"} active`}>
+        <span className="ppGlobalJobGlyph" aria-hidden="true">
+          <s-icon type="refresh" size="small"></s-icon>
+        </span>
+        <strong>{totalCount}</strong>
+        <span>Jobs</span>
+      </button>
+      <div className="ppGlobalJobPopover" role="tooltip">
+        <header>
+          <strong>Background processes</strong>
+          <span>{summary || `${totalCount} active`}</span>
+        </header>
+        <ul>
+          {jobs.map((job) => (
+            <li key={job.id}>
+              <span className={`ppGlobalJobStatus ppGlobalJobStatus-${job.status.toLowerCase()}`}>{job.status}</span>
+              <div>
                 <strong>{job.name}</strong>
-                <small>{formatElapsed(job, now)} | {job.source}</small>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <div className="ppDevLogHeader">
-            <h2>{selectedJob ? `Logs: ${selectedJob.name}` : "Logs"}</h2>
-            {selectedJob && (
-              <button type="button" onClick={() => setSelectedJobId(null)}>
-                All logs
-              </button>
-            )}
-          </div>
-          <div className="ppDevLogList">
-            {visibleLogs.length ? visibleLogs.slice(0, 24).map((log) => (
-              <article className={`ppDevLog ppDevLog-${log.level}`} key={log.id}>
-                <header>
-                  <span>{log.level}</span>
-                  <strong>{log.event}</strong>
-                  <small>{formatTimestamp(log.createdAtIso)}</small>
-                </header>
-                <p>{log.message}</p>
-                {log.data && <pre>{JSON.stringify(log.data, null, 2)}</pre>}
-              </article>
-            )) : (
-              <p className="ppDevJobEmpty">{selectedJob ? "No logs recorded for this job yet." : "No development logs recorded yet."}</p>
-            )}
-          </div>
-        </section>
+                <small>{job.source}</small>
+              </div>
+              <em>{formatElapsed(job, now)}</em>
+            </li>
+          ))}
+        </ul>
       </div>
-    </aside>
+    </div>
   );
 }
 
