@@ -23,6 +23,34 @@ afterEach(() => {
 });
 
 describe("ProductPulseJobMonitor", () => {
+  it("shows recent failed jobs as user-visible alerts", () => {
+    const initialMonitor = {
+      activeJobs: [],
+      recentJobs: [
+        {
+          id: "job-failed",
+          name: "Product diagnosis",
+          displayTitle: "Linen Shirt",
+          status: "Failed",
+          source: "AI product diagnostics",
+          startedAtIso: new Date(Date.now() - 20000).toISOString(),
+          updatedAtIso: new Date(Date.now() - 1000).toISOString(),
+          finishedAtIso: new Date(Date.now() - 1000).toISOString(),
+        },
+      ],
+      logs: [],
+    };
+
+    renderMonitor(initialMonitor);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Linen Shirt finished with an error");
+    expect(screen.getByText("The background job could not be completed. Please try again later.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss failed job message" }));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("always starts minimized in development mode and filters logs by recent job", () => {
     window.localStorage.setItem("productPulseDevJobsMinimized", "false");
     const initialMonitor = {

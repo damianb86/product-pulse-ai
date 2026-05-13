@@ -126,7 +126,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: /Linen Shirt/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
     expect(screen.getByText("Diagnosis running")).toBeInTheDocument();
-    expect(screen.getByText("QuickScan only")).toBeInTheDocument();
+    expect(screen.getAllByTitle(/Only the fast Shopify scan has run/).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
     fireEvent.click(screen.getByRole("button", { name: "Risk score" }));
@@ -156,6 +156,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit suggested text for Add fit note" }));
     fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
     fireEvent.click(screen.getAllByRole("button", { name: "Apply to product" })[0]);
     expect(screen.getByRole("heading", { name: "Confirm product description update" })).toBeInTheDocument();
@@ -179,10 +180,11 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    expect(screen.getByLabelText("Description text to apply")).toHaveAttribute("rows", "6");
+    expect(screen.getByText(longDetail)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
-    expect(screen.getByLabelText("Description text to apply")).toHaveAttribute("rows", "10");
+    expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit suggested text for Rewrite detailed product guidance" }));
     expect(screen.getByLabelText("Description text to apply")).toHaveAttribute("rows", "6");
   });
 

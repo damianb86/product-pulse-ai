@@ -5,6 +5,7 @@ import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 const GEMINI_PROVIDER = "gemini";
 const OPENAI_PROVIDER = "openai";
 const GEMINI_PRIMARY_RETRY_MS = 24 * 60 * 60 * 1000;
+const GEMINI_MODEL_RETRY_DELAY_MS = 750;
 
 const AI_TASKS = {
   signal_classification: {
@@ -349,8 +350,10 @@ async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
 
   const orderedModels = await getGeminiAttemptOrder(models);
   let lastError = null;
+  let lastRetryReason = null;
 
   for (const [index, model] of orderedModels.entries()) {
+    const nextModel = orderedModels[index + 1];
     const primaryAttempt = model === models[0];
     if (primaryAttempt) await rememberGeminiPrimaryRetry(model);
 
@@ -376,21 +379,48 @@ async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
       return { provider: GEMINI_PROVIDER, model, task, text };
     } catch (error) {
       lastError = error;
-      await rememberGeminiFailure(model, error);
+      lastRetryReason = getGeminiRetryReason(error);
+      if (nextModel && lastRetryReason) {
+        await rememberGeminiModelSwitch(nextModel, {
+          failedModel: model,
+          error,
+          reason: lastRetryReason,
+        });
+      } else {
+        await rememberGeminiFailure(model, error);
+      }
+
       await recordJobLog({
         shop,
         jobId,
         level: "warn",
         event: "product_diagnosis.gemini_model_failed",
-        message: `Gemini model ${model} failed${shouldTryNextGeminiModel(error) ? "; trying fallback." : "."}`,
-        data: { provider: GEMINI_PROVIDER, model, task, error: serializeError(error) },
+        message: buildGeminiFailureLogMessage({ model, nextModel, retryReason: lastRetryReason }),
+        data: {
+          provider: GEMINI_PROVIDER,
+          model,
+          nextModel: nextModel || null,
+          retryReason: lastRetryReason,
+          task,
+          error: serializeError(error),
+        },
       });
 
-      if (!shouldTryNextGeminiModel(error)) throw error;
+      if (!lastRetryReason) throw error;
+      if (!nextModel) {
+        await rememberGeminiPoolExhausted(models[0], {
+          failedModel: model,
+          error,
+          reason: lastRetryReason,
+        });
+        throw buildGeminiPoolExhaustedError(lastRetryReason, error);
+      }
+
+      await sleep(GEMINI_MODEL_RETRY_DELAY_MS);
     }
   }
 
-  throw lastError || new Error("All Gemini models failed.");
+  throw buildGeminiPoolExhaustedError(lastRetryReason, lastError);
 }
 
 function getGeminiModelPool() {
@@ -414,7 +444,7 @@ async function getGeminiAttemptOrder(models) {
 
   const currentIndex = models.indexOf(state.currentModel);
   if (currentIndex <= 0) return models;
-  return [...models.slice(currentIndex), ...models.slice(0, currentIndex)];
+  return models.slice(currentIndex);
 }
 
 async function requestGeminiText({ apiKey, model, prompt, taskConfig }) {
@@ -438,6 +468,7 @@ async function requestGeminiText({ apiKey, model, prompt, taskConfig }) {
     const error = new Error(json.error?.message || `Gemini request failed with HTTP ${response.status}.`);
     error.status = response.status;
     error.code = json.error?.status || json.error?.code;
+    error.details = json.error?.details || json.error || null;
     throw error;
   }
 
@@ -452,18 +483,39 @@ async function requestGeminiText({ apiKey, model, prompt, taskConfig }) {
   return text;
 }
 
-function shouldTryNextGeminiModel(error) {
+function getGeminiRetryReason(error) {
   const message = `${error?.message || ""} ${error?.code || ""}`.toLowerCase();
-  return (
+  if (
+    error?.status === 503 ||
+    message.includes("high demand") ||
+    message.includes("overloaded") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("try again later") ||
+    message.includes("unavailable")
+  ) {
+    return "high_demand";
+  }
+
+  if (
     error?.status === 429 ||
-    error?.status === 404 ||
     message.includes("quota") ||
     message.includes("resource_exhausted") ||
-    message.includes("rate") ||
-    message.includes("token") ||
+    message.includes("rate limit") ||
+    message.includes("too many requests") ||
+    message.includes("exceeded")
+  ) {
+    return "quota";
+  }
+
+  if (
+    error?.status === 404 ||
     message.includes("not found") ||
     message.includes("model")
-  );
+  ) {
+    return "model_unavailable";
+  }
+
+  return null;
 }
 
 async function rememberGeminiPrimaryRetry(model) {
@@ -515,6 +567,92 @@ async function rememberGeminiFailure(model, error) {
       metadata: { lastFailureAt: new Date().toISOString(), error: serializeError(error) },
     },
   }).catch(() => {});
+}
+
+async function rememberGeminiModelSwitch(nextModel, { failedModel, error, reason }) {
+  await prisma.productPulseAiProviderState.upsert({
+    where: { provider: GEMINI_PROVIDER },
+    create: {
+      provider: GEMINI_PROVIDER,
+      currentModel: nextModel,
+      failureCount: 1,
+      metadata: {
+        lastFailureAt: new Date().toISOString(),
+        failedModel,
+        nextModel,
+        reason,
+        error: serializeError(error),
+      },
+    },
+    update: {
+      currentModel: nextModel,
+      failureCount: { increment: 1 },
+      metadata: {
+        lastFailureAt: new Date().toISOString(),
+        failedModel,
+        nextModel,
+        reason,
+        error: serializeError(error),
+      },
+    },
+  }).catch(() => {});
+}
+
+async function rememberGeminiPoolExhausted(nextModel, { failedModel, error, reason }) {
+  await prisma.productPulseAiProviderState.upsert({
+    where: { provider: GEMINI_PROVIDER },
+    create: {
+      provider: GEMINI_PROVIDER,
+      currentModel: nextModel,
+      failureCount: 1,
+      metadata: {
+        exhaustedAt: new Date().toISOString(),
+        failedModel,
+        nextModel,
+        reason,
+        error: serializeError(error),
+      },
+    },
+    update: {
+      currentModel: nextModel,
+      failureCount: { increment: 1 },
+      metadata: {
+        exhaustedAt: new Date().toISOString(),
+        failedModel,
+        nextModel,
+        reason,
+        error: serializeError(error),
+      },
+    },
+  }).catch(() => {});
+}
+
+function buildGeminiFailureLogMessage({ model, nextModel, retryReason }) {
+  if (!retryReason) return `Gemini model ${model} failed.`;
+  const reasonLabel = retryReason === "high_demand"
+    ? "high demand"
+    : retryReason === "quota"
+      ? "quota or rate limit"
+      : "model availability";
+  if (nextModel) return `Gemini model ${model} failed due to ${reasonLabel}; retrying with ${nextModel}.`;
+  return `Gemini model ${model} failed due to ${reasonLabel}; all configured Gemini models were attempted.`;
+}
+
+function buildGeminiPoolExhaustedError(retryReason, error) {
+  if (retryReason === "high_demand") {
+    return new Error("AI diagnosis could not be completed because every configured Gemini model is currently under high demand. Please try again later.");
+  }
+  if (retryReason === "quota") {
+    return new Error("AI diagnosis could not be completed because every configured Gemini model hit quota or rate limits. Please try again later.");
+  }
+  if (retryReason === "model_unavailable") {
+    return new Error("AI diagnosis could not be completed because no configured Gemini model is currently available. Please try again later.");
+  }
+  return error || new Error("AI diagnosis could not be completed with Gemini. Please try again later.");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseAiJson(text, fallback) {

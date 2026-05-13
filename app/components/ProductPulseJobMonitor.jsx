@@ -5,6 +5,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const fetcher = useFetcher();
   const [minimized, setMinimized] = useState(() => Boolean(developmentMode));
   const [selectedJobId, setSelectedJobId] = useState(null);
+  const [dismissedFailedJobIds, setDismissedFailedJobIds] = useState(() => new Set());
   const [now, setNow] = useState(() => Date.now());
   const monitor = fetcher.data?.jobMonitor || initialMonitor || {};
   const activeJobs = useMemo(() => monitor.activeJobs || [], [monitor.activeJobs]);
@@ -12,6 +13,20 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const logs = useMemo(() => monitor.logs || [], [monitor.logs]);
   const hasActiveJobs = activeJobs.length > 0;
   const globalIndicator = hasActiveJobs ? <GlobalJobActivityIndicator jobs={activeJobs} now={now} /> : null;
+  const failedJob = useMemo(
+    () => recentJobs.find((job) => isUserVisibleFailedJob(job, now) && !dismissedFailedJobIds.has(job.id)) || null,
+    [dismissedFailedJobIds, now, recentJobs],
+  );
+  const failureNotice = failedJob ? (
+    <JobFailureNotice
+      job={failedJob}
+      onDismiss={() => setDismissedFailedJobIds((current) => {
+        const next = new Set(current);
+        next.add(failedJob.id);
+        return next;
+      })}
+    />
+  ) : null;
   const selectedJob = useMemo(
     () => recentJobs.find((job) => job.id === selectedJobId) || activeJobs.find((job) => job.id === selectedJobId) || null,
     [activeJobs, recentJobs, selectedJobId],
@@ -57,12 +72,13 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   const toggleMinimized = () => setMinimized((current) => !current);
 
-  if (!developmentMode && !hasActiveJobs) return null;
+  if (!developmentMode && !hasActiveJobs && !failureNotice) return null;
 
   if (developmentMode && minimized) {
     return (
       <>
         {globalIndicator}
+        {failureNotice}
         <button className="ppJobDockMinimized" type="button" onClick={toggleMinimized} aria-label="Open development job monitor">
           <span className={`ppJobDockPulse${hasActiveJobs ? " isRunning" : ""}`} />
           <strong>Dev jobs</strong>
@@ -73,12 +89,18 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }
 
   if (!developmentMode) {
-    return globalIndicator;
+    return (
+      <>
+        {globalIndicator}
+        {failureNotice}
+      </>
+    );
   }
 
   return (
     <>
       {globalIndicator}
+      {failureNotice}
       <aside className="ppDevJobPanel" aria-label="Development job monitor">
         <div className="ppDevJobPanelHeader">
           <div>
@@ -149,6 +171,23 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
         </div>
       </aside>
     </>
+  );
+}
+
+function JobFailureNotice({ job, onDismiss }) {
+  return (
+    <aside className="ppJobFailureNotice" role="alert" aria-live="assertive">
+      <span aria-hidden="true">
+        <s-icon type="alert-circle" size="small"></s-icon>
+      </span>
+      <div>
+        <strong>{getJobTitle(job)} finished with an error</strong>
+        <p>The background job could not be completed. Please try again later.</p>
+      </div>
+      <button type="button" onClick={onDismiss} aria-label="Dismiss failed job message">
+        <s-icon type="x" size="small"></s-icon>
+      </button>
+    </aside>
   );
 }
 
@@ -241,6 +280,13 @@ function getJobTitle(job) {
 
 function getJobSubtitle(job) {
   return job.displaySubtitle || job.source || job.name;
+}
+
+function isUserVisibleFailedJob(job, now) {
+  if (job.status !== "Failed") return false;
+  const finished = new Date(job.finishedAtIso || job.updatedAtIso || Date.now()).getTime();
+  if (Number.isNaN(finished)) return true;
+  return now - finished <= 10 * 60 * 1000;
 }
 
 function formatTimestamp(value) {

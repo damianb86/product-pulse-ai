@@ -5149,6 +5149,68 @@ s-page[inline-size="large-500"] {
   font-family: inherit;
 }
 
+.ppJobFailureNotice {
+  position: fixed;
+  top: 76px;
+  right: 20px;
+  z-index: 97;
+  width: min(420px, calc(100vw - 40px));
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.28);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppJobFailureNotice > span {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppJobFailureNotice strong {
+  display: block;
+  margin: 0 0 3px;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.ppJobFailureNotice p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ppJobFailureNotice button {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pp-slate-500);
+  cursor: pointer;
+}
+
+.ppJobFailureNotice button:hover {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
 .ppGlobalJobButton {
   min-height: 42px;
   display: inline-flex;
