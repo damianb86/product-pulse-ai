@@ -2919,6 +2919,25 @@ s-page[inline-size="large-500"] {
   flex-wrap: wrap;
 }
 
+.ppAnalyticsActions span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppAnalyticsActions s-icon {
+  color: var(--pp-pulse-blue);
+}
+
 .ppAnalyticsKpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2980,6 +2999,15 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrend-green b {
   color: var(--pp-signal-teal);
+}
+
+.ppAnalyticsDetail {
+  display: block;
+  margin-top: 7px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
 }
 
 .ppTrendArrowUp {
@@ -3190,6 +3218,10 @@ s-page[inline-size="large-500"] {
   background: var(--pp-warning-amber);
 }
 
+.ppAnalyticsBar-orange {
+  background: var(--pp-warning-amber);
+}
+
 .ppAnalyticsBar-pink {
   background: var(--pp-risk-red);
 }
@@ -3225,7 +3257,7 @@ s-page[inline-size="large-500"] {
   border-radius: 50%;
   background:
     radial-gradient(circle at center, var(--pp-cloud-white) 0 45%, transparent 46%),
-    conic-gradient(var(--pp-pulse-blue) 0 44%, var(--pp-signal-teal) 44% 72%, var(--pp-warning-amber) 72% 89%, var(--pp-insight-violet) 89% 100%);
+    var(--pp-donut-gradient, conic-gradient(var(--pp-pulse-blue) 0 44%, var(--pp-signal-teal) 44% 72%, var(--pp-warning-amber) 72% 89%, var(--pp-insight-violet) 89% 100%));
 }
 
 .ppDonutChart > div {
@@ -3496,11 +3528,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppBusinessImpactMetric small {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--pp-risk-red);
+  display: block;
+  color: var(--pp-slate-500);
   font-size: 12px;
+  line-height: 1.3;
 }
 
 .ppConnectPage {

@@ -149,62 +149,6 @@ export function DashboardScreen({ data, actionData }) {
   );
 }
 
-const analyticsKpis = [
-  { label: "Estimated margin at risk", value: "$12,450", icon: "cash-dollar", tone: "green", trend: "18%", context: "vs prior 90 days", trendTone: "red" },
-  { label: "High-risk products", value: "6", icon: "shield-check-mark", tone: "red", trend: "20%", context: "vs prior 90 days", trendTone: "red" },
-  { label: "Return-driven issues", value: "142", icon: "alert-triangle", tone: "orange", trend: "23%", context: "vs prior 90 days", trendTone: "red" },
-  { label: "Coverage score", value: "78%", icon: "target", tone: "purple", trend: "12pp", context: "vs prior 90 days", trendTone: "green" },
-];
-
-const issueDistributionRows = [
-  { label: "Fit & sizing", value: 34, color: "blue" },
-  { label: "Color", value: 22, color: "purple" },
-  { label: "Material quality", value: 18, color: "green" },
-  { label: "Durability", value: 15, color: "yellow" },
-  { label: "Packaging", value: 11, color: "pink" },
-];
-
-const collectionMarginRows = [
-  { label: "Summer Essentials", value: 3420, color: "blue" },
-  { label: "Linen Collection", value: 2810, color: "blue" },
-  { label: "Everyday Basics", value: 2110, color: "blue" },
-  { label: "Activewear", value: 1680, color: "blue" },
-  { label: "Accessories", value: 430, color: "blue" },
-];
-
-const sourceContributionRows = [
-  { label: "Reviews", value: 44, color: "blue" },
-  { label: "Returns", value: 28, color: "green" },
-  { label: "Support tickets", value: 17, color: "orange" },
-  { label: "Q&A", value: 11, color: "purple" },
-];
-
-const riskBubbleRows = [
-  { x: 16, y: 20, size: 19, tone: "green", label: "Low risk product" },
-  { x: 27, y: 34, size: 11, tone: "green", label: "Low risk product" },
-  { x: 35, y: 38, size: 9, tone: "green", label: "Low risk product" },
-  { x: 43, y: 25, size: 8, tone: "green", label: "Low risk product" },
-  { x: 53, y: 31, size: 17, tone: "yellow", label: "Medium risk product" },
-  { x: 62, y: 49, size: 18, tone: "orange", label: "Medium risk product" },
-  { x: 73, y: 68, size: 12, tone: "red", label: "High risk product" },
-  { x: 84, y: 50, size: 16, tone: "red", label: "High risk product" },
-  { x: 90, y: 66, size: 30, tone: "red", label: "High risk product" },
-  { x: 96, y: 48, size: 10, tone: "red", label: "High risk product" },
-];
-
-const topInsightRows = [
-  { icon: "home", text: "Fit & sizing issues drive 34% of all signals and are the top driver of returns." },
-  { icon: "alert-circle", text: "6 products are high-risk and account for $6,210 (50%) of margin at risk." },
-  { icon: "megaphone", text: "Reviews are the leading signal source (44%). Expand coverage on returns & support." },
-];
-
-const businessImpactMetrics = [
-  { label: "Margin at risk", value: "$12,450", icon: "cash-dollar", tone: "green", trend: "18%", context: "vs prior 90 days" },
-  { label: "Potential returns", value: "~218", icon: "package", tone: "orange", trend: "23%", context: "vs prior 90 days" },
-  { label: "Revenue at risk", value: "$68,900", icon: "alert-triangle", tone: "purple", trend: "14%", context: "vs prior 90 days" },
-  { label: "Cost to fix (est.)", value: "$4,210", icon: "shield-check-mark", tone: "blue", trend: "12%", context: "vs prior 90 days" },
-];
-
 const coverageUnlocks = [
   { icon: "target", title: "More accurate issue detection", detail: "ProductPulse can separate product defects from expectation gaps." },
   { icon: "clock", title: "Faster root-cause analysis", detail: "Signals from reviews, returns and support are grouped into one diagnosis." },
@@ -2523,7 +2467,18 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   );
 }
 
-export function AnalyticsScreen() {
+export function AnalyticsScreen({ data }) {
+  const analyticsView = data?.analytics || {};
+  const kpis = analyticsView.kpis || [];
+  const issueDistribution = analyticsView.issueDistribution || { rows: [], max: 1 };
+  const sourceContribution = analyticsView.sourceContribution || { rows: [], total: 0, totalLabel: "0" };
+  const collectionMargin = analyticsView.collectionMargin || { rows: [], max: 1 };
+  const analysisCoverage = analyticsView.analysisCoverage || { rows: [], max: 1 };
+  const topInsights = analyticsView.topInsights || [];
+  const businessImpact = analyticsView.businessImpact || { title: "Estimated business impact", subtitle: "", metrics: [] };
+  const riskSignals = analyticsView.riskSignals || { series: [], labels: [] };
+  const riskBubbles = analyticsView.riskBubbles || [];
+
   return (
     <FullWidthPage label="Analytics" className="ppAnalyticsPage">
       <ScreenShell className="ppDashboard ppAnalyticsScreen">
@@ -2533,49 +2488,43 @@ export function AnalyticsScreen() {
             <p>Visualize product quality risk, issue trends and estimated impact.</p>
           </div>
           <div className="ppAnalyticsActions">
-            <s-button type="button" variant="secondary">
-              <s-icon type="calendar" size="small"></s-icon>
-              Last 90 days
-              <s-icon type="chevron-down" size="small"></s-icon>
-            </s-button>
-            <s-button type="button" variant="secondary">
-              <s-icon type="filter" size="small"></s-icon>
-              Filters
-            </s-button>
+            <span><s-icon type="calendar" size="small"></s-icon>{analyticsView.windowLabel || "Stored scan window"}</span>
+            <span><s-icon type="product" size="small"></s-icon>{analyticsView.productCountLabel || "0 stored products"}</span>
+            <span><s-icon type="clock" size="small"></s-icon>{analyticsView.lastUpdatedLabel || "No scan data yet"}</span>
           </div>
         </div>
 
         <div className="ppAnalyticsKpis" aria-label="Analytics overview">
-          {analyticsKpis.map((kpi) => (
+          {kpis.map((kpi) => (
             <AnalyticsKpiCard key={kpi.label} kpi={kpi} />
           ))}
         </div>
 
         <div className="ppAnalyticsChartsTop">
-          <AnalyticsPanel title="Risk signals over time" subtitle=" " action={<AnalyticsTimeSelect />}>
-            <RiskSignalsChart />
+          <AnalyticsPanel title="Risk signals over time" subtitle="Stored QuickScan and full diagnosis signal trends">
+            <RiskSignalsChart chart={riskSignals} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Issue distribution by type" subtitle="% of total issues">
-            <HorizontalBarChart rows={issueDistributionRows} max={40} />
+          <AnalyticsPanel title="Issue distribution by type" subtitle="Signal count by issue cluster">
+            <HorizontalBarChart rows={issueDistribution.rows} max={issueDistribution.max} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Source contribution" subtitle="% of total signals">
-            <SourceContributionChart />
+          <AnalyticsPanel title="Source contribution" subtitle="Extracted signals by evidence source">
+            <SourceContributionChart contribution={sourceContribution} />
           </AnalyticsPanel>
         </div>
 
         <div className="ppAnalyticsChartsMid">
-          <AnalyticsPanel title="Risk vs. revenue impact" subtitle="Each bubble is a product">
-            <RiskRevenueBubbleChart />
+          <AnalyticsPanel title="Risk vs. margin impact" subtitle="Each bubble is a product, sized by margin at risk">
+            <RiskRevenueBubbleChart bubbles={riskBubbles} />
           </AnalyticsPanel>
 
           <AnalyticsPanel title="Margin at risk by collection" subtitle="Estimated margin at risk">
-            <HorizontalBarChart rows={collectionMarginRows} max={4000} money />
+            <HorizontalBarChart rows={collectionMargin.rows} max={collectionMargin.max} money />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Connected-source coverage over time" subtitle="% of product catalog covered">
-            <CoverageTrendChart />
+          <AnalyticsPanel title="Analysis coverage by depth" subtitle="Stored products by analysis state">
+            <HorizontalBarChart rows={analysisCoverage.rows} max={analysisCoverage.max} />
           </AnalyticsPanel>
         </div>
 
@@ -2587,7 +2536,7 @@ export function AnalyticsScreen() {
                 Top insights
               </h2>
               <div className="ppTopInsightList">
-                {topInsightRows.map((insight) => (
+                {topInsights.map((insight) => (
                   <p key={insight.text}>
                     <s-icon type={insight.icon} size="small"></s-icon>
                     {insight.text}
@@ -2602,12 +2551,12 @@ export function AnalyticsScreen() {
             <div className="ppAnalyticsPanel ppBusinessImpactPanel">
               <div className="ppAnalyticsPanelHeader">
                 <div>
-                  <h2>Estimated business impact (next 90 days)</h2>
-                  <p>Based on current trends</p>
+                  <h2>{businessImpact.title}</h2>
+                  <p>{businessImpact.subtitle}</p>
                 </div>
               </div>
               <div className="ppBusinessImpactGrid">
-                {businessImpactMetrics.map((metric) => (
+                {businessImpact.metrics.map((metric) => (
                   <AnalyticsImpactMetric key={metric.label} metric={metric} />
                 ))}
               </div>
@@ -3817,11 +3766,15 @@ function AnalyticsKpiCard({ kpi }) {
       <div>
         <h2>{kpi.label}</h2>
         <strong>{kpi.value}</strong>
-        <span className={`ppAnalyticsTrend ppAnalyticsTrend-${kpi.trendTone}`}>
-          {kpi.trendTone === "green" ? <span className="ppTrendArrowUp" aria-hidden="true" /> : <span className="ppTrendArrow" aria-hidden="true" />}
-          <b>{kpi.trend}</b>
-          {kpi.context}
-        </span>
+        {kpi.trend ? (
+          <span className={`ppAnalyticsTrend ppAnalyticsTrend-${kpi.trendTone || "neutral"}`}>
+            {kpi.trendTone === "green" ? <span className="ppTrendArrowUp" aria-hidden="true" /> : <span className="ppTrendArrow" aria-hidden="true" />}
+            <b>{kpi.trend}</b>
+            {kpi.context}
+          </span>
+        ) : (
+          <span className="ppAnalyticsDetail">{kpi.detail}</span>
+        )}
       </div>
     </article>
   );
@@ -3847,38 +3800,33 @@ function AnalyticsPanel({ title, subtitle, action, className = "", children }) {
   );
 }
 
-function AnalyticsTimeSelect() {
-  return (
-    <label className="ppAnalyticsTimeSelect">
-      <span>Granularity</span>
-      <select defaultValue="daily">
-        <option value="daily">Daily</option>
-        <option value="weekly">Weekly</option>
-      </select>
-    </label>
-  );
-}
+function RiskSignalsChart({ chart }) {
+  const series = chart?.series || [];
+  const labels = chart?.labels || [];
 
-function RiskSignalsChart() {
   return (
     <div className="ppAnalyticsLineWrap">
       <div className="ppAnalyticsLegend">
-        <span><i className="ppDot-red" />High</span>
-        <span><i className="ppDot-orange" />Medium</span>
-        <span><i className="ppDot-green" />Low</span>
+        {series.map((row) => (
+          <span key={row.label}><i className={`ppDot-${row.color}`} />{row.label}</span>
+        ))}
       </div>
       <svg className="ppRiskSignalsSvg" viewBox="0 0 640 245" role="img" aria-label="Risk signals over time">
         {[28, 68, 108, 148, 188].map((y) => (
           <line className="ppChartGridLine" key={y} x1="50" y1={y} x2="620" y2={y} />
         ))}
-        {[500, 400, 300, 200, 100, 0].map((label, index) => (
-          <text className="ppChartAxisText" key={label} x="12" y={32 + index * 40}>{label}</text>
+        {[100, 80, 60, 40, 20, 0].map((label, index) => (
+          <text className="ppChartAxisText" key={label} x="12" y={32 + index * 32}>{label}</text>
         ))}
-        <polyline className="ppRiskLine ppRiskLine-red" points="50,101 72,109 94,103 116,91 138,102 160,87 182,95 204,90 226,71 248,103 270,92 292,65 314,58 336,64 358,55 380,61 402,50 424,66 446,59 468,70 490,62 512,55 534,64 556,48 578,60 600,52 620,68" />
-        <polyline className="ppRiskLine ppRiskLine-orange" points="50,145 72,136 94,139 116,132 138,140 160,129 182,137 204,142 226,133 248,137 270,127 292,119 314,121 336,108 358,113 380,122 402,129 424,117 446,126 468,131 490,123 512,115 534,110 556,121 578,117 600,129 620,124" />
-        <polyline className="ppRiskLine ppRiskLine-green" points="50,181 72,170 94,176 116,169 138,181 160,173 182,178 204,182 226,176 248,183 270,177 292,171 314,166 336,170 358,178 380,181 402,174 424,179 446,185 468,172 490,178 512,171 534,176 556,183 578,174 600,181 620,164" />
-        {["Apr 22", "May 6", "May 20", "Jun 3", "Jun 17", "Jul 1", "Jul 15"].map((label, index) => (
-          <text className="ppChartAxisText" key={label} x={70 + index * 88} y="230">{label}</text>
+        {series.map((row) => (
+          <polyline
+            key={row.label}
+            className={`ppRiskLine ppRiskLine-${row.color}`}
+            points={getAnalyticsLinePoints(row.values)}
+          />
+        ))}
+        {labels.map((label, index) => label && (
+          <text className="ppChartAxisText" key={`${label}-${index}`} x={50 + index * (570 / Math.max(labels.length - 1, 1))} y="230">{label}</text>
         ))}
       </svg>
     </div>
@@ -3886,19 +3834,23 @@ function RiskSignalsChart() {
 }
 
 function HorizontalBarChart({ rows, max, money = false }) {
+  const safeRows = rows?.length ? rows : [{ label: "No data", value: 0, displayValue: money ? "$0" : "0" }];
+  const safeMax = Math.max(Number(max || 0), ...safeRows.map((row) => Number(row.value || 0)), 1);
+  const axisLabels = buildBarAxisLabels(safeMax, money);
+
   return (
     <div className="ppAnalyticsBarChart" role="img" aria-label="Horizontal bar chart">
-      {rows.map((row) => (
+      {safeRows.map((row) => (
         <div className="ppAnalyticsBarRow" key={row.label}>
           <span>{row.label}</span>
           <div>
-            <span className={`ppAnalyticsBar ppAnalyticsBar-${row.color}`} style={{ width: `${(row.value / max) * 100}%` }} />
+            <span className={`ppAnalyticsBar ppAnalyticsBar-${row.color || "blue"}`} style={{ width: `${Math.max(0, Math.min(100, (Number(row.value || 0) / safeMax) * 100))}%` }} />
           </div>
-          <strong>{money ? formatMoney(row.value) : `${row.value}%`}</strong>
+          <strong>{row.displayValue || (money ? formatMoney(row.value) : formatInteger(row.value))}</strong>
         </div>
       ))}
       <div className="ppAnalyticsBarAxis">
-        {(money ? ["$0", "$1K", "$2K", "$3K", "$4K"] : ["0%", "10%", "20%", "30%", "40%"]).map((label) => (
+        {axisLabels.map((label) => (
           <span key={label}>{label}</span>
         ))}
       </div>
@@ -3906,20 +3858,24 @@ function HorizontalBarChart({ rows, max, money = false }) {
   );
 }
 
-function SourceContributionChart() {
+function SourceContributionChart({ contribution }) {
+  const rows = contribution?.rows || [];
+  const totalLabel = contribution?.totalLabel || "0";
+  const donutGradient = buildDonutGradient(rows);
+
   return (
     <div className="ppSourceContribution">
-      <div className="ppDonutChart" aria-label="Source contribution donut chart">
+      <div className="ppDonutChart" aria-label="Source contribution donut chart" style={{ "--pp-donut-gradient": donutGradient }}>
         <div>
-          <strong>3,642</strong>
+          <strong>{totalLabel}</strong>
           <span>Total signals</span>
         </div>
       </div>
       <div className="ppDonutLegend">
-        {sourceContributionRows.map((row) => (
+        {(rows.length ? rows : [{ label: "No source signals", color: "blue", percent: 0, displayValue: "0 signals" }]).map((row) => (
           <div key={row.label}>
             <span><i className={`ppDot-${row.color}`} />{row.label}</span>
-            <strong>{row.value}%</strong>
+            <strong>{row.percent}%</strong>
           </div>
         ))}
       </div>
@@ -3927,53 +3883,31 @@ function SourceContributionChart() {
   );
 }
 
-function RiskRevenueBubbleChart() {
+function RiskRevenueBubbleChart({ bubbles }) {
+  const safeBubbles = bubbles?.length ? bubbles : [];
+  const maxImpact = Math.max(...safeBubbles.map((bubble) => Number(bubble.impact || 0)), 0);
+
   return (
     <div className="ppRiskRevenueWrap">
       <div className="ppBubbleChart" role="img" aria-label="Risk score compared with revenue impact">
-        {riskBubbleRows.map((bubble) => (
+        {safeBubbles.map((bubble) => (
           <span
-            key={`${bubble.x}-${bubble.y}-${bubble.size}`}
+            key={`${bubble.label}-${bubble.x}-${bubble.y}-${bubble.size}`}
             className={`ppRiskBubble ppRiskBubble-${bubble.tone}`}
             style={{ left: `${bubble.x}%`, bottom: `${bubble.y}%`, width: `${bubble.size}px`, height: `${bubble.size}px` }}
-            aria-label={bubble.label}
+            aria-label={`${bubble.label}: risk ${bubble.riskScore}, margin impact ${formatMoney(bubble.impact || 0)}`}
+            title={`${bubble.label}: ${formatMoney(bubble.impact || 0)} margin at risk`}
           />
         ))}
-        <span className="ppBubbleAxis ppBubbleAxis-y">Revenue impact</span>
+        <span className="ppBubbleAxis ppBubbleAxis-y">Margin impact</span>
         <span className="ppBubbleAxis ppBubbleAxis-x">Risk score</span>
       </div>
       <div className="ppBubbleLegend">
         <span>Est. margin at risk</span>
-        <div><i className="ppBubbleSize ppBubbleSize-large" />$5K</div>
-        <div><i className="ppBubbleSize ppBubbleSize-medium" />$2K</div>
-        <div><i className="ppBubbleSize ppBubbleSize-small" />$1K</div>
+        <div><i className="ppBubbleSize ppBubbleSize-large" />{formatCompactMoney(maxImpact)}</div>
+        <div><i className="ppBubbleSize ppBubbleSize-medium" />{formatCompactMoney(maxImpact * 0.5)}</div>
+        <div><i className="ppBubbleSize ppBubbleSize-small" />{formatCompactMoney(maxImpact * 0.2)}</div>
       </div>
-    </div>
-  );
-}
-
-function CoverageTrendChart() {
-  return (
-    <div className="ppCoverageTrend">
-      <svg viewBox="0 0 650 230" role="img" aria-label="Connected-source coverage over time">
-        {[30, 70, 110, 150, 190].map((y) => (
-          <line className="ppChartGridLine" key={y} x1="42" y1={y} x2="625" y2={y} />
-        ))}
-        {[100, 75, 50, 25, 0].map((label, index) => (
-          <text className="ppChartAxisText" key={label} x="4" y={34 + index * 40}>{label}%</text>
-        ))}
-        <path className="ppCoverageArea" d="M42 154 L68 146 L94 134 L120 126 L146 112 L172 110 L198 108 L224 100 L250 104 L276 92 L302 75 L328 69 L354 58 L380 60 L406 60 L432 55 L458 50 L484 52 L510 48 L536 49 L562 50 L562 190 L42 190 Z" />
-        <polyline className="ppCoverageLine" points="42,154 68,146 94,134 120,126 146,112 172,110 198,108 224,100 250,104 276,92 302,75 328,69 354,58 380,60 406,60 432,55 458,50 484,52 510,48 536,49 562,50" />
-        <g className="ppCoverageDots">
-          {[42, 68, 94, 120, 146, 172, 198, 224, 250, 276, 302, 328, 354, 380, 406, 432, 458, 484, 510, 536, 562].map((x, index) => (
-            <circle key={x} cx={x} cy={[154, 146, 134, 126, 112, 110, 108, 100, 104, 92, 75, 69, 58, 60, 60, 55, 50, 52, 48, 49, 50][index]} r="4" />
-          ))}
-        </g>
-        {["Apr 22", "May 6", "May 20", "Jun 3", "Jun 17", "Jul 1", "Jul 15"].map((label, index) => (
-          <text className="ppChartAxisText" key={label} x={50 + index * 82} y="218">{label}</text>
-        ))}
-      </svg>
-      <span className="ppCoverageValue">78%</span>
     </div>
   );
 }
@@ -3985,13 +3919,62 @@ function AnalyticsImpactMetric({ metric }) {
       <div>
         <span>{metric.label}</span>
         <strong>{metric.value}</strong>
-        <small>
-          <span className="ppTrendArrow" aria-hidden="true" />
-          {metric.trend} {metric.context}
-        </small>
+        <small>{metric.detail}</small>
       </div>
     </article>
   );
+}
+
+function getAnalyticsLinePoints(values = []) {
+  const cleanValues = (Array.isArray(values) && values.length ? values : [0, 0, 0, 0, 0, 0, 0])
+    .map((value) => Math.max(0, Number(value || 0)));
+  const max = Math.max(...cleanValues, 1);
+  const min = Math.min(...cleanValues);
+  const range = Math.max(max - min, 1);
+  const left = 50;
+  const top = 28;
+  const width = 570;
+  const height = 160;
+  return cleanValues.map((value, index) => {
+    const x = left + index * (width / Math.max(cleanValues.length - 1, 1));
+    const y = top + height - ((value - min) / range) * height;
+    return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`;
+  }).join(" ");
+}
+
+function buildBarAxisLabels(max, money) {
+  return Array.from({ length: 5 }, (_, index) => {
+    const value = (Number(max || 0) / 4) * index;
+    return money ? formatCompactMoney(value) : formatInteger(value);
+  });
+}
+
+function buildDonutGradient(rows) {
+  if (!rows?.length) {
+    return "conic-gradient(var(--pp-slate-200) 0 100%)";
+  }
+  let cursor = 0;
+  const stops = rows.map((row) => {
+    const start = cursor;
+    const width = Math.max(0, Number(row.percent || 0));
+    cursor += width;
+    return `${getAnalyticsColorVar(row.color)} ${start}% ${cursor}%`;
+  });
+  if (cursor < 100) stops.push(`var(--pp-slate-200) ${cursor}% 100%`);
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
+function getAnalyticsColorVar(color) {
+  const colors = {
+    red: "var(--pp-risk-red)",
+    orange: "var(--pp-warning-amber)",
+    yellow: "var(--pp-warning-amber)",
+    green: "var(--pp-signal-teal)",
+    blue: "var(--pp-pulse-blue)",
+    purple: "var(--pp-insight-violet)",
+    pink: "var(--pp-risk-red)",
+  };
+  return colors[color] || colors.blue;
 }
 
 function StatusBadge({ status }) {
@@ -4005,6 +3988,15 @@ function formatMoney(value) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatCompactMoney(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Number(value || 0));
 }
 
 function formatInteger(value) {
