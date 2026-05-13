@@ -1574,7 +1574,9 @@ function getProductIssueCategory(issue) {
   const normalized = issue.toLowerCase();
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("waist") || normalized.includes("inseam")) return "Fit & sizing";
   if (normalized.includes("zipper") || normalized.includes("defect")) return "Durability";
-  if (normalized.includes("fear") || normalized.includes("scare") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("miedo") || normalized.includes("asusta")) return "Fear or safety concern";
+  if (normalized.includes("subjective") || normalized.includes("preference") || normalized.includes("dislike")) return "Subjective negative reaction";
+  if (normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("safety") || normalized.includes("peligro")) return "Safety concern";
+  if (normalized.includes("fear") || normalized.includes("scare") || normalized.includes("miedo") || normalized.includes("asusta")) return "Subjective negative reaction";
   if (normalized.includes("compat")) return "Compatibility";
   if (normalized.includes("content") || normalized.includes("description") || normalized.includes("metadata")) return "Product content";
   if (normalized.includes("monitor")) return "Monitoring";
@@ -1585,7 +1587,8 @@ function getMainFindingTitle(issueCategory) {
   if (issueCategory === "Fit & sizing") return "Sizing & fit expectations are not being met";
   if (issueCategory === "Durability") return "Durability signals are affecting buyer confidence";
   if (issueCategory === "Compatibility") return "Compatibility expectations need clearer guidance";
-  if (issueCategory === "Fear or safety concern") return "Customer language suggests fear or safety concern";
+  if (issueCategory === "Safety concern") return "Customer language suggests a safety concern";
+  if (issueCategory === "Subjective negative reaction") return "Subjective negative reactions are emerging";
   if (issueCategory === "Product content") return "Product content needs clearer shopper guidance";
   if (issueCategory === "Monitoring") return "Product is healthy and should stay monitored";
   return `${issueCategory} signals need review`;
@@ -1621,6 +1624,7 @@ function getEvidencePoints(item, product) {
     if (Array.isArray(metrics.topReturnReasons) && metrics.topReturnReasons.length) points.push(`Top reasons: ${metrics.topReturnReasons.join(", ")}`);
     if (textInsights.returns?.sentiment?.total) points.push(formatSentimentPoint("Return notes", textInsights.returns.sentiment));
     if (Array.isArray(textInsights.returns?.emotions) && textInsights.returns.emotions.length) points.push(`Return-note emotions: ${formatEvidenceEmotionCounts(textInsights.returns.emotions)}`);
+    if (textInsights.returns?.subjectiveNegativity?.count) points.push(`Subjective return-note reactions: ${textInsights.returns.subjectiveNegativity.count} of ${textInsights.returns.subjectiveNegativity.total}`);
   }
 
   if (normalized.includes("refund")) {
@@ -1644,6 +1648,7 @@ function getEvidencePoints(item, product) {
     if (textInsights.returns?.sentiment?.total) points.push(formatSentimentPoint("Return notes", textInsights.returns.sentiment));
     if (textInsights.reviews?.sentiment?.total) points.push(formatSentimentPoint("Review text", textInsights.reviews.sentiment));
     if (Array.isArray(textInsights.emotions) && textInsights.emotions.length) points.push(`Deterministic emotion taxonomy: ${formatEvidenceEmotionCounts(textInsights.emotions)}`);
+    if (textInsights.subjectiveNegativity?.count) points.push(`Subjective negative reactions: ${textInsights.subjectiveNegativity.count} of ${textInsights.subjectiveNegativity.total} customer text signals`);
     if (Array.isArray(textInsights.aiKnownEmotions) && textInsights.aiKnownEmotions.length) points.push(`AI emotion taxonomy: ${formatEvidenceEmotionCounts(textInsights.aiKnownEmotions)}`);
     if (Array.isArray(textInsights.aiEmergentSentiments) && textInsights.aiEmergentSentiments.length) points.push(`Emergent emotions: ${formatEvidenceEmotionCounts(textInsights.aiEmergentSentiments)}`);
     if (Array.isArray(textInsights.otherReturnClassifications) && textInsights.otherReturnClassifications.length) {

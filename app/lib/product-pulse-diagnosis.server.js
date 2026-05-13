@@ -40,6 +40,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       negativeReviewCount: deterministic.metrics.negativeReviewCount,
       customerTextSignals: deterministic.metrics.textInsights?.sentiment?.total || 0,
       negativeTextSignals: deterministic.metrics.textInsights?.sentiment?.negative || 0,
+      subjectiveNegativeSignals: deterministic.metrics.textInsights?.subjectiveNegativity?.count || 0,
       deterministicEmotionCounts: deterministic.metrics.textInsights?.emotions || [],
       otherReturnClassifications: deterministic.metrics.textInsights?.otherReturnClassifications || [],
       riskScore: deterministic.riskScore,
@@ -455,6 +456,7 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
     scannedReturnLineItems: 0,
     matchedReturnLineItems: 0,
     matchedReturnLineItemsWithNotes: 0,
+    matchedNoteSamples: [],
     queryModes: [],
     unmatchedSamples: [],
     includeReasonDefinition,
@@ -473,7 +475,7 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
         { after: cursor, query: orderQuery.query },
       );
 
-      (data?.orders?.nodes || []).forEach((order) => {
+      getNodes(data?.orders).forEach((order) => {
         getNodes(order.returns).forEach((itemReturn) => {
           getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
             if (returnLineItem.id && seenReturnLineItemIds.has(returnLineItem.id)) return;
@@ -498,7 +500,21 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
             stats.matchedReturnLineItems += 1;
             const reasonNote = getReturnLineItemReasonNote(returnLineItem);
             const customerNote = getReturnLineItemCustomerNote(returnLineItem);
-            if (reasonNote || customerNote) stats.matchedReturnLineItemsWithNotes += 1;
+            if (reasonNote || customerNote) {
+              stats.matchedReturnLineItemsWithNotes += 1;
+              if (stats.matchedNoteSamples.length < 5) {
+                stats.matchedNoteSamples.push({
+                  title: lineItem.title || product.title,
+                  sku: lineItem.sku || lineItem.variant?.sku || "",
+                  reason: getReturnReasonValue(returnLineItem),
+                  reasonLabel: getReturnReasonLabel(returnLineItem),
+                  reasonNote: truncateText(reasonNote, 160),
+                  customerNote: truncateText(customerNote, 160),
+                  notePreview: truncateText(getReturnLineItemNoteText(returnLineItem), 220),
+                  queryMode: orderQuery.mode,
+                });
+              }
+            }
 
             events.push({
               id: returnLineItem.id,
@@ -581,16 +597,24 @@ function buildDiagnosisReturnsQuery({ includeReasonDefinition = true } = {}) {
                           sku
                           product {
                             id
+                            legacyResourceId
                             handle
                             title
                           }
                           variant {
                             id
+                            legacyResourceId
                             title
                             sku
                             selectedOptions {
                               name
                               value
+                            }
+                            product {
+                              id
+                              legacyResourceId
+                              handle
+                              title
                             }
                           }
                         }
@@ -846,6 +870,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
     orderAccessDenied: shopifyData.orderAccessDenied,
     sourceAgreement: hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount }),
     recentSignals: countRecentSignalEvents(signalEvents, 30),
+    mainIssue,
+    textInsights,
   });
   const estimatedImpact = calculateEstimatedImpact({
     refundAmount,
@@ -1132,6 +1158,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   }
   if (issue === "color_expectation") candidates.push({ id: "draft-color-expectation-note", type: "PDP copy", reason: "Customers mention color expectation mismatch." });
   if (issue === "safety_concern") candidates.push({ id: "draft-safety-expectation-note", type: "PDP copy", reason: "Customer return text expresses fear, safety concern, or discomfort." });
+  if (issue === "subjective_negative_reaction") candidates.push({ id: "draft-subjective-expectation-note", type: "PDP copy", reason: "Repeated subjective negative customer language is present." });
   if (issue === "quality_defect" || issue === "durability") candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
   if (deterministic.metrics.affectedVariants.length) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
   if (deterministic.metrics.topReturnReasons.length) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
@@ -1154,8 +1181,10 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
+  const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
+  const shouldRecommendSubjectiveAction = mainIssue !== "subjective_negative_reaction" || hasActionableSubjectiveEvidence(subjectiveSummary);
 
-  if (deterministic.metrics.signalCount > 0 && pdpCopy && mainIssue !== "product_content") {
+  if (deterministic.metrics.signalCount > 0 && pdpCopy && mainIssue !== "product_content" && shouldRecommendSubjectiveAction) {
     recommendations.push({
       id: getPdpActionId(mainIssue),
       label: getPdpActionLabel(mainIssue),
@@ -1337,7 +1366,7 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     });
   }
 
-  return mappedIssues.slice(0, 10);
+  return mappedIssues.map((issue) => scaleSubjectiveIssueForEvidence(issue, deterministic)).slice(0, 10);
 }
 
 function buildGranularTextIssues({ deterministic, ai, recommendations }) {
@@ -1425,6 +1454,31 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   });
 
   return uniqueBy(issues.filter((issue) => issue.issue), (issue) => `${issue.issueCode}-${issue.issue}`);
+}
+
+function scaleSubjectiveIssueForEvidence(issue, deterministic) {
+  if (issue.issueCode !== "subjective_negative_reaction") return issue;
+  const summary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
+  const severity = getSubjectiveIssueSeverity(summary);
+  const evidence = Array.isArray(issue.evidence) ? issue.evidence.filter(Boolean) : [];
+  const policyText = getSubjectiveEvidencePolicyText(summary);
+  return {
+    ...issue,
+    severity: capitalize(severity),
+    tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
+    confidence: Math.min(Number(issue.confidence || deterministic.confidence || 0), getSubjectiveConfidenceCap(summary)),
+    signals: Math.max(Number(issue.signals || 0), Number(summary.count || 0), 1),
+    evidence: evidence.includes(policyText) ? evidence : [policyText, ...evidence].filter(Boolean).slice(0, 5),
+  };
+}
+
+function getSubjectiveConfidenceCap(summary) {
+  const count = Number(summary?.count || 0);
+  const ratio = Number(summary?.ratio || 0);
+  if (count <= 1) return 45;
+  if (!hasActionableSubjectiveEvidence(summary)) return 62;
+  if (count < 5 && ratio < 0.5) return 76;
+  return 88;
 }
 
 const KNOWN_CUSTOMER_SENTIMENT_CODES = new Set([
@@ -1671,6 +1725,9 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
         returnInsights.emotions?.length
           ? `Return-note emotions: ${formatEmotionCounts(returnInsights.emotions)}`
           : "",
+        returnInsights.subjectiveNegativity?.count
+          ? `Subjective return-note reactions: ${returnInsights.subjectiveNegativity.count} of ${returnInsights.subjectiveNegativity.total}`
+          : "",
         ...otherClassifications.map((item) => `"Other" notes classified as ${item.label} ${item.count} time${item.count === 1 ? "" : "s"}`),
         ...((returnInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated return language: "${item.term}" (${item.count})`)),
         ...((returnInsights.examples || []).slice(0, 3).map((item) => `Return text: "${item.text}"`)),
@@ -1722,6 +1779,9 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
           : "",
         textInsights.emotions?.length
           ? `Known emotion taxonomy: ${formatEmotionCounts(textInsights.emotions)}`
+          : "",
+        textInsights.subjectiveNegativity?.count
+          ? `Subjective negative reactions: ${textInsights.subjectiveNegativity.count} of ${textInsights.subjectiveNegativity.total} customer text signals`
           : "",
         aiKnownEmotions.length
           ? `AI emotion taxonomy: ${formatEmotionCounts(aiKnownEmotions)}`
@@ -1862,10 +1922,16 @@ function normalizeSnapshotProduct(snapshot) {
 
 function lineItemMatchesProduct(lineItem, product, snapshot) {
   const lineProduct = lineItem?.product || {};
+  const variantProduct = lineItem?.variant?.product || {};
   if (lineProduct.id && (lineProduct.id === product.id || lineProduct.id === snapshot.productGid)) return true;
+  if (variantProduct.id && (variantProduct.id === product.id || variantProduct.id === snapshot.productGid)) return true;
   if (lineProduct.handle && (lineProduct.handle === product.handle || lineProduct.handle === snapshot.handle)) return true;
+  if (variantProduct.handle && (variantProduct.handle === product.handle || variantProduct.handle === snapshot.handle)) return true;
   const numericProductId = product.numericId || extractNumericShopifyId(snapshot.productGid);
   if (numericProductId && String(lineProduct.id || "").endsWith(`/${numericProductId}`)) return true;
+  if (numericProductId && String(lineProduct.legacyResourceId || "") === String(numericProductId)) return true;
+  if (numericProductId && String(variantProduct.id || "").endsWith(`/${numericProductId}`)) return true;
+  if (numericProductId && String(variantProduct.legacyResourceId || "") === String(numericProductId)) return true;
 
   const lineSku = normalizeText(lineItem?.sku || lineItem?.variant?.sku || "");
   const productSkus = new Set((product.variants || []).map((variant) => normalizeText(variant.sku)).filter(Boolean));
@@ -1881,7 +1947,11 @@ function lineItemMatchesProduct(lineItem, product, snapshot) {
 
   const lineTitle = normalizeText(lineItem?.title);
   const productTitle = normalizeText(product.title || snapshot.productTitle);
-  return Boolean(lineTitle && productTitle && (lineTitle === productTitle || lineTitle.includes(productTitle) || productTitle.includes(lineTitle)));
+  if (lineTitle && productTitle && (lineTitle === productTitle || lineTitle.includes(productTitle) || productTitle.includes(lineTitle))) return true;
+  if (hasStrongTextOverlap(lineTitle, productTitle)) return true;
+
+  const handleAsTitle = normalizeText(product.handle || snapshot.handle).replace(/-/g, " ");
+  return hasStrongTextOverlap(lineTitle, handleAsTitle);
 }
 
 function getReturnReasonValue(returnLineItem) {
@@ -2038,6 +2108,7 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
         issueCode,
         sentiment: classifyCustomerSentiment(text),
         emotion: classifyCustomerEmotion(text),
+        subjectiveNegative: isSubjectiveNegativeText(text),
         createdAt: item.createdAt,
         variant: item.variantTitle || item.sku || "",
         isOther: isGenericOtherReason(reason),
@@ -2055,6 +2126,7 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
         issueCode: classifyIssueText(text),
         sentiment: classifyCustomerSentiment(text, Number(review.rating || 0)),
         emotion: classifyCustomerEmotion(text, Number(review.rating || 0)),
+        subjectiveNegative: isSubjectiveNegativeText(text),
         createdAt: review.createdAt,
       };
     })
@@ -2064,12 +2136,14 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
   const emotions = summarizeEmotionCounts(allTexts);
   const returnsSummary = summarizeTextSource(returnTexts);
   const reviewsSummary = summarizeTextSource(reviewTexts);
+  const subjectiveNegativity = summarizeSubjectiveNegativity(allTexts);
   const otherReturnClassifications = summarizeOtherReturnClassifications(returnTexts);
   const repeatedLanguage = extractRepeatedLanguage(allTexts);
   const granularIssues = buildDeterministicTextIssues({
     sentiment,
     returnsSummary,
     reviewsSummary,
+    subjectiveNegativity,
     otherReturnClassifications,
     repeatedLanguage,
   });
@@ -2079,6 +2153,7 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
     emotions,
     returns: returnsSummary,
     reviews: reviewsSummary,
+    subjectiveNegativity,
     otherReturnClassifications,
     repeatedLanguage,
     granularIssues,
@@ -2092,6 +2167,7 @@ function summarizeTextSource(items) {
     total: items.length,
     sentiment,
     emotions,
+    subjectiveNegativity: summarizeSubjectiveNegativity(items),
     repeatedLanguage: extractRepeatedLanguage(items).slice(0, 5),
     examples: items
       .filter((item) => item.sentiment === "negative" || item.isOther)
@@ -2152,6 +2228,23 @@ function summarizeSentiment(items) {
   };
 }
 
+function summarizeSubjectiveNegativity(items) {
+  const sourceCounts = {};
+  const subjectiveItems = (Array.isArray(items) ? items : []).filter((item) => item?.subjectiveNegative);
+  subjectiveItems.forEach((item) => {
+    const source = item.source || "unknown";
+    sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+  });
+  const total = Array.isArray(items) ? items.length : 0;
+  return {
+    count: subjectiveItems.length,
+    total,
+    ratio: total ? roundRate(subjectiveItems.length / total, 2) : 0,
+    sourceCounts,
+    examples: subjectiveItems.slice(0, 4).map((item) => truncateText(item.noteText || item.text, 180)),
+  };
+}
+
 function summarizeOtherReturnClassifications(returnTexts) {
   const otherItems = returnTexts.filter((item) => item.isOther && item.noteText);
   const grouped = new Map();
@@ -2172,35 +2265,59 @@ function summarizeOtherReturnClassifications(returnTexts) {
   return Array.from(grouped.values()).sort((first, second) => second.count - first.count).slice(0, 5);
 }
 
-function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummary, otherReturnClassifications, repeatedLanguage }) {
+function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummary, subjectiveNegativity, otherReturnClassifications, repeatedLanguage }) {
   const issues = [];
 
   if (otherReturnClassifications.length) {
     otherReturnClassifications.forEach((item) => {
+      const isSubjective = item.issueCode === "subjective_negative_reaction";
+      const severity = isSubjective
+        ? getSubjectiveIssueSeverity(subjectiveNegativity)
+        : item.sentimentCounts.negative >= 2 || item.count >= 3 ? "medium" : "low";
       issues.push({
         issueCode: item.issueCode,
         issue: `"Other" returns indicate ${item.label}`,
-        severity: item.sentimentCounts.negative >= 2 || item.count >= 3 ? "medium" : "low",
+        severity,
         signals: item.count,
         evidence: [
           `${item.count} generic return reason${item.count === 1 ? "" : "s"} reclassified from customer text as ${item.label}.`,
+          isSubjective ? getSubjectiveEvidencePolicyText(subjectiveNegativity) : "",
           ...item.examples.map((example) => `Example: "${example}"`),
-        ],
+        ].filter(Boolean),
         action: "Review Other return notes",
       });
     });
   }
 
+  if (subjectiveNegativity?.count > 0 && !otherReturnClassifications.some((item) => item.issueCode === "subjective_negative_reaction")) {
+    issues.push({
+      issueCode: "subjective_negative_reaction",
+      issue: "Subjective negative customer reaction",
+      severity: getSubjectiveIssueSeverity(subjectiveNegativity),
+      signals: subjectiveNegativity.count,
+      evidence: [
+        `${subjectiveNegativity.count} of ${subjectiveNegativity.total} customer text signals are subjective negative reactions.`,
+        getSubjectiveEvidencePolicyText(subjectiveNegativity),
+        ...subjectiveNegativity.examples.map((example) => `Example: "${example}"`),
+      ].filter(Boolean),
+      action: hasActionableSubjectiveEvidence(subjectiveNegativity)
+        ? "Review expectation-setting copy"
+        : "Monitor for repeated subjective reactions",
+    });
+  }
+
   if (sentiment.negative >= 2 && sentiment.negativeRatio >= 0.35) {
+    const subjectiveOnly = subjectiveNegativity?.count >= sentiment.negative;
     issues.push({
       issueCode: "negative_sentiment",
       issue: "Negative customer sentiment cluster",
-      severity: sentiment.negativeRatio >= 0.6 ? "high" : "medium",
+      severity: subjectiveOnly ? getSubjectiveIssueSeverity(subjectiveNegativity) : sentiment.negativeRatio >= 0.6 ? "high" : "medium",
       signals: sentiment.negative,
       evidence: [
         `${sentiment.negative} of ${sentiment.total} customer text signals read as negative.`,
         `Returns: ${returnsSummary.sentiment.negative} negative. Reviews: ${reviewsSummary.sentiment.negative} negative.`,
-      ],
+        subjectiveOnly ? getSubjectiveEvidencePolicyText(subjectiveNegativity) : "",
+      ].filter(Boolean),
       action: "Review customer sentiment evidence",
     });
   }
@@ -2221,6 +2338,31 @@ function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummar
   });
 
   return issues;
+}
+
+function hasActionableSubjectiveEvidence(summary) {
+  const count = Number(summary?.count || 0);
+  const ratio = Number(summary?.ratio || 0);
+  return count >= 4 || (count >= 2 && ratio >= 0.35);
+}
+
+function getSubjectiveIssueSeverity(summary) {
+  const count = Number(summary?.count || 0);
+  const ratio = Number(summary?.ratio || 0);
+  if (count >= 8 && ratio >= 0.45) return "high";
+  if (count >= 4 || (count >= 2 && ratio >= 0.35)) return "medium";
+  return "low";
+}
+
+function getSubjectiveEvidencePolicyText(summary) {
+  const count = Number(summary?.count || 0);
+  if (count <= 1) {
+    return "Subjective reactions are kept low-confidence until repeated by more customers.";
+  }
+  if (!hasActionableSubjectiveEvidence(summary)) {
+    return "Subjective reactions are still below the action threshold and should be monitored.";
+  }
+  return "Subjective reactions are repeated enough to become merchant-facing evidence.";
 }
 
 function extractRepeatedLanguage(items) {
@@ -2287,6 +2429,17 @@ function classifyCustomerEmotion(text, rating = 0) {
   return "none";
 }
 
+function isObjectiveSafetyText(text) {
+  const normalized = normalizeText(text);
+  return /(unsafe|danger|dangerous|hazard|hazardous|injury|injured|sharp|toxic|poison|burn|choking|fire|electrical|peligro|peligroso|lastim|herid|toxico|quemad)/.test(normalized);
+}
+
+function isSubjectiveNegativeText(text) {
+  const normalized = normalizeText(text);
+  if (!normalized || isObjectiveSafetyText(normalized)) return false;
+  return /(scare|scary|scared|fear|afraid|fright|creepy|creeped|unsettling|disturbing|weird|ugly|gross|hate|dislike|don t like|doesn t like|dont like|doesnt like|not my style|asusta|asustado|miedo|temor|terror|feo|horrible|raro|perturb|inquieta|no me gusta|me da miedo)/.test(normalized);
+}
+
 function countRegexMatches(value, regex) {
   return (String(value || "").match(regex) || []).length;
 }
@@ -2324,7 +2477,8 @@ function getMainIssueFromCounts(counts, fallback) {
 function classifyIssueText(text) {
   const normalized = normalizeText(text);
   if (/(fit|size|sizing|small|large|tight|loose|waist|chest|shoulder|length)/.test(normalized)) return "fit_sizing";
-  if (/(scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/.test(normalized)) return "safety_concern";
+  if (isObjectiveSafetyText(normalized)) return "safety_concern";
+  if (isSubjectiveNegativeText(normalized)) return "subjective_negative_reaction";
   if (/(color|colour|pictured|photo|image|shade|looks different)/.test(normalized)) return "color_expectation";
   if (/(break|broken|defect|damaged|quality|thin|poor|cheap|durability|durable)/.test(normalized)) return "quality_defect";
   if (/(compatible|compatibility|fit with|works with)/.test(normalized)) return "compatibility";
@@ -2472,6 +2626,17 @@ function hasMeaningfulTokenOverlap(first, second) {
   return firstTokens.some((token) => secondTokens.has(token));
 }
 
+function hasStrongTextOverlap(first, second) {
+  const firstTokens = meaningfulTokens(first);
+  const secondTokens = meaningfulTokens(second);
+  if (!firstTokens.length || !secondTokens.length) return false;
+  const secondSet = new Set(secondTokens);
+  const sharedCount = firstTokens.filter((token) => secondSet.has(token)).length;
+  const smallerSize = Math.min(firstTokens.length, secondTokens.length);
+  if (sharedCount >= Math.min(3, smallerSize)) return true;
+  return sharedCount >= 2 && sharedCount / smallerSize >= 0.55;
+}
+
 function meaningfulTokens(value) {
   const stopWords = new Set(["and", "the", "for", "with", "from", "this", "that", "product", "products", "shopify", "new"]);
   return normalizeText(value)
@@ -2502,21 +2667,56 @@ function calculateRiskScore({ snapshot, metrics }) {
   const variantConcentration = metrics.affectedVariants.length ? 5 : 0;
   const volumeWeight = metrics.soldUnits ? Math.min(7, Math.log10(metrics.soldUnits + 1) * 3) : 0;
   const contentRisk = Math.min(16, Number(metrics.contentQualityRisk || 0));
-  const textSentimentRisk = Math.min(8, Number(metrics.textInsights?.sentiment?.negativeRatio || 0) * 10);
+  const textSentimentRisk = calculateTextSentimentRisk(metrics.textInsights);
   const calculated = Math.round(8 + returnAnomaly + refundAnomaly + refundImpact + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk + textSentimentRisk);
 
   if (!metrics.signalCount && !metrics.contentIssueCount && Number(snapshot.riskScore || 0) > 0) return Number(snapshot.riskScore);
   return clamp(calculated, 0, 100);
 }
 
-function calculateConfidence({ signalCount, sourceCoverage, judgeMeMatchConfidence, orderAccessDenied, sourceAgreement, recentSignals }) {
+function calculateTextSentimentRisk(textInsights) {
+  const total = Number(textInsights?.sentiment?.total || 0);
+  if (!total) return 0;
+  const negative = Number(textInsights?.sentiment?.negative || 0);
+  const subjective = Number(textInsights?.subjectiveNegativity?.count || 0);
+  const subjectiveRatio = Number(textInsights?.subjectiveNegativity?.ratio || 0);
+  const objectiveNegative = Math.max(0, negative - subjective);
+  const objectiveRisk = Math.min(8, (objectiveNegative / total) * 10);
+  const subjectiveRisk = calculateSubjectiveTextRisk({ count: subjective, ratio: subjectiveRatio });
+  return Math.min(8, objectiveRisk + subjectiveRisk);
+}
+
+function calculateSubjectiveTextRisk({ count, ratio }) {
+  const subjectiveCount = Number(count || 0);
+  const subjectiveRatio = Number(ratio || 0);
+  if (!subjectiveCount) return 0;
+  if (subjectiveCount <= 1) return Math.min(1.5, subjectiveRatio * 1.5);
+  if (!hasActionableSubjectiveEvidence({ count: subjectiveCount, ratio: subjectiveRatio })) {
+    return Math.min(3.5, 1.2 + subjectiveRatio * 3 + Math.log2(subjectiveCount + 1) * 0.55);
+  }
+  return Math.min(8, 2.8 + subjectiveRatio * 6 + Math.log2(subjectiveCount + 1) * 0.9);
+}
+
+function calculateConfidence({ signalCount, sourceCoverage, judgeMeMatchConfidence, orderAccessDenied, sourceAgreement, recentSignals, mainIssue = "", textInsights = null }) {
   const sample = Math.min(26, Math.log2(signalCount + 1) * 8);
   const coverage = Math.min(28, sourceCoverage.length * 7);
   const match = Math.round((judgeMeMatchConfidence || 0) * 16);
   const agreement = sourceAgreement ? 18 : 5;
   const recency = recentSignals ? 10 : 0;
   const penalty = orderAccessDenied ? 16 : 0;
-  return clamp(Math.round(18 + sample + coverage + match + agreement + recency - penalty), 0, 99);
+  const baseConfidence = clamp(Math.round(18 + sample + coverage + match + agreement + recency - penalty), 0, 99);
+  return adjustSubjectiveConfidence(baseConfidence, mainIssue, textInsights);
+}
+
+function adjustSubjectiveConfidence(confidence, mainIssue, textInsights) {
+  if (mainIssue !== "subjective_negative_reaction") return confidence;
+  const summary = textInsights?.subjectiveNegativity || {};
+  const count = Number(summary.count || 0);
+  const ratio = Number(summary.ratio || 0);
+  if (count <= 1) return Math.min(confidence, 45);
+  if (!hasActionableSubjectiveEvidence(summary)) return Math.min(confidence, 62);
+  if (count < 5 && ratio < 0.5) return Math.min(confidence, 76);
+  return confidence;
 }
 
 function calculateEstimatedImpact({
@@ -2724,7 +2924,8 @@ function normalizeIssueCode(value) {
   if (!normalized) return "";
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("size")) return "fit_sizing";
   if (normalized.includes("color")) return "color_expectation";
-  if (normalized.includes("safety") || normalized.includes("fear") || normalized.includes("scare") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("miedo") || normalized.includes("asusta")) return "safety_concern";
+  if (normalized.includes("safety") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("hazard") || normalized.includes("peligro")) return "safety_concern";
+  if (normalized.includes("subjective") || normalized.includes("preference") || normalized.includes("dislike") || normalized.includes("fear") || normalized.includes("scare") || normalized.includes("creepy") || normalized.includes("miedo") || normalized.includes("asusta") || normalized.includes("terror")) return "subjective_negative_reaction";
   if (normalized.includes("durability")) return "durability";
   if (normalized.includes("defect") || normalized.includes("quality")) return "quality_defect";
   if (normalized.includes("compat")) return "compatibility";
@@ -2744,7 +2945,8 @@ function getHumanIssueLabel(issue) {
     shipping_delivery: "Shipping or delivery",
     product_content: "Product content",
     product_quality: "Product quality",
-    safety_concern: "Fear or safety concern",
+    safety_concern: "Safety concern",
+    subjective_negative_reaction: "Subjective negative reaction",
     negative_sentiment: "Negative customer sentiment",
     repeated_language: "Repeated customer language",
     return_rate_anomaly: "Return rate anomaly",
@@ -2757,6 +2959,7 @@ function getPdpActionId(issue) {
   if (issue === "fit_sizing") return "draft-fit-note";
   if (issue === "color_expectation") return "draft-color-expectation-note";
   if (issue === "safety_concern") return "draft-safety-expectation-note";
+  if (issue === "subjective_negative_reaction") return "draft-subjective-expectation-note";
   if (issue === "compatibility") return "draft-compatibility-faq";
   if (issue === "product_content") return "rewrite-product-description";
   return "draft-pdp-copy";
@@ -2766,6 +2969,7 @@ function getPdpActionLabel(issue) {
   if (issue === "fit_sizing") return "Draft fit note for product description";
   if (issue === "color_expectation") return "Draft color expectation note";
   if (issue === "safety_concern") return "Draft safety expectation note";
+  if (issue === "subjective_negative_reaction") return "Draft expectation-setting note";
   if (issue === "compatibility") return "Draft compatibility FAQ";
   if (issue === "durability") return "Draft durability expectation note";
   if (issue === "product_content") return "Rewrite product description";
@@ -2778,6 +2982,7 @@ function getIssueTag(issue) {
   if (issue === "durability") return "durability_issue";
   if (issue === "quality_defect") return "quality_issue";
   if (issue === "safety_concern") return "safety_concern";
+  if (issue === "subjective_negative_reaction") return "";
   if (issue === "product_content") return "content_issue";
   return "";
 }
@@ -2824,6 +3029,7 @@ function containsIssueLanguage(text) {
 
 function getNodes(connection) {
   if (Array.isArray(connection?.nodes)) return connection.nodes.filter(Boolean);
+  if (Array.isArray(connection?.edges)) return connection.edges.map((edge) => edge?.node).filter(Boolean);
   if (Array.isArray(connection)) return connection.filter(Boolean);
   return [];
 }
@@ -2889,6 +3095,11 @@ export const __productPulseDiagnosisTestHooks = {
   buildReturnOrderQueries,
   getReturnLineItemNoteText,
   getReturnReasonValue,
+  getNodes,
+  buildCustomerTextInsights,
+  calculateConfidence,
+  calculateRiskScore,
+  classifyIssueText,
   lineItemMatchesProduct,
 };
 
