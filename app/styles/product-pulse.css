@@ -3350,8 +3350,8 @@ s-page[inline-size="large-500"] {
   border-bottom: 0;
   border-left: 0;
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.96);
-  color: var(--pp-slate-900);
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
   box-shadow: 0 20px 50px rgba(var(--pp-shadow-rgb), 0.18);
 }
 
@@ -3362,7 +3362,7 @@ s-page[inline-size="large-500"] {
 
 .ppJobFloatingBar p {
   margin-top: 3px;
-  color: var(--pp-slate-700);
+  color: rgba(255, 255, 255, 0.74);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -3399,8 +3399,20 @@ s-page[inline-size="large-500"] {
   background: currentColor;
 }
 
+.ppJobFloatingBar .ppJobMinimizeButton,
+.ppDevJobPanelHeader .ppJobMinimizeButton {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pp-cloud-white);
+}
+
+.ppJobFloatingBar .ppJobMinimizeButton:hover,
+.ppDevJobPanelHeader .ppJobMinimizeButton:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .ppJobPulse,
-.ppJobDockMinimized > span {
+.ppJobDockPulse {
   width: 10px;
   height: 10px;
   border-radius: 999px;
@@ -3409,28 +3421,67 @@ s-page[inline-size="large-500"] {
 }
 
 .ppJobDockMinimized {
-  width: 100%;
+  right: 18px;
+  bottom: 18px;
+  left: auto;
+  width: auto;
+  max-width: calc(100vw - 36px);
   display: inline-flex;
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
-  padding: 10px 18px;
-  border-right: 0;
-  border-bottom: 0;
-  border-left: 0;
-  border-radius: 0;
+  padding: 9px 12px;
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
   box-shadow: 0 12px 34px rgba(var(--pp-shadow-rgb), 0.16);
 }
 
-.ppJobDockMinimized > span {
+.ppJobDockMinimized strong {
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppJobDockPulse {
   display: inline-block;
-  background: var(--pp-slate-300);
+  background: rgba(255, 255, 255, 0.48);
   box-shadow: none;
 }
 
-.ppJobDockMinimized > span.isRunning {
+.ppJobDockPulse.isRunning {
   background: var(--pp-signal-teal);
   box-shadow: 0 0 0 5px rgba(var(--pp-signal-teal-rgb), 0.14);
+}
+
+.ppJobExpandIcon {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+}
+
+.ppJobExpandIcon::before,
+.ppJobExpandIcon::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  width: 7px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.ppJobExpandIcon::before {
+  left: 1px;
+  transform: rotate(-45deg);
+}
+
+.ppJobExpandIcon::after {
+  right: 1px;
+  transform: rotate(45deg);
 }
 
 .ppDevJobPanel {
@@ -3455,13 +3506,14 @@ s-page[inline-size="large-500"] {
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--pp-slate-200);
-  background: var(--pp-slate-100);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
 }
 
 .ppDevJobPanelHeader span {
   display: block;
-  color: var(--pp-slate-500);
+  color: rgba(255, 255, 255, 0.64);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0;
@@ -3471,6 +3523,7 @@ s-page[inline-size="large-500"] {
 .ppDevJobPanelHeader strong {
   display: block;
   margin-top: 3px;
+  color: inherit;
   font-size: 14px;
 }
 
@@ -3566,6 +3619,20 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 4px;
   padding: 9px;
+  width: 100%;
+  min-height: 0;
+  text-align: left;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.ppDevJobListRow:hover,
+.ppDevJobListRow.isSelected {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.46);
+  box-shadow: 0 10px 24px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppDevJobListRow.isSelected {
+  background: var(--pp-blue-soft);
 }
 
 .ppDevJobListRow strong {
@@ -3596,6 +3663,27 @@ s-page[inline-size="large-500"] {
 .ppDevJobStatus-failed {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
+}
+
+.ppDevLogHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.ppDevLogHeader h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppDevLogHeader button {
+  min-height: 26px;
+  padding: 4px 8px;
+  white-space: nowrap;
 }
 
 .ppDevLog {
@@ -3816,11 +3904,18 @@ s-page[inline-size="large-500"] {
   }
 
   .ppDevJobPanel,
-  .ppJobFloatingBar,
-  .ppJobDockMinimized {
+  .ppJobFloatingBar {
     right: 0;
     bottom: 0;
     left: 0;
     width: 100%;
+  }
+
+  .ppJobDockMinimized {
+    right: 10px;
+    bottom: 10px;
+    left: auto;
+    width: auto;
+    max-width: calc(100vw - 20px);
   }
 }

@@ -3,16 +3,22 @@ import { useFetcher } from "react-router";
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
-  const [minimized, setMinimized] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("productPulseDevJobsMinimized") !== "false";
-  });
+  const [minimized, setMinimized] = useState(() => Boolean(developmentMode));
+  const [selectedJobId, setSelectedJobId] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const monitor = fetcher.data?.jobMonitor || initialMonitor || {};
   const activeJobs = useMemo(() => monitor.activeJobs || [], [monitor.activeJobs]);
   const recentJobs = useMemo(() => monitor.recentJobs || [], [monitor.recentJobs]);
   const logs = useMemo(() => monitor.logs || [], [monitor.logs]);
   const hasActiveJobs = activeJobs.length > 0;
+  const selectedJob = useMemo(
+    () => recentJobs.find((job) => job.id === selectedJobId) || activeJobs.find((job) => job.id === selectedJobId) || null,
+    [activeJobs, recentJobs, selectedJobId],
+  );
+  const visibleLogs = useMemo(
+    () => (selectedJobId ? logs.filter((log) => log.jobId === selectedJobId) : logs),
+    [logs, selectedJobId],
+  );
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
@@ -42,23 +48,22 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     return byJob;
   }, [logs]);
 
-  const toggleMinimized = () => {
-    setMinimized((current) => {
-      const next = !current;
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("productPulseDevJobsMinimized", String(next));
-      }
-      return next;
-    });
-  };
+  useEffect(() => {
+    if (!selectedJobId) return;
+    const jobExists = recentJobs.some((job) => job.id === selectedJobId) || activeJobs.some((job) => job.id === selectedJobId);
+    if (!jobExists) setSelectedJobId(null);
+  }, [activeJobs, recentJobs, selectedJobId]);
+
+  const toggleMinimized = () => setMinimized((current) => !current);
 
   if (!developmentMode && !hasActiveJobs) return null;
 
   if (minimized) {
     return (
-      <button className="ppJobDockMinimized" type="button" onClick={toggleMinimized}>
-        <span className={hasActiveJobs ? "isRunning" : ""} />
-        {hasActiveJobs ? `${activeJobs.length} job${activeJobs.length === 1 ? "" : "s"} running` : "Dev jobs"}
+      <button className="ppJobDockMinimized" type="button" onClick={toggleMinimized} aria-label={developmentMode ? "Open development job monitor" : "Open background job monitor"}>
+        <span className={`ppJobDockPulse${hasActiveJobs ? " isRunning" : ""}`} />
+        <strong>{hasActiveJobs ? `${activeJobs.length} job${activeJobs.length === 1 ? "" : "s"} running` : "Dev jobs"}</strong>
+        <span className="ppJobExpandIcon" aria-hidden="true" />
       </button>
     );
   }
@@ -106,19 +111,32 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
           <h2>Recent jobs</h2>
           <div className="ppDevJobList">
             {recentJobs.map((job) => (
-              <div className="ppDevJobListRow" key={job.id}>
+              <button
+                className={`ppDevJobListRow${selectedJobId === job.id ? " isSelected" : ""}`}
+                type="button"
+                key={job.id}
+                onClick={() => setSelectedJobId(job.id)}
+                aria-pressed={selectedJobId === job.id}
+              >
                 <span className={`ppDevJobStatus ppDevJobStatus-${job.status.toLowerCase()}`}>{job.status}</span>
                 <strong>{job.name}</strong>
                 <small>{formatElapsed(job, now)} | {job.source}</small>
-              </div>
+              </button>
             ))}
           </div>
         </section>
 
         <section>
-          <h2>Logs</h2>
+          <div className="ppDevLogHeader">
+            <h2>{selectedJob ? `Logs: ${selectedJob.name}` : "Logs"}</h2>
+            {selectedJob && (
+              <button type="button" onClick={() => setSelectedJobId(null)}>
+                All logs
+              </button>
+            )}
+          </div>
           <div className="ppDevLogList">
-            {logs.length ? logs.slice(0, 24).map((log) => (
+            {visibleLogs.length ? visibleLogs.slice(0, 24).map((log) => (
               <article className={`ppDevLog ppDevLog-${log.level}`} key={log.id}>
                 <header>
                   <span>{log.level}</span>
@@ -129,7 +147,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
                 {log.data && <pre>{JSON.stringify(log.data, null, 2)}</pre>}
               </article>
             )) : (
-              <p className="ppDevJobEmpty">No development logs recorded yet.</p>
+              <p className="ppDevJobEmpty">{selectedJob ? "No logs recorded for this job yet." : "No development logs recorded yet."}</p>
             )}
           </div>
         </section>
