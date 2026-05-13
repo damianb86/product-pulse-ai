@@ -50,6 +50,20 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   });
 
   const ai = await runProductDiagnosisAiAnalysis({ shop, jobId, input: aiInput });
+  const emergentSentiments = normalizeAiEmergentSentiments(ai);
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "product_diagnosis.emergent_sentiments_clustered",
+    message: emergentSentiments.length
+      ? "AI clustered emergent customer sentiments with enough evidence."
+      : "AI did not find emergent customer sentiments with enough evidence.",
+    data: {
+      productGid: snapshot.productGid,
+      emergentSentiments,
+      discardedSuggestions: ai.emergentSentiments?.discarded_suggestions || [],
+    },
+  });
   const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, deterministic, ai });
   const diagnosis = await persistDetailedDiagnosis({ shop, snapshot, payload: diagnosisPayload });
 
@@ -832,12 +846,17 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
 
 function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
+  const emergentSentiments = normalizeAiEmergentSentiments(ai);
   const adjustedRiskScore = clamp(deterministic.riskScore + contentAnalysis.additionalRiskLift, 0, 100);
   const scoredDeterministic = {
     ...deterministic,
     riskScore: adjustedRiskScore,
     metrics: {
       ...deterministic.metrics,
+      textInsights: {
+        ...(deterministic.metrics.textInsights || {}),
+        aiEmergentSentiments: emergentSentiments,
+      },
       contentAnalysis,
       contentQualityScore: contentAnalysis.score,
       contentQualityRisk: contentAnalysis.riskLift,
@@ -873,6 +892,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
       evidenceSummary: mainFinding.summary,
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
+      emergentSentiments,
       checkedSources: buildCheckedSources(deterministic),
     },
   };
@@ -1232,6 +1252,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   const textInsights = deterministic.metrics.textInsights || {};
   const aiFindings = Array.isArray(ai.classification?.granular_findings) ? ai.classification.granular_findings : [];
   const aiRepeatedLanguage = Array.isArray(ai.classification?.repeated_language) ? ai.classification.repeated_language : [];
+  const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
   const deterministicIssues = Array.isArray(textInsights.granularIssues) ? textInsights.granularIssues : [];
   const issues = [];
 
@@ -1289,7 +1310,121 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
     });
   });
 
+  aiEmergentSentiments.slice(0, 4).forEach((item, index) => {
+    const issueCode = normalizeIssueCode(item.issueCategory || `emergent_sentiment_${item.normalizedLabel}`) || `emergent_sentiment_${item.normalizedLabel}`;
+    const trend = getIssueTrend(deterministic, issueCode);
+    const severity = normalizeEmergentSentimentSeverity(item);
+    issues.push({
+      issue: `Emergent customer sentiment: ${item.label}`,
+      issueCode,
+      severity: capitalize(severity),
+      tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
+      confidence: getEmergentSentimentConfidenceScore(item, deterministic.confidence, index),
+      signals: item.signals,
+      evidence: [
+        item.merchantSummary,
+        item.mergedFrom.length ? `Merged similar reactions: ${item.mergedFrom.join(", ")}.` : "",
+        ...item.evidence,
+      ].filter(Boolean).slice(0, 5),
+      trend,
+      trendTone: getTrendTone(trend, deterministic.riskScore),
+      action: item.suggestedAction || "Review emergent customer sentiment",
+    });
+  });
+
   return uniqueBy(issues.filter((issue) => issue.issue), (issue) => `${issue.issueCode}-${issue.issue}`);
+}
+
+const KNOWN_CUSTOMER_SENTIMENT_CODES = new Set([
+  "frustration",
+  "disappointment",
+  "anger",
+  "fear",
+  "confusion",
+  "distrust",
+  "regret",
+  "uncertainty",
+  "indifference",
+  "satisfaction",
+  "trust",
+  "relief",
+  "delight",
+  "none",
+]);
+
+function normalizeAiEmergentSentiments(ai) {
+  const items = Array.isArray(ai?.emergentSentiments?.emergent_sentiments)
+    ? ai.emergentSentiments.emergent_sentiments
+    : [];
+
+  return uniqueBy(
+    items
+      .map(normalizeAiEmergentSentiment)
+      .filter(Boolean),
+    (item) => item.normalizedLabel,
+  ).slice(0, 6);
+}
+
+function normalizeAiEmergentSentiment(item) {
+  const label = String(item?.label || item?.normalized_label || "").replace(/\s+/g, " ").trim();
+  const normalizedLabel = normalizeText(item?.normalized_label || label)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  if (!label || !normalizedLabel || KNOWN_CUSTOMER_SENTIMENT_CODES.has(normalizedLabel)) return null;
+
+  const evidence = Array.isArray(item.evidence)
+    ? item.evidence.map((value) => truncateText(value, 180)).filter(Boolean).slice(0, 4)
+    : [];
+  const mergedFrom = Array.isArray(item.merged_from)
+    ? item.merged_from.map((value) => String(value || "").trim()).filter(Boolean).slice(0, 6)
+    : [];
+  const signals = Math.max(0, Math.round(Number(item.signals || 0)), evidence.length);
+  const hasSufficientEvidence = item.has_sufficient_evidence === true || signals >= 2;
+  if (!hasSufficientEvidence || signals < 2) return null;
+
+  return {
+    label,
+    normalizedLabel,
+    polarity: normalizePolarity(item.polarity),
+    signals,
+    confidence: normalizeEmergentConfidence(item.confidence),
+    mergedFrom,
+    sourceTypes: Array.isArray(item.source_types)
+      ? item.source_types.map((value) => String(value || "").trim()).filter(Boolean).slice(0, 5)
+      : [],
+    issueCategory: normalizeIssueCode(item.issue_category || `emergent_sentiment_${normalizedLabel}`),
+    merchantSummary: truncateText(item.merchant_summary || item.summary || `${label} appeared in repeated customer language.`, 220),
+    evidence,
+    suggestedAction: item.suggested_action || "Review emergent customer sentiment",
+  };
+}
+
+function normalizePolarity(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("positive")) return "positive";
+  if (normalized.includes("mixed")) return "mixed";
+  if (normalized.includes("neutral")) return "neutral";
+  return "negative";
+}
+
+function normalizeEmergentConfidence(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return "high";
+  if (normalized.includes("low")) return "low";
+  return "medium";
+}
+
+function normalizeEmergentSentimentSeverity(item) {
+  if (item.polarity === "positive") return "low";
+  if (item.confidence === "high" && item.signals >= 4) return "high";
+  if (item.polarity === "negative" && item.signals >= 2) return "medium";
+  return "low";
+}
+
+function getEmergentSentimentConfidenceScore(item, baseConfidence, index) {
+  const confidenceLift = item.confidence === "high" ? 8 : item.confidence === "low" ? -8 : 0;
+  const signalLift = Math.min(8, item.signals * 2);
+  return Math.max(38, Math.min(92, baseConfidence - 12 - index * 3 + confidenceLift + signalLift));
 }
 
 function getIssueTrend(deterministic, issueCode) {
@@ -1305,6 +1440,7 @@ function getIssueTrend(deterministic, issueCode) {
 
 function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
   const textInsights = deterministic.metrics.textInsights || {};
+  const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
   const evidence = [{
     source: "Shopify product",
     quote: `${deterministic.metrics.productType || "Product"}${deterministic.metrics.vendor ? ` by ${deterministic.metrics.vendor}` : ""}`,
@@ -1372,6 +1508,7 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
           : "",
         ...((textInsights.repeatedLanguage || []).slice(0, 5).map((item) => `"${item.term}" repeated ${item.count} time${item.count === 1 ? "" : "s"} across ${item.sources.join(" and ")}`)),
         ...((Array.isArray(ai.classification?.repeated_language) ? ai.classification.repeated_language : []).slice(0, 3).map((item) => `AI repeated-language finding: "${item.term}" - ${item.explanation || item.sentiment || "review"}`)),
+        ...aiEmergentSentiments.slice(0, 4).map((item) => `Emergent sentiment: ${item.label} (${item.signals} signal${item.signals === 1 ? "" : "s"}) - ${item.merchantSummary}`),
       ].filter(Boolean),
     });
   }

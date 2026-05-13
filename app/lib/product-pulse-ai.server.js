@@ -14,6 +14,12 @@ const AI_TASKS = {
     maxOutputTokens: 3200,
     temperature: 0.1,
   },
+  emergent_sentiment: {
+    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
+    fallbackModel: "gpt-5.4-mini",
+    maxOutputTokens: 2200,
+    temperature: 0.15,
+  },
   content_gap: {
     modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
     fallbackModel: "gpt-5.4-nano",
@@ -34,6 +40,22 @@ const AI_TASKS = {
   },
 };
 
+const PREDEFINED_CUSTOMER_SENTIMENTS = [
+  { code: "frustration", polarity: "negative", description: "The customer sounds blocked, annoyed, or tired of the product problem." },
+  { code: "disappointment", polarity: "negative", description: "The product failed an expectation the customer had before purchase." },
+  { code: "anger", polarity: "negative", description: "The customer is strongly upset or confrontational." },
+  { code: "fear", polarity: "negative", description: "The product language evokes fear, safety concern, or a scary reaction." },
+  { code: "confusion", polarity: "negative", description: "The customer is unsure how the product works, fits, or should be used." },
+  { code: "distrust", polarity: "negative", description: "The customer questions the product, description, brand, or stated value." },
+  { code: "regret", polarity: "negative", description: "The customer signals buyer remorse or wishes they had not purchased." },
+  { code: "uncertainty", polarity: "neutral", description: "The customer is not clearly negative or positive but lacks confidence." },
+  { code: "indifference", polarity: "neutral", description: "The customer has a flat or low-intensity reaction." },
+  { code: "satisfaction", polarity: "positive", description: "The customer indicates the product met expectations." },
+  { code: "trust", polarity: "positive", description: "The customer expresses confidence in the product or brand." },
+  { code: "relief", polarity: "positive", description: "The customer says the product solved a concern or avoided friction." },
+  { code: "delight", polarity: "positive", description: "The customer expresses excitement or strong positive surprise." },
+];
+
 export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
   const classificationPrompt = buildSignalClassificationPrompt(input);
   const classificationResponse = await generateAiText({
@@ -53,6 +75,18 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     source_agreement: "unknown",
   });
 
+  const emergentSentimentResponse = await generateAiText({
+    shop,
+    jobId,
+    task: "emergent_sentiment",
+    prompt: buildEmergentSentimentPrompt(input, classification),
+  });
+  const emergentSentiments = parseAiJson(emergentSentimentResponse.text, {
+    emergent_sentiments: [],
+    discarded_suggestions: [],
+    summary: "No emergent customer sentiments were detected.",
+  });
+
   const gapPrompt = buildContentGapPrompt(input, classification);
   const gapResponse = await generateAiText({
     shop,
@@ -66,7 +100,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     notes: "AI PDP content-gap analysis was unavailable.",
   });
 
-  const reportPrompt = buildFinalReportPrompt(input, classification, contentGaps);
+  const reportPrompt = buildFinalReportPrompt(input, classification, contentGaps, emergentSentiments);
   const reportResponse = await generateAiText({
     shop,
     jobId,
@@ -85,14 +119,17 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     model: reportResponse.model,
     modelsUsed: {
       classification: pickAiModelSummary(classificationResponse),
+      emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
       contentGap: pickAiModelSummary(gapResponse),
       finalReport: pickAiModelSummary(reportResponse),
     },
     classification,
+    emergentSentiments,
     contentGaps,
     report,
     raw: {
       classification: classificationResponse.text,
+      emergentSentiments: emergentSentimentResponse.text,
       contentGaps: gapResponse.text,
       report: reportResponse.text,
     },
@@ -108,13 +145,17 @@ function buildSignalClassificationPrompt(input) {
   const snippets = JSON.stringify(input?.evidenceSnippets || [], null, 2);
   const metrics = JSON.stringify(input?.deterministic || {}, null, 2);
   const product = JSON.stringify(input?.product || {}, null, 2);
+  const sentimentTaxonomy = JSON.stringify(PREDEFINED_CUSTOMER_SENTIMENTS, null, 2);
 
   return [
     "You are ProductPulse AI. Classify customer evidence for one ecommerce product.",
     "Use the text evidence only to interpret language. Do not calculate financial metrics, rates, counts, confidence, or risk score.",
     "If a Shopify return reason is Other, Unknown, or generic, read the customer note/reason text and classify the actual product issue when the text supports it.",
     "Analyze sentiment in return notes and reviews. Capture repeated words, repeated phrases, recurring emotions, and fine-grained findings that should become merchant-facing issues.",
+    "Use the predefined sentiment taxonomy first. If a customer reaction clearly does not fit the taxonomy, keep sentiment as negative/neutral/positive and add suggested_emotion as a concise snake_case candidate.",
     "Return valid JSON only. No markdown.",
+    "Predefined sentiment taxonomy:",
+    sentimentTaxonomy,
     "Schema:",
     JSON.stringify({
       classified_signals: [{
@@ -124,6 +165,9 @@ function buildSignalClassificationPrompt(input) {
         issue_detail: "snake_case_detail",
         affected_area: "optional",
         sentiment: "negative|neutral|positive",
+        known_emotion: "frustration|disappointment|anger|fear|confusion|distrust|regret|uncertainty|indifference|satisfaction|trust|relief|delight|none",
+        suggested_emotion: "empty_or_new_snake_case_emotion_not_in_taxonomy",
+        suggested_emotion_reason: "why this does not fit the predefined taxonomy",
         severity: "low|medium|high",
         product_related: true,
         recommended_action_type: "fit_note|faq|description_update|tag|support_note|variant_review|image_or_size_chart|none",
@@ -147,12 +191,16 @@ function buildSignalClassificationPrompt(input) {
         source_types: ["shopify_return_note"],
         evidence: ["short grounded evidence phrase"],
         suggested_action: "Review Other return notes",
+        known_emotion: "fear",
+        suggested_emotion: "",
       }],
       repeated_language: [{
         term: "too small",
         count: 0,
         source_types: ["judgeme_reviews", "shopify_return_note"],
         sentiment: "negative|neutral|positive",
+        known_emotion: "frustration",
+        suggested_emotion: "",
         issue_category: "fit_sizing",
         explanation: "Customers repeat this phrase when explaining returns.",
       }],
@@ -175,6 +223,57 @@ function buildSignalClassificationPrompt(input) {
     "Deterministic metrics, already calculated by the system:",
     metrics,
     "Evidence snippets:",
+    snippets,
+  ].join("\n\n");
+}
+
+function buildEmergentSentimentPrompt(input, classification) {
+  const snippets = JSON.stringify(input?.evidenceSnippets || [], null, 2);
+  const classifiedSignals = JSON.stringify(classification?.classified_signals || [], null, 2);
+  const granularFindings = JSON.stringify(classification?.granular_findings || [], null, 2);
+  const repeatedLanguage = JSON.stringify(classification?.repeated_language || [], null, 2);
+  const sentimentTaxonomy = JSON.stringify(PREDEFINED_CUSTOMER_SENTIMENTS, null, 2);
+
+  return [
+    "You are ProductPulse AI clustering customer emotions for one ecommerce product.",
+    "The system has a finite predefined sentiment taxonomy. Keep using that taxonomy when it fits.",
+    "Your job is only to find new or unexpected customer sentiments that are not already represented by the predefined taxonomy.",
+    "Review suggested_emotion values, evidence text, repeated language and granular findings. Merge synonyms, near-duplicates, translations and closely related emotional reactions into one normalized sentiment.",
+    "Return an emergent sentiment only when there is sufficient evidence: at least 2 independent customer texts, or one very explicit high-severity text plus repeated language that supports it.",
+    "Do not create new sentiments for known taxonomy emotions such as fear, frustration, disappointment, anger or confusion. Those remain known_emotion values.",
+    "Do not calculate risk score, confidence score, financial impact, rates or counts outside the customer texts supplied here.",
+    "Return valid JSON only. No markdown.",
+    "Predefined sentiment taxonomy:",
+    sentimentTaxonomy,
+    "Schema:",
+    JSON.stringify({
+      emergent_sentiments: [{
+        label: "Creeped out",
+        normalized_label: "creeped_out",
+        polarity: "negative|neutral|positive|mixed",
+        signals: 0,
+        confidence: "low|medium|high",
+        has_sufficient_evidence: true,
+        merged_from: ["unsettled", "creeped_out"],
+        source_types: ["shopify_return_note", "judgeme_review"],
+        issue_category: "safety_concern|product_quality|other",
+        merchant_summary: "Customers describe an unusual emotional reaction that is not covered by the known taxonomy.",
+        evidence: ["short grounded quote or phrase"],
+        suggested_action: "Review this emotional reaction in product copy and support guidance",
+      }],
+      discarded_suggestions: [{
+        label: "one-off feeling",
+        reason: "Only one weak signal or already covered by predefined taxonomy.",
+      }],
+      summary: "Short explanation of whether any emergent sentiment deserves merchant attention.",
+    }, null, 2),
+    "Classified signals:",
+    classifiedSignals,
+    "Granular findings:",
+    granularFindings,
+    "Repeated language:",
+    repeatedLanguage,
+    "Original evidence snippets:",
     snippets,
   ].join("\n\n");
 }
@@ -227,11 +326,12 @@ function buildContentGapPrompt(input, classification) {
   ].join("\n\n");
 }
 
-function buildFinalReportPrompt(input, classification, contentGaps) {
+function buildFinalReportPrompt(input, classification, contentGaps, emergentSentiments) {
   return [
     "You are ProductPulse AI writing the final product diagnosis report for a merchant.",
     "The system already calculated all numeric metrics. Never change risk score, confidence, impact, rates, counts, or amounts.",
     "Use the metrics, clusters, product-content analysis, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
+    "If emergent customer sentiments are present, mention them only when they are grounded in the evidence and useful to the merchant.",
     "If product content is missing, incoherent, too short, or mismatched with title/tags/collections, include that in the finding or recommendations when relevant.",
     "Return valid JSON only. No markdown.",
     "Schema:",
@@ -256,6 +356,8 @@ function buildFinalReportPrompt(input, classification, contentGaps) {
     JSON.stringify(classification || {}, null, 2),
     "PDP content gaps:",
     JSON.stringify(contentGaps || {}, null, 2),
+    "Emergent customer sentiments:",
+    JSON.stringify(emergentSentiments || {}, null, 2),
     "Recommendation candidates chosen by rules:",
     JSON.stringify(input?.recommendationCandidates || [], null, 2),
   ].join("\n\n");

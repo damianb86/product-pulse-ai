@@ -30,7 +30,10 @@ vi.mock("../../app/lib/product-pulse-job-logs.server", () => ({
   }),
 }));
 
-const { generateProductDiagnosisTestText } = await import("../../app/lib/product-pulse-ai.server.js");
+const {
+  generateProductDiagnosisTestText,
+  runProductDiagnosisAiAnalysis,
+} = await import("../../app/lib/product-pulse-ai.server.js");
 
 describe("ProductPulse AI provider fallback", () => {
   beforeEach(() => {
@@ -98,5 +101,93 @@ describe("ProductPulse AI provider fallback", () => {
       jobId: "job-2",
       product: { title: "Canvas Tote", handle: "canvas-tote", metrics: {} },
     })).rejects.toThrow(/Gemini.*OpenAI nano.*rate limit reached/);
+  });
+
+  it("clusters AI-suggested emergent sentiments after signal classification", async () => {
+    const prompts = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+      const body = JSON.parse(options.body);
+      prompts.push(body.contents[0].parts[0].text);
+      const responseText = [
+        JSON.stringify({
+          classified_signals: [{
+            source: "shopify_return_note",
+            text: "It feels cursed and makes me uneasy.",
+            issue_category: "other",
+            issue_detail: "unusual_emotional_reaction",
+            sentiment: "negative",
+            known_emotion: "none",
+            suggested_emotion: "superstitious_discomfort",
+            suggested_emotion_reason: "The reaction is not simple fear or frustration.",
+            severity: "medium",
+            product_related: true,
+            recommended_action_type: "description_update",
+          }],
+          clusters: [],
+          granular_findings: [],
+          repeated_language: [],
+          sentiment_summary: { dominant_sentiment: "negative", negative_count: 1, neutral_count: 0, positive_count: 0 },
+          main_issue: "other",
+          issue_summary: "Unusual emotional language appears in return notes.",
+          source_agreement: "single_source",
+        }),
+        JSON.stringify({
+          emergent_sentiments: [{
+            label: "Superstitious discomfort",
+            normalized_label: "superstitious_discomfort",
+            polarity: "negative",
+            signals: 2,
+            confidence: "medium",
+            has_sufficient_evidence: true,
+            merged_from: ["superstitious_discomfort", "uneasy"],
+            source_types: ["shopify_return_note"],
+            issue_category: "other",
+            merchant_summary: "Customers describe a superstitious discomfort not covered by the base taxonomy.",
+            evidence: ["It feels cursed", "Makes me uneasy"],
+            suggested_action: "Review emotional positioning in product copy",
+          }],
+          discarded_suggestions: [],
+          summary: "One emergent sentiment deserves review.",
+        }),
+        JSON.stringify({ missing: [], present: [], notes: "No content gaps." }),
+        JSON.stringify({
+          main_finding_title: "Unusual customer sentiment needs review",
+          main_finding_detail: "Return notes include unusual emotional language.",
+          evidence_summary: "Shopify return notes contain repeated emotional language.",
+          recommendation_copy: {},
+        }),
+      ][prompts.length - 1];
+
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: responseText }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+
+    const result = await runProductDiagnosisAiAnalysis({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-3",
+      input: {
+        product: { title: "Antique Figure" },
+        deterministic: { mainIssue: "product_quality", mainIssueLabel: "Product quality", metrics: {} },
+        evidenceSnippets: [{
+          source: "shopify_return_note",
+          text: "It feels cursed and makes me uneasy.",
+        }],
+        recommendationCandidates: [],
+      },
+    });
+
+    expect(prompts).toHaveLength(4);
+    expect(prompts[0]).toContain("Predefined sentiment taxonomy");
+    expect(prompts[1]).toContain("clustering customer emotions");
+    expect(result.emergentSentiments.emergent_sentiments[0]).toMatchObject({
+      normalized_label: "superstitious_discomfort",
+      has_sufficient_evidence: true,
+    });
+    expect(result.modelsUsed.emergentSentiment).toMatchObject({
+      provider: "gemini",
+      model: "gemini-a",
+      task: "emergent_sentiment",
+    });
   });
 });
