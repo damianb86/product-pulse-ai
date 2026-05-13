@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  __productPulseQuickScanTestHooks,
   buildOrdersBulkQuery,
   buildQuickScanCandidates,
   getPersistableQuickScanCandidates,
@@ -213,6 +214,106 @@ describe("ProductPulse QuickScan", () => {
     expect(query).toContain("returns");
     expect(query).not.toMatch(/\brefunds\s*\{/);
     expect(query).not.toContain("refundLineItems");
+  });
+
+  it("requests flat Shopify bulk query output explicitly", () => {
+    expect(__productPulseQuickScanTestHooks.quickScanBulkGroupObjects).toBe(false);
+  });
+
+  it("normalizes legacy grouped bulk output if Shopify returns nested objects", () => {
+    const { products, events } = __productPulseQuickScanTestHooks.normalizeBulkQuickScanData(
+      [{
+        __typename: "Product",
+        id: "gid://shopify/Product/1",
+        handle: "legacy-shirt",
+        title: "Legacy Shirt",
+        vendor: "Acme",
+        productType: "Apparel",
+        tags: ["fit"],
+        status: "ACTIVE",
+        options: [{ name: "Size", values: ["M"] }],
+        variants: {
+          edges: [{
+            node: {
+              __typename: "ProductVariant",
+              id: "gid://shopify/ProductVariant/1",
+              title: "M",
+              sku: "LEG-M",
+              selectedOptions: [{ name: "Size", value: "M" }],
+            },
+          }],
+        },
+        collections: {
+          edges: [{
+            node: {
+              __typename: "Collection",
+              id: "gid://shopify/Collection/1",
+              handle: "shirts",
+              title: "Shirts",
+            },
+          }],
+        },
+      }],
+      [{
+        __typename: "Order",
+        id: "gid://shopify/Order/1",
+        createdAt: "2026-05-13T12:00:00Z",
+        lineItems: {
+          edges: [{
+            node: {
+              __typename: "LineItem",
+              id: "gid://shopify/LineItem/1",
+              quantity: 2,
+              title: "Legacy Shirt",
+              sku: "LEG-M",
+              product: { id: "gid://shopify/Product/1", handle: "legacy-shirt", title: "Legacy Shirt" },
+              variant: { id: "gid://shopify/ProductVariant/1", title: "M", sku: "LEG-M", selectedOptions: [{ name: "Size", value: "M" }] },
+              originalTotalSet: { shopMoney: { amount: "80.00" } },
+            },
+          }],
+        },
+        returns: {
+          edges: [{
+            node: {
+              __typename: "Return",
+              id: "gid://shopify/Return/1",
+              createdAt: "2026-05-14T12:00:00Z",
+              returnLineItems: {
+                edges: [{
+                  node: {
+                    __typename: "ReturnLineItem",
+                    id: "gid://shopify/ReturnLineItem/1",
+                    quantity: 1,
+                    customerNote: "too small",
+                    returnReason: "SIZE_TOO_SMALL",
+                    fulfillmentLineItem: {
+                      lineItem: {
+                        id: "gid://shopify/LineItem/1",
+                        title: "Legacy Shirt",
+                        sku: "LEG-M",
+                        product: { id: "gid://shopify/Product/1", handle: "legacy-shirt", title: "Legacy Shirt" },
+                        variant: { id: "gid://shopify/ProductVariant/1", title: "M", sku: "LEG-M", selectedOptions: [{ name: "Size", value: "M" }] },
+                      },
+                    },
+                  },
+                }],
+              },
+            },
+          }],
+        },
+      }],
+    );
+
+    expect(products).toHaveLength(1);
+    expect(products[0].variants).toHaveLength(1);
+    expect(products[0].collections).toEqual([{ id: "gid://shopify/Collection/1", handle: "shirts", title: "Shirts" }]);
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.type)).toEqual(["sale", "return"]);
+    expect(events[1]).toMatchObject({
+      productId: "gid://shopify/Product/1",
+      reason: "SIZE_TOO_SMALL",
+      note: "too small",
+    });
   });
 
   it("detects Shopify Order object approval errors", () => {

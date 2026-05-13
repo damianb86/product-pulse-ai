@@ -8,6 +8,7 @@ import {
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
+export const QUICK_SCAN_BULK_GROUP_OBJECTS = false;
 
 const BULK_OPERATION_TIMEOUT_MS = 10 * 60 * 1000;
 const BULK_OPERATION_POLL_INTERVAL_MS = process.env.NODE_ENV === "test" ? 10 : 2_000;
@@ -331,7 +332,7 @@ async function createBulkOperationModern(admin, bulkQuery) {
         }
       }
     }`,
-    { query: bulkQuery, groupObjects: false },
+    { query: bulkQuery, groupObjects: QUICK_SCAN_BULK_GROUP_OBJECTS },
   );
 
   return getBulkOperationFromMutation(data);
@@ -820,7 +821,7 @@ function normalizeBulkProducts(lines) {
     if (!line?.id) return;
 
     if (line.__typename === "Product" || isProductLike(line)) {
-      products.set(line.id, normalizeProduct({
+      const product = normalizeProduct({
         id: line.id,
         handle: line.handle,
         title: line.title,
@@ -831,7 +832,12 @@ function normalizeBulkProducts(lines) {
         options: line.options,
         variants: [],
         collections: [],
-      }));
+      });
+      getNodes(line.variants).forEach((variant) => product.variants.push(normalizeVariant(variant)));
+      getNodes(line.collections).forEach((collection) => {
+        product.collections.push({ id: collection.id, handle: collection.handle || "", title: collection.title || "" });
+      });
+      products.set(line.id, product);
       return;
     }
 
@@ -859,12 +865,9 @@ function normalizeBulkOrderEvents(lines) {
     if (!line?.id) return;
 
     if (line.__typename === "Order" || ("createdAt" in line && !line.__parentId)) {
-      orders.set(line.id, { id: line.id, createdAt: line.createdAt });
-      (line.refunds || []).forEach((refund) => {
-        getNodes(refund.refundLineItems).forEach((refundLineItem) => {
-          events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt, orderId: line.id, note: refund.note }));
-        });
-      });
+      const order = { id: line.id, createdAt: line.createdAt };
+      orders.set(line.id, order);
+      appendGroupedOrderEvents(line, order, events);
       return;
     }
 
@@ -899,6 +902,34 @@ function normalizeBulkOrderEvents(lines) {
   });
 
   return events.filter(Boolean);
+}
+
+function appendGroupedOrderEvents(orderLine, order, events) {
+  getNodes(orderLine.lineItems).forEach((lineItem) => {
+    events.push(normalizeOrderLineItemEvent(lineItem, order));
+  });
+
+  (orderLine.refunds || []).forEach((refund) => {
+    getNodes(refund.refundLineItems).forEach((refundLineItem) => {
+      events.push(normalizeRefundLineItemEvent(refundLineItem, {
+        id: refund.id,
+        createdAt: refund.createdAt || order.createdAt,
+        orderId: order.id,
+        note: refund.note,
+      }));
+    });
+  });
+
+  getNodes(orderLine.returns).forEach((itemReturn) => {
+    const returnContext = {
+      id: itemReturn.id,
+      createdAt: itemReturn.createdAt || order.createdAt,
+      orderId: order.id,
+    };
+    getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
+      events.push(normalizeReturnLineItemEvent(returnLineItem, returnContext));
+    });
+  });
 }
 
 function normalizeOrderLineItemEvent(lineItem, order) {
@@ -1732,3 +1763,10 @@ export function buildOrdersBulkQuery(windowDays) {
     }
   }`;
 }
+
+export const __productPulseQuickScanTestHooks = {
+  normalizeBulkQuickScanData,
+  normalizeBulkProducts,
+  normalizeBulkOrderEvents,
+  quickScanBulkGroupObjects: QUICK_SCAN_BULK_GROUP_OBJECTS,
+};
