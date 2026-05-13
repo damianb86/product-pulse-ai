@@ -5253,6 +5253,18 @@ s-page[inline-size="large-500"] {
   line-height: 1.4;
 }
 
+.ppJobFailureNotice .ppJobFailureDetail {
+  margin-top: 6px;
+  padding: 7px 8px;
+  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.18);
+  border-radius: 8px;
+  background: rgba(var(--pp-risk-red-rgb), 0.06);
+  color: var(--pp-slate-900);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .ppJobFailureNotice button {
   width: 28px;
   height: 28px;

@@ -34,6 +34,9 @@ export function serializeError(error) {
     return {
       name: error.name,
       message: error.message,
+      status: error.status,
+      code: error.code,
+      details: error.details ? redact(error.details) : undefined,
       stack: error.stack,
       cause: error.cause ? redact(error.cause) : undefined,
     };

@@ -1552,6 +1552,7 @@ function formatJob(job) {
     displayTitle,
     displaySubtitle,
     source: job.errorMessage || job.source,
+    errorMessage: job.errorMessage || null,
     status: job.status,
     progress: job.progress,
     updatedAt: formatJobDate(job.updatedAt),

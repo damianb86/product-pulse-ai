@@ -270,9 +270,9 @@ async function generateAiText({ shop, jobId, task, prompt }) {
     : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt });
 }
 
-async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt }) {
+async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, modelOverride = null, requestContext = "primary" }) {
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = resolveOpenAIModel(taskConfig);
+  const model = modelOverride || resolveOpenAIModel(taskConfig);
 
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured.");
   if (!model) throw new Error("No OpenAI model is configured.");
@@ -281,8 +281,10 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt }) {
     shop,
     jobId,
     event: "product_diagnosis.openai_request",
-    message: `Sending ${task} prompt to OpenAI.`,
-    data: { provider: OPENAI_PROVIDER, model, task },
+    message: requestContext === "gemini_fallback"
+      ? `Sending ${task} prompt to OpenAI nano after Gemini fallback exhaustion.`
+      : `Sending ${task} prompt to OpenAI.`,
+    data: { provider: OPENAI_PROVIDER, model, task, requestContext },
   });
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -302,7 +304,11 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt }) {
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = json.error?.message || `OpenAI request failed with HTTP ${response.status}.`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    error.code = json.error?.code || json.error?.type || null;
+    error.details = json.error || null;
+    throw error;
   }
 
   const text = extractOpenAIText(json);
@@ -313,7 +319,7 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt }) {
     jobId,
     event: "product_diagnosis.openai_response",
     message: `OpenAI returned ${task}.`,
-    data: { provider: OPENAI_PROVIDER, model, task, text },
+    data: { provider: OPENAI_PROVIDER, model, task, requestContext, text },
   });
 
   return { provider: OPENAI_PROVIDER, model, task, text };
@@ -325,6 +331,10 @@ function resolveOpenAIModel(taskConfig) {
     if (value) return value;
   }
   return taskConfig.fallbackModel;
+}
+
+function resolveOpenAINanoModel() {
+  return String(process.env.OPENAI_BASIC_MODEL || "").trim() || "gpt-5.4-nano";
 }
 
 function extractOpenAIText(response) {
@@ -413,14 +423,40 @@ async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
           error,
           reason: lastRetryReason,
         });
-        throw buildGeminiPoolExhaustedError(lastRetryReason, error);
+        const poolError = buildGeminiPoolExhaustedError(lastRetryReason, error);
+        if (shouldFallbackToOpenAINano(lastRetryReason)) {
+          return generateWithOpenAINanoAfterGeminiExhaustion({
+            shop,
+            jobId,
+            task,
+            taskConfig,
+            prompt,
+            retryReason: lastRetryReason,
+            geminiError: poolError,
+            lastGeminiError: error,
+          });
+        }
+        throw poolError;
       }
 
       await sleep(GEMINI_MODEL_RETRY_DELAY_MS);
     }
   }
 
-  throw buildGeminiPoolExhaustedError(lastRetryReason, lastError);
+  const poolError = buildGeminiPoolExhaustedError(lastRetryReason, lastError);
+  if (shouldFallbackToOpenAINano(lastRetryReason)) {
+    return generateWithOpenAINanoAfterGeminiExhaustion({
+      shop,
+      jobId,
+      task,
+      taskConfig,
+      prompt,
+      retryReason: lastRetryReason,
+      geminiError: poolError,
+      lastGeminiError: lastError,
+    });
+  }
+  throw poolError;
 }
 
 function getGeminiModelPool() {
@@ -516,6 +552,67 @@ function getGeminiRetryReason(error) {
   }
 
   return null;
+}
+
+function shouldFallbackToOpenAINano(retryReason) {
+  return retryReason === "high_demand" || retryReason === "quota";
+}
+
+async function generateWithOpenAINanoAfterGeminiExhaustion({
+  shop,
+  jobId,
+  task,
+  taskConfig,
+  prompt,
+  retryReason,
+  geminiError,
+  lastGeminiError,
+}) {
+  const model = resolveOpenAINanoModel();
+
+  await recordJobLog({
+    shop,
+    jobId,
+    level: "warn",
+    event: "product_diagnosis.gemini_pool_exhausted_openai_fallback",
+    message: `All configured Gemini models failed due to ${getGeminiRetryReasonLabel(retryReason)}; retrying ${task} with OpenAI nano.`,
+    data: {
+      provider: OPENAI_PROVIDER,
+      model,
+      task,
+      retryReason,
+      geminiError: serializeError(lastGeminiError || geminiError),
+    },
+  });
+
+  try {
+    return await generateWithOpenAI({
+      shop,
+      jobId,
+      task,
+      taskConfig,
+      prompt,
+      modelOverride: model,
+      requestContext: "gemini_fallback",
+    });
+  } catch (openAiError) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "error",
+      event: "product_diagnosis.openai_nano_fallback_failed",
+      message: "OpenAI nano fallback failed after Gemini pool exhaustion.",
+      data: {
+        provider: OPENAI_PROVIDER,
+        model,
+        task,
+        retryReason,
+        geminiError: serializeError(lastGeminiError || geminiError),
+        openAiError: serializeError(openAiError),
+      },
+    });
+    throw buildOpenAINanoFallbackError({ retryReason, geminiError, openAiError });
+  }
 }
 
 async function rememberGeminiPrimaryRetry(model) {
@@ -629,26 +726,55 @@ async function rememberGeminiPoolExhausted(nextModel, { failedModel, error, reas
 
 function buildGeminiFailureLogMessage({ model, nextModel, retryReason }) {
   if (!retryReason) return `Gemini model ${model} failed.`;
-  const reasonLabel = retryReason === "high_demand"
-    ? "high demand"
-    : retryReason === "quota"
-      ? "quota or rate limit"
-      : "model availability";
+  const reasonLabel = getGeminiRetryReasonLabel(retryReason);
   if (nextModel) return `Gemini model ${model} failed due to ${reasonLabel}; retrying with ${nextModel}.`;
   return `Gemini model ${model} failed due to ${reasonLabel}; all configured Gemini models were attempted.`;
 }
 
 function buildGeminiPoolExhaustedError(retryReason, error) {
+  const detail = formatProviderErrorDetail(error);
   if (retryReason === "high_demand") {
-    return new Error("AI diagnosis could not be completed because every configured Gemini model is currently under high demand. Please try again later.");
+    return new Error(`AI diagnosis could not be completed because every configured Gemini model is currently under high demand. Gemini detail: ${detail}`);
   }
   if (retryReason === "quota") {
-    return new Error("AI diagnosis could not be completed because every configured Gemini model hit quota or rate limits. Please try again later.");
+    return new Error(`AI diagnosis could not be completed because every configured Gemini model hit quota or rate limits. Gemini detail: ${detail}`);
   }
   if (retryReason === "model_unavailable") {
-    return new Error("AI diagnosis could not be completed because no configured Gemini model is currently available. Please try again later.");
+    return new Error(`AI diagnosis could not be completed because no configured Gemini model is currently available. Gemini detail: ${detail}`);
   }
   return error || new Error("AI diagnosis could not be completed with Gemini. Please try again later.");
+}
+
+function buildOpenAINanoFallbackError({ retryReason, geminiError, openAiError }) {
+  return new Error([
+    `AI diagnosis failed after all Gemini models hit ${getGeminiRetryReasonLabel(retryReason)} and OpenAI nano fallback also failed.`,
+    `Gemini: ${formatProviderErrorDetail(geminiError)}.`,
+    `OpenAI nano: ${formatProviderErrorDetail(openAiError)}.`,
+    "Please try again later.",
+  ].join(" "));
+}
+
+function getGeminiRetryReasonLabel(retryReason) {
+  if (retryReason === "high_demand") return "high demand";
+  if (retryReason === "quota") return "quota or rate limit";
+  if (retryReason === "model_unavailable") return "model availability";
+  return "an unknown Gemini error";
+}
+
+function formatProviderErrorDetail(error) {
+  const parts = [];
+  if (error?.status) parts.push(`HTTP ${error.status}`);
+  if (error?.code) parts.push(String(error.code));
+  if (error?.message) parts.push(String(error.message));
+  if (!parts.length && error) parts.push(String(error));
+  if (!parts.length) return "No provider detail was returned.";
+  return truncateMessage(parts.join(" - "), 520);
+}
+
+function truncateMessage(message, limit) {
+  const normalized = String(message || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit - 1)}…`;
 }
 
 function sleep(ms) {

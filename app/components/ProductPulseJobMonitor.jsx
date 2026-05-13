@@ -175,6 +175,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 }
 
 function JobFailureNotice({ job, onDismiss }) {
+  const detail = getJobFailureDetail(job);
+
   return (
     <aside className="ppJobFailureNotice" role="alert" aria-live="assertive">
       <span aria-hidden="true">
@@ -183,6 +185,7 @@ function JobFailureNotice({ job, onDismiss }) {
       <div>
         <strong>{getJobTitle(job)} finished with an error</strong>
         <p>The background job could not be completed. Please try again later.</p>
+        {detail && <p className="ppJobFailureDetail">{detail}</p>}
       </div>
       <button type="button" onClick={onDismiss} aria-label="Dismiss failed job message">
         <s-icon type="x" size="small"></s-icon>
@@ -280,6 +283,18 @@ function getJobTitle(job) {
 
 function getJobSubtitle(job) {
   return job.displaySubtitle || job.source || job.name;
+}
+
+function getJobFailureDetail(job) {
+  const detail = job.errorMessage || (job.status === "Failed" ? job.source : "");
+  if (!detail) return "";
+  return truncateText(detail, 360);
+}
+
+function truncateText(value, limit) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
 }
 
 function isUserVisibleFailedJob(job, now) {

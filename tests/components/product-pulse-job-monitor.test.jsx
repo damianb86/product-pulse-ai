@@ -33,6 +33,7 @@ describe("ProductPulseJobMonitor", () => {
           displayTitle: "Linen Shirt",
           status: "Failed",
           source: "AI product diagnostics",
+          errorMessage: "Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.",
           startedAtIso: new Date(Date.now() - 20000).toISOString(),
           updatedAtIso: new Date(Date.now() - 1000).toISOString(),
           finishedAtIso: new Date(Date.now() - 1000).toISOString(),
@@ -45,6 +46,7 @@ describe("ProductPulseJobMonitor", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("Linen Shirt finished with an error");
     expect(screen.getByText("The background job could not be completed. Please try again later.")).toBeVisible();
+    expect(screen.getByText("Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss failed job message" }));
 
