@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildQuickScanCandidates } from "../../app/lib/product-pulse-quick-scan.server";
+import { buildOrdersBulkQuery, buildQuickScanCandidates } from "../../app/lib/product-pulse-quick-scan.server";
 
 describe("ProductPulse QuickScan", () => {
   it("keeps only deterministic high-risk candidates from Shopify-native events", () => {
@@ -63,5 +63,14 @@ describe("ProductPulse QuickScan", () => {
     });
     expect(candidates[0].riskScore).toBeGreaterThanOrEqual(50);
     expect(candidates[0].metrics.topReturnReasons).toContain("Size Too Small");
+  });
+
+  it("keeps refund line item connections out of the orders bulk query", () => {
+    const query = buildOrdersBulkQuery(60);
+
+    expect(query).toContain("lineItems");
+    expect(query).toContain("returns");
+    expect(query).not.toMatch(/\brefunds\s*\{/);
+    expect(query).not.toContain("refundLineItems");
   });
 });

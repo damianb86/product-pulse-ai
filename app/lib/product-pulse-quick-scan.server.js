@@ -7,6 +7,14 @@ export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
 
 const BULK_OPERATION_TIMEOUT_MS = 10 * 60 * 1000;
 const BULK_OPERATION_POLL_INTERVAL_MS = process.env.NODE_ENV === "test" ? 10 : 2_000;
+const PAGINATED_PRODUCTS_PAGE_SIZE = 20;
+const PAGINATED_PRODUCT_COLLECTIONS_PAGE_SIZE = 5;
+const PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE = 20;
+const PAGINATED_ORDERS_PAGE_SIZE = 8;
+const PAGINATED_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
+const PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
+const PAGINATED_RETURNS_PAGE_SIZE = 3;
+const PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE = 15;
 
 export function getQuickScanWindowDays(scopes) {
   return hasScope(scopes, "read_all_orders")
@@ -168,9 +176,12 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
   try {
     const catalogLines = await runBulkQuery(admin, PRODUCT_CATALOG_BULK_QUERY, "catalog", { shop, jobId });
     const orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId });
+    const bulkData = normalizeBulkQuickScanData(catalogLines, orderLines);
+    const refundEvents = await extractSupplementalRefundEvents({ admin, windowDays, shop, jobId });
 
     return {
-      ...normalizeBulkQuickScanData(catalogLines, orderLines),
+      ...bulkData,
+      events: [...bulkData.events, ...refundEvents],
       meta: { extractionMode: "bulk", windowDays },
     };
   } catch (bulkError) {
@@ -182,7 +193,7 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
       message: "Bulk operation extraction failed; falling back to paginated GraphQL queries.",
       data: { error: bulkError instanceof Error ? bulkError.message : String(bulkError) },
     });
-    const fallback = await extractQuickScanDataWithPaginatedQueries({ admin, windowDays });
+    const fallback = await extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId });
     return {
       ...fallback,
       meta: {
@@ -341,21 +352,108 @@ async function pollBulkOperation(admin, operationId, label) {
   throw new Error(`${label} bulk operation timed out.`);
 }
 
-async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
+async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId }) {
+  try {
+    const events = await extractRefundEventsWithPaginatedQueries({ admin, windowDays });
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "quick_scan.refunds_extracted",
+      message: "Supplemental refund line items extracted with low-cost paginated queries.",
+      data: { refundEvents: events.length },
+    });
+    return events;
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "quick_scan.refunds_skipped",
+      message: "Supplemental refund extraction failed; QuickScan will continue with sales and returns.",
+      data: { error: getErrorMessage(error) },
+    });
+    return [];
+  }
+}
+
+async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId }) {
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "quick_scan.paginated_started",
+    message: "Started low-cost paginated Shopify extraction.",
+    data: {
+      productsPageSize: PAGINATED_PRODUCTS_PAGE_SIZE,
+      ordersPageSize: PAGINATED_ORDERS_PAGE_SIZE,
+    },
+  });
+
+  const products = await extractProductsWithPaginatedQueries({ admin });
+  const salesEvents = await extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays });
+  const refundEvents = await extractOptionalPaginatedEvents({
+    shop,
+    jobId,
+    label: "refunds",
+    extractor: () => extractRefundEventsWithPaginatedQueries({ admin, windowDays }),
+  });
+  const returnEvents = await extractOptionalPaginatedEvents({
+    shop,
+    jobId,
+    label: "returns",
+    extractor: () => extractReturnEventsWithPaginatedQueries({ admin, windowDays }),
+  });
+
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "quick_scan.paginated_completed",
+    message: "Low-cost paginated Shopify extraction completed.",
+    data: {
+      products: products.length,
+      salesEvents: salesEvents.length,
+      refundEvents: refundEvents.length,
+      returnEvents: returnEvents.length,
+    },
+  });
+
+  return {
+    products: products.map(normalizeProduct),
+    events: [...salesEvents, ...refundEvents, ...returnEvents].filter(Boolean),
+  };
+}
+
+async function extractOptionalPaginatedEvents({ shop, jobId, label, extractor }) {
+  try {
+    return await extractor();
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: `quick_scan.${label}_skipped`,
+      message: `Paginated ${label} extraction failed; QuickScan will continue without that signal group.`,
+      data: { error: getErrorMessage(error) },
+    });
+    return [];
+  }
+}
+
+async function extractProductsWithPaginatedQueries({ admin }) {
   const products = [];
-  const orders = [];
   let productsCursor;
-  let ordersCursor;
   let hasNextProductsPage = true;
-  let hasNextOrdersPage = true;
-  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
 
   while (hasNextProductsPage) {
     const data = await shopifyGraphql(
       admin,
       `#graphql
-      query ProductPulseProductsPage($after: String) {
-        products(first: 50, after: $after) {
+      query ProductPulseProductsPage(
+        $after: String,
+        $productsFirst: Int!,
+        $collectionsFirst: Int!,
+        $variantsFirst: Int!
+      ) {
+        products(first: $productsFirst, after: $after) {
           pageInfo {
             hasNextPage
             endCursor
@@ -372,14 +470,14 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
               name
               values
             }
-            collections(first: 25) {
+            collections(first: $collectionsFirst) {
               nodes {
                 id
                 handle
                 title
               }
             }
-            variants(first: 100) {
+            variants(first: $variantsFirst) {
               nodes {
                 id
                 title
@@ -393,19 +491,33 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
           }
         }
       }`,
-      { after: productsCursor || null },
+      {
+        after: productsCursor || null,
+        productsFirst: PAGINATED_PRODUCTS_PAGE_SIZE,
+        collectionsFirst: PAGINATED_PRODUCT_COLLECTIONS_PAGE_SIZE,
+        variantsFirst: PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE,
+      },
     );
     products.push(...(data?.products?.nodes || []));
     hasNextProductsPage = Boolean(data?.products?.pageInfo?.hasNextPage);
     productsCursor = data?.products?.pageInfo?.endCursor;
   }
 
+  return products;
+}
+
+async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays }) {
+  const events = [];
+  let ordersCursor;
+  let hasNextOrdersPage = true;
+  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
+
   while (hasNextOrdersPage) {
     const data = await shopifyGraphql(
       admin,
       `#graphql
-      query ProductPulseOrdersPage($after: String, $query: String!) {
-        orders(first: 50, after: $after, query: $query) {
+      query ProductPulseSalesPage($after: String, $query: String!, $ordersFirst: Int!, $lineItemsFirst: Int!) {
+        orders(first: $ordersFirst, after: $after, query: $query) {
           pageInfo {
             hasNextPage
             endCursor
@@ -413,7 +525,7 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
           nodes {
             id
             createdAt
-            lineItems(first: 100) {
+            lineItems(first: $lineItemsFirst) {
               nodes {
                 id
                 quantity
@@ -440,10 +552,53 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
                 }
               }
             }
+          }
+        }
+      }`,
+      {
+        after: ordersCursor || null,
+        query: orderQuery,
+        ordersFirst: PAGINATED_ORDERS_PAGE_SIZE,
+        lineItemsFirst: PAGINATED_ORDER_LINE_ITEMS_PAGE_SIZE,
+      },
+    );
+
+    (data?.orders?.nodes || []).forEach((order) => {
+      const orderContext = { id: order.id, createdAt: order.createdAt };
+      getNodes(order.lineItems).forEach((lineItem) => {
+        events.push(normalizeOrderLineItemEvent(lineItem, orderContext));
+      });
+    });
+    hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
+    ordersCursor = data?.orders?.pageInfo?.endCursor;
+  }
+
+  return events.filter(Boolean);
+}
+
+async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
+  const events = [];
+  let ordersCursor;
+  let hasNextOrdersPage = true;
+  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
+
+  while (hasNextOrdersPage) {
+    const data = await shopifyGraphql(
+      admin,
+      `#graphql
+      query ProductPulseRefundsPage($after: String, $query: String!, $ordersFirst: Int!, $refundLineItemsFirst: Int!) {
+        orders(first: $ordersFirst, after: $after, query: $query) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          nodes {
+            id
+            createdAt
             refunds {
               id
               createdAt
-              refundLineItems(first: 100) {
+              refundLineItems(first: $refundLineItemsFirst) {
                 nodes {
                   id
                   quantity
@@ -476,12 +631,62 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
                 }
               }
             }
-            returns(first: 25) {
+          }
+        }
+      }`,
+      {
+        after: ordersCursor || null,
+        query: orderQuery,
+        ordersFirst: PAGINATED_ORDERS_PAGE_SIZE,
+        refundLineItemsFirst: PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE,
+      },
+    );
+
+    (data?.orders?.nodes || []).forEach((order) => {
+      (order.refunds || []).forEach((refund) => {
+        getNodes(refund.refundLineItems).forEach((refundLineItem) => {
+          events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt || order.createdAt, orderId: order.id }));
+        });
+      });
+    });
+    hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
+    ordersCursor = data?.orders?.pageInfo?.endCursor;
+  }
+
+  return events.filter(Boolean);
+}
+
+async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
+  const events = [];
+  let ordersCursor;
+  let hasNextOrdersPage = true;
+  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
+
+  while (hasNextOrdersPage) {
+    const data = await shopifyGraphql(
+      admin,
+      `#graphql
+      query ProductPulseReturnsPage(
+        $after: String,
+        $query: String!,
+        $ordersFirst: Int!,
+        $returnsFirst: Int!,
+        $returnLineItemsFirst: Int!
+      ) {
+        orders(first: $ordersFirst, after: $after, query: $query) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          nodes {
+            id
+            createdAt
+            returns(first: $returnsFirst) {
               nodes {
                 id
                 createdAt
                 status
-                returnLineItems(first: 100) {
+                returnLineItems(first: $returnLineItemsFirst) {
                   nodes {
                     ... on ReturnLineItem {
                       id
@@ -520,14 +725,27 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays }) {
           }
         }
       }`,
-      { after: ordersCursor || null, query: orderQuery },
+      {
+        after: ordersCursor || null,
+        query: orderQuery,
+        ordersFirst: PAGINATED_ORDERS_PAGE_SIZE,
+        returnsFirst: PAGINATED_RETURNS_PAGE_SIZE,
+        returnLineItemsFirst: PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE,
+      },
     );
-    orders.push(...(data?.orders?.nodes || []));
+
+    (data?.orders?.nodes || []).forEach((order) => {
+      getNodes(order.returns).forEach((itemReturn) => {
+        getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
+          events.push(normalizeReturnLineItemEvent(returnLineItem, { id: itemReturn.id, createdAt: itemReturn.createdAt || order.createdAt, orderId: order.id }));
+        });
+      });
+    });
     hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
     ordersCursor = data?.orders?.pageInfo?.endCursor;
   }
 
-  return normalizePaginatedQuickScanData(products, orders);
+  return events.filter(Boolean);
 }
 
 function normalizeBulkQuickScanData(catalogLines, orderLines) {
@@ -622,32 +840,6 @@ function normalizeBulkOrderEvents(lines) {
   });
 
   return events.filter(Boolean);
-}
-
-function normalizePaginatedQuickScanData(products, orders) {
-  const events = [];
-
-  orders.forEach((order) => {
-    const orderContext = { id: order.id, createdAt: order.createdAt };
-    getNodes(order.lineItems).forEach((lineItem) => {
-      events.push(normalizeOrderLineItemEvent(lineItem, orderContext));
-    });
-    (order.refunds || []).forEach((refund) => {
-      getNodes(refund.refundLineItems).forEach((refundLineItem) => {
-        events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt, orderId: order.id }));
-      });
-    });
-    getNodes(order.returns).forEach((itemReturn) => {
-      getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
-        events.push(normalizeReturnLineItemEvent(returnLineItem, { id: itemReturn.id, createdAt: itemReturn.createdAt || order.createdAt, orderId: order.id }));
-      });
-    });
-  });
-
-  return {
-    products: products.map(normalizeProduct),
-    events: events.filter(Boolean),
-  };
 }
 
 function normalizeOrderLineItemEvent(lineItem, order) {
@@ -1142,7 +1334,7 @@ const PRODUCT_CATALOG_BULK_QUERY = `{
   }
 }`;
 
-function buildOrdersBulkQuery(windowDays) {
+export function buildOrdersBulkQuery(windowDays) {
   return `{
     orders(query: "created_at:>=${getSinceDate(windowDays)}") {
       edges {
@@ -1175,46 +1367,6 @@ function buildOrdersBulkQuery(windowDays) {
                 originalTotalSet {
                   shopMoney {
                     amount
-                  }
-                }
-              }
-            }
-          }
-          refunds {
-            __typename
-            id
-            createdAt
-            refundLineItems {
-              edges {
-                node {
-                  __typename
-                  id
-                  quantity
-                  restockType
-                  subtotalSet {
-                    shopMoney {
-                      amount
-                    }
-                  }
-                  lineItem {
-                    id
-                    quantity
-                    title
-                    sku
-                    product {
-                      id
-                      handle
-                      title
-                    }
-                    variant {
-                      id
-                      title
-                      sku
-                      selectedOptions {
-                        name
-                        value
-                      }
-                    }
                   }
                 }
               }
