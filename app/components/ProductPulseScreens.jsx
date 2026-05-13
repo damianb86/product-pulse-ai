@@ -1340,6 +1340,7 @@ function getProductIssueCategory(issue) {
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("waist") || normalized.includes("inseam")) return "Fit & sizing";
   if (normalized.includes("zipper") || normalized.includes("defect")) return "Durability";
   if (normalized.includes("compat")) return "Compatibility";
+  if (normalized.includes("content") || normalized.includes("description") || normalized.includes("metadata")) return "Product content";
   if (normalized.includes("monitor")) return "Monitoring";
   return "Product quality";
 }
@@ -1348,6 +1349,7 @@ function getMainFindingTitle(issueCategory) {
   if (issueCategory === "Fit & sizing") return "Sizing & fit expectations are not being met";
   if (issueCategory === "Durability") return "Durability signals are affecting buyer confidence";
   if (issueCategory === "Compatibility") return "Compatibility expectations need clearer guidance";
+  if (issueCategory === "Product content") return "Product content needs clearer shopper guidance";
   if (issueCategory === "Monitoring") return "Product is healthy and should stay monitored";
   return `${issueCategory} signals need review`;
 }
@@ -1390,6 +1392,8 @@ function getEvidencePoints(item, product) {
   if (normalized.includes("product") || normalized.includes("shopify")) {
     if (metrics.vendor) points.push(`Vendor: ${metrics.vendor}`);
     if (metrics.productType) points.push(`Product type: ${metrics.productType}`);
+    if (Number(metrics.descriptionWordCount || 0) > 0) points.push(`${formatInteger(metrics.descriptionWordCount)} description words`);
+    if (Number(metrics.contentQualityScore || 0) > 0) points.push(`${metrics.contentQualityScore}/100 content quality score`);
     if (Number(metrics.variantCount || 0) > 0) points.push(`${formatInteger(metrics.variantCount)} variants available`);
     if (Array.isArray(metrics.collections) && metrics.collections.length) points.push(`Collections: ${metrics.collections.join(", ")}`);
     if (Array.isArray(metrics.tags) && metrics.tags.length) points.push(`${formatInteger(metrics.tags.length)} product tags stored`);
@@ -1411,6 +1415,7 @@ function getEvidenceIcon(source) {
   if (normalized.includes("review")) return "star";
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("support")) return "question-circle";
+  if (normalized.includes("content") || normalized.includes("description")) return "note";
   return "duplicate";
 }
 
@@ -1473,6 +1478,7 @@ function getIssueIcon(issue) {
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("variant")) return "product";
   if (normalized.includes("expectation") || normalized.includes("description") || normalized.includes("color")) return "tag";
+  if (normalized.includes("content") || normalized.includes("metadata")) return "note";
   if (normalized.includes("fit") || normalized.includes("sizing")) return "person";
   if (normalized.includes("defect") || normalized.includes("durability")) return "alert-circle";
   return "product";
@@ -1585,6 +1591,15 @@ function getProductCheckedItems(product) {
       label: "Affected variants",
       value: formatInteger(metrics.affectedVariants.length),
       detail: metrics.affectedVariants.join(", "),
+    });
+  }
+
+  if (Number(metrics.contentIssueCount || 0) > 0 || Number(metrics.descriptionWordCount || 0) > 0) {
+    items.push({
+      icon: "note",
+      label: "Product content",
+      value: `${metrics.contentQualityScore || 0}/100`,
+      detail: `${formatInteger(metrics.descriptionWordCount || 0)} description words, ${formatInteger(metrics.contentIssueCount || 0)} content issues`,
     });
   }
 

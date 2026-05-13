@@ -150,14 +150,25 @@ function buildContentGapPrompt(input, classification) {
   const normalizedDescription = String(product.description || "").replace(/\s+/g, " ").slice(0, 5000);
 
   return [
-    "You are checking a product detail page for missing shopper guidance.",
-    "Use the current product description and the issue clusters. Return valid JSON only.",
-    "Do not invent metrics or claim a gap exists unless the product content appears to be missing it.",
+    "You are auditing the product content quality for one ecommerce product.",
+    "Review the title, description, tags, product type, vendor, collections, options, variants and issue clusters together.",
+    "Identify missing content, unclear copy, contradictions, title/description mismatch, tag/collection mismatch, incoherent metadata, missing specifications, and shopper guidance gaps.",
+    "A missing or extremely short description is a product-content issue. A subjective mismatch must be explicitly grounded in the supplied fields.",
+    "Return valid JSON only. Do not calculate financial metrics, rates, customer-signal counts, confidence, or risk score.",
     "Schema:",
     JSON.stringify({
+      content_quality_score: 82,
+      content_summary: "The description is coherent with the title but lacks fit guidance.",
       present: ["material info"],
       missing: ["fit note"],
       notes: "concise explanation",
+      content_issues: [{
+        code: "missing_description|short_description|title_description_mismatch|tag_description_mismatch|collection_mismatch|unclear_value_prop|missing_specifications|contradiction|incoherent_copy|missing_customer_guidance",
+        label: "Short product description",
+        severity: "low|medium|high",
+        evidence: "Specific field-level evidence",
+        suggested_action: "Rewrite product description",
+      }],
       issue_specific_gaps: [{
         issue_category: "fit_sizing",
         missing_content: "fit note",
@@ -169,7 +180,10 @@ function buildContentGapPrompt(input, classification) {
       title: product.title,
       handle: product.handle,
       description: normalizedDescription,
+      vendor: product.vendor,
+      productType: product.productType,
       tags: product.tags || [],
+      collections: product.collections || [],
       options: product.options || [],
       variants: (product.variants || []).slice(0, 50),
       metafields: product.metafields || [],
@@ -183,7 +197,8 @@ function buildFinalReportPrompt(input, classification, contentGaps) {
   return [
     "You are ProductPulse AI writing the final product diagnosis report for a merchant.",
     "The system already calculated all numeric metrics. Never change risk score, confidence, impact, rates, counts, or amounts.",
-    "Use the metrics, clusters, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
+    "Use the metrics, clusters, product-content analysis, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
+    "If product content is missing, incoherent, too short, or mismatched with title/tags/collections, include that in the finding or recommendations when relevant.",
     "Return valid JSON only. No markdown.",
     "Schema:",
     JSON.stringify({
@@ -193,6 +208,7 @@ function buildFinalReportPrompt(input, classification, contentGaps) {
       issue_names: [{ code: "fit_sizing.runs_small", label: "Runs small" }],
       recommendation_copy: {
         pdp_copy: "merchant-ready product page copy",
+        product_description: "rewritten product description draft when product content has issues",
         faq_question: "How does this product fit?",
         faq_answer: "merchant-ready FAQ answer",
         support_note: "short internal support note",
