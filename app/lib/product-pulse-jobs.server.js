@@ -4,7 +4,7 @@ import {
   getQuickScanWindowDays,
   runShopifyQuickScan,
 } from "./product-pulse-quick-scan.server";
-import { generateProductDiagnosisTestText } from "./product-pulse-ai.server";
+import { runDetailedProductDiagnosis } from "./product-pulse-diagnosis.server";
 import {
   getJobLogsForShop,
   recordJobLog,
@@ -187,12 +187,18 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const actions = await prisma.productAction.findMany({
-    where: { shop, productGid: snapshot.productGid },
-    orderBy: [{ createdAt: "desc" }],
-    take: 20,
-  });
-  const product = formatSnapshotForDiagnosis(snapshot, actions);
+  const [actions, latestDiagnosis] = await Promise.all([
+    prisma.productAction.findMany({
+      where: { shop, productGid: snapshot.productGid },
+      orderBy: [{ createdAt: "desc" }],
+      take: 20,
+    }),
+    prisma.productDiagnosis.findFirst({
+      where: { shop, productGid: snapshot.productGid, status: "Completed" },
+      orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+    }),
+  ]);
+  const product = formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis);
   return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
 }
 
@@ -219,71 +225,20 @@ export async function queueProductDiagnosisForShop(shop, productId) {
   };
 }
 
-async function completeProductDiagnosisForSnapshot(shop, snapshot, aiResult) {
-  if (!snapshot) return null;
-
-  const metrics = snapshot.metrics || {};
-  const recommendations = getSnapshotRecommendedActions(snapshot, metrics);
-  const evidence = [
-    ...getSnapshotEvidence(snapshot, metrics),
-    ...(aiResult?.text ? [{
-      source: `${aiResult.provider} ${aiResult.model}`,
-      quote: aiResult.text,
-      weight: "AI connection test paragraph",
-    }] : []),
-  ];
-  const diagnosis = await prisma.productDiagnosis.create({
-    data: {
-      shop,
-      productGid: snapshot.productGid,
-      productTitle: snapshot.productTitle,
-      status: "Completed",
-      riskScore: snapshot.riskScore,
-      confidence: snapshot.confidence,
-      likelyCause: snapshot.primaryIssue,
-      issues: getSnapshotIssues(snapshot, metrics),
-      evidence,
-      recommendations,
-      creditsConsumed: 1,
-      completedAt: new Date(),
-    },
-  });
-
-  await prisma.productAction.create({
-    data: {
-      shop,
-      diagnosisId: diagnosis.id,
-      productGid: snapshot.productGid,
-      actionType: "run-ai-diagnosis",
-      label: "Run AI Product Diagnosis",
-      status: "applied",
-      payload: {
-        diagnosisId: diagnosis.id,
-        riskScore: snapshot.riskScore,
-        confidence: snapshot.confidence,
-        aiProvider: aiResult?.provider || null,
-        aiModel: aiResult?.model || null,
-        generatedText: aiResult?.text || null,
-      },
-      appliedAt: new Date(),
-    },
-  });
-
-  return {
-    status: "success",
-    message: `AI Product Diagnosis completed for ${snapshot.productTitle}. One credit was consumed.`,
-    diagnosisId: diagnosis.id,
-  };
-}
-
 export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
   const metrics = snapshot.metrics || {};
+  const latestDiagnosis = await prisma.productDiagnosis.findFirst({
+    where: { shop, productGid: snapshot.productGid, status: "Completed" },
+    orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+  });
+  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : [];
   let action = actionId === "mark-resolved"
     ? getResolvedAction(snapshot)
-    : getSnapshotRecommendedActions(snapshot, metrics).find((item) => item.id === actionId);
+    : diagnosisRecommendations.find((item) => item.id === actionId)
+      || getSnapshotRecommendedActions(snapshot, metrics).find((item) => item.id === actionId);
 
   if (!action && payloadOverride.draftText) {
     action = {
@@ -308,6 +263,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   await prisma.productAction.create({
     data: {
       shop,
+      diagnosisId: latestDiagnosis?.id || null,
       productGid: snapshot.productGid,
       actionType: action.id,
       label: action.label,
@@ -545,8 +501,7 @@ async function runProductDiagnosisJob(job) {
   const snapshot = await findProductRiskSnapshot(job.shop, productId);
   if (!snapshot) throw new Error("Product snapshot was not found for queued diagnosis job.");
 
-  const product = formatSnapshotForDiagnosis(snapshot, []);
-  const metrics = product.metrics || {};
+  const metrics = snapshot.metrics || {};
 
   await recordJobLog({
     shop: job.shop,
@@ -571,41 +526,28 @@ async function runProductDiagnosisJob(job) {
   });
 
   await updateProductDiagnosisJob(job.id, {
-    progress: 28,
-    source: `Waiting 15 seconds before AI request - ${snapshot.productTitle}`,
+    progress: 18,
+    source: `Preparing AI Product Diagnosis - ${snapshot.productTitle}`,
   });
   await sleep(PRODUCT_DIAGNOSIS_MINIMUM_DURATION_MS);
 
   await updateProductDiagnosisJob(job.id, {
-    progress: 62,
-    source: `Generating AI test paragraph - ${snapshot.productTitle}`,
+    progress: 42,
+    source: `Analyzing Shopify and Judge.me evidence - ${snapshot.productTitle}`,
   });
 
-  const aiResult = await generateProductDiagnosisTestText({
+  const admin = await getOfflineAdmin(job.shop);
+  const diagnosis = await runDetailedProductDiagnosis({
     shop: job.shop,
     jobId: job.id,
-    product,
-  });
-
-  await recordJobLog({
-    shop: job.shop,
-    jobId: job.id,
-    event: "product_diagnosis.ai_generated",
-    message: "AI generated the test paragraph for this product.",
-    data: {
-      provider: aiResult.provider,
-      model: aiResult.model,
-      productTitle: snapshot.productTitle,
-      generatedText: aiResult.text,
-    },
+    admin,
+    snapshot,
   });
 
   await updateProductDiagnosisJob(job.id, {
-    progress: 86,
-    source: `Persisting AI Product Diagnosis - ${snapshot.productTitle}`,
+    progress: 92,
+    source: `Finalizing AI Product Diagnosis - ${snapshot.productTitle}`,
   });
-
-  const diagnosis = await completeProductDiagnosisForSnapshot(job.shop, snapshot, aiResult);
 
   await updateProductDiagnosisJob(job.id, {
     status: "Completed",
@@ -622,9 +564,12 @@ async function runProductDiagnosisJob(job) {
     data: {
       durationMs: Date.now() - startedAt,
       diagnosisId: diagnosis?.diagnosisId,
-      provider: aiResult.provider,
-      model: aiResult.model,
-      generatedText: aiResult.text,
+      riskScore: diagnosis?.riskScore,
+      confidence: diagnosis?.confidence,
+      estimatedImpact: diagnosis?.estimatedImpact,
+      provider: diagnosis?.provider,
+      model: diagnosis?.model,
+      modelsUsed: diagnosis?.modelsUsed,
     },
   });
 }
@@ -1052,10 +997,17 @@ function formatLiveShopifyProductForDiagnosis(product) {
   };
 }
 
-function formatSnapshotForDiagnosis(snapshot, actions = []) {
+function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null) {
   const metrics = snapshot.metrics || {};
+  const diagnosisReport = metrics.diagnosisReport || {};
+  const diagnosisIssues = Array.isArray(latestDiagnosis?.issues) ? latestDiagnosis.issues : null;
+  const diagnosisEvidence = Array.isArray(latestDiagnosis?.evidence) ? latestDiagnosis.evidence : null;
+  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : null;
   const storedActions = actions.map(formatStoredProductAction);
   const resolvedAction = storedActions.find((action) => action.actionId === "mark-resolved" && action.status === "applied");
+  const riskScore = latestDiagnosis?.riskScore ?? snapshot.riskScore;
+  const confidence = latestDiagnosis?.confidence ?? snapshot.confidence;
+  const primaryIssue = latestDiagnosis?.likelyCause || snapshot.primaryIssue;
 
   return {
     id: snapshot.productGid,
@@ -1064,25 +1016,32 @@ function formatSnapshotForDiagnosis(snapshot, actions = []) {
     handle: snapshot.handle,
     collection: metrics.collections?.[0] || metrics.productType || "Shopify catalog",
     status: "Active",
-    riskScore: snapshot.riskScore,
+    riskScore,
     impactScore: snapshot.impactScore,
-    confidence: snapshot.confidence,
-    riskTone: getRiskTone(snapshot.riskScore),
-    riskLabel: getRiskLabel(snapshot.riskScore),
+    confidence,
+    riskTone: getRiskTone(riskScore),
+    riskLabel: getRiskLabel(riskScore),
     creditCost: 1,
     sourceCoverage: Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : ["Shopify products"],
     lastAnalysis: toIso(snapshot.updatedAt),
-    primaryIssue: snapshot.primaryIssue,
+    primaryIssue,
+    mainFinding: diagnosisReport.mainFinding || null,
     hasRiskSnapshot: true,
     canDiagnose: true,
     canResolve: true,
     metrics: {
       returnRate: metrics.returnRate || 0,
       refundRate: metrics.refundRate || 0,
-      reviewRating: 0,
+      reviewRating: metrics.reviewRating || metrics.avgRating || 0,
+      avgRating: metrics.avgRating || metrics.reviewRating || 0,
+      reviewCount: metrics.reviewCount || 0,
+      negativeReviewCount: metrics.negativeReviewCount || 0,
+      negativeReviewRate: metrics.negativeReviewRate || 0,
+      recentNegativeReviewCount: metrics.recentNegativeReviewCount || 0,
       issueCount: metrics.signalCount || 0,
       revenueAtRisk: metrics.revenueAtRisk || metrics.refundAmount || 0,
       marginAtRisk: metrics.marginAtRisk || 0,
+      estimatedImpact: metrics.estimatedImpact || metrics.refundAmount || 0,
       signalCount: metrics.signalCount || 0,
       refundAmount: metrics.refundAmount || 0,
       returnUnits: metrics.returnUnits || 0,
@@ -1101,10 +1060,13 @@ function formatSnapshotForDiagnosis(snapshot, actions = []) {
       collections: Array.isArray(metrics.collections) ? metrics.collections : [],
       topReturnReasons: Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [],
       affectedVariants: Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [],
+      checkedSources: Array.isArray(diagnosisReport.checkedSources) ? diagnosisReport.checkedSources : [],
+      aiModels: diagnosisReport.aiModels || null,
+      orderAccessDenied: Boolean(metrics.orderAccessDenied),
     },
-    evidence: getSnapshotEvidence(snapshot, metrics),
-    issues: getSnapshotIssues(snapshot, metrics),
-    recommendedActions: getSnapshotRecommendedActions(snapshot, metrics),
+    evidence: diagnosisEvidence || getSnapshotEvidence(snapshot, metrics),
+    issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics),
+    recommendedActions: diagnosisRecommendations || getSnapshotRecommendedActions(snapshot, metrics),
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
   };

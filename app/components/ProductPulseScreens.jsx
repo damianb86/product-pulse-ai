@@ -1136,10 +1136,10 @@ function getProductDetailModel(product) {
     findingTone: getDashboardToneFromRiskTone(product.riskTone),
     evidenceLabel: getEvidenceLabel(evidenceSources, sourceCoverage),
     showEvidenceBadge: evidenceSources.length > 0,
-    mainFindingTitle: issueText ? getMainFindingTitle(issueCategory) : "No ProductPulse issue stored for this product",
-    mainFindingDetail: issueText
+    mainFindingTitle: product.mainFinding?.title || (issueText ? getMainFindingTitle(issueCategory) : "No ProductPulse issue stored for this product"),
+    mainFindingDetail: product.mainFinding?.detail || (issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
-      : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`,
+      : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`),
     recommendedFix: firstAction?.label || "No deterministic action yet",
     recommendedFixDetail: firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.",
     evidenceSources,
@@ -1271,6 +1271,14 @@ function getEvidencePoints(item, product) {
     if (Number(metrics.refundUnits || 0) > 0) points.push(`${formatInteger(metrics.refundUnits)} refunded units`);
     if (Number(metrics.refundAmount || 0) > 0) points.push(`${formatMoney(metrics.refundAmount)} refunded amount`);
     if (Number(metrics.refundRate || 0) > 0) points.push(`${metrics.refundRate}% refund rate`);
+  }
+
+  if (normalized.includes("judge") || normalized.includes("review")) {
+    if (Number(metrics.reviewCount || 0) > 0) points.push(`${formatInteger(metrics.reviewCount)} Judge.me reviews analyzed`);
+    if (Number(metrics.avgRating || metrics.reviewRating || 0) > 0) points.push(`${metrics.avgRating || metrics.reviewRating} average rating`);
+    if (Number(metrics.negativeReviewCount || 0) > 0) points.push(`${formatInteger(metrics.negativeReviewCount)} negative reviews`);
+    if (Number(metrics.negativeReviewRate || 0) > 0) points.push(`${metrics.negativeReviewRate}% negative review rate`);
+    if (Number(metrics.recentNegativeReviewCount || 0) > 0) points.push(`${formatInteger(metrics.recentNegativeReviewCount)} recent negative reviews`);
   }
 
   if (normalized.includes("product") || normalized.includes("shopify")) {
@@ -1471,6 +1479,15 @@ function getProductCheckedItems(product) {
       label: "Affected variants",
       value: formatInteger(metrics.affectedVariants.length),
       detail: metrics.affectedVariants.join(", "),
+    });
+  }
+
+  if (sources.some((source) => String(source).toLowerCase().includes("judge")) || Number(metrics.reviewCount || 0) > 0) {
+    items.push({
+      icon: "star",
+      label: "Judge.me reviews",
+      value: formatInteger(metrics.reviewCount || 0),
+      detail: `${metrics.avgRating || metrics.reviewRating || 0} avg rating, ${formatInteger(metrics.negativeReviewCount || 0)} negative`,
     });
   }
 
