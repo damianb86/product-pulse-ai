@@ -811,14 +811,16 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   pending={fastScanRunning}
                   onStart={handleStartFastScan}
                 />
-                <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
-                  <s-icon type="wand" size="small"></s-icon>
-                  {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
-                </button>
-                <Link className="ppSecondaryActionButton" to="/app/products">
-                  <s-icon type="x" size="small"></s-icon>
-                  Clear filters
-                </Link>
+                <div className="ppProductsSecondaryActions">
+                  <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
+                    <s-icon type="wand" size="small"></s-icon>
+                    {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
+                  </button>
+                  <Link className="ppSecondaryActionButton" to="/app/products">
+                    <s-icon type="x" size="small"></s-icon>
+                    Clear filters
+                  </Link>
+                </div>
               </div>
             </div>
           </s-section>
@@ -1233,8 +1235,8 @@ function getPendingAnalysisLabel(pendingIds) {
 
 function FastScanButton({ pending, onStart }) {
   return (
-    <button className="ppPrimaryButton" type="button" disabled={pending} onClick={onStart}>
-      <s-icon type="wand" size="small"></s-icon>
+    <button className="ppQuickScanButton" type="button" disabled={pending} onClick={onStart}>
+      <s-icon type="search" size="small"></s-icon>
       {pending ? "Scan running..." : "Run quick scan"}
     </button>
   );
@@ -1381,19 +1383,32 @@ function getProductAnalysisDisplay(product = {}) {
 
 function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true }) {
   const analysis = getProductAnalysisDisplay(product);
+  const popoverTitle = getAnalysisPopoverTitle(analysis);
   return (
-    <span className={`ppAnalysisStatus ppAnalysisStatus-${analysis.depth} ${detail ? "ppAnalysisStatus-detail" : ""}`.trim()} title={analysis.detail}>
-      <span className="ppAnalysisStatusIcon" aria-hidden="true">
-        <s-icon type={analysis.icon} size="small"></s-icon>
-      </span>
-      {showLabel && (
-        <span>
-          <strong>{analysis.label}</strong>
-          {detail && <small>{analysis.detail}</small>}
+    <button className="ppAnalysisStatusWrap" type="button" aria-label={`${popoverTitle}. ${analysis.detail}`}>
+      <span className={`ppAnalysisStatus ppAnalysisStatus-${analysis.depth} ${detail ? "ppAnalysisStatus-detail" : ""}`.trim()}>
+        <span className="ppAnalysisStatusIcon" aria-hidden="true">
+          <s-icon type={analysis.icon} size="small"></s-icon>
         </span>
-      )}
-    </span>
+        {showLabel && (
+          <span>
+            <strong>{analysis.label}</strong>
+            {detail && <small>{analysis.detail}</small>}
+          </span>
+        )}
+      </span>
+      <span className="ppAnalysisStatusPopover" role="tooltip">
+        <strong>{popoverTitle}</strong>
+        <small>{analysis.detail}</small>
+      </span>
+    </button>
   );
+}
+
+function getAnalysisPopoverTitle(analysis) {
+  if (analysis.depth === "full") return "Deep Analysis completed";
+  if (analysis.depth === "quickscan") return "Fast Analysis completed";
+  return "No analysis completed";
 }
 
 function getProductDetailModel(product) {

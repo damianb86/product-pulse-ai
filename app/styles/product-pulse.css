@@ -507,6 +507,49 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
 }
 
+.ppQuickScanButton {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid rgba(var(--pp-info-cyan-rgb), 0.28);
+  border-radius: 8px;
+  background: rgba(var(--pp-info-cyan-rgb), 0.09);
+  color: var(--pp-info-cyan);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.05);
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.ppQuickScanButton:hover:not(:disabled) {
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.48);
+  background: rgba(var(--pp-info-cyan-rgb), 0.14);
+  color: color-mix(in srgb, var(--pp-info-cyan) 82%, var(--pp-midnight-ink));
+  box-shadow: 0 6px 16px rgba(var(--pp-info-cyan-rgb), 0.14);
+  transform: translateY(-1px);
+}
+
+.ppQuickScanButton:disabled {
+  border-color: var(--pp-slate-300);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.ppQuickScanButton s-icon {
+  color: currentColor;
+}
+
 .ppEvidenceGlance {
   min-height: 132px;
   padding-left: 26px;
@@ -1398,6 +1441,19 @@ s-page[inline-size="large-500"] {
   text-align: right;
 }
 
+.ppAnalysisStatusWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: help;
+  outline: none;
+}
+
 .ppAnalysisStatus {
   display: inline-flex;
   align-items: center;
@@ -1408,6 +1464,45 @@ s-page[inline-size="large-500"] {
   font-weight: 750;
   line-height: 1.15;
   white-space: nowrap;
+}
+
+.ppAnalysisStatusPopover {
+  position: absolute;
+  z-index: 32;
+  top: calc(100% + 8px);
+  left: 50%;
+  width: 244px;
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ppAnalysisStatusPopover strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.ppAnalysisStatusPopover small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ppAnalysisStatusWrap:hover .ppAnalysisStatusPopover,
+.ppAnalysisStatusWrap:focus-within .ppAnalysisStatusPopover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
 }
 
 .ppProductHeroImageWrap {
@@ -4080,19 +4175,26 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
 }
 
-.ppProductsActions,
-.ppProductsFilters {
+.ppProductsActions {
+  display: grid;
+  align-items: center;
+  justify-items: end;
+  gap: 8px;
+}
+
+.ppProductsSecondaryActions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.ppProductsActions {
-  justify-content: flex-end;
-}
-
 .ppProductsFilters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(112px, 1fr)) minmax(164px, 1.2fr);
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -4106,11 +4208,15 @@ s-page[inline-size="large-500"] {
 
 .ppCompactSelect {
   position: relative;
-  min-width: 112px;
+  min-width: 0;
 }
 
 .ppVendorSelect {
-  min-width: 164px;
+  min-width: 0;
+}
+
+.ppCompactSelect select {
+  width: 100%;
 }
 
 .ppCompactSelect span {
@@ -5676,6 +5782,7 @@ s-page[inline-size="large-500"] {
   .ppConnectLayout,
   .ppConnectPieWrap,
   .ppProductsToolbar,
+  .ppProductsFilters,
   .ppProductDetailHeader,
   .ppProductTitleRow,
   .ppProductSummaryGrid,

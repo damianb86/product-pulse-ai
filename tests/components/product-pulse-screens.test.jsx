@@ -130,7 +130,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: /Linen Shirt/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
     expect(screen.getByText("Diagnosis running")).toBeInTheDocument();
-    expect(screen.getAllByTitle(/Only the fast Shopify scan has run/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fast Analysis completed").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Only the fast Shopify scan has run/)).toBeInTheDocument();
     expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
     fireEvent.click(screen.getByRole("button", { name: "Risk score" }));
