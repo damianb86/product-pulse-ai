@@ -142,6 +142,12 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   return attachProductImageToDiagnosis(product, admin);
 }
 
+export async function getProductDetailForShop(shop, productId, admin) {
+  const snapshotProduct = await getProductSnapshotForShop(shop, productId, admin);
+  if (snapshotProduct) return snapshotProduct;
+  return getLiveShopifyProductDetail(productId, admin);
+}
+
 export async function rerunProductDiagnosisForShop(shop, productId) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
@@ -186,20 +192,35 @@ export async function rerunProductDiagnosisForShop(shop, productId) {
   };
 }
 
-export async function recordProductDetailActionForShop(shop, productId, actionId) {
+export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
   const metrics = snapshot.metrics || {};
-  const action = actionId === "mark-resolved"
+  let action = actionId === "mark-resolved"
     ? getResolvedAction(snapshot)
     : getSnapshotRecommendedActions(snapshot, metrics).find((item) => item.id === actionId);
+
+  if (!action && payloadOverride.draftText) {
+    action = {
+      id: actionId || "custom-draft",
+      label: payloadOverride.label || "Custom product action draft",
+      type: "ProductPulse draft",
+      effort: "Low",
+      status: "Draft",
+      payload: { draftText: payloadOverride.draftText },
+    };
+  }
 
   if (!action) {
     return { status: "validation_error", message: "Recommended action was not found." };
   }
 
   const status = action.id === "mark-resolved" || action.applyImmediately ? "applied" : "draft";
+  const payload = {
+    ...(action.payload || {}),
+    ...(payloadOverride.draftText ? { draftText: payloadOverride.draftText } : {}),
+  };
   await prisma.productAction.create({
     data: {
       shop,
@@ -207,7 +228,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       actionType: action.id,
       label: action.label,
       status,
-      payload: action.payload || {},
+      payload,
       appliedAt: status === "applied" ? new Date() : null,
     },
   });
@@ -442,6 +463,140 @@ async function attachProductImageToDiagnosis(product, admin) {
   };
 }
 
+async function getLiveShopifyProductDetail(productId, admin) {
+  if (!admin?.graphql || !productId) return null;
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query ProductPulseLiveProductDetail($query: String!) {
+        products(first: 1, query: $query) {
+          nodes {
+            id
+            title
+            handle
+            vendor
+            productType
+            status
+            tags
+            options {
+              name
+              values
+            }
+            featuredMedia {
+              preview {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+            media(first: 1) {
+              nodes {
+                preview {
+                  image {
+                    url
+                    altText
+                  }
+                }
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                  }
+                }
+              }
+            }
+            variants(first: 50) {
+              nodes {
+                id
+                sku
+                title
+              }
+            }
+            collections(first: 10) {
+              nodes {
+                title
+              }
+            }
+          }
+        }
+      }`,
+      { variables: { query: `handle:${escapeShopifyQueryValue(productId)}` } },
+    );
+    const json = await response.json();
+    if (json.errors?.length) return null;
+    const product = json.data?.products?.nodes?.[0];
+    return product ? formatLiveShopifyProductForDiagnosis(product) : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatLiveShopifyProductForDiagnosis(product) {
+  const mediaNode = product.media?.nodes?.[0] || {};
+  const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
+  const variants = product.variants?.nodes || [];
+  const collections = (product.collections?.nodes || []).map((collection) => collection.title).filter(Boolean);
+  const tags = Array.isArray(product.tags) ? product.tags : [];
+  const optionNames = (product.options || []).map((option) => option.name).filter(Boolean);
+  const skuCount = variants.filter((variant) => variant.sku).length;
+
+  return {
+    id: product.id,
+    slug: product.handle,
+    title: product.title,
+    handle: product.handle,
+    collection: collections[0] || product.productType || product.vendor || "Shopify catalog",
+    status: product.status || "Unknown",
+    riskScore: 0,
+    impactScore: 0,
+    confidence: 0,
+    riskTone: "success",
+    riskLabel: "Not scanned",
+    creditCost: 1,
+    sourceCoverage: ["Shopify products"],
+    lastAnalysis: null,
+    primaryIssue: null,
+    hasRiskSnapshot: false,
+    canDiagnose: false,
+    canResolve: false,
+    imageUrl: image.url || null,
+    imageAlt: image.altText || null,
+    metrics: {
+      returnRate: 0,
+      refundRate: 0,
+      reviewRating: 0,
+      issueCount: 0,
+      revenueAtRisk: 0,
+      marginAtRisk: 0,
+      signalCount: 0,
+      refundAmount: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+      soldUnits: 0,
+      recentSignalUnits: 0,
+      windowDays: 0,
+      productType: product.productType || "",
+      vendor: product.vendor || "",
+      tags,
+      collections,
+      variantCount: variants.length,
+      skuCount,
+      optionNames,
+    },
+    evidence: [{
+      source: "Shopify product",
+      quote: `${product.status || "Unknown status"} product in Shopify`,
+      weight: `${variants.length} variants, ${skuCount} SKUs, ${tags.length} tags`,
+    }],
+    issues: [],
+    recommendedActions: [],
+    actionHistory: [],
+    resolvedAt: null,
+  };
+}
+
 function formatSnapshotForDiagnosis(snapshot, actions = []) {
   const metrics = snapshot.metrics || {};
   const storedActions = actions.map(formatStoredProductAction);
@@ -463,6 +618,9 @@ function formatSnapshotForDiagnosis(snapshot, actions = []) {
     sourceCoverage: Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : ["Shopify products"],
     lastAnalysis: toIso(snapshot.updatedAt),
     primaryIssue: snapshot.primaryIssue,
+    hasRiskSnapshot: true,
+    canDiagnose: true,
+    canResolve: true,
     metrics: {
       returnRate: metrics.returnRate || 0,
       refundRate: metrics.refundRate || 0,
@@ -476,10 +634,19 @@ function formatSnapshotForDiagnosis(snapshot, actions = []) {
       refundUnits: metrics.refundUnits || 0,
       recentSignalUnits: metrics.recentSignalUnits || 0,
       windowDays: metrics.windowDays || 60,
+      soldUnits: metrics.soldUnits || 0,
+      storeAvgReturnRate: metrics.storeAvgReturnRate || 0,
+      storeAvgRefundRate: metrics.storeAvgRefundRate || 0,
+      lastSignalAt: metrics.lastSignalAt || null,
+      productType: metrics.productType || "",
+      vendor: metrics.vendor || "",
+      tags: Array.isArray(metrics.tags) ? metrics.tags : [],
+      collections: Array.isArray(metrics.collections) ? metrics.collections : [],
       topReturnReasons: Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [],
       affectedVariants: Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [],
     },
     evidence: getSnapshotEvidence(snapshot, metrics),
+    issues: getSnapshotIssues(snapshot, metrics),
     recommendedActions: getSnapshotRecommendedActions(snapshot, metrics),
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
@@ -498,32 +665,52 @@ function formatStoredProductAction(action) {
   };
 }
 
+function escapeShopifyQueryValue(value) {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function getSnapshotEvidence(snapshot, metrics) {
   const topReturnReasons = Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [];
   const affectedVariants = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [];
   const windowDays = metrics.windowDays || 60;
+  const evidence = [{
+    source: "Shopify product",
+    quote: `${metrics.productType || "Product"}${metrics.vendor ? ` by ${metrics.vendor}` : ""}`,
+    weight: `${Array.isArray(metrics.collections) ? metrics.collections.length : 0} collections, ${Array.isArray(metrics.tags) ? metrics.tags.length : 0} tags`,
+  }];
 
-  return [
-    {
+  if (Number(metrics.returnUnits || 0) > 0 || topReturnReasons.length) {
+    evidence.push({
       source: "Returns",
-      quote: topReturnReasons.length ? topReturnReasons.join(", ") : "No repeated return reason captured",
+      quote: topReturnReasons.length ? topReturnReasons.join(", ") : "0 repeated return reasons captured",
       weight: `${metrics.returnUnits || 0} return units in ${windowDays} days`,
-    },
-    {
+    });
+  }
+
+  if (Number(metrics.refundUnits || 0) > 0 || Number(metrics.refundAmount || 0) > 0) {
+    evidence.push({
       source: "Refunds",
       quote: `${formatMoney(metrics.refundAmount || 0)} refunded`,
       weight: `${metrics.refundUnits || 0} refunded units`,
-    },
-    {
+    });
+  }
+
+  if (affectedVariants.length || Number(metrics.recentSignalUnits || 0) > 0) {
+    evidence.push({
       source: "Variants",
       quote: affectedVariants.length ? affectedVariants.join(", ") : "No variant concentration detected",
       weight: `${metrics.recentSignalUnits || 0} recent signal units`,
-    },
-  ];
+    });
+  }
+
+  return evidence;
 }
 
 function getSnapshotIssues(snapshot, metrics) {
-  const signalCount = Math.max(Number(metrics.signalCount || 0), 1);
+  const rawSignalCount = Number(metrics.signalCount || 0);
+  if (!snapshot.primaryIssue || rawSignalCount <= 0) return [];
+
+  const signalCount = Math.max(rawSignalCount, 1);
   const topReturnReasons = Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [];
   const affectedVariants = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [];
 
@@ -549,12 +736,12 @@ function getSnapshotRecommendedActions(snapshot, metrics) {
   const issueCategory = getSnapshotIssueCategory(snapshot.primaryIssue);
   const topReturnReasons = Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [];
   const affectedVariants = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [];
-  const issueTag = getIssueTag(issueCategory);
   const reasonText = topReturnReasons.length ? topReturnReasons.join(", ") : snapshot.primaryIssue;
   const variantText = affectedVariants.length ? affectedVariants.join(", ") : "affected variants";
+  const actions = [];
 
-  return [
-    {
+  if (Number(metrics.signalCount || 0) > 0 && snapshot.primaryIssue) {
+    actions.push({
       id: "draft-pdp-copy",
       label: getPdpCopyActionLabel(issueCategory),
       type: "PDP copy",
@@ -563,17 +750,44 @@ function getSnapshotRecommendedActions(snapshot, metrics) {
       payload: {
         draftText: `ProductPulse detected ${reasonText}. Add shopper-facing guidance that clarifies ${issueCategory.toLowerCase()} expectations for ${snapshot.productTitle}.`,
       },
-    },
-    {
-      id: "add-product-tag",
-      label: `Apply "${issueTag}" product tag`,
-      type: "Shopify tag",
+    });
+  }
+
+  if (topReturnReasons.length || Number(metrics.returnUnits || 0) > 0) {
+    actions.push({
+      id: "review-return-reasons",
+      label: "Review return reasons",
+      type: "Workflow",
       effort: "Low",
       status: "Ready",
-      applyImmediately: true,
-      payload: { tag: issueTag },
-    },
-    {
+      payload: { topReturnReasons, returnUnits: metrics.returnUnits || 0 },
+    });
+  }
+
+  if (affectedVariants.length) {
+    actions.push({
+      id: "review-affected-variants",
+      label: "Review affected variants",
+      type: "Workflow",
+      effort: "Low",
+      status: "Ready",
+      payload: { affectedVariants },
+    });
+  }
+
+  if (Number(metrics.refundAmount || 0) > 0) {
+    actions.push({
+      id: "review-refund-impact",
+      label: "Review refund impact",
+      type: "Workflow",
+      effort: "Low",
+      status: "Ready",
+      payload: { refundAmount: metrics.refundAmount, refundUnits: metrics.refundUnits || 0 },
+    });
+  }
+
+  if (Number(metrics.signalCount || 0) > 0 && snapshot.primaryIssue) {
+    actions.push({
       id: "copy-support-note",
       label: "Share internal note with support team",
       type: "Internal note",
@@ -582,25 +796,10 @@ function getSnapshotRecommendedActions(snapshot, metrics) {
       payload: {
         note: `${snapshot.productTitle}: ${snapshot.primaryIssue}. Mention ${reasonText}; watch ${variantText}.`,
       },
-    },
-    {
-      id: "review-return-reasons",
-      label: "Review return reasons",
-      type: "Workflow",
-      effort: "Low",
-      status: "Ready",
-      payload: { topReturnReasons, affectedVariants },
-    },
-    {
-      id: "run-ai-diagnosis",
-      label: "Run AI Product Diagnosis",
-      type: "Diagnosis",
-      effort: "Low",
-      status: "Ready",
-      applyImmediately: true,
-      payload: { creditCost: 1 },
-    },
-  ];
+    });
+  }
+
+  return actions;
 }
 
 function getResolvedAction(snapshot) {
@@ -621,13 +820,6 @@ function getSnapshotIssueCategory(issue) {
   if (normalized.includes("zipper") || normalized.includes("defect") || normalized.includes("break")) return "Durability";
   if (normalized.includes("compat")) return "Compatibility";
   return "Product quality";
-}
-
-function getIssueTag(issueCategory) {
-  if (issueCategory === "Fit & sizing") return "ProductPulse: fit risk";
-  if (issueCategory === "Durability") return "ProductPulse: durability risk";
-  if (issueCategory === "Compatibility") return "ProductPulse: compatibility risk";
-  return "ProductPulse: quality risk";
 }
 
 function getPdpCopyActionLabel(issueCategory) {

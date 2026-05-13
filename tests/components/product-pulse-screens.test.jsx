@@ -161,6 +161,49 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Draft").value).toMatch(/Investigate Fit runs small/);
   });
 
+  it("shows explicit empty product detail data instead of mock values", () => {
+    const liveProduct = {
+      id: "gid://shopify/Product/999",
+      slug: "catalog-only-product",
+      title: "Catalog Only Product",
+      handle: "catalog-only-product",
+      status: "Active",
+      riskScore: 0,
+      riskTone: "success",
+      riskLabel: "Not scanned",
+      confidence: 0,
+      sourceCoverage: ["Shopify products"],
+      lastAnalysis: null,
+      primaryIssue: null,
+      hasRiskSnapshot: false,
+      canDiagnose: false,
+      canResolve: false,
+      metrics: {
+        signalCount: 0,
+        returnRate: 0,
+        refundRate: 0,
+        revenueAtRisk: 0,
+        marginAtRisk: 0,
+        variantCount: 0,
+        tags: [],
+        collections: [],
+      },
+      evidence: [{ source: "Shopify product", quote: "Active product in Shopify", weight: "0 variants, 0 SKUs, 0 tags" }],
+      issues: [],
+      recommendedActions: [],
+      actionHistory: [],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={liveProduct} />);
+    expect(screen.getByText("0 deterministic issues detected from stored product signals.")).toBeInTheDocument();
+    expect(screen.getByText("0 deterministic recommended actions from current stored signals.")).toBeInTheDocument();
+    expect(screen.queryByText(/View all detected issues/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/View all actions/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Runs small in chest")).not.toBeInTheDocument();
+    expect(screen.getByText("0 variants")).toBeInTheDocument();
+    expect(screen.getByText("Re-run diagnosis").closest("s-button")).toHaveAttribute("disabled", "true");
+  });
+
   it("renders the product diagnosis for the selected product", () => {
     const selectedProduct = defaultView.products.find((product) => product.slug === "trail-run-vest");
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={selectedProduct} />);

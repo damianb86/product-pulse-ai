@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Form, Link, useNavigation, useRevalidator, useSubmit } from "react-router";
+import { Form, Link, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
   buildConnectViewData,
   chatMeConnectionLinks,
@@ -293,64 +293,6 @@ const suggestedFixes = [
   { icon: "measurement-size", label: "Improve size chart & fit guidance", impact: "High impact", tone: "success" },
   { icon: "image", label: "Update product photos & color accuracy", impact: "High impact", tone: "success" },
   { icon: "note", label: "Clarify material & care information", impact: "Medium impact", tone: "warning" },
-];
-
-const productEvidenceSources = [
-  {
-    icon: "return",
-    title: "Returns (142)",
-    points: [
-      "18.7% return rate (vs 7.6% avg)",
-      "Top reason: Doesn't fit (64%)",
-      "Most common: Too small in chest (41%)",
-      "Spikes after size M & L in new colors",
-    ],
-  },
-  {
-    icon: "star",
-    title: "Reviews (52)",
-    points: [
-      "52 negative reviews (2-3 star)",
-      "38 mention sizing or fit",
-      'Frequent phrases: "runs small", "tight in chest", "size up"',
-      "Trend worsening in last 14 days",
-    ],
-  },
-  {
-    icon: "question-circle",
-    title: "Support / Questions (37)",
-    points: [
-      "37 sizing-related tickets",
-      "23 pre-purchase size questions",
-      "Frequent requests for chest measurements and fit guidance",
-      "High volume in last 7 days",
-    ],
-  },
-];
-
-const detectedIssues = [
-  { issue: "Runs small in chest", severity: "High", tone: "critical", confidence: "86%", signals: 96, trendTone: "red", action: "Update size chart & fit note" },
-  { issue: "Shoulders feel tight", severity: "High", tone: "critical", confidence: "78%", signals: 61, trendTone: "red", action: "Add shoulder measurement" },
-  { issue: "Inconsistent sizing across colors", severity: "Medium", tone: "warning", confidence: "71%", signals: 38, trendTone: "orange", action: "Audit color variants" },
-  { issue: "Fabric feels stiff at first", severity: "Low", tone: "warning", confidence: "45%", signals: 23, trendTone: "green", action: "Add care note (softens after wash)" },
-  { issue: "Sleeve length a bit long", severity: "Low", tone: "success", confidence: "39%", signals: 17, trendTone: "green", action: "Note in description" },
-];
-
-const productRecommendedActions = [
-  { icon: "measurement-size", title: "Update size chart with garment measurements", detail: "Add chest, shoulder, and length measurements.", action: "Edit" },
-  { icon: "pen", title: "Add fit note to product description", detail: 'Add guidance: "Runs small in the chest. Size up for a relaxed fit."', action: "Apply to Shopify", submit: true },
-  { icon: "pen", title: "Add FAQ: How does the Linen Shirt fit?", detail: "Answer common sizing questions proactively.", action: "Add FAQ" },
-  { icon: "tag", title: 'Apply "Runs Small" product tag', detail: "Help shoppers set the right expectation.", action: "Apply tag" },
-  { icon: "note", title: "Share internal note with support team", detail: "Provide talking points and size guidance.", action: "Copy note" },
-];
-
-const productCheckedItems = [
-  { icon: "return", label: "Returns analyzed", value: "1,214", detail: "Last 90 days" },
-  { icon: "star", label: "Reviews analyzed", value: "8,742", detail: "Last 90 days" },
-  { icon: "question-circle", label: "Support tickets", value: "1,126", detail: "Last 90 days" },
-  { icon: "note", label: "Product content", value: "12 fields", detail: "Description, specs, etc." },
-  { icon: "apps", label: "Competitors reviewed", value: "6", detail: "Similar products" },
-  { icon: "chart-vertical", label: "Historical trends", value: "90 days", detail: "vs prior period" },
 ];
 
 const analyticsKpis = [
@@ -1041,12 +983,16 @@ function getProductActionKey(product) {
 }
 
 function getProductDetailModel(product) {
-  const issueText = product.primaryIssue || "Quality signal needs review";
+  const metrics = product.metrics || {};
+  const sourceCoverage = product.sourceCoverage || [];
+  const hasRiskSnapshot = product.hasRiskSnapshot !== false;
+  const issueText = product.primaryIssue || "";
   const issueCategory = getProductIssueCategory(issueText);
   const firstAction = product.recommendedActions?.[0];
-  const detectedIssueRows = getProductDetectedIssues(product, issueCategory);
+  const detectedIssueRows = getProductDetectedIssues(product, issueCategory, hasRiskSnapshot);
   const recommendedActions = getProductRecommendedActions(product);
   const evidenceSources = getProductEvidenceSources(product);
+  const checkedItems = getProductCheckedItems(product);
 
   return {
     title: product.title,
@@ -1056,31 +1002,44 @@ function getProductDetailModel(product) {
     lastAnalysis: formatProductAnalysisDate(product.lastAnalysis),
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
-    riskScoreLabel: getProductRiskScoreLabel(product.riskScore),
-    riskScore: product.riskScore,
+    riskScoreLabel: hasRiskSnapshot ? getProductRiskScoreLabel(product.riskScore) : "Not scanned",
+    riskScore: product.riskScore || 0,
     riskTone: getProductInsightTone(product.riskTone),
-    confidence: product.confidence,
-    confidenceLabel: product.confidence >= 80 ? "High" : product.confidence >= 65 ? "Medium" : "Low",
-    signalCount: product.metrics.signalCount,
-    returnRate: product.metrics.returnRate,
-    marginAtRisk: product.metrics.marginAtRisk,
-    revenueAtRisk: product.metrics.revenueAtRisk,
+    confidence: product.confidence || 0,
+    confidenceLabel: getConfidenceLabel(product.confidence || 0, hasRiskSnapshot),
+    signalCount: metrics.signalCount || 0,
+    returnRate: metrics.returnRate || 0,
+    marginAtRisk: metrics.marginAtRisk || 0,
+    revenueAtRisk: metrics.revenueAtRisk || 0,
     issueBadge: issueCategory,
     issueCategory,
-    issueDetail: issueText,
+    issueDetail: issueText || "No deterministic product issue stored yet.",
     issueTone: product.riskScore >= 55 ? "blue" : "green",
     findingTone: getDashboardToneFromRiskTone(product.riskTone),
-    evidenceLabel: (product.sourceCoverage || []).length >= 4 ? "Strong evidence" : "Partial evidence",
-    mainFindingTitle: getMainFindingTitle(issueCategory),
-    mainFindingDetail: `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${(product.sourceCoverage || []).join(", ")}.`,
-    recommendedFix: firstAction?.label || "Keep monitoring this product",
-    recommendedFixDetail: firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No immediate action required",
+    evidenceLabel: sourceCoverage.length >= 4 ? "Strong evidence" : sourceCoverage.length > 0 ? "Stored evidence" : "No signal evidence",
+    mainFindingTitle: issueText ? getMainFindingTitle(issueCategory) : "No ProductPulse issue stored for this product",
+    mainFindingDetail: issueText
+      ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
+      : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`,
+    recommendedFix: firstAction?.label || "No deterministic action yet",
+    recommendedFixDetail: firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.",
     evidenceSources,
     detectedIssues: detectedIssueRows,
     recommendedActions,
+    checkedItems,
     actionHistory: product.actionHistory || [],
     resolvedAt: product.resolvedAt || null,
+    canDiagnose: product.canDiagnose !== false && hasRiskSnapshot,
+    canResolve: product.canResolve !== false && hasRiskSnapshot,
   };
+}
+
+function getConfidenceLabel(confidence, hasRiskSnapshot = true) {
+  if (!hasRiskSnapshot) return "0 stored";
+  if (confidence >= 80) return "High";
+  if (confidence >= 65) return "Medium";
+  if (confidence > 0) return "Low";
+  return "0 stored";
 }
 
 function getProductArtVariant(product) {
@@ -1130,6 +1089,7 @@ function getProductRiskScoreLabel(score) {
 }
 
 function getProductIssueCategory(issue) {
+  if (!issue) return "No issue";
   const normalized = issue.toLowerCase();
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("waist") || normalized.includes("inseam")) return "Fit & sizing";
   if (normalized.includes("zipper") || normalized.includes("defect")) return "Durability";
@@ -1147,7 +1107,7 @@ function getMainFindingTitle(issueCategory) {
 }
 
 function getProductEvidenceSources(product) {
-  if (!product.evidence?.length) return productEvidenceSources;
+  if (!product.evidence?.length) return [];
 
   return product.evidence.map((item) => ({
     icon: getEvidenceIcon(item.source),
@@ -1155,7 +1115,7 @@ function getProductEvidenceSources(product) {
     points: [
       item.quote,
       item.weight,
-      `${product.metrics.signalCount} total signals in current diagnosis`,
+      `${product.metrics?.signalCount || 0} total signals in current diagnosis`,
     ],
   }));
 }
@@ -1169,12 +1129,24 @@ function getEvidenceIcon(source) {
   return "note";
 }
 
-function getProductDetectedIssues(product, issueCategory) {
-  if (!product.primaryIssue) return detectedIssues;
+function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true) {
+  if (Array.isArray(product.issues) && product.issues.length) {
+    return product.issues.map((issue, index) => ({
+      issue: issue.issue || issue.label || `Issue ${index + 1}`,
+      severity: issue.severity || getProductRiskScoreLabel(product.riskScore || 0),
+      tone: getBadgeToneFromRiskTone(issue.tone || product.riskTone),
+      confidence: typeof issue.confidence === "number" ? `${issue.confidence}%` : issue.confidence || `${product.confidence || 0}%`,
+      signals: issue.signals || product.metrics?.signalCount || 0,
+      trendTone: product.riskScore >= 75 ? "red" : product.riskScore >= 55 ? "orange" : "green",
+      action: issue.action || getIssueActionLabel(issue.issue || product.primaryIssue, issueCategory),
+    }));
+  }
+
+  if (!product.primaryIssue || !hasRiskSnapshot) return [];
 
   const firstAction = product.recommendedActions?.[0]?.label || "Review product content";
   const secondaryAction = product.recommendedActions?.[1]?.label || "Monitor signal trend";
-  const primarySignals = Math.max(product.metrics.signalCount, 1);
+  const primarySignals = Math.max(product.metrics?.signalCount || 0, 1);
 
   return [
     {
@@ -1198,9 +1170,18 @@ function getProductDetectedIssues(product, issueCategory) {
   ];
 }
 
+function getIssueActionLabel(issue, issueCategory) {
+  const normalized = String(issue || issueCategory || "").toLowerCase();
+  if (normalized.includes("return")) return "Review return evidence";
+  if (normalized.includes("refund")) return "Review refund impact";
+  if (normalized.includes("variant")) return "Review affected variants";
+  if (normalized.includes("fit") || normalized.includes("sizing")) return "Draft shopper-facing fit guidance";
+  return "Review product signals";
+}
+
 function getProductRecommendedActions(product) {
   const actionHistory = Array.isArray(product.actionHistory) ? product.actionHistory : [];
-  if (!product.recommendedActions?.length) return productRecommendedActions;
+  if (!product.recommendedActions?.length) return [];
 
   return product.recommendedActions.map((action, index) => ({
     id: action.id,
@@ -1213,6 +1194,75 @@ function getProductRecommendedActions(product) {
     appliedRecord: actionHistory.find((record) => record.actionId === action.id),
     submit: getRecommendedActionMode(action, index) === "submit",
   }));
+}
+
+function getProductCheckedItems(product) {
+  const metrics = product.metrics || {};
+  const sources = product.sourceCoverage || [];
+  const items = [];
+  const windowDays = metrics.windowDays || 0;
+  const productMeta = [
+    metrics.productType,
+    metrics.vendor,
+    Array.isArray(metrics.collections) && metrics.collections.length ? `${metrics.collections.length} collections` : "",
+    Array.isArray(metrics.tags) && metrics.tags.length ? `${metrics.tags.length} tags` : "",
+  ].filter(Boolean).join(" - ");
+
+  if (sources.some((source) => String(source).toLowerCase().includes("product")) || productMeta) {
+    items.push({
+      icon: "product",
+      label: "Shopify product data",
+      value: `${metrics.variantCount ?? metrics.affectedVariants?.length ?? 0} variants`,
+      detail: productMeta || "Product metadata stored",
+    });
+  }
+
+  if (sources.some((source) => String(source).toLowerCase().includes("order")) || Number(metrics.soldUnits || 0) > 0) {
+    items.push({
+      icon: "package",
+      label: "Units sold analyzed",
+      value: formatInteger(metrics.soldUnits || 0),
+      detail: `${windowDays || 0} day Shopify order window`,
+    });
+  }
+
+  if (sources.some((source) => String(source).toLowerCase().includes("return")) || Number(metrics.returnUnits || 0) > 0) {
+    items.push({
+      icon: "return",
+      label: "Returns analyzed",
+      value: formatInteger(metrics.returnUnits || 0),
+      detail: `${metrics.returnRate || 0}% return rate`,
+    });
+  }
+
+  if (sources.some((source) => String(source).toLowerCase().includes("refund")) || Number(metrics.refundUnits || 0) > 0) {
+    items.push({
+      icon: "cash-dollar",
+      label: "Refunds analyzed",
+      value: formatInteger(metrics.refundUnits || 0),
+      detail: `${formatMoney(metrics.refundAmount || 0)} refunded`,
+    });
+  }
+
+  if (Array.isArray(metrics.topReturnReasons) && metrics.topReturnReasons.length) {
+    items.push({
+      icon: "note",
+      label: "Return reasons",
+      value: formatInteger(metrics.topReturnReasons.length),
+      detail: metrics.topReturnReasons.join(", "),
+    });
+  }
+
+  if (Array.isArray(metrics.affectedVariants) && metrics.affectedVariants.length) {
+    items.push({
+      icon: "product",
+      label: "Affected variants",
+      value: formatInteger(metrics.affectedVariants.length),
+      detail: metrics.affectedVariants.join(", "),
+    });
+  }
+
+  return items;
 }
 
 function getRecommendedActionMode(action, index) {
@@ -1246,12 +1296,13 @@ function getActionIcon(type) {
 }
 
 export function ProductDiagnosisScreen({ product, actionData }) {
+  const navigate = useNavigate();
   const navigation = useNavigation();
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
   const [openIssueMenu, setOpenIssueMenu] = useState(null);
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set());
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
-  const [localActionData, setLocalActionData] = useState(null);
+  const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
   const [draftText, setDraftText] = useState("");
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
@@ -1270,7 +1321,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }, [actionData]);
 
   useEffect(() => {
-    if (navigation.state === "submitting") setLocalActionData(null);
+    if (actionData?.message) setToastData(actionData);
+  }, [actionData]);
+
+  useEffect(() => {
+    if (!toastData) return undefined;
+    const timeout = window.setTimeout(() => setToastData(null), 3200);
+    return () => window.clearTimeout(timeout);
+  }, [toastData]);
+
+  useEffect(() => {
+    if (navigation.state === "submitting") setToastData(null);
   }, [navigation.state]);
 
   if (!product) {
@@ -1291,11 +1352,22 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const resolved = resolvedLocally || Boolean(detail.resolvedAt);
   const diagnosisPending = pendingActionType === "diagnose";
   const resolvingPending = pendingActionType === "mark-resolved";
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/app/products");
+  };
+  const showToast = (message, status = "success") => setToastData({ status, message });
 
   const handleReviewEvidence = (index = 0) => {
+    if (!detail.evidenceSources.length) {
+      showToast("0 stored evidence sources for this product.", "validation_error");
+      return;
+    }
     setSelectedEvidenceIndex(Math.max(0, Math.min(index, detail.evidenceSources.length - 1)));
     setOpenIssueMenu(null);
-    setLocalActionData({ status: "success", message: "Evidence source selected for review." });
   };
 
   const handleIgnoreIssue = (issue) => {
@@ -1305,7 +1377,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       return next;
     });
     setOpenIssueMenu(null);
-    setLocalActionData({ status: "success", message: `${issue.issue} will be ignored in this review session.` });
+    showToast(`${issue.issue} ignored for this review session.`);
   };
 
   const handleCreateIssueAction = (issue) => {
@@ -1323,12 +1395,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setDraftText(action.payload?.draftText || action.detail);
   };
 
-  const handleSaveDraft = () => {
-    setLocalActionData({ status: "success", message: `${editingAction.title} was saved as a draft.` });
-    setEditingAction(null);
-    setDraftText("");
-  };
-
   const handleCopyAction = async (action) => {
     const text = action.payload?.note || action.payload?.draftText || `${detail.title}: ${action.title}. ${action.detail}`;
     try {
@@ -1336,19 +1402,19 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     } catch {
       // Clipboard is not available in every embedded test/browser surface.
     }
-    setLocalActionData({ status: "success", message: `${action.title} copied.` });
+    showToast(`${action.title} copied.`);
   };
 
   return (
     <FullWidthPage label={`${detail.title} product`} className="ppProductDetailPage">
       <ScreenShell className="ppDashboard ppProductDetailScreen">
-        <ActionBanner actionData={localActionData || actionData} />
+        <ProductDetailToast actionData={toastData} onDismiss={() => setToastData(null)} />
 
         <div className="ppProductDetailHeader">
-          <Link className="ppAnalyzeLinkButton" to="/app/products">
+          <button className="ppProductBackButton" type="button" onClick={handleBack}>
             <s-icon type="arrow-left" size="small"></s-icon>
             Back
-          </Link>
+          </button>
           <div className="ppProductTitleRow">
             <ProductArt
               variant={detail.variant}
@@ -1373,7 +1439,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <Form method="post">
               <input type="hidden" name="_action" value="diagnose" />
               <input type="hidden" name="productId" value={product.slug} />
-              <s-button type="submit" variant="secondary" disabled={diagnosisPending}>
+              <s-button type="submit" variant="secondary" disabled={!detail.canDiagnose || diagnosisPending}>
                 <s-icon type="refresh" size="small"></s-icon>
                 {diagnosisPending ? "Running..." : "Re-run diagnosis"}
               </s-button>
@@ -1381,7 +1447,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <Form method="post">
               <input type="hidden" name="_action" value="mark-resolved" />
               <input type="hidden" name="productId" value={product.slug} />
-              <button className="ppPrimaryButton" type="submit" disabled={resolved || resolvingPending}>
+              <button className="ppPrimaryButton" type="submit" disabled={!detail.canResolve || resolved || resolvingPending}>
                 <s-icon type="check" size="small"></s-icon>
                 {resolved ? "Resolved" : resolvingPending ? "Resolving..." : "Mark as resolved"}
               </button>
@@ -1461,7 +1527,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                     </button>
                   ))}
                 </div>
-                {selectedEvidence && <EvidenceSourceCard source={selectedEvidence} featured />}
+                {selectedEvidence ? (
+                  <EvidenceSourceCard source={selectedEvidence} featured />
+                ) : (
+                  <EmptyProductDetailState message="No stored evidence sources for this product yet." />
+                )}
               </div>
             </s-section>
 
@@ -1482,6 +1552,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       </tr>
                     </thead>
                     <tbody>
+                      {detail.detectedIssues.length === 0 && (
+                        <tr className="ppIssuesEmptyRow">
+                          <td colSpan="7">
+                            <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
+                          </td>
+                        </tr>
+                      )}
                       {detail.detectedIssues.map((issue, index) => {
                         const ignored = ignoredIssues.has(issue.issue);
 
@@ -1502,7 +1579,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                 issue={issue}
                                 open={openIssueMenu === issue.issue}
                                 onToggle={() => setOpenIssueMenu((current) => (current === issue.issue ? null : issue.issue))}
-                                onReview={() => handleReviewEvidence(index % detail.evidenceSources.length)}
+                                onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
                                 onCreateAction={() => handleCreateIssueAction(issue)}
                                 onIgnore={() => handleIgnoreIssue(issue)}
                                 ignored={ignored}
@@ -1514,7 +1591,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                     </tbody>
                   </table>
                 </div>
-                <s-link href="/app/analytics">View all detected issues ({detail.detectedIssues.length})</s-link>
               </div>
             </s-section>
           </div>
@@ -1523,6 +1599,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <div className="ppProductPanel ppRecommendedActionsPanel">
               <h2>Recommended actions</h2>
               <div className="ppRecommendedActionList">
+                {detail.recommendedActions.length === 0 && (
+                  <EmptyProductDetailState message="0 deterministic recommended actions from current stored signals." />
+                )}
                 {detail.recommendedActions.map((action) => (
                   <ProductRecommendedAction
                     key={action.title}
@@ -1536,20 +1615,26 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 ))}
               </div>
               {editingAction && (
-                <div className="ppActionDraftEditor">
+                <Form method="post" className="ppActionDraftEditor">
+                  <input type="hidden" name="_action" value="apply-action" />
+                  <input type="hidden" name="productId" value={product.slug} />
+                  <input type="hidden" name="actionId" value={editingAction.id} />
+                  <input type="hidden" name="label" value={editingAction.title} />
                   <label htmlFor="pp-action-draft">Draft</label>
                   <textarea
                     id="pp-action-draft"
+                    name="draftText"
                     value={draftText}
                     onChange={(event) => setDraftText(event.target.value)}
                   />
                   <div>
                     <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
-                    <button className="ppPrimaryButton" type="button" onClick={handleSaveDraft}>Save draft</button>
+                    <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
+                      {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
+                    </button>
                   </div>
-                </div>
+                </Form>
               )}
-              <s-link href="/app/analyses">View all actions & history</s-link>
             </div>
           </s-section>
         </div>
@@ -1558,7 +1643,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           <div className="ppCheckedPanel">
             <h2>What ProductPulse checked</h2>
             <div className="ppCheckedGrid">
-              {productCheckedItems.map((item) => (
+              {detail.checkedItems.map((item) => (
                 <div className="ppCheckedItem" key={item.label}>
                   <s-icon type={item.icon}></s-icon>
                   <div>
@@ -1568,6 +1653,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   </div>
                 </div>
               ))}
+              {detail.checkedItems.length === 0 && (
+                <EmptyProductDetailState message="0 product-specific checks stored yet." />
+              )}
             </div>
           </div>
         </s-section>
@@ -2039,6 +2127,30 @@ function EvidenceSourceCard({ source, featured = false }) {
         ))}
       </ul>
     </article>
+  );
+}
+
+function EmptyProductDetailState({ message }) {
+  return (
+    <div className="ppProductDetailEmpty">
+      <s-icon type="info" size="small"></s-icon>
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function ProductDetailToast({ actionData, onDismiss }) {
+  if (!actionData?.message) return null;
+  const tone = actionData.status === "success" ? "success" : actionData.status === "validation_error" ? "warning" : "critical";
+
+  return (
+    <div className={`ppProductToast ppProductToast-${tone}`} role="status">
+      <s-icon type={tone === "success" ? "check" : "info"} size="small"></s-icon>
+      <span>{actionData.message}</span>
+      <button type="button" aria-label="Dismiss notification" onClick={onDismiss}>
+        <s-icon type="x" size="small"></s-icon>
+      </button>
+    </div>
   );
 }
 
@@ -2816,4 +2928,8 @@ function formatMoney(value) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatInteger(value) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
 }

@@ -1091,6 +1091,80 @@ s-page[inline-size="large-500"] {
   justify-self: start;
 }
 
+.ppProductBackButton {
+  width: max-content;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 6px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ppProductBackButton:hover {
+  border-color: var(--pp-pulse-blue);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductToast {
+  position: fixed;
+  z-index: 80;
+  top: 76px;
+  right: 24px;
+  max-width: min(420px, calc(100vw - 48px));
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppProductToast-success {
+  border-color: rgba(var(--pp-success-green-rgb), 0.32);
+  box-shadow: 0 18px 50px rgba(var(--pp-success-green-rgb), 0.14);
+}
+
+.ppProductToast-warning {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.36);
+}
+
+.ppProductToast-critical {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.36);
+}
+
+.ppProductToast button {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--pp-slate-500);
+  cursor: pointer;
+}
+
+.ppProductToast button:hover {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-900);
+}
+
 .ppProductTitleRow {
   grid-column: 1;
   display: grid;
@@ -1447,11 +1521,34 @@ s-page[inline-size="large-500"] {
   opacity: 0.58;
 }
 
+.ppIssuesTable .ppIssuesEmptyRow td,
 .ppIssuesTable td:first-child {
   display: flex;
   align-items: center;
   gap: 7px;
   font-weight: 550;
+}
+
+.ppIssuesTable .ppIssuesEmptyRow td {
+  justify-content: center;
+  height: 96px;
+}
+
+.ppProductDetailEmpty {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .ppIssuesTable .ppMiniTrend {

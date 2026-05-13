@@ -1,24 +1,18 @@
 import { useActionData, useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { ProductDiagnosisScreen } from "../components/ProductPulseScreens";
+import { getAppViewData } from "../lib/product-pulse-data";
 import {
-  applyDraftAction,
-  getAppViewData,
-  getProductBySlug,
-  startProductDiagnosis,
-} from "../lib/product-pulse-data";
-import {
-  getProductSnapshotForShop,
+  getProductDetailForShop,
   recordProductDetailActionForShop,
   rerunProductDiagnosisForShop,
 } from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request, params }) => {
   const { admin, session } = await authenticate.admin(request);
-  const snapshotProduct = await getProductSnapshotForShop(session.shop, params.productId, admin);
   return {
     data: getAppViewData(),
-    product: snapshotProduct || getProductBySlug(params.productId),
+    product: await getProductDetailForShop(session.shop, params.productId, admin),
   };
 };
 
@@ -31,19 +25,27 @@ export const action = async ({ request, params }) => {
   if (actionType === "diagnose") {
     const snapshotDiagnosis = await rerunProductDiagnosisForShop(session.shop, productId);
     if (snapshotDiagnosis) return snapshotDiagnosis;
-    return startProductDiagnosis(productId);
+    return { status: "validation_error", message: "Run QuickScan before starting a product diagnosis." };
   }
 
   if (actionType === "apply-action") {
-    const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, String(formData.get("actionId") || ""));
+    const snapshotAction = await recordProductDetailActionForShop(
+      session.shop,
+      productId,
+      String(formData.get("actionId") || ""),
+      {
+        label: String(formData.get("label") || ""),
+        draftText: String(formData.get("draftText") || ""),
+      },
+    );
     if (snapshotAction) return snapshotAction;
-    return applyDraftAction(productId, String(formData.get("actionId") || ""));
+    return { status: "validation_error", message: "Run QuickScan before saving product actions." };
   }
 
   if (actionType === "mark-resolved") {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
     if (snapshotAction) return snapshotAction;
-    return { status: "success", message: "Product was marked as resolved." };
+    return { status: "validation_error", message: "Run QuickScan before resolving a product." };
   }
 
   return { status: "validation_error", message: "Unsupported product action." };
