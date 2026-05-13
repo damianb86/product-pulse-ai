@@ -123,9 +123,11 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Risk score" }));
     expect(screen.getByText("↓")).toBeInTheDocument();
     expect(screen.getByText("Return rate contribution.")).toBeInTheDocument();
-    expect(screen.getByText("RET")).toBeInTheDocument();
-    expect(screen.getByText("REF")).toBeInTheDocument();
-    expect(screen.getByText("PDP")).toBeInTheDocument();
+    expect(screen.getByLabelText("3 sources used for this product")).toBeInTheDocument();
+    expect(screen.getByText("Sources used")).toBeInTheDocument();
+    expect(screen.getByText("Returns")).toBeInTheDocument();
+    expect(screen.getByText("Refunds")).toBeInTheDocument();
+    expect(screen.getByText("Shopify product metadata.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Linen Shirt" }));
     expect(screen.getByRole("button", { name: "Analyze selected (1)" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
@@ -144,6 +146,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
     fireEvent.click(screen.getAllByText("Edit")[0]);
     expect(screen.getByLabelText("Draft")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
+    expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
   });
 
   it("renders product diagnosis from snapshot dates and supports issue actions", () => {

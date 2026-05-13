@@ -1493,6 +1493,9 @@ function getProductRecommendedActions(product) {
     icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     title: action.label,
     detail: getRecommendedActionDetail(action),
+    reason: getRecommendedActionReason(action, product),
+    evidence: getRecommendedActionEvidence(action, product),
+    priority: index === 0 ? "Primary next step" : getRecommendedActionPriority(action, product),
     meta: getRecommendedActionMeta(action),
     action: getRecommendedActionButtonLabel(action, index),
     mode: getRecommendedActionMode(action, index),
@@ -1510,6 +1513,64 @@ function getRecommendedActionDetail(action) {
   if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) return payload.affectedVariants.join(", ");
   if (Number(payload.refundAmount || 0) > 0) return `${formatMoney(payload.refundAmount)} refunded across ${formatInteger(payload.refundUnits || 0)} units`;
   return "Ready from current stored product signals.";
+}
+
+function getRecommendedActionReason(action, product) {
+  const payload = action.payload || {};
+  const metrics = product.metrics || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+
+  if (Array.isArray(payload.contentIssues) && payload.contentIssues.length) {
+    return `ProductPulse found content issues that can reduce buyer confidence: ${payload.contentIssues.slice(0, 3).join(", ")}.`;
+  }
+  if (Array.isArray(payload.topReturnReasons) && payload.topReturnReasons.length) {
+    return `Return evidence shows repeated reasons: ${payload.topReturnReasons.slice(0, 3).join(", ")}. Reviewing them helps separate product issues from operational noise.`;
+  }
+  if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) {
+    return `Signals are concentrated in specific variants: ${payload.affectedVariants.slice(0, 4).join(", ")}. This action focuses the review where risk is most likely.`;
+  }
+  if (Number(payload.refundAmount || 0) > 0) {
+    return `Refund impact is measurable: ${formatMoney(payload.refundAmount)} across ${formatInteger(payload.refundUnits || 0)} units. This action checks whether the loss is preventable.`;
+  }
+  if (Number(payload.negativeReviewCount || 0) > 0) {
+    return `${formatInteger(payload.negativeReviewCount)} negative Judge.me reviews are connected to this product. Reviewing them can clarify the language customers use.`;
+  }
+  if (payload.note) {
+    return "This creates a concise internal note so support can respond consistently while the product issue is being reviewed.";
+  }
+  if (payload.draftText || normalized.includes("pdp") || normalized.includes("description") || normalized.includes("faq")) {
+    const issue = product.primaryIssue || "current product signals";
+    return `This is suggested because ProductPulse detected ${issue}. Clearer shopper-facing copy can reduce avoidable confusion before purchase.`;
+  }
+  if (metrics.signalCount) {
+    return `This action is based on ${formatInteger(metrics.signalCount)} stored product signal${metrics.signalCount === 1 ? "" : "s"} across the available sources.`;
+  }
+  return "This action is available from the current diagnosis and can be reviewed before anything is applied.";
+}
+
+function getRecommendedActionEvidence(action, product) {
+  const payload = action.payload || {};
+  const metrics = product.metrics || {};
+  const evidence = [];
+
+  if (Array.isArray(payload.topReturnReasons) && payload.topReturnReasons.length) evidence.push(`${payload.topReturnReasons.length} return reason${payload.topReturnReasons.length === 1 ? "" : "s"}`);
+  if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) evidence.push(`${payload.affectedVariants.length} affected variant${payload.affectedVariants.length === 1 ? "" : "s"}`);
+  if (Array.isArray(payload.contentIssues) && payload.contentIssues.length) evidence.push(`${payload.contentIssues.length} content issue${payload.contentIssues.length === 1 ? "" : "s"}`);
+  if (Number(payload.refundAmount || 0) > 0) evidence.push(formatMoney(payload.refundAmount));
+  if (Number(payload.negativeReviewCount || 0) > 0) evidence.push(`${formatInteger(payload.negativeReviewCount)} negative reviews`);
+  if (!evidence.length && Number(metrics.signalCount || 0) > 0) evidence.push(`${formatInteger(metrics.signalCount)} product signals`);
+  if (!evidence.length && Number(metrics.confidence || product.confidence || 0) > 0) evidence.push(`${metrics.confidence || product.confidence}% confidence`);
+
+  return evidence.slice(0, 3);
+}
+
+function getRecommendedActionPriority(action, product) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("rewrite") || normalized.includes("draft") || normalized.includes("description") || normalized.includes("fit")) return "Customer-facing fix";
+  if (normalized.includes("review")) return "Evidence review";
+  if (normalized.includes("support") || normalized.includes("note")) return "Team workflow";
+  if (product.riskScore >= 75) return "High-risk product";
+  return "Recommended";
 }
 
 function getRecommendedActionMeta(action) {
@@ -1655,6 +1716,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set());
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
+  const [dismissedActionIds, setDismissedActionIds] = useState(() => new Set());
   const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
   const [draftText, setDraftText] = useState("");
@@ -1664,6 +1726,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   useEffect(() => {
     setResolvedLocally(Boolean(product?.resolvedAt));
     setIgnoredIssues(new Set());
+    setDismissedActionIds(new Set());
     setSelectedEvidenceIndex(0);
   }, [product?.slug, product?.resolvedAt]);
 
@@ -1702,6 +1765,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const detail = getProductDetailModel(product);
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
+  const visibleRecommendedActions = detail.recommendedActions.filter((action) => !dismissedActionIds.has(action.id || action.title));
   const resolved = resolvedLocally || Boolean(detail.resolvedAt);
   const diagnosisPending = pendingActionType === "diagnose";
   const resolvingPending = pendingActionType === "mark-resolved";
@@ -1753,6 +1817,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       // Clipboard is not available in every embedded test/browser surface.
     }
     showToast(`${action.title} copied.`);
+  };
+
+  const handleDismissAction = (action) => {
+    setDismissedActionIds((current) => {
+      const next = new Set(current);
+      next.add(action.id || action.title);
+      return next;
+    });
+    showToast(`${action.title} dismissed for this review session.`);
   };
 
   return (
@@ -1868,73 +1941,117 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </s-section>
         </div>
 
+        <s-section padding="none">
+          <div className="ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull">
+            <h2>Recommended actions</h2>
+            <div className="ppRecommendedActionList">
+              {visibleRecommendedActions.length === 0 && (
+                <EmptyProductDetailState message="0 deterministic recommended actions from current stored signals." />
+              )}
+              {visibleRecommendedActions.map((action) => (
+                <ProductRecommendedAction
+                  key={action.title}
+                  action={action}
+                  product={product}
+                  pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
+                  onEdit={handleEditAction}
+                  onCopy={handleCopyAction}
+                  onReview={() => handleReviewEvidence(0)}
+                  onDismiss={handleDismissAction}
+                />
+              ))}
+            </div>
+            {editingAction && (
+              <Form method="post" className="ppActionDraftEditor">
+                <input type="hidden" name="_action" value="apply-action" />
+                <input type="hidden" name="productId" value={product.slug} />
+                <input type="hidden" name="actionId" value={editingAction.id} />
+                <input type="hidden" name="label" value={editingAction.title} />
+                <label htmlFor="pp-action-draft">Draft</label>
+                <textarea
+                  id="pp-action-draft"
+                  name="draftText"
+                  value={draftText}
+                  onChange={(event) => setDraftText(event.target.value)}
+                />
+                <div>
+                  <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
+                  <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
+                    {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
+                  </button>
+                </div>
+              </Form>
+            )}
+          </div>
+        </s-section>
+
         <div className="ppProductDetailGrid">
-          <div className="ppProductLeftColumn">
-            <s-section padding="none">
-              <div className="ppProductPanel">
-                <h2>Issues detected</h2>
-                <div className="ppIssuesTableWrap">
-                  <table className="ppIssuesTable">
-                    <thead>
-                      <tr>
-                        <th>Issue</th>
-                        <th>Severity</th>
-                        <th>Confidence</th>
-                        <th>Signals</th>
-                        <th>Trend</th>
-                        <th>Suggested action</th>
-                        <th aria-label="More actions"></th>
+          <s-section padding="none">
+            <div className="ppProductPanel">
+              <h2>Issues detected</h2>
+              <div className="ppIssuesTableWrap">
+                <table className="ppIssuesTable">
+                  <thead>
+                    <tr>
+                      <th>Issue</th>
+                      <th>Severity</th>
+                      <th>Confidence</th>
+                      <th>Signals</th>
+                      <th>Trend</th>
+                      <th>Suggested action</th>
+                      <th aria-label="More actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.detectedIssues.length === 0 && (
+                      <tr className="ppIssuesEmptyRow">
+                        <td colSpan="7">
+                          <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {detail.detectedIssues.length === 0 && (
-                        <tr className="ppIssuesEmptyRow">
-                          <td colSpan="7">
-                            <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
+                    )}
+                    {detail.detectedIssues.map((issue, index) => {
+                      const ignored = ignoredIssues.has(issue.issue);
+
+                      return (
+                        <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
+                          <td>
+                            <span className="ppIssueNameCell">
+                              <span className="ppIssueIcon" aria-hidden="true">
+                                <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                              </span>
+                              <span>{issue.issue}</span>
+                              {ignored && <s-badge tone="success">Ignored</s-badge>}
+                            </span>
+                          </td>
+                          <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
+                          <td>{issue.confidence}</td>
+                          <td>{issue.signals}</td>
+                          <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
+                          <td>{issue.action}</td>
+                          <td>
+                            <IssueInlineActions
+                              issue={issue}
+                              onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
+                              onCreateAction={() => handleCreateIssueAction(issue)}
+                              onIgnore={() => handleIgnoreIssue(issue)}
+                              ignored={ignored}
+                            />
                           </td>
                         </tr>
-                      )}
-                      {detail.detectedIssues.map((issue, index) => {
-                        const ignored = ignoredIssues.has(issue.issue);
-
-                        return (
-                          <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
-                            <td>
-                              <span className="ppIssueNameCell">
-                                <span className="ppIssueIcon" aria-hidden="true">
-                                  <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
-                                </span>
-                                <span>{issue.issue}</span>
-                                {ignored && <s-badge tone="success">Ignored</s-badge>}
-                              </span>
-                            </td>
-                            <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
-                            <td>{issue.confidence}</td>
-                            <td>{issue.signals}</td>
-                            <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
-                            <td>{issue.action}</td>
-                            <td>
-                              <IssueInlineActions
-                                issue={issue}
-                                onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
-                                onCreateAction={() => handleCreateIssueAction(issue)}
-                                onIgnore={() => handleIgnoreIssue(issue)}
-                                ignored={ignored}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </s-section>
+            </div>
+          </s-section>
 
-            {detail.evidenceSources.length > 0 && (
-              <s-section padding="none">
-                <div className="ppProductPanel">
-                  <h2>Evidence by source</h2>
+          <s-section padding="none">
+            <div className="ppProductPanel">
+              <h2>Evidence by source</h2>
+              {detail.evidenceSources.length > 0 ? (
+                <>
                   <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
                     {detail.evidenceSources.map((source, index) => (
                       <button
@@ -1951,50 +2068,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                     ))}
                   </div>
                   <EvidenceSourceCard source={selectedEvidence} featured />
-                </div>
-              </s-section>
-            )}
-          </div>
-
-          <s-section padding="none">
-            <div className="ppProductPanel ppRecommendedActionsPanel">
-              <h2>Recommended actions</h2>
-              <div className="ppRecommendedActionList">
-                {detail.recommendedActions.length === 0 && (
-                  <EmptyProductDetailState message="0 deterministic recommended actions from current stored signals." />
-                )}
-                {detail.recommendedActions.map((action) => (
-                  <ProductRecommendedAction
-                    key={action.title}
-                    action={action}
-                    product={product}
-                    pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
-                    onEdit={handleEditAction}
-                    onCopy={handleCopyAction}
-                    onReview={() => handleReviewEvidence(0)}
-                  />
-                ))}
-              </div>
-              {editingAction && (
-                <Form method="post" className="ppActionDraftEditor">
-                  <input type="hidden" name="_action" value="apply-action" />
-                  <input type="hidden" name="productId" value={product.slug} />
-                  <input type="hidden" name="actionId" value={editingAction.id} />
-                  <input type="hidden" name="label" value={editingAction.title} />
-                  <label htmlFor="pp-action-draft">Draft</label>
-                  <textarea
-                    id="pp-action-draft"
-                    name="draftText"
-                    value={draftText}
-                    onChange={(event) => setDraftText(event.target.value)}
-                  />
-                  <div>
-                    <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
-                    <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
-                      {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
-                    </button>
-                  </div>
-                </Form>
+                </>
+              ) : (
+                <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
               )}
             </div>
           </s-section>
@@ -2345,24 +2421,45 @@ function SuggestedFix({ fix }) {
 }
 
 function ProductSourceIconGroup({ sources, overflow }) {
-  const sourceTokens = (sources || []).slice(0, 3).map(normalizeSourceToken);
+  const sourceTokens = (sources || []).map(normalizeSourceToken);
   const overflowCount = Number(overflow || 0);
+  const hasFullSourceList = sourceTokens.length > 3;
+  const totalCount = sourceTokens.length + (hasFullSourceList ? 0 : overflowCount);
+  const primarySource = sourceTokens[0] || normalizeSourceToken("source");
 
   return (
-    <span className="ppSourceIcons" aria-label={`${sourceTokens.length + overflowCount} connected signal sources`}>
-      {sourceTokens.map((source, index) => (
-        <span className="ppSourceTokenWrap" key={`${source.key}-${source.label}-${index}`}>
-          <span className={`ppSourceToken ppSourceToken-${source.key}`} aria-label={source.label}>
-            <span className="ppSourceGlyph" aria-hidden="true">{getSourceGlyph(source.key)}</span>
-            <span>{source.shortLabel}</span>
-          </span>
-          <span className="ppSourcePopover" role="tooltip">
-            <strong>{source.label}</strong>
-            <small>{source.detail}</small>
-          </span>
+    <span className="ppSourceTokenWrap">
+      <button className="ppSourceSummaryTrigger" type="button" aria-label={`${totalCount || 1} source${totalCount === 1 ? "" : "s"} used for this product`}>
+        <span className={`ppSourceSummaryGlyph ppSourceSummaryGlyph-${primarySource.key}`} aria-hidden="true">
+          <s-icon type="duplicate" size="small"></s-icon>
         </span>
-      ))}
-      {overflowCount > 0 && <span className="ppSourceOverflow">+{overflowCount}</span>}
+      </button>
+      <span className="ppSourcePopover ppSourceSummaryPopover" role="tooltip">
+        <strong>Sources used</strong>
+        <span className="ppSourcePopoverList">
+          {sourceTokens.map((source, index) => (
+            <span className="ppSourcePopoverRow" key={`${source.key}-${source.label}-${index}`}>
+              <span className={`ppSourceGlyph ppSourceToken-${source.key}`} aria-hidden="true">{getSourceGlyph(source.key)}</span>
+              <span>
+                <b>{source.label}</b>
+                <small>{source.detail}</small>
+              </span>
+            </span>
+          ))}
+          {!sourceTokens.length && (
+            <span className="ppSourcePopoverRow">
+              <span className="ppSourceGlyph" aria-hidden="true">S</span>
+              <span>
+                <b>Signal source</b>
+                <small>No source detail stored for this product yet.</small>
+              </span>
+            </span>
+          )}
+          {!hasFullSourceList && overflowCount > 0 && (
+            <small>{overflowCount} additional source{overflowCount === 1 ? "" : "s"} stored for this product.</small>
+          )}
+        </span>
+      </span>
     </span>
   );
 }
@@ -2591,55 +2688,112 @@ function normalizeSparklineValues(values, size = "base") {
   }));
 }
 
-function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview }) {
+function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onDismiss }) {
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const buttonText = applied ? "Applied" : drafted ? "Draft saved" : pending ? "Working..." : action.action;
+  const disabled = pending || applied;
+  const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
+    actionId,
+    product,
+    onCopy,
+    onEdit,
+    onReview,
+  });
 
   return (
     <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""}`.trim()}>
-      <s-icon type={action.icon} size="small"></s-icon>
-      <div>
+      <div className="ppProductActionIcon">
+        <s-icon type={action.icon} size="small"></s-icon>
+      </div>
+      <div className="ppProductActionBody">
+        <div className="ppProductActionTopline">
+          <span>{action.priority}</span>
+          {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
+        </div>
         <h3>{action.title}</h3>
         <p>{action.detail}</p>
-        <span className="ppActionMetaRow">
+        <div className="ppActionReasonBox">
+          <span>
+            <s-icon type="info" size="small"></s-icon>
+            Why this is suggested
+          </span>
+          <p>{action.reason}</p>
+        </div>
+        <div className="ppActionMetaRow">
           {action.meta.map((meta) => (
             <span key={`${actionId}-${meta.label}`}>
               <s-icon type={meta.icon} size="small"></s-icon>
               {meta.label}
             </span>
           ))}
-        </span>
+          {action.evidence.map((item) => (
+            <span className="ppActionEvidencePill" key={`${actionId}-${item}`}>
+              <s-icon type="chart-line" size="small"></s-icon>
+              {item}
+            </span>
+          ))}
+        </div>
       </div>
-      {mode === "edit" ? (
-        <s-button type="button" variant="secondary" disabled={pending || applied} onClick={() => onEdit(action)}>
-          {buttonText}
-        </s-button>
-      ) : mode === "copy" ? (
-        <s-button type="button" variant="secondary" onClick={() => onCopy(action)}>
-          {buttonText}
-        </s-button>
-      ) : mode === "review" ? (
-        <s-button type="button" variant="secondary" onClick={onReview}>
-          {buttonText}
-        </s-button>
-      ) : mode === "diagnose" ? (
-        <Form method="post">
-          <input type="hidden" name="_action" value="diagnose" />
-          <input type="hidden" name="productId" value={product.slug} />
-          <s-button type="submit" variant="secondary" disabled={pending || applied}>{buttonText}</s-button>
-        </Form>
-      ) : (
-        <Form method="post">
-          <input type="hidden" name="_action" value="apply-action" />
-          <input type="hidden" name="productId" value={product.slug} />
-          <input type="hidden" name="actionId" value={actionId} />
-          <s-button type="submit" variant="secondary" disabled={pending || applied}>{buttonText}</s-button>
-        </Form>
-      )}
+      <div className="ppProductActionCta">
+        <button className="ppActionDismissButton" type="button" onClick={() => onDismiss(action)} disabled={pending || applied}>
+          <s-icon type="x" size="small"></s-icon>
+          Dismiss
+        </button>
+        {actionButton}
+      </div>
     </article>
+  );
+}
+
+function getRecommendedActionButton(action, mode, buttonText, disabled, context) {
+  const { actionId, product, onCopy, onEdit, onReview } = context;
+  const content = (
+    <>
+      <span>{buttonText}</span>
+      <s-icon type={disabled ? "check" : "chevron-right"} size="small"></s-icon>
+    </>
+  );
+
+  if (mode === "edit") {
+    return (
+      <button className="ppActionCtaButton" type="button" disabled={disabled} onClick={() => onEdit(action)}>
+        {content}
+      </button>
+    );
+  }
+  if (mode === "copy") {
+    return (
+      <button className="ppActionCtaButton" type="button" onClick={() => onCopy(action)}>
+        {content}
+      </button>
+    );
+  }
+  if (mode === "review") {
+    return (
+      <button className="ppActionCtaButton" type="button" onClick={onReview}>
+        {content}
+      </button>
+    );
+  }
+  if (mode === "diagnose") {
+    return (
+      <Form method="post">
+        <input type="hidden" name="_action" value="diagnose" />
+        <input type="hidden" name="productId" value={product.slug} />
+        <button className="ppActionCtaButton" type="submit" disabled={disabled}>{content}</button>
+      </Form>
+    );
+  }
+  return (
+    <Form method="post">
+      <input type="hidden" name="_action" value="apply-action" />
+      <input type="hidden" name="productId" value={product.slug} />
+      <input type="hidden" name="actionId" value={actionId} />
+      <button className="ppActionCtaButton" type="submit" disabled={disabled}>{content}</button>
+    </Form>
   );
 }
 
