@@ -171,6 +171,20 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
   });
 
+  it("minimizes and expands the recommended actions panel", () => {
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
+    expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Minimize" }));
+    expect(screen.getByRole("button", { name: "Expand" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/customers report this trouser runs small/)).not.toBeInTheDocument();
+    expect(screen.getByText("3 actions available")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByRole("button", { name: "Minimize" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
+  });
+
   it("renders granular sentiment and language evidence in product diagnosis", () => {
     const product = {
       ...defaultView.startHere,

@@ -2054,8 +2054,61 @@ s-page[inline-size="large-500"] {
   min-height: 100%;
 }
 
+.ppRecommendedActionsPanel.isCollapsed {
+  min-height: 0;
+}
+
 .ppRecommendedActionsFull {
   width: 100%;
+}
+
+.ppRecommendedActionsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.ppRecommendedActionsHeader h2 {
+  margin: 0;
+}
+
+.ppRecommendedActionsHeader span {
+  display: inline-block;
+  margin-top: 4px;
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ppPanelCollapseButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.08);
+  transition: border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.ppPanelCollapseButton:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.36);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 10px 22px rgba(var(--pp-pulse-blue-rgb), 0.12);
+  transform: translateY(-1px);
+}
+
+.ppPanelCollapseButton s-icon {
+  color: currentColor;
 }
 
 .ppRecommendedActionList {

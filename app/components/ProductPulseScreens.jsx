@@ -2084,6 +2084,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [editingAction, setEditingAction] = useState(null);
   const [actionConfirmation, setActionConfirmation] = useState(null);
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
+  const [recommendedActionsCollapsed, setRecommendedActionsCollapsed] = useState(false);
   const [draftText, setDraftText] = useState("");
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
@@ -2094,6 +2095,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setDismissedActionIds(new Set());
     setSelectedEvidenceIndex(0);
     setDiagnosisConfirmation(null);
+    setRecommendedActionsCollapsed(false);
   }, [product?.slug, product?.resolvedAt]);
 
   useEffect(() => {
@@ -2136,6 +2138,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const detail = getProductDetailModel(product);
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
   const visibleRecommendedActions = detail.recommendedActions.filter((action) => !dismissedActionIds.has(action.id || action.title));
+  const visibleRecommendedActionCount = detail.hasFullDiagnosis ? visibleRecommendedActions.length : 0;
   const resolved = resolvedLocally || Boolean(detail.resolvedAt);
   const diagnosisPending = pendingActionType === "diagnose";
   const resolvingPending = pendingActionType === "mark-resolved";
@@ -2154,6 +2157,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       return;
     }
     setSelectedEvidenceIndex(Math.max(0, Math.min(index, detail.evidenceSources.length - 1)));
+  };
+
+  const handleToggleRecommendedActions = () => {
+    setRecommendedActionsCollapsed((current) => {
+      const next = !current;
+      if (next) setEditingAction(null);
+      return next;
+    });
   };
 
   const handleRequestProductDiagnosis = () => {
@@ -2348,48 +2359,71 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         </div>
 
         <s-section padding="none">
-          <div className="ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull">
-            <h2>Recommended actions</h2>
-            <div className="ppRecommendedActionList">
-              {!detail.hasFullDiagnosis ? (
-                <EmptyProductDetailState message="Recommended actions will appear after you run the full product diagnosis for this product." />
-              ) : visibleRecommendedActions.length === 0 && (
-                <EmptyProductDetailState message="0 deterministic recommended actions from current stored signals." />
-              )}
-              {visibleRecommendedActions.map((action) => (
-                <ProductRecommendedAction
-                  key={action.title}
-                  action={action}
-                  product={product}
-                  pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
-                  onEdit={handleEditAction}
-                  onCopy={handleCopyAction}
-                  onReview={() => handleReviewEvidence(0)}
-                  onRequestApply={handleRequestApplyAction}
-                  onDismiss={handleDismissAction}
-                />
-              ))}
+          <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
+            <div className="ppRecommendedActionsHeader">
+              <div>
+                <h2>Recommended actions</h2>
+                <span>
+                  {detail.hasFullDiagnosis
+                    ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"} available`
+                    : "Run full diagnosis to unlock actions"}
+                </span>
+              </div>
+              <button
+                className="ppPanelCollapseButton"
+                type="button"
+                aria-expanded={!recommendedActionsCollapsed}
+                aria-controls="pp-recommended-actions-content"
+                onClick={handleToggleRecommendedActions}
+              >
+                <s-icon type={recommendedActionsCollapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
+                <span>{recommendedActionsCollapsed ? "Expand" : "Minimize"}</span>
+              </button>
             </div>
-            {editingAction && (
-              <Form method="post" className="ppActionDraftEditor">
-                <input type="hidden" name="_action" value="apply-action" />
-                <input type="hidden" name="productId" value={product.slug} />
-                <input type="hidden" name="actionId" value={editingAction.id} />
-                <input type="hidden" name="label" value={editingAction.title} />
-                <label htmlFor="pp-action-draft">Draft</label>
-                <textarea
-                  id="pp-action-draft"
-                  name="draftText"
-                  value={draftText}
-                  onChange={(event) => setDraftText(event.target.value)}
-                />
-                <div>
-                  <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
-                  <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
-                    {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
-                  </button>
+            {!recommendedActionsCollapsed && (
+              <div id="pp-recommended-actions-content">
+                <div className="ppRecommendedActionList">
+                  {!detail.hasFullDiagnosis ? (
+                    <EmptyProductDetailState message="Recommended actions will appear after you run the full product diagnosis for this product." />
+                  ) : visibleRecommendedActions.length === 0 && (
+                    <EmptyProductDetailState message="0 deterministic recommended actions from current stored signals." />
+                  )}
+                  {visibleRecommendedActions.map((action) => (
+                    <ProductRecommendedAction
+                      key={action.title}
+                      action={action}
+                      product={product}
+                      pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
+                      onEdit={handleEditAction}
+                      onCopy={handleCopyAction}
+                      onReview={() => handleReviewEvidence(0)}
+                      onRequestApply={handleRequestApplyAction}
+                      onDismiss={handleDismissAction}
+                    />
+                  ))}
                 </div>
-              </Form>
+                {editingAction && (
+                  <Form method="post" className="ppActionDraftEditor">
+                    <input type="hidden" name="_action" value="apply-action" />
+                    <input type="hidden" name="productId" value={product.slug} />
+                    <input type="hidden" name="actionId" value={editingAction.id} />
+                    <input type="hidden" name="label" value={editingAction.title} />
+                    <label htmlFor="pp-action-draft">Draft</label>
+                    <textarea
+                      id="pp-action-draft"
+                      name="draftText"
+                      value={draftText}
+                      onChange={(event) => setDraftText(event.target.value)}
+                    />
+                    <div>
+                      <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
+                      <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
+                        {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
+                      </button>
+                    </div>
+                  </Form>
+                )}
+              </div>
             )}
           </div>
         </s-section>
