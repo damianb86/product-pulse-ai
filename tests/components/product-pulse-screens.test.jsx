@@ -171,6 +171,39 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
   });
 
+  it("renders granular sentiment and language evidence in product diagnosis", () => {
+    const product = {
+      ...defaultView.startHere,
+      issues: [{
+        issue: "Negative customer sentiment cluster",
+        severity: "Medium",
+        confidence: 72,
+        signals: 4,
+        evidence: [
+          "4 of 6 customer text signals read as negative.",
+          "Returns: 2 negative. Reviews: 2 negative.",
+        ],
+        action: "Review customer sentiment evidence",
+      }],
+      evidence: [{
+        source: "Shopify returns",
+        quote: "OTHER, too small",
+        weight: "4 return units, 18% return rate",
+        points: [
+          "Return-note sentiment: 2 negative, 1 neutral, 0 positive",
+          "\"Other\" notes classified as Fit & sizing 2 times",
+        ],
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByText("Negative customer sentiment cluster")).toBeInTheDocument();
+    expect(screen.getByText(/4 of 6 customer text signals read as negative/)).toBeInTheDocument();
+    expect(screen.getByText("Return-note sentiment: 2 negative, 1 neutral, 0 positive")).toBeInTheDocument();
+    expect(screen.getByText("\"Other\" notes classified as Fit & sizing 2 times")).toBeInTheDocument();
+    expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
+  });
+
   it("collapses long recommended action descriptions", () => {
     const longDetail = Array.from({ length: 12 }, (_, index) => `Sentence ${index + 1} explains a specific customer-facing product quality recommendation with enough detail to require expansion.`).join(" ");
     const product = {

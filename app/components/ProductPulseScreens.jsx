@@ -1602,7 +1602,12 @@ function getProductEvidenceSources(product) {
 function getEvidencePoints(item, product) {
   const metrics = product.metrics || {};
   const normalized = String(item.source || "").toLowerCase();
-  const points = [item.quote, item.weight].filter(Boolean);
+  const points = [
+    item.quote,
+    item.weight,
+    ...(Array.isArray(item.points) ? item.points : []),
+    ...(Array.isArray(item.details) ? item.details : []),
+  ].filter(Boolean);
 
   if (normalized.includes("return")) {
     if (Number(metrics.returnUnits || 0) > 0) points.push(`${formatInteger(metrics.returnUnits)} return units analyzed`);
@@ -1641,7 +1646,7 @@ function getEvidencePoints(item, product) {
   if (Number(metrics.signalCount || 0) > 0) points.push(`${formatInteger(metrics.signalCount)} total signals in current diagnosis`);
   if (metrics.lastSignalAt) points.push(`Last signal captured ${formatProductAnalysisDate(metrics.lastSignalAt)}`);
 
-  return [...new Set(points)].slice(0, 6);
+  return [...new Set(points)].slice(0, 10);
 }
 
 function getEvidenceIcon(source) {
@@ -1650,6 +1655,7 @@ function getEvidenceIcon(source) {
   if (normalized.includes("review")) return "star";
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("support")) return "question-circle";
+  if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) return "note";
   if (normalized.includes("content") || normalized.includes("description")) return "note";
   return "duplicate";
 }
@@ -1658,10 +1664,12 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
   if (Array.isArray(product.issues) && product.issues.length) {
     return product.issues.map((issue, index) => ({
       issue: issue.issue || issue.label || `Issue ${index + 1}`,
+      issueCode: issue.issueCode || "",
       severity: issue.severity || getProductRiskScoreLabel(product.riskScore || 0),
       tone: getBadgeToneFromRiskTone(issue.tone || product.riskTone),
       confidence: typeof issue.confidence === "number" ? `${issue.confidence}%` : issue.confidence || `${product.confidence || 0}%`,
       signals: issue.signals || product.metrics?.signalCount || 0,
+      evidence: Array.isArray(issue.evidence) ? issue.evidence.filter(Boolean) : [],
       trend: Array.isArray(issue.trend) ? issue.trend : product.metrics?.signalTrend || [],
       trendTone: getTrendTone(Array.isArray(issue.trend) ? issue.trend : product.metrics?.signalTrend || [], product.riskScore),
       action: issue.action || getIssueActionLabel(issue.issue || product.primaryIssue, issueCategory),
@@ -1711,6 +1719,7 @@ function getIssueIcon(issue) {
   const normalized = String(issue || "").toLowerCase();
   if (normalized.includes("return")) return "return";
   if (normalized.includes("refund")) return "cash-dollar";
+  if (normalized.includes("sentiment") || normalized.includes("language")) return "note";
   if (normalized.includes("variant")) return "product";
   if (normalized.includes("expectation") || normalized.includes("description") || normalized.includes("color")) return "tag";
   if (normalized.includes("content") || normalized.includes("metadata")) return "note";
@@ -2382,116 +2391,122 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         </s-section>
 
         <div className="ppProductDetailGrid">
-          <s-section padding="none">
-            <div className="ppProductPanel">
-              <h2>Issues detected</h2>
-              <div className="ppIssuesTableWrap">
-                <table className="ppIssuesTable">
-                  <thead>
-                    <tr>
-                      <th>Issue</th>
-                      <th>Severity</th>
-                      <th>Confidence</th>
-                      <th>Signals</th>
-                      <th>Trend</th>
-                      <th>Suggested action</th>
-                      <th aria-label="More actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.detectedIssues.length === 0 && (
-                      <tr className="ppIssuesEmptyRow">
-                        <td colSpan="7">
-                          <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
-                        </td>
+          <div className="ppProductDetailMainColumn">
+            <s-section padding="none">
+              <div className="ppProductPanel">
+                <h2>Issues detected</h2>
+                <div className="ppIssuesTableWrap">
+                  <table className="ppIssuesTable">
+                    <thead>
+                      <tr>
+                        <th>Issue</th>
+                        <th>Severity</th>
+                        <th>Confidence</th>
+                        <th>Signals</th>
+                        <th>Trend</th>
+                        <th>Suggested action</th>
+                        <th aria-label="More actions"></th>
                       </tr>
-                    )}
-                    {detail.detectedIssues.map((issue, index) => {
-                      const ignored = ignoredIssues.has(issue.issue);
-
-                      return (
-                        <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
-                          <td>
-                            <span className="ppIssueNameCell">
-                              <span className="ppIssueIcon" aria-hidden="true">
-                                <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
-                              </span>
-                              <span>{issue.issue}</span>
-                              {ignored && <s-badge tone="success">Ignored</s-badge>}
-                            </span>
-                          </td>
-                          <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
-                          <td>{issue.confidence}</td>
-                          <td>{issue.signals}</td>
-                          <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
-                          <td>{issue.action}</td>
-                          <td>
-                            <IssueInlineActions
-                              issue={issue}
-                              onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
-                              onCreateAction={() => handleCreateIssueAction(issue)}
-                              onIgnore={() => handleIgnoreIssue(issue)}
-                              ignored={ignored}
-                            />
+                    </thead>
+                    <tbody>
+                      {detail.detectedIssues.length === 0 && (
+                        <tr className="ppIssuesEmptyRow">
+                          <td colSpan="7">
+                            <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      )}
+                      {detail.detectedIssues.map((issue, index) => {
+                        const ignored = ignoredIssues.has(issue.issue);
+
+                        return (
+                          <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
+                            <td>
+                              <span className="ppIssueNameCell">
+                                <span className="ppIssueIcon" aria-hidden="true">
+                                  <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                                </span>
+                                <span>
+                                  <strong>{issue.issue}</strong>
+                                  {issue.evidence?.length > 0 && (
+                                    <small>{issue.evidence.slice(0, 2).join(" ")}</small>
+                                  )}
+                                </span>
+                                {ignored && <s-badge tone="success">Ignored</s-badge>}
+                              </span>
+                            </td>
+                            <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
+                            <td>{issue.confidence}</td>
+                            <td>{issue.signals}</td>
+                            <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
+                            <td>{issue.action}</td>
+                            <td>
+                              <IssueInlineActions
+                                issue={issue}
+                                onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
+                                onCreateAction={() => handleCreateIssueAction(issue)}
+                                onIgnore={() => handleIgnoreIssue(issue)}
+                                ignored={ignored}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </s-section>
+
+            <s-section padding="none">
+              <div className="ppProductPanel">
+                <h2>Evidence by source</h2>
+                {detail.evidenceSources.length > 0 ? (
+                  <>
+                    <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
+                      {detail.evidenceSources.map((source, index) => (
+                        <button
+                          className={index === selectedEvidenceIndex ? "isActive" : ""}
+                          type="button"
+                          role="tab"
+                          aria-selected={index === selectedEvidenceIndex}
+                          key={source.title}
+                          onClick={() => setSelectedEvidenceIndex(index)}
+                        >
+                          <s-icon type={source.icon} size="small"></s-icon>
+                          {source.title}
+                        </button>
+                      ))}
+                    </div>
+                    <EvidenceSourceCard source={selectedEvidence} featured />
+                  </>
+                ) : (
+                  <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
+                )}
+              </div>
+            </s-section>
+          </div>
+          <s-section padding="none">
+            <div className="ppCheckedPanel">
+              <h2>What ProductPulse checked</h2>
+              <div className="ppCheckedGrid">
+                {detail.checkedItems.map((item) => (
+                  <div className="ppCheckedItem" key={item.label}>
+                    <s-icon type={item.icon}></s-icon>
+                    <div>
+                      <span>{item.label}</span>
+                      <strong>{item.value}</strong>
+                      <small>{item.detail}</small>
+                    </div>
+                  </div>
+                ))}
+                {detail.checkedItems.length === 0 && (
+                  <EmptyProductDetailState message="0 product-specific checks stored yet." />
+                )}
               </div>
             </div>
           </s-section>
-
-          <s-section padding="none">
-            <div className="ppProductPanel">
-              <h2>Evidence by source</h2>
-              {detail.evidenceSources.length > 0 ? (
-                <>
-                  <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
-                    {detail.evidenceSources.map((source, index) => (
-                      <button
-                        className={index === selectedEvidenceIndex ? "isActive" : ""}
-                        type="button"
-                        role="tab"
-                        aria-selected={index === selectedEvidenceIndex}
-                        key={source.title}
-                        onClick={() => setSelectedEvidenceIndex(index)}
-                      >
-                        <s-icon type={source.icon} size="small"></s-icon>
-                        {source.title}
-                      </button>
-                    ))}
-                  </div>
-                  <EvidenceSourceCard source={selectedEvidence} featured />
-                </>
-              ) : (
-                <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
-              )}
-            </div>
-          </s-section>
         </div>
-
-        <s-section padding="none">
-          <div className="ppCheckedPanel">
-            <h2>What ProductPulse checked</h2>
-            <div className="ppCheckedGrid">
-              {detail.checkedItems.map((item) => (
-                <div className="ppCheckedItem" key={item.label}>
-                  <s-icon type={item.icon}></s-icon>
-                  <div>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                    <small>{item.detail}</small>
-                  </div>
-                </div>
-              ))}
-              {detail.checkedItems.length === 0 && (
-                <EmptyProductDetailState message="0 product-specific checks stored yet." />
-              )}
-            </div>
-          </div>
-        </s-section>
         {diagnosisConfirmation && (
           <ProductAnalysisConfirmModal
             confirmation={diagnosisConfirmation}

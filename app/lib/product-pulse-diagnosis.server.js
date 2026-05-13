@@ -687,6 +687,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   const topReturnReasons = countTopValues(returns.flatMap((item) => [item.reason, item.reasonNote, item.customerNote]).filter(Boolean), 4);
   const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const deterministicContent = analyzeProductContentDeterministically(product);
+  const textInsights = buildCustomerTextInsights({ returns, reviews });
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const trendOptions = {
@@ -726,6 +727,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       customerSignalCount,
       contentIssueCount: deterministicContent.issues.length,
       contentQualityRisk: deterministicContent.riskLift,
+      textInsights,
       sourceCoverage,
       signalEvents,
       affectedVariants,
@@ -770,6 +772,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       contentQualityScore: deterministicContent.score,
       contentQualityRisk: deterministicContent.riskLift,
       contentIssues: deterministicContent.issues,
+      textInsights,
       descriptionLength: deterministicContent.descriptionLength,
       descriptionWordCount: deterministicContent.descriptionWordCount,
       hasDescription: deterministicContent.hasDescription,
@@ -994,6 +997,7 @@ function buildAiDeterministicInput(deterministic) {
       contentQualityRisk: deterministic.metrics.contentQualityRisk,
       contentIssueCount: deterministic.metrics.contentIssueCount,
       contentIssues: deterministic.metrics.contentIssues,
+      textInsights: deterministic.metrics.textInsights,
       descriptionWordCount: deterministic.metrics.descriptionWordCount,
       hasDescription: deterministic.metrics.hasDescription,
       topReturnReasons: deterministic.metrics.topReturnReasons,
@@ -1170,6 +1174,7 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     : buildFallbackClusters(deterministic, mainIssue);
   const firstAction = recommendations[0]?.label || "Review product signals";
   const contentIssues = deterministic.metrics.contentAnalysis?.issues || [];
+  const granularTextIssues = buildGranularTextIssues({ deterministic, ai, recommendations });
   const mappedIssues = clusters.slice(0, 5).map((cluster, index) => {
     const issueCode = normalizeIssueCode(cluster.issue_category || cluster.issue || mainIssue) || mainIssue;
     const trend = getIssueTrend(deterministic, issueCode);
@@ -1182,11 +1187,22 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
       tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
       confidence: Math.max(35, Math.min(99, deterministic.confidence - index * 7)),
       signals: Number(cluster.signals || deterministic.issueSignalCounts[issueCode] || Math.max(1, Math.round(deterministic.metrics.signalCount / (index + 1)))),
-      evidence: cluster.summary ? [cluster.summary] : deterministic.metrics.topReturnReasons,
+      evidence: [
+        cluster.summary,
+        ...(Array.isArray(cluster.evidence) ? cluster.evidence : []),
+      ].filter(Boolean).length ? [
+        cluster.summary,
+        ...(Array.isArray(cluster.evidence) ? cluster.evidence : []),
+      ].filter(Boolean).slice(0, 4) : deterministic.metrics.topReturnReasons,
       trend,
       trendTone: getTrendTone(trend, deterministic.riskScore),
       action: recommendations[index]?.label || firstAction,
     };
+  });
+
+  granularTextIssues.forEach((issue) => {
+    if (mappedIssues.some((item) => item.issue === issue.issue)) return;
+    mappedIssues.push(issue);
   });
 
   if (contentIssues.length > 0 && !mappedIssues.some((issue) => issue.issueCode === "product_content")) {
@@ -1205,7 +1221,71 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     });
   }
 
-  return mappedIssues.slice(0, 6);
+  return mappedIssues.slice(0, 10);
+}
+
+function buildGranularTextIssues({ deterministic, ai, recommendations }) {
+  const textInsights = deterministic.metrics.textInsights || {};
+  const aiFindings = Array.isArray(ai.classification?.granular_findings) ? ai.classification.granular_findings : [];
+  const aiRepeatedLanguage = Array.isArray(ai.classification?.repeated_language) ? ai.classification.repeated_language : [];
+  const deterministicIssues = Array.isArray(textInsights.granularIssues) ? textInsights.granularIssues : [];
+  const issues = [];
+
+  aiFindings.slice(0, 5).forEach((finding, index) => {
+    const issueCode = normalizeIssueCode(finding.issue_category || finding.issue_detail || "product_quality") || "product_quality";
+    const trend = getIssueTrend(deterministic, issueCode);
+    const severity = normalizeSeverity(finding.severity || "medium");
+    issues.push({
+      issue: finding.finding || finding.label || getHumanIssueLabel(issueCode),
+      issueCode,
+      severity: capitalize(severity),
+      tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
+      confidence: Math.max(42, Math.min(94, deterministic.confidence - 5 - index * 3)),
+      signals: Number(finding.signals || 1),
+      evidence: Array.isArray(finding.evidence) ? finding.evidence.slice(0, 4) : [finding.summary || finding.explanation].filter(Boolean),
+      trend,
+      trendTone: getTrendTone(trend, deterministic.riskScore),
+      action: finding.suggested_action || recommendations[index]?.label || "Review text evidence",
+    });
+  });
+
+  deterministicIssues.slice(0, 5).forEach((issue, index) => {
+    const issueCode = normalizeIssueCode(issue.issueCode || issue.issue) || "product_quality";
+    const trend = getIssueTrend(deterministic, issueCode);
+    issues.push({
+      issue: issue.issue,
+      issueCode,
+      severity: capitalize(issue.severity || "Low"),
+      tone: getRiskToneFromSeverity(issue.severity || "low", deterministic.riskScore),
+      confidence: Math.max(38, Math.min(90, deterministic.confidence - 8 - index * 3)),
+      signals: Number(issue.signals || 1),
+      evidence: Array.isArray(issue.evidence) ? issue.evidence.slice(0, 4) : [],
+      trend,
+      trendTone: getTrendTone(trend, deterministic.riskScore),
+      action: issue.action || "Review text evidence",
+    });
+  });
+
+  aiRepeatedLanguage.slice(0, 4).forEach((item, index) => {
+    const term = String(item.term || "").trim();
+    if (!term) return;
+    const issueCode = normalizeIssueCode(item.issue_category || term) || "repeated_language";
+    const trend = getIssueTrend(deterministic, issueCode);
+    issues.push({
+      issue: `Repeated customer language: "${term}"`,
+      issueCode,
+      severity: capitalize(normalizeSeverity(item.severity || (Number(item.count || 0) >= 4 ? "medium" : "low"))),
+      tone: getRiskToneFromSeverity(item.severity || "low", deterministic.riskScore),
+      confidence: Math.max(38, Math.min(88, deterministic.confidence - 12 - index * 2)),
+      signals: Number(item.count || 1),
+      evidence: [item.explanation, `${term} appears ${item.count || 1} times.`].filter(Boolean),
+      trend,
+      trendTone: getTrendTone(trend, deterministic.riskScore),
+      action: "Review repeated language",
+    });
+  });
+
+  return uniqueBy(issues.filter((issue) => issue.issue), (issue) => `${issue.issueCode}-${issue.issue}`);
 }
 
 function getIssueTrend(deterministic, issueCode) {
@@ -1220,6 +1300,7 @@ function getIssueTrend(deterministic, issueCode) {
 }
 
 function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
+  const textInsights = deterministic.metrics.textInsights || {};
   const evidence = [{
     source: "Shopify product",
     quote: `${deterministic.metrics.productType || "Product"}${deterministic.metrics.vendor ? ` by ${deterministic.metrics.vendor}` : ""}`,
@@ -1235,10 +1316,20 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
   }
 
   if (deterministic.metrics.returnUnits > 0 || deterministic.metrics.topReturnReasons.length) {
+    const returnInsights = textInsights.returns || {};
+    const otherClassifications = Array.isArray(textInsights.otherReturnClassifications) ? textInsights.otherReturnClassifications : [];
     evidence.push({
       source: "Shopify returns",
       quote: deterministic.metrics.topReturnReasons.length ? deterministic.metrics.topReturnReasons.join(", ") : "Return units detected",
       weight: `${deterministic.metrics.returnUnits} return units, ${deterministic.metrics.returnRate}% return rate`,
+      points: [
+        returnInsights.sentiment?.total
+          ? `Return-note sentiment: ${returnInsights.sentiment.negative} negative, ${returnInsights.sentiment.neutral} neutral, ${returnInsights.sentiment.positive} positive`
+          : "",
+        ...otherClassifications.map((item) => `"Other" notes classified as ${item.label} ${item.count} time${item.count === 1 ? "" : "s"}`),
+        ...((returnInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated return language: "${item.term}" (${item.count})`)),
+        ...((returnInsights.examples || []).slice(0, 3).map((item) => `Return text: "${item.text}"`)),
+      ].filter(Boolean),
     });
   }
 
@@ -1251,10 +1342,33 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
   }
 
   if (judgeMeData.connected) {
+    const reviewInsights = textInsights.reviews || {};
     evidence.push({
       source: "Judge.me reviews",
       quote: `${deterministic.metrics.negativeReviewCount} negative reviews out of ${deterministic.metrics.reviewCount}`,
       weight: `${deterministic.metrics.avgRating || 0} average rating, ${deterministic.metrics.negativeReviewRate}% negative review rate`,
+      points: [
+        reviewInsights.sentiment?.total
+          ? `Review sentiment: ${reviewInsights.sentiment.negative} negative, ${reviewInsights.sentiment.neutral} neutral, ${reviewInsights.sentiment.positive} positive`
+          : "",
+        ...((reviewInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated review language: "${item.term}" (${item.count})`)),
+        ...((reviewInsights.examples || []).slice(0, 3).map((item) => `Review text: "${item.text}"`)),
+      ].filter(Boolean),
+    });
+  }
+
+  if (textInsights.sentiment?.total || textInsights.repeatedLanguage?.length || ai.classification?.sentiment_summary?.summary) {
+    evidence.push({
+      source: "Customer language analysis",
+      quote: ai.classification?.sentiment_summary?.summary || `Dominant sentiment: ${textInsights.sentiment?.dominant || "neutral"}`,
+      weight: `${textInsights.sentiment?.total || 0} customer text signal${textInsights.sentiment?.total === 1 ? "" : "s"} analyzed`,
+      points: [
+        textInsights.sentiment?.total
+          ? `${textInsights.sentiment.negative} negative, ${textInsights.sentiment.neutral} neutral, ${textInsights.sentiment.positive} positive text signals`
+          : "",
+        ...((textInsights.repeatedLanguage || []).slice(0, 5).map((item) => `"${item.term}" repeated ${item.count} time${item.count === 1 ? "" : "s"} across ${item.sources.join(" and ")}`)),
+        ...((Array.isArray(ai.classification?.repeated_language) ? ai.classification.repeated_language : []).slice(0, 3).map((item) => `AI repeated-language finding: "${item.term}" - ${item.explanation || item.sentiment || "review"}`)),
+      ].filter(Boolean),
     });
   }
 
@@ -1508,6 +1622,248 @@ function buildIssueSignalCounts({ returns, refunds, reviews }) {
   return counts;
 }
 
+function buildCustomerTextInsights({ returns = [], reviews = [] }) {
+  const returnTexts = returns
+    .map((item) => {
+      const reason = String(item.reason || "").trim();
+      const noteText = [item.reasonNote, item.customerNote].filter(Boolean).join(" ");
+      const text = [reason, noteText].filter(Boolean).join(" - ");
+      if (!text.trim()) return null;
+      const issueCode = classifyIssueText(noteText || reason);
+      return {
+        source: "returns",
+        text,
+        reason,
+        noteText,
+        issueCode,
+        sentiment: classifyCustomerSentiment(text),
+        createdAt: item.createdAt,
+        variant: item.variantTitle || item.sku || "",
+        isOther: isGenericOtherReason(reason),
+      };
+    })
+    .filter(Boolean);
+  const reviewTexts = reviews
+    .map((review) => {
+      const text = [review.title, review.body].filter(Boolean).join(" - ");
+      if (!text.trim()) return null;
+      return {
+        source: "reviews",
+        text,
+        rating: Number(review.rating || 0),
+        issueCode: classifyIssueText(text),
+        sentiment: classifyCustomerSentiment(text, Number(review.rating || 0)),
+        createdAt: review.createdAt,
+      };
+    })
+    .filter(Boolean);
+  const allTexts = [...returnTexts, ...reviewTexts];
+  const sentiment = summarizeSentiment(allTexts);
+  const returnsSummary = summarizeTextSource(returnTexts);
+  const reviewsSummary = summarizeTextSource(reviewTexts);
+  const otherReturnClassifications = summarizeOtherReturnClassifications(returnTexts);
+  const repeatedLanguage = extractRepeatedLanguage(allTexts);
+  const granularIssues = buildDeterministicTextIssues({
+    sentiment,
+    returnsSummary,
+    reviewsSummary,
+    otherReturnClassifications,
+    repeatedLanguage,
+  });
+
+  return {
+    sentiment,
+    returns: returnsSummary,
+    reviews: reviewsSummary,
+    otherReturnClassifications,
+    repeatedLanguage,
+    granularIssues,
+  };
+}
+
+function summarizeTextSource(items) {
+  const sentiment = summarizeSentiment(items);
+  return {
+    total: items.length,
+    sentiment,
+    repeatedLanguage: extractRepeatedLanguage(items).slice(0, 5),
+    examples: items
+      .filter((item) => item.sentiment === "negative" || item.isOther)
+      .slice(0, 4)
+      .map((item) => ({
+        text: truncateText(item.text, 180),
+        sentiment: item.sentiment,
+        issueCode: item.issueCode,
+        reason: item.reason || "",
+        variant: item.variant || "",
+      })),
+  };
+}
+
+function summarizeSentiment(items) {
+  const counts = { positive: 0, neutral: 0, negative: 0 };
+  items.forEach((item) => {
+    const sentiment = ["positive", "neutral", "negative"].includes(item.sentiment) ? item.sentiment : "neutral";
+    counts[sentiment] += 1;
+  });
+  const total = items.length;
+  const dominant = total
+    ? Object.entries(counts).sort((first, second) => second[1] - first[1])[0][0]
+    : "neutral";
+  return {
+    ...counts,
+    total,
+    dominant: counts.negative > 0 && counts.negative === counts.positive ? "mixed" : dominant,
+    negativeRatio: total ? roundRate(counts.negative / total, 2) : 0,
+  };
+}
+
+function summarizeOtherReturnClassifications(returnTexts) {
+  const otherItems = returnTexts.filter((item) => item.isOther && item.noteText);
+  const grouped = new Map();
+  otherItems.forEach((item) => {
+    const key = item.issueCode || "product_quality";
+    const current = grouped.get(key) || {
+      issueCode: key,
+      label: getHumanIssueLabel(key),
+      count: 0,
+      sentimentCounts: { positive: 0, neutral: 0, negative: 0 },
+      examples: [],
+    };
+    current.count += 1;
+    current.sentimentCounts[item.sentiment] = (current.sentimentCounts[item.sentiment] || 0) + 1;
+    if (current.examples.length < 3) current.examples.push(truncateText(item.noteText || item.text, 160));
+    grouped.set(key, current);
+  });
+  return Array.from(grouped.values()).sort((first, second) => second.count - first.count).slice(0, 5);
+}
+
+function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummary, otherReturnClassifications, repeatedLanguage }) {
+  const issues = [];
+
+  if (otherReturnClassifications.length) {
+    otherReturnClassifications.forEach((item) => {
+      issues.push({
+        issueCode: item.issueCode,
+        issue: `"Other" returns indicate ${item.label}`,
+        severity: item.sentimentCounts.negative >= 2 || item.count >= 3 ? "medium" : "low",
+        signals: item.count,
+        evidence: [
+          `${item.count} generic return reason${item.count === 1 ? "" : "s"} reclassified from customer text as ${item.label}.`,
+          ...item.examples.map((example) => `Example: "${example}"`),
+        ],
+        action: "Review Other return notes",
+      });
+    });
+  }
+
+  if (sentiment.negative >= 2 && sentiment.negativeRatio >= 0.35) {
+    issues.push({
+      issueCode: "negative_sentiment",
+      issue: "Negative customer sentiment cluster",
+      severity: sentiment.negativeRatio >= 0.6 ? "high" : "medium",
+      signals: sentiment.negative,
+      evidence: [
+        `${sentiment.negative} of ${sentiment.total} customer text signals read as negative.`,
+        `Returns: ${returnsSummary.sentiment.negative} negative. Reviews: ${reviewsSummary.sentiment.negative} negative.`,
+      ],
+      action: "Review customer sentiment evidence",
+    });
+  }
+
+  repeatedLanguage.slice(0, 3).forEach((item) => {
+    if (item.count < 2) return;
+    issues.push({
+      issueCode: item.issueCode || "repeated_language",
+      issue: `Repeated customer language: "${item.term}"`,
+      severity: item.count >= 4 ? "medium" : "low",
+      signals: item.count,
+      evidence: [
+        `"${item.term}" appears ${item.count} times across ${item.sources.join(" and ")}.`,
+        item.example ? `Example context: "${item.example}"` : "",
+      ].filter(Boolean),
+      action: "Review repeated language",
+    });
+  });
+
+  return issues;
+}
+
+function extractRepeatedLanguage(items) {
+  const counts = new Map();
+  items.forEach((item) => {
+    const tokens = meaningfulTokens(item.text).filter((token) => token.length > 3);
+    const phrases = new Set([
+      ...tokens,
+      ...tokens.slice(0, -1).map((token, index) => `${token} ${tokens[index + 1]}`),
+    ]);
+    phrases.forEach((term) => {
+      if (term.length < 4 || CUSTOMER_TEXT_STOP_WORDS.has(term)) return;
+      const current = counts.get(term) || {
+        term,
+        count: 0,
+        sources: new Set(),
+        issueCode: classifyIssueText(term),
+        sentiments: { positive: 0, neutral: 0, negative: 0 },
+        example: "",
+      };
+      current.count += 1;
+      current.sources.add(item.source);
+      current.sentiments[item.sentiment] = (current.sentiments[item.sentiment] || 0) + 1;
+      if (!current.example) current.example = truncateText(item.text, 140);
+      counts.set(term, current);
+    });
+  });
+  return Array.from(counts.values())
+    .filter((item) => item.count >= 2)
+    .sort((first, second) => second.count - first.count || second.sources.size - first.sources.size)
+    .slice(0, 10)
+    .map((item) => ({
+      ...item,
+      sources: Array.from(item.sources),
+      dominantSentiment: Object.entries(item.sentiments).sort((first, second) => second[1] - first[1])[0]?.[0] || "neutral",
+    }));
+}
+
+function classifyCustomerSentiment(text, rating = 0) {
+  const normalized = normalizeText(text);
+  const negativeMatches = countRegexMatches(normalized, /(bad|poor|cheap|thin|broken|defect|damaged|disappointed|return|refund|small|large|tight|loose|wrong|issue|problem|unhappy|terrible|awful|not fit|doesn t fit|doesnt fit|not as pictured|late)/g);
+  const positiveMatches = countRegexMatches(normalized, /(great|good|love|loved|perfect|excellent|happy|quality|comfortable|recommend|works well|beautiful)/g);
+  if (rating > 0 && rating <= 2) return "negative";
+  if (negativeMatches > positiveMatches) return "negative";
+  if (rating >= 4 && positiveMatches >= negativeMatches) return "positive";
+  if (positiveMatches > negativeMatches) return "positive";
+  return "neutral";
+}
+
+function countRegexMatches(value, regex) {
+  return (String(value || "").match(regex) || []).length;
+}
+
+function isGenericOtherReason(value) {
+  return /(^|\s)(other|unknown|not listed|uncategorized|misc|miscellaneous)(\s|$)/i.test(String(value || ""));
+}
+
+const CUSTOMER_TEXT_STOP_WORDS = new Set([
+  "with",
+  "from",
+  "that",
+  "this",
+  "have",
+  "were",
+  "they",
+  "very",
+  "product",
+  "return",
+  "returned",
+  "refund",
+  "order",
+  "item",
+  "customer",
+  "review",
+  "other",
+]);
+
 function getMainIssueFromCounts(counts, fallback) {
   const sorted = Object.entries(counts).sort((first, second) => second[1] - first[1]);
   if (sorted[0]?.[0]) return sorted[0][0];
@@ -1694,7 +2050,8 @@ function calculateRiskScore({ snapshot, metrics }) {
   const variantConcentration = metrics.affectedVariants.length ? 5 : 0;
   const volumeWeight = metrics.soldUnits ? Math.min(7, Math.log10(metrics.soldUnits + 1) * 3) : 0;
   const contentRisk = Math.min(16, Number(metrics.contentQualityRisk || 0));
-  const calculated = Math.round(8 + returnAnomaly + refundAnomaly + refundImpact + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk);
+  const textSentimentRisk = Math.min(8, Number(metrics.textInsights?.sentiment?.negativeRatio || 0) * 10);
+  const calculated = Math.round(8 + returnAnomaly + refundAnomaly + refundImpact + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk + textSentimentRisk);
 
   if (!metrics.signalCount && !metrics.contentIssueCount && Number(snapshot.riskScore || 0) > 0) return Number(snapshot.riskScore);
   return clamp(calculated, 0, 100);
@@ -1904,6 +2261,12 @@ function roundCurrency(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
 
+function truncateText(value, maxLength = 160) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+}
+
 function normalizeIssueCode(value) {
   const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
   if (!normalized) return "";
@@ -1928,6 +2291,8 @@ function getHumanIssueLabel(issue) {
     shipping_delivery: "Shipping or delivery",
     product_content: "Product content",
     product_quality: "Product quality",
+    negative_sentiment: "Negative customer sentiment",
+    repeated_language: "Repeated customer language",
     return_rate_anomaly: "Return rate anomaly",
     refund_impact: "Refund impact",
   };

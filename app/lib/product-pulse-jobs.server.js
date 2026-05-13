@@ -1348,6 +1348,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       collections: Array.isArray(metrics.collections) ? metrics.collections : [],
       topReturnReasons: Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [],
       affectedVariants: Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [],
+      textInsights: metrics.textInsights || null,
       checkedSources: Array.isArray(diagnosisReport.checkedSources) ? diagnosisReport.checkedSources : [],
       aiModels: diagnosisReport.aiModels || null,
       orderAccessDenied: Boolean(metrics.orderAccessDenied),
