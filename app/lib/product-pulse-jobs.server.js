@@ -14,7 +14,6 @@ import {
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
-const PRODUCT_DIAGNOSIS_MINIMUM_DURATION_MS = process.env.NODE_ENV === "test" ? 10 : 15_000;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 
@@ -530,7 +529,6 @@ async function runProductDiagnosisJob(job) {
     progress: 18,
     source: `Preparing AI Product Diagnosis - ${snapshot.productTitle}`,
   });
-  await sleep(PRODUCT_DIAGNOSIS_MINIMUM_DURATION_MS);
 
   await updateProductDiagnosisJob(job.id, {
     progress: 42,
@@ -589,10 +587,6 @@ async function updateProductDiagnosisJob(jobId, data) {
     },
     data,
   });
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function markJobFailed(jobId, error, source = "QuickScan failed") {
