@@ -913,6 +913,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   const actionKey = getProductActionKey(product);
                   const selected = selectedProducts.has(actionKey);
                   const diagnosisState = getProductDiagnosisState(product, pendingAnalyzeIds);
+                  const analysisDisplay = getProductAnalysisDisplay(product);
 
                   return (
                     <tr className={diagnosisState ? "isDiagnosing" : ""} key={actionKey}>
@@ -926,7 +927,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       </td>
                       <td>
                         <Link className="ppProductsProductCell" to={product.href}>
-                          <span className="ppProductImageWrap">
+                          <span
+                            className={`ppProductImageWrap ppProductImageFrame ppProductImageFrame-${analysisDisplay.depth}`.trim()}
+                            title={`${analysisDisplay.label}: ${analysisDisplay.detail}`}
+                          >
                             <ProductArt
                               variant={product.variant}
                               label={product.title}
@@ -952,7 +956,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                         </div>
                       </td>
                       <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
-                      <td><ProductAnalysisStatusBadge product={product} /></td>
+                      <td><ProductAnalysisStatusBadge product={product} showLabel={false} /></td>
                       <td>
                         <ProductSignalCell product={product} />
                       </td>
@@ -1323,17 +1327,19 @@ function getProductAnalysisDisplay(product = {}) {
   };
 }
 
-function ProductAnalysisStatusBadge({ product, detail = false }) {
+function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true }) {
   const analysis = getProductAnalysisDisplay(product);
   return (
     <span className={`ppAnalysisStatus ppAnalysisStatus-${analysis.depth} ${detail ? "ppAnalysisStatus-detail" : ""}`.trim()} title={analysis.detail}>
       <span className="ppAnalysisStatusIcon" aria-hidden="true">
         <s-icon type={analysis.icon} size="small"></s-icon>
       </span>
-      <span>
-        <strong>{analysis.label}</strong>
-        {detail && <small>{analysis.detail}</small>}
-      </span>
+      {showLabel && (
+        <span>
+          <strong>{analysis.label}</strong>
+          {detail && <small>{analysis.detail}</small>}
+        </span>
+      )}
     </span>
   );
 }
@@ -1652,6 +1658,7 @@ function getProductRecommendedActions(product) {
   return product.recommendedActions.map((action, index) => ({
     id: action.id,
     icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
+    iconSymbol: getActionIconSymbol(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     title: action.label,
     detail: getRecommendedActionDetail(action),
     reason: getRecommendedActionReason(action, product),
@@ -1956,12 +1963,32 @@ function getActionIcon(type) {
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("return")) return "return";
   if (normalized.includes("variant")) return "product";
-  if (normalized.includes("copy") || normalized.includes("description") || normalized.includes("pdp")) return "wand";
+  if (normalized.includes("review")) return "star";
+  if (normalized.includes("title") || normalized.includes("metadata")) return "note";
+  if (normalized.includes("copy") || normalized.includes("description") || normalized.includes("pdp") || normalized.includes("quality")) return "note";
   if (normalized.includes("faq")) return "question-circle";
   if (normalized.includes("tag")) return "tag";
   if (normalized.includes("note")) return "duplicate";
   if (normalized.includes("workflow")) return "view";
+  if (normalized.includes("apply") || normalized.includes("product")) return "product";
   return "wand";
+}
+
+function getActionIconSymbol(type) {
+  const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("refund")) return "$";
+  if (normalized.includes("return")) return "RET";
+  if (normalized.includes("variant")) return "SKU";
+  if (normalized.includes("review") && (normalized.includes("title") || normalized.includes("tag"))) return "R#";
+  if (normalized.includes("review")) return "REV";
+  if (normalized.includes("title") || normalized.includes("tag") || normalized.includes("metadata")) return "#";
+  if (normalized.includes("faq")) return "?";
+  if (normalized.includes("pdf")) return "PDF";
+  if (normalized.includes("note")) return "NT";
+  if (normalized.includes("copy") || normalized.includes("description") || normalized.includes("pdp") || normalized.includes("quality")) return "TXT";
+  if (normalized.includes("workflow")) return "WF";
+  if (normalized.includes("apply") || normalized.includes("product")) return "P";
+  return "AI";
 }
 
 export function ProductDiagnosisScreen({ product, actionData }) {
@@ -2103,13 +2130,18 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             Back
           </button>
           <div className="ppProductTitleRow">
-            <ProductArt
-              variant={detail.variant}
-              label={detail.title}
-              size="hero"
-              imageUrl={detail.imageUrl}
-              imageAlt={detail.imageAlt}
-            />
+            <span
+              className={`ppProductImageFrame ppProductImageFrame-hero ppProductImageFrame-${detail.analysisDepth}`.trim()}
+              title={`${detail.analysisLabel}: ${detail.analysisDetail}`}
+            >
+              <ProductArt
+                variant={detail.variant}
+                label={detail.title}
+                size="hero"
+                imageUrl={detail.imageUrl}
+                imageAlt={detail.imageAlt}
+              />
+            </span>
             <div>
               <h1>{detail.title}</h1>
               <p>
@@ -2974,16 +3006,17 @@ function normalizeSparklineValues(values, size = "base") {
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
+  const application = action.application || getRecommendedActionApplication(action);
   const [detailExpanded, setDetailExpanded] = useState(false);
-  const [editedText, setEditedText] = useState(action.application?.value || action.detail || "");
+  const [editedText, setEditedText] = useState(application.value || action.detail || "");
+  const [isEditingInline, setIsEditingInline] = useState(false);
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const buttonText = applied ? "Applied" : drafted ? "Draft saved" : pending ? "Working..." : action.action;
-  const application = action.application || getRecommendedActionApplication(action);
   const detailText = String(application.editable ? editedText : action.detail || "");
-  const hasLongDetail = detailText.length > 300;
+  const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
   const disabled = pending || applied;
   const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
     actionId,
@@ -2996,22 +3029,33 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     onReview,
   });
 
+  useEffect(() => {
+    setEditedText(application.value || action.detail || "");
+    setIsEditingInline(false);
+    setDetailExpanded(false);
+  }, [action.id, action.detail, application.value]);
+
   return (
     <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""}`.trim()}>
       <div className="ppProductActionHeader">
         <div className="ppProductActionIcon">
           <s-icon type={action.icon} size="small"></s-icon>
+          <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
         </div>
-        <h3>{action.title}</h3>
-        <span className="ppActionPriorityPill">{action.priority}</span>
-        {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
+        <div className="ppProductActionTitleBlock">
+          <h3>{action.title}</h3>
+          <div className="ppProductActionPills">
+            <span className="ppActionPriorityPill">{action.priority}</span>
+            {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
+          </div>
+        </div>
       </div>
       <div className="ppProductActionBody">
         <div className="ppActionApplicationIntro">
           <strong>{application.operation}</strong>
           <p>{application.intro}</p>
         </div>
-        {application.editable ? (
+        {application.editable && isEditingInline ? (
           <label className="ppActionInlineEditor">
             <span>{application.valueLabel}</span>
             <textarea
@@ -3020,10 +3064,19 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
               onChange={(event) => setEditedText(event.target.value)}
             />
           </label>
+        ) : application.editable ? (
+          <div className="ppActionSuggestionBox">
+            <span>{application.valueLabel}</span>
+            <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
+            <button className="ppActionEditSuggestionButton" type="button" onClick={() => setIsEditingInline(true)} aria-label={`Edit suggested text for ${action.title}`}>
+              <s-icon type="edit" size="small"></s-icon>
+              <span>Edit</span>
+            </button>
+          </div>
         ) : (
           <p className={`ppActionDetailText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
         )}
-        {hasLongDetail && (
+        {hasLongDetail && !isEditingInline && (
           <button className="ppActionDetailToggle" type="button" onClick={() => setDetailExpanded((expanded) => !expanded)}>
             {detailExpanded ? "Show less" : "Show more"}
           </button>
@@ -3053,7 +3106,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       <div className="ppProductActionCta">
         <button className="ppActionDismissButton" type="button" onClick={() => onDismiss(action)} disabled={pending || applied}>
           <s-icon type="x" size="small"></s-icon>
-          Dismiss
+          <span>Dismiss</span>
         </button>
         {actionButton}
       </div>
