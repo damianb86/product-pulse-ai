@@ -607,29 +607,6 @@ export function ConnectScreen({ data, actionData }) {
   );
 }
 
-export function RunningJobsScreen({ data, actionData }) {
-  return (
-    <s-page heading="Running jobs" inline-size="large-500">
-      <ScreenShell>
-        <ActionBanner actionData={actionData} />
-        <s-section>
-          <div className="ppActionRow ppBetween">
-            <div>
-              <h2 className="ppSectionTitle">Signal pipeline</h2>
-              <p className="ppMuted">Imports, grouping, risk scoring and recommendation jobs.</p>
-            </div>
-            <Form method="post">
-              <input type="hidden" name="_action" value="run-scan" />
-              <button className="ppPrimaryButton" type="submit">Run scan</button>
-            </Form>
-          </div>
-        </s-section>
-        <JobTable jobs={data.jobs} />
-      </ScreenShell>
-    </s-page>
-  );
-}
-
 export function ProductsScreen({ data, filters = {}, actionData }) {
   const revalidator = useRevalidator();
   const navigation = useNavigation();
@@ -2553,14 +2530,12 @@ export function PreviewScreen({ data, actionData }) {
       <DashboardScreen data={data} actionData={actionData} />
       <nav className="ppPreviewNav" aria-label="Preview screens">
         <a href="#connect">Connect</a>
-        <a href="#jobs">Running jobs</a>
         <a href="#products">Products</a>
         <a href="#diagnosis">Diagnosis</a>
         <a href="#analytics">Analytics</a>
         <a href="#analyses">Analyses</a>
       </nav>
       <section id="connect"><ConnectScreen data={data} /></section>
-      <section id="jobs"><RunningJobsScreen data={data} actionData={actionData} /></section>
       <section id="products"><ProductsScreen data={data} filters={{ query: "", risk: "all" }} /></section>
       <section id="diagnosis"><ProductDiagnosisScreen product={data.startHere} data={data} actionData={actionData} /></section>
       <section id="analytics"><AnalyticsScreen data={data} /></section>
@@ -3601,37 +3576,6 @@ function PermissionBanner({ permissionState }) {
   );
 }
 
-function JobTable({ jobs }) {
-  return (
-    <s-section heading="Current queue">
-      <div className="ppTableWrap">
-        <table className="ppTable">
-          <thead>
-            <tr>
-              <th>Job</th>
-              <th>Source</th>
-              <th>Status</th>
-              <th>Progress</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((job) => (
-              <tr key={job.id}>
-                <td>{job.name}</td>
-                <td>{job.source}</td>
-                <td><StatusBadge status={job.status} /></td>
-                <td><ProgressBar value={job.progress} max={100} label={`${job.progress}%`} /></td>
-                <td>{job.updatedAt}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </s-section>
-  );
-}
-
 function AnalyticsKpiCard({ kpi }) {
   return (
     <article className="ppAnalyticsKpi">
@@ -3813,16 +3757,6 @@ function AnalyticsImpactMetric({ metric }) {
         </small>
       </div>
     </article>
-  );
-}
-
-function ProgressBar({ value, max, label }) {
-  const pct = Math.round(Math.min((value / max) * 100, 100));
-  return (
-    <div className="ppProgress" aria-label={label || `${pct}% complete`}>
-      <div style={{ width: `${pct}%` }} />
-      {label && <span>{label}</span>}
-    </div>
   );
 }
 

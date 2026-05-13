@@ -30,7 +30,6 @@ export default function App() {
         <s-link href="/app" aria-current={activeSection === "dashboard" ? "page" : undefined} data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
         <s-link href="/app/products" aria-current={activeSection === "products" ? "page" : undefined} data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
         <s-link href="/app/analytics" aria-current={activeSection === "analytics" ? "page" : undefined} data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
-        <s-link href="/app/jobs" aria-current={activeSection === "jobs" ? "page" : undefined} data-active={activeSection === "jobs" ? "true" : undefined}>Running</s-link>
         <s-link href="/app/connect" aria-current={activeSection === "connect" ? "page" : undefined} data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
       </s-app-nav>
       <Outlet />
@@ -43,7 +42,6 @@ function getActiveNavSection(pathname) {
   if (pathname === "/app" || pathname === "/app/") return "dashboard";
   if (pathname.startsWith("/app/products")) return "products";
   if (pathname.startsWith("/app/analytics") || pathname.startsWith("/app/analyses")) return "analytics";
-  if (pathname.startsWith("/app/jobs")) return "jobs";
   if (pathname.startsWith("/app/connect")) return "connect";
   return "";
 }
