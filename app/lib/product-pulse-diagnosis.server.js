@@ -120,7 +120,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot }) {
   try {
     sales = await fetchShopifySalesEvents({ admin, product, snapshot });
     refunds = await fetchShopifyRefundEvents({ admin, product, snapshot });
-    returns = await fetchShopifyReturnEvents({ admin, product, snapshot });
+    returns = await fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot });
   } catch (error) {
     orderAccessDenied = isShopifyOrderAccessDenied(error);
     await recordJobLog({
@@ -430,17 +430,123 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
   return events;
 }
 
-async function fetchShopifyReturnEvents({ admin, product, snapshot }) {
+async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot }) {
+  try {
+    return await fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: true });
+  } catch (error) {
+    if (!isMissingReturnReasonDefinitionError(error)) throw error;
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.return_reason_definition_unavailable",
+      message: "Shopify API version did not expose returnReasonDefinition; retrying return extraction with legacy returnReason fields.",
+      data: { error: serializeError(error), productGid: snapshot.productGid },
+    });
+    return fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: false });
+  }
+}
+
+async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition }) {
   if (!admin?.graphql) return [];
   const events = [];
   let cursor = null;
+  const stats = {
+    scannedReturnLineItems: 0,
+    matchedReturnLineItems: 0,
+    matchedReturnLineItemsWithNotes: 0,
+    queryModes: [],
+    unmatchedSamples: [],
+    includeReasonDefinition,
+  };
+  const seenReturnLineItemIds = new Set();
+  const orderQueries = buildReturnOrderQueries(DIAGNOSIS_WINDOW_DAYS);
 
-  for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
-    const data = await shopifyGraphql(
-      admin,
-      `#graphql
+  for (const orderQuery of orderQueries) {
+    cursor = null;
+    stats.queryModes.push(orderQuery.mode);
+
+    for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
+      const data = await shopifyGraphql(
+        admin,
+        buildDiagnosisReturnsQuery({ includeReasonDefinition }),
+        { after: cursor, query: orderQuery.query },
+      );
+
+      (data?.orders?.nodes || []).forEach((order) => {
+        getNodes(order.returns).forEach((itemReturn) => {
+          getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
+            if (returnLineItem.id && seenReturnLineItemIds.has(returnLineItem.id)) return;
+            if (returnLineItem.id) seenReturnLineItemIds.add(returnLineItem.id);
+            stats.scannedReturnLineItems += 1;
+            const lineItem = returnLineItem.fulfillmentLineItem?.lineItem || {};
+            if (!lineItemMatchesProduct(lineItem, product, snapshot)) {
+              if (stats.unmatchedSamples.length < 4) {
+                stats.unmatchedSamples.push({
+                  title: lineItem.title || "",
+                  sku: lineItem.sku || lineItem.variant?.sku || "",
+                  productId: lineItem.product?.id || "",
+                  handle: lineItem.product?.handle || "",
+                  reason: getReturnReasonValue(returnLineItem),
+                  notePreview: truncateText(getReturnLineItemNoteText(returnLineItem), 120),
+                  queryMode: orderQuery.mode,
+                });
+              }
+              return;
+            }
+
+            stats.matchedReturnLineItems += 1;
+            const reasonNote = getReturnLineItemReasonNote(returnLineItem);
+            const customerNote = getReturnLineItemCustomerNote(returnLineItem);
+            if (reasonNote || customerNote) stats.matchedReturnLineItemsWithNotes += 1;
+
+            events.push({
+              id: returnLineItem.id,
+              returnId: itemReturn.id,
+              orderId: order.id,
+              createdAt: toIso(itemReturn.createdAt || order.createdAt),
+              status: itemReturn.status || "",
+              quantity: Number(returnLineItem.quantity || returnLineItem.processedQuantity || returnLineItem.refundedQuantity || 0),
+              processedQuantity: Number(returnLineItem.processedQuantity || 0),
+              refundedQuantity: Number(returnLineItem.refundedQuantity || 0),
+              reason: getReturnReasonValue(returnLineItem),
+              reasonLabel: getReturnReasonLabel(returnLineItem),
+              reasonNote,
+              customerNote,
+              title: lineItem.title || product.title,
+              sku: lineItem.sku || lineItem.variant?.sku || "",
+              variantId: lineItem.variant?.id || null,
+              variantTitle: lineItem.variant?.title || "",
+              selectedOptions: lineItem.variant?.selectedOptions || [],
+            });
+          });
+        });
+      });
+
+      if (!data?.orders?.pageInfo?.hasNextPage) break;
+      cursor = data.orders.pageInfo.endCursor;
+    }
+  }
+
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "product_diagnosis.shopify_returns_extracted",
+    message: "Shopify return line items were extracted for product diagnosis.",
+    data: {
+      productGid: snapshot.productGid,
+      ...stats,
+      returnEvents: events.length,
+    },
+  });
+
+  return events;
+}
+
+function buildDiagnosisReturnsQuery({ includeReasonDefinition = true } = {}) {
+  return `#graphql
       query ProductPulseDiagnosisReturns($after: String, $query: String!) {
-        orders(first: 15, after: $after, query: $query) {
+        orders(first: 20, after: $after, query: $query, sortKey: UPDATED_AT, reverse: true) {
           pageInfo {
             hasNextPage
             endCursor
@@ -448,12 +554,12 @@ async function fetchShopifyReturnEvents({ admin, product, snapshot }) {
           nodes {
             id
             createdAt
-            returns(first: 5) {
+            returns(first: 20) {
               nodes {
                 id
                 createdAt
                 status
-                returnLineItems(first: 20) {
+                returnLineItems(first: 50) {
                   nodes {
                     ... on ReturnLineItem {
                       id
@@ -463,6 +569,11 @@ async function fetchShopifyReturnEvents({ admin, product, snapshot }) {
                       customerNote
                       returnReason
                       returnReasonNote
+                      ${includeReasonDefinition ? `
+                      returnReasonDefinition {
+                        handle
+                        name
+                      }` : ""}
                       fulfillmentLineItem {
                         lineItem {
                           id
@@ -491,42 +602,17 @@ async function fetchShopifyReturnEvents({ admin, product, snapshot }) {
             }
           }
         }
-      }`,
-      { after: cursor, query: `updated_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}` },
-    );
+      }`;
+}
 
-    (data?.orders?.nodes || []).forEach((order) => {
-      getNodes(order.returns).forEach((itemReturn) => {
-        getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
-          const lineItem = returnLineItem.fulfillmentLineItem?.lineItem || {};
-          if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
-          events.push({
-            id: returnLineItem.id,
-            returnId: itemReturn.id,
-            orderId: order.id,
-            createdAt: toIso(itemReturn.createdAt || order.createdAt),
-            status: itemReturn.status || "",
-            quantity: Number(returnLineItem.quantity || returnLineItem.processedQuantity || returnLineItem.refundedQuantity || 0),
-            processedQuantity: Number(returnLineItem.processedQuantity || 0),
-            refundedQuantity: Number(returnLineItem.refundedQuantity || 0),
-            reason: returnLineItem.returnReason || "",
-            reasonNote: returnLineItem.returnReasonNote || "",
-            customerNote: returnLineItem.customerNote || "",
-            title: lineItem.title || product.title,
-            sku: lineItem.sku || lineItem.variant?.sku || "",
-            variantId: lineItem.variant?.id || null,
-            variantTitle: lineItem.variant?.title || "",
-            selectedOptions: lineItem.variant?.selectedOptions || [],
-          });
-        });
-      });
-    });
-
-    if (!data?.orders?.pageInfo?.hasNextPage) break;
-    cursor = data.orders.pageInfo.endCursor;
-  }
-
-  return events;
+function buildReturnOrderQueries(windowDays) {
+  return [
+    { mode: "updated_at", query: `updated_at:>=${getSinceDate(windowDays)}` },
+    { mode: "return_requested", query: "return_status:return_requested" },
+    { mode: "in_progress", query: "return_status:in_progress" },
+    { mode: "inspection_complete", query: "return_status:inspection_complete" },
+    { mode: "returned", query: "return_status:returned" },
+  ];
 }
 
 async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct }) {
@@ -1779,7 +1865,45 @@ function lineItemMatchesProduct(lineItem, product, snapshot) {
   if (lineProduct.id && (lineProduct.id === product.id || lineProduct.id === snapshot.productGid)) return true;
   if (lineProduct.handle && (lineProduct.handle === product.handle || lineProduct.handle === snapshot.handle)) return true;
   const numericProductId = product.numericId || extractNumericShopifyId(snapshot.productGid);
-  return numericProductId && String(lineProduct.id || "").endsWith(`/${numericProductId}`);
+  if (numericProductId && String(lineProduct.id || "").endsWith(`/${numericProductId}`)) return true;
+
+  const lineSku = normalizeText(lineItem?.sku || lineItem?.variant?.sku || "");
+  const productSkus = new Set((product.variants || []).map((variant) => normalizeText(variant.sku)).filter(Boolean));
+  if (lineSku && productSkus.has(lineSku)) return true;
+
+  const lineVariantId = extractNumericShopifyId(lineItem?.variant?.id);
+  const productVariantIds = new Set((product.variants || []).flatMap((variant) => [
+    String(variant.id || ""),
+    String(variant.numericId || ""),
+    extractNumericShopifyId(variant.id),
+  ]).filter(Boolean));
+  if (lineVariantId && productVariantIds.has(lineVariantId)) return true;
+
+  const lineTitle = normalizeText(lineItem?.title);
+  const productTitle = normalizeText(product.title || snapshot.productTitle);
+  return Boolean(lineTitle && productTitle && (lineTitle === productTitle || lineTitle.includes(productTitle) || productTitle.includes(lineTitle)));
+}
+
+function getReturnReasonValue(returnLineItem) {
+  const definition = returnLineItem?.returnReasonDefinition || {};
+  return String(definition.handle || returnLineItem?.returnReason || definition.name || "").trim();
+}
+
+function getReturnReasonLabel(returnLineItem) {
+  const definition = returnLineItem?.returnReasonDefinition || {};
+  return String(definition.name || definition.handle || returnLineItem?.returnReason || "").trim();
+}
+
+function getReturnLineItemReasonNote(returnLineItem) {
+  return String(returnLineItem?.returnReasonNote || "").replace(/\s+/g, " ").trim();
+}
+
+function getReturnLineItemCustomerNote(returnLineItem) {
+  return String(returnLineItem?.customerNote || "").replace(/\s+/g, " ").trim();
+}
+
+function getReturnLineItemNoteText(returnLineItem) {
+  return [getReturnLineItemReasonNote(returnLineItem), getReturnLineItemCustomerNote(returnLineItem)].filter(Boolean).join(" ");
 }
 
 function extractJudgeMeProduct(json) {
@@ -2714,6 +2838,11 @@ function isShopifyOrderAccessDenied(error) {
   return message.includes("access_denied") || message.includes("not approved to access the order object") || message.includes("order object");
 }
 
+function isMissingReturnReasonDefinitionError(error) {
+  const message = `${error?.message || ""} ${JSON.stringify(error?.graphqlErrors || [])}`.toLowerCase();
+  return message.includes("returnreasondefinition") && message.includes("doesn") && message.includes("returnlineitem");
+}
+
 function extractNumericShopifyId(gid) {
   return String(gid || "").split("/").pop() || "";
 }
@@ -2754,6 +2883,14 @@ function toIso(value) {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
+
+export const __productPulseDiagnosisTestHooks = {
+  buildDiagnosisReturnsQuery,
+  buildReturnOrderQueries,
+  getReturnLineItemNoteText,
+  getReturnReasonValue,
+  lineItemMatchesProduct,
+};
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(value || 0));
