@@ -185,6 +185,30 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
   });
 
+  it("renders content issue reasons without object placeholders", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "review-product-content-alignment",
+        label: "Review title, tags and collection alignment",
+        type: "Workflow",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          contentIssues: [
+            { label: "Missing product description", evidence: "The Shopify product description is empty.", severity: "high" },
+            { label: "Tags are not reflected in description", evidence: "Tags do not appear in PDP copy.", severity: "low" },
+          ],
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getAllByText("Review title, tags and collection alignment").length).toBeGreaterThan(0);
+    expect(screen.getByText("ProductPulse found content issues that can reduce buyer confidence: Missing product description, Tags are not reflected in description.")).toBeInTheDocument();
+    expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+  });
+
   it("renders granular sentiment and language evidence in product diagnosis", () => {
     const product = {
       ...defaultView.startHere,

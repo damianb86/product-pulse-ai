@@ -1920,9 +1920,10 @@ function getRecommendedActionReason(action, product) {
   const payload = action.payload || {};
   const metrics = product.metrics || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  const contentIssueLabels = getContentIssueLabels(payload.contentIssues);
 
-  if (Array.isArray(payload.contentIssues) && payload.contentIssues.length) {
-    return `ProductPulse found content issues that can reduce buyer confidence: ${payload.contentIssues.slice(0, 3).join(", ")}.`;
+  if (contentIssueLabels.length) {
+    return `ProductPulse found content issues that can reduce buyer confidence: ${contentIssueLabels.slice(0, 3).join(", ")}.`;
   }
   if (Array.isArray(payload.topReturnReasons) && payload.topReturnReasons.length) {
     return `Return evidence shows repeated reasons: ${payload.topReturnReasons.slice(0, 3).join(", ")}. Reviewing them helps separate product issues from operational noise.`;
@@ -1947,6 +1948,18 @@ function getRecommendedActionReason(action, product) {
     return `This action is based on ${formatInteger(metrics.signalCount)} stored product signal${metrics.signalCount === 1 ? "" : "s"} across the available sources.`;
   }
   return "This action is available from the current diagnosis and can be reviewed before anything is applied.";
+}
+
+function getContentIssueLabels(contentIssues) {
+  if (!Array.isArray(contentIssues)) return [];
+
+  return contentIssues
+    .map((issue) => {
+      if (typeof issue === "string") return issue.trim();
+      if (!issue || typeof issue !== "object") return "";
+      return String(issue.label || issue.evidence || issue.code || issue.severity || "").trim();
+    })
+    .filter(Boolean);
 }
 
 function getRecommendedActionEvidence(action, product) {
