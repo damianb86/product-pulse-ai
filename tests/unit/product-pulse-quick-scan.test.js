@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildOrdersBulkQuery, buildQuickScanCandidates } from "../../app/lib/product-pulse-quick-scan.server";
+import {
+  buildOrdersBulkQuery,
+  buildQuickScanCandidates,
+  isShopifyOrderAccessDeniedError,
+} from "../../app/lib/product-pulse-quick-scan.server";
 
 describe("ProductPulse QuickScan", () => {
   it("keeps only deterministic high-risk candidates from Shopify-native events", () => {
@@ -72,5 +76,10 @@ describe("ProductPulse QuickScan", () => {
     expect(query).toContain("returns");
     expect(query).not.toMatch(/\brefunds\s*\{/);
     expect(query).not.toContain("refundLineItems");
+  });
+
+  it("detects Shopify Order object approval errors", () => {
+    expect(isShopifyOrderAccessDeniedError(new Error("orders bulk operation failed: ACCESS_DENIED. This app is not approved to access the Order object"))).toBe(true);
+    expect(isShopifyOrderAccessDeniedError(new Error("products bulk operation failed: ACCESS_DENIED."))).toBe(false);
   });
 });

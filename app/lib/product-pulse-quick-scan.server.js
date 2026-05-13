@@ -58,6 +58,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
       refundEvents: extraction.events.filter((event) => event.type === "refund").length,
       returnEvents: extraction.events.filter((event) => event.type === "return").length,
       bulkError: extraction.meta.bulkError,
+      orderAccessDenied: extraction.meta.orderAccessDenied,
     },
   });
 
@@ -109,7 +110,9 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   await updateQuickScanJob(jobId, {
     status: "Completed",
     progress: 100,
-    source: `QuickScan completed - ${candidates.length} product${candidates.length === 1 ? "" : "s"} needing attention`,
+    source: extraction.meta.orderAccessDenied
+      ? "QuickScan completed with catalog only - Shopify order access unavailable"
+      : `QuickScan completed - ${candidates.length} product${candidates.length === 1 ? "" : "s"} needing attention`,
     finishedAt: new Date(),
   });
   await recordJobLog({
@@ -120,6 +123,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     data: {
       durationMs: Date.now() - startedAt,
       candidateCount: candidates.length,
+      orderAccessDenied: extraction.meta.orderAccessDenied,
     },
   });
 
@@ -175,14 +179,35 @@ export function buildQuickScanCandidates({ products = [], events = [], windowDay
 async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
   try {
     const catalogLines = await runBulkQuery(admin, PRODUCT_CATALOG_BULK_QUERY, "catalog", { shop, jobId });
-    const orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId });
+    let orderLines = [];
+    let orderAccessDenied = false;
+
+    try {
+      orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId });
+    } catch (orderError) {
+      if (!isShopifyOrderAccessDeniedError(orderError)) throw orderError;
+      orderAccessDenied = true;
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "quick_scan.orders_unavailable",
+        message: "Shopify denied access to orders. QuickScan will complete with product catalog data only until Order object access is approved.",
+        data: { error: getErrorMessage(orderError) },
+      });
+    }
+
     const bulkData = normalizeBulkQuickScanData(catalogLines, orderLines);
-    const refundEvents = await extractSupplementalRefundEvents({ admin, windowDays, shop, jobId });
+    const refundEvents = orderAccessDenied ? [] : await extractSupplementalRefundEvents({ admin, windowDays, shop, jobId });
 
     return {
       ...bulkData,
       events: [...bulkData.events, ...refundEvents],
-      meta: { extractionMode: "bulk", windowDays },
+      meta: {
+        extractionMode: orderAccessDenied ? "catalog-only" : "bulk",
+        windowDays,
+        orderAccessDenied,
+      },
     };
   } catch (bulkError) {
     await recordJobLog({
@@ -389,7 +414,12 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays, sho
   });
 
   const products = await extractProductsWithPaginatedQueries({ admin });
-  const salesEvents = await extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays });
+  const salesEvents = await extractOptionalPaginatedEvents({
+    shop,
+    jobId,
+    label: "sales",
+    extractor: () => extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays }),
+  });
   const refundEvents = await extractOptionalPaginatedEvents({
     shop,
     jobId,
@@ -1276,6 +1306,11 @@ function parseJsonl(text) {
 
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function isShopifyOrderAccessDeniedError(error) {
+  const message = getErrorMessage(error);
+  return /ACCESS_DENIED|not approved to access/i.test(message) && /Order object|orders?\b/i.test(message);
 }
 
 async function waitForMinimumDuration(startedAt, minimumDurationMs) {
