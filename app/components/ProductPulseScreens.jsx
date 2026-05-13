@@ -1994,6 +1994,7 @@ function getActionIconSymbol(type) {
 export function ProductDiagnosisScreen({ product, actionData }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const submit = useSubmit();
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set());
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
@@ -2001,6 +2002,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
   const [actionConfirmation, setActionConfirmation] = useState(null);
+  const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
   const [draftText, setDraftText] = useState("");
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
@@ -2010,13 +2012,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setIgnoredIssues(new Set());
     setDismissedActionIds(new Set());
     setSelectedEvidenceIndex(0);
+    setDiagnosisConfirmation(null);
   }, [product?.slug, product?.resolvedAt]);
 
   useEffect(() => {
     if (actionData?.status === "success" && actionData?.action?.id === "mark-resolved") {
       setResolvedLocally(true);
     }
-    if (actionData?.status === "success") setActionConfirmation(null);
+    if (actionData?.status === "success") {
+      setActionConfirmation(null);
+      setDiagnosisConfirmation(null);
+    }
   }, [actionData]);
 
   useEffect(() => {
@@ -2067,6 +2073,27 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       return;
     }
     setSelectedEvidenceIndex(Math.max(0, Math.min(index, detail.evidenceSources.length - 1)));
+  };
+
+  const handleRequestProductDiagnosis = () => {
+    if (!detail.canDiagnose || diagnosisPending) return;
+    const productId = product.slug || product.handle || "";
+    setDiagnosisConfirmation({
+      mode: "single",
+      title: "Confirm product analysis",
+      products: [productId],
+      productTitles: [detail.title],
+      count: 1,
+      credits: product.credits || 1,
+    });
+  };
+
+  const handleConfirmProductDiagnosis = () => {
+    if (!diagnosisConfirmation?.products?.length || diagnosisPending) return;
+    const formData = new FormData();
+    formData.set("_action", "diagnose");
+    formData.set("productId", diagnosisConfirmation.products[0] || "");
+    submit(formData, { method: "post" });
   };
 
   const handleIgnoreIssue = (issue) => {
@@ -2171,14 +2198,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <s-icon type="external" size="small"></s-icon>
               </a>
             )}
-            <Form method="post">
-              <input type="hidden" name="_action" value="diagnose" />
-              <input type="hidden" name="productId" value={product.slug} />
-              <button className="ppPrimaryButton" type="submit" disabled={!detail.canDiagnose || diagnosisPending}>
-                <s-icon type="wand" size="small"></s-icon>
-                {diagnosisPending ? "Running..." : detail.diagnosisButtonLabel}
-              </button>
-            </Form>
+            <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
+              <s-icon type="wand" size="small"></s-icon>
+              {diagnosisPending ? "Running..." : detail.diagnosisButtonLabel}
+            </button>
             <Form method="post">
               <input type="hidden" name="_action" value="mark-resolved" />
               <input type="hidden" name="productId" value={product.slug} />
@@ -2407,6 +2430,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             </div>
           </div>
         </s-section>
+        {diagnosisConfirmation && (
+          <ProductAnalysisConfirmModal
+            confirmation={diagnosisConfirmation}
+            pending={diagnosisPending}
+            pendingIds={diagnosisPending ? diagnosisConfirmation.products : []}
+            onCancel={() => setDiagnosisConfirmation(null)}
+            onConfirm={handleConfirmProductDiagnosis}
+          />
+        )}
         {actionConfirmation && (
           <RecommendedActionConfirmModal
             confirmation={actionConfirmation}
