@@ -454,26 +454,30 @@ export function buildDashboardViewData(productItems = products, options = {}) {
         rows: impactByCollection,
       },
     ],
-    nextStep: buildDashboardNextStep(startProduct, totalProducts),
+    nextStep: buildDashboardNextStep(startProduct, totalProducts, suggestedFixes),
   };
 }
 
 function getDashboardStartProduct(productList) {
-  const product = [...productList].sort((first, second) => {
-    const riskDelta = Number(second.riskScore || 0) - Number(first.riskScore || 0);
-    if (riskDelta) return riskDelta;
-    const impactDelta = getDashboardMetric(second, "marginAtRisk") - getDashboardMetric(first, "marginAtRisk");
-    if (impactDelta) return impactDelta;
-    return getDashboardMetric(second, "signalCount") - getDashboardMetric(first, "signalCount");
-  })[0];
+  const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
+  const maxSignals = Math.max(...productList.map((product) => getDashboardMetric(product, "signalCount")), 0);
+  const maxRecentSignals = Math.max(...productList.map((product) => getDashboardMetric(product, "recentSignalUnits")), 0);
+  const candidates = productList
+    .filter((product) => !hasDashboardFullDiagnosis(product));
+  const pool = candidates.length ? candidates : productList;
+  const product = [...pool].sort((first, second) => (
+    getDashboardPriorityScore(second, { maxMarginRisk, maxSignals, maxRecentSignals })
+      - getDashboardPriorityScore(first, { maxMarginRisk, maxSignals, maxRecentSignals })
+  ))[0];
 
   if (!product) return null;
   const metrics = product.metrics || {};
-  const hasFullDiagnosis = product.analysisDepth === "full" || Boolean(metrics.latestDiagnosisId);
+  const hasFullDiagnosis = hasDashboardFullDiagnosis(product);
   const returnRate = Number(metrics.returnRate || 0);
   const refundRate = Number(metrics.refundRate || 0);
   const negativeReviews = Number(metrics.negativeReviewCount || 0);
   const mainIssue = getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality");
+  const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk, maxSignals, maxRecentSignals });
 
   return {
     title: product.title || product.productTitle || "Product",
@@ -486,9 +490,13 @@ function getDashboardStartProduct(productList) {
     riskTone: getRiskTone(Number(product.riskScore || 0)),
     riskScore: Number(product.riskScore || 0),
     issueLabel: mainIssue,
-    summary: buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews }),
+    priorityScore,
+    selectionMode: hasFullDiagnosis ? "full-diagnosis-fallback" : "next-diagnosis",
+    priorityReason: buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore }),
+    eyebrow: hasFullDiagnosis ? "Recommended product to review" : "Recommended next product to analyze",
+    summary: buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }),
     actionLabel: hasFullDiagnosis ? "Open product diagnosis" : "Run product diagnosis",
-    actionHint: hasFullDiagnosis ? "Review recommended actions" : "Uses 1 AI credit",
+    actionHint: hasFullDiagnosis ? "Review recommended actions" : "Selected by risk, margin and signal volume",
     badges: [
       {
         tone: Number(product.riskScore || 0) >= 75 ? "critical" : Number(product.riskScore || 0) >= 55 ? "warning" : "success",
@@ -516,20 +524,60 @@ function getDashboardStartProduct(productList) {
       signalCount: Number(metrics.signalCount || metrics.issueCount || 0),
       marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
       revenueAtRisk: getDashboardMetric(product, "revenueAtRisk"),
+      recentSignalUnits: Number(metrics.recentSignalUnits || 0),
       windowDays: Number(metrics.windowDays || 60),
     },
   };
 }
 
-function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews }) {
+function hasDashboardFullDiagnosis(product) {
+  return product?.analysisDepth === "full" || Boolean(product?.metrics?.latestDiagnosisId);
+}
+
+function getDashboardPriorityScore(product, { maxMarginRisk = 0, maxSignals = 0, maxRecentSignals = 0 } = {}) {
+  const riskScore = Number(product?.riskScore || 0);
+  const marginRisk = getDashboardMetric(product, "marginAtRisk");
+  const signalCount = getDashboardMetric(product, "signalCount");
+  const recentSignalUnits = getDashboardMetric(product, "recentSignalUnits");
+  const marginScore = maxMarginRisk > 0 ? (marginRisk / maxMarginRisk) * 100 : 0;
+  const signalScore = maxSignals > 0 ? (signalCount / maxSignals) * 100 : 0;
+  const recencyScore = maxRecentSignals > 0 ? (recentSignalUnits / maxRecentSignals) * 100 : 0;
+
+  return Math.round(
+    riskScore * 0.55
+      + marginScore * 0.25
+      + signalScore * 0.15
+      + recencyScore * 0.05,
+  );
+}
+
+function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore }) {
+  const metrics = product.metrics || {};
+  const reasons = [
+    `${getRiskLabel(Number(product.riskScore || 0)).toLowerCase()} risk`,
+    `${formatDashboardMoney(getDashboardMetric(product, "marginAtRisk"))} margin at risk`,
+    `${formatDashboardNumber(metrics.signalCount || metrics.issueCount || 0)} signal${Number(metrics.signalCount || metrics.issueCount || 0) === 1 ? "" : "s"}`,
+  ];
+  if (Number(metrics.recentSignalUnits || 0) > 0) {
+    reasons.push(`${formatDashboardNumber(metrics.recentSignalUnits)} recent signal${Number(metrics.recentSignalUnits) === 1 ? "" : "s"}`);
+  }
+
+  return `${hasFullDiagnosis ? "Fallback because all priority candidates already have full diagnostics" : "Next full-diagnosis candidate"}: ${reasons.join(", ")}. Priority score ${priorityScore}/100.`;
+}
+
+function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }) {
   const pieces = [];
   if (returnRate > 0) pieces.push(`${formatDashboardRate(returnRate)} return rate`);
   if (refundRate > 0) pieces.push(`${formatDashboardRate(refundRate)} refund rate`);
   if (negativeReviews > 0) pieces.push(`${formatDashboardNumber(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`);
   if (!pieces.length) {
-    return `${product.title} is the highest-priority stored product. ProductPulse has catalog and scan data ready for review.`;
+    return hasFullDiagnosis
+      ? `${product.title} already has a full diagnosis and remains the highest-priority product to review.`
+      : `${product.title} is the highest-priority product without a full diagnosis. ProductPulse has scan data ready for review.`;
   }
-  return `${product.title} is the highest-priority product because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`;
+  return hasFullDiagnosis
+    ? `${product.title} already has a full diagnosis and still ranks highest because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`
+    : `${product.title} is the highest-priority product without a full diagnosis because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`;
 }
 
 function buildDashboardEvidenceMetrics(startProduct) {
@@ -638,7 +686,7 @@ function buildDashboardRiskDistribution({ highRiskProducts, mediumRiskProducts, 
   ], 3, "No products");
 }
 
-function buildDashboardNextStep(startProduct, totalProducts) {
+function buildDashboardNextStep(startProduct, totalProducts, suggestedFixes = []) {
   if (!totalProducts) {
     return {
       title: "Run QuickScan",
@@ -657,12 +705,31 @@ function buildDashboardNextStep(startProduct, totalProducts) {
       buttonLabel: "View products",
     };
   }
+  if (startProduct.selectionMode === "next-diagnosis") {
+    return {
+      title: "Run product diagnosis",
+      subtitle: "Run the next full diagnosis",
+      detail: `${startProduct.title} was selected with a priority score of ${startProduct.priorityScore}/100 because it has no full diagnosis yet and ranks highest by risk, margin at risk and signal volume.`,
+      href: startProduct.href,
+      buttonLabel: "Open product",
+    };
+  }
+  const topFix = suggestedFixes[0];
+  if (topFix && topFix.impact !== "Needs diagnosis") {
+    return {
+      title: "Review recommended action",
+      subtitle: topFix.label,
+      detail: "All high-priority candidates already have a full diagnosis. The next best step is to review and apply the highest-impact recommended action.",
+      href: topFix.href || startProduct.href,
+      buttonLabel: "Review action",
+    };
+  }
   return {
-    title: startProduct.actionLabel,
+    title: "Review product diagnosis",
     subtitle: startProduct.title,
-    detail: startProduct.summary,
+    detail: "All current priority candidates already have a full diagnosis. Review the top product's evidence and recommended actions.",
     href: startProduct.href,
-    buttonLabel: startProduct.actionLabel,
+    buttonLabel: "Open diagnosis",
   };
 }
 

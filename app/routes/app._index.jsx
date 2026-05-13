@@ -7,10 +7,10 @@ import { getAppViewData, runCatalogSignalScan } from "../lib/product-pulse-data"
 import { getDashboardDataForShop } from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   return {
     ...getAppViewData(),
-    dashboard: await getDashboardDataForShop(session.shop),
+    dashboard: await getDashboardDataForShop(session.shop, admin),
   };
 };
 

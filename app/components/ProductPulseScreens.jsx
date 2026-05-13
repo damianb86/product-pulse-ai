@@ -49,7 +49,7 @@ export function DashboardScreen({ data, actionData }) {
             </div>
             <div className="ppStartContent">
               {startProduct ? (
-                <div className="ppStartProduct">
+                <div className="ppStartProduct" title={startProduct.priorityReason}>
                   <ProductArt
                     variant={startProduct.variant || "shirt"}
                     label={startProduct.title}
@@ -58,7 +58,7 @@ export function DashboardScreen({ data, actionData }) {
                     imageAlt={startProduct.imageAlt}
                   />
                   <div className="ppStartCopy">
-                    <span>Recommended next product to analyze</span>
+                    <span>{startProduct.eyebrow || "Recommended next product to analyze"}</span>
                     <h3>{startProduct.title}</h3>
                     <div className="ppBadgeRow">
                       {(startProduct.badges || []).map((badge) => (

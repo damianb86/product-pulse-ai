@@ -119,7 +119,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
   };
 }
 
-export async function getDashboardDataForShop(shop) {
+export async function getDashboardDataForShop(shop, admin) {
   await failStaleFastProductScans(shop);
   const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
@@ -138,11 +138,12 @@ export async function getDashboardDataForShop(shop) {
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
 
   const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
-  const dashboardProducts = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
+  const dashboardProductsWithoutImages = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
     snapshot,
     [],
     latestDiagnosisByProductGid.get(snapshot.productGid),
   ));
+  const dashboardProducts = await attachProductImages(dashboardProductsWithoutImages, admin);
 
   return buildDashboardViewData(dashboardProducts, {
     billing: latestLedgerEntry ? { creditsAvailable: latestLedgerEntry.balanceAfter } : null,
@@ -1357,6 +1358,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
 
   return {
     id: snapshot.productGid,
+    productGid: snapshot.productGid,
     slug: snapshot.handle,
     title: snapshot.productTitle,
     handle: snapshot.handle,

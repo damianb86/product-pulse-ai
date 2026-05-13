@@ -20,7 +20,8 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<DashboardScreen data={defaultView} />);
     expect(screen.getByText(/Product quality signals from reviews/)).toBeInTheDocument();
     expect(screen.getByText("Products needing attention")).toBeInTheDocument();
-    expect(screen.getAllByText("Core Linen Trouser").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Ceramic Pour Over").length).toBeGreaterThan(0);
+    expect(screen.getByText(/highest-priority product without a full diagnosis/)).toBeInTheDocument();
     expect(screen.getByText("$21,000")).toBeInTheDocument();
     expect(screen.queryByText("Products to review")).not.toBeInTheDocument();
     expect(screen.getByText("Risk distribution")).toBeInTheDocument();
