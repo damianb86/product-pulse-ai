@@ -4124,6 +4124,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductsContent {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -4201,9 +4202,12 @@ s-page[inline-size="large-500"] {
 .ppProductsTableSection {
   display: block;
   flex: 0 0 auto;
-  align-self: start;
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
   height: auto;
   min-height: 0;
+  min-width: 0;
 }
 
 .ppCompactSelect {
@@ -4340,6 +4344,8 @@ s-page[inline-size="large-500"] {
 
 .ppProductsTableWrap {
   position: relative;
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: visible;
   min-height: 0;
