@@ -15,6 +15,7 @@ const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
 const DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
+const MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE = 2;
 const DIAGNOSIS_RETURN_QUERY_PLANS = [
   { label: "balanced", ordersFirst: 8, returnsFirst: 3, returnLineItemsFirst: 15, includeVariantProduct: true },
   { label: "low-cost", ordersFirst: 5, returnsFirst: 2, returnLineItemsFirst: 10, includeVariantProduct: true },
@@ -939,6 +940,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
     returnUnits,
     refundUnits,
     negativeReviewCount,
+    contentIssueCount: deterministicContent.issues.length,
   });
   const estimatedImpact = calculateEstimatedImpact({
     refundAmount,
@@ -1221,23 +1223,24 @@ function buildAiDeterministicInput(deterministic) {
 
 function buildRuleRecommendationCandidates(deterministic) {
   const issue = deterministic.mainIssue;
+  const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, issue);
   const candidates = [];
-  if (issue === "fit_sizing" && deterministic.metrics.signalCount > 0) {
+  if (issue === "fit_sizing" && hasActionableMainIssue) {
     candidates.push({ id: "draft-fit-note", type: "PDP copy", reason: "Fit or size language appears in returns/reviews." });
     candidates.push({ id: "create-fit-faq", type: "FAQ", reason: "Repeated size questions deserve shopper-facing guidance." });
   }
-  if (issue === "color_expectation") candidates.push({ id: "draft-color-expectation-note", type: "PDP copy", reason: "Customers mention color expectation mismatch." });
-  if (issue === "safety_concern") candidates.push({ id: "draft-safety-expectation-note", type: "PDP copy", reason: "Customer return text expresses fear, safety concern, or discomfort." });
-  if (issue === "subjective_negative_reaction") candidates.push({ id: "draft-subjective-expectation-note", type: "PDP copy", reason: "Repeated subjective negative customer language is present." });
-  if (issue === "quality_defect" || issue === "durability") candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
-  if (deterministic.metrics.affectedVariants.length) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
-  if (deterministic.metrics.topReturnReasons.length) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
-  if (deterministic.metrics.negativeReviewCount > 0) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Judge.me negative review text is available." });
+  if (issue === "color_expectation" && hasActionableMainIssue) candidates.push({ id: "draft-color-expectation-note", type: "PDP copy", reason: "Customers mention color expectation mismatch." });
+  if (issue === "safety_concern" && hasActionableMainIssue) candidates.push({ id: "draft-safety-expectation-note", type: "PDP copy", reason: "Customer return text expresses fear, safety concern, or discomfort." });
+  if (issue === "subjective_negative_reaction" && hasActionableMainIssue) candidates.push({ id: "draft-subjective-expectation-note", type: "PDP copy", reason: "Repeated subjective negative customer language is present." });
+  if ((issue === "quality_defect" || issue === "durability") && hasActionableMainIssue) candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
+  if (deterministic.metrics.affectedVariants.length && (deterministic.metrics.returnUnits + deterministic.metrics.refundUnits) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
+  if (deterministic.metrics.topReturnReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
+  if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Judge.me negative review text is available." });
   if (deterministic.metrics.contentIssueCount > 0) {
     candidates.push({ id: "rewrite-product-description", type: "PDP copy", reason: "Product content analysis found missing, short or incoherent product copy." });
     candidates.push({ id: "align-product-metadata", type: "Workflow", reason: "Title, description, tags, collections and product type should tell a consistent story." });
   }
-  if (deterministic.metrics.signalCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
+  if (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
 }
 
@@ -1253,8 +1256,9 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
   const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
   const shouldRecommendSubjectiveAction = mainIssue !== "subjective_negative_reaction" || hasActionableSubjectiveEvidence(subjectiveSummary);
+  const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
 
-  if (deterministic.metrics.signalCount > 0 && pdpCopy && mainIssue !== "product_content" && shouldRecommendSubjectiveAction) {
+  if (hasActionableMainIssue && pdpCopy && mainIssue !== "product_content" && shouldRecommendSubjectiveAction) {
     recommendations.push({
       id: getPdpActionId(mainIssue),
       label: getPdpActionLabel(mainIssue),
@@ -1310,7 +1314,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (topReasons.length) {
+  if (topReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
     recommendations.push({
       id: "review-return-reasons",
       label: "Review return reasons",
@@ -1321,7 +1325,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (affectedVariants.length) {
+  if (affectedVariants.length && (deterministic.metrics.returnUnits + deterministic.metrics.refundUnits) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
     recommendations.push({
       id: "review-affected-variants",
       label: "Review affected variants",
@@ -1332,7 +1336,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (deterministic.metrics.negativeReviewCount > 0) {
+  if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
     recommendations.push({
       id: "review-negative-reviews",
       label: "Review negative Judge.me reviews",
@@ -1357,7 +1361,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (supportNote) {
+  if (supportNote && (hasActionableMainIssue || contentIssues.length > 0)) {
     recommendations.push({
       id: "copy-support-note",
       label: "Share internal note with support team",
@@ -1394,6 +1398,7 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     const issueCode = normalizeIssueCode(cluster.issue_category || cluster.issue || mainIssue) || mainIssue;
     const trend = getIssueTrend(deterministic, issueCode);
     const severity = cluster.severity || getSeverityLabel(deterministic.riskScore);
+    const signals = Number(cluster.signals || deterministic.issueSignalCounts[issueCode] || Math.max(1, Math.round(deterministic.metrics.signalCount / (index + 1))));
 
     return {
       issue: cluster.human_name || cluster.label || getHumanIssueLabel(issueCode),
@@ -1401,7 +1406,8 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
       severity: capitalize(severity),
       tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
       confidence: Math.max(35, Math.min(99, deterministic.confidence - index * 7)),
-      signals: Number(cluster.signals || deterministic.issueSignalCounts[issueCode] || Math.max(1, Math.round(deterministic.metrics.signalCount / (index + 1)))),
+      signals,
+      sourceTypes: normalizeSourceTypes(cluster.source_types || cluster.sources),
       evidence: [
         cluster.summary,
         ...(Array.isArray(cluster.evidence) ? cluster.evidence : []),
@@ -1439,6 +1445,8 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
   return mappedIssues
     .map((issue) => scaleSubjectiveIssueForEvidence(issue, deterministic))
     .map((issue) => scaleWeakReviewIssueForEvidence(issue, deterministic))
+    .filter((issue) => isMerchantFacingIssueSupported(issue, deterministic))
+    .reduce(mergeRelatedMerchantIssues, [])
     .slice(0, 10);
 }
 
@@ -1461,6 +1469,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
       tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
       confidence: Math.max(42, Math.min(94, deterministic.confidence - 5 - index * 3)),
       signals: Number(finding.signals || 1),
+      sourceTypes: normalizeSourceTypes(finding.source_types || finding.sources),
       evidence: Array.isArray(finding.evidence) ? finding.evidence.slice(0, 4) : [finding.summary || finding.explanation].filter(Boolean),
       trend,
       trendTone: getTrendTone(trend, deterministic.riskScore),
@@ -1478,6 +1487,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
       tone: getRiskToneFromSeverity(issue.severity || "low", deterministic.riskScore),
       confidence: Math.max(38, Math.min(90, deterministic.confidence - 8 - index * 3)),
       signals: Number(issue.signals || 1),
+      sourceTypes: normalizeSourceTypes(issue.sourceTypes || issue.sources),
       evidence: Array.isArray(issue.evidence) ? issue.evidence.slice(0, 4) : [],
       trend,
       trendTone: getTrendTone(trend, deterministic.riskScore),
@@ -1497,6 +1507,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
       tone: getRiskToneFromSeverity(item.severity || "low", deterministic.riskScore),
       confidence: Math.max(38, Math.min(88, deterministic.confidence - 12 - index * 2)),
       signals: Number(item.count || 1),
+      sourceTypes: normalizeSourceTypes(item.source_types || item.sources),
       evidence: [item.explanation, `${term} appears ${item.count || 1} times.`].filter(Boolean),
       trend,
       trendTone: getTrendTone(trend, deterministic.riskScore),
@@ -1515,6 +1526,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
       tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
       confidence: getEmergentSentimentConfidenceScore(item, deterministic.confidence, index),
       signals: item.signals,
+      sourceTypes: normalizeSourceTypes(item.sourceTypes || item.source_types),
       evidence: [
         item.merchantSummary,
         item.mergedFrom.length ? `Merged similar reactions: ${item.mergedFrom.join(", ")}.` : "",
@@ -1527,6 +1539,107 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   });
 
   return uniqueBy(issues.filter((issue) => issue.issue), (issue) => `${issue.issueCode}-${issue.issue}`);
+}
+
+function isMerchantFacingIssueSupported(issue, deterministic) {
+  const issueCode = normalizeIssueCode(issue.issueCode);
+  if (issueCode === "product_content") return true;
+
+  const support = getMerchantIssueSupport(issue, deterministic);
+  if (support.sources >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE && support.signals >= 1) return true;
+  if (support.signals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) return true;
+
+  return false;
+}
+
+function hasActionableIssueEvidence(deterministic, issueCode) {
+  const normalizedIssueCode = normalizeIssueCode(issueCode);
+  if (normalizedIssueCode === "product_content") return Number(deterministic.metrics?.contentIssueCount || 0) > 0;
+  return isMerchantFacingIssueSupported({
+    issueCode: normalizedIssueCode,
+    signals: deterministic.issueSignalCounts?.[normalizedIssueCode] || 0,
+  }, deterministic);
+}
+
+function getMerchantIssueSupport(issue, deterministic) {
+  const issueCode = normalizeIssueCode(issue.issueCode);
+  const metrics = deterministic.metrics || {};
+  const sourceTypes = normalizeSourceTypes(issue.sourceTypes || issue.source_types || issue.sources);
+  const explicitSignals = Number(issue.signals || 0);
+  const issueSignals = Number(deterministic.issueSignalCounts?.[issueCode] || 0);
+  const fallbackSignals = getDeterministicIssueSupport(issueCode, metrics);
+
+  return {
+    signals: Math.max(explicitSignals, issueSignals, fallbackSignals),
+    sources: sourceTypes.length,
+  };
+}
+
+function getDeterministicIssueSupport(issueCode, metrics) {
+  if (issueCode === "refund_impact") return Number(metrics.refundUnits || 0);
+  if (issueCode === "negative_sentiment") return Number(metrics.textInsights?.sentiment?.negative || 0);
+  if (issueCode === "subjective_negative_reaction") return Number(metrics.textInsights?.subjectiveNegativity?.count || 0);
+  if (issueCode === "repeated_language") {
+    return Math.max(...(metrics.textInsights?.repeatedLanguage || []).map((item) => Number(item.count || 0)), 0);
+  }
+  return 0;
+}
+
+function mergeRelatedMerchantIssues(mergedIssues, issue) {
+  const existingIndex = mergedIssues.findIndex((candidate) => getIssueMergeKey(candidate) === getIssueMergeKey(issue));
+  if (existingIndex === -1) return [...mergedIssues, issue];
+
+  const existing = mergedIssues[existingIndex];
+  const preferred = compareIssueStrength(issue, existing) > 0 ? issue : existing;
+  const secondary = preferred === issue ? existing : issue;
+  const combined = {
+    ...preferred,
+    signals: Math.max(Number(preferred.signals || 0), Number(secondary.signals || 0)),
+    confidence: Math.max(Number(preferred.confidence || 0), Number(secondary.confidence || 0)),
+    evidence: uniqueBy([
+      ...(Array.isArray(preferred.evidence) ? preferred.evidence : []),
+      ...(Array.isArray(secondary.evidence) ? secondary.evidence : []),
+    ].filter(Boolean), (item) => normalizeText(item)).slice(0, 5),
+    sourceTypes: uniqueBy([
+      ...normalizeSourceTypes(preferred.sourceTypes),
+      ...normalizeSourceTypes(secondary.sourceTypes),
+    ], (item) => item),
+  };
+
+  return [
+    ...mergedIssues.slice(0, existingIndex),
+    combined,
+    ...mergedIssues.slice(existingIndex + 1),
+  ];
+}
+
+function compareIssueStrength(first, second) {
+  const firstScore = getSeverityRank(first.severity) * 100 + Number(first.signals || 0) * 10 + Number(first.confidence || 0);
+  const secondScore = getSeverityRank(second.severity) * 100 + Number(second.signals || 0) * 10 + Number(second.confidence || 0);
+  return firstScore - secondScore;
+}
+
+function getIssueMergeKey(issue) {
+  const issueCode = normalizeIssueCode(issue.issueCode);
+  if (issueCode === "product_content") return `${issueCode}-${normalizeText(issue.issue)}`;
+  return issueCode || normalizeText(issue.issue);
+}
+
+function getSeverityRank(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return 3;
+  if (normalized.includes("medium") || normalized.includes("moderate")) return 2;
+  return 1;
+}
+
+function normalizeSourceTypes(value) {
+  const values = Array.isArray(value) ? value : String(value || "").split(",");
+  return uniqueBy(
+    values
+      .map((item) => String(item || "").trim().toLowerCase().replace(/\s+/g, "_"))
+      .filter(Boolean),
+    (item) => item,
+  );
 }
 
 function scaleSubjectiveIssueForEvidence(issue, deterministic) {
@@ -2380,6 +2493,7 @@ function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummar
 
   if (otherReturnClassifications.length) {
     otherReturnClassifications.forEach((item) => {
+      if (Number(item.count || 0) < MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) return;
       const isSubjective = item.issueCode === "subjective_negative_reaction";
       const severity = isSubjective
         ? getSubjectiveIssueSeverity(subjectiveNegativity)
@@ -2395,11 +2509,12 @@ function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummar
           ...item.examples.map((example) => `Example: "${example}"`),
         ].filter(Boolean),
         action: "Review Other return notes",
+        sourceTypes: ["shopify_return_note"],
       });
     });
   }
 
-  if (subjectiveNegativity?.count > 0 && !otherReturnClassifications.some((item) => item.issueCode === "subjective_negative_reaction")) {
+  if (hasActionableSubjectiveEvidence(subjectiveNegativity) && !otherReturnClassifications.some((item) => item.issueCode === "subjective_negative_reaction" && item.count >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE)) {
     issues.push({
       issueCode: "subjective_negative_reaction",
       issue: "Subjective negative customer reaction",
@@ -2413,23 +2528,29 @@ function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummar
       action: hasActionableSubjectiveEvidence(subjectiveNegativity)
         ? "Review expectation-setting copy"
         : "Monitor for repeated subjective reactions",
+      sourceTypes: Object.keys(subjectiveNegativity.sourceCounts || {}),
     });
   }
 
   if (sentiment.negative >= 2 && sentiment.negativeRatio >= 0.35) {
     const subjectiveOnly = subjectiveNegativity?.count >= sentiment.negative;
-    issues.push({
-      issueCode: "negative_sentiment",
-      issue: "Negative customer sentiment cluster",
-      severity: subjectiveOnly ? getSubjectiveIssueSeverity(subjectiveNegativity) : sentiment.negativeRatio >= 0.6 ? "high" : "medium",
-      signals: sentiment.negative,
-      evidence: [
-        `${sentiment.negative} of ${sentiment.total} customer text signals read as negative.`,
-        `Returns: ${returnsSummary.sentiment.negative} negative. Reviews: ${reviewsSummary.sentiment.negative} negative.`,
-        subjectiveOnly ? getSubjectiveEvidencePolicyText(subjectiveNegativity) : "",
-      ].filter(Boolean),
-      action: "Review customer sentiment evidence",
-    });
+    if (!subjectiveOnly) {
+      issues.push({
+        issueCode: "negative_sentiment",
+        issue: "Negative customer sentiment cluster",
+        severity: sentiment.negativeRatio >= 0.6 ? "high" : "medium",
+        signals: sentiment.negative,
+        evidence: [
+          `${sentiment.negative} of ${sentiment.total} customer text signals read as negative.`,
+          `Returns: ${returnsSummary.sentiment.negative} negative. Reviews: ${reviewsSummary.sentiment.negative} negative.`,
+        ].filter(Boolean),
+        action: "Review customer sentiment evidence",
+        sourceTypes: uniqueBy([
+          returnsSummary.sentiment.negative > 0 ? "returns" : "",
+          reviewsSummary.sentiment.negative > 0 ? "reviews" : "",
+        ].filter(Boolean), (item) => item),
+      });
+    }
   }
 
   repeatedLanguage.slice(0, 3).forEach((item) => {
@@ -2444,6 +2565,7 @@ function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummar
         item.example ? `Example context: "${item.example}"` : "",
       ].filter(Boolean),
       action: "Review repeated language",
+      sourceTypes: item.sources,
     });
   });
 
@@ -2632,7 +2754,7 @@ function classifyIssueText(text) {
   if (isObjectiveSafetyText(normalized)) return "safety_concern";
   if (isSubjectiveNegativeText(normalized)) return "subjective_negative_reaction";
   if (/(color|colour|pictured|photo|image|shade|looks different)/.test(normalized)) return "color_expectation";
-  if (/(break|broken|defect|damaged|quality|thin|poor|cheap|durability|durable)/.test(normalized)) return "quality_defect";
+  if (/(break|broken|defect|damaged|quality|thin|poor|cheap|durability|durable|soft|softness|rough|scratchy|stiff|material|fabric|texture)/.test(normalized)) return "quality_defect";
   if (/(compatible|compatibility|fit with|works with)/.test(normalized)) return "compatibility";
   if (/(shipping|delivery|late|arrived)/.test(normalized)) return "shipping_delivery";
   return "product_quality";
@@ -2802,9 +2924,17 @@ function splitMainFindingParagraphs(value) {
 
 function adjustMainFindingForSignalStrength(mainFinding, deterministic) {
   const relevance = buildSignalRelevanceGuidance(deterministic);
+  const hasContentIssues = Number(deterministic.metrics.contentIssueCount || 0) > 0;
+  if (relevance.customerEvidence?.level === "isolated" && !hasContentIssues) {
+    return {
+      title: "Customer signal needs monitoring",
+      detail: normalizeMainFindingDetail(relevance.customerEvidence.guidance),
+      summary: relevance.customerEvidence.summary,
+    };
+  }
+
   if (relevance.reviewSignals.level === "normal") return mainFinding;
 
-  const hasContentIssues = Number(deterministic.metrics.contentIssueCount || 0) > 0;
   if (hasContentIssues) {
     return {
       ...mainFinding,
@@ -2829,10 +2959,12 @@ function buildSignalRelevanceGuidance(deterministic) {
   const returnUnits = Number(metrics.returnUnits || 0);
   const refundUnits = Number(metrics.refundUnits || 0);
   const contentIssues = Number(metrics.contentIssueCount || 0);
+  const customerEvidence = buildCustomerEvidenceRelevanceGuidance({ negativeReviews, returnUnits, refundUnits, contentIssues });
   const reviewOnly = negativeReviews > 0 && returnUnits === 0 && refundUnits === 0 && contentIssues === 0;
 
   if (!reviewOnly) {
     return {
+      customerEvidence,
       reviewSignals: {
         level: "normal",
         summary: negativeReviews ? `${negativeReviews} negative Judge.me reviews are available with other supporting signals.` : "No negative review pressure is leading the finding.",
@@ -2843,6 +2975,7 @@ function buildSignalRelevanceGuidance(deterministic) {
 
   if (negativeReviews <= 2) {
     return {
+      customerEvidence,
       reviewSignals: {
         level: "weak",
         summary: `${negativeReviews} negative Judge.me review${negativeReviews === 1 ? "" : "s"} out of ${reviewCount} total reviews is an early signal only.`,
@@ -2853,6 +2986,7 @@ function buildSignalRelevanceGuidance(deterministic) {
 
   if (negativeReviews <= 4) {
     return {
+      customerEvidence,
       reviewSignals: {
         level: "emerging",
         summary: `${negativeReviews} negative Judge.me reviews out of ${reviewCount} total reviews is an emerging signal.`,
@@ -2862,11 +2996,42 @@ function buildSignalRelevanceGuidance(deterministic) {
   }
 
   return {
+    customerEvidence,
     reviewSignals: {
       level: "normal",
       summary: `${negativeReviews} negative Judge.me reviews out of ${reviewCount} total reviews is enough review volume to support the finding.`,
       guidance: "Reviews have enough volume to inform the main finding when they are consistent.",
     },
+  };
+}
+
+function buildCustomerEvidenceRelevanceGuidance({ negativeReviews, returnUnits, refundUnits, contentIssues }) {
+  const customerSignalCount = Number(negativeReviews || 0) + Number(returnUnits || 0) + Number(refundUnits || 0);
+  if (Number(contentIssues || 0) > 0) {
+    return {
+      level: "supported",
+      summary: "Product content findings are deterministic and can be discussed independently from customer-signal volume.",
+      guidance: "Use content issues when they are present, even if customer text volume is low.",
+    };
+  }
+  if (customerSignalCount <= 1) {
+    return {
+      level: "isolated",
+      summary: `${customerSignalCount} customer signal is isolated and should not become a confirmed issue by itself.`,
+      guidance: "Keep isolated customer language in evidence, but do not turn one customer opinion into multiple issues, a strong recommendation, or a high-risk finding.",
+    };
+  }
+  if (customerSignalCount < 4) {
+    return {
+      level: "emerging",
+      summary: `${customerSignalCount} customer signals can support a low-confidence finding when they point to the same issue.`,
+      guidance: "Treat two or three aligned customer signals as emerging evidence; severity should stay low or medium unless hard metrics agree.",
+    };
+  }
+  return {
+    level: "supported",
+    summary: `${customerSignalCount} customer signals provide enough sample support for merchant-facing analysis.`,
+    guidance: "Repeated customer evidence can support issues and recommendations when it is grouped by the same underlying problem.",
   };
 }
 
@@ -2897,21 +3062,26 @@ function meaningfulTokens(value) {
 function calculateRiskScore({ snapshot, metrics }) {
   const storeAvgReturnRate = Number(snapshot.metrics?.storeAvgReturnRate || 0);
   const storeAvgRefundRate = Number(snapshot.metrics?.storeAvgRefundRate || 0);
-  const returnAnomaly = storeAvgReturnRate > 0
+  const returnSampleSupport = getHardSignalSampleSupport(metrics.returnUnits);
+  const refundSampleSupport = getHardSignalSampleSupport(metrics.refundUnits);
+  const supportedSignalCount = getSupportedRiskSignalCount(metrics);
+  const returnAnomaly = (storeAvgReturnRate > 0
     ? Math.max(0, Math.min(25, ((metrics.returnRate / storeAvgReturnRate) - 1) * 14))
-    : Math.min(22, metrics.returnRate * 1.2);
-  const refundAnomaly = storeAvgRefundRate > 0
+    : Math.min(22, metrics.returnRate * 1.2)) * returnSampleSupport;
+  const refundAnomaly = (storeAvgRefundRate > 0
     ? Math.max(0, Math.min(20, ((metrics.refundRate / storeAvgRefundRate) - 1) * 11))
-    : Math.min(18, metrics.refundRate);
-  const refundImpact = Math.min(15, Math.log10(metrics.refundAmount + 1) * 4);
+    : Math.min(18, metrics.refundRate)) * refundSampleSupport;
+  const refundImpact = Math.min(15, Math.log10(metrics.refundAmount + 1) * 4) * refundSampleSupport;
   const reviewAnomaly = calculateReviewAnomaly(metrics);
-  const signalVolume = Math.min(12, Math.sqrt(metrics.signalCount) * 2.6);
+  const signalVolume = Math.min(12, Math.sqrt(supportedSignalCount) * 2.6);
   const sourceAgreement = hasSourceAgreement({
     returnUnits: metrics.returnUnits,
     refundUnits: metrics.refundUnits,
     negativeReviewCount: metrics.negativeReviewCount,
   }) ? 9 : 0;
-  const recency = metrics.signalCount ? Math.min(9, (countRecentSignalEvents(metrics.signalEvents, 30) / metrics.signalCount) * 15) : 0;
+  const recency = supportedSignalCount
+    ? Math.min(9, (countRecentSignalEvents(metrics.signalEvents, 30) / Math.max(1, metrics.signalCount)) * 15) * getHardSignalSampleSupport(supportedSignalCount)
+    : 0;
   const variantConcentration = metrics.affectedVariants.length ? 5 : 0;
   const volumeWeight = metrics.soldUnits ? Math.min(7, Math.log10(metrics.soldUnits + 1) * 3) : 0;
   const contentRisk = Math.min(16, Number(metrics.contentQualityRisk || 0));
@@ -2929,9 +3099,35 @@ function calculateTextSentimentRisk(textInsights) {
   const subjective = Number(textInsights?.subjectiveNegativity?.count || 0);
   const subjectiveRatio = Number(textInsights?.subjectiveNegativity?.ratio || 0);
   const objectiveNegative = Math.max(0, negative - subjective);
-  const objectiveRisk = Math.min(8, (objectiveNegative / total) * 10);
+  const objectiveSampleSupport = getHardSignalSampleSupport(objectiveNegative);
+  const objectiveRisk = Math.min(8, (objectiveNegative / total) * 10) * objectiveSampleSupport;
   const subjectiveRisk = calculateSubjectiveTextRisk({ count: subjective, ratio: subjectiveRatio });
   return Math.min(8, objectiveRisk + subjectiveRisk);
+}
+
+function getSupportedRiskSignalCount(metrics) {
+  const hardSignals = Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) + Number(metrics.negativeReviewCount || 0);
+  const repeatedLanguageSignals = Math.max(...(metrics.textInsights?.repeatedLanguage || []).map((item) => Number(item.count || 0)), 0);
+  const subjectiveSignals = hasActionableSubjectiveEvidence(metrics.textInsights?.subjectiveNegativity)
+    ? Number(metrics.textInsights?.subjectiveNegativity?.count || 0)
+    : 0;
+  const contentSignals = Number(metrics.contentIssueCount || 0);
+  return Math.max(
+    hardSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE ? hardSignals : 0,
+    repeatedLanguageSignals,
+    subjectiveSignals,
+    contentSignals,
+  );
+}
+
+function getHardSignalSampleSupport(count) {
+  const signalCount = Number(count || 0);
+  if (signalCount <= 0) return 0;
+  if (signalCount === 1) return 0.28;
+  if (signalCount === 2) return 0.58;
+  if (signalCount === 3) return 0.74;
+  if (signalCount === 4) return 0.86;
+  return 1;
 }
 
 function calculateSubjectiveTextRisk({ count, ratio }) {
@@ -2976,6 +3172,7 @@ function calculateConfidence({
   returnUnits = 0,
   refundUnits = 0,
   negativeReviewCount = 0,
+  contentIssueCount = 0,
 }) {
   const sample = Math.min(26, Math.log2(signalCount + 1) * 8);
   const coverage = Math.min(28, sourceCoverage.length * 7);
@@ -2984,8 +3181,25 @@ function calculateConfidence({
   const recency = recentSignals ? 10 : 0;
   const penalty = orderAccessDenied ? 16 : 0;
   const baseConfidence = clamp(Math.round(18 + sample + coverage + match + agreement + recency - penalty), 0, 99);
-  const reviewAdjustedConfidence = adjustWeakReviewConfidence(baseConfidence, { returnUnits, refundUnits, negativeReviewCount });
+  const sparseAdjustedConfidence = adjustSparseCustomerSignalConfidence(baseConfidence, {
+    signalCount,
+    sourceAgreement,
+    returnUnits,
+    refundUnits,
+    negativeReviewCount,
+    contentIssueCount,
+  });
+  const reviewAdjustedConfidence = adjustWeakReviewConfidence(sparseAdjustedConfidence, { returnUnits, refundUnits, negativeReviewCount });
   return adjustSubjectiveConfidence(reviewAdjustedConfidence, mainIssue, textInsights);
+}
+
+function adjustSparseCustomerSignalConfidence(confidence, { signalCount, sourceAgreement, returnUnits, refundUnits, negativeReviewCount, contentIssueCount }) {
+  if (sourceAgreement || Number(contentIssueCount || 0) > 0) return confidence;
+  const customerSignals = Number(returnUnits || 0) + Number(refundUnits || 0) + Number(negativeReviewCount || 0);
+  const knownSignals = Math.max(Number(signalCount || 0), customerSignals);
+  if (knownSignals <= 1) return Math.min(confidence, 45);
+  if (knownSignals < MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) return Math.min(confidence, 49);
+  return confidence;
 }
 
 function adjustWeakReviewConfidence(confidence, { returnUnits, refundUnits, negativeReviewCount }) {
@@ -3229,7 +3443,7 @@ function normalizeIssueCode(value) {
   if (normalized.includes("safety") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("hazard") || normalized.includes("peligro")) return "safety_concern";
   if (normalized.includes("subjective") || normalized.includes("preference") || normalized.includes("dislike") || normalized.includes("fear") || normalized.includes("scare") || normalized.includes("creepy") || normalized.includes("miedo") || normalized.includes("asusta") || normalized.includes("terror")) return "subjective_negative_reaction";
   if (normalized.includes("durability")) return "durability";
-  if (normalized.includes("defect") || normalized.includes("quality")) return "quality_defect";
+  if (normalized.includes("defect") || normalized.includes("quality") || normalized.includes("soft") || normalized.includes("rough") || normalized.includes("scratchy") || normalized.includes("stiff") || normalized.includes("material") || normalized.includes("fabric") || normalized.includes("texture")) return "quality_defect";
   if (normalized.includes("compat")) return "compatibility";
   if (normalized.includes("shipping")) return "shipping_delivery";
   if (normalized.includes("content") || normalized.includes("description") || normalized.includes("metadata")) return "product_content";
@@ -3329,7 +3543,7 @@ function getTrendTone(values, fallbackScore = 0) {
 }
 
 function containsIssueLanguage(text) {
-  return /(too small|too large|doesn.?t fit|broken|poor quality|defect|thin|color|not as pictured|disappointed|return)/i.test(String(text || ""));
+  return /(too small|too large|doesn.?t fit|broken|poor quality|defect|thin|softness|not soft|rough|scratchy|stiff|color|not as pictured|disappointed|return)/i.test(String(text || ""));
 }
 
 function getNodes(connection) {
@@ -3410,6 +3624,7 @@ export const __productPulseDiagnosisTestHooks = {
   calculateConfidence,
   calculateRiskScore,
   buildSignalRelevanceGuidance,
+  buildFinalIssues,
   classifyIssueText,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,

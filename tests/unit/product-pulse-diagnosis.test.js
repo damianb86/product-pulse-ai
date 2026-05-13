@@ -248,6 +248,155 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(repeatedConfidence).toBeGreaterThan(oneConfidence);
   });
 
+  it("keeps one isolated customer text as evidence instead of merchant-facing issues", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [{
+        reason: "Other reason",
+        reasonNote: "Not enough softness for me.",
+        customerNote: "",
+        createdAt: "2026-05-13T12:00:00Z",
+      }],
+      reviews: [],
+    });
+    const deterministic = {
+      riskScore: 31,
+      confidence: 45,
+      mainIssue: "quality_defect",
+      issueSignalCounts: { quality_defect: 1 },
+      metrics: {
+        signalCount: 1,
+        customerSignalCount: 1,
+        returnUnits: 1,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        reviewCount: 0,
+        textInsights: insights,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        topReturnReasons: ["Other reason"],
+        affectedVariants: [],
+        issueSignalTrends: {},
+        signalTrend: [],
+      },
+    };
+
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic,
+      recommendations: [],
+      mainIssue: "quality_defect",
+      ai: {
+        classification: {
+          clusters: [{
+            issue_category: "quality_defect",
+            human_name: "Insufficient softness",
+            summary: "One return note mentions softness.",
+            signals: 1,
+            source_types: ["shopify_return_note"],
+            severity: "medium",
+          }],
+          granular_findings: [{
+            finding: "One customer mentions softness",
+            issue_category: "quality_defect",
+            signals: 1,
+            source_types: ["shopify_return_note"],
+            evidence: ["Not enough softness for me."],
+          }],
+          repeated_language: [{
+            term: "softness",
+            count: 1,
+            source_types: ["shopify_return_note"],
+            issue_category: "quality_defect",
+          }],
+        },
+        emergentSentiments: { emergent_sentiments: [] },
+      },
+    });
+
+    expect(insights.otherReturnClassifications[0]).toMatchObject({ issueCode: "quality_defect", count: 1 });
+    expect(insights.granularIssues).toEqual([]);
+    expect(issues).toEqual([]);
+  });
+
+  it("merges repeated evidence for the same issue into one merchant-facing issue", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [
+        {
+          reason: "Other reason",
+          reasonNote: "Not enough softness for me.",
+          customerNote: "",
+          createdAt: "2026-05-13T12:00:00Z",
+        },
+        {
+          reason: "Other reason",
+          reasonNote: "The fabric lacks softness.",
+          customerNote: "",
+          createdAt: "2026-05-13T12:10:00Z",
+        },
+      ],
+      reviews: [],
+    });
+    const deterministic = {
+      riskScore: 48,
+      confidence: 58,
+      mainIssue: "quality_defect",
+      issueSignalCounts: { quality_defect: 2 },
+      metrics: {
+        signalCount: 2,
+        customerSignalCount: 2,
+        returnUnits: 2,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        reviewCount: 0,
+        textInsights: insights,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        topReturnReasons: ["Other reason"],
+        affectedVariants: [],
+        issueSignalTrends: {},
+        signalTrend: [],
+      },
+    };
+
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic,
+      recommendations: [{ label: "Review text evidence" }],
+      mainIssue: "quality_defect",
+      ai: {
+        classification: {
+          clusters: [{
+            issue_category: "quality_defect",
+            human_name: "Insufficient softness",
+            summary: "Two return notes mention softness.",
+            signals: 2,
+            source_types: ["shopify_return_note"],
+            severity: "low",
+          }],
+          granular_findings: [{
+            finding: "Return notes mention insufficient softness",
+            issue_category: "quality_defect",
+            signals: 2,
+            source_types: ["shopify_return_note"],
+            evidence: ["Not enough softness for me.", "The fabric lacks softness."],
+          }],
+          repeated_language: [{
+            term: "softness",
+            count: 2,
+            source_types: ["shopify_return_note"],
+            issue_category: "quality_defect",
+          }],
+        },
+        emergentSentiments: { emergent_sentiments: [] },
+      },
+    });
+
+    expect(insights.granularIssues.length).toBeGreaterThan(0);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      issueCode: "quality_defect",
+      signals: 2,
+    });
+  });
+
   it("keeps one or two review-only negatives as weak main-finding evidence", () => {
     const weakRelevance = __productPulseDiagnosisTestHooks.buildSignalRelevanceGuidance({
       metrics: {
