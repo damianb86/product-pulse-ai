@@ -91,11 +91,27 @@ describe("ProductPulse screens", () => {
           signalTone: "red",
           signalBars: [42, 62, 82, 98, 72, 50, 22],
           issue: "Fit & sizing",
-          sources: ["return", "globe"],
+          sources: [
+            { key: "returns", label: "Returns", shortLabel: "RET", detail: "Shopify return units and return reasons." },
+            { key: "refunds", label: "Refunds", shortLabel: "REF", detail: "Shopify refunded units and refund amount." },
+            { key: "products", label: "Products", shortLabel: "PDP", detail: "Shopify product metadata." },
+          ],
           sourceOverflow: 0,
           lastAnalysis: "Just now",
+          lastAnalysisAt: "2026-05-12T22:00:00.000Z",
           credits: 1,
           href: "/app/products/linen-shirt",
+          handle: "linen-shirt",
+          productGid: "gid://shopify/Product/1",
+          imageUrl: "https://cdn.example.com/linen-shirt.jpg",
+          imageAlt: "Linen product",
+          signalDetails: {
+            summary: "Fit & sizing risk score 84/100 from 184 signals.",
+            bars: [
+              { label: "Return rate", value: 62, detail: "Return rate contribution." },
+              { label: "Refund rate", value: 82, detail: "Refund amount contribution." },
+            ],
+          },
         }],
         total: 1,
       },
@@ -103,6 +119,18 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
     expect(screen.getByRole("button", { name: /Run quick scan/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Linen Shirt/ })).toHaveAttribute("href", "/app/products/linen-shirt");
+    expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
+    fireEvent.click(screen.getByRole("button", { name: "Risk score" }));
+    expect(screen.getByText("↓")).toBeInTheDocument();
+    expect(screen.getByText("Return rate contribution.")).toBeInTheDocument();
+    expect(screen.getByText("RET")).toBeInTheDocument();
+    expect(screen.getByText("REF")).toBeInTheDocument();
+    expect(screen.getByText("PDP")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
+    expect(screen.getByRole("menuitem", { name: /View diagnostics/ })).toHaveAttribute("href", "/app/products/linen-shirt");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
+    expect(screen.getByRole("menuitem", { name: "Queued for review" })).toBeDisabled();
   });
 
   it("renders product diagnosis evidence and draft actions", () => {

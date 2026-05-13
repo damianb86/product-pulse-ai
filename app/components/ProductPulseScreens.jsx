@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Form, Link, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
   buildConnectViewData,
@@ -693,12 +693,32 @@ export function ProductsScreen({ data, filters }) {
   const navigation = useNavigation();
   const submit = useSubmit();
   const [localFastScan, setLocalFastScan] = useState(false);
-  const productRows = data.productTable?.rows || [];
+  const [sortConfig, setSortConfig] = useState(null);
+  const [openActionProduct, setOpenActionProduct] = useState(null);
+  const [queuedProducts, setQueuedProducts] = useState(() => new Set());
+  const productTableRows = data.productTable?.rows;
+  const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const productCount = data.productTable?.total ?? productRows.length;
   const activeScanJob = data.productTable?.activeScanJob || null;
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
+  const sortedProductRows = useMemo(() => {
+    if (!sortConfig) return productRows;
+    const direction = sortConfig.direction === "asc" ? 1 : -1;
+
+    return [...productRows].sort((first, second) => {
+      const firstValue = sortConfig.key === "riskScore"
+        ? Number(first.riskScore || 0)
+        : getSortableDate(first.lastAnalysisAt || first.lastAnalysis);
+      const secondValue = sortConfig.key === "riskScore"
+        ? Number(second.riskScore || 0)
+        : getSortableDate(second.lastAnalysisAt || second.lastAnalysis);
+
+      if (firstValue === secondValue) return String(first.title).localeCompare(String(second.title));
+      return (firstValue - secondValue) * direction;
+    });
+  }, [productRows, sortConfig]);
 
   useEffect(() => {
     if (!activeScanJob || !persistProductJobs) return undefined;
@@ -721,6 +741,21 @@ export function ProductsScreen({ data, filters }) {
     const formData = new FormData();
     formData.set("_action", "fast-product-scan");
     submit(formData, { method: "post" });
+  };
+  const handleSort = (key) => {
+    setSortConfig((current) => {
+      if (!current || current.key !== key) return { key, direction: "desc" };
+      return { key, direction: current.direction === "desc" ? "asc" : "desc" };
+    });
+  };
+  const handleMarkForReview = (product) => {
+    const key = getProductActionKey(product);
+    setQueuedProducts((current) => {
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+    setOpenActionProduct(null);
   };
 
   return (
@@ -837,14 +872,24 @@ export function ProductsScreen({ data, filters }) {
                   </th>
                   <th>Product</th>
                   <th>
-                    Risk score <s-icon type="sort" size="small"></s-icon>
+                    <SortableHeader
+                      active={sortConfig?.key === "riskScore"}
+                      direction={sortConfig?.direction}
+                      label="Risk score"
+                      onSort={() => handleSort("riskScore")}
+                    />
                   </th>
                   <th>Status</th>
                   <th>Signals</th>
                   <th>Main suspected issue</th>
                   <th>Sources</th>
                   <th>
-                    Last analysis <s-icon type="sort" size="small"></s-icon>
+                    <SortableHeader
+                      active={sortConfig?.key === "lastAnalysis"}
+                      direction={sortConfig?.direction}
+                      label="Last analysis"
+                      onSort={() => handleSort("lastAnalysis")}
+                    />
                   </th>
                   <th>Credits</th>
                   <th>Action</th>
@@ -868,47 +913,58 @@ export function ProductsScreen({ data, filters }) {
                     </td>
                   </tr>
                 )}
-                {productRows.map((product) => (
-                  <tr key={product.title}>
-                    <td>
-                      <input type="checkbox" checked={product.selected} readOnly aria-label={`Select ${product.title}`} />
-                    </td>
-                    <td>
-                      <Link className="ppProductsProductCell" to={product.href}>
-                        <ProductArt variant={product.variant} label={product.title} />
-                        <span>{product.title}</span>
-                      </Link>
-                    </td>
-                    <td>
-                      <div className="ppRiskScoreCell">
-                        <s-badge tone={product.riskTone}>{product.risk}</s-badge>
-                        <span>{product.riskScore}</span>
-                      </div>
-                    </td>
-                    <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
-                    <td>
-                      <div className="ppSignalCell">
-                        <SignalBars tone={product.signalTone} values={product.signalBars} />
-                        <span>{product.signals}</span>
-                      </div>
-                    </td>
-                    <td>{product.issue}</td>
-                    <td><ProductSourceIconGroup sources={product.sources} overflow={product.sourceOverflow} /></td>
-                    <td>{product.lastAnalysis}</td>
-                    <td>{product.credits}</td>
-                    <td>
-                      <div className="ppTableAction">
-                        <Link className="ppAnalyzeLinkButton" to={product.href}>
-                          <s-icon type="wand" size="small"></s-icon>
-                          <span>Analyze</span>
+                {sortedProductRows.map((product) => {
+                  const actionKey = getProductActionKey(product);
+
+                  return (
+                    <tr key={actionKey}>
+                      <td>
+                        <input type="checkbox" checked={product.selected} readOnly aria-label={`Select ${product.title}`} />
+                      </td>
+                      <td>
+                        <Link className="ppProductsProductCell" to={product.href}>
+                          <ProductArt
+                            variant={product.variant}
+                            label={product.title}
+                            imageUrl={product.imageUrl}
+                            imageAlt={product.imageAlt}
+                          />
+                          <span>{product.title}</span>
                         </Link>
-                        <button className="ppIconButton" type="button" aria-label={`More actions for ${product.title}`}>
-                          <s-icon type="menu-horizontal" size="small"></s-icon>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>
+                        <div className="ppRiskScoreCell">
+                          <s-badge tone={product.riskTone}>{product.risk}</s-badge>
+                          <span>{product.riskScore}</span>
+                        </div>
+                      </td>
+                      <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
+                      <td>
+                        <ProductSignalCell product={product} />
+                      </td>
+                      <td>{product.issue}</td>
+                      <td><ProductSourceIconGroup sources={product.sources} overflow={product.sourceOverflow} /></td>
+                      <td>{product.lastAnalysis}</td>
+                      <td>{product.credits}</td>
+                      <td>
+                        <div className="ppTableAction">
+                          <Link className="ppAnalyzeLinkButton" to={product.href}>
+                            <s-icon type="wand" size="small"></s-icon>
+                            <span>Analyze</span>
+                          </Link>
+                          <ProductActionMenu
+                            product={product}
+                            open={openActionProduct === actionKey}
+                            queued={queuedProducts.has(actionKey)}
+                            onToggle={() => setOpenActionProduct((current) => (current === actionKey ? null : actionKey))}
+                            onClose={() => setOpenActionProduct(null)}
+                            onMarkForReview={() => handleMarkForReview(product)}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {fastScanRunning && (
@@ -962,6 +1018,26 @@ function FastScanButton({ pending, onStart }) {
       {pending ? "Scan running..." : "Run quick scan"}
     </button>
   );
+}
+
+function SortableHeader({ active, direction, label, onSort }) {
+  return (
+    <button className={`ppSortableHeader ${active ? "isActive" : ""}`} type="button" onClick={onSort}>
+      <span>{label}</span>
+      {active && <span className="ppSortArrow" aria-hidden="true">{direction === "asc" ? "↑" : "↓"}</span>}
+    </button>
+  );
+}
+
+function getSortableDate(value) {
+  if (!value) return 0;
+  if (value === "Just now") return Number.MAX_SAFE_INTEGER;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function getProductActionKey(product) {
+  return product.productGid || product.handle || product.href || product.title;
 }
 
 function getProductDetailModel(product) {
@@ -1544,18 +1620,69 @@ function EvidenceMetric({ metric }) {
   );
 }
 
-function ProductArt({ variant, label, size = "small" }) {
+function ProductArt({ variant, label, size = "small", imageUrl, imageAlt }) {
   return (
     <span
       className={`ppProductArt ppProductArt-${variant} ppProductArt-${size}`}
-      role="img"
-      aria-label={`${label} product image`}
+      role={imageUrl ? undefined : "img"}
+      aria-label={imageUrl ? undefined : `${label} product image`}
     >
-      <span className="ppProductShape" />
-      <span className="ppProductAccent" />
-      <span className="ppProductDetail" />
+      {imageUrl ? (
+        <img src={imageUrl} alt={imageAlt || `${label} product image`} loading="lazy" />
+      ) : (
+        <>
+          <span className="ppProductShape" />
+          <span className="ppProductAccent" />
+          <span className="ppProductDetail" />
+        </>
+      )}
     </span>
   );
+}
+
+function ProductSignalCell({ product }) {
+  const details = product.signalDetails || buildFallbackSignalDetails(product);
+
+  return (
+    <span className="ppSignalPopoverWrap">
+      <button className="ppSignalTrigger" type="button" aria-label={`Explain signals for ${product.title}`}>
+        <SignalBars tone={product.signalTone} values={product.signalBars || []} />
+        <span>{product.signals}</span>
+      </button>
+      <span className="ppSignalPopover" role="tooltip">
+        <strong>{details.summary}</strong>
+        <span className="ppSignalPopoverList">
+          {(details.bars || []).map((bar, index) => (
+            <span className="ppSignalPopoverItem" key={`${bar.label}-${index}`}>
+              <span className="ppSignalPopoverBar" aria-hidden="true">
+                <span style={{ width: `${Math.max(5, Math.min(100, Number(bar.value || 0)))}%` }} />
+              </span>
+              <span>
+                <b>{bar.label}</b>
+                <small>{bar.detail}</small>
+              </span>
+            </span>
+          ))}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function buildFallbackSignalDetails(product) {
+  const values = product.signalBars || [];
+  const labels = ["Baseline", "Return rate", "Refund rate", "Recent spike", "Signal volume", "Repeated reasons", "Variant concentration"];
+
+  return {
+    summary: `${product.issue || "Product quality"} risk score ${product.riskScore || 0}/100 from ${product.signals || 0} signals.`,
+    bars: labels.map((label, index) => ({
+      label,
+      value: values[index] || 0,
+      detail: index === 0
+        ? "Minimum Shopify catalog context for this product."
+        : `Contribution from ${label.toLowerCase()} signals in the latest scan.`,
+    })),
+  };
 }
 
 function SignalBars({ values, tone }) {
@@ -1603,12 +1730,106 @@ function SuggestedFix({ fix }) {
 }
 
 function ProductSourceIconGroup({ sources, overflow }) {
+  const sourceTokens = (sources || []).slice(0, 3).map(normalizeSourceToken);
+  const overflowCount = Number(overflow || 0);
+
   return (
-    <span className="ppSourceIcons" aria-label={`${sources.length + overflow} connected signal sources`}>
-      {sources.map((source, index) => (
-        <s-icon key={`${source}-${index}`} type={source} size="small"></s-icon>
+    <span className="ppSourceIcons" aria-label={`${sourceTokens.length + overflowCount} connected signal sources`}>
+      {sourceTokens.map((source, index) => (
+        <span className="ppSourceTokenWrap" key={`${source.key}-${source.label}-${index}`}>
+          <span className={`ppSourceToken ppSourceToken-${source.key}`} aria-label={source.label}>
+            <span className="ppSourceGlyph" aria-hidden="true">{getSourceGlyph(source.key)}</span>
+            <span>{source.shortLabel}</span>
+          </span>
+          <span className="ppSourcePopover" role="tooltip">
+            <strong>{source.label}</strong>
+            <small>{source.detail}</small>
+          </span>
+        </span>
       ))}
-      {overflow > 0 && <span>+{overflow}</span>}
+      {overflowCount > 0 && <span className="ppSourceOverflow">+{overflowCount}</span>}
+    </span>
+  );
+}
+
+function normalizeSourceToken(source) {
+  if (source && typeof source === "object") return source;
+  const normalized = String(source || "").toLowerCase();
+  if (normalized.includes("product") || normalized.includes("catalog")) {
+    return { key: "products", label: "Products", shortLabel: "PDP", detail: "Shopify product, variant, tag and collection data." };
+  }
+  if (normalized.includes("order") || normalized.includes("sale")) {
+    return { key: "orders", label: "Orders", shortLabel: "ORD", detail: "Shopify order line items and sold units." };
+  }
+  if (normalized.includes("refund")) {
+    return { key: "refunds", label: "Refunds", shortLabel: "REF", detail: "Shopify refunded units and refund amount." };
+  }
+  if (normalized.includes("return")) {
+    return { key: "returns", label: "Returns", shortLabel: "RET", detail: "Shopify return units and return reasons." };
+  }
+  if (normalized.includes("review") || normalized.includes("judge") || normalized.includes("csv") || normalized.includes("star")) {
+    return { key: "reviews", label: "Reviews", shortLabel: "REV", detail: "Customer review ratings, text and complaint themes." };
+  }
+  if (normalized.includes("support") || normalized.includes("chat")) {
+    return { key: "support", label: "Support", shortLabel: "SUP", detail: "Support conversations and buyer questions." };
+  }
+  return { key: "source", label: "Signal source", shortLabel: "SRC", detail: "Additional connected signal source." };
+}
+
+function getSourceGlyph(key) {
+  const glyphs = {
+    products: "P",
+    orders: "#",
+    refunds: "$",
+    returns: "R",
+    reviews: "*",
+    support: "?",
+  };
+  return glyphs[key] || "S";
+}
+
+function ProductActionMenu({ product, open, queued, onToggle, onClose, onMarkForReview }) {
+  const [copied, setCopied] = useState(false);
+  const handle = product.handle || product.href?.split("/").filter(Boolean).pop() || product.title;
+
+  const handleCopy = async () => {
+    try {
+      await window.navigator?.clipboard?.writeText(handle);
+    } catch {
+      // The action still updates locally when clipboard access is unavailable.
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+    onClose();
+  };
+
+  return (
+    <span className="ppActionMenuWrap">
+      <button
+        className="ppIconButton"
+        type="button"
+        aria-expanded={open}
+        aria-label={`More actions for ${product.title}`}
+        onClick={onToggle}
+      >
+        <s-icon type="menu-horizontal" size="small"></s-icon>
+      </button>
+      {open && (
+        <span className="ppActionMenu" role="menu">
+          <Link role="menuitem" to={product.href} onClick={onClose}>
+            <s-icon type="view" size="small"></s-icon>
+            View diagnostics
+          </Link>
+          <button role="menuitem" type="button" onClick={onMarkForReview} disabled={queued}>
+            <s-icon type="flag" size="small"></s-icon>
+            {queued ? "Queued for review" : "Mark for review"}
+          </button>
+          <button role="menuitem" type="button" onClick={handleCopy}>
+            <s-icon type="duplicate" size="small"></s-icon>
+            {copied ? "Copied handle" : "Copy handle"}
+          </button>
+        </span>
+      )}
     </span>
   );
 }

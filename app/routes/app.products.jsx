@@ -5,7 +5,7 @@ import { getAppViewData } from "../lib/product-pulse-data";
 import { getProductsQueueForShop, startFastProductScan } from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const url = new URL(request.url);
   const filters = {
     query: url.searchParams.get("q") || "",
@@ -15,7 +15,7 @@ export const loader = async ({ request }) => {
   return {
     data: {
       ...getAppViewData(filters),
-      productTable: await getProductsQueueForShop(session.shop),
+      productTable: await getProductsQueueForShop(session.shop, admin),
       persistProductJobs: true,
     },
     filters,

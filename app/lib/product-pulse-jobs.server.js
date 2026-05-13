@@ -71,7 +71,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
   };
 }
 
-export async function getProductsQueueForShop(shop) {
+export async function getProductsQueueForShop(shop, admin) {
   await failStaleFastProductScans(shop);
   const [snapshots, activeJob] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
@@ -83,9 +83,11 @@ export async function getProductsQueueForShop(shop) {
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
+  const rows = snapshots.map(formatProductRow);
+  const rowsWithImages = await attachProductImages(rows, admin);
 
   return {
-    rows: snapshots.map(formatProductRow),
+    rows: rowsWithImages,
     total: snapshots.length,
     activeScanJob: activeJob ? formatJob(activeJob) : null,
   };
@@ -254,6 +256,8 @@ function formatProductRow(snapshot) {
   const metrics = snapshot.metrics || {};
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
   return {
+    productGid: snapshot.productGid,
+    handle: snapshot.handle,
     title: snapshot.productTitle,
     variant: getProductArtVariant(snapshot.handle),
     selected: false,
@@ -265,13 +269,77 @@ function formatProductRow(snapshot) {
     signals: metrics.signalCount || 0,
     signalTone: snapshot.riskScore >= 75 ? "red" : snapshot.riskScore >= 55 ? "orange" : "green",
     signalBars: getSignalBars(metrics),
+    signalDetails: getSignalDetails(snapshot, metrics),
     issue: snapshot.primaryIssue,
-    sources: sources.slice(0, 3).map(getSourceIcon),
+    sources: sources.map(getSourceToken),
     sourceOverflow: Math.max(0, sources.length - 3),
     lastAnalysis: formatJobDate(snapshot.updatedAt),
+    lastAnalysisAt: toIso(snapshot.updatedAt),
     credits: 1,
     href: `/app/products/${snapshot.handle}`,
   };
+}
+
+async function attachProductImages(rows, admin) {
+  if (!admin?.graphql || rows.length === 0) return rows;
+  const ids = rows.map((row) => row.productGid).filter(Boolean);
+  if (!ids.length) return rows;
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query ProductPulseProductImages($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product {
+            id
+            featuredMedia {
+              preview {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+            media(first: 1) {
+              nodes {
+                preview {
+                  image {
+                    url
+                    altText
+                  }
+                }
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { variables: { ids } },
+    );
+    const json = await response.json();
+    if (json.errors?.length) return rows;
+
+    const imageByProduct = new Map((json.data?.nodes || []).filter(Boolean).map((product) => {
+      const mediaNode = product.media?.nodes?.[0] || {};
+      const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
+      return [product.id, {
+        imageUrl: image.url || null,
+        imageAlt: image.altText || null,
+      }];
+    }));
+
+    return rows.map((row) => ({
+      ...row,
+      ...(imageByProduct.get(row.productGid) || {}),
+    }));
+  } catch {
+    return rows;
+  }
 }
 
 function formatSnapshotForDiagnosis(snapshot) {
@@ -400,12 +468,62 @@ function getProductArtVariant(handle) {
   return "shirt";
 }
 
-function getSourceIcon(source) {
+function getSourceToken(source) {
   const normalized = String(source || "").toLowerCase();
-  if (normalized.includes("review") || normalized.includes("judge") || normalized.includes("csv")) return "star";
-  if (normalized.includes("return") || normalized.includes("refund")) return "return";
-  if (normalized.includes("support") || normalized.includes("chat")) return "chat";
-  return "globe";
+  if (normalized.includes("product") || normalized.includes("catalog")) {
+    return {
+      key: "products",
+      label: "Products",
+      shortLabel: "PDP",
+      detail: "Shopify product, variant, tag and collection data.",
+    };
+  }
+  if (normalized.includes("order") || normalized.includes("sale")) {
+    return {
+      key: "orders",
+      label: "Orders",
+      shortLabel: "ORD",
+      detail: "Shopify order line items and sold units.",
+    };
+  }
+  if (normalized.includes("refund")) {
+    return {
+      key: "refunds",
+      label: "Refunds",
+      shortLabel: "REF",
+      detail: "Shopify refunded units and refund amount.",
+    };
+  }
+  if (normalized.includes("return")) {
+    return {
+      key: "returns",
+      label: "Returns",
+      shortLabel: "RET",
+      detail: "Shopify return units, return notes and return reasons.",
+    };
+  }
+  if (normalized.includes("review") || normalized.includes("judge") || normalized.includes("csv")) {
+    return {
+      key: "reviews",
+      label: "Reviews",
+      shortLabel: "REV",
+      detail: "Customer review ratings, text and complaint themes.",
+    };
+  }
+  if (normalized.includes("support") || normalized.includes("chat")) {
+    return {
+      key: "support",
+      label: "Support",
+      shortLabel: "SUP",
+      detail: "Support conversations, buyer questions and agent notes.",
+    };
+  }
+  return {
+    key: "source",
+    label: source || "Source",
+    shortLabel: "SRC",
+    detail: source || "Additional connected signal source.",
+  };
 }
 
 function getSignalBars(metrics) {
@@ -420,6 +538,58 @@ function getSignalBars(metrics) {
     30,
     18,
   ];
+}
+
+function getSignalDetails(snapshot, metrics) {
+  const signalCount = Number(metrics.signalCount || 0);
+  const returnRate = Number(metrics.returnRate || 0);
+  const refundRate = Number(metrics.refundRate || 0);
+  const refundAmount = Number(metrics.refundAmount || 0);
+  const recentSignalUnits = Number(metrics.recentSignalUnits || 0);
+  const topReturnReasons = Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [];
+  const affectedVariants = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [];
+  const bars = getSignalBars(metrics);
+
+  return {
+    summary: `${snapshot.primaryIssue || "Product quality"} risk score ${snapshot.riskScore}/100 from ${signalCount} signal${signalCount === 1 ? "" : "s"}.`,
+    bars: [
+      {
+        label: "Baseline",
+        value: bars[0],
+        detail: "Minimum Shopify catalog context for this product.",
+      },
+      {
+        label: "Return rate",
+        value: bars[1],
+        detail: `${returnRate}% return rate in the current scan window.`,
+      },
+      {
+        label: "Refund rate",
+        value: bars[2],
+        detail: `${refundRate}% refund rate and ${formatMoney(refundAmount)} refunded.`,
+      },
+      {
+        label: "Recent spike",
+        value: bars[3],
+        detail: `${recentSignalUnits} recent signal units detected.`,
+      },
+      {
+        label: "Signal volume",
+        value: bars[4],
+        detail: `${signalCount} total signals counted for this product.`,
+      },
+      {
+        label: "Repeated reasons",
+        value: bars[5],
+        detail: topReturnReasons.length ? topReturnReasons.join(", ") : "No repeated return reason captured yet.",
+      },
+      {
+        label: "Variant concentration",
+        value: bars[6],
+        detail: affectedVariants.length ? affectedVariants.join(", ") : "No affected variant concentration detected.",
+      },
+    ],
+  };
 }
 
 function formatMoney(value) {

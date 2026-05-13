@@ -28,6 +28,7 @@
   --pp-success-green-rgb: 34, 197, 94;
   --pp-warning-amber-rgb: 245, 158, 11;
   --pp-risk-red-rgb: 239, 68, 68;
+  --pp-info-cyan-rgb: 6, 182, 212;
   --pp-slate-500-rgb: 100, 116, 139;
   --pp-slate-100-rgb: 241, 245, 249;
   --pp-shadow-rgb: 15, 23, 42;
@@ -597,13 +598,180 @@ s-page[inline-size="large-500"] {
   background: var(--pp-signal-teal);
 }
 
+.ppSignalPopoverWrap,
+.ppSourceTokenWrap,
+.ppActionMenuWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ppSignalTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-slate-700);
+  font: inherit;
+  cursor: help;
+}
+
+.ppSignalTrigger > span:last-child {
+  font-weight: 650;
+}
+
+.ppSignalPopover,
+.ppSourcePopover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ppSignalPopover strong,
+.ppSourcePopover strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ppSignalPopoverList {
+  display: grid;
+  gap: 8px;
+}
+
+.ppSignalPopoverItem {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.ppSignalPopoverItem b {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.ppSignalPopoverItem small,
+.ppSourcePopover small {
+  display: block;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ppSignalPopoverBar {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppSignalPopoverBar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--pp-pulse-blue);
+}
+
+.ppSignalPopoverWrap:hover .ppSignalPopover,
+.ppSignalPopoverWrap:focus-within .ppSignalPopover,
+.ppSourceTokenWrap:hover .ppSourcePopover,
+.ppSourceTokenWrap:focus-within .ppSourcePopover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
 .ppSourceIcons {
   color: var(--pp-slate-700);
 }
 
-.ppSourceIcons span {
+.ppSourceTokenWrap {
+  outline: none;
+}
+
+.ppSourceToken {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px 2px 4px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.ppSourceGlyph {
+  width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.ppSourceToken-products .ppSourceGlyph {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.12);
+  color: var(--pp-pulse-blue);
+}
+
+.ppSourceToken-orders .ppSourceGlyph {
+  background: rgba(var(--pp-info-cyan-rgb), 0.12);
+  color: var(--pp-info-cyan);
+}
+
+.ppSourceToken-refunds .ppSourceGlyph {
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: #b45309;
+}
+
+.ppSourceToken-returns .ppSourceGlyph {
+  background: rgba(var(--pp-risk-red-rgb), 0.11);
+  color: var(--pp-risk-red);
+}
+
+.ppSourceToken-reviews .ppSourceGlyph {
+  background: rgba(var(--pp-insight-violet-rgb), 0.12);
+  color: var(--pp-insight-violet);
+}
+
+.ppSourceToken-support .ppSourceGlyph {
+  background: rgba(var(--pp-signal-teal-rgb), 0.12);
+  color: var(--pp-signal-teal);
+}
+
+.ppSourceOverflow {
   color: var(--pp-slate-700);
   font-size: 12px;
+  font-weight: 650;
+}
+
+.ppSourcePopover {
+  width: 240px;
 }
 
 .ppIconButton {
@@ -745,6 +913,13 @@ s-page[inline-size="large-500"] {
   width: 80px;
   height: 80px;
   border-radius: 10px;
+}
+
+.ppProductArt img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .ppProductShape,
@@ -2753,6 +2928,31 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-700);
   font-size: 12px;
   font-weight: 450;
+  white-space: nowrap;
+}
+
+.ppSortableHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ppSortableHeader.isActive {
+  color: var(--pp-pulse-blue);
+  font-weight: 650;
+}
+
+.ppSortArrow {
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1;
 }
 
 .ppProductsTable td {
@@ -2887,8 +3087,54 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRiskScoreCell {
-  min-width: 92px;
-  justify-content: space-between;
+  min-width: 68px;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.ppActionMenu {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 190px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 18px 48px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
+.ppActionMenu a,
+.ppActionMenu button {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ppActionMenu a:hover,
+.ppActionMenu button:hover:not(:disabled) {
+  background: var(--pp-slate-100);
+  color: var(--pp-pulse-blue);
+}
+
+.ppActionMenu button:disabled {
+  color: var(--pp-slate-500);
+  cursor: default;
 }
 
 .ppProductsPagination {
