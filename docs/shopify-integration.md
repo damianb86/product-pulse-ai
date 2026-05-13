@@ -7,9 +7,11 @@
 
 ## Scopes
 - MVP configured scopes: `read_products`, `read_orders`, `read_returns`.
-- `read_orders` is needed for order/refund signals. Shopify limits order access by default; older-order access is not requested in MVP.
+- `read_products` is needed for product titles, handles, variants, tags and collections.
+- `read_orders` is needed for order/refund signals. Shopify limits order access by default; older-order access is not requested in MVP. Shopify Order object access can also require protected customer data approval in the Partner Dashboard.
 - `read_returns` is needed for return reasons and return-quality signals.
 - `write_products` is not requested in MVP because ProductPulse stores draft actions internally. It should be added only when merchant-confirmed product writes are implemented.
+- Do not request `read_customers`, `write_orders`, `write_products` or `read_all_orders` for the current app surface.
 
 ## Admin GraphQL Patterns
 - Run Admin GraphQL only from server loaders/actions.
@@ -50,5 +52,5 @@ Writes are disabled in MVP. Future gated writes:
 - Logs and test fixtures must not include real merchant data.
 
 ## Validation Status
-- Shopify Dev MCP was used to verify that return reason definitions require `read_returns` and order data requires `read_orders`.
+- Shopify access-scope docs were used to verify that Product/Variant/Collection data requires `read_products`, Order data requires `read_orders`, and Return data requires `read_returns`.
 - Live Shopify CLI validation may require an interactive Shopify login in local or configured CI credentials.

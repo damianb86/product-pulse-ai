@@ -53,7 +53,7 @@
 ## Scopes
 - Request: `read_products`, `read_orders`, `read_returns`.
 - Future optional after write features are enabled: `write_products`.
-- Do not request in MVP: `read_customers`, `write_orders`, `read_all_orders` unless an App Store review use case and approval are ready.
+- Do not request in MVP: `read_customers`, `write_orders`, `read_all_orders` unless an App Store review use case and approval are ready. QuickScan uses the standard 60-day order window.
 
 ## Webhooks
 - Required: `app/uninstalled`, `app/scopes_update`.

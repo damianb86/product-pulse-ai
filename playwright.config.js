@@ -1,11 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
+import { REQUIRED_SHOPIFY_SCOPES_STRING } from "./app/lib/product-pulse-scopes.js";
 
 const previewEnv = {
   SHOPIFY_API_KEY: process.env.SHOPIFY_API_KEY || "test_api_key",
   SHOPIFY_API_SECRET: process.env.SHOPIFY_API_SECRET || "test_api_secret",
   SHOPIFY_APP_URL: process.env.SHOPIFY_APP_URL || "http://127.0.0.1:3000",
   DATABASE_URL: process.env.DATABASE_URL || "postgresql://preview:preview@127.0.0.1:5432/preview",
-  SCOPES: process.env.SCOPES || "read_products,read_orders,read_returns",
+  SCOPES: process.env.SCOPES || REQUIRED_SHOPIFY_SCOPES_STRING,
   PLAYWRIGHT_PREVIEW: "true",
 };
 

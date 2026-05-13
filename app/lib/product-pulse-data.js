@@ -7,6 +7,7 @@ import {
   getRiskTone,
   validateCreditBalance,
 } from "./product-pulse-scoring";
+import { REQUIRED_SHOPIFY_SCOPES } from "./product-pulse-scopes";
 import { validateProductAction } from "./product-pulse-validation";
 
 export const sourceGroups = [
@@ -333,7 +334,7 @@ export function getAppViewData({ query = "", risk = "all" } = {}) {
     })),
     permissionState: {
       hasRequiredScopes: true,
-      requiredScopes: ["read_products", "read_orders", "read_returns"],
+      requiredScopes: REQUIRED_SHOPIFY_SCOPES,
       missingScopes: [],
     },
   };

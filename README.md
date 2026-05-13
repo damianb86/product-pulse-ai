@@ -27,6 +27,8 @@ SCOPES=read_products,read_orders,read_returns
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
 ```
 
+The Shopify app should request only `read_products`, `read_orders`, and `read_returns`. Order reads may still require Shopify protected customer data approval for Order object access; `read_all_orders`, write scopes and customer scopes are intentionally excluded.
+
 The local Shopify CLI project is configured for `qorve-dev.myshopify.com` in `.shopify/project.json`, which is intentionally ignored by Git.
 
 ## Preview Without Shopify Auth

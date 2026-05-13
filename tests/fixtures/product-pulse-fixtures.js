@@ -1,20 +1,21 @@
 import { billing, getAppViewData, products, sourceGroups } from "../../app/lib/product-pulse-data";
+import { REQUIRED_SHOPIFY_SCOPES } from "../../app/lib/product-pulse-scopes";
 
 export const installedShop = {
   shop: "qorve-dev.myshopify.com",
-  scopes: ["read_products", "read_orders", "read_returns"],
+  scopes: REQUIRED_SHOPIFY_SCOPES,
   credits: billing.creditsAvailable,
 };
 
 export const newShop = {
   shop: "new-qorve-dev.myshopify.com",
-  scopes: ["read_products"],
+  scopes: REQUIRED_SHOPIFY_SCOPES.filter((scope) => scope === "read_products"),
   credits: 0,
 };
 
 export const missingScopeShop = {
   shop: "limited-qorve-dev.myshopify.com",
-  scopes: ["read_products", "read_orders"],
+  scopes: REQUIRED_SHOPIFY_SCOPES.filter((scope) => scope !== "read_returns"),
   missingScopes: ["read_returns"],
 };
 

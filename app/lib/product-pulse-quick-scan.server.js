@@ -2,7 +2,6 @@ import prisma from "../db.server";
 import { recordJobLog } from "./product-pulse-job-logs.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
-export const QUICK_SCAN_ALL_ORDERS_WINDOW_DAYS = 90;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
 
 const BULK_OPERATION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -16,10 +15,8 @@ const PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
 const PAGINATED_RETURNS_PAGE_SIZE = 3;
 const PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE = 15;
 
-export function getQuickScanWindowDays(scopes) {
-  return hasScope(scopes, "read_all_orders")
-    ? QUICK_SCAN_ALL_ORDERS_WINDOW_DAYS
-    : QUICK_SCAN_DEFAULT_WINDOW_DAYS;
+export function getQuickScanWindowDays() {
+  return QUICK_SCAN_DEFAULT_WINDOW_DAYS;
 }
 
 export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
@@ -1269,14 +1266,6 @@ function isRecentSignal(value) {
 function getSinceDate(windowDays) {
   const date = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
   return date.toISOString().slice(0, 10);
-}
-
-function hasScope(scopes, scope) {
-  if (Array.isArray(scopes)) return scopes.includes(scope);
-  return String(scopes || "")
-    .split(",")
-    .map((item) => item.trim())
-    .includes(scope);
 }
 
 function getNodes(connection) {

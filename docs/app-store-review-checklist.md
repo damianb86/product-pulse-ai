@@ -17,6 +17,7 @@
 ## Scopes
 - MVP requests only `read_products`, `read_orders`, `read_returns`.
 - Order/return data purpose is documented as product quality intelligence.
+- `read_orders` is used only for product-level order/refund aggregates and may require protected customer data approval for Order object access.
 - No customer scopes are requested.
 - Product writes require a future explicit `write_products` review.
 

@@ -5,7 +5,7 @@
 - MVP can use realistic fixtures and local persisted records while live connectors are developed.
 - Product writes are intentionally stored as draft actions in MVP because production write flows require careful review, merchant confirmation and optional `write_products`.
 - Order data access is limited to the business need of product-level return/refund quality intelligence.
-- `read_all_orders` is not requested for MVP; older order analysis requires a separate review decision.
+- QuickScan uses Shopify's standard 60-day order window. `read_all_orders` is not requested for MVP; older order analysis requires a separate review decision and approval.
 - CSV reviews are handled as imported review signal rows in future implementation; this MVP includes fixtures and validation shape.
 - The AI provider is not configured yet. All AI output contracts are documented and tested with mocks/placeholders.
 - Billing is modeled as credits in app data but real Shopify billing is not activated in MVP.

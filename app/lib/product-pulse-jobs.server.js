@@ -59,7 +59,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     message: "QuickScan queued as a persistent background job.",
     data: {
       windowDays,
-      scopeMode: getQuickScanWindowDays(scopes) > 60 ? "read_all_orders" : "default_orders_window",
+      scopeMode: "default_orders_window",
     },
   });
 
