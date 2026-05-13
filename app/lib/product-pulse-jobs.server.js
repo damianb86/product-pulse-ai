@@ -4,6 +4,7 @@ import {
   getQuickScanWindowDays,
   runShopifyQuickScan,
 } from "./product-pulse-quick-scan.server";
+import { buildDashboardViewData } from "./product-pulse-data";
 import { runDetailedProductDiagnosis } from "./product-pulse-diagnosis.server";
 import {
   getJobLogsForShop,
@@ -116,6 +117,36 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
     activeScanJob: activeJob ? formatJob(activeJob) : null,
     activeDiagnosisJobs: activeDiagnosisJobs.map(formatJob),
   };
+}
+
+export async function getDashboardDataForShop(shop) {
+  await failStaleFastProductScans(shop);
+  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs] = await Promise.all([
+    prisma.productRiskSnapshot.findMany({
+      where: { shop },
+      orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
+    }),
+    prisma.creditLedgerEntry.findFirst({
+      where: { shop },
+      orderBy: { createdAt: "desc" },
+    }),
+    getActiveFastProductScan(shop),
+    getActiveProductDiagnosisJobs(shop),
+  ]);
+
+  if (activeJob) ensureFastProductScanWorker(activeJob);
+  if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+
+  const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
+  const dashboardProducts = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
+    snapshot,
+    [],
+    latestDiagnosisByProductGid.get(snapshot.productGid),
+  ));
+
+  return buildDashboardViewData(dashboardProducts, {
+    billing: latestLedgerEntry ? { creditsAvailable: latestLedgerEntry.balanceAfter } : null,
+  });
 }
 
 async function getLatestCompletedDiagnosisMap(shop, snapshots = []) {

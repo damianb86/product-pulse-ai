@@ -20,8 +20,13 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<DashboardScreen data={defaultView} />);
     expect(screen.getByText(/Product quality signals from reviews/)).toBeInTheDocument();
     expect(screen.getByText("Products needing attention")).toBeInTheDocument();
-    expect(screen.getAllByText("Linen Shirt").length).toBeGreaterThan(0);
-    expect(screen.getByText("$12,450")).toBeInTheDocument();
+    expect(screen.getAllByText("Core Linen Trouser").length).toBeGreaterThan(0);
+    expect(screen.getByText("$21,000")).toBeInTheDocument();
+    expect(screen.queryByText("Products to review")).not.toBeInTheDocument();
+    expect(screen.getByText("Risk distribution")).toBeInTheDocument();
+    expect(screen.getByText("Analysis coverage")).toBeInTheDocument();
+    expect(screen.getByText("Signal source mix")).toBeInTheDocument();
+    expect(screen.getByText("Impact by collection")).toBeInTheDocument();
   });
 
   it("renders source coverage categories", () => {

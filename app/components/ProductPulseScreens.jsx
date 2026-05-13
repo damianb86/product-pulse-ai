@@ -9,7 +9,21 @@ import {
 } from "../lib/product-pulse-connect";
 
 export function DashboardScreen({ data, actionData }) {
-  const diagnosisHref = `/app/products/${data.startHere.slug}`;
+  const dashboard = data.dashboard || {};
+  const startProduct = dashboard.startProduct || null;
+  const diagnosisHref = startProduct?.href || "/app/products";
+  const dashboardKpis = dashboard.kpis || [];
+  const evidenceMetrics = dashboard.evidenceMetrics || [];
+  const topIssueBars = dashboard.issueBars || [];
+  const suggestedFixes = dashboard.suggestedFixes || [];
+  const insightPanels = dashboard.insightPanels || [];
+  const nextStep = dashboard.nextStep || {
+    title: "Review products",
+    subtitle: "Open the product list",
+    detail: "Run QuickScan or open a product diagnosis to start building the dashboard.",
+    href: "/app/products",
+    buttonLabel: "Go to Products",
+  };
 
   return (
     <FullWidthPage heading="Dashboard">
@@ -34,21 +48,36 @@ export function DashboardScreen({ data, actionData }) {
               <h2>Start here</h2>
             </div>
             <div className="ppStartContent">
-              <div className="ppStartProduct">
-                <ProductArt variant="shirt" label="Linen Shirt" size="large" />
-                <div className="ppStartCopy">
-                  <span>Recommended next product to analyze</span>
-                  <h3>Linen Shirt</h3>
-                  <div className="ppBadgeRow">
-                    <InlineBadge tone="critical" icon="alert-circle">High risk</InlineBadge>
-                    <InlineBadge tone="warning" icon="person">Fit issue suspected</InlineBadge>
+              {startProduct ? (
+                <div className="ppStartProduct">
+                  <ProductArt
+                    variant={startProduct.variant || "shirt"}
+                    label={startProduct.title}
+                    size="large"
+                    imageUrl={startProduct.imageUrl}
+                    imageAlt={startProduct.imageAlt}
+                  />
+                  <div className="ppStartCopy">
+                    <span>Recommended next product to analyze</span>
+                    <h3>{startProduct.title}</h3>
+                    <div className="ppBadgeRow">
+                      {(startProduct.badges || []).map((badge) => (
+                        <InlineBadge key={`${badge.label}-${badge.tone}`} tone={badge.tone} icon={badge.icon}>{badge.label}</InlineBadge>
+                      ))}
+                    </div>
+                    <p>{startProduct.summary}</p>
                   </div>
-                  <p>
-                    This product shows a high return rate driven by sizing problems and inconsistent
-                    fit across reviews.
-                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className="ppStartProduct ppStartProduct-empty">
+                  <DashboardIcon type="search" tone="blue" />
+                  <div className="ppStartCopy">
+                    <span>No stored scan data yet</span>
+                    <h3>Run QuickScan first</h3>
+                    <p>ProductPulse will populate this dashboard after it stores product risk snapshots from Shopify signals.</p>
+                  </div>
+                </div>
+              )}
 
               <div className="ppEvidenceGlance">
                 <h3>Evidence at a glance</h3>
@@ -62,74 +91,21 @@ export function DashboardScreen({ data, actionData }) {
               <div className="ppStartActionPanel">
                 <Link className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary" to={diagnosisHref}>
                   <s-icon type="wand" size="small"></s-icon>
-                  <span>Analyze this product</span>
+                  <span>{startProduct?.actionLabel || "Go to Products"}</span>
                 </Link>
-                <span>Uses 1 AI credit</span>
+                <span>{startProduct?.actionHint || "Start with QuickScan"}</span>
               </div>
             </div>
           </div>
         </s-section>
 
-        <s-section padding="none">
-          <div className="ppDashboardSectionHeader">
-            <h2>Products to review</h2>
-            <s-button href="/app/products" variant="secondary">View all products</s-button>
-          </div>
-          <div className="ppDashboardTableWrap">
-            <table className="ppDashboardTable" data-testid="products-table">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>
-                    Risk <s-icon type="sort" size="small"></s-icon>
-                  </th>
-                  <th>Signals</th>
-                  <th>Main suspected issue</th>
-                  <th>Sources</th>
-                  <th>Last scanned</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reviewProducts.map((product) => (
-                  <tr key={product.title}>
-                    <td>
-                      <div className="ppReviewProduct">
-                        <ProductArt variant={product.variant} label={product.title} />
-                        <span>{product.title}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <s-badge tone={product.riskTone}>{product.risk}</s-badge>
-                    </td>
-                    <td>
-                      <div className="ppSignalCell">
-                        <SignalBars tone={product.signalTone} values={product.signalBars} />
-                        <span>{product.signals}</span>
-                      </div>
-                    </td>
-                    <td>{product.issue}</td>
-                    <td>
-                      <SourceIconGroup count={product.sourceOverflow} />
-                    </td>
-                    <td>{product.lastScanned}</td>
-                    <td>
-                      <div className="ppTableAction">
-                        <Link className="ppAnalyzeLinkButton" to={product.href}>
-                          <s-icon type="wand" size="small"></s-icon>
-                          <span>Analyze</span>
-                        </Link>
-                        <button className="ppIconButton" type="button" aria-label={`More actions for ${product.title}`}>
-                          <s-icon type="menu-horizontal" size="small"></s-icon>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </s-section>
+        <div className="ppDashboardInsights">
+          {insightPanels.map((panel) => (
+            <s-section padding="none" key={panel.title}>
+              <DashboardInsightPanel panel={panel} />
+            </s-section>
+          ))}
+        </div>
 
         <div className="ppDashboardBottom">
           <s-section padding="none">
@@ -161,12 +137,9 @@ export function DashboardScreen({ data, actionData }) {
               <DashboardIcon type="wand" tone="purple" />
               <div>
                 <h2>Next step</h2>
-                <h3>Choose a product to analyze</h3>
-                <p>
-                  Select a product from the table above and run an AI analysis to uncover root causes
-                  and fix issues.
-                </p>
-                <s-button href={diagnosisHref} variant="secondary">Learn how it works</s-button>
+                <h3>{nextStep.subtitle}</h3>
+                <p>{nextStep.detail}</p>
+                <s-button href={nextStep.href || diagnosisHref} variant="secondary">{nextStep.buttonLabel || nextStep.title}</s-button>
               </div>
             </div>
           </s-section>
@@ -175,125 +148,6 @@ export function DashboardScreen({ data, actionData }) {
     </FullWidthPage>
   );
 }
-
-const dashboardKpis = [
-  {
-    label: "Products needing attention",
-    value: "18",
-    trend: "12% vs last 7 days",
-    icon: "product",
-    tone: "blue",
-  },
-  {
-    label: "High-risk products",
-    value: "6",
-    trend: "20% vs last 7 days",
-    icon: "shield-check-mark",
-    tone: "red",
-  },
-  {
-    label: "Estimated margin at risk",
-    value: "$12,450",
-    trend: "18% vs last 7 days",
-    icon: "cash-dollar",
-    tone: "green",
-  },
-  {
-    label: "AI credits available",
-    value: "87",
-    detail: "Resets in 24 days",
-    icon: "wand",
-    tone: "purple",
-  },
-];
-
-const evidenceMetrics = [
-  { icon: "return", label: "Return rate", value: "18.7%", detail: "High" },
-  { icon: "package", label: "Returns", value: "142", detail: "vs 76 avg" },
-  { icon: "star", label: "Negative reviews", value: "52", detail: "vs 18 avg" },
-  { icon: "question-circle", label: "Size-related questions", value: "37", detail: "High" },
-];
-
-const reviewProducts = [
-  {
-    title: "Linen Shirt",
-    variant: "shirt",
-    risk: "High",
-    riskTone: "critical",
-    signals: 184,
-    signalTone: "red",
-    signalBars: [38, 58, 76, 92, 66, 48, 24],
-    issue: "Fit & sizing",
-    sourceOverflow: 1,
-    lastScanned: "2h ago",
-    href: "/app/products/core-linen-trouser",
-  },
-  {
-    title: "Red Dress",
-    variant: "dress",
-    risk: "High",
-    riskTone: "critical",
-    signals: 167,
-    signalTone: "red",
-    signalBars: [32, 52, 74, 84, 54, 36, 20],
-    issue: "Color not as expected",
-    sourceOverflow: 1,
-    lastScanned: "4h ago",
-    href: "/app/products/trail-run-vest",
-  },
-  {
-    title: "Sneakers X",
-    variant: "sneaker",
-    risk: "Medium",
-    riskTone: "warning",
-    signals: 96,
-    signalTone: "orange",
-    signalBars: [18, 32, 44, 64, 76, 20, 12],
-    issue: "Durability",
-    sourceOverflow: 1,
-    lastScanned: "6h ago",
-    href: "/app/products/ceramic-pour-over",
-  },
-  {
-    title: "Summer Tee",
-    variant: "tee",
-    risk: "Medium",
-    riskTone: "warning",
-    signals: 74,
-    signalTone: "orange",
-    signalBars: [26, 46, 62, 70, 48, 28, 14],
-    issue: "Material quality",
-    sourceOverflow: 0,
-    lastScanned: "8h ago",
-    href: "/app/products/minimal-canvas-tote",
-  },
-  {
-    title: "Canvas Tote",
-    variant: "tote",
-    risk: "Low",
-    riskTone: "success",
-    signals: 32,
-    signalTone: "green",
-    signalBars: [18, 32, 48, 58, 18, 10, 8],
-    issue: "Zipper quality",
-    sourceOverflow: 0,
-    lastScanned: "10h ago",
-    href: "/app/products/minimal-canvas-tote",
-  },
-];
-
-const topIssueBars = [
-  { label: "Fit & sizing", value: 564, pct: 100 },
-  { label: "Color not as expected", value: 421, pct: 74 },
-  { label: "Material quality", value: 318, pct: 57 },
-  { label: "Durability", value: 214, pct: 40 },
-];
-
-const suggestedFixes = [
-  { icon: "measurement-size", label: "Improve size chart & fit guidance", impact: "High impact", tone: "success" },
-  { icon: "image", label: "Update product photos & color accuracy", impact: "High impact", tone: "success" },
-  { icon: "note", label: "Clarify material & care information", impact: "Medium impact", tone: "warning" },
-];
 
 const analyticsKpis = [
   { label: "Estimated margin at risk", value: "$12,450", icon: "cash-dollar", tone: "green", trend: "18%", context: "vs prior 90 days", trendTone: "red" },
@@ -2868,7 +2722,7 @@ function InlineBadge({ tone, icon, children }) {
 
 function EvidenceMetric({ metric }) {
   return (
-    <div className="ppEvidenceMetric">
+    <div className={`ppEvidenceMetric ppEvidenceMetric-${metric.tone || "neutral"}`}>
       <s-icon type={metric.icon}></s-icon>
       <span>{metric.label}</span>
       <strong>{metric.value}</strong>
@@ -2952,17 +2806,6 @@ function SignalBars({ values, tone }) {
   );
 }
 
-function SourceIconGroup({ count }) {
-  return (
-    <span className="ppSourceIcons" aria-label={count ? `Reviews, returns, support and ${count} more source` : "Reviews, returns and support"}>
-      <s-icon type="star" size="small"></s-icon>
-      <s-icon type="package" size="small"></s-icon>
-      <s-icon type="chat" size="small"></s-icon>
-      {count > 0 && <span>+{count}</span>}
-    </span>
-  );
-}
-
 function IssueBar({ issue }) {
   return (
     <div className="ppIssueBar">
@@ -2970,19 +2813,35 @@ function IssueBar({ issue }) {
       <div>
         <span style={{ width: `${issue.pct}%` }} />
       </div>
-      <strong>{issue.value}</strong>
+      <strong>{issue.displayValue || issue.value}</strong>
     </div>
   );
 }
 
 function SuggestedFix({ fix }) {
   return (
-    <a className="ppFixItem" href="/app/analyses">
+    <a className="ppFixItem" href={fix.href || "/app/analyses"}>
       <s-icon type={fix.icon}></s-icon>
       <span>{fix.label}</span>
       <s-badge tone={fix.tone}>{fix.impact}</s-badge>
       <s-icon type="chevron-right" size="small"></s-icon>
     </a>
+  );
+}
+
+function DashboardInsightPanel({ panel }) {
+  return (
+    <div className="ppDashboardPanel ppDashboardInsightPanel">
+      <div className="ppDashboardPanelHeader">
+        <h2>{panel.title}</h2>
+        {panel.detail && <span>{panel.detail}</span>}
+      </div>
+      <div className="ppIssueBars">
+        {(panel.rows || []).map((row) => (
+          <IssueBar key={`${panel.title}-${row.label}`} issue={row} />
+        ))}
+      </div>
+    </div>
   );
 }
 

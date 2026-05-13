@@ -4,10 +4,14 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { DashboardScreen } from "../components/ProductPulseScreens";
 import { getAppViewData, runCatalogSignalScan } from "../lib/product-pulse-data";
+import { getDashboardDataForShop } from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
-  return getAppViewData();
+  const { session } = await authenticate.admin(request);
+  return {
+    ...getAppViewData(),
+    dashboard: await getDashboardDataForShop(session.shop),
+  };
 };
 
 export const action = async ({ request }) => {

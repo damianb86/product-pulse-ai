@@ -333,6 +333,11 @@ s-page[inline-size="large-500"] {
   color: var(--pp-success-green);
 }
 
+.ppInlineBadge-info {
+  background: var(--pp-cyan-soft);
+  color: var(--pp-info-cyan);
+}
+
 .ppAnalyzeLinkButton {
   min-height: 31px;
   display: inline-flex;
@@ -602,10 +607,26 @@ s-page[inline-size="large-500"] {
 }
 
 .ppEvidenceMetric small {
-  color: var(--pp-risk-red);
+  color: var(--pp-slate-500);
   font-size: 13px;
   line-height: 18px;
   white-space: nowrap;
+}
+
+.ppEvidenceMetric-critical small {
+  color: var(--pp-risk-red);
+}
+
+.ppEvidenceMetric-warning small {
+  color: #b45309;
+}
+
+.ppEvidenceMetric-info small {
+  color: var(--pp-info-cyan);
+}
+
+.ppEvidenceMetric-success small {
+  color: var(--pp-success-green);
 }
 
 .ppStartActionPanel {
@@ -996,10 +1017,31 @@ s-page[inline-size="large-500"] {
   gap: 12px;
 }
 
+.ppDashboardInsights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .ppDashboardPanel {
   min-height: 178px;
   display: grid;
   gap: 10px;
+}
+
+.ppDashboardInsightPanel {
+  min-height: 202px;
+}
+
+.ppDashboardPanelHeader {
+  display: grid;
+  gap: 3px;
+}
+
+.ppDashboardPanelHeader span {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .ppIssueBars {
@@ -6010,6 +6052,7 @@ s-page[inline-size="large-500"] {
   .ppDashboardKpis,
   .ppStartContent,
   .ppEvidenceMetrics,
+  .ppDashboardInsights,
   .ppDashboardBottom,
   .ppAnalyticsKpis,
   .ppAnalyticsChartsTop,
