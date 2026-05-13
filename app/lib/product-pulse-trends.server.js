@@ -42,7 +42,8 @@ export function buildDatedSignalTrend(events = [], options = {}) {
   });
 
   const rawValues = buckets.map((bucket) => roundTrendValue(bucket.value));
-  const smoothedValues = smoothTrendValues(rawValues);
+  const visualValues = buildVisualTrendValues(rawValues, { shortWindow });
+  const smoothedValues = smoothTrendValues(visualValues);
   const values = normalizeTrendValues(smoothedValues);
 
   return {
@@ -137,6 +138,21 @@ function smoothTrendValues(values) {
     const previous = values[index - 1] || 0;
     const next = values[index + 1] || 0;
     return roundTrendValue(previous * 0.18 + value * 0.64 + next * 0.18);
+  });
+}
+
+function buildVisualTrendValues(values, { shortWindow = false } = {}) {
+  if (!shortWindow || values.length < 3) return values;
+  const max = Math.max(...values, 0);
+  if (max <= 0) return values;
+  const firstPositiveIndex = values.findIndex((value) => value > 0);
+  if (firstPositiveIndex <= 1) return values;
+
+  return values.map((value, index) => {
+    if (value > 0) return value;
+    const progress = (index + 1) / (firstPositiveIndex + 1);
+    const eased = progress ** 1.65;
+    return roundTrendValue(max * 0.08 + max * 0.28 * eased);
   });
 }
 

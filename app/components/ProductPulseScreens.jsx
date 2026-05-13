@@ -3075,13 +3075,14 @@ function IssueInlineActions({ issue, onReview, onCreateAction, onIgnore, ignored
 }
 
 function MiniTrend({ tone = "red", size = "base", values = [] }) {
-  const points = normalizeSparklineValues(values, size);
+  const trend = normalizeSparklineValues(values, size);
+  const pathPoints = trend.points.map((point) => `${point.x},${point.y}`).join(" ");
 
   return (
     <span className={`ppMiniTrend ppMiniTrend-${tone} ppMiniTrend-${size}`} aria-hidden="true">
-      {points.map((point, index) => (
-        <span style={{ transform: `translateY(-${point.y}px) rotate(${point.rotation}deg)` }} key={`${point.y}-${index}`} />
-      ))}
+      <svg viewBox={`0 0 ${trend.width} ${trend.height}`} focusable="false">
+        <polyline points={pathPoints} />
+      </svg>
     </span>
   );
 }
@@ -3089,14 +3090,42 @@ function MiniTrend({ tone = "red", size = "base", values = [] }) {
 function normalizeSparklineValues(values, size = "base") {
   const sourceValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
   const fallback = Array.from({ length: 7 }, () => 0);
-  const normalized = sourceValues.length ? sourceValues : fallback;
+  const width = size === "large" ? 70 : 62;
+  const height = size === "large" ? 26 : 20;
+  const normalized = normalizeTrendForSparkline(sourceValues.length ? sourceValues : fallback);
   const max = Math.max(...normalized, 1);
-  const height = size === "large" ? 26 : 18;
-
-  return normalized.map((value, index) => ({
-    y: Math.round((value / max) * height),
-    rotation: index === 0 ? 0 : Math.max(-24, Math.min(24, Math.round((value - normalized[index - 1]) * 2))),
+  const min = Math.min(...normalized);
+  const range = max - min;
+  const horizontalStep = width / Math.max(normalized.length - 1, 1);
+  const verticalPadding = 3;
+  const drawableHeight = height - verticalPadding * 2;
+  const points = normalized.map((value, index) => ({
+    x: Math.round(index * horizontalStep * 10) / 10,
+    y: Math.round((range > 0
+      ? height - verticalPadding - ((value - min) / range) * drawableHeight
+      : height / 2) * 10) / 10,
   }));
+
+  return { width, height, points };
+}
+
+function normalizeTrendForSparkline(values) {
+  const cleaned = values.map((value) => Math.max(0, Number(value) || 0));
+  if (!cleaned.some((value) => value > 0)) return cleaned.map(() => 0);
+  const smoothed = cleaned.map((value, index) => {
+    const previous = cleaned[index - 1] ?? value;
+    const next = cleaned[index + 1] ?? value;
+    return previous * 0.2 + value * 0.6 + next * 0.2;
+  });
+
+  return smoothed.map((value, index) => {
+    if (index === 0 || index === smoothed.length - 1) return value;
+    const previous = smoothed[index - 1];
+    const next = smoothed[index + 1];
+    if (next > previous && value < previous) return previous + (next - previous) * 0.35;
+    if (next < previous && value > previous) return previous - (previous - next) * 0.35;
+    return value;
+  });
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {

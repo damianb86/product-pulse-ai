@@ -1740,10 +1740,9 @@ s-page[inline-size="large-500"] {
 .ppMiniTrend {
   width: 62px;
   height: 20px;
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 0;
+  display: inline-block;
   margin-top: 2px;
+  color: var(--pp-risk-red);
 }
 
 .ppMiniTrend-large {
@@ -1751,43 +1750,33 @@ s-page[inline-size="large-500"] {
   height: 26px;
 }
 
-.ppMiniTrend span {
-  flex: 1;
-  height: 2px;
-  border-radius: 999px;
-  transform-origin: right center;
+.ppMiniTrend svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
 }
 
-.ppMiniTrend span:nth-child(1) {
-  transform: translateY(-2px) rotate(-1deg);
+.ppMiniTrend polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
 }
 
-.ppMiniTrend span:nth-child(2) {
-  transform: translateY(-7px) rotate(-24deg);
+.ppMiniTrend-red {
+  color: var(--pp-risk-red);
 }
 
-.ppMiniTrend span:nth-child(3) {
-  transform: translateY(-9px) rotate(8deg);
+.ppMiniTrend-orange {
+  color: var(--pp-warning-amber);
 }
 
-.ppMiniTrend span:nth-child(4) {
-  transform: translateY(-16px) rotate(-24deg);
-}
-
-.ppMiniTrend span:nth-child(5) {
-  transform: translateY(-20px) rotate(-8deg);
-}
-
-.ppMiniTrend-red span {
-  background: var(--pp-risk-red);
-}
-
-.ppMiniTrend-orange span {
-  background: var(--pp-warning-amber);
-}
-
-.ppMiniTrend-green span {
-  background: var(--pp-signal-teal);
+.ppMiniTrend-green {
+  color: var(--pp-signal-teal);
 }
 
 .ppProductDetailGrid {

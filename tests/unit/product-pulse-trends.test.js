@@ -25,8 +25,9 @@ describe("ProductPulse trend modeling", () => {
       { createdAt: "2026-05-12T09:00:00.000Z", value: 6 },
     ]);
 
-    expect(trend.values.slice(0, 5).every((value) => value === 0)).toBe(true);
-    expect(trend.values[5]).toBeGreaterThan(0);
+    expect(trend.values[0]).toBeGreaterThan(0);
+    expect(trend.values.slice(1).every((value, index) => value >= trend.values[index])).toBe(true);
+    expect(trend.values[5]).toBeGreaterThan(trend.values[4]);
     expect(trend.values[6]).toBe(100);
     expect(trend.meta.shortWindow).toBe(true);
   });
