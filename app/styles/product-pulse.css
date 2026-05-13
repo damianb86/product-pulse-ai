@@ -1596,8 +1596,13 @@ s-page[inline-size="large-500"] {
   line-height: 1.25;
 }
 
-.ppMainFindingCard p {
-  max-width: 600px;
+.ppMainFindingText {
+  display: grid;
+  gap: 10px;
+  max-width: 680px;
+}
+
+.ppMainFindingText p {
   margin: 0;
   color: var(--pp-slate-700);
   font-size: 13px;

@@ -337,11 +337,13 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "If product content is missing, incoherent, too short, or mismatched with title/tags/collections, include that in the finding or recommendations when relevant.",
     "For subjective negative reactions, avoid overstating risk from a single customer. Explain it as a monitor/review signal unless repeated evidence supports action.",
     "Respect deterministic.signalRelevance. If it says reviewSignals level is weak, do not lead the main finding with review language. If it is emerging, describe it as early evidence with limited confidence. Give priority to returns, refunds, repeated customer language, product content issues, and multi-source agreement.",
+    "Write main_finding_detail as 1 to 3 merchant-facing paragraphs separated by two newline characters. Use one paragraph when evidence is thin; use two or three when separate evidence groups deserve their own explanation.",
+    "Do not let reviews consume the whole main finding when product description, title, tags, collections, returns, refunds, variants, or customer-language evidence also exists. Cover every relevant discovery group in descending evidence strength, and skip only areas with no evidence.",
     "Return valid JSON only. No markdown.",
     "Schema:",
     JSON.stringify({
       main_finding_title: "Sizing and fit expectations are not being met",
-      main_finding_detail: "2-3 sentence user-facing finding grounded in evidence",
+      main_finding_detail: "1-3 paragraphs separated by \\n\\n, grounded in evidence and covering each relevant discovery area",
       evidence_summary: "1-2 sentence source agreement summary",
       issue_names: [{ code: "fit_sizing.runs_small", label: "Runs small" }],
       recommendation_copy: {

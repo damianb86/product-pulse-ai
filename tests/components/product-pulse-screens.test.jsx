@@ -367,6 +367,26 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("heading", { name: "Core Linen Trouser" })).not.toBeInTheDocument();
   });
 
+  it("renders main finding as up to three paragraphs", () => {
+    const selectedProduct = {
+      ...defaultView.products.find((product) => product.slug === "trail-run-vest"),
+      mainFinding: {
+        title: "Multiple product signals need review",
+        detail: [
+          "Reviews point to a durability concern that shoppers keep describing in similar language.",
+          "Product content also needs attention because the description does not set clear expectations.",
+          "Tags and collection placement should be reviewed so the product story stays consistent.",
+          "This fourth paragraph should not render.",
+        ].join("\n\n"),
+      },
+    };
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={selectedProduct} />);
+    expect(screen.getByText("Reviews point to a durability concern that shoppers keep describing in similar language.")).toBeInTheDocument();
+    expect(screen.getByText("Product content also needs attention because the description does not set clear expectations.")).toBeInTheDocument();
+    expect(screen.getByText("Tags and collection placement should be reviewed so the product story stays consistent.")).toBeInTheDocument();
+    expect(screen.queryByText("This fourth paragraph should not render.")).not.toBeInTheDocument();
+  });
+
   it("locks recommended actions until a full product diagnosis runs", () => {
     const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);

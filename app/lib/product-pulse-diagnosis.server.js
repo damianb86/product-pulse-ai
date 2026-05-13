@@ -2766,10 +2766,38 @@ function normalizeSeverity(value) {
 }
 
 function buildMainFindingDetail(aiDetail, deterministic, contentAnalysis) {
-  const base = aiDetail || buildEvidenceSummary(deterministic);
+  const base = normalizeMainFindingDetail(aiDetail || buildEvidenceSummary(deterministic));
   if (!contentAnalysis?.issues?.length) return base;
-  const contentSentence = ` Product content analysis also found: ${contentAnalysis.issues.slice(0, 2).map((issue) => issue.label).join(", ")}.`;
-  return String(base || "").includes("Product content") ? base : `${base}${contentSentence}`;
+  const contentLabels = contentAnalysis.issues
+    .slice(0, 3)
+    .map((issue) => issue.label || getContentIssueLabel(issue.code))
+    .filter(Boolean);
+  const contentSentence = `Product content analysis also found: ${contentLabels.join(", ") || "product content needs review"}.`;
+  return String(base || "").toLowerCase().includes("product content") ? base : appendMainFindingParagraph(base, contentSentence);
+}
+
+function normalizeMainFindingDetail(value) {
+  const paragraphs = splitMainFindingParagraphs(value);
+  if (!paragraphs.length) return "";
+  return paragraphs.slice(0, 3).join("\n\n");
+}
+
+function appendMainFindingParagraph(value, paragraph) {
+  const paragraphs = splitMainFindingParagraphs(value);
+  const nextParagraph = String(paragraph || "").replace(/\s+/g, " ").trim();
+  if (!nextParagraph) return normalizeMainFindingDetail(value);
+  if (paragraphs.length >= 3) return [...paragraphs.slice(0, 2), nextParagraph].join("\n\n");
+  return [...paragraphs, nextParagraph].slice(0, 3).join("\n\n");
+}
+
+function splitMainFindingParagraphs(value) {
+  const raw = String(value || "").replace(/\r/g, "\n").trim();
+  if (!raw) return [];
+  const paragraphs = raw.split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\n+/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (paragraphs.length > 1) return paragraphs;
+  return [raw.replace(/\n+/g, " ").replace(/\s+/g, " ").trim()].filter(Boolean);
 }
 
 function adjustMainFindingForSignalStrength(mainFinding, deterministic) {
@@ -2780,7 +2808,7 @@ function adjustMainFindingForSignalStrength(mainFinding, deterministic) {
   if (hasContentIssues) {
     return {
       ...mainFinding,
-      detail: `${mainFinding.detail} ${relevance.reviewSignals.guidance}`,
+      detail: appendMainFindingParagraph(mainFinding.detail, relevance.reviewSignals.guidance),
       summary: `${mainFinding.summary} ${relevance.reviewSignals.guidance}`,
     };
   }
@@ -2789,7 +2817,7 @@ function adjustMainFindingForSignalStrength(mainFinding, deterministic) {
     title: relevance.reviewSignals.level === "emerging"
       ? "Review signal is emerging, not confirmed"
       : "Review signal is still early",
-    detail: relevance.reviewSignals.guidance,
+    detail: normalizeMainFindingDetail(relevance.reviewSignals.guidance),
     summary: relevance.reviewSignals.summary,
   };
 }
@@ -3096,6 +3124,10 @@ function buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits,
 function buildEvidenceSummary(deterministic) {
   const metrics = deterministic.metrics;
   const relevance = buildSignalRelevanceGuidance(deterministic);
+  const contentIssues = Array.isArray(metrics.contentIssues) ? metrics.contentIssues : [];
+  const contentAnalysisIssues = Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : [];
+  const productContentIssues = contentIssues.length ? contentIssues : contentAnalysisIssues;
+  const affectedVariants = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [];
   const pieces = [];
   if (metrics.returnUnits > 0) pieces.push(`${metrics.returnUnits} return units (${metrics.returnRate}% return rate)`);
   if (metrics.refundUnits > 0 || metrics.refundAmount > 0) pieces.push(`${metrics.refundUnits} refunds worth ${formatMoney(metrics.refundAmount)}`);
@@ -3104,7 +3136,12 @@ function buildEvidenceSummary(deterministic) {
       ? `${metrics.negativeReviewCount} negative Judge.me reviews out of ${metrics.reviewCount}`
       : relevance.reviewSignals.summary);
   }
-  if (metrics.affectedVariants.length) pieces.push(`affected variants: ${metrics.affectedVariants.join(", ")}`);
+  if (productContentIssues.length > 0) {
+    pieces.push(`product content issues: ${productContentIssues.slice(0, 3).map((issue) => issue.label || getContentIssueLabel(issue.code)).filter(Boolean).join(", ")}`);
+  } else if (Number(metrics.contentIssueCount || 0) > 0) {
+    pieces.push(`${metrics.contentIssueCount} product content issue${Number(metrics.contentIssueCount) === 1 ? "" : "s"}`);
+  }
+  if (affectedVariants.length) pieces.push(`affected variants: ${affectedVariants.join(", ")}`);
   if (!pieces.length) return "The diagnosis has product metadata but no strong product-specific customer signal yet.";
   return pieces.join("; ");
 }

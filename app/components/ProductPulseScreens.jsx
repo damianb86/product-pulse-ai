@@ -1602,6 +1602,17 @@ function getMainFindingTitle(issueCategory) {
   return `${issueCategory} signals need review`;
 }
 
+function getMainFindingParagraphs(value) {
+  const raw = String(value || "").replace(/\r/g, "\n").trim();
+  if (!raw) return [];
+  const paragraphs = raw.split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\n+/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return (paragraphs.length ? paragraphs : [raw.replace(/\n+/g, " ").replace(/\s+/g, " ").trim()])
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
 function getProductEvidenceSources(product) {
   if (!product.evidence?.length) return [];
 
@@ -2439,7 +2450,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               <div>
                 <span>Main finding</span>
                 <h2>{detail.mainFindingTitle}</h2>
-                <p>{detail.mainFindingDetail}</p>
+                <div className="ppMainFindingText">
+                  {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
+                    <p key={`${detail.slug}-main-finding-${index}`}>{paragraph}</p>
+                  ))}
+                </div>
               </div>
             </div>
           </s-section>
