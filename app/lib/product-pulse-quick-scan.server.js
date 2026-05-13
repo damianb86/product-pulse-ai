@@ -1097,6 +1097,8 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       windowDays,
       extractionMode,
       soldUnits: aggregate.soldUnits,
+      salesAmount: roundMoney(aggregate.salesAmount),
+      avgUnitRevenue: roundMoney(aggregate.soldUnits > 0 ? aggregate.salesAmount / aggregate.soldUnits : 0),
       returnUnits: aggregate.returnUnits,
       refundUnits: aggregate.refundUnits,
       returnRate: returnRatePercent,

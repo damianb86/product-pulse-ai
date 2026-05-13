@@ -667,6 +667,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   const returns = shopifyData.returns || [];
   const reviews = judgeMeData.reviews || [];
   const soldUnits = preferFreshNumber(sumBy(sales, "quantity"), snapshotMetrics.soldUnits);
+  const salesAmount = roundCurrency(preferFreshNumber(sumBy(sales, "amount"), snapshotMetrics.salesAmount));
   const returnUnits = preferFreshNumber(sumBy(returns, "quantity"), snapshotMetrics.returnUnits);
   const refundUnits = preferFreshNumber(sumBy(refunds, "quantity"), snapshotMetrics.refundUnits);
   const refundAmount = roundCurrency(preferFreshNumber(sumBy(refunds, "amount"), snapshotMetrics.refundAmount));
@@ -729,6 +730,16 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   });
   const estimatedImpact = calculateEstimatedImpact({
     refundAmount,
+    salesAmount,
+    soldUnits,
+    returnUnits,
+    refundUnits,
+    returnRate,
+    refundRate,
+    negativeReviewCount,
+    negativeReviewRate,
+    recentNegativeReviewCount,
+    signalCount,
     windowDays: DIAGNOSIS_WINDOW_DAYS,
     snapshotMetrics,
   });
@@ -753,8 +764,10 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       hasDescription: deterministicContent.hasDescription,
       revenueAtRisk: estimatedImpact.revenueAtRisk,
       marginAtRisk: estimatedImpact.marginAtRisk,
-      estimatedImpact: estimatedImpact.refundValueAtRisk,
+      estimatedImpact: estimatedImpact.revenueAtRisk,
       signalCount,
+      salesAmount,
+      avgUnitRevenue: estimatedImpact.avgUnitRevenue,
       refundAmount,
       returnUnits,
       refundUnits,
@@ -1655,16 +1668,73 @@ function calculateConfidence({ signalCount, sourceCoverage, judgeMeMatchConfiden
   return clamp(Math.round(18 + sample + coverage + match + agreement + recency - penalty), 0, 99);
 }
 
-function calculateEstimatedImpact({ refundAmount, windowDays, snapshotMetrics }) {
+function calculateEstimatedImpact({
+  refundAmount,
+  salesAmount,
+  soldUnits,
+  returnUnits,
+  refundUnits,
+  returnRate,
+  refundRate,
+  negativeReviewCount,
+  negativeReviewRate,
+  recentNegativeReviewCount,
+  signalCount,
+  windowDays,
+  snapshotMetrics,
+}) {
   const knownRefundValue = Number(refundAmount || snapshotMetrics.refundAmount || 0);
+  const knownSalesAmount = Number(salesAmount || snapshotMetrics.salesAmount || 0);
+  const knownSoldUnits = Number(soldUnits || snapshotMetrics.soldUnits || 0);
+  const knownReturnUnits = Number(returnUnits || snapshotMetrics.returnUnits || 0);
+  const knownRefundUnits = Number(refundUnits || snapshotMetrics.refundUnits || 0);
+  const knownReturnRate = Number(returnRate || snapshotMetrics.returnRate || 0) / 100;
+  const knownRefundRate = Number(refundRate || snapshotMetrics.refundRate || 0) / 100;
+  const knownNegativeReviewCount = Number(negativeReviewCount || snapshotMetrics.negativeReviewCount || 0);
+  const knownNegativeReviewRate = Number(negativeReviewRate || snapshotMetrics.negativeReviewRate || 0) / 100;
+  const knownSignalCount = Number(signalCount || snapshotMetrics.signalCount || 0);
+  const avgUnitRevenue = roundCurrency(
+    knownSoldUnits > 0 && knownSalesAmount > 0
+      ? knownSalesAmount / knownSoldUnits
+      : knownRefundUnits > 0 && knownRefundValue > 0
+        ? knownRefundValue / knownRefundUnits
+        : Number(snapshotMetrics.avgUnitRevenue || 0),
+  );
+
+  const affectedUnitValue = avgUnitRevenue > 0
+    ? avgUnitRevenue * Math.max(knownReturnUnits, knownRefundUnits)
+    : 0;
+  const returnRateValueAtRisk = knownSalesAmount > 0
+    ? knownSalesAmount * Math.max(knownReturnRate, knownRefundRate)
+    : affectedUnitValue;
+  const reviewSignalPressure = Math.max(knownNegativeReviewRate, knownNegativeReviewCount > 0 ? knownNegativeReviewCount / Math.max(knownSignalCount, knownNegativeReviewCount, 1) : 0);
+  const reviewConversionDrag = knownSalesAmount > 0 && reviewSignalPressure > 0
+    ? knownSalesAmount * clamp(reviewSignalPressure * 0.35, 0, 0.18)
+    : 0;
+  const recencyMultiplier = recentNegativeReviewCount || knownSignalCount
+    ? 1 + clamp(Number(recentNegativeReviewCount || 0) / Math.max(knownSignalCount, 1), 0, 0.25)
+    : 1;
+
   const projectedFutureRefundLoss = windowDays > 0 ? roundCurrency((knownRefundValue / windowDays) * 30) : 0;
-  const revenueAtRisk = roundCurrency(knownRefundValue + projectedFutureRefundLoss);
-  const marginAtRisk = roundCurrency(revenueAtRisk * 0.45);
+  const projectedFutureReturnLoss = windowDays > 0 ? roundCurrency((returnRateValueAtRisk / windowDays) * 30) : 0;
+  const revenueAtRisk = roundCurrency(Math.max(
+    Number(snapshotMetrics.revenueAtRisk || 0),
+    knownRefundValue + projectedFutureRefundLoss,
+    (returnRateValueAtRisk + projectedFutureReturnLoss + reviewConversionDrag) * recencyMultiplier,
+  ));
+  const marginAtRisk = roundCurrency(Math.max(
+    Number(snapshotMetrics.marginAtRisk || 0),
+    revenueAtRisk * 0.45,
+  ));
+
   return {
     refundValueAtRisk: knownRefundValue,
     projectedFutureRefundLoss,
+    projectedFutureReturnLoss,
+    reviewConversionDrag: roundCurrency(reviewConversionDrag),
     revenueAtRisk,
     marginAtRisk,
+    avgUnitRevenue,
   };
 }
 

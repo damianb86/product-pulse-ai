@@ -147,6 +147,8 @@ describe("ProductPulse screens", () => {
   it("renders product diagnosis evidence and draft actions", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
     expect(screen.getByText(/Sizing & fit expectations are not being met/)).toBeInTheDocument();
+    expect(screen.getByText("$24,700")).toBeInTheDocument();
+    expect(screen.getByText("$9,200 estimated margin at risk")).toBeInTheDocument();
     expect(screen.getByText("Too tight in waist")).toBeInTheDocument();
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getByText("Re-run diagnosis")).toBeInTheDocument();
@@ -156,6 +158,28 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Draft")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
     expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
+  });
+
+  it("collapses long recommended action descriptions", () => {
+    const longDetail = Array.from({ length: 12 }, (_, index) => `Sentence ${index + 1} explains a specific customer-facing product quality recommendation with enough detail to require expansion.`).join(" ");
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "long-copy",
+        label: "Rewrite detailed product guidance",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: { draftText: longDetail },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByText(longDetail)).toHaveClass("isClamped");
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(screen.getByText(longDetail)).not.toHaveClass("isClamped");
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.getByText(longDetail)).toHaveClass("isClamped");
   });
 
   it("renders product diagnosis from snapshot dates and supports issue actions", () => {

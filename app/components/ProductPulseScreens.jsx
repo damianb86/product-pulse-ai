@@ -1274,8 +1274,9 @@ function getProductDetailModel(product) {
     confidenceLabel: getConfidenceLabel(product.confidence || 0, hasRiskSnapshot),
     signalCount: metrics.signalCount || 0,
     returnRate: metrics.returnRate || 0,
-    marginAtRisk: metrics.marginAtRisk || 0,
-    revenueAtRisk: metrics.revenueAtRisk || 0,
+    estimatedImpact: getEstimatedImpactValue(metrics),
+    marginAtRisk: getEstimatedMarginValue(metrics),
+    revenueAtRisk: getEstimatedRevenueValue(metrics),
     riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
@@ -1308,6 +1309,21 @@ function getConfidenceLabel(confidence, hasRiskSnapshot = true) {
   if (confidence >= 65) return "Medium";
   if (confidence > 0) return "Low";
   return "0 stored";
+}
+
+function getEstimatedImpactValue(metrics = {}) {
+  return Number(metrics.estimatedImpact || metrics.revenueAtRisk || metrics.refundAmount || 0);
+}
+
+function getEstimatedRevenueValue(metrics = {}) {
+  return Number(metrics.revenueAtRisk || metrics.estimatedImpact || metrics.refundAmount || 0);
+}
+
+function getEstimatedMarginValue(metrics = {}) {
+  const margin = Number(metrics.marginAtRisk || 0);
+  if (margin > 0) return margin;
+  const revenue = getEstimatedRevenueValue(metrics);
+  return revenue > 0 ? Math.round(revenue * 0.45 * 100) / 100 : 0;
 }
 
 function getProductArtVariant(product) {
@@ -1963,8 +1979,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               />
               <ProductInsightMetric
                 title="Estimated impact"
-                value={formatMoney(detail.marginAtRisk)}
-                detail={`${formatMoney(detail.revenueAtRisk)} revenue at risk`}
+                value={formatMoney(detail.estimatedImpact)}
+                detail={`${formatMoney(detail.marginAtRisk)} estimated margin at risk`}
                 footnote={`${detail.returnRate}% return rate`}
                 tone="red"
               />
@@ -2624,7 +2640,7 @@ function getInsightMetricHelp(title) {
     case "Confidence":
       return "How complete and consistent the available signals are for this diagnosis. More stored evidence generally increases confidence.";
     case "Estimated impact":
-      return "Estimated revenue and margin exposure from the product signals currently stored for this product.";
+      return "Estimated revenue opportunity at risk from refunds, return rate, negative review pressure and recent product signals. Margin at risk is shown underneath.";
     case "Main issue":
       return "The strongest issue category found in the product's current signals, such as returns, refunds, variants or expectation mismatch.";
     case "Recommended fix":
@@ -2732,11 +2748,14 @@ function normalizeSparklineValues(values, size = "base") {
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onDismiss }) {
+  const [detailExpanded, setDetailExpanded] = useState(false);
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const buttonText = applied ? "Applied" : drafted ? "Draft saved" : pending ? "Working..." : action.action;
+  const detailText = String(action.detail || "");
+  const hasLongDetail = detailText.length > 300;
   const disabled = pending || applied;
   const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
     actionId,
@@ -2748,16 +2767,21 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
 
   return (
     <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""}`.trim()}>
-      <div className="ppProductActionIcon">
-        <s-icon type={action.icon} size="small"></s-icon>
-      </div>
-      <div className="ppProductActionBody">
-        <div className="ppProductActionTopline">
-          <span>{action.priority}</span>
-          {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
+      <div className="ppProductActionHeader">
+        <div className="ppProductActionIcon">
+          <s-icon type={action.icon} size="small"></s-icon>
         </div>
         <h3>{action.title}</h3>
-        <p>{action.detail}</p>
+        <span className="ppActionPriorityPill">{action.priority}</span>
+        {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
+      </div>
+      <div className="ppProductActionBody">
+        <p className={`ppActionDetailText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
+        {hasLongDetail && (
+          <button className="ppActionDetailToggle" type="button" onClick={() => setDetailExpanded((expanded) => !expanded)}>
+            {detailExpanded ? "Show less" : "Show more"}
+          </button>
+        )}
         <div className="ppActionReasonBox">
           <span>
             <s-icon type="info" size="small"></s-icon>

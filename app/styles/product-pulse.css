@@ -1842,11 +1842,12 @@ s-page[inline-size="large-500"] {
 
 .ppProductActionItem {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   grid-template-areas:
-    "icon body"
-    "cta cta";
-  gap: 12px 14px;
+    "header"
+    "body"
+    "cta";
+  gap: 12px;
   align-items: start;
   padding: 16px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
@@ -1857,22 +1858,30 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.08);
 }
 
+.ppProductActionHeader {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .ppProductActionIcon {
-  grid-area: icon;
-  width: 52px;
-  height: 52px;
+  width: 36px;
+  height: 36px;
   display: inline-grid;
   place-items: center;
-  border-radius: 12px;
+  flex: 0 0 auto;
+  border-radius: 10px;
   background: linear-gradient(135deg, var(--pp-pulse-blue), var(--pp-insight-violet));
   color: var(--pp-cloud-white);
-  box-shadow: 0 12px 24px rgba(var(--pp-pulse-blue-rgb), 0.22);
+  box-shadow: 0 10px 20px rgba(var(--pp-pulse-blue-rgb), 0.2);
 }
 
 .ppProductActionIcon s-icon {
   color: var(--pp-cloud-white);
   filter: brightness(0) invert(1);
-  transform: scale(1.18);
+  transform: scale(1.02);
 }
 
 .ppProductActionItem.isApplied {
@@ -1885,18 +1894,11 @@ s-page[inline-size="large-500"] {
   min-width: 0;
 }
 
-.ppProductActionTopline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 7px;
-}
-
-.ppProductActionTopline span,
-.ppProductActionTopline em {
+.ppActionPriorityPill,
+.ppProductActionHeader em {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   min-height: 22px;
   padding: 0 8px;
   border-radius: 999px;
@@ -1906,22 +1908,26 @@ s-page[inline-size="large-500"] {
   line-height: 1;
 }
 
-.ppProductActionTopline span {
+.ppActionPriorityPill {
   background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
 }
 
-.ppProductActionTopline em {
+.ppProductActionHeader em {
   background: var(--pp-green-soft);
   color: var(--pp-success-green);
 }
 
 .ppProductActionItem h3 {
-  margin: 0 0 4px;
+  min-width: 0;
+  margin: 0;
   color: var(--pp-slate-900);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
   line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ppProductActionItem p {
@@ -1929,6 +1935,31 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-700);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.ppActionDetailText.isClamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+.ppActionDetailToggle {
+  width: max-content;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-pulse-blue);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ppActionDetailToggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .ppActionReasonBox {
@@ -5219,7 +5250,7 @@ s-page[inline-size="large-500"] {
   .ppProductActionItem {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "icon"
+      "header"
       "body"
       "cta";
   }
