@@ -71,25 +71,57 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
   };
 }
 
-export async function getProductsQueueForShop(shop, admin) {
+export async function getProductsQueueForShop(shop, admin, filters = {}) {
   await failStaleFastProductScans(shop);
   const [snapshots, activeJob] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
-      take: 50,
     }),
     getActiveFastProductScan(shop),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
-  const rows = snapshots.map(formatProductRow);
+  const filterOptions = getProductTableFilterOptions(snapshots);
+  const filteredSnapshots = sortProductSnapshots(
+    filterProductSnapshots(snapshots, filters),
+    filters,
+  );
+  const rowsPerPage = normalizeRowsPerPage(filters.rows);
+  const totalPages = Math.max(1, Math.ceil(filteredSnapshots.length / rowsPerPage));
+  const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
+  const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const rows = pageSnapshots.map(formatProductRow);
   const rowsWithImages = await attachProductImages(rows, admin);
 
   return {
     rows: rowsWithImages,
-    total: snapshots.length,
+    total: filteredSnapshots.length,
+    totalAll: snapshots.length,
+    page,
+    rowsPerPage,
+    totalPages,
+    filterOptions,
     activeScanJob: activeJob ? formatJob(activeJob) : null,
+  };
+}
+
+export async function runSelectedProductDiagnosesForShop(shop, productIds = []) {
+  const uniqueProductIds = [...new Set(productIds.filter(Boolean))];
+  if (!uniqueProductIds.length) {
+    return { status: "validation_error", message: "Select at least one product to analyze." };
+  }
+
+  const results = await Promise.all(uniqueProductIds.map((productId) => rerunProductDiagnosisForShop(shop, productId)));
+  const completed = results.filter(Boolean).length;
+  if (!completed) {
+    return { status: "validation_error", message: "Selected products were not found in ProductPulse snapshots." };
+  }
+
+  return {
+    status: "success",
+    message: `${completed} selected product${completed === 1 ? "" : "s"} queued for AI diagnosis.`,
+    analyzedCount: completed,
   };
 }
 
@@ -139,13 +171,13 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     take: 20,
   });
   const product = formatSnapshotForDiagnosis(snapshot, actions);
-  return attachProductImageToDiagnosis(product, admin);
+  return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
 }
 
 export async function getProductDetailForShop(shop, productId, admin) {
   const snapshotProduct = await getProductSnapshotForShop(shop, productId, admin);
   if (snapshotProduct) return snapshotProduct;
-  return getLiveShopifyProductDetail(productId, admin);
+  return getLiveShopifyProductDetail(productId, admin, shop);
 }
 
 export async function rerunProductDiagnosisForShop(shop, productId) {
@@ -391,6 +423,129 @@ function formatProductRow(snapshot) {
   };
 }
 
+function filterProductSnapshots(snapshots, filters = {}) {
+  const query = String(filters.query || "").trim().toLowerCase();
+
+  return snapshots.filter((snapshot) => {
+    const metrics = snapshot.metrics || {};
+    const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
+    const collections = Array.isArray(metrics.collections) ? metrics.collections : [];
+    const tags = Array.isArray(metrics.tags) ? metrics.tags : [];
+    const searchable = [
+      snapshot.productTitle,
+      snapshot.handle,
+      snapshot.primaryIssue,
+      metrics.vendor,
+      metrics.productType,
+      ...collections,
+      ...tags,
+      ...sources,
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (query && !searchable.includes(query)) return false;
+    if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore) !== filters.risk) return false;
+    if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore) !== filters.status) return false;
+    if (filters.issue && filters.issue !== "all" && slugifyFilterValue(snapshot.primaryIssue) !== filters.issue) return false;
+    if (filters.source && filters.source !== "all" && !sources.some((source) => slugifyFilterValue(source) === filters.source)) return false;
+
+    if (filters.vendor && filters.vendor !== "all") {
+      const values = [metrics.vendor, metrics.productType, ...collections].filter(Boolean).map(slugifyFilterValue);
+      if (!values.includes(filters.vendor)) return false;
+    }
+
+    return true;
+  });
+}
+
+function sortProductSnapshots(snapshots, filters = {}) {
+  const sort = filters.sort === "lastAnalysis" ? "lastAnalysis" : "riskScore";
+  const direction = filters.direction === "asc" ? 1 : -1;
+
+  return [...snapshots].sort((first, second) => {
+    const firstValue = sort === "lastAnalysis" ? new Date(first.updatedAt).getTime() : Number(first.riskScore || 0);
+    const secondValue = sort === "lastAnalysis" ? new Date(second.updatedAt).getTime() : Number(second.riskScore || 0);
+
+    if (firstValue === secondValue) return String(first.productTitle).localeCompare(String(second.productTitle));
+    return (firstValue - secondValue) * direction;
+  });
+}
+
+function getProductTableFilterOptions(snapshots) {
+  const issues = new Map();
+  const sources = new Map();
+  const vendors = new Map();
+  const statuses = new Map();
+
+  snapshots.forEach((snapshot) => {
+    const metrics = snapshot.metrics || {};
+    addFilterOption(issues, snapshot.primaryIssue);
+    addFilterOption(statuses, getStatusLabel(snapshot.riskScore), getStatusFilterValue(snapshot.riskScore));
+    (Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : []).forEach((source) => addFilterOption(sources, source));
+    addFilterOption(vendors, metrics.vendor);
+    addFilterOption(vendors, metrics.productType);
+    (Array.isArray(metrics.collections) ? metrics.collections : []).forEach((collection) => addFilterOption(vendors, collection));
+  });
+
+  return {
+    risks: [
+      { value: "all", label: "Risk" },
+      { value: "high", label: "High" },
+      { value: "medium", label: "Medium" },
+      { value: "low", label: "Low" },
+    ],
+    statuses: [{ value: "all", label: "Status" }, ...Array.from(statuses.values()).sort(compareFilterOptions)],
+    issues: [{ value: "all", label: "Issue type" }, ...Array.from(issues.values()).sort(compareFilterOptions)],
+    sources: [{ value: "all", label: "Source" }, ...Array.from(sources.values()).sort(compareFilterOptions)],
+    vendors: [{ value: "all", label: "Vendor or Collection" }, ...Array.from(vendors.values()).sort(compareFilterOptions)],
+  };
+}
+
+function addFilterOption(map, label, value) {
+  if (!label) return;
+  const key = value || slugifyFilterValue(label);
+  if (!key || map.has(key)) return;
+  map.set(key, { value: key, label: String(label) });
+}
+
+function compareFilterOptions(first, second) {
+  return first.label.localeCompare(second.label);
+}
+
+function slugifyFilterValue(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function getRiskFilterValue(score) {
+  if (score >= 75) return "high";
+  if (score >= 55) return "medium";
+  return "low";
+}
+
+function getStatusFilterValue(score) {
+  if (score >= 75) return "needs-attention";
+  if (score >= 55) return "monitor";
+  return "good";
+}
+
+function getStatusLabel(score) {
+  if (score >= 75) return "Needs attention";
+  if (score >= 55) return "Monitor";
+  return "Good";
+}
+
+function normalizeRowsPerPage(value) {
+  return Number(value) === 50 ? 50 : 25;
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const number = Number.parseInt(value, 10);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
 async function attachProductImages(rows, admin) {
   if (!admin?.graphql || rows.length === 0) return rows;
   const ids = rows.map((row) => row.productGid).filter(Boolean);
@@ -463,7 +618,7 @@ async function attachProductImageToDiagnosis(product, admin) {
   };
 }
 
-async function getLiveShopifyProductDetail(productId, admin) {
+async function getLiveShopifyProductDetail(productId, admin, shop) {
   if (!admin?.graphql || !productId) return null;
 
   try {
@@ -527,10 +682,24 @@ async function getLiveShopifyProductDetail(productId, admin) {
     const json = await response.json();
     if (json.errors?.length) return null;
     const product = json.data?.products?.nodes?.[0];
-    return product ? formatLiveShopifyProductForDiagnosis(product) : null;
+    return product ? withShopifyAdminUrl(formatLiveShopifyProductForDiagnosis(product), shop) : null;
   } catch {
     return null;
   }
+}
+
+function withShopifyAdminUrl(product, shop) {
+  if (!product) return product;
+  return {
+    ...product,
+    shopifyAdminUrl: getShopifyProductAdminUrl(shop, product.id),
+  };
+}
+
+function getShopifyProductAdminUrl(shop, productGid) {
+  const numericId = String(productGid || "").split("/").pop();
+  if (!shop || !numericId) return null;
+  return `https://${shop}/admin/products/${numericId}`;
 }
 
 function formatLiveShopifyProductForDiagnosis(product) {
@@ -638,6 +807,8 @@ function formatSnapshotForDiagnosis(snapshot, actions = []) {
       storeAvgReturnRate: metrics.storeAvgReturnRate || 0,
       storeAvgRefundRate: metrics.storeAvgRefundRate || 0,
       lastSignalAt: metrics.lastSignalAt || null,
+      signalTrend: Array.isArray(metrics.signalTrend) ? metrics.signalTrend : [],
+      riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
       productType: metrics.productType || "",
       vendor: metrics.vendor || "",
       tags: Array.isArray(metrics.tags) ? metrics.tags : [],
@@ -721,6 +892,7 @@ function getSnapshotIssues(snapshot, metrics) {
       confidence: snapshot.confidence,
       signals: signalCount,
       evidence: topReturnReasons,
+      trend: Array.isArray(metrics.signalTrend) ? metrics.signalTrend : [],
     },
     {
       issue: affectedVariants.length ? `Variant concentration: ${affectedVariants.join(", ")}` : "Signal concentration needs review",
@@ -728,6 +900,7 @@ function getSnapshotIssues(snapshot, metrics) {
       confidence: Math.max(snapshot.confidence - 9, 35),
       signals: Math.max(Math.round(signalCount * 0.62), 1),
       evidence: affectedVariants,
+      trend: Array.isArray(metrics.signalTrend) ? metrics.signalTrend : [],
     },
   ];
 }

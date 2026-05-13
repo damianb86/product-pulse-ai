@@ -996,6 +996,7 @@ function getProductAggregate(aggregates, product) {
       notes: [],
       affectedVariants: new Map(),
       lastSignalAt: null,
+      signalEvents: [],
     });
   }
 
@@ -1023,6 +1024,11 @@ function applyEventToAggregate(aggregate, event) {
   }
 
   aggregate.totalSignalUnits += quantity || 1;
+  aggregate.signalEvents.push({
+    type: event.type,
+    quantity: quantity || 1,
+    occurredAt: event.occurredAt || null,
+  });
   if (isRecentSignal(event.occurredAt)) aggregate.recentSignalUnits += quantity || 1;
   if (event.occurredAt && (!aggregate.lastSignalAt || new Date(event.occurredAt) > new Date(aggregate.lastSignalAt))) {
     aggregate.lastSignalAt = event.occurredAt;
@@ -1075,6 +1081,8 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     returnRate,
   });
   const signalCount = aggregate.returnUnits + aggregate.refundUnits + topReasons.reduce((sum, reason) => sum + reason.count, 0);
+  const signalTrend = buildSignalTrend(aggregate.signalEvents, windowDays);
+  const riskTrend = buildRiskTrend(signalTrend, riskScore);
 
   return {
     productGid: aggregate.product.id,
@@ -1103,6 +1111,8 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       affectedVariants: affectedVariants.map((variant) => variant.label),
       recentSignalUnits: aggregate.recentSignalUnits,
       lastSignalAt: aggregate.lastSignalAt,
+      signalTrend,
+      riskTrend,
       productType: aggregate.product.productType,
       vendor: aggregate.product.vendor,
       tags: aggregate.product.tags,
@@ -1215,6 +1225,34 @@ function getRecentSpikeScore(aggregate) {
   const recentShare = aggregate.recentSignalUnits / aggregate.totalSignalUnits;
   if (aggregate.totalSignalUnits < 3) return recentShare >= 0.75 ? 8 : 0;
   return clamp(recentShare * 12, 0, 12);
+}
+
+function buildSignalTrend(events, windowDays) {
+  const buckets = Array.from({ length: 7 }, () => 0);
+  const windowMs = Math.max(windowDays, 1) * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  events.forEach((event) => {
+    const timestamp = new Date(event.occurredAt).getTime();
+    if (Number.isNaN(timestamp)) return;
+    const elapsed = clamp(now - timestamp, 0, windowMs);
+    const position = 1 - elapsed / windowMs;
+    const bucketIndex = Math.min(6, Math.max(0, Math.floor(position * buckets.length)));
+    buckets[bucketIndex] += Math.max(toNumber(event.quantity), 1);
+  });
+
+  return buckets.map((value) => Math.round(value * 10) / 10);
+}
+
+function buildRiskTrend(signalTrend, riskScore) {
+  const total = signalTrend.reduce((sum, value) => sum + value, 0);
+  if (!total) return signalTrend.map(() => 0);
+
+  let cumulative = 0;
+  return signalTrend.map((value) => {
+    cumulative += value;
+    return Math.round(clamp((cumulative / total) * riskScore, 0, 100));
+  });
 }
 
 function anomalyScore(rate, average, maxScore) {

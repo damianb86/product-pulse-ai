@@ -126,11 +126,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("RET")).toBeInTheDocument();
     expect(screen.getByText("REF")).toBeInTheDocument();
     expect(screen.getByText("PDP")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Linen Shirt" }));
+    expect(screen.getByRole("button", { name: "Analyze selected (1)" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
     expect(screen.getByRole("menuitem", { name: /View diagnostics/ })).toHaveAttribute("href", "/app/products/linen-shirt");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Mark for review" }));
-    fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
-    expect(screen.getByRole("menuitem", { name: "Queued for review" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Copy handle" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Mark for review" })).not.toBeInTheDocument();
   });
 
   it("renders product diagnosis evidence and draft actions", () => {

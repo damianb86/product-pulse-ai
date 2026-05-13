@@ -1199,6 +1199,24 @@ s-page[inline-size="large-500"] {
   flex-wrap: wrap;
 }
 
+.ppProductExternalButton {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppProductExternalButton:hover {
+  border-color: var(--pp-pulse-blue);
+  background: var(--pp-blue-soft);
+}
+
 .ppProductSummaryGrid {
   display: grid;
   grid-template-columns: minmax(420px, 0.92fr) minmax(620px, 1.68fr);
@@ -1572,7 +1590,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductActionItem {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) minmax(112px, auto);
+  grid-template-columns: 38px minmax(0, 1fr) minmax(112px, auto);
   gap: 12px;
   align-items: center;
   min-height: 62px;
@@ -1580,6 +1598,17 @@ s-page[inline-size="large-500"] {
   border: 1px solid var(--pp-slate-300);
   border-radius: 8px;
   background: var(--pp-cloud-white);
+}
+
+.ppProductActionItem > s-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+  transform: scale(1.12);
 }
 
 .ppProductActionItem.isApplied {
@@ -2977,7 +3006,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductsToolbar {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   padding: 22px;
 }
@@ -3026,7 +3055,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductsFilters {
-  grid-column: 1 / -1;
+  min-width: 0;
 }
 
 .ppCompactSelect {
@@ -3070,11 +3099,64 @@ s-page[inline-size="large-500"] {
   min-height: 58px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 14px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--pp-slate-200);
   color: var(--pp-slate-700);
   font-size: 13px;
+}
+
+.ppProductsTableTools {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.ppTableSearchButton {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  cursor: pointer;
+}
+
+.ppTableSearchButton:hover,
+.ppTableSearchButton[aria-expanded="true"] {
+  border-color: var(--pp-pulse-blue);
+  color: var(--pp-pulse-blue);
+  background: var(--pp-blue-soft);
+}
+
+.ppTableSearchControl {
+  width: min(300px, 42vw);
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-500);
+}
+
+.ppTableSearchControl input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--pp-slate-700);
+  font: inherit;
 }
 
 .ppSelectionPill {
@@ -3107,6 +3189,7 @@ s-page[inline-size="large-500"] {
 .ppProductsTableWrap {
   position: relative;
   overflow-x: auto;
+  overflow-y: visible;
 }
 
 .ppProductsTableWrap.isScanning .ppProductsTable {
@@ -3160,6 +3243,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSortArrow {
+  display: inline-flex;
+  align-items: center;
   color: var(--pp-pulse-blue);
   font-size: 12px;
   font-weight: 750;
@@ -3303,6 +3388,12 @@ s-page[inline-size="large-500"] {
   gap: 6px;
 }
 
+.ppAnalyzeIconOnly {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+}
+
 .ppActionMenu {
   position: absolute;
   z-index: 35;
@@ -3372,22 +3463,33 @@ s-page[inline-size="large-500"] {
   gap: 8px;
 }
 
-.ppPageControls button {
+.ppPageControls button,
+.ppPageControls a {
   min-width: 40px;
   height: 40px;
+  display: inline-grid;
+  place-items: center;
   padding: 0 12px;
   border: 1px solid var(--pp-slate-300);
   border-radius: 8px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   font-weight: 550;
+  line-height: 1;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.ppPageControls button.isActive {
+.ppPageControls button.isActive,
+.ppPageControls a.isActive {
   border-color: var(--pp-slate-300);
   background: var(--pp-slate-100);
   box-shadow: inset 0 0 0 1px var(--pp-slate-300);
+}
+
+.ppPageControls button:disabled {
+  opacity: 0.48;
+  cursor: default;
 }
 
 .ppHero,

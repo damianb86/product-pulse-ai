@@ -2,7 +2,11 @@ import { useActionData, useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { ProductsScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
-import { getProductsQueueForShop, startFastProductScan } from "../lib/product-pulse-jobs.server";
+import {
+  getProductsQueueForShop,
+  runSelectedProductDiagnosesForShop,
+  startFastProductScan,
+} from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -10,12 +14,20 @@ export const loader = async ({ request }) => {
   const filters = {
     query: url.searchParams.get("q") || "",
     risk: url.searchParams.get("risk") || "all",
+    status: url.searchParams.get("status") || "all",
+    issue: url.searchParams.get("issue") || "all",
+    source: url.searchParams.get("source") || "all",
+    vendor: url.searchParams.get("vendor") || "all",
+    page: url.searchParams.get("page") || "1",
+    rows: url.searchParams.get("rows") || "25",
+    sort: url.searchParams.get("sort") || "",
+    direction: url.searchParams.get("direction") || "desc",
   };
 
   return {
     data: {
       ...getAppViewData(filters),
-      productTable: await getProductsQueueForShop(session.shop, admin),
+      productTable: await getProductsQueueForShop(session.shop, admin, filters),
       persistProductJobs: true,
     },
     filters,
@@ -28,6 +40,10 @@ export const action = async ({ request }) => {
 
   if (formData.get("_action") === "fast-product-scan") {
     return startFastProductScan({ shop: session.shop, admin, scopes: session.scope });
+  }
+
+  if (formData.get("_action") === "bulk-diagnose") {
+    return runSelectedProductDiagnosesForShop(session.shop, formData.getAll("productId").map(String));
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

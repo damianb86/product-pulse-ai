@@ -630,43 +630,84 @@ export function RunningJobsScreen({ data, actionData }) {
   );
 }
 
-export function ProductsScreen({ data, filters }) {
+export function ProductsScreen({ data, filters = {}, actionData }) {
   const revalidator = useRevalidator();
   const navigation = useNavigation();
   const submit = useSubmit();
   const [localFastScan, setLocalFastScan] = useState(false);
-  const [sortConfig, setSortConfig] = useState(null);
+  const [localSortConfig, setLocalSortConfig] = useState(null);
   const [openActionProduct, setOpenActionProduct] = useState(null);
-  const [queuedProducts, setQueuedProducts] = useState(() => new Set());
+  const [selectedProducts, setSelectedProducts] = useState(() => new Set());
+  const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
+  const [searchValue, setSearchValue] = useState(filters.query || "");
   const productTableRows = data.productTable?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const productCount = data.productTable?.total ?? productRows.length;
+  const totalAllProducts = data.productTable?.totalAll ?? productCount;
+  const filterOptions = data.productTable?.filterOptions || {};
+  const page = data.productTable?.page || 1;
+  const rowsPerPage = data.productTable?.rowsPerPage || Number(filters.rows || 25);
+  const totalPages = data.productTable?.totalPages || 1;
   const activeScanJob = data.productTable?.activeScanJob || null;
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
+  const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
-  const sortedProductRows = useMemo(() => {
-    if (!sortConfig) return productRows;
-    const direction = sortConfig.direction === "asc" ? 1 : -1;
-
-    return [...productRows].sort((first, second) => {
-      const firstValue = sortConfig.key === "riskScore"
-        ? Number(first.riskScore || 0)
-        : getSortableDate(first.lastAnalysisAt || first.lastAnalysis);
-      const secondValue = sortConfig.key === "riskScore"
-        ? Number(second.riskScore || 0)
-        : getSortableDate(second.lastAnalysisAt || second.lastAnalysis);
-
-      if (firstValue === secondValue) return String(first.title).localeCompare(String(second.title));
-      return (firstValue - secondValue) * direction;
-    });
-  }, [productRows, sortConfig]);
+  const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
+  const visibleProductKeys = productRows.map(getProductActionKey);
+  const selectedCount = selectedProducts.size;
+  const allVisibleSelected = visibleProductKeys.length > 0 && visibleProductKeys.every((key) => selectedProducts.has(key));
+  const hasVisibleSelection = visibleProductKeys.some((key) => selectedProducts.has(key));
+  const currentSearchQuery = filters.query || "";
+  const submitProductFilters = (overrides = {}) => {
+    submit(buildProductFilterFormData(filters, { rows: String(rowsPerPage), ...overrides }), { method: "get", replace: true });
+  };
 
   useEffect(() => {
     if (!activeScanJob || !persistProductJobs) return undefined;
     const interval = window.setInterval(() => revalidator.revalidate(), 2000);
     return () => window.clearInterval(interval);
   }, [activeScanJob, persistProductJobs, revalidator]);
+
+  useEffect(() => {
+    setLocalSortConfig(null);
+  }, [filters.sort, filters.direction]);
+
+  useEffect(() => {
+    setSearchValue(currentSearchQuery);
+    setSearchOpen(Boolean(currentSearchQuery));
+  }, [currentSearchQuery]);
+
+  useEffect(() => {
+    if (searchValue === currentSearchQuery) return undefined;
+    const timeout = window.setTimeout(() => {
+      submit(
+        buildProductFilterFormData(filters, { rows: String(rowsPerPage), query: searchValue, page: "1" }),
+        { method: "get", replace: true },
+      );
+    }, 260);
+    return () => window.clearTimeout(timeout);
+  }, [
+    searchValue,
+    currentSearchQuery,
+    filters.risk,
+    filters.status,
+    filters.issue,
+    filters.source,
+    filters.vendor,
+    filters.rows,
+    filters.sort,
+    filters.direction,
+    filters,
+    rowsPerPage,
+    submit,
+  ]);
+
+  useEffect(() => {
+    if (actionData?.status === "success" && actionData?.analyzedCount) {
+      setSelectedProducts(new Set());
+    }
+  }, [actionData]);
 
   const handleLocalFastScan = () => {
     setLocalFastScan(true);
@@ -684,20 +725,50 @@ export function ProductsScreen({ data, filters }) {
     formData.set("_action", "fast-product-scan");
     submit(formData, { method: "post" });
   };
+
   const handleSort = (key) => {
-    setSortConfig((current) => {
-      if (!current || current.key !== key) return { key, direction: "desc" };
-      return { key, direction: current.direction === "desc" ? "asc" : "desc" };
-    });
+    const nextDirection = sortConfig?.key === key && sortConfig.direction === "desc" ? "asc" : "desc";
+    setLocalSortConfig({ key, direction: nextDirection });
+    submitProductFilters({ sort: key, direction: nextDirection, page: "1" });
   };
-  const handleMarkForReview = (product) => {
-    const key = getProductActionKey(product);
-    setQueuedProducts((current) => {
+
+  const handleFilterChange = (event) => {
+    const target = event.target;
+    if (!target?.name) return;
+    submitProductFilters({ [target.name]: target.value, page: "1" });
+  };
+
+  const handleToggleAllVisible = () => {
+    setSelectedProducts((current) => {
       const next = new Set(current);
-      next.add(key);
+      if (allVisibleSelected) {
+        visibleProductKeys.forEach((key) => next.delete(key));
+      } else {
+        visibleProductKeys.forEach((key) => next.add(key));
+      }
       return next;
     });
-    setOpenActionProduct(null);
+  };
+
+  const handleToggleProduct = (product) => {
+    const key = getProductActionKey(product);
+    setSelectedProducts((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const handleAnalyzeSelected = () => {
+    if (!selectedCount || pendingBulkAnalyze) return;
+    const formData = new FormData();
+    formData.set("_action", "bulk-diagnose");
+    selectedProducts.forEach((productId) => formData.append("productId", productId));
+    submit(formData, { method: "post" });
   };
 
   return (
@@ -706,20 +777,16 @@ export function ProductsScreen({ data, filters }) {
         <p className="ppDashboardSubtitle">
           Browse products, review risk signals and run AI diagnosis.
         </p>
+        <ActionBanner actionData={actionData} />
 
         <s-section padding="none">
-          <Form method="get" className="ppProductsToolbar">
-            <div className="ppProductsSearch">
-              <div className="ppSearchControl">
-                <s-icon type="search" size="small"></s-icon>
-                <input
-                  aria-label="Search products"
-                  name="q"
-                  defaultValue={filters.query || ""}
-                  placeholder="Search products"
-                  type="search"
-                />
-              </div>
+          <div className="ppProductsToolbar">
+            <div className="ppProductsFilters" aria-label="Product filters" onChange={handleFilterChange}>
+              <ProductFilterSelect name="risk" label="Risk" value={filters.risk || "all"} options={filterOptions.risks} />
+              <ProductFilterSelect name="status" label="Status" value={filters.status || "all"} options={filterOptions.statuses} />
+              <ProductFilterSelect name="issue" label="Issue type" value={filters.issue || "all"} options={filterOptions.issues} />
+              <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
+              <ProductFilterSelect name="vendor" label="Vendor or Collection" value={filters.vendor || "all"} options={filterOptions.vendors} vendor />
             </div>
             <div className="ppProductsActions">
               <FastScanButton
@@ -727,90 +794,66 @@ export function ProductsScreen({ data, filters }) {
                 onStart={handleStartFastScan}
               />
               <s-button href="/app/products" variant="secondary">Clear filters</s-button>
-              <s-button type="submit" variant="secondary">
-                <s-icon type="refresh" size="small"></s-icon>
-                Refresh scan
-              </s-button>
-              <s-button type="button" variant="secondary">
-                <s-icon type="import" size="small"></s-icon>
-                Export
-              </s-button>
-              <button className="ppPrimaryButton" type="button" disabled={productRows.length === 0}>Analyze selected ({productRows.length})</button>
+              <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
+                <s-icon type="wand" size="small"></s-icon>
+                {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
+              </button>
             </div>
-            <div className="ppProductsFilters" aria-label="Product filters">
-              <label className="ppCompactSelect">
-                <span>Risk</span>
-                <select name="risk" defaultValue={filters.risk || "all"}>
-                  <option value="all">Risk</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-              </label>
-              <label className="ppCompactSelect">
-                <span>Status</span>
-                <select name="status" defaultValue="all">
-                  <option value="all">Status</option>
-                  <option value="needs-attention">Needs attention</option>
-                  <option value="monitor">Monitor</option>
-                  <option value="good">Good</option>
-                </select>
-              </label>
-              <label className="ppCompactSelect">
-                <span>Issue type</span>
-                <select name="issue" defaultValue="all">
-                  <option value="all">Issue type</option>
-                  <option value="fit">Fit & sizing</option>
-                  <option value="quality">Quality</option>
-                  <option value="color">Color</option>
-                </select>
-              </label>
-              <label className="ppCompactSelect">
-                <span>Source</span>
-                <select name="source" defaultValue="all">
-                  <option value="all">Source</option>
-                  <option value="reviews">Reviews</option>
-                  <option value="returns">Returns</option>
-                  <option value="support">Support</option>
-                </select>
-              </label>
-              <label className="ppCompactSelect ppVendorSelect">
-                <span>Vendor or Collection</span>
-                <select name="vendor" defaultValue="all">
-                  <option value="all">Vendor or Collection</option>
-                  <option value="summer">Summer capsule</option>
-                  <option value="apparel">Apparel</option>
-                </select>
-              </label>
-              <span className="ppBulkHint">
-                Bulk analysis will use 8 credits
-                <s-icon type="info" size="small" color="subdued"></s-icon>
-              </span>
-            </div>
-          </Form>
+          </div>
         </s-section>
 
         <s-section padding="none">
           <div className="ppProductsTableStatus">
             {productRows.length > 0 ? (
               <div className="ppSelectionPill">
-                <span>0</span>
+                <span>{selectedCount}</span>
                 selected
-                <button type="button" aria-label="Clear selected products">
-                  <s-icon type="x" size="small"></s-icon>
-                </button>
+                {selectedCount > 0 && (
+                  <button type="button" aria-label="Clear selected products" onClick={() => setSelectedProducts(new Set())}>
+                    <s-icon type="x" size="small"></s-icon>
+                  </button>
+                )}
               </div>
             ) : (
               <span>No products in ProductPulse yet</span>
             )}
-            <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products` : "0 products"}</span>
+            <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products${totalAllProducts !== productCount ? ` (${totalAllProducts} scanned)` : ""}` : "0 products"}</span>
+            <div className="ppProductsTableTools">
+              <button
+                className="ppTableSearchButton"
+                type="button"
+                aria-label="Search products"
+                aria-expanded={searchOpen}
+                onClick={() => setSearchOpen((open) => !open)}
+              >
+                <s-icon type="search" size="small"></s-icon>
+              </button>
+              {searchOpen && (
+                <div className="ppTableSearchControl">
+                  <s-icon type="search" size="small"></s-icon>
+                  <input
+                    aria-label="Search products"
+                    value={searchValue}
+                    onChange={(event) => setSearchValue(event.target.value)}
+                    placeholder="Search products"
+                    type="search"
+                  />
+                </div>
+              )}
+            </div>
           </div>
           <div className={`ppProductsTableWrap ${fastScanRunning ? "isScanning" : ""}`.trim()}>
             <table className="ppProductsTable" data-testid="products-table">
               <thead>
                 <tr>
                   <th aria-label="Select products">
-                    <input type="checkbox" checked readOnly aria-label="Select all visible products" />
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      aria-checked={hasVisibleSelection && !allVisibleSelected ? "mixed" : allVisibleSelected}
+                      aria-label="Select all visible products"
+                      onChange={handleToggleAllVisible}
+                    />
                   </th>
                   <th>Product</th>
                   <th>
@@ -855,13 +898,19 @@ export function ProductsScreen({ data, filters }) {
                     </td>
                   </tr>
                 )}
-                {sortedProductRows.map((product) => {
+                {productRows.map((product) => {
                   const actionKey = getProductActionKey(product);
+                  const selected = selectedProducts.has(actionKey);
 
                   return (
                     <tr key={actionKey}>
                       <td>
-                        <input type="checkbox" checked={product.selected} readOnly aria-label={`Select ${product.title}`} />
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          aria-label={`Select ${product.title}`}
+                          onChange={() => handleToggleProduct(product)}
+                        />
                       </td>
                       <td>
                         <Link className="ppProductsProductCell" to={product.href}>
@@ -890,17 +939,14 @@ export function ProductsScreen({ data, filters }) {
                       <td>{product.credits}</td>
                       <td>
                         <div className="ppTableAction">
-                          <Link className="ppAnalyzeLinkButton" to={product.href}>
+                          <Link className="ppAnalyzeLinkButton ppAnalyzeIconOnly" to={product.href} aria-label="Analyze product">
                             <s-icon type="wand" size="small"></s-icon>
-                            <span>Analyze</span>
                           </Link>
                           <ProductActionMenu
                             product={product}
                             open={openActionProduct === actionKey}
-                            queued={queuedProducts.has(actionKey)}
                             onToggle={() => setOpenActionProduct((current) => (current === actionKey ? null : actionKey))}
                             onClose={() => setOpenActionProduct(null)}
-                            onMarkForReview={() => handleMarkForReview(product)}
                           />
                         </div>
                       </td>
@@ -927,23 +973,39 @@ export function ProductsScreen({ data, filters }) {
             <div className="ppProductsPagination">
               <label className="ppRowsSelect">
                 Rows per page
-                <select defaultValue="25">
+                <select value={rowsPerPage} onChange={(event) => submitProductFilters({ rows: event.target.value, page: "1" })}>
                   <option value="25">25</option>
                   <option value="50">50</option>
                 </select>
               </label>
               <div className="ppPageControls" aria-label="Pagination">
-                <button type="button" aria-label="Previous page">
-                  <s-icon type="chevron-left" size="small"></s-icon>
-                </button>
-                {[1, 2, 3, 4, 5].map((page) => (
-                  <button className={page === 1 ? "isActive" : ""} type="button" key={page}>
-                    {page}
+                {page > 1 ? (
+                  <Link to={buildProductFilterHref(filters, { rows: rowsPerPage, page: page - 1 })} aria-label="Previous page">
+                    <s-icon type="chevron-left" size="small"></s-icon>
+                  </Link>
+                ) : (
+                  <button type="button" aria-label="Previous page" disabled>
+                    <s-icon type="chevron-left" size="small"></s-icon>
                   </button>
+                )}
+                {getVisiblePages(page, totalPages).map((pageNumber) => (
+                  <Link
+                    className={pageNumber === page ? "isActive" : ""}
+                    to={buildProductFilterHref(filters, { rows: rowsPerPage, page: pageNumber })}
+                    key={pageNumber}
+                  >
+                    {pageNumber}
+                  </Link>
                 ))}
-                <button type="button" aria-label="Next page">
-                  <s-icon type="chevron-right" size="small"></s-icon>
-                </button>
+                {page < totalPages ? (
+                  <Link to={buildProductFilterHref(filters, { rows: rowsPerPage, page: page + 1 })} aria-label="Next page">
+                    <s-icon type="chevron-right" size="small"></s-icon>
+                  </Link>
+                ) : (
+                  <button type="button" aria-label="Next page" disabled>
+                    <s-icon type="chevron-right" size="small"></s-icon>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -962,6 +1024,21 @@ function FastScanButton({ pending, onStart }) {
   );
 }
 
+function ProductFilterSelect({ name, label, value, options, vendor = false }) {
+  const normalizedOptions = Array.isArray(options) && options.length ? options : [{ value: "all", label }];
+
+  return (
+    <label className={`ppCompactSelect ${vendor ? "ppVendorSelect" : ""}`.trim()}>
+      <span>{label}</span>
+      <select name={name} value={value || "all"} onChange={() => {}}>
+        {normalizedOptions.map((option) => (
+          <option value={option.value} key={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function SortableHeader({ active, direction, label, onSort }) {
   return (
     <button className={`ppSortableHeader ${active ? "isActive" : ""}`} type="button" onClick={onSort}>
@@ -971,11 +1048,48 @@ function SortableHeader({ active, direction, label, onSort }) {
   );
 }
 
-function getSortableDate(value) {
-  if (!value) return 0;
-  if (value === "Just now") return Number.MAX_SAFE_INTEGER;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+function buildProductFilterFormData(current = {}, overrides = {}) {
+  const values = {
+    query: "",
+    risk: "all",
+    status: "all",
+    issue: "all",
+    source: "all",
+    vendor: "all",
+    page: "1",
+    rows: "25",
+    sort: "",
+    direction: "desc",
+    ...current,
+    ...overrides,
+  };
+  const formData = new FormData();
+
+  if (values.query) formData.set("q", values.query);
+  ["risk", "status", "issue", "source", "vendor"].forEach((name) => {
+    if (values[name] && values[name] !== "all") formData.set(name, values[name]);
+  });
+  if (String(values.page || "1") !== "1") formData.set("page", String(values.page));
+  if (String(values.rows || "25") !== "25") formData.set("rows", String(values.rows));
+  if (values.sort) {
+    formData.set("sort", values.sort);
+    formData.set("direction", values.direction === "asc" ? "asc" : "desc");
+  }
+
+  return formData;
+}
+
+function buildProductFilterHref(current = {}, overrides = {}) {
+  const params = new URLSearchParams(buildProductFilterFormData(current, overrides));
+  const query = params.toString();
+  return query ? `/app/products?${query}` : "/app/products";
+}
+
+function getVisiblePages(currentPage, totalPages) {
+  const total = Math.max(1, totalPages || 1);
+  const start = Math.max(1, Math.min(currentPage - 2, total - 4));
+  const end = Math.min(total, start + 4);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 function getProductActionKey(product) {
@@ -999,6 +1113,7 @@ function getProductDetailModel(product) {
     variant: getProductArtVariant(product),
     imageUrl: product.imageUrl,
     imageAlt: product.imageAlt,
+    shopifyAdminUrl: product.shopifyAdminUrl,
     lastAnalysis: formatProductAnalysisDate(product.lastAnalysis),
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
@@ -1011,6 +1126,7 @@ function getProductDetailModel(product) {
     returnRate: metrics.returnRate || 0,
     marginAtRisk: metrics.marginAtRisk || 0,
     revenueAtRisk: metrics.revenueAtRisk || 0,
+    riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
     issueBadge: issueCategory,
     issueCategory,
     issueDetail: issueText || "No deterministic product issue stored yet.",
@@ -1088,6 +1204,19 @@ function getProductRiskScoreLabel(score) {
   return "Low";
 }
 
+function getTrendTone(values, fallbackScore = 0) {
+  const trendValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
+  if (trendValues.length >= 2) {
+    const first = trendValues[0];
+    const last = trendValues[trendValues.length - 1];
+    if (last > first) return "red";
+    if (last < first) return "green";
+  }
+  if (fallbackScore >= 75) return "red";
+  if (fallbackScore >= 55) return "orange";
+  return "green";
+}
+
 function getProductIssueCategory(issue) {
   if (!issue) return "No issue";
   const normalized = issue.toLowerCase();
@@ -1137,7 +1266,8 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
       tone: getBadgeToneFromRiskTone(issue.tone || product.riskTone),
       confidence: typeof issue.confidence === "number" ? `${issue.confidence}%` : issue.confidence || `${product.confidence || 0}%`,
       signals: issue.signals || product.metrics?.signalCount || 0,
-      trendTone: product.riskScore >= 75 ? "red" : product.riskScore >= 55 ? "orange" : "green",
+      trend: Array.isArray(issue.trend) ? issue.trend : product.metrics?.signalTrend || [],
+      trendTone: getTrendTone(Array.isArray(issue.trend) ? issue.trend : product.metrics?.signalTrend || [], product.riskScore),
       action: issue.action || getIssueActionLabel(issue.issue || product.primaryIssue, issueCategory),
     }));
   }
@@ -1155,7 +1285,8 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
       tone: product.riskTone,
       confidence: `${product.confidence}%`,
       signals: primarySignals,
-      trendTone: product.riskScore >= 75 ? "red" : product.riskScore >= 55 ? "orange" : "green",
+      trend: product.metrics?.signalTrend || [],
+      trendTone: getTrendTone(product.metrics?.signalTrend || [], product.riskScore),
       action: firstAction,
     },
     {
@@ -1164,7 +1295,8 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
       tone: product.riskScore >= 75 ? "critical" : product.riskScore >= 55 ? "warning" : "success",
       confidence: `${Math.max(product.confidence - 9, 35)}%`,
       signals: Math.max(Math.round(primarySignals * 0.62), 1),
-      trendTone: product.riskScore >= 75 ? "red" : "green",
+      trend: product.metrics?.signalTrend || [],
+      trendTone: getTrendTone(product.metrics?.signalTrend || [], product.riskScore),
       action: secondaryAction,
     },
   ];
@@ -1185,7 +1317,7 @@ function getProductRecommendedActions(product) {
 
   return product.recommendedActions.map((action, index) => ({
     id: action.id,
-    icon: getActionIcon(action.type),
+    icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     title: action.label,
     detail: `${action.type} - ${action.status} - ${action.effort} effort`,
     action: getRecommendedActionButtonLabel(action, index),
@@ -1287,11 +1419,15 @@ function getRecommendedActionButtonLabel(action, index) {
 }
 
 function getActionIcon(type) {
-  const normalized = type.toLowerCase();
-  if (normalized.includes("copy") || normalized.includes("description")) return "pen";
+  const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("refund")) return "cash-dollar";
+  if (normalized.includes("return")) return "return";
+  if (normalized.includes("variant")) return "product";
+  if (normalized.includes("copy") || normalized.includes("description") || normalized.includes("pdp")) return "pen";
   if (normalized.includes("faq")) return "question-circle";
   if (normalized.includes("tag")) return "tag";
   if (normalized.includes("note")) return "note";
+  if (normalized.includes("workflow")) return "view";
   return "wand";
 }
 
@@ -1436,6 +1572,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             </div>
           </div>
           <div className="ppProductHeaderActions">
+            {detail.shopifyAdminUrl && (
+              <a
+                className="ppProductExternalButton"
+                href={detail.shopifyAdminUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open product in Shopify admin"
+              >
+                <s-icon type="external" size="small"></s-icon>
+              </a>
+            )}
             <Form method="post">
               <input type="hidden" name="_action" value="diagnose" />
               <input type="hidden" name="productId" value={product.slug} />
@@ -1474,7 +1621,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 value={detail.riskScoreLabel}
                 detail={`${detail.riskScore} / 100`}
                 tone={detail.riskTone}
-                sparkline="risk"
+                sparkline={detail.riskTrend}
               />
               <ProductInsightMetric
                 title="Confidence"
@@ -1546,7 +1693,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         <th>Severity</th>
                         <th>Confidence</th>
                         <th>Signals</th>
-                        <th>Trend (7d)</th>
+                        <th>Trend</th>
                         <th>Suggested action</th>
                         <th aria-label="More actions"></th>
                       </tr>
@@ -1572,7 +1719,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                             <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
                             <td>{issue.confidence}</td>
                             <td>{issue.signals}</td>
-                            <td><MiniTrend tone={issue.trendTone} /></td>
+                            <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
                             <td>{issue.action}</td>
                             <td>
                               <IssueActionMenu
@@ -2042,7 +2189,7 @@ function getSourceGlyph(key) {
   return glyphs[key] || "S";
 }
 
-function ProductActionMenu({ product, open, queued, onToggle, onClose, onMarkForReview }) {
+function ProductActionMenu({ product, open, onToggle, onClose }) {
   const [copied, setCopied] = useState(false);
   const handle = product.handle || product.href?.split("/").filter(Boolean).pop() || product.title;
 
@@ -2074,10 +2221,6 @@ function ProductActionMenu({ product, open, queued, onToggle, onClose, onMarkFor
             <s-icon type="view" size="small"></s-icon>
             View diagnostics
           </Link>
-          <button role="menuitem" type="button" onClick={onMarkForReview} disabled={queued}>
-            <s-icon type="flag" size="small"></s-icon>
-            {queued ? "Queued for review" : "Mark for review"}
-          </button>
           <button role="menuitem" type="button" onClick={handleCopy}>
             <s-icon type="duplicate" size="small"></s-icon>
             {copied ? "Copied handle" : "Copy handle"}
@@ -2089,6 +2232,8 @@ function ProductActionMenu({ product, open, queued, onToggle, onClose, onMarkFor
 }
 
 function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline, icon }) {
+  const trendValues = Array.isArray(sparkline) ? sparkline : [];
+
   return (
     <div className={`ppProductInsight ppProductInsight-${tone}`}>
       <span>
@@ -2097,7 +2242,7 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
       </span>
       <strong>{value}</strong>
       <small>{detail}</small>
-      {sparkline && <MiniTrend tone="red" size="large" />}
+      {trendValues.length > 0 && <MiniTrend tone={getTrendTone(trendValues)} size="large" values={trendValues} />}
       {icon && <DashboardIcon type={icon} tone="blue" size="small" />}
       {typeof progress === "number" && (
         <div className="ppProductInsightProgress" aria-label={`${progress}% confidence`}>
@@ -2186,16 +2331,29 @@ function IssueActionMenu({ issue, open, onToggle, onReview, onCreateAction, onIg
   );
 }
 
-function MiniTrend({ tone = "red", size = "base" }) {
+function MiniTrend({ tone = "red", size = "base", values = [] }) {
+  const points = normalizeSparklineValues(values, size);
+
   return (
     <span className={`ppMiniTrend ppMiniTrend-${tone} ppMiniTrend-${size}`} aria-hidden="true">
-      <span />
-      <span />
-      <span />
-      <span />
-      <span />
+      {points.map((point, index) => (
+        <span style={{ transform: `translateY(-${point.y}px) rotate(${point.rotation}deg)` }} key={`${point.y}-${index}`} />
+      ))}
     </span>
   );
+}
+
+function normalizeSparklineValues(values, size = "base") {
+  const sourceValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
+  const fallback = Array.from({ length: 7 }, () => 0);
+  const normalized = sourceValues.length ? sourceValues : fallback;
+  const max = Math.max(...normalized, 1);
+  const height = size === "large" ? 26 : 18;
+
+  return normalized.map((value, index) => ({
+    y: Math.round((value / max) * height),
+    rotation: index === 0 ? 0 : Math.max(-24, Math.min(24, Math.round((value - normalized[index - 1]) * 2))),
+  }));
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview }) {
