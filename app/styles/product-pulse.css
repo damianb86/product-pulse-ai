@@ -2691,13 +2691,6 @@ s-page[inline-size="large-500"] {
   font-size: 13px;
 }
 
-.ppProductsScanNote {
-  margin: -4px 16px 10px;
-  color: var(--pp-slate-500);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .ppSelectionPill {
   min-height: 34px;
   display: inline-flex;
@@ -3334,6 +3327,301 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
+.ppJobFloatingBar,
+.ppDevJobPanel,
+.ppJobDockMinimized {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  font-family: inherit;
+}
+
+.ppJobFloatingBar {
+  width: min(520px, calc(100vw - 36px));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--pp-slate-900);
+  box-shadow: 0 20px 50px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppJobFloatingBar strong,
+.ppJobFloatingBar p {
+  margin: 0;
+}
+
+.ppJobFloatingBar p {
+  margin-top: 3px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppJobFloatingBar button,
+.ppDevJobPanel button,
+.ppJobDockMinimized {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ppJobPulse,
+.ppJobDockMinimized > span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--pp-signal-teal);
+  box-shadow: 0 0 0 5px rgba(var(--pp-signal-teal-rgb), 0.14);
+}
+
+.ppJobDockMinimized {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 12px 34px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
+.ppJobDockMinimized > span {
+  display: inline-block;
+  background: var(--pp-slate-300);
+  box-shadow: none;
+}
+
+.ppJobDockMinimized > span.isRunning {
+  background: var(--pp-signal-teal);
+  box-shadow: 0 0 0 5px rgba(var(--pp-signal-teal-rgb), 0.14);
+}
+
+.ppDevJobPanel {
+  width: min(760px, calc(100vw - 36px));
+  max-height: min(620px, calc(100vh - 36px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid rgba(var(--pp-slate-500-rgb), 0.26);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--pp-slate-900);
+  box-shadow: 0 24px 70px rgba(var(--pp-shadow-rgb), 0.22);
+  overflow: hidden;
+}
+
+.ppDevJobPanelHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  background: var(--pp-slate-100);
+}
+
+.ppDevJobPanelHeader span {
+  display: block;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppDevJobPanelHeader strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 14px;
+}
+
+.ppDevJobPanelBody {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(220px, 1fr) minmax(260px, 1.25fr);
+  gap: 12px;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+
+.ppDevJobPanelBody h2 {
+  margin: 0 0 8px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppDevJobCard,
+.ppDevJobListRow,
+.ppDevLog {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+}
+
+.ppDevJobCard {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.ppDevJobCard header,
+.ppDevLog header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ppDevJobCard strong {
+  display: block;
+  font-size: 13px;
+}
+
+.ppDevJobCard header span,
+.ppDevJobCard small,
+.ppDevJobListRow small,
+.ppDevLog small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+}
+
+.ppDevJobCard p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppDevJobCard dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+}
+
+.ppDevJobCard dt,
+.ppDevJobCard dd {
+  margin: 0;
+  font-size: 11px;
+}
+
+.ppDevJobCard dt {
+  color: var(--pp-slate-500);
+}
+
+.ppDevJobCard dd {
+  color: var(--pp-slate-900);
+  font-weight: 700;
+}
+
+.ppDevJobList,
+.ppDevLogList {
+  display: grid;
+  gap: 8px;
+}
+
+.ppDevJobListRow {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+}
+
+.ppDevJobListRow strong {
+  font-size: 12px;
+}
+
+.ppDevJobStatus {
+  width: max-content;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.ppDevJobStatus-running,
+.ppDevJobStatus-queued {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppDevJobStatus-completed {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppDevJobStatus-failed {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppDevLog {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+}
+
+.ppDevLog header span {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.ppDevLog-warn header span {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppDevLog-error header span {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppDevLog strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+}
+
+.ppDevLog p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppDevLog pre {
+  max-height: 160px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: auto;
+}
+
+.ppDevJobEmpty {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+}
+
 @media (max-width: 820px) {
   .ppHero,
   .ppDiagnosisHero,
@@ -3490,5 +3778,17 @@ s-page[inline-size="large-500"] {
   .ppHealthRow {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .ppDevJobPanelBody {
+    grid-template-columns: 1fr;
+  }
+
+  .ppDevJobPanel,
+  .ppJobFloatingBar,
+  .ppJobDockMinimized {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
   }
 }

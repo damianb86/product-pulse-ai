@@ -688,7 +688,7 @@ export function RunningJobsScreen({ data, actionData }) {
   );
 }
 
-export function ProductsScreen({ data, filters, actionData }) {
+export function ProductsScreen({ data, filters }) {
   const revalidator = useRevalidator();
   const navigation = useNavigation();
   const submit = useSubmit();
@@ -726,7 +726,6 @@ export function ProductsScreen({ data, filters, actionData }) {
   return (
     <FullWidthPage heading="Products">
       <ScreenShell className="ppDashboard ppProductsScreen">
-        <ActionBanner actionData={actionData} />
         <p className="ppDashboardSubtitle">
           Browse products, review risk signals and run AI diagnosis.
         </p>
@@ -829,9 +828,6 @@ export function ProductsScreen({ data, filters, actionData }) {
             )}
             <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products` : "0 products"}</span>
           </div>
-          {data.productTable?.scanWindowLabel && (
-            <p className="ppProductsScanNote">{data.productTable.scanWindowLabel}</p>
-          )}
           <div className={`ppProductsTableWrap ${fastScanRunning ? "isScanning" : ""}`.trim()}>
             <table className="ppProductsTable" data-testid="products-table">
               <thead>
@@ -2127,7 +2123,7 @@ function FullWidthPage({ heading, label, className = "", children }) {
 }
 
 function ActionBanner({ actionData }) {
-  if (!actionData) return null;
+  if (!actionData || actionData.suppressBanner) return null;
   const tone = actionData.status === "success" ? "success" : actionData.status === "validation_error" ? "warning" : "critical";
   return (
     <s-banner tone={tone} heading={actionData.status === "success" ? "Done" : "Action needs attention"}>

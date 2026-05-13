@@ -72,6 +72,20 @@ model CatalogSignalJob {
   @@index([shop, status])
 }
 
+model ProductPulseJobLog {
+  id        String   @id @default(cuid())
+  shop      String
+  jobId     String
+  level     String   @default("info")
+  event     String
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([jobId, createdAt])
+}
+
 model ProductRiskSnapshot {
   id             String   @id @default(cuid())
   shop           String

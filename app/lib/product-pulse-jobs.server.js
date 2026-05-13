@@ -4,6 +4,11 @@ import {
   getQuickScanWindowDays,
   runShopifyQuickScan,
 } from "./product-pulse-quick-scan.server";
+import {
+  getJobLogsForShop,
+  recordJobLog,
+  serializeError,
+} from "./product-pulse-job-logs.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
@@ -20,8 +25,16 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
   const activeJob = await getActiveFastProductScan(shop);
   if (activeJob) {
     ensureFastProductScanWorker(activeJob, { admin, scopes });
+    await recordJobLog({
+      shop,
+      jobId: activeJob.id,
+      event: "quick_scan.already_running",
+      message: "Fast product scan request reused the active background job.",
+      data: { status: activeJob.status, source: activeJob.source },
+    });
     return {
       status: "success",
+      suppressBanner: true,
       message: "Fast product scan is already running.",
       job: formatJob(activeJob),
     };
@@ -39,9 +52,20 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
   });
 
   ensureFastProductScanWorker(job, { admin, scopes });
+  await recordJobLog({
+    shop,
+    jobId: job.id,
+    event: "quick_scan.queued",
+    message: "QuickScan queued as a persistent background job.",
+    data: {
+      windowDays,
+      scopeMode: getQuickScanWindowDays(scopes) > 60 ? "read_all_orders" : "default_orders_window",
+    },
+  });
 
   return {
     status: "success",
+    suppressBanner: true,
     message: "QuickScan started. ProductPulse is checking native Shopify product, order, refund and return signals.",
     job: formatJob(job),
   };
@@ -64,7 +88,6 @@ export async function getProductsQueueForShop(shop) {
     rows: snapshots.map(formatProductRow),
     total: snapshots.length,
     activeScanJob: activeJob ? formatJob(activeJob) : null,
-    scanWindowLabel: "QuickScan uses the available Shopify order window: 60 days by default, 90 days when read_all_orders is granted.",
   };
 }
 
@@ -79,6 +102,29 @@ export async function getRecentJobsForShop(shop) {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
   });
   return jobs.map(formatJob);
+}
+
+export async function getJobMonitorForShop(shop) {
+  await failStaleFastProductScans(shop);
+  const [jobs, logs] = await Promise.all([
+    prisma.catalogSignalJob.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 12,
+    }),
+    getJobLogsForShop(shop, 100),
+  ]);
+
+  jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
+    if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
+  });
+
+  return {
+    activeJobs: jobs.filter((job) => isActiveStatus(job.status)).map(formatJob),
+    recentJobs: jobs.map(formatJob),
+    logs: logs.map(formatJobLog),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export async function getProductSnapshotForShop(shop, productId) {
@@ -130,6 +176,13 @@ function ensureFastProductScanWorker(job, options = {}) {
   activeWorkers.add(job.id);
   setTimeout(async () => {
     try {
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        event: "quick_scan.worker_started",
+        message: "QuickScan worker started or rehydrated from an active persisted job.",
+        data: { status: job.status, source: job.source },
+      });
       const admin = options.admin || await getOfflineAdmin(job.shop);
       const scopes = options.scopes || options.session?.scope || admin.productPulseScopes || "";
       await runShopifyQuickScan({
@@ -139,9 +192,23 @@ function ensureFastProductScanWorker(job, options = {}) {
         scopes,
       });
     } catch (error) {
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        level: "error",
+        event: "quick_scan.worker_failed",
+        message: "QuickScan worker failed.",
+        data: { error: serializeError(error) },
+      });
       await markJobFailed(job.id, error);
     } finally {
       activeWorkers.delete(job.id);
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        event: "quick_scan.worker_stopped",
+        message: "QuickScan worker stopped.",
+      });
     }
   }, 0);
 }
@@ -269,8 +336,25 @@ function formatJob(job) {
     status: job.status,
     progress: job.progress,
     updatedAt: formatJobDate(job.updatedAt),
+    updatedAtIso: toIso(job.updatedAt),
     startedAt: job.startedAt,
+    startedAtIso: toIso(job.startedAt),
     finishedAt: job.finishedAt,
+    finishedAtIso: toIso(job.finishedAt),
+    elapsedMs: getElapsedMs(job.startedAt, job.finishedAt),
+  };
+}
+
+function formatJobLog(log) {
+  return {
+    id: log.id,
+    jobId: log.jobId,
+    level: log.level,
+    event: log.event,
+    message: log.message,
+    data: log.data,
+    createdAt: formatJobDate(log.createdAt),
+    createdAtIso: toIso(log.createdAt),
   };
 }
 
@@ -282,6 +366,19 @@ function formatJobDate(value) {
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function toIso(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function getElapsedMs(startedAt, finishedAt) {
+  const start = new Date(startedAt).getTime();
+  if (Number.isNaN(start)) return 0;
+  const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
+  return Math.max(0, end - start);
 }
 
 function getRiskLabel(score) {

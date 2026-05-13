@@ -1,4 +1,5 @@
 import prisma from "../db.server";
+import { recordJobLog } from "./product-pulse-job-logs.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_ALL_ORDERS_WINDOW_DAYS = 90;
@@ -20,6 +21,13 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
 
   const startedAt = Date.now();
   const windowDays = getQuickScanWindowDays(scopes);
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "quick_scan.started",
+    message: "QuickScan started using Shopify-native signals only.",
+    data: { windowDays },
+  });
 
   await updateQuickScanJob(jobId, {
     status: "Running",
@@ -27,7 +35,23 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     source: "Reading Shopify catalog",
   });
 
-  const extraction = await extractQuickScanData({ admin, windowDays });
+  const extraction = await extractQuickScanData({ admin, windowDays, shop, jobId });
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "quick_scan.extracted",
+    message: "Shopify extraction completed.",
+    data: {
+      extractionMode: extraction.meta.extractionMode,
+      windowDays,
+      products: extraction.products.length,
+      events: extraction.events.length,
+      salesEvents: extraction.events.filter((event) => event.type === "sale").length,
+      refundEvents: extraction.events.filter((event) => event.type === "refund").length,
+      returnEvents: extraction.events.filter((event) => event.type === "return").length,
+      bulkError: extraction.meta.bulkError,
+    },
+  });
 
   await updateQuickScanJob(jobId, {
     progress: 72,
@@ -40,8 +64,38 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     windowDays,
     extractionMode: extraction.meta.extractionMode,
   });
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "quick_scan.scored",
+    message: "Deterministic risk scoring completed.",
+    data: {
+      candidateCount: candidates.length,
+      topCandidates: candidates.slice(0, 5).map((candidate) => ({
+        productGid: candidate.productGid,
+        handle: candidate.handle,
+        title: candidate.productTitle,
+        riskScore: candidate.riskScore,
+        primaryIssue: candidate.primaryIssue,
+        returnRate: candidate.metrics.returnRate,
+        refundRate: candidate.metrics.refundRate,
+        refundAmount: candidate.metrics.refundAmount,
+        topReturnReasons: candidate.metrics.topReturnReasons,
+      })),
+    },
+  });
 
   await persistQuickScanCandidates(shop, candidates);
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "quick_scan.persisted",
+    message: "QuickScan persisted only products above the risk threshold.",
+    data: {
+      persistedCandidates: candidates.length,
+      persistenceRule: "risk_score >= 50 OR return anomaly/refund impact/repeated reasons threshold",
+    },
+  });
   await waitForMinimumDuration(startedAt, QUICK_SCAN_MINIMUM_DURATION_MS);
 
   await updateQuickScanJob(jobId, {
@@ -49,6 +103,16 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     progress: 100,
     source: `QuickScan completed - ${candidates.length} product${candidates.length === 1 ? "" : "s"} needing attention`,
     finishedAt: new Date(),
+  });
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "quick_scan.completed",
+    message: "QuickScan completed.",
+    data: {
+      durationMs: Date.now() - startedAt,
+      candidateCount: candidates.length,
+    },
   });
 
   return { candidates, extraction };
@@ -100,16 +164,24 @@ export function buildQuickScanCandidates({ products = [], events = [], windowDay
     .slice(0, 50);
 }
 
-async function extractQuickScanData({ admin, windowDays }) {
+async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
   try {
-    const catalogLines = await runBulkQuery(admin, PRODUCT_CATALOG_BULK_QUERY, "catalog");
-    const orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders");
+    const catalogLines = await runBulkQuery(admin, PRODUCT_CATALOG_BULK_QUERY, "catalog", { shop, jobId });
+    const orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId });
 
     return {
       ...normalizeBulkQuickScanData(catalogLines, orderLines),
       meta: { extractionMode: "bulk", windowDays },
     };
   } catch (bulkError) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "quick_scan.bulk_fallback",
+      message: "Bulk operation extraction failed; falling back to paginated GraphQL queries.",
+      data: { error: bulkError instanceof Error ? bulkError.message : String(bulkError) },
+    });
     const fallback = await extractQuickScanDataWithPaginatedQueries({ admin, windowDays });
     return {
       ...fallback,
@@ -122,18 +194,50 @@ async function extractQuickScanData({ admin, windowDays }) {
   }
 }
 
-async function runBulkQuery(admin, bulkQuery, label) {
+async function runBulkQuery(admin, bulkQuery, label, context) {
+  await recordJobLog({
+    ...context,
+    event: "quick_scan.bulk_started",
+    message: `Started Shopify bulk operation for ${label}.`,
+  });
   const operation = await createBulkOperation(admin, bulkQuery);
   const completed = await pollBulkOperation(admin, operation.id, label);
   const url = completed.url || completed.partialDataUrl;
-  if (!url) return [];
+  if (!url) {
+    await recordJobLog({
+      ...context,
+      level: "warn",
+      event: "quick_scan.bulk_no_url",
+      message: `Shopify bulk operation for ${label} completed without a downloadable URL.`,
+      data: {
+        operationId: operation.id,
+        status: completed.status,
+        objectCount: completed.objectCount,
+        rootObjectCount: completed.rootObjectCount,
+      },
+    });
+    return [];
+  }
 
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Unable to download ${label} bulk results (${response.status}).`);
   }
 
-  return parseJsonl(await response.text());
+  const lines = parseJsonl(await response.text());
+  await recordJobLog({
+    ...context,
+    event: "quick_scan.bulk_completed",
+    message: `Completed Shopify bulk operation for ${label}.`,
+    data: {
+      operationId: operation.id,
+      status: completed.status,
+      objectCount: completed.objectCount,
+      rootObjectCount: completed.rootObjectCount,
+      lineCount: lines.length,
+    },
+  });
+  return lines;
 }
 
 async function createBulkOperation(admin, bulkQuery) {
