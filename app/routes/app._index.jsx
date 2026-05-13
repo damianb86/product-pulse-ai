@@ -4,7 +4,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { DashboardScreen } from "../components/ProductPulseScreens";
 import { getAppViewData, runCatalogSignalScan } from "../lib/product-pulse-data";
-import { getDashboardDataForShop } from "../lib/product-pulse-jobs.server";
+import { getDashboardDataForShop, queueProductDiagnosisForShop } from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -15,11 +15,18 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const formData = await request.formData();
 
   if (formData.get("_action") === "run-scan") {
     return runCatalogSignalScan();
+  }
+
+  if (formData.get("_action") === "diagnose") {
+    const productId = String(formData.get("productId") || "");
+    const diagnosis = await queueProductDiagnosisForShop(session.shop, productId);
+    if (diagnosis) return diagnosis;
+    return { status: "validation_error", message: "Run QuickScan before starting a product diagnosis." };
   }
 
   return { status: "validation_error", message: "Unsupported dashboard action." };
@@ -31,7 +38,7 @@ export default function Index() {
   const shopify = useAppBridge();
 
   useEffect(() => {
-    if (actionData?.status === "success") {
+    if (actionData?.status === "success" && !actionData.suppressBanner) {
       shopify.toast.show(actionData.message);
     }
   }, [actionData, shopify]);

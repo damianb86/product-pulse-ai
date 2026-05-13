@@ -1616,6 +1616,7 @@ function getPdpCopyActionLabel(issueCategory) {
 
 function formatJob(job) {
   const productTitle = getJobProductTitle(job);
+  const productHandle = getJobProductHandle(job);
   const displayTitle = getJobDisplayTitle(job, productTitle);
   const displaySubtitle = getJobDisplaySubtitle(job, productTitle);
   const executionStartedAt = job.status === "Queued" ? null : job.startedAt;
@@ -1625,6 +1626,8 @@ function formatJob(job) {
     kind: job.kind,
     name: getJobDisplayName(job.kind),
     productTitle,
+    productHandle,
+    productHref: productHandle ? `/app/products/${productHandle}` : null,
     displayTitle,
     displaySubtitle,
     source: job.errorMessage || job.source,
@@ -1652,6 +1655,12 @@ function getJobDisplayName(kind) {
 function getJobProductTitle(job) {
   return typeof job.payload?.productTitle === "string" && job.payload.productTitle.trim()
     ? job.payload.productTitle.trim()
+    : null;
+}
+
+function getJobProductHandle(job) {
+  return typeof job.payload?.handle === "string" && job.payload.handle.trim()
+    ? job.payload.handle.trim()
     : null;
 }
 

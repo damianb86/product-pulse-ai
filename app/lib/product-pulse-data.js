@@ -482,6 +482,7 @@ function getDashboardStartProduct(productList) {
   return {
     title: product.title || product.productTitle || "Product",
     handle: product.handle || product.slug || "",
+    productId: product.productGid || product.id || product.handle || product.slug || "",
     href: `/app/products/${product.handle || product.slug || product.id}`,
     variant: getDashboardProductVariant(product),
     imageUrl: product.imageUrl || null,
@@ -495,8 +496,8 @@ function getDashboardStartProduct(productList) {
     priorityReason: buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore }),
     eyebrow: hasFullDiagnosis ? "Recommended product to review" : "Recommended next product to analyze",
     summary: buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }),
-    actionLabel: hasFullDiagnosis ? "Open product diagnosis" : "Run product diagnosis",
-    actionHint: hasFullDiagnosis ? "Review recommended actions" : "Selected by risk, margin and signal volume",
+    actionLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
+    actionHint: hasFullDiagnosis ? "Refresh the deep diagnosis for this product" : "Selected by risk, margin and signal volume",
     badges: [
       {
         tone: Number(product.riskScore || 0) >= 75 ? "critical" : Number(product.riskScore || 0) >= 55 ? "warning" : "success",

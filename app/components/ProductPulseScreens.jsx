@@ -9,6 +9,9 @@ import {
 } from "../lib/product-pulse-connect";
 
 export function DashboardScreen({ data, actionData }) {
+  const submit = useSubmit();
+  const navigation = useNavigation();
+  const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
   const dashboard = data.dashboard || {};
   const startProduct = dashboard.startProduct || null;
   const diagnosisHref = startProduct?.href || "/app/products";
@@ -23,6 +26,33 @@ export function DashboardScreen({ data, actionData }) {
     detail: "Run QuickScan or open a product diagnosis to start building the dashboard.",
     href: "/app/products",
     buttonLabel: "Go to Products",
+  };
+  const pendingDashboardDiagnosis = navigation.state === "submitting" && navigation.formData?.get("_action") === "diagnose";
+
+  useEffect(() => {
+    announceProductPulseJobs(actionData);
+    if (actionData?.status === "success") setDiagnosisConfirmation(null);
+  }, [actionData]);
+
+  const handleRequestDashboardDiagnosis = () => {
+    if (!startProduct || pendingDashboardDiagnosis) return;
+    setDiagnosisConfirmation({
+      mode: "single",
+      title: "Confirm product analysis",
+      products: [startProduct.handle || startProduct.productId || ""],
+      productTitles: [startProduct.title],
+      count: 1,
+      credits: 1,
+    });
+  };
+
+  const handleConfirmDashboardDiagnosis = () => {
+    const productId = diagnosisConfirmation?.products?.[0] || "";
+    if (!productId || pendingDashboardDiagnosis) return;
+    const formData = new FormData();
+    formData.set("_action", "diagnose");
+    formData.set("productId", productId);
+    submit(formData, { method: "post" });
   };
 
   return (
@@ -89,15 +119,37 @@ export function DashboardScreen({ data, actionData }) {
               </div>
 
               <div className="ppStartActionPanel">
-                <Link className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary" to={diagnosisHref}>
-                  <s-icon type="wand" size="small"></s-icon>
-                  <span>{startProduct?.actionLabel || "Go to Products"}</span>
-                </Link>
+                {startProduct ? (
+                  <button
+                    className="ppPrimaryButton"
+                    type="button"
+                    disabled={pendingDashboardDiagnosis}
+                    onClick={handleRequestDashboardDiagnosis}
+                  >
+                    <s-icon type="wand" size="small"></s-icon>
+                    <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run product diagnosis"}</span>
+                  </button>
+                ) : (
+                  <Link className="ppPrimaryButton" to={diagnosisHref}>
+                    <s-icon type="product" size="small"></s-icon>
+                    <span>Go to Products</span>
+                  </Link>
+                )}
                 <span>{startProduct?.actionHint || "Start with QuickScan"}</span>
               </div>
             </div>
           </div>
         </s-section>
+
+        {diagnosisConfirmation && (
+          <ProductAnalysisConfirmModal
+            confirmation={diagnosisConfirmation}
+            pending={pendingDashboardDiagnosis}
+            pendingIds={pendingDashboardDiagnosis ? diagnosisConfirmation.products : []}
+            onCancel={() => setDiagnosisConfirmation(null)}
+            onConfirm={handleConfirmDashboardDiagnosis}
+          />
+        )}
 
         <div className="ppDashboardInsights">
           {insightPanels.map((panel) => (
@@ -139,7 +191,10 @@ export function DashboardScreen({ data, actionData }) {
                 <h2>Next step</h2>
                 <h3>{nextStep.subtitle}</h3>
                 <p>{nextStep.detail}</p>
-                <s-button href={nextStep.href || diagnosisHref} variant="secondary">{nextStep.buttonLabel || nextStep.title}</s-button>
+                <Link className="ppNextStepButton" to={nextStep.href || diagnosisHref}>
+                  <s-icon type="product" size="small"></s-icon>
+                  <span>{nextStep.buttonLabel || nextStep.title}</span>
+                </Link>
               </div>
             </div>
           </s-section>

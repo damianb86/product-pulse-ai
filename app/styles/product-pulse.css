@@ -1127,8 +1127,36 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
 }
 
-.ppNextStepPanel s-button {
-  margin-top: 18px;
+.ppNextStepPanel p {
+  margin-bottom: 24px;
+}
+
+.ppNextStepButton {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: 1px solid rgba(var(--pp-shadow-rgb), 0.82);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--pp-slate-900) 0%, var(--pp-midnight-ink) 100%);
+  color: var(--pp-cloud-white);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 8px 16px rgba(var(--pp-shadow-rgb), 0.14);
+}
+
+.ppNextStepButton s-icon {
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
+}
+
+.ppNextStepButton:hover {
+  color: var(--pp-cloud-white);
+  text-decoration: none;
+  transform: translateY(-1px);
 }
 
 .ppProductArt {
@@ -5504,7 +5532,8 @@ s-page[inline-size="large-500"] {
   font-family: inherit;
 }
 
-.ppJobFailureNotice {
+.ppJobFailureNotice,
+.ppJobCompletionNotice {
   position: fixed;
   top: 76px;
   right: 20px;
@@ -5522,7 +5551,13 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.18);
 }
 
-.ppJobFailureNotice > span {
+.ppJobCompletionNotice {
+  top: 76px;
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.24);
+}
+
+.ppJobFailureNotice > span,
+.ppJobCompletionNotice > span {
   width: 34px;
   height: 34px;
   display: inline-grid;
@@ -5532,7 +5567,13 @@ s-page[inline-size="large-500"] {
   color: var(--pp-risk-red);
 }
 
-.ppJobFailureNotice strong {
+.ppJobCompletionNotice > span {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppJobFailureNotice strong,
+.ppJobCompletionNotice strong {
   display: block;
   margin: 0 0 3px;
   color: var(--pp-slate-900);
@@ -5541,11 +5582,28 @@ s-page[inline-size="large-500"] {
   line-height: 1.25;
 }
 
-.ppJobFailureNotice p {
+.ppJobFailureNotice p,
+.ppJobCompletionNotice p {
   margin: 0;
   color: var(--pp-slate-700);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.ppJobCompletionNotice a {
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.ppJobCompletionNotice a:hover {
+  text-decoration: underline;
 }
 
 .ppJobFailureNotice .ppJobFailureDetail {
@@ -5560,7 +5618,8 @@ s-page[inline-size="large-500"] {
   overflow-wrap: anywhere;
 }
 
-.ppJobFailureNotice button {
+.ppJobFailureNotice button,
+.ppJobCompletionNotice button {
   width: 28px;
   height: 28px;
   display: inline-grid;
@@ -5576,6 +5635,11 @@ s-page[inline-size="large-500"] {
 .ppJobFailureNotice button:hover {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
+}
+
+.ppJobCompletionNotice button:hover {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
 }
 
 .ppGlobalJobButton {

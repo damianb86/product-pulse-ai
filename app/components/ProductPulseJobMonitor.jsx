@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFetcher, useRevalidator } from "react-router";
+import { Link, useFetcher, useRevalidator } from "react-router";
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
@@ -7,6 +7,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const [minimized, setMinimized] = useState(() => Boolean(developmentMode));
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [dismissedFailedJobIds, setDismissedFailedJobIds] = useState(() => new Set());
+  const [completedJobNotice, setCompletedJobNotice] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const observedJobsRef = useRef(new Map());
   const fetcherStateRef = useRef(fetcher.state);
@@ -28,6 +29,12 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
         next.add(failedJob.id);
         return next;
       })}
+    />
+  ) : null;
+  const completionNotice = completedJobNotice ? (
+    <JobCompletionNotice
+      job={completedJobNotice}
+      onDismiss={() => setCompletedJobNotice(null)}
     />
   ) : null;
   const selectedJob = useMemo(
@@ -76,9 +83,19 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     observedJobsRef.current = currentJobs;
 
     if (finishedJobs.length || activeJobDisappeared) {
+      const completedProductDiagnosis = finishedJobs.find((job) => (
+        job.kind === "product-diagnosis" && job.status === "Completed"
+      ));
+      if (completedProductDiagnosis) setCompletedJobNotice(completedProductDiagnosis);
       revalidator.revalidate();
     }
   }, [activeJobs, recentJobs, revalidator]);
+
+  useEffect(() => {
+    if (!completedJobNotice) return undefined;
+    const timeout = window.setTimeout(() => setCompletedJobNotice(null), 10_000);
+    return () => window.clearTimeout(timeout);
+  }, [completedJobNotice]);
 
   useEffect(() => {
     const handleQueuedJobs = (event) => {
@@ -131,6 +148,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       <>
         {globalIndicator}
         {failureNotice}
+        {completionNotice}
         <button className="ppJobDockMinimized" type="button" onClick={toggleMinimized} aria-label="Open development job monitor">
           <span className={`ppJobDockPulse${hasActiveJobs ? " isRunning" : ""}`} />
           <strong>Dev jobs</strong>
@@ -145,6 +163,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       <>
         {globalIndicator}
         {failureNotice}
+        {completionNotice}
       </>
     );
   }
@@ -153,6 +172,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     <>
       {globalIndicator}
       {failureNotice}
+      {completionNotice}
       <aside className="ppDevJobPanel" aria-label="Development job monitor">
         <div className="ppDevJobPanelHeader">
           <div>
@@ -232,6 +252,8 @@ function getJobRefreshSnapshot(job) {
     status: job.status,
     kind: job.kind,
     productTitle: job.productTitle || job.displayTitle || "",
+    productHandle: job.productHandle || "",
+    productHref: job.productHref || "",
     updatedAtIso: job.updatedAtIso || "",
     finishedAtIso: job.finishedAtIso || "",
   };
@@ -243,6 +265,29 @@ function isActiveJobStatus(status) {
 
 function isTerminalJobStatus(status) {
   return status === "Completed" || status === "Failed";
+}
+
+function JobCompletionNotice({ job, onDismiss }) {
+  const href = job.productHref || (job.productHandle ? `/app/products/${job.productHandle}` : "/app/products");
+
+  return (
+    <aside className="ppJobCompletionNotice" role="status" aria-live="polite">
+      <span aria-hidden="true">
+        <s-icon type="wand" size="small"></s-icon>
+      </span>
+      <div>
+        <strong>Deep analysis finished</strong>
+        <p>{getJobTitle(job)} is ready to review.</p>
+        <Link to={href} onClick={onDismiss}>
+          Open product
+          <s-icon type="chevron-right" size="small"></s-icon>
+        </Link>
+      </div>
+      <button type="button" onClick={onDismiss} aria-label="Dismiss completed job message">
+        <s-icon type="x" size="small"></s-icon>
+      </button>
+    </aside>
+  );
 }
 
 function JobFailureNotice({ job, onDismiss }) {
