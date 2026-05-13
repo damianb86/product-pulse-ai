@@ -91,6 +91,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+  const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
   const filterOptions = getProductTableFilterOptions(snapshots);
   const filteredSnapshots = sortProductSnapshots(
     filterProductSnapshots(snapshots, filters),
@@ -100,7 +101,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
   const totalPages = Math.max(1, Math.ceil(filteredSnapshots.length / rowsPerPage));
   const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
-  const rows = pageSnapshots.map(formatProductRow);
+  const rows = pageSnapshots.map((snapshot) => formatProductRow(snapshot, latestDiagnosisByProductGid.get(snapshot.productGid)));
   const rowsWithImages = await attachProductImages(rows, admin);
   const rowsWithJobs = attachActiveProductDiagnosisJobs(rowsWithImages, activeDiagnosisJobs);
 
@@ -115,6 +116,28 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
     activeScanJob: activeJob ? formatJob(activeJob) : null,
     activeDiagnosisJobs: activeDiagnosisJobs.map(formatJob),
   };
+}
+
+async function getLatestCompletedDiagnosisMap(shop, snapshots = []) {
+  const productGids = [...new Set(snapshots.map((snapshot) => snapshot.productGid).filter(Boolean))];
+  if (!productGids.length) return new Map();
+
+  const diagnoses = await prisma.productDiagnosis.findMany({
+    where: {
+      shop,
+      productGid: { in: productGids },
+      status: "Completed",
+    },
+    orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+  });
+
+  const latestByProductGid = new Map();
+  diagnoses.forEach((diagnosis) => {
+    if (!latestByProductGid.has(diagnosis.productGid)) {
+      latestByProductGid.set(diagnosis.productGid, diagnosis);
+    }
+  });
+  return latestByProductGid;
 }
 
 export async function runSelectedProductDiagnosesForShop(shop, productIds = []) {
@@ -806,9 +829,10 @@ function isActiveStatus(status) {
   return status === "Queued" || status === "Running";
 }
 
-function formatProductRow(snapshot) {
+function formatProductRow(snapshot, latestDiagnosis = null) {
   const metrics = snapshot.metrics || {};
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
+  const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
   return {
     productGid: snapshot.productGid,
     handle: snapshot.handle,
@@ -820,6 +844,12 @@ function formatProductRow(snapshot) {
     riskScore: snapshot.riskScore,
     status: snapshot.riskScore >= 75 ? "Needs attention" : snapshot.riskScore >= 55 ? "Monitor" : "Good",
     statusTone: getRiskTone(snapshot.riskScore),
+    analysisDepth: analysisState.depth,
+    analysisLabel: analysisState.label,
+    analysisDetail: analysisState.detail,
+    analysisTone: analysisState.tone,
+    analysisIcon: analysisState.icon,
+    analysisCompletedAt: analysisState.completedAt,
     signals: metrics.signalCount || 0,
     signalTone: snapshot.riskScore >= 75 ? "red" : snapshot.riskScore >= 55 ? "orange" : "green",
     signalBars: getSignalBars(metrics),
@@ -831,6 +861,33 @@ function formatProductRow(snapshot) {
     lastAnalysisAt: toIso(snapshot.updatedAt),
     credits: 1,
     href: `/app/products/${snapshot.handle}`,
+  };
+}
+
+function getProductAnalysisState(snapshot, latestDiagnosis = null) {
+  const metrics = snapshot.metrics || {};
+  const completedAt = latestDiagnosis?.completedAt || metrics.lastDetailedDiagnosisAt || null;
+  const hasFullDiagnosis = Boolean(latestDiagnosis || metrics.latestDiagnosisId || completedAt);
+  if (hasFullDiagnosis) {
+    return {
+      depth: "full",
+      label: "Full diagnosis",
+      tone: "success",
+      icon: "wand",
+      completedAt: toIso(completedAt),
+      detail: completedAt
+        ? `Deep AI diagnosis completed ${formatJobDate(completedAt)}.`
+        : "Deep AI diagnosis completed.",
+    };
+  }
+
+  return {
+    depth: "quickscan",
+    label: "QuickScan only",
+    tone: "info",
+    icon: "search",
+    completedAt: null,
+    detail: "Preliminary Shopify scan only. Run product diagnosis for recommended actions.",
   };
 }
 
@@ -1170,6 +1227,13 @@ function formatLiveShopifyProductForDiagnosis(product) {
     creditCost: 1,
     sourceCoverage: ["Shopify products"],
     lastAnalysis: null,
+    analysisDepth: "catalog",
+    analysisLabel: "Not scanned",
+    analysisDetail: "No QuickScan or product diagnosis has been stored yet.",
+    analysisTone: "neutral",
+    analysisIcon: "product",
+    analysisCompletedAt: null,
+    latestDiagnosisId: null,
     primaryIssue: null,
     hasRiskSnapshot: false,
     canDiagnose: false,
@@ -1218,6 +1282,8 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
   const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : null;
   const storedActions = actions.map(formatStoredProductAction);
   const resolvedAction = storedActions.find((action) => action.actionId === "mark-resolved" && action.status === "applied");
+  const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
+  const hasFullDiagnosis = analysisState.depth === "full";
   const riskScore = latestDiagnosis?.riskScore ?? snapshot.riskScore;
   const confidence = latestDiagnosis?.confidence ?? snapshot.confidence;
   const primaryIssue = latestDiagnosis?.likelyCause || snapshot.primaryIssue;
@@ -1237,6 +1303,13 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     creditCost: 1,
     sourceCoverage: Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : ["Shopify products"],
     lastAnalysis: toIso(snapshot.updatedAt),
+    analysisDepth: analysisState.depth,
+    analysisLabel: analysisState.label,
+    analysisDetail: analysisState.detail,
+    analysisTone: analysisState.tone,
+    analysisIcon: analysisState.icon,
+    analysisCompletedAt: analysisState.completedAt,
+    latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
     primaryIssue,
     mainFinding: diagnosisReport.mainFinding || null,
     hasRiskSnapshot: true,
@@ -1281,7 +1354,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     },
     evidence: diagnosisEvidence || getSnapshotEvidence(snapshot, metrics),
     issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics),
-    recommendedActions: diagnosisRecommendations || getSnapshotRecommendedActions(snapshot, metrics),
+    recommendedActions: hasFullDiagnosis ? (diagnosisRecommendations || getSnapshotRecommendedActions(snapshot, metrics)) : [],
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
   };

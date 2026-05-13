@@ -475,6 +475,13 @@ s-page[inline-size="large-500"] {
   color: var(--pp-pulse-blue);
 }
 
+.ppSecondaryButton:disabled {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  cursor: not-allowed;
+}
+
 .ppSecondaryActionButton {
   min-height: 34px;
   display: inline-flex;
@@ -1333,6 +1340,15 @@ s-page[inline-size="large-500"] {
   min-height: 36px;
 }
 
+.ppProductHeaderActions .ppResolveButton {
+  min-height: 36px;
+  color: var(--pp-slate-700);
+}
+
+.ppProductHeaderActions .ppResolveButton s-icon {
+  color: var(--pp-slate-700);
+}
+
 .ppProductExternalButton {
   width: 36px;
   height: 36px;
@@ -1349,6 +1365,104 @@ s-page[inline-size="large-500"] {
 .ppProductExternalButton:hover {
   border-color: var(--pp-pulse-blue);
   background: var(--pp-blue-soft);
+}
+
+.ppProductAnalysisNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppProductAnalysisNotice-quickscan {
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.24);
+  background: linear-gradient(90deg, rgba(var(--pp-info-cyan-rgb), 0.08), var(--pp-cloud-white));
+}
+
+.ppProductAnalysisNotice-full {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.2);
+  background: linear-gradient(90deg, rgba(var(--pp-insight-violet-rgb), 0.07), var(--pp-cloud-white));
+}
+
+.ppProductAnalysisNotice p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.ppAnalysisStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.ppAnalysisStatusIcon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid var(--pp-slate-200);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+}
+
+.ppAnalysisStatus-full .ppAnalysisStatusIcon {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.22);
+  background: rgba(var(--pp-insight-violet-rgb), 0.1);
+  color: var(--pp-insight-violet);
+}
+
+.ppAnalysisStatus-quickscan .ppAnalysisStatusIcon {
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.22);
+  background: rgba(var(--pp-info-cyan-rgb), 0.1);
+  color: var(--pp-info-cyan);
+}
+
+.ppAnalysisStatus-catalog .ppAnalysisStatusIcon {
+  color: var(--pp-slate-500);
+}
+
+.ppAnalysisStatus strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppAnalysisStatus small {
+  display: block;
+  max-width: 540px;
+  margin-top: 2px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.ppAnalysisStatus-detail {
+  gap: 10px;
+}
+
+.ppAnalysisStatus-detail .ppAnalysisStatusIcon {
+  width: 34px;
+  height: 34px;
 }
 
 .ppProductSummaryGrid {
@@ -1571,7 +1685,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
   gap: 14px;
   align-items: start;
 }
@@ -1696,7 +1810,7 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(1),
 .ppIssuesTable td:nth-child(1) {
-  width: 27%;
+  width: 32%;
 }
 
 .ppIssuesTable th:nth-child(2),
@@ -1706,7 +1820,7 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(3),
 .ppIssuesTable td:nth-child(3) {
-  width: 12%;
+  width: 11%;
 }
 
 .ppIssuesTable th:nth-child(4),
@@ -1716,12 +1830,12 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(5),
 .ppIssuesTable td:nth-child(5) {
-  width: 13%;
+  width: 12%;
 }
 
 .ppIssuesTable th:nth-child(6),
 .ppIssuesTable td:nth-child(6) {
-  width: 20%;
+  width: 18%;
 }
 
 .ppIssuesTable th:nth-child(7),
@@ -1770,9 +1884,9 @@ s-page[inline-size="large-500"] {
 
 .ppIssueNameCell {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   color: var(--pp-slate-900);
   font-weight: 650;
@@ -1784,8 +1898,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppIssueIcon {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: inline-grid;
   place-items: center;
   border-radius: 7px;
@@ -4000,7 +4114,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductsTable {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1280px;
   border-collapse: collapse;
 }
 
@@ -5418,6 +5532,15 @@ s-page[inline-size="large-500"] {
 
   .ppAnalyticsActions {
     justify-content: flex-start;
+  }
+
+  .ppProductAnalysisNotice {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ppProductAnalysisNotice p {
+    text-align: left;
   }
 
   .ppAnalyticsBarRow {

@@ -126,6 +126,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: /Linen Shirt/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
     expect(screen.getByText("Diagnosis running")).toBeInTheDocument();
+    expect(screen.getByText("QuickScan only")).toBeInTheDocument();
     expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
     fireEvent.click(screen.getByRole("button", { name: "Risk score" }));
@@ -151,7 +152,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("$9,200 estimated margin at risk")).toBeInTheDocument();
     expect(screen.getByText("Too tight in waist")).toBeInTheDocument();
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
-    expect(screen.getByText("Re-run diagnosis")).toBeInTheDocument();
+    expect(screen.getAllByText("Full diagnosis").length).toBeGreaterThan(0);
+    expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
     fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
@@ -234,12 +236,12 @@ describe("ProductPulse screens", () => {
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={liveProduct} />);
     expect(screen.getByText("0 deterministic issues detected from stored product signals.")).toBeInTheDocument();
-    expect(screen.getByText("0 deterministic recommended actions from current stored signals.")).toBeInTheDocument();
+    expect(screen.getByText("Recommended actions will appear after you run the full product diagnosis for this product.")).toBeInTheDocument();
     expect(screen.queryByText(/View all detected issues/)).not.toBeInTheDocument();
     expect(screen.queryByText(/View all actions/)).not.toBeInTheDocument();
     expect(screen.queryByText("Runs small in chest")).not.toBeInTheDocument();
     expect(screen.getByText("0 variants")).toBeInTheDocument();
-    expect(screen.getByText("Re-run diagnosis").closest("button")).toBeDisabled();
+    expect(screen.getByText("Run product diagnosis").closest("button")).toBeDisabled();
   });
 
   it("renders the product diagnosis for the selected product", () => {
@@ -248,6 +250,15 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Trail Run Vest" })).toBeInTheDocument();
     expect(screen.getAllByText("Zipper failures after first use").length).toBeGreaterThan(0);
     expect(screen.queryByRole("heading", { name: "Core Linen Trouser" })).not.toBeInTheDocument();
+  });
+
+  it("locks recommended actions until a full product diagnosis runs", () => {
+    const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);
+    expect(screen.getAllByText("QuickScan only").length).toBeGreaterThan(0);
+    expect(screen.getByText("Run product diagnosis")).toBeInTheDocument();
+    expect(screen.getByText("Recommended actions will appear after you run the full product diagnosis for this product.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Add compatibility FAQ" })).not.toBeInTheDocument();
   });
 
   it("renders analytics overview and chart panels", () => {

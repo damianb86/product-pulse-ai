@@ -898,6 +898,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                     />
                   </th>
                   <th>Status</th>
+                  <th>Analysis</th>
                   <th>Signals</th>
                   <th>Main suspected issue</th>
                   <th>Sources</th>
@@ -916,7 +917,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               <tbody>
                 {productRows.length === 0 && (
                   <tr className="ppProductsEmptyRow">
-                    <td colSpan="10">
+                    <td colSpan="11">
                       <div className="ppProductsEmptyState">
                         <DashboardIcon type="search" tone="blue" />
                         <div>
@@ -974,6 +975,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                         </div>
                       </td>
                       <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
+                      <td><ProductAnalysisStatusBadge product={product} /></td>
                       <td>
                         <ProductSignalCell product={product} />
                       </td>
@@ -1307,15 +1309,69 @@ function getProductDiagnosisState(product, pendingAnalyzeIds = []) {
   return null;
 }
 
+function getProductAnalysisDisplay(product = {}) {
+  const metrics = product.metrics || {};
+  const depth = product.analysisDepth
+    || (metrics.latestDiagnosisId || metrics.lastDetailedDiagnosisAt || product.latestDiagnosisId ? "full" : product.hasRiskSnapshot === false ? "catalog" : "quickscan");
+
+  if (depth === "full") {
+    return {
+      depth: "full",
+      label: product.analysisLabel || "Full diagnosis",
+      icon: product.analysisIcon || "wand",
+      tone: product.analysisTone || "success",
+      detail: product.analysisDetail || "Deep AI product diagnosis completed. Recommended actions can be reviewed and applied.",
+      completedAt: product.analysisCompletedAt || metrics.lastDetailedDiagnosisAt || null,
+    };
+  }
+
+  if (depth === "catalog") {
+    return {
+      depth: "catalog",
+      label: product.analysisLabel || "Not scanned",
+      icon: product.analysisIcon || "product",
+      tone: product.analysisTone || "neutral",
+      detail: product.analysisDetail || "No ProductPulse scan has been stored for this product yet.",
+      completedAt: null,
+    };
+  }
+
+  return {
+    depth: "quickscan",
+    label: product.analysisLabel || "QuickScan only",
+    icon: product.analysisIcon || "search",
+    tone: product.analysisTone || "info",
+    detail: product.analysisDetail || "Only the fast Shopify scan has run. Run product diagnosis to unlock recommended actions.",
+    completedAt: null,
+  };
+}
+
+function ProductAnalysisStatusBadge({ product, detail = false }) {
+  const analysis = getProductAnalysisDisplay(product);
+  return (
+    <span className={`ppAnalysisStatus ppAnalysisStatus-${analysis.depth} ${detail ? "ppAnalysisStatus-detail" : ""}`.trim()} title={analysis.detail}>
+      <span className="ppAnalysisStatusIcon" aria-hidden="true">
+        <s-icon type={analysis.icon} size="small"></s-icon>
+      </span>
+      <span>
+        <strong>{analysis.label}</strong>
+        {detail && <small>{analysis.detail}</small>}
+      </span>
+    </span>
+  );
+}
+
 function getProductDetailModel(product) {
   const metrics = product.metrics || {};
   const sourceCoverage = product.sourceCoverage || [];
   const hasRiskSnapshot = product.hasRiskSnapshot !== false;
+  const analysisStatus = getProductAnalysisDisplay(product);
+  const hasFullDiagnosis = analysisStatus.depth === "full";
   const issueText = product.primaryIssue || "";
   const issueCategory = getProductIssueCategory(issueText);
   const firstAction = product.recommendedActions?.[0];
   const detectedIssueRows = getProductDetectedIssues(product, issueCategory, hasRiskSnapshot);
-  const recommendedActions = getProductRecommendedActions(product);
+  const recommendedActions = hasFullDiagnosis ? getProductRecommendedActions(product) : [];
   const evidenceSources = getProductEvidenceSources(product);
   const checkedItems = getProductCheckedItems(product);
 
@@ -1326,6 +1382,12 @@ function getProductDetailModel(product) {
     imageAlt: product.imageAlt,
     shopifyAdminUrl: product.shopifyAdminUrl,
     lastAnalysis: formatProductAnalysisDate(product.lastAnalysis),
+    analysisStatus,
+    analysisDepth: analysisStatus.depth,
+    analysisLabel: analysisStatus.label,
+    analysisDetail: analysisStatus.detail,
+    hasFullDiagnosis,
+    diagnosisButtonLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
     riskScoreLabel: hasRiskSnapshot ? getProductRiskScoreLabel(product.riskScore) : "Not scanned",
@@ -1351,8 +1413,10 @@ function getProductDetailModel(product) {
     mainFindingDetail: product.mainFinding?.detail || (issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
       : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`),
-    recommendedFix: firstAction?.label || "No deterministic action yet",
-    recommendedFixDetail: firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.",
+    recommendedFix: hasFullDiagnosis ? (firstAction?.label || "No deterministic action yet") : "Run full product diagnosis",
+    recommendedFixDetail: hasFullDiagnosis
+      ? (firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.")
+      : "Recommended actions are intentionally locked until this product has a completed deep diagnosis.",
     evidenceSources,
     detectedIssues: detectedIssueRows,
     recommendedActions,
@@ -1360,7 +1424,7 @@ function getProductDetailModel(product) {
     actionHistory: product.actionHistory || [],
     resolvedAt: product.resolvedAt || null,
     canDiagnose: product.canDiagnose !== false && hasRiskSnapshot,
-    canResolve: product.canResolve !== false && hasRiskSnapshot,
+    canResolve: product.canResolve !== false && hasRiskSnapshot && hasFullDiagnosis,
   };
 }
 
@@ -2071,11 +2135,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             />
             <div>
               <h1>{detail.title}</h1>
-              <p>AI Product Diagnosis - Last analyzed {detail.lastAnalysis}</p>
+              <p>
+                {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
+                {" - Last analyzed "}
+                {detail.lastAnalysis}
+              </p>
               <div className="ppBadgeRow">
                 <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
                   {resolved ? "Resolved" : detail.riskLabel}
                 </InlineBadge>
+                <ProductAnalysisStatusBadge product={product} />
                 {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
                 {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
               </div>
@@ -2097,19 +2166,26 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               <input type="hidden" name="_action" value="diagnose" />
               <input type="hidden" name="productId" value={product.slug} />
               <button className="ppPrimaryButton" type="submit" disabled={!detail.canDiagnose || diagnosisPending}>
-                <s-icon type="refresh" size="small"></s-icon>
-                {diagnosisPending ? "Running..." : "Re-run diagnosis"}
+                <s-icon type="wand" size="small"></s-icon>
+                {diagnosisPending ? "Running..." : detail.diagnosisButtonLabel}
               </button>
             </Form>
             <Form method="post">
               <input type="hidden" name="_action" value="mark-resolved" />
               <input type="hidden" name="productId" value={product.slug} />
-              <button className="ppPrimaryButton" type="submit" disabled={!detail.canResolve || resolved || resolvingPending}>
+              <button className="ppSecondaryButton ppResolveButton" type="submit" disabled={!detail.canResolve || resolved || resolvingPending}>
                 <s-icon type="check" size="small"></s-icon>
                 {resolved ? "Resolved" : resolvingPending ? "Resolving..." : "Mark as resolved"}
               </button>
             </Form>
           </div>
+        </div>
+
+        <div className={`ppProductAnalysisNotice ppProductAnalysisNotice-${detail.analysisDepth}`.trim()}>
+          <ProductAnalysisStatusBadge product={product} detail />
+          {!detail.hasFullDiagnosis && (
+            <p>QuickScan can rank preliminary risk, but ProductPulse will not show recommended actions until the full product diagnosis runs for this item.</p>
+          )}
         </div>
 
         <div className="ppProductSummaryGrid">
@@ -2168,7 +2244,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           <div className="ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull">
             <h2>Recommended actions</h2>
             <div className="ppRecommendedActionList">
-              {visibleRecommendedActions.length === 0 && (
+              {!detail.hasFullDiagnosis ? (
+                <EmptyProductDetailState message="Recommended actions will appear after you run the full product diagnosis for this product." />
+              ) : visibleRecommendedActions.length === 0 && (
                 <EmptyProductDetailState message="0 deterministic recommended actions from current stored signals." />
               )}
               {visibleRecommendedActions.map((action) => (
