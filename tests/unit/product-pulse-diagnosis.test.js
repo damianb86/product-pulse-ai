@@ -247,4 +247,58 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(oneConfidence).toBeLessThanOrEqual(45);
     expect(repeatedConfidence).toBeGreaterThan(oneConfidence);
   });
+
+  it("keeps one or two review-only negatives as weak main-finding evidence", () => {
+    const weakRelevance = __productPulseDiagnosisTestHooks.buildSignalRelevanceGuidance({
+      metrics: {
+        negativeReviewCount: 2,
+        reviewCount: 12,
+        returnUnits: 0,
+        refundUnits: 0,
+        contentIssueCount: 0,
+      },
+    });
+    const confidence = __productPulseDiagnosisTestHooks.calculateConfidence({
+      signalCount: 2,
+      sourceCoverage: ["Judge.me reviews"],
+      judgeMeMatchConfidence: 1,
+      orderAccessDenied: false,
+      sourceAgreement: false,
+      recentSignals: 2,
+      negativeReviewCount: 2,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
+
+    expect(weakRelevance.reviewSignals.level).toBe("weak");
+    expect(weakRelevance.reviewSignals.guidance).toContain("do not lead the main finding");
+    expect(confidence).toBeLessThanOrEqual(49);
+  });
+
+  it("treats three to four review-only negatives as emerging, not confirmed", () => {
+    const emergingRelevance = __productPulseDiagnosisTestHooks.buildSignalRelevanceGuidance({
+      metrics: {
+        negativeReviewCount: 4,
+        reviewCount: 20,
+        returnUnits: 0,
+        refundUnits: 0,
+        contentIssueCount: 0,
+      },
+    });
+    const confidence = __productPulseDiagnosisTestHooks.calculateConfidence({
+      signalCount: 4,
+      sourceCoverage: ["Judge.me reviews"],
+      judgeMeMatchConfidence: 1,
+      orderAccessDenied: false,
+      sourceAgreement: false,
+      recentSignals: 4,
+      negativeReviewCount: 4,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
+
+    expect(emergingRelevance.reviewSignals.level).toBe("emerging");
+    expect(confidence).toBeGreaterThanOrEqual(52);
+    expect(confidence).toBeLessThanOrEqual(64);
+  });
 });

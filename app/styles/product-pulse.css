@@ -1867,24 +1867,164 @@ s-page[inline-size="large-500"] {
   box-shadow: inset 0 2px 0 var(--pp-pulse-blue);
 }
 
-.ppEvidenceSourceCard h3 {
+.ppEvidenceSourceHeader {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   margin: 0 0 12px;
+}
+
+.ppEvidenceSourceHeader h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
   color: var(--pp-slate-900);
   font-size: 14px;
   font-weight: 650;
 }
 
-.ppEvidenceSourceCard ul {
+.ppEvidenceSourceHeader > span {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ppEvidencePointList {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin: 0;
-  padding-left: 16px;
+}
+
+.ppEvidencePoint {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 10px 11px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--pp-cloud-white) 0%, rgba(var(--pp-slate-100-rgb), 0.62) 100%);
+}
+
+.ppEvidencePointMarker {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--pp-pulse-blue);
+  box-shadow: 0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.12);
+}
+
+.ppEvidencePoint strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.ppEvidencePoint p {
+  margin: 0;
   color: var(--pp-slate-700);
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 12px;
+  font-weight: 520;
+  line-height: 1.38;
+}
+
+.ppEvidencePoint-negative {
+  background: linear-gradient(180deg, var(--pp-cloud-white) 0%, rgba(var(--pp-risk-red-rgb), 0.06) 100%);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.22);
+}
+
+.ppEvidencePoint-negative .ppEvidencePointMarker {
+  background: var(--pp-risk-red);
+  box-shadow: 0 0 0 3px rgba(var(--pp-risk-red-rgb), 0.12);
+}
+
+.ppEvidencePoint-positive {
+  background: linear-gradient(180deg, var(--pp-cloud-white) 0%, rgba(var(--pp-success-green-rgb), 0.07) 100%);
+  border-color: rgba(var(--pp-success-green-rgb), 0.22);
+}
+
+.ppEvidencePoint-positive .ppEvidencePointMarker {
+  background: var(--pp-success-green);
+  box-shadow: 0 0 0 3px rgba(var(--pp-success-green-rgb), 0.13);
+}
+
+.ppEvidencePoint-neutral .ppEvidencePointMarker {
+  background: var(--pp-slate-500);
+  box-shadow: 0 0 0 3px rgba(var(--pp-slate-500-rgb), 0.12);
+}
+
+.ppEvidencePoint-insight {
+  background: linear-gradient(180deg, var(--pp-cloud-white) 0%, rgba(var(--pp-insight-violet-rgb), 0.06) 100%);
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.2);
+}
+
+.ppEvidencePoint-insight .ppEvidencePointMarker {
+  background: var(--pp-insight-violet);
+  box-shadow: 0 0 0 3px rgba(var(--pp-insight-violet-rgb), 0.12);
+}
+
+.ppEvidenceTextNegative,
+.ppEvidenceTextPositive,
+.ppEvidenceTextNeutral,
+.ppEvidenceKeyword,
+.ppEvidenceNumber,
+.ppEvidenceQuote {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  margin: 0 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 760;
+  line-height: 1.15;
+}
+
+.ppEvidenceTextNegative {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppEvidenceTextPositive {
+  background: var(--pp-green-soft);
+  color: #15803d;
+}
+
+.ppEvidenceTextNeutral {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+}
+
+.ppEvidenceKeyword {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceNumber {
+  background: var(--pp-teal-soft);
+  color: #0f766e;
+}
+
+.ppEvidenceQuote {
+  max-width: 100%;
+  border-radius: 6px;
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+  font-style: normal;
 }
 
 .ppIssuesTableWrap {
@@ -5884,6 +6024,7 @@ s-page[inline-size="large-500"] {
   .ppRiskSnapshot,
   .ppProductDetailGrid,
   .ppEvidenceSourceGrid,
+  .ppEvidencePointList,
   .ppCheckedGrid {
     grid-template-columns: 1fr;
   }

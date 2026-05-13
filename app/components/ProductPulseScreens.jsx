@@ -3145,17 +3145,70 @@ function getInsightMetricHelp(title) {
 function EvidenceSourceCard({ source, featured = false }) {
   return (
     <article className={`ppEvidenceSourceCard ${featured ? "isFeatured" : ""}`.trim()}>
-      <h3>
-        <s-icon type={source.icon} size="small"></s-icon>
-        {source.title}
-      </h3>
-      <ul>
-        {source.points.map((point) => (
-          <li key={point}>{point}</li>
+      <div className="ppEvidenceSourceHeader">
+        <h3>
+          <s-icon type={source.icon} size="small"></s-icon>
+          {source.title}
+        </h3>
+        <span>{source.points.length} signals</span>
+      </div>
+      <div className="ppEvidencePointList">
+        {source.points.map((point, index) => (
+          <EvidencePoint point={point} key={`${point}-${index}`} />
         ))}
-      </ul>
+      </div>
     </article>
   );
+}
+
+function EvidencePoint({ point }) {
+  const parsed = parseEvidencePoint(point);
+  return (
+    <div className={`ppEvidencePoint ppEvidencePoint-${parsed.tone}`} aria-label={point}>
+      <span className="ppEvidencePointMarker" aria-hidden="true"></span>
+      <div>
+        {parsed.label && <strong>{parsed.label}</strong>}
+        <p>{renderEvidenceText(parsed.body || parsed.label || point)}</p>
+      </div>
+    </div>
+  );
+}
+
+function parseEvidencePoint(point) {
+  const text = String(point || "").trim();
+  const [rawLabel, ...rest] = text.split(":");
+  const hasLabel = rest.length > 0 && rawLabel.length <= 42;
+  const body = hasLabel ? rest.join(":").trim() : text;
+  return {
+    label: hasLabel ? rawLabel.trim() : "",
+    body,
+    tone: getEvidencePointTone(text),
+  };
+}
+
+function getEvidencePointTone(text) {
+  const normalized = String(text || "").toLowerCase();
+  if (normalized.includes("negative") || normalized.includes("high risk") || normalized.includes("refunded") || normalized.includes("return-note reactions")) return "negative";
+  if (normalized.includes("positive") || normalized.includes("healthy") || normalized.includes("satisfaction") || normalized.includes("delight")) return "positive";
+  if (normalized.includes("neutral") || normalized.includes("monitor") || normalized.includes("weak")) return "neutral";
+  if (normalized.includes("emotion") || normalized.includes("sentiment") || normalized.includes("language")) return "insight";
+  return "default";
+}
+
+function renderEvidenceText(text) {
+  const tokens = String(text || "").split(/(\bnegative\b|\bpositive\b|\bneutral\b|\breturns?\b|\brefunds?\b|\breviews?\b|\bemotions?\b|\bsentiment\b|\bsubjective\b|\bAI\b|\d+(?:\.\d+)?%?|\$[\d,]+(?:\.\d+)?|"[^"]+")/gi);
+  return tokens.filter(Boolean).map((token, index) => {
+    const normalized = token.toLowerCase();
+    if (/^"/.test(token)) return <em className="ppEvidenceQuote" key={`${token}-${index}`}>{token}</em>;
+    if (normalized === "negative") return <span className="ppEvidenceTextNegative" key={`${token}-${index}`}>{token}</span>;
+    if (normalized === "positive") return <span className="ppEvidenceTextPositive" key={`${token}-${index}`}>{token}</span>;
+    if (normalized === "neutral") return <span className="ppEvidenceTextNeutral" key={`${token}-${index}`}>{token}</span>;
+    if (/^\d/.test(token) || /^\$/.test(token)) return <span className="ppEvidenceNumber" key={`${token}-${index}`}>{token}</span>;
+    if (/\b(return|returns|refund|refunds|review|reviews|emotion|emotions|sentiment|subjective|ai)\b/i.test(token)) {
+      return <span className="ppEvidenceKeyword" key={`${token}-${index}`}>{token}</span>;
+    }
+    return token;
+  });
 }
 
 function EmptyProductDetailState({ message }) {

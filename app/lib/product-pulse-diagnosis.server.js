@@ -936,6 +936,9 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
     recentSignals: countRecentSignalEvents(signalEvents, 30),
     mainIssue,
     textInsights,
+    returnUnits,
+    refundUnits,
+    negativeReviewCount,
   });
   const estimatedImpact = calculateEstimatedImpact({
     refundAmount,
@@ -1063,14 +1066,15 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
     detail: buildMainFindingDetail(ai.report?.main_finding_detail, scoredDeterministic, contentAnalysis),
     summary: ai.report?.evidence_summary || buildEvidenceSummary(scoredDeterministic),
   };
+  const adjustedMainFinding = adjustMainFindingForSignalStrength(mainFinding, scoredDeterministic);
   const recommendations = buildFinalRecommendations({ snapshot, deterministic: scoredDeterministic, ai, mainIssue });
   const issues = buildFinalIssues({ deterministic: scoredDeterministic, ai, mainIssue, recommendations });
   const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, judgeMeData, shopifyData });
   const metrics = {
     ...scoredDeterministic.metrics,
     diagnosisReport: {
-      mainFinding,
-      evidenceSummary: mainFinding.summary,
+      mainFinding: adjustedMainFinding,
+      evidenceSummary: adjustedMainFinding.summary,
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
       knownEmotions,
@@ -1092,7 +1096,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
     recommendations,
     sourceCoverage: scoredDeterministic.sourceCoverage,
     metrics,
-    mainFinding,
+    mainFinding: adjustedMainFinding,
   });
 }
 
@@ -1176,6 +1180,7 @@ function buildAiProductInput(product, snapshot) {
 }
 
 function buildAiDeterministicInput(deterministic) {
+  const signalRelevance = buildSignalRelevanceGuidance(deterministic);
   return {
     riskScore: deterministic.riskScore,
     confidence: deterministic.confidence,
@@ -1184,6 +1189,7 @@ function buildAiDeterministicInput(deterministic) {
     estimatedImpact: deterministic.estimatedImpact,
     sourceAgreement: deterministic.sourceAgreement,
     evidenceSummary: buildEvidenceSummary(deterministic),
+    signalRelevance,
     metrics: {
       soldUnits: deterministic.metrics.soldUnits,
       returnUnits: deterministic.metrics.returnUnits,
@@ -1430,7 +1436,10 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     });
   }
 
-  return mappedIssues.map((issue) => scaleSubjectiveIssueForEvidence(issue, deterministic)).slice(0, 10);
+  return mappedIssues
+    .map((issue) => scaleSubjectiveIssueForEvidence(issue, deterministic))
+    .map((issue) => scaleWeakReviewIssueForEvidence(issue, deterministic))
+    .slice(0, 10);
 }
 
 function buildGranularTextIssues({ deterministic, ai, recommendations }) {
@@ -1543,6 +1552,24 @@ function getSubjectiveConfidenceCap(summary) {
   if (!hasActionableSubjectiveEvidence(summary)) return 62;
   if (count < 5 && ratio < 0.5) return 76;
   return 88;
+}
+
+function scaleWeakReviewIssueForEvidence(issue, deterministic) {
+  const relevance = buildSignalRelevanceGuidance(deterministic);
+  if (relevance.reviewSignals.level === "normal") return issue;
+  if (issue.issueCode === "product_content") return issue;
+  const negativeReviews = Number(deterministic.metrics.negativeReviewCount || 0);
+  const severity = negativeReviews >= 3 ? "Medium" : "Low";
+  const confidenceCap = negativeReviews >= 3 ? 64 : 49;
+  const policyText = relevance.reviewSignals.guidance;
+  const evidence = Array.isArray(issue.evidence) ? issue.evidence.filter(Boolean) : [];
+  return {
+    ...issue,
+    severity,
+    tone: getRiskToneFromSeverity(severity, deterministic.riskScore),
+    confidence: Math.min(Number(issue.confidence || deterministic.confidence || 0), confidenceCap),
+    evidence: evidence.includes(policyText) ? evidence : [policyText, ...evidence].filter(Boolean).slice(0, 5),
+  };
 }
 
 const KNOWN_CUSTOMER_SENTIMENT_CODES = new Set([
@@ -2745,6 +2772,76 @@ function buildMainFindingDetail(aiDetail, deterministic, contentAnalysis) {
   return String(base || "").includes("Product content") ? base : `${base}${contentSentence}`;
 }
 
+function adjustMainFindingForSignalStrength(mainFinding, deterministic) {
+  const relevance = buildSignalRelevanceGuidance(deterministic);
+  if (relevance.reviewSignals.level === "normal") return mainFinding;
+
+  const hasContentIssues = Number(deterministic.metrics.contentIssueCount || 0) > 0;
+  if (hasContentIssues) {
+    return {
+      ...mainFinding,
+      detail: `${mainFinding.detail} ${relevance.reviewSignals.guidance}`,
+      summary: `${mainFinding.summary} ${relevance.reviewSignals.guidance}`,
+    };
+  }
+
+  return {
+    title: relevance.reviewSignals.level === "emerging"
+      ? "Review signal is emerging, not confirmed"
+      : "Review signal is still early",
+    detail: relevance.reviewSignals.guidance,
+    summary: relevance.reviewSignals.summary,
+  };
+}
+
+function buildSignalRelevanceGuidance(deterministic) {
+  const metrics = deterministic.metrics || {};
+  const negativeReviews = Number(metrics.negativeReviewCount || 0);
+  const reviewCount = Number(metrics.reviewCount || 0);
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const refundUnits = Number(metrics.refundUnits || 0);
+  const contentIssues = Number(metrics.contentIssueCount || 0);
+  const reviewOnly = negativeReviews > 0 && returnUnits === 0 && refundUnits === 0 && contentIssues === 0;
+
+  if (!reviewOnly) {
+    return {
+      reviewSignals: {
+        level: "normal",
+        summary: negativeReviews ? `${negativeReviews} negative Judge.me reviews are available with other supporting signals.` : "No negative review pressure is leading the finding.",
+        guidance: "Use reviews alongside stronger return, refund, content, or multi-source evidence.",
+      },
+    };
+  }
+
+  if (negativeReviews <= 2) {
+    return {
+      reviewSignals: {
+        level: "weak",
+        summary: `${negativeReviews} negative Judge.me review${negativeReviews === 1 ? "" : "s"} out of ${reviewCount} total reviews is an early signal only.`,
+        guidance: `${negativeReviews} negative Judge.me review${negativeReviews === 1 ? "" : "s"} is below the ProductPulse action threshold. Treat it as low-confidence monitoring evidence and do not lead the main finding with review wording.`,
+      },
+    };
+  }
+
+  if (negativeReviews <= 4) {
+    return {
+      reviewSignals: {
+        level: "emerging",
+        summary: `${negativeReviews} negative Judge.me reviews out of ${reviewCount} total reviews is an emerging signal.`,
+        guidance: `${negativeReviews} negative Judge.me reviews can support a low-to-medium finding, but confidence should start near 50 and increase only if returns, refunds, repeated language, or more reviews agree.`,
+      },
+    };
+  }
+
+  return {
+    reviewSignals: {
+      level: "normal",
+      summary: `${negativeReviews} negative Judge.me reviews out of ${reviewCount} total reviews is enough review volume to support the finding.`,
+      guidance: "Reviews have enough volume to inform the main finding when they are consistent.",
+    },
+  };
+}
+
 function hasMeaningfulTokenOverlap(first, second) {
   const firstTokens = meaningfulTokens(first);
   const secondTokens = new Set(meaningfulTokens(second));
@@ -2779,9 +2876,7 @@ function calculateRiskScore({ snapshot, metrics }) {
     ? Math.max(0, Math.min(20, ((metrics.refundRate / storeAvgRefundRate) - 1) * 11))
     : Math.min(18, metrics.refundRate);
   const refundImpact = Math.min(15, Math.log10(metrics.refundAmount + 1) * 4);
-  const reviewAnomaly = metrics.reviewCount
-    ? Math.min(20, metrics.negativeReviewRate * 0.24 + Math.max(0, 4 - metrics.avgRating) * 3)
-    : 0;
+  const reviewAnomaly = calculateReviewAnomaly(metrics);
   const signalVolume = Math.min(12, Math.sqrt(metrics.signalCount) * 2.6);
   const sourceAgreement = hasSourceAgreement({
     returnUnits: metrics.returnUnits,
@@ -2822,7 +2917,38 @@ function calculateSubjectiveTextRisk({ count, ratio }) {
   return Math.min(8, 2.8 + subjectiveRatio * 6 + Math.log2(subjectiveCount + 1) * 0.9);
 }
 
-function calculateConfidence({ signalCount, sourceCoverage, judgeMeMatchConfidence, orderAccessDenied, sourceAgreement, recentSignals, mainIssue = "", textInsights = null }) {
+function calculateReviewAnomaly(metrics) {
+  const reviewCount = Number(metrics.reviewCount || 0);
+  const negativeReviewCount = Number(metrics.negativeReviewCount || 0);
+  if (!reviewCount || !negativeReviewCount) return 0;
+
+  const ratePressure = Number(metrics.negativeReviewRate || 0) * 0.18;
+  const ratingPressure = Math.max(0, 4 - Number(metrics.avgRating || 0)) * 2.5;
+  const raw = Math.min(20, ratePressure + ratingPressure);
+  const sampleSupport = negativeReviewCount <= 1
+    ? 0.18
+    : negativeReviewCount === 2
+      ? 0.32
+      : negativeReviewCount <= 4
+        ? 0.58
+        : Math.min(1, 0.62 + Math.log2(negativeReviewCount) / 5);
+
+  return roundRate(raw * sampleSupport, 2);
+}
+
+function calculateConfidence({
+  signalCount,
+  sourceCoverage,
+  judgeMeMatchConfidence,
+  orderAccessDenied,
+  sourceAgreement,
+  recentSignals,
+  mainIssue = "",
+  textInsights = null,
+  returnUnits = 0,
+  refundUnits = 0,
+  negativeReviewCount = 0,
+}) {
   const sample = Math.min(26, Math.log2(signalCount + 1) * 8);
   const coverage = Math.min(28, sourceCoverage.length * 7);
   const match = Math.round((judgeMeMatchConfidence || 0) * 16);
@@ -2830,7 +2956,16 @@ function calculateConfidence({ signalCount, sourceCoverage, judgeMeMatchConfiden
   const recency = recentSignals ? 10 : 0;
   const penalty = orderAccessDenied ? 16 : 0;
   const baseConfidence = clamp(Math.round(18 + sample + coverage + match + agreement + recency - penalty), 0, 99);
-  return adjustSubjectiveConfidence(baseConfidence, mainIssue, textInsights);
+  const reviewAdjustedConfidence = adjustWeakReviewConfidence(baseConfidence, { returnUnits, refundUnits, negativeReviewCount });
+  return adjustSubjectiveConfidence(reviewAdjustedConfidence, mainIssue, textInsights);
+}
+
+function adjustWeakReviewConfidence(confidence, { returnUnits, refundUnits, negativeReviewCount }) {
+  const reviewOnly = Number(negativeReviewCount || 0) > 0 && Number(returnUnits || 0) === 0 && Number(refundUnits || 0) === 0;
+  if (!reviewOnly) return confidence;
+  if (negativeReviewCount <= 2) return Math.min(confidence, 49);
+  if (negativeReviewCount <= 4) return Math.min(Math.max(confidence, 52), 64);
+  return confidence;
 }
 
 function adjustSubjectiveConfidence(confidence, mainIssue, textInsights) {
@@ -2960,10 +3095,15 @@ function buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits,
 
 function buildEvidenceSummary(deterministic) {
   const metrics = deterministic.metrics;
+  const relevance = buildSignalRelevanceGuidance(deterministic);
   const pieces = [];
   if (metrics.returnUnits > 0) pieces.push(`${metrics.returnUnits} return units (${metrics.returnRate}% return rate)`);
   if (metrics.refundUnits > 0 || metrics.refundAmount > 0) pieces.push(`${metrics.refundUnits} refunds worth ${formatMoney(metrics.refundAmount)}`);
-  if (metrics.reviewCount > 0) pieces.push(`${metrics.negativeReviewCount} negative Judge.me reviews out of ${metrics.reviewCount}`);
+  if (metrics.reviewCount > 0 && metrics.negativeReviewCount > 0) {
+    pieces.push(relevance.reviewSignals.level === "normal"
+      ? `${metrics.negativeReviewCount} negative Judge.me reviews out of ${metrics.reviewCount}`
+      : relevance.reviewSignals.summary);
+  }
   if (metrics.affectedVariants.length) pieces.push(`affected variants: ${metrics.affectedVariants.join(", ")}`);
   if (!pieces.length) return "The diagnosis has product metadata but no strong product-specific customer signal yet.";
   return pieces.join("; ");
@@ -3232,6 +3372,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildCustomerTextInsights,
   calculateConfidence,
   calculateRiskScore,
+  buildSignalRelevanceGuidance,
   classifyIssueText,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,

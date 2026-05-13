@@ -336,6 +336,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "If emergent customer sentiments are present, mention them only when they are grounded in the evidence and useful to the merchant.",
     "If product content is missing, incoherent, too short, or mismatched with title/tags/collections, include that in the finding or recommendations when relevant.",
     "For subjective negative reactions, avoid overstating risk from a single customer. Explain it as a monitor/review signal unless repeated evidence supports action.",
+    "Respect deterministic.signalRelevance. If it says reviewSignals level is weak, do not lead the main finding with review language. If it is emerging, describe it as early evidence with limited confidence. Give priority to returns, refunds, repeated customer language, product content issues, and multi-source agreement.",
     "Return valid JSON only. No markdown.",
     "Schema:",
     JSON.stringify({

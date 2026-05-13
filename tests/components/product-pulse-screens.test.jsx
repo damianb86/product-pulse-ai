@@ -269,12 +269,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Fear or safety concern")).toBeInTheDocument();
     expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: /Customer language analysis/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("All customer text sentiment: 3 negative, 1 neutral, 0 positive")).toBeInTheDocument();
-    expect(screen.getByText("Deterministic emotion taxonomy: Fear 2, Disappointment 1")).toBeInTheDocument();
-    expect(screen.getByText("AI emotion taxonomy: Fear 2")).toBeInTheDocument();
-    expect(screen.getByText("Emergent emotions: Superstitious discomfort 2")).toBeInTheDocument();
-    expect(screen.getByText("Return notes sentiment: 2 negative, 1 neutral, 0 positive")).toBeInTheDocument();
-    expect(screen.getByText("\"Other\" return notes classified as Fit & sizing 2 times")).toBeInTheDocument();
+    expect(screen.getByLabelText("All customer text sentiment: 3 negative, 1 neutral, 0 positive")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deterministic emotion taxonomy: Fear 2, Disappointment 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("AI emotion taxonomy: Fear 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Emergent emotions: Superstitious discomfort 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Return notes sentiment: 2 negative, 1 neutral, 0 positive")).toBeInTheDocument();
+    expect(screen.getByLabelText("\"Other\" return notes classified as Fit & sizing 2 times")).toBeInTheDocument();
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
   });
 
