@@ -1073,18 +1073,42 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
   const refundRatePercent = roundPercent(refundRate);
   const topReasons = topEntries(aggregate.returnReasons, 4);
   const affectedVariants = topEntries(aggregate.affectedVariants, 4);
-  const returnAnomaly = anomalyScore(returnRate, storeTotals.avgReturnRate, 30);
-  const refundAnomaly = anomalyScore(refundRate, storeTotals.avgRefundRate, 22);
-  const refundImpact = clamp((aggregate.refundAmount / Math.max(storeTotals.avgRefundAmount, 1)) * 10, 0, 18);
-  const repeatedReasons = clamp(topReasons.reduce((sum, reason) => sum + reason.count, 0) * 3 + topReasons.length * 2, 0, 16);
+  const signalCount = aggregate.returnUnits + aggregate.refundUnits + topReasons.reduce((sum, reason) => sum + reason.count, 0);
+  const returnRisk = getRateRiskScore({
+    rate: returnRate,
+    average: storeTotals.avgReturnRate,
+    signalUnits: aggregate.returnUnits,
+    maxScore: 48,
+  });
+  const refundRisk = getRateRiskScore({
+    rate: refundRate,
+    average: storeTotals.avgRefundRate,
+    signalUnits: aggregate.refundUnits,
+    maxScore: 40,
+  });
+  const impactRisk = getRefundImpactRiskScore(aggregate, storeTotals);
+  const repeatedReasons = getRepeatedReasonRiskScore(topReasons);
   const variantConcentration = getVariantConcentrationScore(aggregate, affectedVariants);
   const recentSpike = getRecentSpikeScore(aggregate);
-  const volumeWeight = clamp(Math.log10(Math.max(aggregate.soldUnits, 1)) * 6, 0, 10);
-  const riskScore = Math.round(clamp(
-    returnAnomaly + refundAnomaly + refundImpact + repeatedReasons + variantConcentration + recentSpike + volumeWeight,
-    0,
-    100,
-  ));
+  const volumeWeight = getVolumeSupportScore(aggregate);
+  const riskComponents = {
+    returnRisk: roundScore(returnRisk),
+    refundRisk: roundScore(refundRisk),
+    impactRisk: roundScore(impactRisk),
+    repeatedReasonRisk: roundScore(repeatedReasons),
+    variantConcentration: roundScore(variantConcentration),
+    recentSpike: roundScore(recentSpike),
+    volumeSupport: roundScore(volumeWeight),
+  };
+  const riskScore = calculateQuickScanRiskScore({
+    returnRisk,
+    refundRisk,
+    impactRisk,
+    repeatedReasons,
+    variantConcentration,
+    recentSpike,
+    volumeWeight,
+  });
 
   const primaryIssue = getPrimaryIssue({
     topReasons,
@@ -1092,21 +1116,29 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     refundRate,
     returnRate,
   });
-  const signalCount = aggregate.returnUnits + aggregate.refundUnits + topReasons.reduce((sum, reason) => sum + reason.count, 0);
   const signalTrendResult = buildDatedSignalTrend(aggregate.signalEvents, { dateField: "occurredAt" });
   const signalTrend = signalTrendResult.values;
   const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore);
   const issueSignalTrends = buildIssueTrendMap(aggregate.signalEvents, { dateField: "occurredAt" });
+  const sourceCoverage = getSourceCoverage(aggregate);
+  const confidenceResult = calculateQuickScanConfidence({
+    aggregate,
+    sourceCoverage,
+    signalCount,
+    topReasons,
+    affectedVariants,
+    extractionMode,
+  });
 
   return {
     productGid: aggregate.product.id,
     productTitle: aggregate.product.title,
     handle: aggregate.product.handle,
     riskScore,
-    impactScore: Math.round(clamp(refundImpact * 3 + aggregate.refundAmount / 500 + signalCount, 0, 100)),
-    confidence: Math.round(clamp(55 + signalCount * 4 + affectedVariants.length * 3, 45, 92)),
+    impactScore: Math.round(clamp(impactRisk * 2.6 + aggregate.refundAmount / 650 + signalCount * 1.4, 0, 100)),
+    confidence: confidenceResult.confidence,
     primaryIssue,
-    sourceCoverage: getSourceCoverage(aggregate),
+    sourceCoverage,
     metrics: {
       windowDays,
       extractionMode,
@@ -1131,6 +1163,8 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       riskTrend,
       trendMeta: signalTrendResult.meta,
       issueSignalTrends,
+      riskComponents,
+      confidenceFactors: confidenceResult.factors,
       productType: aggregate.product.productType,
       vendor: aggregate.product.vendor,
       tags: aggregate.product.tags,
@@ -1253,6 +1287,98 @@ function isPersistableCandidate(candidate, storeTotals) {
   );
 }
 
+function calculateQuickScanRiskScore({
+  returnRisk,
+  refundRisk,
+  impactRisk,
+  repeatedReasons,
+  variantConcentration,
+  recentSpike,
+  volumeWeight,
+}) {
+  const evidenceRisks = [returnRisk, refundRisk, repeatedReasons].sort((a, b) => b - a);
+  const dominantEvidence = evidenceRisks[0] || 0;
+  const supportingEvidence = evidenceRisks.slice(1).reduce((sum, score) => sum + score, 0) * 0.38;
+  const operationalRisk = impactRisk * 0.75 + variantConcentration * 0.6 + recentSpike * 0.7 + volumeWeight * 0.35;
+  const rawRisk = dominantEvidence + supportingEvidence + operationalRisk;
+
+  return Math.round(clamp(100 * (1 - Math.exp(-rawRisk / 52)), 0, 100));
+}
+
+function getRateRiskScore({ rate, average, signalUnits, maxScore }) {
+  if (rate <= 0 || signalUnits <= 0) return 0;
+  const absoluteSeverity = maxScore * (1 - Math.exp(-(rate * 100) / 11));
+  const anomalySeverity = anomalyScore(rate, average, maxScore * 0.82);
+  const sampleSupport = clamp(Math.log2(signalUnits + 1) * 2.4, 0, maxScore * 0.16);
+
+  return clamp(Math.max(absoluteSeverity, anomalySeverity) + sampleSupport, 0, maxScore);
+}
+
+function getRefundImpactRiskScore(aggregate, storeTotals) {
+  if (aggregate.refundAmount <= 0) return 0;
+  const relativeImpact = clamp((aggregate.refundAmount / Math.max(storeTotals.avgRefundAmount, 1)) * 14, 0, 28);
+  const absoluteImpact = 28 * (1 - Math.exp(-aggregate.refundAmount / 850));
+  const revenueShareImpact = aggregate.salesAmount > 0
+    ? clamp((aggregate.refundAmount / aggregate.salesAmount) * 55, 0, 24)
+    : 0;
+
+  return clamp(Math.max(relativeImpact, absoluteImpact, revenueShareImpact), 0, 30);
+}
+
+function getRepeatedReasonRiskScore(topReasons) {
+  const repeatedReasonUnits = topReasons.reduce((sum, reason) => sum + reason.count, 0);
+  if (!repeatedReasonUnits) return 0;
+  const repetitionSeverity = 22 * (1 - Math.exp(-repeatedReasonUnits / 4));
+  const diversitySupport = clamp(topReasons.length * 2.2, 0, 7);
+
+  return clamp(repetitionSeverity + diversitySupport, 0, 24);
+}
+
+function getVolumeSupportScore(aggregate) {
+  if (aggregate.soldUnits <= 0) return 0;
+  return clamp(Math.log10(aggregate.soldUnits + 1) * 5, 0, 8);
+}
+
+function calculateQuickScanConfidence({ aggregate, sourceCoverage, signalCount, topReasons, affectedVariants, extractionMode }) {
+  const sourceCount = sourceCoverage.length;
+  const coverageScore = 8
+    + (aggregate.soldUnits > 0 ? 14 : 0)
+    + (aggregate.refundUnits > 0 ? 10 : 0)
+    + (aggregate.returnUnits > 0 ? 14 : 0);
+  const sampleScore = clamp(Math.log10(aggregate.soldUnits + 1) * 9, 0, 20)
+    + clamp(Math.log10(signalCount + 1) * 11, 0, 18);
+  const consistencyScore = (aggregate.returnUnits > 0 && aggregate.refundUnits > 0 ? 8 : 0)
+    + (topReasons[0]?.count >= 3 ? 6 : 0)
+    + (affectedVariants.length > 1 ? 3 : 0)
+    + (aggregate.recentSignalUnits > 0 ? 3 : 0);
+  const lowSamplePenalty = (aggregate.soldUnits > 0 && aggregate.soldUnits < 10 ? 8 : 0)
+    + (signalCount > 0 && signalCount < 3 ? 8 : 0)
+    + (sourceCount <= 2 ? 5 : 0)
+    + (extractionMode === "catalog-only" ? 18 : 0);
+  const rawConfidence = coverageScore + sampleScore + consistencyScore - lowSamplePenalty;
+  const maxConfidence = getQuickScanConfidenceCap({ sourceCount, soldUnits: aggregate.soldUnits, extractionMode });
+  const confidence = Math.round(clamp(rawConfidence, signalCount > 0 ? 24 : 12, maxConfidence));
+
+  return {
+    confidence,
+    factors: {
+      coverageScore: roundScore(coverageScore),
+      sampleScore: roundScore(sampleScore),
+      consistencyScore: roundScore(consistencyScore),
+      lowSamplePenalty: roundScore(lowSamplePenalty),
+      maxConfidence,
+      sourceCount,
+    },
+  };
+}
+
+function getQuickScanConfidenceCap({ sourceCount, soldUnits, extractionMode }) {
+  if (extractionMode === "catalog-only") return 34;
+  const sourceCap = sourceCount <= 1 ? 38 : sourceCount === 2 ? 62 : sourceCount === 3 ? 76 : 86;
+  const sampleCap = soldUnits < 10 ? 58 : soldUnits < 30 ? 76 : 86;
+  return Math.min(sourceCap, sampleCap);
+}
+
 function getSourceCoverage(aggregate) {
   const sources = ["Shopify products"];
   if (aggregate.soldUnits > 0) sources.push("Shopify orders");
@@ -1346,6 +1472,10 @@ function roundPercent(value) {
 
 function roundMoney(value) {
   return Math.round(toNumber(value) * 100) / 100;
+}
+
+function roundScore(value) {
+  return Math.round(toNumber(value) * 10) / 10;
 }
 
 function clamp(value, min, max) {

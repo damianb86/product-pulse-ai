@@ -66,8 +66,70 @@ describe("ProductPulse QuickScan", () => {
       handle: "linen-shirt",
       primaryIssue: "Fit & sizing",
     });
-    expect(candidates[0].riskScore).toBeGreaterThanOrEqual(50);
+    expect(candidates[0].riskScore).toBeGreaterThanOrEqual(80);
+    expect(candidates[0].confidence).toBeLessThanOrEqual(80);
+    expect(candidates[0].metrics.riskComponents).toMatchObject({
+      returnRisk: expect.any(Number),
+      refundRisk: expect.any(Number),
+      repeatedReasonRisk: expect.any(Number),
+    });
+    expect(candidates[0].metrics.confidenceFactors.maxConfidence).toBeLessThanOrEqual(86);
     expect(candidates[0].metrics.topReturnReasons).toContain("Size Too Small");
+  });
+
+  it("escalates sparse but severe Shopify risk while keeping confidence moderate", () => {
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products: [
+        {
+          id: "gid://shopify/Product/1",
+          handle: "puzzle-box",
+          title: "Puzzle Box",
+          productType: "Toys",
+          variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "PUZ" }],
+        },
+        {
+          id: "gid://shopify/Product/2",
+          handle: "steady-seller",
+          title: "Steady Seller",
+          productType: "Toys",
+          variants: [{ id: "gid://shopify/ProductVariant/2", title: "Default Title", sku: "STEADY" }],
+        },
+      ],
+      events: [
+        ...Array.from({ length: 10 }, () => ({
+          type: "sale",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 40,
+        })),
+        ...Array.from({ length: 100 }, () => ({
+          type: "sale",
+          productId: "gid://shopify/Product/2",
+          variantId: "gid://shopify/ProductVariant/2",
+          quantity: 1,
+          amount: 35,
+        })),
+        ...Array.from({ length: 2 }, () => ({
+          type: "return",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          reason: "DAMAGED",
+          note: "arrived damaged",
+          occurredAt: new Date().toISOString(),
+        })),
+      ],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      handle: "puzzle-box",
+      primaryIssue: "Product defect or durability",
+    });
+    expect(candidates[0].riskScore).toBeGreaterThanOrEqual(60);
+    expect(candidates[0].confidence).toBeLessThanOrEqual(70);
   });
 
   it("keeps refund line item connections out of the orders bulk query", () => {
