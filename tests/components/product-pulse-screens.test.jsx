@@ -157,8 +157,7 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={snapshotProduct} />);
     expect(screen.getByText(/Last analyzed May 12, 2026/)).toBeInTheDocument();
     expect(screen.getByAltText("Snapshot product")).toHaveAttribute("src", "https://cdn.example.com/product.jpg");
-    fireEvent.click(screen.getByRole("button", { name: "More actions for Fit runs small around waist and inseam" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Create action draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create action draft for Fit runs small around waist and inseam" }));
     expect(screen.getByLabelText("Draft").value).toMatch(/Investigate Fit runs small/);
   });
 
@@ -202,7 +201,7 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText(/View all actions/)).not.toBeInTheDocument();
     expect(screen.queryByText("Runs small in chest")).not.toBeInTheDocument();
     expect(screen.getByText("0 variants")).toBeInTheDocument();
-    expect(screen.getByText("Re-run diagnosis").closest("s-button")).toHaveAttribute("disabled", "true");
+    expect(screen.getByText("Re-run diagnosis").closest("button")).toBeDisabled();
   });
 
   it("renders the product diagnosis for the selected product", () => {

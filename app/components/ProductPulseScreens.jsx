@@ -806,7 +806,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
             </div>
           </s-section>
 
-          <s-section padding="none">
+          <s-section className="ppProductsTableSection" padding="none">
             <div className="ppProductsTableStatus">
               {selectedCount > 0 && productRows.length > 0 && (
               <div className="ppSelectionPill">
@@ -1297,7 +1297,7 @@ function getEvidenceIcon(source) {
   if (normalized.includes("review")) return "star";
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("support")) return "question-circle";
-  return "note";
+  return "duplicate";
 }
 
 function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true) {
@@ -1402,7 +1402,7 @@ function getRecommendedActionMeta(action) {
 
 function getActionStatusIcon(status) {
   const normalized = String(status || "").toLowerCase();
-  if (normalized.includes("draft")) return "pen";
+  if (normalized.includes("draft")) return "wand";
   if (normalized.includes("ready")) return "check";
   if (normalized.includes("applied")) return "check";
   return "info";
@@ -1503,10 +1503,10 @@ function getActionIcon(type) {
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("return")) return "return";
   if (normalized.includes("variant")) return "product";
-  if (normalized.includes("copy") || normalized.includes("description") || normalized.includes("pdp")) return "pen";
+  if (normalized.includes("copy") || normalized.includes("description") || normalized.includes("pdp")) return "wand";
   if (normalized.includes("faq")) return "question-circle";
   if (normalized.includes("tag")) return "tag";
-  if (normalized.includes("note")) return "note";
+  if (normalized.includes("note")) return "duplicate";
   if (normalized.includes("workflow")) return "view";
   return "wand";
 }
@@ -1515,7 +1515,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
-  const [openIssueMenu, setOpenIssueMenu] = useState(null);
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set());
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
   const [toastData, setToastData] = useState(null);
@@ -1583,7 +1582,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       return;
     }
     setSelectedEvidenceIndex(Math.max(0, Math.min(index, detail.evidenceSources.length - 1)));
-    setOpenIssueMenu(null);
   };
 
   const handleIgnoreIssue = (issue) => {
@@ -1592,7 +1590,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       next.add(issue.issue);
       return next;
     });
-    setOpenIssueMenu(null);
     showToast(`${issue.issue} ignored for this review session.`);
   };
 
@@ -1603,7 +1600,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       payload: { draftText: `Investigate ${issue.issue} and apply the suggested action: ${issue.action}.` },
     });
     setDraftText(`Investigate ${issue.issue} and apply the suggested action: ${issue.action}.`);
-    setOpenIssueMenu(null);
   };
 
   const handleEditAction = (action) => {
@@ -1666,10 +1662,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <Form method="post">
               <input type="hidden" name="_action" value="diagnose" />
               <input type="hidden" name="productId" value={product.slug} />
-              <s-button type="submit" variant="secondary" disabled={!detail.canDiagnose || diagnosisPending}>
+              <button className="ppPrimaryButton" type="submit" disabled={!detail.canDiagnose || diagnosisPending}>
                 <s-icon type="refresh" size="small"></s-icon>
                 {diagnosisPending ? "Running..." : "Re-run diagnosis"}
-              </s-button>
+              </button>
             </Form>
             <Form method="post">
               <input type="hidden" name="_action" value="mark-resolved" />
@@ -1736,30 +1732,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
         <div className="ppProductDetailGrid">
           <div className="ppProductLeftColumn">
-            {detail.evidenceSources.length > 0 && (
-              <s-section padding="none">
-                <div className="ppProductPanel">
-                  <h2>Evidence by source</h2>
-                  <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
-                    {detail.evidenceSources.map((source, index) => (
-                      <button
-                        className={index === selectedEvidenceIndex ? "isActive" : ""}
-                        type="button"
-                        role="tab"
-                        aria-selected={index === selectedEvidenceIndex}
-                        key={source.title}
-                        onClick={() => setSelectedEvidenceIndex(index)}
-                      >
-                        <s-icon type={source.icon} size="small"></s-icon>
-                        {source.title}
-                      </button>
-                    ))}
-                  </div>
-                  <EvidenceSourceCard source={selectedEvidence} featured />
-                </div>
-              </s-section>
-            )}
-
             <s-section padding="none">
               <div className="ppProductPanel">
                 <h2>Issues detected</h2>
@@ -1804,10 +1776,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                             <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
                             <td>{issue.action}</td>
                             <td>
-                              <IssueActionMenu
+                              <IssueInlineActions
                                 issue={issue}
-                                open={openIssueMenu === issue.issue}
-                                onToggle={() => setOpenIssueMenu((current) => (current === issue.issue ? null : issue.issue))}
                                 onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
                                 onCreateAction={() => handleCreateIssueAction(issue)}
                                 onIgnore={() => handleIgnoreIssue(issue)}
@@ -1822,6 +1792,30 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 </div>
               </div>
             </s-section>
+
+            {detail.evidenceSources.length > 0 && (
+              <s-section padding="none">
+                <div className="ppProductPanel">
+                  <h2>Evidence by source</h2>
+                  <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
+                    {detail.evidenceSources.map((source, index) => (
+                      <button
+                        className={index === selectedEvidenceIndex ? "isActive" : ""}
+                        type="button"
+                        role="tab"
+                        aria-selected={index === selectedEvidenceIndex}
+                        key={source.title}
+                        onClick={() => setSelectedEvidenceIndex(index)}
+                      >
+                        <s-icon type={source.icon} size="small"></s-icon>
+                        {source.title}
+                      </button>
+                    ))}
+                  </div>
+                  <EvidenceSourceCard source={selectedEvidence} featured />
+                </div>
+              </s-section>
+            )}
           </div>
 
           <s-section padding="none">
@@ -2315,12 +2309,16 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
 
 function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline, icon }) {
   const trendValues = Array.isArray(sparkline) ? sparkline : [];
+  const helpText = getInsightMetricHelp(title);
 
   return (
     <div className={`ppProductInsight ppProductInsight-${tone}`}>
       <span>
         {title}
-        <s-icon type="info" size="small" color="subdued"></s-icon>
+        <button className="ppInsightInfoWrap" type="button" aria-label={`What ${title} means`}>
+          <s-icon type="info" size="small" color="subdued"></s-icon>
+          <span className="ppInsightTooltip" role="tooltip">{helpText}</span>
+        </button>
       </span>
       <strong>{value}</strong>
       <small>{detail}</small>
@@ -2339,6 +2337,23 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
       )}
     </div>
   );
+}
+
+function getInsightMetricHelp(title) {
+  switch (title) {
+    case "Risk score":
+      return "Deterministic score from the stored product signals. Higher values mean this product should be reviewed before lower-ranked products.";
+    case "Confidence":
+      return "How complete and consistent the available signals are for this diagnosis. More stored evidence generally increases confidence.";
+    case "Estimated impact":
+      return "Estimated revenue and margin exposure from the product signals currently stored for this product.";
+    case "Main issue":
+      return "The strongest issue category found in the product's current signals, such as returns, refunds, variants or expectation mismatch.";
+    case "Recommended fix":
+      return "The safest next action ProductPulse can recommend from deterministic evidence before any deeper AI review.";
+    default:
+      return "Product-specific signal summary calculated from the evidence stored for this product.";
+  }
 }
 
 function EvidenceSourceCard({ source, featured = false }) {
@@ -2381,34 +2396,34 @@ function ProductDetailToast({ actionData, onDismiss }) {
   );
 }
 
-function IssueActionMenu({ issue, open, onToggle, onReview, onCreateAction, onIgnore, ignored }) {
+function IssueInlineActions({ issue, onReview, onCreateAction, onIgnore, ignored }) {
   return (
-    <span className="ppActionMenuWrap">
+    <span className="ppIssueInlineActions" aria-label={`Actions for ${issue.issue}`}>
       <button
-        className="ppIconButton"
         type="button"
-        aria-expanded={open}
-        aria-label={`More actions for ${issue.issue}`}
-        onClick={onToggle}
+        aria-label={`Review evidence for ${issue.issue}`}
+        onClick={onReview}
       >
-        <s-icon type="menu-horizontal" size="small"></s-icon>
+        <s-icon type="view" size="small"></s-icon>
+        <span role="tooltip">Review evidence</span>
       </button>
-      {open && (
-        <span className="ppActionMenu ppIssueActionMenu" role="menu">
-          <button role="menuitem" type="button" onClick={onReview}>
-            <s-icon type="view" size="small"></s-icon>
-            Review evidence
-          </button>
-          <button role="menuitem" type="button" onClick={onCreateAction}>
-            <s-icon type="pen" size="small"></s-icon>
-            Create action draft
-          </button>
-          <button role="menuitem" type="button" onClick={onIgnore} disabled={ignored}>
-            <s-icon type="check" size="small"></s-icon>
-            {ignored ? "Ignored" : "Ignore for now"}
-          </button>
-        </span>
-      )}
+      <button
+        type="button"
+        aria-label={`Create action draft for ${issue.issue}`}
+        onClick={onCreateAction}
+      >
+        <s-icon type="wand" size="small"></s-icon>
+        <span role="tooltip">Create action draft</span>
+      </button>
+      <button
+        type="button"
+        aria-label={`${ignored ? "Ignored" : "Ignore"} ${issue.issue}`}
+        disabled={ignored}
+        onClick={onIgnore}
+      >
+        <s-icon type={ignored ? "check" : "x"} size="small"></s-icon>
+        <span role="tooltip">{ignored ? "Already ignored" : "Ignore for now"}</span>
+      </button>
     </span>
   );
 }
