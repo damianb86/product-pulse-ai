@@ -484,6 +484,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   ]);
 
   useEffect(() => {
+    announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && (actionData?.analyzedCount || actionData?.queuedCount)) {
       setSelectedProducts(new Set());
       setAnalysisConfirmation(null);
@@ -1995,6 +1996,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }, [product?.slug, product?.resolvedAt]);
 
   useEffect(() => {
+    announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && actionData?.action?.id === "mark-resolved") {
       setResolvedLocally(true);
     }
@@ -2465,6 +2467,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+function announceProductPulseJobs(actionData) {
+  if (typeof window === "undefined" || actionData?.status !== "success") return;
+  const jobs = [
+    ...(Array.isArray(actionData.jobs) ? actionData.jobs : []),
+    actionData.job,
+  ].filter(Boolean);
+  if (!jobs.length) return;
+  window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { jobs } }));
 }
 
 export function AnalyticsScreen({ data }) {

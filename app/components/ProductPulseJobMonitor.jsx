@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { useFetcher } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useFetcher, useRevalidator } from "react-router";
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
+  const revalidator = useRevalidator();
   const [minimized, setMinimized] = useState(() => Boolean(developmentMode));
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [dismissedFailedJobIds, setDismissedFailedJobIds] = useState(() => new Set());
   const [now, setNow] = useState(() => Date.now());
+  const observedJobsRef = useRef(new Map());
+  const fetcherStateRef = useRef(fetcher.state);
   const monitor = fetcher.data?.jobMonitor || initialMonitor || {};
   const activeJobs = useMemo(() => monitor.activeJobs || [], [monitor.activeJobs]);
   const recentJobs = useMemo(() => monitor.recentJobs || [], [monitor.recentJobs]);
@@ -42,12 +45,61 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }, []);
 
   useEffect(() => {
-    if (!developmentMode && !hasActiveJobs) return undefined;
     const interval = window.setInterval(() => {
-      fetcher.load("/app/job-status");
+      if (fetcherStateRef.current === "idle") fetcher.load("/app/job-status");
     }, hasActiveJobs ? 2000 : 5000);
     return () => window.clearInterval(interval);
-  }, [developmentMode, fetcher, hasActiveJobs]);
+  }, [fetcher, hasActiveJobs]);
+
+  useEffect(() => {
+    fetcherStateRef.current = fetcher.state;
+  }, [fetcher.state]);
+
+  useEffect(() => {
+    const currentJobs = new Map();
+    [...recentJobs, ...activeJobs].forEach((job) => {
+      if (job?.id) currentJobs.set(job.id, getJobRefreshSnapshot(job));
+    });
+
+    const finishedJobs = [];
+    currentJobs.forEach((job, jobId) => {
+      const previous = observedJobsRef.current.get(jobId);
+      if (previous && isActiveJobStatus(previous.status) && isTerminalJobStatus(job.status)) {
+        finishedJobs.push(job);
+      }
+    });
+
+    const activeJobDisappeared = [...observedJobsRef.current.values()].some(
+      (job) => isActiveJobStatus(job.status) && !currentJobs.has(job.id),
+    );
+
+    observedJobsRef.current = currentJobs;
+
+    if (finishedJobs.length || activeJobDisappeared) {
+      revalidator.revalidate();
+    }
+  }, [activeJobs, recentJobs, revalidator]);
+
+  useEffect(() => {
+    const handleQueuedJobs = (event) => {
+      const jobs = Array.isArray(event.detail?.jobs)
+        ? event.detail.jobs
+        : [event.detail?.job].filter(Boolean);
+      if (!jobs.length) return;
+
+      const nextJobs = new Map(observedJobsRef.current);
+      jobs.forEach((job) => {
+        if (job?.id) nextJobs.set(job.id, getJobRefreshSnapshot(job));
+      });
+      observedJobsRef.current = nextJobs;
+
+      if (fetcherStateRef.current === "idle") fetcher.load("/app/job-status");
+      revalidator.revalidate();
+    };
+
+    window.addEventListener("productpulse:jobs-queued", handleQueuedJobs);
+    return () => window.removeEventListener("productpulse:jobs-queued", handleQueuedJobs);
+  }, [fetcher, revalidator]);
 
   useEffect(() => {
     if (!hasActiveJobs && fetcher.state === "idle" && !fetcher.data) {
@@ -172,6 +224,25 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       </aside>
     </>
   );
+}
+
+function getJobRefreshSnapshot(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    kind: job.kind,
+    productTitle: job.productTitle || job.displayTitle || "",
+    updatedAtIso: job.updatedAtIso || "",
+    finishedAtIso: job.finishedAtIso || "",
+  };
+}
+
+function isActiveJobStatus(status) {
+  return status === "Queued" || status === "Running";
+}
+
+function isTerminalJobStatus(status) {
+  return status === "Completed" || status === "Failed";
 }
 
 function JobFailureNotice({ job, onDismiss }) {
