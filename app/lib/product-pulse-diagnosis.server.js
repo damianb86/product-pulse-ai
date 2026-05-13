@@ -1,6 +1,11 @@
 import prisma from "../db.server";
 import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
+import {
+  buildDatedSignalTrend,
+  buildIssueTrendMap,
+  buildRiskTrendFromSignalTrend,
+} from "./product-pulse-trends.server";
 
 const DIAGNOSIS_WINDOW_DAYS = 90;
 const MAX_ORDER_PAGES = 5;
@@ -684,7 +689,9 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   const deterministicContent = analyzeProductContentDeterministically(product);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
-  const signalTrend = buildTrend(signalEvents, DIAGNOSIS_WINDOW_DAYS);
+  const signalTrendResult = buildDatedSignalTrend(signalEvents);
+  const signalTrend = signalTrendResult.values;
+  const issueSignalTrends = buildIssueTrendMap(signalEvents);
   const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
   const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + count, 0);
   deterministicContent.issues.forEach((issue) => {
@@ -743,7 +750,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
     windowDays: DIAGNOSIS_WINDOW_DAYS,
     snapshotMetrics,
   });
-  const riskTrend = buildRiskTrend(signalTrend, riskScore, snapshotMetrics.riskTrend);
+  const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore, snapshotMetrics.riskTrend);
   const evidenceSnippets = buildEvidenceSnippets({ returns, refunds, reviews: negativeReviews, product });
 
   return {
@@ -779,6 +786,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       lastSignalAt: getLatestEventDate(signalEvents),
       signalTrend,
       riskTrend,
+      trendMeta: signalTrendResult.meta,
+      issueSignalTrends,
       productType: product.productType || snapshotMetrics.productType || "",
       vendor: product.vendor || snapshotMetrics.vendor || "",
       tags: product.tags || [],
@@ -826,7 +835,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
       contentIssues: contentAnalysis.issues,
       signalCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
       issueCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
-      riskTrend: buildRiskTrend(deterministic.metrics.signalTrend, adjustedRiskScore, deterministic.metrics.riskTrend),
+      riskTrend: buildRiskTrendFromSignalTrend(deterministic.metrics.signalTrend, adjustedRiskScore, deterministic.metrics.riskTrend),
     },
   };
   contentAnalysis.issues.forEach((issue) => {
@@ -1159,7 +1168,7 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
   const contentIssues = deterministic.metrics.contentAnalysis?.issues || [];
   const mappedIssues = clusters.slice(0, 5).map((cluster, index) => {
     const issueCode = normalizeIssueCode(cluster.issue_category || cluster.issue || mainIssue) || mainIssue;
-    const trend = buildIssueTrend(deterministic.metrics.signalTrend, index);
+    const trend = getIssueTrend(deterministic, issueCode);
     const severity = cluster.severity || getSeverityLabel(deterministic.riskScore);
 
     return {
@@ -1193,6 +1202,17 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
   }
 
   return mappedIssues.slice(0, 6);
+}
+
+function getIssueTrend(deterministic, issueCode) {
+  const issueSignalTrends = deterministic.metrics.issueSignalTrends || {};
+  const directTrend = issueSignalTrends[issueCode]?.trend || issueSignalTrends[issueCode];
+
+  if (Array.isArray(directTrend) && directTrend.length) return directTrend;
+  if (issueCode === deterministic.mainIssue && Array.isArray(deterministic.metrics.signalTrend)) {
+    return deterministic.metrics.signalTrend;
+  }
+  return [];
 }
 
 function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
@@ -1428,24 +1448,37 @@ function getJudgeMeReviewMatchConfidence(review, snapshot, product) {
 
 function buildSignalEvents({ returns, refunds, negativeReviews }) {
   return [
-    ...returns.map((item) => ({
-      type: "return",
-      createdAt: item.createdAt,
-      value: Number(item.quantity || 1),
-      text: [item.reason, item.reasonNote, item.customerNote].filter(Boolean).join(" "),
-    })),
-    ...refunds.map((item) => ({
-      type: "refund",
-      createdAt: item.createdAt,
-      value: Number(item.quantity || 1),
-      text: item.restockType || "",
-    })),
-    ...negativeReviews.map((item) => ({
-      type: "review",
-      createdAt: item.createdAt,
-      value: 1,
-      text: [item.title, item.body].filter(Boolean).join(" "),
-    })),
+    ...returns.map((item) => {
+      const text = [item.reason, item.reasonNote, item.customerNote].filter(Boolean).join(" ");
+      return {
+        type: "return",
+        createdAt: item.createdAt,
+        value: Number(item.quantity || 1),
+        text,
+        issueCode: classifyIssueText(text),
+      };
+    }),
+    ...refunds.map((item) => {
+      const text = item.restockType || "Refund impact";
+      const issueCode = classifyIssueText(text);
+      return {
+        type: "refund",
+        createdAt: item.createdAt,
+        value: Number(item.quantity || 1),
+        text,
+        issueCode: issueCode === "product_quality" ? "refund_impact" : issueCode,
+      };
+    }),
+    ...negativeReviews.map((item) => {
+      const text = [item.title, item.body].filter(Boolean).join(" ");
+      return {
+        type: "review",
+        createdAt: item.createdAt,
+        value: 1,
+        text,
+        issueCode: classifyIssueText(text),
+      };
+    }),
   ].filter((item) => item.createdAt);
 }
 
@@ -1462,7 +1495,12 @@ function buildIssueSignalCounts({ returns, refunds, reviews }) {
     const issue = classifyIssueText(text);
     counts[issue] = (counts[issue] || 0) + 1;
   });
-  if (refunds.length && !Object.keys(counts).length) counts.quality_defect = refunds.length;
+  refunds.forEach((item) => {
+    const text = item.restockType || "Refund impact";
+    const issue = classifyIssueText(text);
+    const issueCode = issue === "product_quality" ? "refund_impact" : issue;
+    counts[issueCode] = (counts[issueCode] || 0) + Number(item.quantity || 1);
+  });
   return counts;
 }
 
@@ -1809,36 +1847,6 @@ function buildFallbackClusters(deterministic, mainIssue) {
   }]).filter((item, index, list) => list.findIndex((candidate) => candidate.issue_category === item.issue_category) === index);
 }
 
-function buildTrend(events, windowDays) {
-  const buckets = Array.from({ length: 7 }, () => 0);
-  const now = Date.now();
-  const bucketMs = (windowDays * 24 * 60 * 60 * 1000) / buckets.length;
-
-  events.forEach((event) => {
-    const time = new Date(event.createdAt).getTime();
-    if (Number.isNaN(time)) return;
-    const index = Math.min(buckets.length - 1, Math.max(0, Math.floor((time - (now - windowDays * 24 * 60 * 60 * 1000)) / bucketMs)));
-    buckets[index] += Number(event.value || 1);
-  });
-
-  const max = Math.max(...buckets);
-  if (max <= 0) return [];
-  return buckets.map((value) => Math.round((value / max) * 100));
-}
-
-function buildRiskTrend(signalTrend, riskScore, fallbackTrend) {
-  if (Array.isArray(signalTrend) && signalTrend.length) {
-    return signalTrend.map((value) => clamp(Math.round((riskScore * 0.55) + (Number(value) * 0.45)), 0, 100));
-  }
-  return Array.isArray(fallbackTrend) ? fallbackTrend : [];
-}
-
-function buildIssueTrend(signalTrend, index) {
-  const values = Array.isArray(signalTrend) ? signalTrend : [];
-  if (!values.length) return [];
-  return values.map((value, valueIndex) => Math.max(0, Math.round(Number(value || 0) - index * 4 + (valueIndex % 2 === 0 ? 0 : index * 2))));
-}
-
 function hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount }) {
   return [returnUnits > 0, refundUnits > 0, negativeReviewCount > 0].filter(Boolean).length >= 2;
 }
@@ -1916,6 +1924,8 @@ function getHumanIssueLabel(issue) {
     shipping_delivery: "Shipping or delivery",
     product_content: "Product content",
     product_quality: "Product quality",
+    return_rate_anomaly: "Return rate anomaly",
+    refund_impact: "Refund impact",
   };
   return labels[issue] || capitalize(String(issue || "Product quality").replace(/_/g, " "));
 }

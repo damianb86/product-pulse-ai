@@ -1,5 +1,10 @@
 import prisma from "../db.server";
 import { recordJobLog } from "./product-pulse-job-logs.server";
+import {
+  buildDatedSignalTrend,
+  buildIssueTrendMap,
+  buildRiskTrendFromSignalTrend,
+} from "./product-pulse-trends.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
@@ -1028,6 +1033,9 @@ function applyEventToAggregate(aggregate, event) {
     type: event.type,
     quantity: quantity || 1,
     occurredAt: event.occurredAt || null,
+    issueCode: classifyQuickScanIssueEvent(event),
+    reason: event.reason || event.reasonHandle || "",
+    note: event.note || "",
   });
   if (isRecentSignal(event.occurredAt)) aggregate.recentSignalUnits += quantity || 1;
   if (event.occurredAt && (!aggregate.lastSignalAt || new Date(event.occurredAt) > new Date(aggregate.lastSignalAt))) {
@@ -1081,8 +1089,10 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     returnRate,
   });
   const signalCount = aggregate.returnUnits + aggregate.refundUnits + topReasons.reduce((sum, reason) => sum + reason.count, 0);
-  const signalTrend = buildSignalTrend(aggregate.signalEvents, windowDays);
-  const riskTrend = buildRiskTrend(signalTrend, riskScore);
+  const signalTrendResult = buildDatedSignalTrend(aggregate.signalEvents, { dateField: "occurredAt" });
+  const signalTrend = signalTrendResult.values;
+  const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore);
+  const issueSignalTrends = buildIssueTrendMap(aggregate.signalEvents, { dateField: "occurredAt" });
 
   return {
     productGid: aggregate.product.id,
@@ -1115,6 +1125,8 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       lastSignalAt: aggregate.lastSignalAt,
       signalTrend,
       riskTrend,
+      trendMeta: signalTrendResult.meta,
+      issueSignalTrends,
       productType: aggregate.product.productType,
       vendor: aggregate.product.vendor,
       tags: aggregate.product.tags,
@@ -1215,6 +1227,16 @@ function getPrimaryIssue({ topReasons, notes, refundRate, returnRate }) {
   return "Product quality signal";
 }
 
+function classifyQuickScanIssueEvent(event) {
+  const text = `${event.reason || ""} ${event.reasonHandle || ""} ${event.note || ""}`.toLowerCase();
+  if (/too small|too large|size|fit|waist|inseam|tight|loose/.test(text)) return "fit_sizing";
+  if (/defect|damaged|broken|quality|faulty|zipper|tear|crack/.test(text)) return "quality_defect";
+  if (/color|not as described|description|photo|image|style/.test(text)) return "color_expectation";
+  if (event.type === "refund") return "refund_impact";
+  if (event.type === "return") return "return_rate_anomaly";
+  return "product_quality";
+}
+
 function getVariantConcentrationScore(aggregate, affectedVariants) {
   if (!aggregate.totalSignalUnits || !affectedVariants.length) return 0;
   const topVariantShare = affectedVariants[0].count / Math.max(aggregate.totalSignalUnits, 1);
@@ -1227,34 +1249,6 @@ function getRecentSpikeScore(aggregate) {
   const recentShare = aggregate.recentSignalUnits / aggregate.totalSignalUnits;
   if (aggregate.totalSignalUnits < 3) return recentShare >= 0.75 ? 8 : 0;
   return clamp(recentShare * 12, 0, 12);
-}
-
-function buildSignalTrend(events, windowDays) {
-  const buckets = Array.from({ length: 7 }, () => 0);
-  const windowMs = Math.max(windowDays, 1) * 24 * 60 * 60 * 1000;
-  const now = Date.now();
-
-  events.forEach((event) => {
-    const timestamp = new Date(event.occurredAt).getTime();
-    if (Number.isNaN(timestamp)) return;
-    const elapsed = clamp(now - timestamp, 0, windowMs);
-    const position = 1 - elapsed / windowMs;
-    const bucketIndex = Math.min(6, Math.max(0, Math.floor(position * buckets.length)));
-    buckets[bucketIndex] += Math.max(toNumber(event.quantity), 1);
-  });
-
-  return buckets.map((value) => Math.round(value * 10) / 10);
-}
-
-function buildRiskTrend(signalTrend, riskScore) {
-  const total = signalTrend.reduce((sum, value) => sum + value, 0);
-  if (!total) return signalTrend.map(() => 0);
-
-  let cumulative = 0;
-  return signalTrend.map((value) => {
-    cumulative += value;
-    return Math.round(clamp((cumulative / total) * riskScore, 0, 100));
-  });
 }
 
 function anomalyScore(rate, average, maxScore) {
