@@ -11,7 +11,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [dismissedFailedJobIds, setDismissedFailedJobIds] = useState(() => new Set());
   const [completedJobNotice, setCompletedJobNotice] = useState(null);
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(null);
   const observedJobsRef = useRef(new Map());
   const fetcherStateRef = useRef(fetcher.state);
   const monitor = fetcher.data?.jobMonitor || initialMonitor || {};
@@ -50,6 +50,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   );
 
   useEffect(() => {
+    setNow(Date.now());
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, []);
@@ -384,10 +385,18 @@ function JobCard({ job, logs, now }) {
 
 function formatElapsed(job, now) {
   if (job.status === "Queued") return "Queued";
-  const start = new Date(job.executionStartedAtIso || job.startedAtIso || job.startedAt || Date.now()).getTime();
+  if (now === null && Number.isFinite(Number(job.elapsedMs))) {
+    return formatDuration(Number(job.elapsedMs));
+  }
+  if (now === null) return job.status === "Running" ? "Running" : "0s";
+  const start = new Date(job.executionStartedAtIso || job.startedAtIso || job.startedAt || now).getTime();
   const end = job.finishedAtIso ? new Date(job.finishedAtIso).getTime() : now;
   if (Number.isNaN(start) || Number.isNaN(end)) return "0s";
-  const seconds = Math.max(0, Math.floor((end - start) / 1000));
+  return formatDuration(end - start);
+}
+
+function formatDuration(durationMs) {
+  const seconds = Math.max(0, Math.floor(Number(durationMs || 0) / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
@@ -418,6 +427,7 @@ function truncateText(value, limit) {
 
 function isUserVisibleFailedJob(job, now) {
   if (job.status !== "Failed") return false;
+  if (now === null) return true;
   const finished = new Date(job.finishedAtIso || job.updatedAtIso || Date.now()).getTime();
   if (Number.isNaN(finished)) return true;
   return now - finished <= 10 * 60 * 1000;
