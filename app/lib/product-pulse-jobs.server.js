@@ -238,7 +238,7 @@ async function getResolvedProductActionsMap(shop, snapshots = []) {
   return latestByProductGid;
 }
 
-export async function runSelectedProductDiagnosesForShop(shop, productIds = []) {
+export async function runSelectedProductDiagnosesForShop(shop, productIds = [], options = {}) {
   const uniqueProductIds = [...new Set(productIds.filter(Boolean))];
   if (!uniqueProductIds.length) {
     return { status: "validation_error", message: "Select at least one product to analyze." };
@@ -246,12 +246,12 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = []) 
 
   const jobs = [];
   for (const productId of uniqueProductIds) {
-    const job = await createProductDiagnosisJob(shop, productId);
+    const job = await createProductDiagnosisJob(shop, productId, options);
     if (job) jobs.push(job);
   }
 
   if (!jobs.length) {
-    return { status: "validation_error", message: "Selected products were not found in ProductPulse snapshots." };
+    return { status: "validation_error", message: "Selected products were not found in ProductPulse or Shopify." };
   }
 
   ensureProductDiagnosisQueueWorker(shop);
@@ -353,6 +353,92 @@ export async function queueProductDiagnosisForShop(shop, productId) {
     message: `AI Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
     job: formatJob(job),
   };
+}
+
+export async function searchShopifyProductsForDiagnosis(shop, admin, rawQuery) {
+  const query = String(rawQuery || "").trim();
+  if (query.length < 2) {
+    return { status: "validation_error", message: "Type at least 2 characters to search Shopify products.", products: [] };
+  }
+  if (!admin?.graphql) {
+    return { status: "validation_error", message: "Shopify Admin API is not available for product search.", products: [] };
+  }
+
+  try {
+    const data = await shopifyGraphql(admin, `#graphql
+      query ProductPulseSearchShopifyProducts($query: String!, $first: Int!) {
+        products(first: $first, query: $query, sortKey: TITLE) {
+          nodes {
+            id
+            title
+            handle
+            status
+            vendor
+            productType
+            featuredMedia {
+              preview {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+            media(first: 1) {
+              nodes {
+                preview {
+                  image {
+                    url
+                    altText
+                  }
+                }
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                  }
+                }
+              }
+            }
+            variants(first: 1) {
+              nodes {
+                sku
+              }
+            }
+            collections(first: 3) {
+              nodes {
+                title
+                handle
+              }
+            }
+          }
+        }
+      }`,
+      {
+        query: buildShopifyProductSearchQuery(query),
+        first: 12,
+      },
+    );
+    const products = Array.isArray(data?.products?.nodes) ? data.products.nodes.filter(Boolean) : [];
+    const existingSnapshots = products.length
+      ? await prisma.productRiskSnapshot.findMany({
+        where: { shop, productGid: { in: products.map((product) => product.id).filter(Boolean) } },
+        select: { productGid: true },
+      })
+      : [];
+    const existingProductGids = new Set(existingSnapshots.map((snapshot) => snapshot.productGid));
+
+    return {
+      status: "success",
+      products: products.map((product) => formatShopifyProductSearchResult(product, existingProductGids)),
+      message: products.length ? `${products.length} Shopify product${products.length === 1 ? "" : "s"} found.` : "No Shopify products matched that search.",
+    };
+  } catch (error) {
+    return {
+      status: "validation_error",
+      message: `Unable to search Shopify products: ${error.message}`,
+      products: [],
+    };
+  }
 }
 
 export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}, admin = null) {
@@ -796,8 +882,11 @@ async function findProductRiskSnapshot(shop, productId) {
   });
 }
 
-async function createProductDiagnosisJob(shop, productId) {
-  const snapshot = await findProductRiskSnapshot(shop, productId);
+async function createProductDiagnosisJob(shop, productId, options = {}) {
+  let snapshot = await findProductRiskSnapshot(shop, productId);
+  if (!snapshot && options.admin) {
+    snapshot = await createManualProductRiskSnapshot(shop, options.admin, productId);
+  }
   if (!snapshot) return null;
   const activeJob = await getActiveProductDiagnosisJobForSnapshot(shop, snapshot);
   if (activeJob) return activeJob;
@@ -1118,6 +1207,16 @@ async function updateProductDiagnosisJob(jobId, data) {
     },
     data,
   });
+}
+
+async function shopifyGraphql(admin, query, variables) {
+  const response = await admin.graphql(query, variables ? { variables } : undefined);
+  const json = await response.json();
+  const errors = json.errors || [];
+  if (errors.length) {
+    throw new Error(errors.map((error) => error.message).join("; "));
+  }
+  return json.data;
 }
 
 async function markJobFailed(jobId, error, source = "QuickScan failed") {
@@ -1577,6 +1676,279 @@ async function getLiveShopifyProductDetail(productId, admin, shop) {
   } catch {
     return null;
   }
+}
+
+async function createManualProductRiskSnapshot(shop, admin, productId) {
+  const product = await fetchShopifyProductForManualSnapshot(admin, productId);
+  if (!product?.id) return null;
+  const snapshotPayload = buildManualProductRiskSnapshotPayload(shop, product);
+
+  return prisma.productRiskSnapshot.upsert({
+    where: {
+      shop_productGid: {
+        shop,
+        productGid: snapshotPayload.productGid,
+      },
+    },
+    create: snapshotPayload,
+    update: {
+      productTitle: snapshotPayload.productTitle,
+      handle: snapshotPayload.handle,
+      sourceCoverage: snapshotPayload.sourceCoverage,
+      metrics: snapshotPayload.metrics,
+      calculatedAt: new Date(),
+    },
+  });
+}
+
+async function fetchShopifyProductForManualSnapshot(admin, productId) {
+  if (!admin?.graphql || !productId) return null;
+  const productGid = normalizeShopifyProductGid(productId);
+
+  if (productGid) {
+    const data = await shopifyGraphql(
+      admin,
+      `#graphql
+      query ProductPulseManualProductSnapshot($id: ID!) {
+        product(id: $id) {
+          ...ProductPulseManualProductFields
+        }
+      }
+
+      fragment ProductPulseManualProductFields on Product {
+        id
+        title
+        handle
+        description
+        descriptionHtml
+        vendor
+        productType
+        status
+        tags
+        options {
+          name
+          values
+        }
+        variants(first: 100) {
+          nodes {
+            id
+            title
+            sku
+            selectedOptions {
+              name
+              value
+            }
+          }
+        }
+        collections(first: 20) {
+          nodes {
+            title
+            handle
+          }
+        }
+        featuredMedia {
+          preview {
+            image {
+              url
+              altText
+            }
+          }
+        }
+        media(first: 1) {
+          nodes {
+            preview {
+              image {
+                url
+                altText
+              }
+            }
+            ... on MediaImage {
+              image {
+                url
+                altText
+              }
+            }
+          }
+        }
+      }`,
+      { id: productGid },
+    );
+    if (data?.product?.id) return data.product;
+  }
+
+  const fallbackQuery = productId === String(productId).trim() && !String(productId).includes(" ")
+    ? `handle:${escapeShopifyQueryValue(productId)}`
+    : String(productId || "").trim();
+  const data = await shopifyGraphql(
+    admin,
+    `#graphql
+    query ProductPulseManualProductSearch($query: String!) {
+      products(first: 1, query: $query) {
+        nodes {
+          id
+          title
+          handle
+          description
+          descriptionHtml
+          vendor
+          productType
+          status
+          tags
+          options {
+            name
+            values
+          }
+          variants(first: 100) {
+            nodes {
+              id
+              title
+              sku
+              selectedOptions {
+                name
+                value
+              }
+            }
+          }
+          collections(first: 20) {
+            nodes {
+              title
+              handle
+            }
+          }
+          featuredMedia {
+            preview {
+              image {
+                url
+                altText
+              }
+            }
+          }
+          media(first: 1) {
+            nodes {
+              preview {
+                image {
+                  url
+                  altText
+                }
+              }
+              ... on MediaImage {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+          }
+        }
+      }
+    }`,
+    { query: fallbackQuery },
+  );
+
+  return data?.products?.nodes?.[0] || null;
+}
+
+function buildManualProductRiskSnapshotPayload(shop, product) {
+  const variants = getConnectionNodes(product.variants);
+  const collections = getConnectionNodes(product.collections);
+  const tags = Array.isArray(product.tags) ? product.tags : [];
+  const options = Array.isArray(product.options) ? product.options : [];
+  const descriptionText = stripHtml(product.descriptionHtml || product.description || "");
+  const descriptionWordCount = descriptionText ? descriptionText.split(/\s+/).filter(Boolean).length : 0;
+  const optionNames = options.map((option) => option.name).filter(Boolean);
+  const skuCount = variants.filter((variant) => variant.sku).length;
+  const collectionTitles = collections.map((collection) => collection.title).filter(Boolean);
+  const now = new Date();
+
+  return {
+    shop,
+    productGid: product.id,
+    productTitle: product.title || product.handle || "Shopify product",
+    handle: product.handle || String(product.id || "").split("/").pop(),
+    riskScore: 0,
+    impactScore: 0,
+    confidence: 0,
+    primaryIssue: "Manual diagnosis requested",
+    sourceCoverage: ["Shopify products"],
+    metrics: {
+      manualDiagnosisRequested: true,
+      hasQuickScan: false,
+      signalCount: 0,
+      soldUnits: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+      refundAmount: 0,
+      returnRate: 0,
+      refundRate: 0,
+      revenueAtRisk: 0,
+      marginAtRisk: 0,
+      estimatedImpact: 0,
+      reviewCount: 0,
+      negativeReviewCount: 0,
+      negativeReviewRate: 0,
+      windowDays: 0,
+      vendor: product.vendor || "",
+      productType: product.productType || "",
+      productStatus: product.status || "",
+      tags,
+      collections: collectionTitles,
+      collectionHandles: collections.map((collection) => collection.handle).filter(Boolean),
+      variantCount: variants.length,
+      skuCount,
+      optionNames,
+      hasDescription: descriptionWordCount > 0,
+      descriptionWordCount,
+      createdFromShopifySearchAt: now.toISOString(),
+    },
+    calculatedAt: now,
+  };
+}
+
+function formatShopifyProductSearchResult(product, existingProductGids = new Set()) {
+  const mediaNode = product.media?.nodes?.[0] || {};
+  const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
+  const collections = getConnectionNodes(product.collections);
+  const variants = getConnectionNodes(product.variants);
+  const vendorAndType = [product.vendor, product.productType].filter(Boolean).join(" / ");
+  const firstCollection = collections[0]?.title;
+
+  return {
+    id: product.id,
+    title: product.title || product.handle || "Shopify product",
+    handle: product.handle || "",
+    status: product.status || "Unknown",
+    vendor: product.vendor || "",
+    productType: product.productType || "",
+    sku: variants[0]?.sku || "",
+    collection: firstCollection || "",
+    detail: [vendorAndType, firstCollection].filter(Boolean).join(" - "),
+    imageUrl: image.url || null,
+    imageAlt: image.altText || null,
+    variant: getProductArtVariant(product.handle),
+    existingSnapshot: existingProductGids.has(product.id),
+    href: product.handle ? `/app/products/${product.handle}` : `/app/products/${encodeURIComponent(product.id)}`,
+  };
+}
+
+function buildShopifyProductSearchQuery(query) {
+  const trimmed = String(query || "").trim();
+  if (/^gid:\/\/shopify\/Product\/\d+$/i.test(trimmed)) return `id:${trimmed.split("/").pop()}`;
+  if (/^\d{5,}$/.test(trimmed)) return `id:${trimmed}`;
+  return trimmed;
+}
+
+function normalizeShopifyProductGid(value) {
+  const input = String(value || "").trim();
+  if (/^gid:\/\/shopify\/Product\/\d+$/i.test(input)) return input;
+  if (/^\d{5,}$/.test(input)) return `gid://shopify/Product/${input}`;
+  return null;
+}
+
+function getConnectionNodes(connection) {
+  if (Array.isArray(connection)) return connection.filter(Boolean);
+  if (Array.isArray(connection?.nodes)) return connection.nodes.filter(Boolean);
+  if (Array.isArray(connection?.edges)) return connection.edges.map((edge) => edge?.node).filter(Boolean);
+  return [];
 }
 
 function withShopifyAdminUrl(product, shop) {
@@ -2531,6 +2903,7 @@ function clampSignalBar(value) {
 }
 
 export const __productPulseJobsTestHooks = {
+  buildManualProductRiskSnapshotPayload,
   buildProductPulseFaqHtml,
   getSignalLifecycleBars,
   normalizeFaqItemsForApply,

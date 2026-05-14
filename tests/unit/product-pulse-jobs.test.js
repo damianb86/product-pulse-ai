@@ -93,4 +93,38 @@ describe("ProductPulse product job helpers", () => {
     expect(bars.find((bar) => bar.label === "Return pressure").detail).toContain("return rate");
     expect(new Set(bars.map((bar) => bar.value)).size).toBeGreaterThan(4);
   });
+
+  it("builds a minimal snapshot for manually selected Shopify products", () => {
+    const snapshot = productPulseJobsTestHooks.buildManualProductRiskSnapshotPayload("qorve-dev.myshopify.com", {
+      id: "gid://shopify/Product/1234567890",
+      title: "Manual Search Product",
+      handle: "manual-search-product",
+      descriptionHtml: "<p>A useful product description for shoppers.</p>",
+      vendor: "Qorve",
+      productType: "Toy",
+      status: "ACTIVE",
+      tags: ["featured", "gift"],
+      options: [{ name: "Color", values: ["Blue"] }],
+      variants: {
+        nodes: [
+          { id: "gid://shopify/ProductVariant/1", sku: "MSP-BLUE", title: "Blue" },
+          { id: "gid://shopify/ProductVariant/2", sku: "", title: "Red" },
+        ],
+      },
+      collections: {
+        nodes: [{ title: "New arrivals", handle: "new-arrivals" }],
+      },
+    });
+
+    expect(snapshot.productGid).toBe("gid://shopify/Product/1234567890");
+    expect(snapshot.riskScore).toBe(0);
+    expect(snapshot.confidence).toBe(0);
+    expect(snapshot.primaryIssue).toBe("Manual diagnosis requested");
+    expect(snapshot.sourceCoverage).toEqual(["Shopify products"]);
+    expect(snapshot.metrics.manualDiagnosisRequested).toBe(true);
+    expect(snapshot.metrics.variantCount).toBe(2);
+    expect(snapshot.metrics.skuCount).toBe(1);
+    expect(snapshot.metrics.collections).toEqual(["New arrivals"]);
+    expect(snapshot.metrics.descriptionWordCount).toBeGreaterThan(0);
+  });
 });

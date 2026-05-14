@@ -5050,6 +5050,164 @@ s-page[inline-size="large-500"] {
   margin-top: 18px;
 }
 
+.ppShopifyProductSearchModal {
+  width: min(760px, 100%);
+}
+
+.ppShopifyProductSearchControl {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.ppShopifyProductSearchControl > span {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppShopifyProductSearchControl > div {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-500);
+}
+
+.ppShopifyProductSearchControl input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--pp-slate-900);
+  font: inherit;
+}
+
+.ppShopifyProductSearchControl input::placeholder {
+  color: var(--pp-slate-500);
+}
+
+.ppShopifyProductSearchBody {
+  min-height: 180px;
+  margin-top: 14px;
+}
+
+.ppShopifyProductResults {
+  display: grid;
+  gap: 10px;
+  max-height: min(430px, 50vh);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.ppShopifyProductResult {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-mist-gray);
+}
+
+.ppShopifyProductResultText {
+  min-width: 0;
+}
+
+.ppShopifyProductResultText > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ppShopifyProductResultText strong,
+.ppShopifyProductResultText p,
+.ppShopifyProductResultText small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppShopifyProductResultText strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+}
+
+.ppShopifyProductResultText > div > span {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppShopifyProductResultText p {
+  margin: 3px 0 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+}
+
+.ppShopifyProductResultText small {
+  display: block;
+  margin-top: 4px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+}
+
+.ppShopifyProductResultAction {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.28);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.ppShopifyProductResultAction:hover {
+  border-color: var(--pp-pulse-blue);
+  background: var(--pp-blue-soft);
+}
+
+.ppShopifyProductSearchEmpty {
+  min-height: 170px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 18px;
+  border: 1px dashed var(--pp-slate-300);
+  border-radius: 10px;
+  background: var(--pp-mist-gray);
+  color: var(--pp-slate-700);
+  text-align: center;
+}
+
+.ppShopifyProductSearchEmpty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ppShopifyProductSearchError {
+  margin-top: 0;
+}
+
 .ppActionConfirmModal {
   width: min(620px, 100%);
 }
@@ -5170,6 +5328,23 @@ s-page[inline-size="large-500"] {
 
 .ppProductsHeader .ppDashboardSubtitle {
   margin: 0;
+}
+
+.ppProductsHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ppShopifyProductSearchButton {
+  min-height: 38px;
+  color: var(--pp-pulse-blue);
+}
+
+.ppShopifyProductSearchButton s-icon {
+  color: var(--pp-pulse-blue);
 }
 
 .ppProductsToolbar {
@@ -6988,9 +7163,22 @@ s-page[inline-size="large-500"] {
     flex-direction: column;
   }
 
+  .ppProductsHeaderActions {
+    justify-content: flex-start;
+  }
+
   .ppProductsSecondaryActions {
     justify-content: flex-start;
     min-width: 0;
+  }
+
+  .ppShopifyProductResult {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .ppShopifyProductResultAction {
+    grid-column: 1 / -1;
+    justify-self: end;
   }
 
   .ppAnalyticsBarRow {

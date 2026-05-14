@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Form, Link, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
+import { Form, Link, useFetcher, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
   buildConnectViewData,
   chatMeConnectionLinks,
@@ -483,12 +483,15 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const revalidator = useRevalidator();
   const navigation = useNavigation();
   const submit = useSubmit();
+  const shopifyProductSearchFetcher = useFetcher();
   const [localFastScan, setLocalFastScan] = useState(false);
   const [localSortConfig, setLocalSortConfig] = useState(null);
   const [openActionProduct, setOpenActionProduct] = useState(null);
   const [selectedProducts, setSelectedProducts] = useState(() => new Set());
   const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
   const [searchValue, setSearchValue] = useState(filters.query || "");
+  const [shopifyProductSearchOpen, setShopifyProductSearchOpen] = useState(false);
+  const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
   const [quickScanConfirmation, setQuickScanConfirmation] = useState(false);
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
@@ -512,6 +515,14 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const allVisibleSelected = visibleProductKeys.length > 0 && visibleProductKeys.every((key) => selectedProducts.has(key));
   const hasVisibleSelection = visibleProductKeys.some((key) => selectedProducts.has(key));
   const currentSearchQuery = filters.query || "";
+  const shopifyProductSearchData = shopifyProductSearchFetcher.data || {};
+  const shopifyProductSearchResults = shopifyProductSearchQuery.trim().length >= 2
+    ? shopifyProductSearchData.products || []
+    : [];
+  const shopifyProductSearchPending = shopifyProductSearchFetcher.state !== "idle";
+  const shopifyProductSearchError = shopifyProductSearchData.status === "validation_error"
+    ? shopifyProductSearchData.message
+    : "";
   const submitProductFilters = (overrides = {}) => {
     submit(buildProductFilterFormData(filters, { rows: String(rowsPerPage), ...overrides }), { method: "get", replace: true });
   };
@@ -558,10 +569,26 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   ]);
 
   useEffect(() => {
+    if (!shopifyProductSearchOpen) return undefined;
+    const query = shopifyProductSearchQuery.trim();
+    if (query.length < 2) return undefined;
+
+    const timeout = window.setTimeout(() => {
+      const formData = new FormData();
+      formData.set("_action", "search-shopify-products");
+      formData.set("query", query);
+      shopifyProductSearchFetcher.submit(formData, { method: "post" });
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [shopifyProductSearchFetcher, shopifyProductSearchOpen, shopifyProductSearchQuery]);
+
+  useEffect(() => {
     announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && (actionData?.analyzedCount || actionData?.queuedCount)) {
       setSelectedProducts(new Set());
       setAnalysisConfirmation(null);
+      setShopifyProductSearchOpen(false);
     }
   }, [actionData]);
 
@@ -653,6 +680,19 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     });
   };
 
+  const handleAnalyzeShopifyProduct = (product) => {
+    if (pendingBulkAnalyze || !product?.id) return;
+    setShopifyProductSearchOpen(false);
+    setAnalysisConfirmation({
+      mode: "shopify-product",
+      title: "Confirm product analysis",
+      products: [product.id],
+      productTitles: [product.title],
+      count: 1,
+      credits: 1,
+    });
+  };
+
   const handleConfirmAnalysis = () => {
     if (!analysisConfirmation?.products?.length || pendingBulkAnalyze) return;
     const formData = new FormData();
@@ -669,10 +709,20 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
             <p className="ppDashboardSubtitle">
               Browse products, review risk signals and run AI diagnosis.
             </p>
-            <FastScanButton
-              pending={fastScanRunning}
-              onStart={handleStartFastScan}
-            />
+            <div className="ppProductsHeaderActions">
+              <button
+                className="ppSecondaryActionButton ppShopifyProductSearchButton"
+                type="button"
+                onClick={() => setShopifyProductSearchOpen(true)}
+              >
+                <s-icon type="search" size="small"></s-icon>
+                Find Shopify product
+              </button>
+              <FastScanButton
+                pending={fastScanRunning}
+                onStart={handleStartFastScan}
+              />
+            </div>
           </div>
           <ActionBanner actionData={actionData} />
 
@@ -932,6 +982,17 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           </div>
         </div>
       )}
+      {shopifyProductSearchOpen && (
+        <ShopifyProductSearchModal
+          query={shopifyProductSearchQuery}
+          results={shopifyProductSearchResults}
+          pending={shopifyProductSearchPending}
+          error={shopifyProductSearchError}
+          onAnalyze={handleAnalyzeShopifyProduct}
+          onCancel={() => setShopifyProductSearchOpen(false)}
+          onQueryChange={setShopifyProductSearchQuery}
+        />
+      )}
       {analysisConfirmation && (
         <ProductAnalysisConfirmModal
           confirmation={analysisConfirmation}
@@ -1129,6 +1190,118 @@ function FastScanButton({ pending, onStart }) {
       <s-icon type="search" size="small"></s-icon>
       {pending ? "Scan running..." : "Run quick scan"}
     </button>
+  );
+}
+
+function ShopifyProductSearchModal({
+  query,
+  results,
+  pending,
+  error,
+  onAnalyze,
+  onCancel,
+  onQueryChange,
+}) {
+  const normalizedQuery = query.trim();
+  const hasQuery = normalizedQuery.length >= 2;
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal ppShopifyProductSearchModal" role="dialog" aria-modal="true" aria-labelledby="shopify-product-search-title">
+        <div className="ppAnalysisConfirmHeader">
+          <span className="ppAnalysisConfirmIcon" aria-hidden="true">
+            <s-icon type="search" size="small"></s-icon>
+          </span>
+          <div>
+            <span>Shopify catalog</span>
+            <h2 id="shopify-product-search-title">Find Shopify product</h2>
+            <p>
+              Search the live Shopify catalog, select a product that has not appeared in QuickScan, and queue a full AI diagnosis.
+            </p>
+          </div>
+        </div>
+
+        <label className="ppShopifyProductSearchControl">
+          <span>Search Shopify products</span>
+          <div>
+            <s-icon type="search" size="small"></s-icon>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Search by title, handle, product ID or SKU"
+            />
+          </div>
+        </label>
+
+        <div className="ppShopifyProductSearchBody">
+          {!hasQuery && (
+            <div className="ppShopifyProductSearchEmpty">
+              <DashboardIcon type="search" tone="blue" size="small" />
+              <p>Type at least 2 characters to search products directly in Shopify.</p>
+            </div>
+          )}
+
+          {hasQuery && pending && (
+            <div className="ppShopifyProductSearchEmpty" role="status">
+              <span className="ppScanSpinner" aria-hidden="true" />
+              <p>Searching Shopify products...</p>
+            </div>
+          )}
+
+          {hasQuery && !pending && error && (
+            <div className="ppActionConfirmNotice ppShopifyProductSearchError">
+              <s-icon type="info" size="small"></s-icon>
+              <p>{error}</p>
+            </div>
+          )}
+
+          {hasQuery && !pending && !error && results.length === 0 && (
+            <div className="ppShopifyProductSearchEmpty">
+              <DashboardIcon type="search" tone="blue" size="small" />
+              <p>No Shopify products matched this search.</p>
+            </div>
+          )}
+
+          {hasQuery && !pending && !error && results.length > 0 && (
+            <div className="ppShopifyProductResults" role="list">
+              {results.map((product) => (
+                <article className="ppShopifyProductResult" role="listitem" key={product.id}>
+                  <ProductArt
+                    variant={product.variant}
+                    label={product.title}
+                    imageUrl={product.imageUrl}
+                    imageAlt={product.imageAlt}
+                  />
+                  <div className="ppShopifyProductResultText">
+                    <div>
+                      <strong>{product.title}</strong>
+                      <span>{product.existingSnapshot ? "In ProductPulse" : "Not in QuickScan"}</span>
+                    </div>
+                    <p>{product.handle ? `/${product.handle}` : "Shopify product"}</p>
+                    <small>
+                      {[product.status, product.detail, product.sku ? `SKU ${product.sku}` : ""].filter(Boolean).join(" - ")}
+                    </small>
+                  </div>
+                  <button
+                    className="ppShopifyProductResultAction"
+                    type="button"
+                    onClick={() => onAnalyze(product)}
+                  >
+                    <s-icon type="wand" size="small"></s-icon>
+                    Run diagnosis
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="ppAnalysisConfirmFooter">
+          <button className="ppSecondaryButton" type="button" onClick={onCancel}>Cancel</button>
+        </div>
+      </section>
+    </div>
   );
 }
 

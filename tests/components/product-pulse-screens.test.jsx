@@ -95,6 +95,11 @@ describe("ProductPulse screens", () => {
     expect(within(table).getByText("No scanned products yet")).toBeInTheDocument();
     expect(within(table).queryByText("Credits")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Run quick scan/ }).length).toBeGreaterThan(1);
+    expect(screen.getByRole("button", { name: "Find Shopify product" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Find Shopify product" }));
+    expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
+    expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
     expect(within(table).queryByRole("link", { name: /Linen Shirt/ })).not.toBeInTheDocument();
   });
 

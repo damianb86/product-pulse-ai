@@ -6,6 +6,7 @@ import {
   getProductsQueueForShop,
   recordProductDetailActionForShop,
   runSelectedProductDiagnosesForShop,
+  searchShopifyProductsForDiagnosis,
   startFastProductScan,
 } from "../lib/product-pulse-jobs.server";
 
@@ -44,7 +45,11 @@ export const action = async ({ request }) => {
   }
 
   if (formData.get("_action") === "bulk-diagnose") {
-    return runSelectedProductDiagnosesForShop(session.shop, formData.getAll("productId").map(String));
+    return runSelectedProductDiagnosesForShop(session.shop, formData.getAll("productId").map(String), { admin });
+  }
+
+  if (formData.get("_action") === "search-shopify-products") {
+    return searchShopifyProductsForDiagnosis(session.shop, admin, String(formData.get("query") || ""));
   }
 
   if (formData.get("_action") === "mark-resolved") {
