@@ -309,6 +309,10 @@ function getSourceDetail({ source, record, available, connected, active, locked 
   if (!available) return source.comingSoonMessage || "This connector is coming soon.";
   if (connected && !active) return "Connection saved but disabled.";
   if (connected) {
+    if (record?.config?.fileName && Number(record?.config?.normalizedRowCount || 0) > 0) {
+      const rows = Number(record.config.normalizedRowCount || 0);
+      return `${record.config.fileName} processed (${rows} review${rows === 1 ? "" : "s"})`;
+    }
     if (record?.config?.fileName) return `${record.config.fileName} uploaded`;
     if (record?.config?.tokenLast4) return `Token ending in ${record.config.tokenLast4}`;
     return record?.lastSyncedAt ? `Last synced ${formatConnectionDate(record.lastSyncedAt)}` : "Ready for sync";

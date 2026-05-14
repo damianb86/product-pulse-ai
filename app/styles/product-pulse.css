@@ -4612,6 +4612,54 @@ s-page[inline-size="large-500"] {
   line-height: 1.4;
 }
 
+.ppCsvProcessingPanel,
+.ppCsvUploadError {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 13px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ppCsvProcessingPanel {
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.22);
+  background: linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(var(--pp-info-cyan-rgb), 0.08));
+  color: var(--pp-slate-700);
+}
+
+.ppCsvProcessingPanel strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--pp-slate-900);
+  font-weight: 760;
+}
+
+.ppCsvProcessingPanel p {
+  margin: 0;
+}
+
+.ppCsvProcessingSpinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-top-color: var(--pp-pulse-blue);
+  border-radius: 50%;
+  animation: ppSpin 820ms linear infinite;
+}
+
+.ppCsvUploadError {
+  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.24);
+  background: var(--pp-red-soft);
+  color: var(--pp-slate-900);
+}
+
+.ppCsvUploadError s-icon {
+  color: var(--pp-risk-red);
+}
+
 .ppConnectionForm {
   display: grid;
   gap: 14px;

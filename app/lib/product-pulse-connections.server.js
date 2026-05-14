@@ -5,6 +5,7 @@ import {
   getConnectCategoryDefinition,
   getConnectSourceDefinition,
 } from "./product-pulse-connect";
+import { CsvReviewImportError, processCsvReviewUpload } from "./product-pulse-csv.server";
 
 export async function getConnectViewDataForShop(shop) {
   await ensureSourceRows(shop);
@@ -78,23 +79,53 @@ export async function connectChatMeReviews(shop, privateApiToken) {
 
 export async function uploadCsvReviews(shop, file) {
   const fileName = typeof file?.name === "string" && file.name ? file.name : "reviews.csv";
-  const now = new Date();
-  await upsertSource(shop, "csvReviews", {
-    connected: true,
-    active: true,
-    ignored: false,
-    available: true,
-    health: "connected",
-    config: {
-      fileName,
-      uploadedAt: now.toISOString(),
-    },
-    connectedAt: now,
-    disabledAt: null,
-    lastSyncedAt: now,
-  });
+  try {
+    const result = await processCsvReviewUpload({ shop, file });
+    const now = new Date();
+    await upsertSource(shop, "csvReviews", {
+      connected: true,
+      active: true,
+      ignored: false,
+      available: true,
+      health: "connected",
+      config: {
+        fileName,
+        originalFileName: result.fileName,
+        uploadedAt: now.toISOString(),
+        checksum: result.checksum,
+        normalizedFilePath: result.normalizedFilePath,
+        storageKey: result.storageKey,
+        normalizedRowCount: result.normalizedRowCount,
+        totalRowCount: result.totalRows,
+        rejectedRowCount: result.rejectedRows.length,
+        mappedColumns: result.mapping,
+        originalHeaders: result.headers,
+      },
+      connectedAt: now,
+      disabledAt: null,
+      lastSyncedAt: now,
+    });
 
-  return { status: "success", message: `${fileName} is ready for review analysis.`, providerKey: "csvReviews" };
+    return {
+      status: "success",
+      message: `${fileName} was processed and ${result.normalizedRowCount} review row${result.normalizedRowCount === 1 ? "" : "s"} were normalized.`,
+      providerKey: "csvReviews",
+      csvImport: {
+        rows: result.normalizedRowCount,
+        rejectedRows: result.rejectedRows.length,
+        normalizedFilePath: result.normalizedFilePath,
+      },
+    };
+  } catch (error) {
+    return {
+      status: error instanceof CsvReviewImportError ? "validation_error" : "error",
+      message: error instanceof CsvReviewImportError
+        ? error.message
+        : `No se pudo procesar ${fileName}. ${error?.message || "Intentalo de nuevo más tarde."}`,
+      providerKey: "csvReviews",
+      errorCode: error?.code || "CSV_IMPORT_FAILED",
+    };
+  }
 }
 
 export async function setSourceActive(shop, sourceKey, active) {

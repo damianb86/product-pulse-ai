@@ -247,6 +247,7 @@ export function ConnectScreen({ data, actionData }) {
   const csvSource = connectView.signalCategories
     .flatMap((category) => category.sources)
     .find((source) => source.key === "csvReviews");
+  const csvActionData = actionData?.providerKey === "csvReviews" ? actionData : null;
 
   useEffect(() => {
     setRecords(data?.connect?.records || []);
@@ -466,6 +467,7 @@ export function ConnectScreen({ data, actionData }) {
             source={csvSource}
             persistConnectState={persistConnectState}
             isUploading={pendingAction === "upload-csv"}
+            actionData={csvActionData}
             onCancel={() => setActiveModal(null)}
             onLocalSubmit={handleLocalCsvUpload}
           />
@@ -4051,8 +4053,9 @@ function ChatMeConnectionModal({ source, persistConnectState, isConnecting, onCa
   );
 }
 
-function CsvUploadModal({ source, persistConnectState, isUploading, onCancel, onLocalSubmit }) {
+function CsvUploadModal({ source, persistConnectState, isUploading, actionData, onCancel, onLocalSubmit }) {
   const formProps = persistConnectState ? { method: "post", encType: "multipart/form-data" } : { onSubmit: onLocalSubmit };
+  const uploadError = actionData?.status && actionData.status !== "success" ? actionData.message : "";
   return (
     <div className="ppConnectionModalOverlay" role="presentation">
       <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="csv-upload-title">
@@ -4069,18 +4072,33 @@ function CsvUploadModal({ source, persistConnectState, isUploading, onCancel, on
           <input type="hidden" name="_action" value="upload-csv" />
           <label className="ppConnectionField">
             <span>CSV file</span>
-            <input name="csvFile" type="file" accept=".csv,text/csv" required />
+            <input name="csvFile" type="file" accept=".csv,text/csv" required disabled={isUploading} />
           </label>
           <p className="ppConnectionHint">
-            The file is registered as an active reviews source and can be replaced at any time.
+            ProductPulse reads the headers with AI, finds product, rating and review text columns, then saves a normalized review file for this store.
           </p>
+          {isUploading && (
+            <div className="ppCsvProcessingPanel" role="status">
+              <span className="ppCsvProcessingSpinner" aria-hidden="true"></span>
+              <div>
+                <strong>Processing CSV</strong>
+                <p>Uploading the file, detecting review columns and normalizing product-linked reviews.</p>
+              </div>
+            </div>
+          )}
+          {uploadError && !isUploading && (
+            <div className="ppCsvUploadError" role="alert">
+              <s-icon type="alert-circle" size="small"></s-icon>
+              <span>{uploadError}</span>
+            </div>
+          )}
 
           <div className="ppConnectionModalFooter">
-            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel}>
+            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel} disabled={isUploading}>
               Cancel
             </button>
             <button className="ppPrimaryButton" type="submit" disabled={isUploading}>
-              {isUploading ? "Uploading..." : "Upload CSV"}
+              {isUploading ? "Processing..." : "Upload CSV"}
             </button>
           </div>
         </Form>
