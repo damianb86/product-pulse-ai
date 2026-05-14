@@ -53,6 +53,29 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("25% effective customer-signal coverage")).toBeInTheDocument();
   });
 
+  it("shows disabled CSV uploads as inactive rows", () => {
+    renderWithRouter(<ConnectScreen data={{
+      ...defaultView,
+      connect: {
+        records: [{
+          sourceKey: "csvReviews",
+          category: "reviews",
+          connected: true,
+          active: false,
+          available: true,
+          health: "disabled",
+          config: { fileName: "CSV import", normalizedRowCount: 33 },
+        }],
+      },
+    }} />);
+
+    const csvRow = screen.getByText("CSV Upload").closest("tr");
+    expect(csvRow).toHaveClass("isDisabled");
+    expect(within(csvRow).getByText("Disabled")).toBeInTheDocument();
+    expect(within(csvRow).getByText("CSV import disabled; ignored by scans and diagnostics.")).toBeInTheDocument();
+    expect(within(csvRow).getByRole("button", { name: "Enable" })).toBeInTheDocument();
+  });
+
   it("connects Judge.me from the connection modal", async () => {
     renderWithRouter(<ConnectScreen data={defaultView} />);
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));

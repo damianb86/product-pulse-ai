@@ -351,7 +351,7 @@ export function ConnectScreen({ data, actionData }) {
       connected: source.connected,
       available: source.available,
       active,
-      health: active ? "connected" : "paused",
+      health: active ? "connected" : "disabled",
       disabledAt: active ? null : new Date().toISOString(),
     }));
   };
@@ -3781,7 +3781,7 @@ function ConnectCategoryCard({
             </thead>
             <tbody>
               {category.sources.map((source) => (
-                <tr className={!source.available && !source.locked ? "isUnavailable" : ""} key={source.name}>
+                <tr className={getConnectSourceRowClass(source)} key={source.name}>
                   <td>
                     <div className="ppConnectSourceName">
                       <ConnectSourceLogo source={source} />
@@ -3844,7 +3844,7 @@ function ConnectSourceActions({
         <input type="hidden" name="_action" value="set-source-active" />
         <input type="hidden" name="sourceKey" value={source.key} />
         <input type="hidden" name="active" value={source.active ? "false" : "true"} />
-        <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="submit">
+        <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="submit" disabled={pending}>
           {pending ? "Saving..." : source.active ? "Disable" : "Enable"}
         </button>
       </Form>
@@ -3893,6 +3893,13 @@ function ConnectSourceActions({
   }
 
   return <button className="ppConnectSmallButton" type="button" disabled>{source.action}</button>;
+}
+
+function getConnectSourceRowClass(source) {
+  const classes = [];
+  if (!source.available && !source.locked) classes.push("isUnavailable");
+  if (source.available && source.connected && !source.active && !source.locked) classes.push("isDisabled");
+  return classes.join(" ");
 }
 
 function ConnectCoverageCard({ categories, coverage, activeWeight }) {

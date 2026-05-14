@@ -147,13 +147,13 @@ export async function setSourceActive(shop, sourceKey, active) {
 
   await upsertSource(shop, sourceKey, {
     active,
-    health: active ? "connected" : "paused",
+    health: active ? "connected" : "disabled",
     disabledAt: active ? null : new Date(),
   });
 
   return {
     status: "success",
-    message: `${definition.name} is now ${active ? "active" : "paused"}.`,
+    message: `${definition.name} is now ${active ? "active" : "disabled"}.`,
     providerKey: sourceKey,
   };
 }

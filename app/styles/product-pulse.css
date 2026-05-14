@@ -4248,6 +4248,24 @@ s-page[inline-size="large-500"] {
   opacity: 0.64;
 }
 
+.ppConnectSourceTable tr.isDisabled td {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.035);
+  color: var(--pp-slate-500);
+}
+
+.ppConnectSourceTable tr.isDisabled td:first-child {
+  box-shadow: inset 3px 0 rgba(var(--pp-pulse-blue-rgb), 0.26);
+}
+
+.ppConnectSourceTable tr.isDisabled .ppConnectSourceLogo,
+.ppConnectSourceTable tr.isDisabled .ppConnectStatus {
+  opacity: 0.82;
+}
+
+.ppConnectSourceTable tr.isDisabled .ppConnectSourceName {
+  color: var(--pp-slate-700);
+}
+
 .ppConnectSourceName {
   display: inline-flex;
   align-items: center;

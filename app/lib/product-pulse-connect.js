@@ -293,7 +293,7 @@ function buildSource(source, category, recordMap) {
 function getSourceStatus({ available, connected, active, locked }) {
   if (locked) return "Always on";
   if (!available) return "Coming soon";
-  if (connected && !active) return "Paused";
+  if (connected && !active) return "Disabled";
   if (connected) return "Connected";
   return "Not connected";
 }
@@ -309,7 +309,13 @@ function getSourceAction({ source, available, connected, active, locked }) {
 function getSourceDetail({ source, record, available, connected, active, locked }) {
   if (locked) return "Real-time sync";
   if (!available) return source.comingSoonMessage || "This connector is coming soon.";
-  if (connected && !active) return "Connection saved but disabled.";
+  if (connected && !active) {
+    if (source.actionKind === "csv") {
+      const displayFileName = getCsvImportDisplayFileName(record?.config);
+      return `${displayFileName} disabled; ignored by scans and diagnostics.`;
+    }
+    return "Disabled; ignored by scans and diagnostics.";
+  }
   if (connected) {
     if (source.actionKind === "csv" && (record?.config?.fileName || record?.config?.displayFileName || record?.config?.normalizedFileName)) {
       const displayFileName = getCsvImportDisplayFileName(record.config);

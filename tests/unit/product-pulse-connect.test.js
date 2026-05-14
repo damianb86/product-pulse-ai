@@ -25,4 +25,30 @@ describe("ProductPulse Connect view data", () => {
 
     expect(csvSource.detail).toBe("CSV import processed (33 reviews)");
   });
+
+  it("marks disabled CSV imports as inactive source evidence", () => {
+    const connectView = buildConnectViewData([
+      {
+        sourceKey: "csvReviews",
+        category: "reviews",
+        connected: true,
+        active: false,
+        available: true,
+        health: "disabled",
+        config: {
+          fileName: "CSV import",
+          normalizedRowCount: 33,
+        },
+      },
+    ]);
+
+    const reviewsCategory = connectView.signalCategories.find((category) => category.id === "reviews");
+    const csvSource = reviewsCategory.sources.find((source) => source.key === "csvReviews");
+
+    expect(reviewsCategory.connected).toBe(false);
+    expect(connectView.coverage).toBe(0);
+    expect(csvSource.status).toBe("Disabled");
+    expect(csvSource.active).toBe(false);
+    expect(csvSource.detail).toBe("CSV import disabled; ignored by scans and diagnostics.");
+  });
 });

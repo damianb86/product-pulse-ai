@@ -3,7 +3,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import prisma from "../../app/db.server";
 import {
+  getNormalizedCsvReviewsForShop,
   parseCsvText,
   processCsvReviewUpload,
   validateCsvReviewColumnMapping,
@@ -98,5 +100,15 @@ describe("ProductPulse CSV review import", () => {
     expect(normalized).toContain("product_handle,shopify_product_id,rating");
     expect(normalized).toContain("linen-shirt,,5,Great,Great product");
     expect(normalized).toContain("\"Comfortable, light vest\"");
+  });
+
+  it("does not load normalized CSV rows when the CSV source is disabled", async () => {
+    vi.spyOn(prisma.productPulseSource, "findUnique").mockResolvedValue({
+      connected: true,
+      active: false,
+      config: { normalizedFilePath: path.join(tempDir, "disabled.normalized.csv") },
+    });
+
+    await expect(getNormalizedCsvReviewsForShop("Test-Shop.myshopify.com")).resolves.toEqual([]);
   });
 });
