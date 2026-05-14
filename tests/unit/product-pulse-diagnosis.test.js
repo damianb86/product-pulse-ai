@@ -473,4 +473,40 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(confidence).toBeGreaterThanOrEqual(52);
     expect(confidence).toBeLessThanOrEqual(64);
   });
+
+  it("does not turn normal product metadata coverage gaps into main content issues", () => {
+    const analysis = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
+      title: "Core Linen Trouser",
+      description: "A breathable linen trouser with a relaxed leg, elastic waist, practical side pockets, and a lightweight everyday fit for warm weather travel, weekends, and casual office styling.",
+      productType: "Pants",
+      tags: ["summer", "linen", "casual", "relaxed"],
+      collections: ["Vacation edit"],
+    });
+
+    expect(analysis.issues.map((issue) => issue.code)).not.toContain("title_description_mismatch");
+    expect(analysis.issues.map((issue) => issue.code)).not.toContain("missing_product_type_context");
+    expect(analysis.issues.map((issue) => issue.code)).not.toContain("tag_description_mismatch");
+    expect(analysis.riskLift).toBe(0);
+    expect(analysis.advisories.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("only flags title and description mismatch when product categories are clearly disconnected", () => {
+    const connected = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
+      title: "Rembrandt Night Watch Canvas Print",
+      description: "Museum-inspired wall art printed on canvas with a dark palette and framed finish for a living room or gallery wall.",
+      productType: "Wall art",
+      tags: ["canvas", "art", "rembrandt"],
+      collections: ["Art prints"],
+    });
+    const disconnected = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
+      title: "Core Linen Trouser",
+      description: "A wireless Bluetooth speaker with long battery life, charging cable, and portable audio controls for outdoor listening.",
+      productType: "Pants",
+      tags: ["linen", "apparel"],
+      collections: ["Clothing"],
+    });
+
+    expect(connected.issues.map((issue) => issue.code)).not.toContain("title_description_mismatch");
+    expect(disconnected.issues.map((issue) => issue.code)).toContain("title_description_mismatch");
+  });
 });

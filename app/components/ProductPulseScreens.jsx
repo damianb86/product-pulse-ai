@@ -1314,6 +1314,7 @@ function getProductDetailModel(product) {
   const recommendedActions = hasFullDiagnosis ? getProductRecommendedActions(product) : [];
   const evidenceSources = getProductEvidenceSources(product);
   const checkedItems = getProductCheckedItems(product);
+  const mainFinding = sanitizeProductMainFinding(product.mainFinding);
 
   return {
     title: product.title,
@@ -1351,8 +1352,8 @@ function getProductDetailModel(product) {
     findingTone: getDashboardToneFromRiskTone(product.riskTone),
     evidenceLabel: getEvidenceLabel(evidenceSources, sourceCoverage),
     showEvidenceBadge: evidenceSources.length > 0,
-    mainFindingTitle: product.mainFinding?.title || (issueText ? getMainFindingTitle(issueCategory) : "No ProductPulse issue stored for this product"),
-    mainFindingDetail: product.mainFinding?.detail || (issueText
+    mainFindingTitle: mainFinding?.title || (issueText ? getMainFindingTitle(issueCategory) : "No ProductPulse issue stored for this product"),
+    mainFindingDetail: mainFinding?.detail || (issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
       : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`),
     recommendedFix: hasFullDiagnosis ? (firstAction?.label || "No deterministic action yet") : "Run full product diagnosis",
@@ -1646,7 +1647,7 @@ function getEvidenceIcon(source) {
 
 function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true) {
   if (Array.isArray(product.issues) && product.issues.length) {
-    return product.issues.map((issue, index) => ({
+    return product.issues.filter((issue) => !isNonActionableContentFinding(issue)).map((issue, index) => ({
       issue: issue.issue || issue.label || `Issue ${index + 1}`,
       issueCode: issue.issueCode || "",
       severity: issue.severity || getProductRiskScoreLabel(product.riskScore || 0),
@@ -1688,6 +1689,39 @@ function getProductDetectedIssues(product, issueCategory, hasRiskSnapshot = true
       action: secondaryAction,
     },
   ];
+}
+
+function sanitizeProductMainFinding(mainFinding) {
+  if (!mainFinding) return mainFinding;
+  return {
+    ...mainFinding,
+    detail: removeNonActionableContentFindingText(mainFinding.detail),
+  };
+}
+
+function removeNonActionableContentFindingText(value) {
+  const paragraphs = String(value || "").split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  const filtered = paragraphs.filter((paragraph) => !isNonActionableContentText(paragraph));
+  return (filtered.length ? filtered : paragraphs).join("\n\n");
+}
+
+function isNonActionableContentFinding(issue = {}) {
+  const text = `${issue.code || ""} ${issue.issue || ""} ${issue.label || ""} ${(Array.isArray(issue.evidence) ? issue.evidence.join(" ") : issue.evidence) || ""}`;
+  return isNonActionableContentText(text);
+}
+
+function isNonActionableContentText(value) {
+  const normalized = String(value || "").toLowerCase();
+  return [
+    "title and description may be disconnected",
+    "title and description alignment could be reviewed",
+    "product type is not explained",
+    "product type could be clearer",
+    "tags are not reflected in description",
+    "tags could be reflected in description",
+    "collection context is missing",
+    "collection context could be clearer",
+  ].some((phrase) => normalized.includes(phrase));
 }
 
 function getIssueActionLabel(issue, issueCategory) {
@@ -2092,6 +2126,7 @@ function getContentIssueLabels(contentIssues) {
       if (!issue || typeof issue !== "object") return "";
       return String(issue.label || issue.evidence || issue.code || issue.severity || "").trim();
     })
+    .filter((label) => !isNonActionableContentText(label))
     .filter(Boolean);
 }
 

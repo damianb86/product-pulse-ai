@@ -211,7 +211,7 @@ describe("ProductPulse screens", () => {
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     expect(screen.getAllByText("Review title, tags and collection alignment").length).toBeGreaterThan(0);
-    expect(screen.getByText("ProductPulse found content issues that can reduce buyer confidence: Missing product description, Tags are not reflected in description.")).toBeInTheDocument();
+    expect(screen.getByText("ProductPulse found content issues that can reduce buyer confidence: Missing product description.")).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
   });
 

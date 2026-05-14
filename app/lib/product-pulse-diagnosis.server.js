@@ -975,9 +975,11 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       issueCount: signalCount,
       customerSignalCount,
       contentIssueCount: deterministicContent.issues.length,
+      contentAdvisoryCount: deterministicContent.advisories.length,
       contentQualityScore: deterministicContent.score,
       contentQualityRisk: deterministicContent.riskLift,
       contentIssues: deterministicContent.issues,
+      contentAdvisories: deterministicContent.advisories,
       textInsights,
       descriptionLength: deterministicContent.descriptionLength,
       descriptionWordCount: deterministicContent.descriptionWordCount,
@@ -1054,6 +1056,8 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
       contentQualityRisk: contentAnalysis.riskLift,
       contentIssueCount: contentAnalysis.issues.length,
       contentIssues: contentAnalysis.issues,
+      contentAdvisoryCount: contentAnalysis.advisories.length,
+      contentAdvisories: contentAnalysis.advisories,
       signalCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
       issueCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
       riskTrend: buildRiskTrendFromSignalTrend(deterministic.metrics.signalTrend, adjustedRiskScore, deterministic.metrics.riskTrend),
@@ -1216,6 +1220,8 @@ function buildAiDeterministicInput(deterministic) {
       contentQualityRisk: deterministic.metrics.contentQualityRisk,
       contentIssueCount: deterministic.metrics.contentIssueCount,
       contentIssues: deterministic.metrics.contentIssues,
+      contentAdvisoryCount: deterministic.metrics.contentAdvisoryCount,
+      contentAdvisories: deterministic.metrics.contentAdvisories,
       textInsights: deterministic.metrics.textInsights,
       refundInsights: deterministic.metrics.refundInsights,
       descriptionWordCount: deterministic.metrics.descriptionWordCount,
@@ -2966,6 +2972,7 @@ function analyzeProductContentDeterministically(product) {
   const tags = Array.isArray(product.tags) ? product.tags.map(String).filter(Boolean) : [];
   const collections = Array.isArray(product.collections) ? product.collections.map(String).filter(Boolean) : [];
   const issues = [];
+  const advisories = [];
 
   if (!description) {
     issues.push(buildContentIssue("missing_description", "Missing product description", "high", "The Shopify product description is empty.", 12));
@@ -2973,22 +2980,22 @@ function analyzeProductContentDeterministically(product) {
     issues.push(buildContentIssue("short_description", "Short product description", "medium", `The description has ${descriptionWordCount} words.`, 7));
   }
 
-  if (description && normalizedTitle && !hasMeaningfulTokenOverlap(normalizedTitle, normalizedDescription)) {
-    issues.push(buildContentIssue("title_description_mismatch", "Title and description may be disconnected", "medium", "The description does not share meaningful product terms with the title.", 6));
+  if (description && normalizedTitle && isClearlyDisconnectedTitleDescription(product, description)) {
+    issues.push(buildContentIssue("title_description_mismatch", "Title and description are clearly disconnected", "high", "The title and description appear to describe different product categories.", 10));
   }
 
   if (description && productType && !normalizedDescription.includes(productType) && productType.length > 3) {
-    issues.push(buildContentIssue("missing_product_type_context", "Product type is not explained", "low", `Product type "${product.productType}" is not reflected in the description.`, 3));
+    advisories.push(buildContentAdvisory("missing_product_type_context", "Product type could be clearer", `Product type "${product.productType}" is not reflected in the description.`));
   }
 
   const descriptiveTags = tags.filter((tag) => normalizeText(tag).length > 3).slice(0, 8);
   const matchedTags = descriptiveTags.filter((tag) => normalizedDescription.includes(normalizeText(tag)));
   if (description && descriptiveTags.length >= 3 && matchedTags.length === 0) {
-    issues.push(buildContentIssue("tag_description_mismatch", "Tags are not reflected in description", "low", "Product tags do not appear to be represented in the description copy.", 4));
+    advisories.push(buildContentAdvisory("tag_description_mismatch", "Tags could be reflected in description", "Product tags do not appear to be represented in the description copy."));
   }
 
   if (description && collections.length && !collections.some((collection) => hasMeaningfulTokenOverlap(collection, description))) {
-    issues.push(buildContentIssue("collection_mismatch", "Collection context is missing", "low", "Collections are not clearly reflected in the product description.", 3));
+    advisories.push(buildContentAdvisory("collection_mismatch", "Collection context could be clearer", "Collections are not clearly reflected in the product description."));
   }
 
   const score = clamp(100 - issues.reduce((total, issue) => total + issue.riskLift * 3, 0), 0, 100);
@@ -3000,6 +3007,7 @@ function analyzeProductContentDeterministically(product) {
     score,
     riskLift: Math.min(18, issues.reduce((total, issue) => total + issue.riskLift, 0)),
     issues,
+    advisories,
   };
 }
 
@@ -3011,13 +3019,30 @@ function buildContentIssue(code, label, severity, evidence, riskLift) {
     severity,
     evidence,
     riskLift,
+    findingType: "issue",
+  };
+}
+
+function buildContentAdvisory(code, label, evidence) {
+  return {
+    issueCode: "product_content",
+    code,
+    label,
+    severity: "low",
+    evidence,
+    riskLift: 0,
+    findingType: "advisory",
   };
 }
 
 function buildContentAnalysis(deterministic, contentGaps) {
   const deterministicIssues = Array.isArray(deterministic.metrics.contentIssues) ? deterministic.metrics.contentIssues : [];
-  const aiIssues = normalizeAiContentIssues(contentGaps);
+  const deterministicAdvisories = Array.isArray(deterministic.metrics.contentAdvisories) ? deterministic.metrics.contentAdvisories : [];
+  const aiFindings = normalizeAiContentFindings(contentGaps);
+  const aiIssues = aiFindings.issues;
+  const aiAdvisories = aiFindings.advisories;
   const issues = uniqueBy([...deterministicIssues, ...aiIssues], (issue) => `${issue.code}-${issue.label}`);
+  const advisories = uniqueBy([...deterministicAdvisories, ...aiAdvisories], (issue) => `${issue.code}-${issue.label}`);
   const aiRiskLift = Math.min(18, aiIssues.reduce((total, issue) => total + issue.riskLift, 0));
   const deterministicRiskLift = Number(deterministic.metrics.contentQualityRisk || 0);
   const riskLift = Math.min(18, Math.max(deterministicRiskLift, aiRiskLift));
@@ -3034,27 +3059,60 @@ function buildContentAnalysis(deterministic, contentGaps) {
     missing: Array.isArray(contentGaps?.missing) ? contentGaps.missing : [],
     issueSpecificGaps: Array.isArray(contentGaps?.issue_specific_gaps) ? contentGaps.issue_specific_gaps : [],
     issues,
+    advisories,
     riskLift,
     additionalRiskLift,
   };
 }
 
-function normalizeAiContentIssues(contentGaps) {
-  return (Array.isArray(contentGaps?.content_issues) ? contentGaps.content_issues : [])
+function normalizeAiContentFindings(contentGaps) {
+  const findings = (Array.isArray(contentGaps?.content_issues) ? contentGaps.content_issues : [])
     .map((issue) => {
       const severity = normalizeSeverity(issue.severity);
+      const code = normalizeContentIssueCode(issue.code);
+      const label = issue.label || getContentIssueLabel(code);
+      const evidence = issue.evidence || issue.why_it_matters || issue.suggested_action || "";
+      const advisory = isAdvisoryContentIssue(code, severity, evidence);
       return {
         issueCode: "product_content",
-        code: normalizeContentIssueCode(issue.code),
-        label: issue.label || getContentIssueLabel(issue.code),
-        severity,
-        evidence: issue.evidence || issue.why_it_matters || issue.suggested_action || "",
+        code,
+        label: advisory ? getContentAdvisoryLabel(code, label) : label,
+        severity: advisory ? "low" : severity,
+        evidence,
         suggestedAction: issue.suggested_action || "Review product content",
-        riskLift: severity === "high" ? 10 : severity === "medium" ? 6 : 3,
+        riskLift: advisory ? 0 : severity === "high" ? 10 : severity === "medium" ? 6 : 3,
+        findingType: advisory ? "advisory" : "issue",
       };
     })
     .filter((issue) => issue.label);
+  return {
+    issues: findings.filter((issue) => issue.findingType !== "advisory"),
+    advisories: findings.filter((issue) => issue.findingType === "advisory"),
+  };
 }
+
+function isAdvisoryContentIssue(code, severity, evidence) {
+  if (CONTENT_ADVISORY_CODES.has(code)) return true;
+  if (code === "title_description_mismatch") {
+    const normalizedEvidence = normalizeText(evidence);
+    return severity !== "high" || !/(wrong product|different product|unrelated|contradict|clearly disconnect|does not match|mismatch)/.test(normalizedEvidence);
+  }
+  return false;
+}
+
+function getContentAdvisoryLabel(code, fallback) {
+  if (code === "missing_product_type_context") return "Product type could be clearer";
+  if (code === "tag_description_mismatch") return "Tags could be reflected in description";
+  if (code === "collection_mismatch") return "Collection context could be clearer";
+  if (code === "title_description_mismatch") return "Title and description alignment could be reviewed";
+  return fallback;
+}
+
+const CONTENT_ADVISORY_CODES = new Set([
+  "missing_product_type_context",
+  "tag_description_mismatch",
+  "collection_mismatch",
+]);
 
 function summarizeContentIssues(issues) {
   if (!issues.length) return "Product content appears coherent from the stored Shopify metadata.";
@@ -3070,6 +3128,7 @@ function getContentIssueLabel(code) {
   if (normalized === "missing_description") return "Missing product description";
   if (normalized === "short_description") return "Short product description";
   if (normalized === "title_description_mismatch") return "Title and description mismatch";
+  if (normalized === "missing_product_type_context") return "Product type could be clearer";
   if (normalized === "tag_description_mismatch") return "Tags and description mismatch";
   if (normalized === "collection_mismatch") return "Collection context mismatch";
   if (normalized === "missing_specifications") return "Missing product specifications";
@@ -3237,6 +3296,57 @@ function hasMeaningfulTokenOverlap(first, second) {
   const secondTokens = new Set(meaningfulTokens(second));
   return firstTokens.some((token) => secondTokens.has(token));
 }
+
+function isClearlyDisconnectedTitleDescription(product, description) {
+  const title = String(product.title || "");
+  const titleTokens = meaningfulTokens(title);
+  const descriptionTokens = meaningfulTokens(description);
+  if (titleTokens.length < 2 || descriptionTokens.length < 12) return false;
+  if (hasStrongTextOverlap(title, description)) return false;
+  if (hasProductIdentityOverlap(product, description)) return false;
+
+  const titleCategories = detectProductCategoryGroups([
+    title,
+    product.productType,
+    ...(Array.isArray(product.tags) ? product.tags : []),
+    ...(Array.isArray(product.collections) ? product.collections : []),
+  ].join(" "));
+  const descriptionCategories = detectProductCategoryGroups(description);
+
+  if (!titleCategories.size || !descriptionCategories.size) return false;
+  return [...titleCategories].every((category) => !descriptionCategories.has(category));
+}
+
+function hasProductIdentityOverlap(product, description) {
+  const identityParts = [
+    product.title,
+    product.vendor,
+    product.productType,
+    ...(Array.isArray(product.tags) ? product.tags : []),
+    ...(Array.isArray(product.collections) ? product.collections : []),
+  ].filter(Boolean);
+  const descriptionTokens = new Set(meaningfulTokens(description));
+  return identityParts.some((part) => meaningfulTokens(part).some((token) => descriptionTokens.has(token)));
+}
+
+function detectProductCategoryGroups(value) {
+  const normalized = normalizeText(value);
+  const groups = new Set();
+  PRODUCT_CATEGORY_GROUPS.forEach(({ group, pattern }) => {
+    if (pattern.test(normalized)) groups.add(group);
+  });
+  return groups;
+}
+
+const PRODUCT_CATEGORY_GROUPS = [
+  { group: "apparel", pattern: /\b(shirt|tee|tshirt|t-shirt|trouser|pants|jeans|dress|skirt|jacket|hoodie|sweater|shorts|leggings|shoe|shoes|sneaker|boot|coat|top|blouse|linen|cotton|fit|waist|inseam|sleeve)\b/ },
+  { group: "toy", pattern: /\b(toy|doll|figure|playset|lego|blocks|puzzle|game|kids|children|hatchimals|barbie|pony|playmobil|transformers)\b/ },
+  { group: "art", pattern: /\b(art|print|poster|painting|canvas|rembrandt|wall decor|frame|framed|illustration|portrait)\b/ },
+  { group: "electronics", pattern: /\b(phone|charger|cable|adapter|battery|speaker|headphone|earbuds|camera|laptop|tablet|device|electronic)\b/ },
+  { group: "beauty", pattern: /\b(cream|serum|lotion|makeup|cosmetic|shampoo|conditioner|skincare|fragrance|perfume)\b/ },
+  { group: "home", pattern: /\b(furniture|chair|table|lamp|rug|bedding|sheet|pillow|kitchen|mug|bottle|decor|home)\b/ },
+  { group: "food", pattern: /\b(food|snack|coffee|tea|chocolate|candy|drink|beverage|sauce|spice)\b/ },
+];
 
 function hasStrongTextOverlap(first, second) {
   const firstTokens = meaningfulTokens(first);
@@ -3728,7 +3838,11 @@ function buildDefaultPdpCopy(title, issueLabel, topReasons) {
 }
 
 function buildDefaultDescriptionRewrite(title, contentAnalysis) {
-  const issues = Array.isArray(contentAnalysis?.issues) ? contentAnalysis.issues.map((issue) => issue.label).join(", ") : "product content gaps";
+  const findings = [
+    ...(Array.isArray(contentAnalysis?.issues) ? contentAnalysis.issues : []),
+    ...(Array.isArray(contentAnalysis?.advisories) ? contentAnalysis.advisories : []),
+  ];
+  const issues = findings.length ? findings.map((issue) => issue.label).join(", ") : "product content gaps";
   return `${title}: rewrite the product description so it clearly explains what the product is, who it is for, key specifications, important options, and any expectation-setting details. ProductPulse found ${issues}.`;
 }
 
@@ -3886,6 +4000,8 @@ export const __productPulseDiagnosisTestHooks = {
   calculateRiskScore,
   buildSignalRelevanceGuidance,
   buildFinalIssues,
+  analyzeProductContentDeterministically,
+  buildContentAnalysis,
   classifyIssueText,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,
