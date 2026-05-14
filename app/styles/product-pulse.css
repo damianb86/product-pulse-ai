@@ -5241,8 +5241,7 @@ s-page[inline-size="large-500"] {
   position: relative;
   width: 100%;
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: hidden;
   min-height: 0;
 }
 
