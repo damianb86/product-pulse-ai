@@ -207,6 +207,124 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates).toEqual([]);
   });
 
+  it("uses normalized CSV review ratings as a deterministic QuickScan source", () => {
+    const productId = "gid://shopify/Product/12345";
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products: [{
+        id: productId,
+        handle: "night-watch-print",
+        title: "Night Watch Print",
+        productType: "Art",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "ART-NW" }],
+      }],
+      events: Array.from({ length: 12 }, () => ({
+        type: "sale",
+        productId,
+        variantId: "gid://shopify/ProductVariant/1",
+        quantity: 1,
+        amount: 100,
+      })),
+      csvReviewRatings: [
+        { productHandle: "night-watch-print", rating: 1, reviewDate: "2026-05-01" },
+        { productHandle: "night-watch-print", rating: 2, reviewDate: "2026-05-02" },
+        { productHandle: "night-watch-print", rating: 1, reviewDate: "2026-05-03" },
+        { productHandle: "night-watch-print", rating: 2, reviewDate: "2026-05-04" },
+        { productHandle: "night-watch-print", rating: 1, reviewDate: "2026-05-05" },
+        { productHandle: "night-watch-print", rating: 2, reviewDate: "2026-05-06" },
+        { productHandle: "night-watch-print", rating: 1, reviewDate: "2026-05-07" },
+        { productHandle: "night-watch-print", rating: 2, reviewDate: "2026-05-08" },
+      ],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      handle: "night-watch-print",
+      primaryIssue: "Low CSV review rating",
+    });
+    expect(candidates[0].sourceCoverage).toContain("CSV review ratings");
+    expect(candidates[0].riskScore).toBeGreaterThanOrEqual(50);
+    expect(candidates[0].confidence).toBeLessThanOrEqual(76);
+    expect(candidates[0].metrics).toMatchObject({
+      avgRating: 1.5,
+      reviewCount: 8,
+      negativeReviewCount: 8,
+      negativeReviewRate: 100,
+    });
+    expect(candidates[0].metrics.riskComponents.csvRatingRisk).toBeGreaterThan(30);
+  });
+
+  it("does not promote one isolated bad CSV rating into a QuickScan candidate", () => {
+    const productId = "gid://shopify/Product/12345";
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products: [{
+        id: productId,
+        handle: "steady-print",
+        title: "Steady Print",
+        productType: "Art",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "ART-ST" }],
+      }],
+      events: Array.from({ length: 12 }, () => ({
+        type: "sale",
+        productId,
+        variantId: "gid://shopify/ProductVariant/1",
+        quantity: 1,
+        amount: 100,
+      })),
+      csvReviewRatings: [
+        { productHandle: "steady-print", rating: 1, reviewDate: "2026-05-01" },
+      ],
+    });
+
+    expect(candidates).toEqual([]);
+  });
+
+  it("does not treat positive CSV ratings as product risk", () => {
+    const productId = "gid://shopify/Product/12345";
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products: [{
+        id: productId,
+        handle: "well-rated-print",
+        title: "Well Rated Print",
+        productType: "Art",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "ART-GOOD" }],
+      }],
+      events: [],
+      csvReviewRatings: Array.from({ length: 20 }, () => ({
+        productHandle: "well-rated-print",
+        rating: 5,
+        reviewDate: "2026-05-01",
+      })),
+    });
+
+    expect(candidates).toEqual([]);
+  });
+
+  it("matches CSV review ratings by Shopify numeric product ID", () => {
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products: [{
+        id: "gid://shopify/Product/98765",
+        handle: "numeric-id-match",
+        title: "Numeric ID Match",
+        productType: "Art",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "ART-ID" }],
+      }],
+      events: [],
+      csvReviewRatings: Array.from({ length: 6 }, (_, index) => ({
+        shopifyProductId: "98765",
+        rating: index % 2 ? 2 : 1,
+        reviewDate: "2026-05-01",
+      })),
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].handle).toBe("numeric-id-match");
+    expect(candidates[0].metrics.reviewCount).toBe(6);
+  });
+
   it("keeps refund line item connections out of the orders bulk query", () => {
     const query = buildOrdersBulkQuery(60);
 

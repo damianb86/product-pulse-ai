@@ -1,4 +1,5 @@
 import prisma from "../db.server";
+import { getNormalizedCsvReviewRatingsForShop } from "./product-pulse-csv.server";
 import { recordJobLog } from "./product-pulse-job-logs.server";
 import {
   buildDatedSignalTrend,
@@ -36,7 +37,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.started",
-    message: "QuickScan started using Shopify-native signals only.",
+    message: "QuickScan started using Shopify-native signals and connected CSV review ratings.",
     data: { windowDays },
   });
 
@@ -65,6 +66,8 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     },
   });
 
+  const csvReviewRatings = await loadCsvReviewRatingsForQuickScan({ shop, jobId });
+
   await updateQuickScanJob(jobId, {
     progress: 72,
     source: "Calculating deterministic product risk",
@@ -73,6 +76,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   const candidates = buildQuickScanCandidates({
     products: extraction.products,
     events: extraction.events,
+    csvReviewRatings,
     windowDays,
     extractionMode: extraction.meta.extractionMode,
   });
@@ -92,6 +96,8 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
         returnRate: candidate.metrics.returnRate,
         refundRate: candidate.metrics.refundRate,
         refundAmount: candidate.metrics.refundAmount,
+        reviewCount: candidate.metrics.reviewCount,
+        avgRating: candidate.metrics.avgRating,
         topReturnReasons: candidate.metrics.topReturnReasons,
       })),
     },
@@ -128,6 +134,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     data: {
       durationMs: Date.now() - startedAt,
       candidateCount: candidates.length,
+      csvReviewRatings: csvReviewRatings.length,
       persistedCandidates: persistence.persistedCandidates,
       ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
       orderAccessDenied: extraction.meta.orderAccessDenied,
@@ -137,7 +144,43 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   return { candidates, extraction };
 }
 
-export function buildQuickScanCandidates({ products = [], events = [], windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS, extractionMode = "bulk" }) {
+async function loadCsvReviewRatingsForQuickScan({ shop, jobId }) {
+  try {
+    const ratings = await getNormalizedCsvReviewRatingsForShop(shop);
+    if (ratings.length) {
+      await recordJobLog({
+        shop,
+        jobId,
+        event: "quick_scan.csv_reviews_loaded",
+        message: "Loaded normalized CSV review ratings for deterministic QuickScan scoring.",
+        data: {
+          ratingRows: ratings.length,
+          productsWithRatings: countCsvRatingProductKeys(ratings),
+          usage: "rating-only; review text is not read during QuickScan",
+        },
+      });
+    }
+    return ratings;
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "quick_scan.csv_reviews_skipped",
+      message: "CSV review ratings could not be loaded; QuickScan will continue without CSV rating signals.",
+      data: { error: getErrorMessage(error) },
+    });
+    return [];
+  }
+}
+
+export function buildQuickScanCandidates({
+  products = [],
+  events = [],
+  csvReviewRatings = [],
+  windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS,
+  extractionMode = "bulk",
+}) {
   const productIndex = new Map();
   const variantIndex = new Map();
 
@@ -172,6 +215,8 @@ export function buildQuickScanCandidates({ products = [], events = [], windowDay
       getProductAggregate(aggregates, product);
     }
   });
+
+  applyCsvReviewRatingsToAggregates({ aggregates, productIndex, csvReviewRatings });
 
   const aggregateList = Array.from(aggregates.values());
   const storeTotals = getStoreTotals(aggregateList);
@@ -1040,10 +1085,80 @@ function getProductAggregate(aggregates, product) {
       affectedVariants: new Map(),
       lastSignalAt: null,
       signalEvents: [],
+      csvReviewRatingCount: 0,
+      csvReviewRatingSum: 0,
+      csvLowRatingCount: 0,
+      csvCriticalRatingCount: 0,
+      csvNeutralRatingCount: 0,
+      csvPositiveRatingCount: 0,
     });
   }
 
   return aggregates.get(product.id);
+}
+
+function applyCsvReviewRatingsToAggregates({ aggregates, productIndex, csvReviewRatings }) {
+  if (!csvReviewRatings?.length) return;
+  const lookup = buildProductLookup(productIndex);
+
+  csvReviewRatings.forEach((row) => {
+    const productId = resolveCsvRatingProductId(row, lookup);
+    const aggregate = productId ? aggregates.get(productId) : null;
+    if (!aggregate) return;
+    applyCsvReviewRatingToAggregate(aggregate, row);
+  });
+}
+
+function buildProductLookup(productIndex) {
+  const byHandle = new Map();
+  const byProductId = new Map();
+
+  productIndex.forEach((product, productId) => {
+    const handleKey = normalizeLookupKey(product.handle);
+    if (handleKey) byHandle.set(handleKey, productId);
+    getProductIdLookupKeys(product.id).forEach((key) => byProductId.set(key, productId));
+  });
+
+  return { byHandle, byProductId };
+}
+
+function resolveCsvRatingProductId(row, lookup) {
+  for (const key of getProductIdLookupKeys(row.shopifyProductId)) {
+    const productId = lookup.byProductId.get(key);
+    if (productId) return productId;
+  }
+
+  const handleKey = normalizeLookupKey(row.productHandle);
+  return handleKey ? lookup.byHandle.get(handleKey) : null;
+}
+
+function applyCsvReviewRatingToAggregate(aggregate, row) {
+  const rating = clamp(toNumber(row.rating), 0, 5);
+  if (!rating) return;
+
+  aggregate.csvReviewRatingCount += 1;
+  aggregate.csvReviewRatingSum += rating;
+  if (rating <= 1) aggregate.csvCriticalRatingCount += 1;
+  if (rating <= 2) aggregate.csvLowRatingCount += 1;
+  if (rating === 3) aggregate.csvNeutralRatingCount += 1;
+  if (rating >= 4) aggregate.csvPositiveRatingCount += 1;
+
+  if (rating > 3) return;
+
+  const occurredAt = parseOptionalDate(row.reviewDate);
+  aggregate.totalSignalUnits += 1;
+  aggregate.signalEvents.push({
+    type: "csv_review_rating",
+    quantity: 1,
+    occurredAt,
+    issueCode: rating <= 2 ? "low_review_rating" : "mixed_review_rating",
+    reason: `${rating}-star CSV review rating`,
+    note: "",
+  });
+  if (isRecentSignal(occurredAt)) aggregate.recentSignalUnits += 1;
+  if (occurredAt && (!aggregate.lastSignalAt || new Date(occurredAt) > new Date(aggregate.lastSignalAt))) {
+    aggregate.lastSignalAt = occurredAt;
+  }
 }
 
 function applyEventToAggregate(aggregate, event) {
@@ -1091,13 +1206,33 @@ function getStoreTotals(aggregates) {
     returnUnits: sum.returnUnits + aggregate.returnUnits,
     refundAmount: sum.refundAmount + aggregate.refundAmount,
     productsWithSales: sum.productsWithSales + (aggregate.soldUnits > 0 ? 1 : 0),
-  }), { soldUnits: 0, refundUnits: 0, returnUnits: 0, refundAmount: 0, productsWithSales: 0 });
+    csvReviewRatingCount: sum.csvReviewRatingCount + aggregate.csvReviewRatingCount,
+    csvReviewRatingSum: sum.csvReviewRatingSum + aggregate.csvReviewRatingSum,
+    csvLowRatingCount: sum.csvLowRatingCount + aggregate.csvLowRatingCount,
+    csvNeutralRatingCount: sum.csvNeutralRatingCount + aggregate.csvNeutralRatingCount,
+    csvPositiveRatingCount: sum.csvPositiveRatingCount + aggregate.csvPositiveRatingCount,
+    productsWithCsvRatings: sum.productsWithCsvRatings + (aggregate.csvReviewRatingCount > 0 ? 1 : 0),
+  }), {
+    soldUnits: 0,
+    refundUnits: 0,
+    returnUnits: 0,
+    refundAmount: 0,
+    productsWithSales: 0,
+    csvReviewRatingCount: 0,
+    csvReviewRatingSum: 0,
+    csvLowRatingCount: 0,
+    csvNeutralRatingCount: 0,
+    csvPositiveRatingCount: 0,
+    productsWithCsvRatings: 0,
+  });
 
   return {
     ...totals,
     avgReturnRate: safeRate(totals.returnUnits, totals.soldUnits),
     avgRefundRate: safeRate(totals.refundUnits, totals.soldUnits),
     avgRefundAmount: totals.refundAmount / Math.max(totals.productsWithSales, 1),
+    avgCsvRating: totals.csvReviewRatingCount > 0 ? totals.csvReviewRatingSum / totals.csvReviewRatingCount : 0,
+    avgCsvLowRatingRate: safeRate(totals.csvLowRatingCount, totals.csvReviewRatingCount),
   };
 }
 
@@ -1108,7 +1243,13 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
   const refundRatePercent = roundPercent(refundRate);
   const topReasons = topEntries(aggregate.returnReasons, 4);
   const affectedVariants = topEntries(aggregate.affectedVariants, 4);
-  const signalCount = aggregate.returnUnits + aggregate.refundUnits + topReasons.reduce((sum, reason) => sum + reason.count, 0);
+  const csvRatingSummary = getCsvRatingSummary(aggregate);
+  const csvRatingRisk = getCsvRatingRiskScore({ summary: csvRatingSummary, storeTotals });
+  const csvReviewSignalCount = csvRatingSummary.lowRatingCount + csvRatingSummary.neutralRatingCount;
+  const signalCount = aggregate.returnUnits
+    + aggregate.refundUnits
+    + topReasons.reduce((sum, reason) => sum + reason.count, 0)
+    + csvReviewSignalCount;
   const returnRisk = getRateRiskScore({
     rate: returnRate,
     average: storeTotals.avgReturnRate,
@@ -1133,6 +1274,7 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     refundRisk: roundScore(refundRisk),
     impactRisk: roundScore(impactRisk),
     refundPressureRisk: roundScore(refundPressureRisk),
+    csvRatingRisk: roundScore(csvRatingRisk),
     repeatedReasonRisk: roundScore(repeatedReasons),
     variantConcentration: roundScore(variantConcentration),
     recentSpike: roundScore(recentSpike),
@@ -1143,6 +1285,7 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     refundRisk,
     impactRisk,
     refundPressureRisk,
+    csvRatingRisk,
     repeatedReasons,
     variantConcentration,
     recentSpike,
@@ -1154,6 +1297,8 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     notes: [...aggregate.notes, ...aggregate.refundNotes],
     refundRate,
     returnRate,
+    csvRatingSummary,
+    csvRatingRisk,
   });
   const trendOptions = {
     dateField: "occurredAt",
@@ -1171,15 +1316,23 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     signalCount,
     topReasons,
     affectedVariants,
+    csvRatingSummary,
+    csvRatingRisk,
     extractionMode,
   });
+  const ratingRevenueAtRisk = getCsvRatingRevenueAtRisk({ aggregate, csvRatingSummary, csvRatingRisk });
+  const revenueAtRisk = Math.max(
+    aggregate.refundAmount,
+    aggregate.salesAmount * Math.max(returnRate, refundRate),
+    ratingRevenueAtRisk,
+  );
 
   return {
     productGid: aggregate.product.id,
     productTitle: aggregate.product.title,
     handle: aggregate.product.handle,
     riskScore,
-    impactScore: Math.round(clamp(impactRisk * 2.6 + aggregate.refundAmount / 650 + signalCount * 1.4, 0, 100)),
+    impactScore: Math.round(clamp(impactRisk * 2.6 + csvRatingRisk * 0.55 + aggregate.refundAmount / 650 + signalCount * 1.4, 0, 100)),
     confidence: confidenceResult.confidence,
     primaryIssue,
     sourceCoverage,
@@ -1199,8 +1352,21 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       refundNoteCount: aggregate.refundNotes.length,
       refundNotes: aggregate.refundNotes.slice(0, 5),
       refundPressure: getRefundPressureSummary({ aggregate, refundRate: refundRatePercent }),
-      revenueAtRisk: roundMoney(Math.max(aggregate.refundAmount, aggregate.salesAmount * Math.max(returnRate, refundRate))),
-      marginAtRisk: roundMoney(Math.max(aggregate.refundAmount * 0.38, aggregate.salesAmount * Math.max(returnRate, refundRate) * 0.28)),
+      revenueAtRisk: roundMoney(revenueAtRisk),
+      marginAtRisk: roundMoney(Math.max(aggregate.refundAmount * 0.38, revenueAtRisk * 0.28)),
+      avgRating: csvRatingSummary.averageRating,
+      reviewRating: csvRatingSummary.averageRating,
+      reviewCount: csvRatingSummary.ratingCount,
+      negativeReviewCount: csvRatingSummary.lowRatingCount,
+      negativeReviewRate: csvRatingSummary.negativeRatingRate,
+      csvReviewRatingCount: csvRatingSummary.ratingCount,
+      csvAverageRating: csvRatingSummary.averageRating,
+      csvLowRatingCount: csvRatingSummary.lowRatingCount,
+      csvCriticalRatingCount: csvRatingSummary.criticalRatingCount,
+      csvNeutralRatingCount: csvRatingSummary.neutralRatingCount,
+      csvPositiveRatingCount: csvRatingSummary.positiveRatingCount,
+      csvNegativeRatingRate: csvRatingSummary.negativeRatingRate,
+      csvRatingRisk: roundScore(csvRatingRisk),
       signalCount,
       topReturnReasons: topReasons.map((reason) => reason.label),
       affectedVariants: affectedVariants.map((variant) => variant.label),
@@ -1331,8 +1497,72 @@ function isPersistableCandidate(candidate, storeTotals) {
     candidate.metrics.returnRate >= Math.max(storeTotals.avgReturnRate * 100 * 2, 8) ||
     (candidate.metrics.soldUnits > 10 && candidate.metrics.refundRate > 20) ||
     candidate.metrics.refundAmount >= Math.max(storeTotals.avgRefundAmount, 250) ||
+    (candidate.metrics.csvRatingRisk >= 36 && candidate.metrics.reviewCount >= 5) ||
+    (candidate.metrics.reviewCount >= 8 && candidate.metrics.negativeReviewRate >= 45) ||
     candidate.metrics.topReturnReasons.length >= 2
   );
+}
+
+function getCsvRatingSummary(aggregate) {
+  const ratingCount = aggregate.csvReviewRatingCount || 0;
+  const averageRating = ratingCount > 0 ? roundRating(aggregate.csvReviewRatingSum / ratingCount) : 0;
+  const lowRatingCount = aggregate.csvLowRatingCount || 0;
+  const neutralRatingCount = aggregate.csvNeutralRatingCount || 0;
+
+  return {
+    ratingCount,
+    averageRating,
+    lowRatingCount,
+    criticalRatingCount: aggregate.csvCriticalRatingCount || 0,
+    neutralRatingCount,
+    positiveRatingCount: aggregate.csvPositiveRatingCount || 0,
+    negativeRatingRate: roundPercent(safeRate(lowRatingCount, ratingCount)),
+    neutralOrNegativeRatingRate: roundPercent(safeRate(lowRatingCount + neutralRatingCount, ratingCount)),
+  };
+}
+
+function getCsvRatingRiskScore({ summary, storeTotals }) {
+  if (!summary.ratingCount) return 0;
+
+  const benchmarkRating = storeTotals.avgCsvRating > 0
+    ? clamp(storeTotals.avgCsvRating, 3.8, 4.4)
+    : 4.2;
+  const averageDeficit = clamp(benchmarkRating - summary.averageRating, 0, 3.2);
+  const lowRatingRate = safeRate(summary.lowRatingCount, summary.ratingCount);
+  const neutralRatingRate = safeRate(summary.neutralRatingCount, summary.ratingCount);
+  const storeLowRatingRate = storeTotals.avgCsvLowRatingRate || 0;
+  const averageDeficitRisk = 24 * (1 - Math.exp(-averageDeficit / 1.15));
+  const lowShareRisk = 28 * (1 - Math.exp(-lowRatingRate / 0.45));
+  const neutralShareRisk = 10 * (1 - Math.exp(-neutralRatingRate / 0.55));
+  const anomalyRisk = lowRatingRate > storeLowRatingRate
+    ? clamp((lowRatingRate - storeLowRatingRate) * 18, 0, 8)
+    : 0;
+  const concernRisk = averageDeficitRisk + lowShareRisk + neutralShareRisk + anomalyRisk;
+  if (!concernRisk) return 0;
+  const sampleSupport = clamp(Math.log2(summary.ratingCount + 1) * 3.1, 0, 12);
+  const rawRisk = concernRisk + sampleSupport;
+  const supportedRisk = rawRisk * getCsvRatingSampleSupport(summary.ratingCount);
+  const sampleCap = summary.ratingCount < 3 ? 16 : summary.ratingCount < 5 ? 32 : 48;
+
+  return clamp(supportedRisk, 0, sampleCap);
+}
+
+function getCsvRatingSampleSupport(ratingCount) {
+  if (ratingCount < 2) return 0.28;
+  if (ratingCount < 3) return 0.42;
+  if (ratingCount < 5) return 0.62;
+  if (ratingCount < 10) return 0.86;
+  return 1;
+}
+
+function getCsvRatingRevenueAtRisk({ aggregate, csvRatingSummary, csvRatingRisk }) {
+  if (!aggregate.salesAmount || !csvRatingRisk || !csvRatingSummary.ratingCount) return 0;
+  const ratingDeficit = clamp((4.2 - csvRatingSummary.averageRating) / 3.2, 0, 1);
+  const negativeShare = safeRate(csvRatingSummary.lowRatingCount, csvRatingSummary.ratingCount);
+  const sampleSupport = getCsvRatingSampleSupport(csvRatingSummary.ratingCount);
+  const revenueShare = clamp(0.03 + ratingDeficit * 0.11 + negativeShare * 0.08, 0, 0.22);
+
+  return aggregate.salesAmount * revenueShare * sampleSupport;
 }
 
 function calculateQuickScanRiskScore({
@@ -1340,15 +1570,21 @@ function calculateQuickScanRiskScore({
   refundRisk,
   impactRisk,
   refundPressureRisk,
+  csvRatingRisk,
   repeatedReasons,
   variantConcentration,
   recentSpike,
   volumeWeight,
 }) {
-  const evidenceRisks = [returnRisk, refundRisk, repeatedReasons].sort((a, b) => b - a);
+  const evidenceRisks = [returnRisk, refundRisk, repeatedReasons, csvRatingRisk].sort((a, b) => b - a);
   const dominantEvidence = evidenceRisks[0] || 0;
   const supportingEvidence = evidenceRisks.slice(1).reduce((sum, score) => sum + score, 0) * 0.38;
-  const operationalRisk = impactRisk * 0.75 + refundPressureRisk * 0.6 + variantConcentration * 0.6 + recentSpike * 0.7 + volumeWeight * 0.35;
+  const operationalRisk = impactRisk * 0.75
+    + refundPressureRisk * 0.6
+    + csvRatingRisk * 0.24
+    + variantConcentration * 0.6
+    + recentSpike * 0.7
+    + volumeWeight * 0.35;
   const rawRisk = dominantEvidence + supportingEvidence + operationalRisk;
 
   return Math.round(clamp(100 * (1 - Math.exp(-rawRisk / 52)), 0, 100));
@@ -1421,20 +1657,35 @@ function getVolumeSupportScore(aggregate) {
   return clamp(Math.log10(aggregate.soldUnits + 1) * 5, 0, 8);
 }
 
-function calculateQuickScanConfidence({ aggregate, sourceCoverage, signalCount, topReasons, affectedVariants, extractionMode }) {
+function calculateQuickScanConfidence({
+  aggregate,
+  sourceCoverage,
+  signalCount,
+  topReasons,
+  affectedVariants,
+  csvRatingSummary,
+  csvRatingRisk,
+  extractionMode,
+}) {
   const sourceCount = sourceCoverage.length;
   const coverageScore = 8
     + (aggregate.soldUnits > 0 ? 14 : 0)
     + (aggregate.refundUnits > 0 ? 10 : 0)
-    + (aggregate.returnUnits > 0 ? 14 : 0);
+    + (aggregate.returnUnits > 0 ? 14 : 0)
+    + (csvRatingSummary.ratingCount > 0 ? 10 : 0);
   const sampleScore = clamp(Math.log10(aggregate.soldUnits + 1) * 9, 0, 20)
-    + clamp(Math.log10(signalCount + 1) * 11, 0, 18);
+    + clamp(Math.log10(signalCount + 1) * 11, 0, 18)
+    + clamp(Math.log10(csvRatingSummary.ratingCount + 1) * 8, 0, 12);
   const consistencyScore = (aggregate.returnUnits > 0 && aggregate.refundUnits > 0 ? 8 : 0)
+    + (csvRatingRisk > 0 && (aggregate.returnUnits > 0 || aggregate.refundUnits > 0) ? 6 : 0)
+    + (csvRatingSummary.lowRatingCount >= 3 ? 4 : 0)
+    + (csvRatingSummary.ratingCount >= 10 ? 3 : 0)
     + (topReasons[0]?.count >= 3 ? 6 : 0)
     + (affectedVariants.length > 1 ? 3 : 0)
     + (aggregate.recentSignalUnits > 0 ? 3 : 0);
   const lowSamplePenalty = (aggregate.soldUnits > 0 && aggregate.soldUnits < 10 ? 8 : 0)
     + (signalCount > 0 && signalCount < 3 ? 8 : 0)
+    + (csvRatingSummary.ratingCount > 0 && csvRatingSummary.ratingCount < 3 ? 6 : 0)
     + (sourceCount <= 2 ? 5 : 0)
     + (extractionMode === "catalog-only" ? 18 : 0);
   const rawConfidence = coverageScore + sampleScore + consistencyScore - lowSamplePenalty;
@@ -1466,21 +1717,25 @@ function getSourceCoverage(aggregate) {
   if (aggregate.soldUnits > 0) sources.push("Shopify orders");
   if (aggregate.refundUnits > 0) sources.push("Shopify refunds");
   if (aggregate.returnUnits > 0) sources.push("Shopify returns");
+  if (aggregate.csvReviewRatingCount > 0) sources.push("CSV review ratings");
   return sources;
 }
 
-function getPrimaryIssue({ topReasons, notes, refundRate, returnRate }) {
+function getPrimaryIssue({ topReasons, notes, refundRate, returnRate, csvRatingSummary, csvRatingRisk }) {
   const text = `${topReasons.map((reason) => reason.label).join(" ")} ${notes.join(" ")}`.toLowerCase();
   if (/too small|too large|size|fit|waist|inseam|tight|loose/.test(text)) return "Fit & sizing";
   if (/scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror/.test(text)) return "Fear or safety concern";
   if (/defect|damaged|broken|quality|faulty|zipper|tear|crack/.test(text)) return "Product defect or durability";
   if (/color|not as described|description|photo|image|style/.test(text)) return "Expectation mismatch";
+  if (csvRatingRisk >= 30 && csvRatingSummary.averageRating > 0 && csvRatingSummary.averageRating < 3) return "Low CSV review rating";
+  if (csvRatingRisk >= 18) return "Mixed CSV review rating";
   if (returnRate > refundRate && returnRate > 0) return "Return rate anomaly";
   if (refundRate > 0) return "Refund impact";
   return "Product quality signal";
 }
 
 function classifyQuickScanIssueEvent(event) {
+  if (event.type === "csv_review_rating") return event.issueCode || "low_review_rating";
   const text = `${event.reason || ""} ${event.reasonHandle || ""} ${event.note || ""}`.toLowerCase();
   if (/too small|too large|size|fit|waist|inseam|tight|loose/.test(text)) return "fit_sizing";
   if (/scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror/.test(text)) return "safety_concern";
@@ -1558,6 +1813,10 @@ function roundMoney(value) {
   return Math.round(toNumber(value) * 100) / 100;
 }
 
+function roundRating(value) {
+  return Math.round(toNumber(value) * 10) / 10;
+}
+
 function roundScore(value) {
   return Math.round(toNumber(value) * 10) / 10;
 }
@@ -1582,6 +1841,12 @@ function getSinceDate(windowDays) {
   return date.toISOString().slice(0, 10);
 }
 
+function parseOptionalDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function getNodes(connection) {
   if (Array.isArray(connection)) return connection;
   if (Array.isArray(connection?.nodes)) return connection.nodes;
@@ -1598,6 +1863,27 @@ function getHandleFromTitle(title) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+function normalizeLookupKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getProductIdLookupKeys(value) {
+  const text = normalizeLookupKey(value);
+  if (!text) return [];
+  const keys = new Set([text]);
+  const gidMatch = text.match(/product\/(\d+)/);
+  if (gidMatch?.[1]) keys.add(gidMatch[1]);
+  if (/^\d+$/.test(text)) keys.add(text);
+  return Array.from(keys);
+}
+
+function countCsvRatingProductKeys(ratings) {
+  return new Set((ratings || []).map((row) => {
+    const idKey = getProductIdLookupKeys(row.shopifyProductId)[0];
+    return idKey || normalizeLookupKey(row.productHandle);
+  }).filter(Boolean)).size;
 }
 
 function parseJsonl(text) {

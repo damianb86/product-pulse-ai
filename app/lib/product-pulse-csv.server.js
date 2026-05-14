@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import prisma from "../db.server";
 
 const REQUIRED_MAPPING_FIELDS = ["review_body", "rating"];
 const PRODUCT_RELATION_FIELDS = ["product_handle", "shopify_product_id"];
@@ -71,6 +72,25 @@ export async function processCsvReviewUpload({ shop, file }) {
     normalizedFilePath: saved.filePath,
     storageKey: saved.storageKey,
   };
+}
+
+export async function getNormalizedCsvReviewRatingsForShop(shop) {
+  if (!shop) return [];
+  const source = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
+  }).catch(() => null);
+
+  const filePath = source?.config?.normalizedFilePath;
+  if (!source?.connected || !source.active || !filePath) return [];
+
+  const csvText = await readFile(filePath, "utf8");
+  const parsed = parseCsvText(csvText);
+  return parsed.rows.map((row) => ({
+    productHandle: cleanScalar(row.values.product_handle),
+    shopifyProductId: cleanScalar(row.values.shopify_product_id),
+    rating: Number(normalizeRating(row.values.rating)),
+    reviewDate: cleanScalar(row.values.review_date),
+  })).filter((row) => Number.isFinite(row.rating) && row.rating > 0 && (row.productHandle || row.shopifyProductId));
 }
 
 export function parseCsvText(csvText) {
