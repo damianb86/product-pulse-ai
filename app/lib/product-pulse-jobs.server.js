@@ -2116,73 +2116,423 @@ function getSourceToken(source) {
 }
 
 function getSignalBars(metrics) {
-  const returnRate = Number(metrics.returnRate || 0);
-  const refundRate = Number(metrics.refundRate || 0);
-  return [
-    12,
-    Math.min(88, 18 + returnRate * 2),
-    Math.min(96, 24 + refundRate * 2.4),
-    Math.min(92, 20 + Number(metrics.recentSignalUnits || 0) * 8),
-    Math.min(84, 18 + Number(metrics.signalCount || 0) * 2),
-    30,
-    18,
-  ];
+  return getSignalLifecycleBars(metrics).map((bar) => bar.value);
 }
 
 function getSignalDetails(snapshot, metrics) {
   const signalCount = Number(metrics.signalCount || 0);
-  const returnRate = Number(metrics.returnRate || 0);
-  const refundRate = Number(metrics.refundRate || 0);
-  const refundAmount = Number(metrics.refundAmount || 0);
-  const recentSignalUnits = Number(metrics.recentSignalUnits || 0);
-  const topReturnReasons = Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [];
-  const affectedVariants = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [];
-  const bars = getSignalBars(metrics);
+  const bars = getSignalLifecycleBars(metrics);
+  const strongestBars = bars
+    .filter((bar) => bar.value > 12)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 2);
+  const strongestSummary = strongestBars.length
+    ? ` Strongest lifecycle signal${strongestBars.length === 1 ? "" : "s"}: ${strongestBars.map((bar) => `${bar.label} ${bar.value}/100`).join(", ")}.`
+    : "";
 
   return {
-    summary: `${snapshot.primaryIssue || "Product quality"} risk score ${snapshot.riskScore}/100 from ${signalCount} signal${signalCount === 1 ? "" : "s"}.`,
-    bars: [
-      {
-        label: "Baseline",
-        value: bars[0],
-        detail: "Minimum Shopify catalog context for this product.",
-      },
-      {
-        label: "Return rate",
-        value: bars[1],
-        detail: `${returnRate}% return rate in the current scan window.`,
-      },
-      {
-        label: "Refund rate",
-        value: bars[2],
-        detail: `${refundRate}% refund rate and ${formatMoney(refundAmount)} refunded.`,
-      },
-      {
-        label: "Recent spike",
-        value: bars[3],
-        detail: `${recentSignalUnits} recent signal units detected.`,
-      },
-      {
-        label: "Signal volume",
-        value: bars[4],
-        detail: `${signalCount} total signals counted for this product.`,
-      },
-      {
-        label: "Repeated reasons",
-        value: bars[5],
-        detail: topReturnReasons.length ? topReturnReasons.join(", ") : "No repeated return reason captured yet.",
-      },
-      {
-        label: "Variant concentration",
-        value: bars[6],
-        detail: affectedVariants.length ? affectedVariants.join(", ") : "No affected variant concentration detected.",
-      },
-    ],
+    summary: `${snapshot.primaryIssue || "Product quality"} risk score ${snapshot.riskScore}/100 from ${signalCount} signal${signalCount === 1 ? "" : "s"}. Bars run left to right from product setup to post-purchase pressure.${strongestSummary}`,
+    bars,
   };
+}
+
+function getSignalLifecycleBars(metrics = {}) {
+  const normalizedMetrics = metrics || {};
+  return [
+    {
+      key: "product_setup",
+      label: "Product setup",
+      value: getProductSetupSignalValue(normalizedMetrics),
+      detail: getProductSetupSignalDetail(normalizedMetrics),
+    },
+    {
+      key: "pdp_content",
+      label: "PDP content",
+      value: getPdpContentSignalValue(normalizedMetrics),
+      detail: getPdpContentSignalDetail(normalizedMetrics),
+    },
+    {
+      key: "reviews",
+      label: "Reviews",
+      value: getReviewSignalValue(normalizedMetrics),
+      detail: getReviewSignalDetail(normalizedMetrics),
+    },
+    {
+      key: "repeated_reasons",
+      label: "Repeated reasons",
+      value: getRepeatedReasonSignalValue(normalizedMetrics),
+      detail: getRepeatedReasonSignalDetail(normalizedMetrics),
+    },
+    {
+      key: "refund_pressure",
+      label: "Refund pressure",
+      value: getRefundSignalValue(normalizedMetrics),
+      detail: getRefundSignalDetail(normalizedMetrics),
+    },
+    {
+      key: "return_pressure",
+      label: "Return pressure",
+      value: getReturnSignalValue(normalizedMetrics),
+      detail: getReturnSignalDetail(normalizedMetrics),
+    },
+    {
+      key: "recent_trend",
+      label: "Recent trend",
+      value: getRecentTrendSignalValue(normalizedMetrics),
+      detail: getRecentTrendSignalDetail(normalizedMetrics),
+    },
+  ].map((bar) => ({
+    ...bar,
+    value: clampSignalBar(bar.value),
+  }));
+}
+
+function getProductSetupSignalValue(metrics) {
+  const checks = getProductSetupChecks(metrics);
+  const knownChecks = checks.filter((check) => check.known);
+  const missingChecks = knownChecks.filter((check) => !check.present);
+  const completenessRisk = knownChecks.length
+    ? (missingChecks.length / knownChecks.length) * 46
+    : 0;
+  const inactiveStatusRisk = hasText(metrics.productStatus) && String(metrics.productStatus).toLowerCase() !== "active" ? 18 : 0;
+  return 4 + completenessRisk + inactiveStatusRisk;
+}
+
+function getProductSetupSignalDetail(metrics) {
+  const checks = getProductSetupChecks(metrics).filter((check) => check.known);
+  if (!checks.length) return "Catalog setup has not been captured for this product yet.";
+
+  const present = checks.filter((check) => check.present);
+  const missing = checks.filter((check) => !check.present);
+  const missingText = missing.length
+    ? ` Missing: ${missing.map((check) => check.label).join(", ")}.`
+    : " No catalog setup gaps detected.";
+  return `${present.length}/${checks.length} catalog checks present: ${present.map((check) => check.label).join(", ") || "none"}.${missingText}`;
+}
+
+function getProductSetupChecks(metrics) {
+  const variantCount = Number(metrics.variantCount);
+  const skuCount = Number(metrics.skuCount);
+  return [
+    {
+      label: "type",
+      known: Object.prototype.hasOwnProperty.call(metrics, "productType"),
+      present: hasText(metrics.productType),
+    },
+    {
+      label: "vendor",
+      known: Object.prototype.hasOwnProperty.call(metrics, "vendor"),
+      present: hasText(metrics.vendor),
+    },
+    {
+      label: "tags",
+      known: Object.prototype.hasOwnProperty.call(metrics, "tags"),
+      present: getList(metrics.tags).length > 0,
+    },
+    {
+      label: "collections",
+      known: Object.prototype.hasOwnProperty.call(metrics, "collections"),
+      present: getList(metrics.collections).length > 0,
+    },
+    {
+      label: "variants",
+      known: Number.isFinite(variantCount),
+      present: variantCount > 0,
+    },
+    {
+      label: "SKUs",
+      known: Number.isFinite(skuCount),
+      present: skuCount > 0,
+    },
+    {
+      label: "options",
+      known: Object.prototype.hasOwnProperty.call(metrics, "optionNames"),
+      present: getList(metrics.optionNames).length > 0,
+    },
+  ];
+}
+
+function getPdpContentSignalValue(metrics) {
+  const contentIssueCount = Number(metrics.contentIssueCount || 0);
+  const contentQualityRisk = Number(metrics.contentQualityRisk || 0);
+  const contentQualityScore = Number(metrics.contentQualityScore);
+  const descriptionWordCount = Number(metrics.descriptionWordCount);
+  const hasDescriptionKnown = Object.prototype.hasOwnProperty.call(metrics, "hasDescription");
+  let value = contentQualityRisk * 3.1 + contentIssueCount * 12;
+
+  if (Number.isFinite(contentQualityScore)) value += Math.max(0, 84 - contentQualityScore) * 0.65;
+  if (hasDescriptionKnown && !metrics.hasDescription) value += 58;
+  if (Number.isFinite(descriptionWordCount) && descriptionWordCount > 0 && descriptionWordCount < 25) value += 22;
+
+  return value || 4;
+}
+
+function getPdpContentSignalDetail(metrics) {
+  const contentIssueCount = Number(metrics.contentIssueCount || 0);
+  const contentQualityRisk = Number(metrics.contentQualityRisk || 0);
+  const contentQualityScore = Number(metrics.contentQualityScore);
+  const descriptionWordCount = Number(metrics.descriptionWordCount);
+  const contentIssues = getContentIssueLabels(metrics);
+  const pieces = [];
+
+  if (Number.isFinite(descriptionWordCount)) pieces.push(`${descriptionWordCount} description words`);
+  if (Number.isFinite(contentQualityScore)) pieces.push(`content quality ${contentQualityScore}/100`);
+  if (contentIssueCount) pieces.push(`${contentIssueCount} content issue${contentIssueCount === 1 ? "" : "s"}`);
+  if (contentQualityRisk) pieces.push(`PDP content risk ${Math.round(contentQualityRisk)}/100`);
+  if (contentIssues.length) pieces.push(`Issues: ${contentIssues.slice(0, 3).join(", ")}`);
+
+  return pieces.length
+    ? `${pieces.join(". ")}.`
+    : "PDP copy and description quality require a full product diagnosis before this bar has detail.";
+}
+
+function getReviewSignalValue(metrics) {
+  const reviewCount = getReviewCount(metrics);
+  if (!reviewCount) return 4;
+
+  const negativeReviewCount = Number(metrics.negativeReviewCount || metrics.csvLowRatingCount || 0);
+  const negativeReviewRate = Number(metrics.negativeReviewRate || metrics.csvNegativeRatingRate || 0);
+  const averageRating = Number(metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating || 0);
+  const ratingPressure = averageRating > 0 ? Math.max(0, 4 - averageRating) * 14 : 0;
+  const samplePressure = Math.min(18, Math.log2(reviewCount + 1) * 4);
+  const criticalPressure = Number(metrics.csvCriticalRatingCount || 0) * 5;
+  const csvRatingRisk = Number(metrics.csvRatingRisk || metrics.riskComponents?.csvRatingRisk || 0);
+
+  return negativeReviewRate * 0.7
+    + ratingPressure
+    + samplePressure
+    + criticalPressure
+    + csvRatingRisk * 0.55
+    + negativeReviewCount * 2;
+}
+
+function getReviewSignalDetail(metrics) {
+  const reviewCount = getReviewCount(metrics);
+  if (!reviewCount) return "No connected review rating signal has been matched to this product yet.";
+
+  const negativeReviewCount = Number(metrics.negativeReviewCount || metrics.csvLowRatingCount || 0);
+  const negativeReviewRate = Number(metrics.negativeReviewRate || metrics.csvNegativeRatingRate || 0);
+  const averageRating = Number(metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating || 0);
+  const sourceBreakdown = getReviewSourceBreakdown(metrics);
+  const sourceText = sourceBreakdown.length ? ` Sources: ${sourceBreakdown.join(", ")}.` : "";
+
+  return `${reviewCount} review rating${reviewCount === 1 ? "" : "s"}, ${negativeReviewCount} negative or low-rated (${formatPercent(negativeReviewRate)}), average rating ${averageRating ? averageRating.toFixed(1) : "n/a"}.${sourceText}`;
+}
+
+function getRepeatedReasonSignalValue(metrics) {
+  const repeatedReasonUnits = getReasonSignalUnits(metrics.topReturnReasonDetails || metrics.topReturnReasons)
+    + getReasonSignalUnits(metrics.topRefundReasonDetails || metrics.topRefundReasons);
+  const repeatedLanguageUnits = getRepeatedLanguageUnits(metrics);
+  const affectedVariantUnits = getList(metrics.affectedVariants).length;
+  const repeatedReasonRisk = Number(metrics.riskComponents?.repeatedReasonRisk || 0);
+  const variantRisk = Number(metrics.riskComponents?.variantConcentration || 0);
+
+  return repeatedReasonRisk
+    + variantRisk
+    + repeatedReasonUnits * 8
+    + repeatedLanguageUnits * 6
+    + affectedVariantUnits * 5;
+}
+
+function getRepeatedReasonSignalDetail(metrics) {
+  const reasons = [
+    ...getReasonLabels(metrics.topReturnReasonDetails || metrics.topReturnReasons, "return"),
+    ...getReasonLabels(metrics.topRefundReasonDetails || metrics.topRefundReasons, "refund"),
+  ];
+  const repeatedLanguage = getRepeatedLanguageLabels(metrics);
+  const affectedVariants = getList(metrics.affectedVariants);
+  const pieces = [];
+
+  if (reasons.length) pieces.push(`Repeated reasons: ${reasons.slice(0, 4).join(", ")}`);
+  if (repeatedLanguage.length) pieces.push(`Repeated language: ${repeatedLanguage.slice(0, 4).join(", ")}`);
+  if (affectedVariants.length) pieces.push(`Affected variants: ${affectedVariants.slice(0, 4).join(", ")}`);
+
+  return pieces.length
+    ? `${pieces.join(". ")}.`
+    : "No repeated reason, language cluster, or variant concentration has been captured yet.";
+}
+
+function getRefundSignalValue(metrics) {
+  const refundRate = Number(metrics.refundRate || 0);
+  const refundUnits = Number(metrics.refundUnits || 0);
+  const refundAmount = Number(metrics.refundAmount || 0);
+  const refundRisk = Number(metrics.riskComponents?.refundRisk || 0);
+  const refundPressureRisk = Number(metrics.riskComponents?.refundPressureRisk || 0);
+  const impactRisk = Number(metrics.riskComponents?.impactRisk || 0);
+  const refundOperationalRisk = Number(metrics.refundInsights?.riskLift || 0);
+  const refundReasonUnits = getReasonSignalUnits(metrics.topRefundReasonDetails || metrics.topRefundReasons);
+
+  return Math.max(refundRisk, refundPressureRisk)
+    + impactRisk * 0.75
+    + refundOperationalRisk * 5
+    + refundRate * 1.9
+    + refundUnits * 4.5
+    + Math.log10(refundAmount + 1) * 9
+    + refundReasonUnits * 4;
+}
+
+function getRefundSignalDetail(metrics) {
+  const refundRate = Number(metrics.refundRate || 0);
+  const refundUnits = Number(metrics.refundUnits || 0);
+  const refundAmount = Number(metrics.refundAmount || 0);
+  const refundReasons = getReasonLabels(metrics.topRefundReasonDetails || metrics.topRefundReasons, "refund");
+  const notes = getList(metrics.refundNotes);
+  const pieces = [
+    `${refundUnits} refunded unit${refundUnits === 1 ? "" : "s"}`,
+    `${formatPercent(refundRate)} refund rate`,
+    `${formatMoney(refundAmount)} refunded`,
+  ];
+
+  if (refundReasons.length) pieces.push(`Reasons: ${refundReasons.slice(0, 3).join(", ")}`);
+  if (notes.length) pieces.push(`Notes captured: ${notes.length}`);
+
+  return `${pieces.join(". ")}.`;
+}
+
+function getReturnSignalValue(metrics) {
+  const returnRate = Number(metrics.returnRate || 0);
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const returnRisk = Number(metrics.riskComponents?.returnRisk || 0);
+  const repeatedReasonRisk = Number(metrics.riskComponents?.repeatedReasonRisk || 0);
+  const returnReasonUnits = getReasonSignalUnits(metrics.topReturnReasonDetails || metrics.topReturnReasons);
+
+  return returnRisk
+    + repeatedReasonRisk * 0.45
+    + returnRate * 2.15
+    + returnUnits * 5
+    + returnReasonUnits * 4;
+}
+
+function getReturnSignalDetail(metrics) {
+  const returnRate = Number(metrics.returnRate || 0);
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const reasons = getReasonLabels(metrics.topReturnReasonDetails || metrics.topReturnReasons, "return");
+  const pieces = [
+    `${returnUnits} return unit${returnUnits === 1 ? "" : "s"}`,
+    `${formatPercent(returnRate)} return rate`,
+  ];
+
+  if (reasons.length) pieces.push(`Reasons: ${reasons.slice(0, 4).join(", ")}`);
+  return `${pieces.join(". ")}.`;
+}
+
+function getRecentTrendSignalValue(metrics) {
+  const recentSpike = Number(metrics.riskComponents?.recentSpike || 0);
+  const recentSignalUnits = Number(metrics.recentSignalUnits || 0);
+  const trendValues = getNumericList(metrics.signalTrend);
+  if (!trendValues.length) return recentSpike + recentSignalUnits * 11;
+
+  const maxTrend = Math.max(...trendValues, 1);
+  const lastTrend = trendValues[trendValues.length - 1] || 0;
+  const firstTrend = trendValues[0] || 0;
+  const directionPressure = Math.max(0, lastTrend - firstTrend) * 0.45;
+  return recentSpike + recentSignalUnits * 8 + (lastTrend / maxTrend) * 42 + directionPressure;
+}
+
+function getRecentTrendSignalDetail(metrics) {
+  const recentSignalUnits = Number(metrics.recentSignalUnits || 0);
+  const lastSignalAt = metrics.lastSignalAt ? formatJobDate(metrics.lastSignalAt) : "No recent signal date";
+  const trendValues = getNumericList(metrics.signalTrend);
+  const movement = getTrendMovementLabel(trendValues);
+  return `${recentSignalUnits} recent signal unit${recentSignalUnits === 1 ? "" : "s"}. Last signal: ${lastSignalAt}. Trend movement: ${movement}.`;
+}
+
+function getTrendMovementLabel(values) {
+  if (!values.length) return "not enough dated signal data yet";
+  const first = values[0] || 0;
+  const last = values[values.length - 1] || 0;
+  const peak = Math.max(...values);
+  const peakIndex = values.indexOf(peak);
+  if (peak > Math.max(first, last) * 1.35 && peakIndex > 0 && peakIndex < values.length - 1) return "past spike";
+  if (last > first * 1.2) return "rising";
+  if (last < first * 0.8) return "falling";
+  return "stable";
+}
+
+function getReviewCount(metrics) {
+  return Number(metrics.reviewCount || 0)
+    || Number(metrics.csvReviewRatingCount || 0)
+    || Number(metrics.csvReviewCount || 0)
+    || Number(metrics.judgeMeReviewCount || 0);
+}
+
+function getReviewSourceBreakdown(metrics) {
+  const sources = [];
+  const judgeMeCount = Number(metrics.judgeMeReviewCount || metrics.reviewSourceStats?.judgeMe?.reviewCount || 0);
+  const csvCount = Number(metrics.csvReviewRatingCount || metrics.csvReviewCount || metrics.reviewSourceStats?.csv?.reviewCount || 0);
+  if (judgeMeCount) sources.push(`Judge.me ${judgeMeCount}`);
+  if (csvCount) sources.push(`CSV ${csvCount}`);
+  return sources;
+}
+
+function getContentIssueLabels(metrics) {
+  return getList(metrics.contentIssues).map((issue) => {
+    if (typeof issue === "string") return issue;
+    return issue.label || issue.title || issue.code || issue.issueCode || "";
+  }).filter(Boolean);
+}
+
+function getReasonSignalUnits(value) {
+  const list = getList(value);
+  if (!list.length) return 0;
+  return list.reduce((sum, item) => {
+    if (typeof item === "string") return sum + 1;
+    return sum + Math.max(1, Number(item.count || item.quantity || item.units || 1));
+  }, 0);
+}
+
+function getReasonLabels(value, fallbackType) {
+  return getList(value).map((item) => {
+    if (typeof item === "string") return item;
+    const label = item.label || item.reason || item.name || item.value || fallbackType;
+    const count = Number(item.count || item.quantity || item.units || 0);
+    return count > 1 ? `${label} (${count})` : label;
+  }).filter(Boolean);
+}
+
+function getRepeatedLanguageUnits(metrics) {
+  return getList(metrics.textInsights?.repeatedLanguage).reduce((sum, item) => {
+    if (typeof item === "string") return sum + 1;
+    return sum + Math.max(1, Number(item.count || 1));
+  }, 0);
+}
+
+function getRepeatedLanguageLabels(metrics) {
+  return getList(metrics.textInsights?.repeatedLanguage).map((item) => {
+    if (typeof item === "string") return item;
+    const label = item.term || item.label || item.phrase || item.value || "";
+    const count = Number(item.count || 0);
+    return label ? `${label}${count > 1 ? ` (${count})` : ""}` : "";
+  }).filter(Boolean);
+}
+
+function getNumericList(value) {
+  return getList(value).map(Number).filter((item) => Number.isFinite(item));
+}
+
+function getList(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function hasText(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function formatPercent(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0%";
+  return `${Math.round(number * 10) / 10}%`;
+}
+
+function clampSignalBar(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 4;
+  return Math.round(Math.min(100, Math.max(4, number)));
 }
 
 export const __productPulseJobsTestHooks = {
   buildProductPulseFaqHtml,
+  getSignalLifecycleBars,
   normalizeFaqItemsForApply,
   getFaqApplyVariant,
 };

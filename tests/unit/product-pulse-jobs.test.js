@@ -43,4 +43,54 @@ describe("ProductPulse product job helpers", () => {
 
     expect(parsed).toEqual([{ question: "Edited question?", answer: "Edited answer." }]);
   });
+
+  it("builds product-list signal bars in lifecycle order with real metric detail", () => {
+    const bars = productPulseJobsTestHooks.getSignalLifecycleBars({
+      productType: "Toys",
+      vendor: "Qorve",
+      tags: ["gift", "kids"],
+      collections: ["Featured"],
+      variantCount: 3,
+      skuCount: 2,
+      optionNames: ["Color"],
+      descriptionWordCount: 12,
+      contentIssueCount: 1,
+      contentQualityRisk: 10,
+      reviewCount: 12,
+      negativeReviewCount: 5,
+      negativeReviewRate: 41.6,
+      avgRating: 3.1,
+      topReturnReasonDetails: [{ label: "Scary packaging", count: 4 }],
+      topRefundReasonDetails: [{ label: "Damaged before shipment", count: 2 }],
+      affectedVariants: ["Blue"],
+      refundRate: 18,
+      refundUnits: 3,
+      refundAmount: 250,
+      returnRate: 24,
+      returnUnits: 5,
+      recentSignalUnits: 2,
+      signalTrend: [1, 0, 3, 6],
+      riskComponents: {
+        returnRisk: 38,
+        refundRisk: 24,
+        repeatedReasonRisk: 20,
+        recentSpike: 16,
+      },
+    });
+
+    expect(bars.map((bar) => bar.label)).toEqual([
+      "Product setup",
+      "PDP content",
+      "Reviews",
+      "Repeated reasons",
+      "Refund pressure",
+      "Return pressure",
+      "Recent trend",
+    ]);
+    expect(bars.some((bar) => bar.label === "Baseline")).toBe(false);
+    expect(bars.find((bar) => bar.label === "Product setup").detail).toContain("catalog checks");
+    expect(bars.find((bar) => bar.label === "Refund pressure").detail).toContain("refund rate");
+    expect(bars.find((bar) => bar.label === "Return pressure").detail).toContain("return rate");
+    expect(new Set(bars.map((bar) => bar.value)).size).toBeGreaterThan(4);
+  });
 });

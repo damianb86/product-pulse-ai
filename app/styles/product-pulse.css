@@ -753,7 +753,7 @@ s-page[inline-size="large-500"] {
   z-index: 30;
   top: calc(100% + 8px);
   left: 0;
-  width: 320px;
+  width: 380px;
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -781,7 +781,7 @@ s-page[inline-size="large-500"] {
 
 .ppSignalPopoverItem {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
 }

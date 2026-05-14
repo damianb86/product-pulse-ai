@@ -1486,6 +1486,10 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       vendor: aggregate.product.vendor,
       tags: aggregate.product.tags,
       collections: aggregate.product.collections.map((collection) => collection.title).filter(Boolean),
+      variantCount: aggregate.product.variants.length,
+      skuCount: aggregate.product.variants.filter((variant) => variant.sku).length,
+      optionNames: aggregate.product.options.map((option) => option.name).filter(Boolean),
+      productStatus: aggregate.product.status,
     },
   };
 }

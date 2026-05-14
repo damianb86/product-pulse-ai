@@ -3190,16 +3190,22 @@ function ProductSignalCell({ product }) {
 
 function buildFallbackSignalDetails(product) {
   const values = product.signalBars || [];
-  const labels = ["Baseline", "Return rate", "Refund rate", "Recent spike", "Signal volume", "Repeated reasons", "Variant concentration"];
+  const fallbackBars = [
+    ["Product setup", "Catalog setup, type, vendor, tags, collections, variants and SKUs."],
+    ["PDP content", "Product page description and content-quality signals."],
+    ["Reviews", "Connected review rating and negative-review pressure."],
+    ["Repeated reasons", "Repeated return reasons, refund reasons, customer language or affected variants."],
+    ["Refund pressure", "Refund units, refund rate, refund amount and refund notes."],
+    ["Return pressure", "Return units, return rate and return reasons."],
+    ["Recent trend", "Recent dated signal momentum in the latest scan window."],
+  ];
 
   return {
-    summary: `${product.issue || "Product quality"} risk score ${product.riskScore || 0}/100 from ${product.signals || 0} signals.`,
-    bars: labels.map((label, index) => ({
+    summary: `${product.issue || "Product quality"} risk score ${product.riskScore || 0}/100 from ${product.signals || 0} signals. Bars run left to right from product setup to post-purchase pressure.`,
+    bars: fallbackBars.map(([label, detail], index) => ({
       label,
       value: values[index] || 0,
-      detail: index === 0
-        ? "Minimum Shopify catalog context for this product."
-        : `Contribution from ${label.toLowerCase()} signals in the latest scan.`,
+      detail,
     })),
   };
 }
