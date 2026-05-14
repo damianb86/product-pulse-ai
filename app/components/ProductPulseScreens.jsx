@@ -1900,13 +1900,52 @@ function getProductEvidenceSources(product) {
   if (!product.evidence?.length) return [];
 
   return product.evidence
-    .map((item) => ({
-      icon: getEvidenceIcon(item.source),
-      title: `${item.source}`,
-      points: getEvidencePoints(item, product),
-      priority: getEvidenceSourcePriority(item.source),
-    }))
+    .map((item) => {
+      const points = getEvidencePoints(item, product);
+      return {
+        icon: getEvidenceIcon(item.source),
+        title: `${item.source}`,
+        summary: getEvidenceSourceSummary(item.source, points, product),
+        tone: getEvidenceSourceTone(item.source, points),
+        points,
+        priority: getEvidenceSourcePriority(item.source),
+      };
+    })
     .sort((first, second) => first.priority - second.priority);
+}
+
+function getEvidenceSourceSummary(source, points = [], product = {}) {
+  const normalized = String(source || "").toLowerCase();
+  const metrics = product.metrics || {};
+  const firstPoint = points.find(Boolean) || "No stored details yet.";
+
+  if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) {
+    return "Customer language is being interpreted as diagnostic evidence, including sentiment, emotion taxonomy and recurring phrases.";
+  }
+  if (normalized.includes("return")) {
+    return `Return behavior is contributing to the product risk model${metrics.returnRate ? ` with a ${metrics.returnRate}% return rate` : ""}.`;
+  }
+  if (normalized.includes("refund")) {
+    return `Refund pressure is tracked separately from returns to highlight financial impact${metrics.refundAmount ? ` (${formatMoney(metrics.refundAmount)})` : ""}.`;
+  }
+  if (normalized.includes("review") || normalized.includes("judge")) {
+    return "Review evidence connects rating pressure, negative language and customer-reported expectations to the diagnosis.";
+  }
+  if (normalized.includes("variant")) {
+    return "Variant evidence shows whether signals concentrate in a specific SKU, size, color or option.";
+  }
+  if (normalized.includes("product") || normalized.includes("shopify")) {
+    return "Shopify product metadata is used as baseline context for content quality, variants, tags and merchandising structure.";
+  }
+  return firstPoint;
+}
+
+function getEvidenceSourceTone(source, points = []) {
+  const normalized = `${source || ""} ${points.join(" ")}`.toLowerCase();
+  if (normalized.includes("negative") || normalized.includes("refund") || normalized.includes("return") || normalized.includes("high risk")) return "critical";
+  if (normalized.includes("emotion") || normalized.includes("sentiment") || normalized.includes("ai ")) return "insight";
+  if (normalized.includes("positive") || normalized.includes("healthy")) return "success";
+  return "neutral";
 }
 
 function getEvidencePoints(item, product) {
@@ -3260,31 +3299,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             </s-section>
 
             <s-section padding="none">
-              <div className="ppProductPanel">
-                <h2>Evidence by source</h2>
-                {detail.evidenceSources.length > 0 ? (
-                  <>
-                    <div className="ppEvidenceTabs" role="tablist" aria-label="Evidence sources">
-                      {detail.evidenceSources.map((source, index) => (
-                        <button
-                          className={index === selectedEvidenceIndex ? "isActive" : ""}
-                          type="button"
-                          role="tab"
-                          aria-selected={index === selectedEvidenceIndex}
-                          key={source.title}
-                          onClick={() => setSelectedEvidenceIndex(index)}
-                        >
-                          <s-icon type={source.icon} size="small"></s-icon>
-                          {source.title}
-                        </button>
-                      ))}
-                    </div>
-                    <EvidenceSourceCard source={selectedEvidence} featured />
-                  </>
-                ) : (
-                  <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
-                )}
-              </div>
+              <EvidenceObservabilityPanel
+                detail={detail}
+                selectedEvidence={selectedEvidence}
+                selectedEvidenceIndex={selectedEvidenceIndex}
+                onSelectEvidence={setSelectedEvidenceIndex}
+              />
             </s-section>
           </div>
           <s-section padding="none">
@@ -3829,36 +3849,186 @@ function getInsightMetricHelp(title) {
   }
 }
 
-function EvidenceSourceCard({ source, featured = false }) {
-  return (
-    <article className={`ppEvidenceSourceCard ${featured ? "isFeatured" : ""}`.trim()}>
-      <div className="ppEvidenceSourceHeader">
-        <h3>
-          <s-icon type={source.icon} size="small"></s-icon>
-          {source.title}
-        </h3>
-        <span>{source.points.length} signals</span>
+function EvidenceObservabilityPanel({ detail, selectedEvidence, selectedEvidenceIndex, onSelectEvidence }) {
+  const sources = detail.evidenceSources || [];
+  if (!sources.length) {
+    return (
+      <div className="ppProductPanel ppEvidenceObservabilityPanel">
+        <EvidenceObservabilityHeader detail={detail} />
+        <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
       </div>
-      <div className="ppEvidencePointList">
-        {source.points.map((point, index) => (
-          <EvidencePoint point={point} key={`${point}-${index}`} />
+    );
+  }
+
+  const activeSource = selectedEvidence || sources[0];
+  const sourceSignals = sources.reduce((sum, source) => sum + source.points.length, 0);
+  const topIssues = detail.detectedIssues.slice(0, 3);
+  const trendTone = getTrendTone(detail.riskTrend, detail.riskScore);
+  const trendLabel = getEvidenceTrendLabel(detail.riskTrend);
+
+  return (
+    <div className="ppProductPanel ppEvidenceObservabilityPanel">
+      <EvidenceObservabilityHeader detail={detail} />
+
+      <div className="ppEvidenceExecutiveGrid" aria-label="Evidence summary">
+        <EvidenceExecutiveCard
+          label="Primary driver"
+          value={topIssues[0]?.issue || detail.issueCategory}
+          detail={topIssues[0]?.action || detail.issueDetail}
+          tone={topIssues[0]?.tone || detail.riskBadgeTone}
+        />
+        <EvidenceExecutiveCard
+          label="Source agreement"
+          value={sources.length > 1 ? `${sources.length} sources` : "Single source"}
+          detail={`${sourceSignals} supporting signal${sourceSignals === 1 ? "" : "s"} stored for this product`}
+          tone={sources.length > 2 ? "success" : "neutral"}
+        />
+        <EvidenceExecutiveCard
+          label="Signal trend"
+          value={trendLabel}
+          detail={`${detail.confidence}% confidence across current evidence`}
+          tone={trendTone === "red" ? "critical" : trendTone === "green" ? "success" : "warning"}
+          trend={detail.riskTrend}
+        />
+      </div>
+
+      <div className="ppEvidenceSourceRail" role="tablist" aria-label="Evidence source filters">
+        {sources.map((source, index) => (
+          <button
+            className={index === selectedEvidenceIndex ? "isActive" : ""}
+            type="button"
+            role="tab"
+            aria-selected={index === selectedEvidenceIndex}
+            aria-label={source.title}
+            key={source.title}
+            onClick={() => onSelectEvidence(index)}
+          >
+            <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${source.tone}`}>
+              <s-icon type={source.icon} size="small"></s-icon>
+            </span>
+            <span>
+              <strong>{source.title}</strong>
+              <small>{source.points.length} findings</small>
+            </span>
+          </button>
         ))}
       </div>
-    </article>
+
+      <div className="ppEvidenceObservabilityGrid">
+        <article className="ppEvidenceActiveFinding">
+          <div className="ppEvidenceActiveHeader">
+            <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${activeSource.tone}`}>
+              <s-icon type={activeSource.icon} size="small"></s-icon>
+            </span>
+            <div>
+              <span>Active source</span>
+              <h3>{activeSource.title}</h3>
+            </div>
+            <span className="ppEvidenceSignalCount">{activeSource.points.length} signals</span>
+          </div>
+
+          <p className="ppEvidenceAiSummary">{activeSource.summary}</p>
+
+          <div className="ppEvidenceFindingStream">
+            {activeSource.points.map((point, index) => (
+              <EvidenceFinding point={point} index={index} key={`${point}-${index}`} />
+            ))}
+          </div>
+        </article>
+
+        <aside className="ppEvidenceContextColumn" aria-label="Evidence context">
+          <div className="ppEvidenceContextCard">
+            <span>Linked diagnostics</span>
+            {topIssues.length > 0 ? (
+              <div className="ppEvidenceLinkedIssues">
+                {topIssues.map((issue) => (
+                  <div key={issue.issue}>
+                    <strong>{issue.issue}</strong>
+                    <small>{issue.severity} severity / {issue.confidence} confidence</small>
+                    <MiniTrend tone={issue.trendTone} values={issue.trend} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>No deterministic issue linked yet.</p>
+            )}
+          </div>
+
+          <div className="ppEvidenceContextCard">
+            <span>Depth levels</span>
+            <ol className="ppEvidenceDepthList">
+              <li><strong>Executive summary</strong><small>Risk driver, source agreement and confidence.</small></li>
+              <li><strong>Insights</strong><small>AI-readable findings from the selected evidence source.</small></li>
+              <li><strong>Supporting evidence</strong><small>Signal-level facts used by the diagnosis.</small></li>
+              <li><strong>Raw source data</strong><small>{activeSource.points.slice(-2).join(" | ") || "No raw source detail stored."}</small></li>
+            </ol>
+          </div>
+        </aside>
+      </div>
+    </div>
   );
 }
 
-function EvidencePoint({ point }) {
+function EvidenceObservabilityHeader({ detail }) {
+  return (
+    <div className="ppEvidenceObservabilityHeader">
+      <div>
+        <span>AI evidence graph</span>
+        <h2>Evidence by source</h2>
+        <p>
+          ProductPulse connects product signals into diagnostic findings so you can see why the issue exists,
+          which sources agree, and what evidence supports the recommendation.
+        </p>
+      </div>
+      <div className="ppEvidenceHeaderMeta">
+        <strong>{detail.evidenceSources.length}</strong>
+        <span>sources</span>
+      </div>
+    </div>
+  );
+}
+
+function EvidenceExecutiveCard({ label, value, detail, tone = "neutral", trend = null }) {
+  return (
+    <div className={`ppEvidenceExecutiveCard ppEvidenceExecutive-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+      {Array.isArray(trend) && trend.length > 0 && <MiniTrend tone={getTrendTone(trend)} values={trend} />}
+    </div>
+  );
+}
+
+function EvidenceFinding({ point, index }) {
   const parsed = parseEvidencePoint(point);
   return (
-    <div className={`ppEvidencePoint ppEvidencePoint-${parsed.tone}`} aria-label={point}>
-      <span className="ppEvidencePointMarker" aria-hidden="true"></span>
+    <div className={`ppEvidenceFinding ppEvidenceFinding-${parsed.tone}`} aria-label={point}>
+      <span className="ppEvidenceFindingIndex">{String(index + 1).padStart(2, "0")}</span>
       <div>
-        {parsed.label && <strong>{parsed.label}</strong>}
+        <strong>{parsed.label || getEvidenceFindingTitle(point)}</strong>
         <p>{renderEvidenceText(parsed.body || parsed.label || point)}</p>
       </div>
     </div>
   );
+}
+
+function getEvidenceTrendLabel(values = []) {
+  const trendValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
+  if (trendValues.length < 2) return "No trend";
+  const first = trendValues[0];
+  const last = trendValues[trendValues.length - 1];
+  if (last > first) return "Increasing";
+  if (last < first) return "Improving";
+  return "Stable";
+}
+
+function getEvidenceFindingTitle(point) {
+  const tone = getEvidencePointTone(point);
+  if (tone === "negative") return "Risk signal detected";
+  if (tone === "positive") return "Positive signal observed";
+  if (tone === "insight") return "AI language insight";
+  if (tone === "neutral") return "Context signal";
+  return "Supporting finding";
 }
 
 function parseEvidencePoint(point) {

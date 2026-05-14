@@ -2128,6 +2128,416 @@ s-page[inline-size="large-500"] {
   font-style: normal;
 }
 
+.ppEvidenceObservabilityPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--pp-slate-700-rgb), 0.12);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(var(--pp-slate-100-rgb), 0.52)),
+    var(--pp-cloud-white);
+  box-shadow: 0 1px 1px rgba(var(--pp-shadow-rgb), 0.04), 0 16px 40px rgba(var(--pp-shadow-rgb), 0.07);
+}
+
+.ppEvidenceObservabilityHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
+  padding-bottom: 2px;
+}
+
+.ppEvidenceObservabilityHeader span,
+.ppEvidenceContextCard > span,
+.ppEvidenceActiveHeader > div > span,
+.ppEvidenceExecutiveCard > span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ppEvidenceObservabilityHeader h2 {
+  margin: 5px 0 7px;
+  color: var(--pp-slate-900);
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+
+.ppEvidenceObservabilityHeader p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ppEvidenceHeaderMeta {
+  min-width: 86px;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppEvidenceHeaderMeta strong {
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.ppEvidenceHeaderMeta span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppEvidenceExecutiveGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppEvidenceExecutiveCard {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.ppEvidenceExecutiveCard strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidenceExecutiveCard small {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ppEvidenceExecutive-critical {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.22);
+  background: rgba(var(--pp-risk-red-rgb), 0.04);
+}
+
+.ppEvidenceExecutive-warning {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.24);
+  background: rgba(var(--pp-warning-amber-rgb), 0.05);
+}
+
+.ppEvidenceExecutive-success {
+  border-color: rgba(var(--pp-success-green-rgb), 0.22);
+  background: rgba(var(--pp-success-green-rgb), 0.05);
+}
+
+.ppEvidenceSourceRail {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+}
+
+.ppEvidenceSourceRail button {
+  min-width: 150px;
+  display: inline-grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--pp-slate-700);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ppEvidenceSourceRail button:hover,
+.ppEvidenceSourceRail button.isActive {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-cloud-white);
+  box-shadow: 0 8px 24px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppEvidenceSourceRail button.isActive {
+  color: var(--pp-slate-900);
+}
+
+.ppEvidenceSourceRail strong,
+.ppEvidenceSourceRail small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidenceSourceRail strong {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ppEvidenceSourceRail small {
+  margin-top: 2px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+}
+
+.ppEvidenceSourceGlyph {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceTone-critical {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppEvidenceTone-insight {
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppEvidenceTone-success {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppEvidenceTone-neutral {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+}
+
+.ppEvidenceObservabilityGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.7fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.ppEvidenceActiveFinding,
+.ppEvidenceContextCard {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppEvidenceActiveFinding {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.ppEvidenceActiveHeader {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+}
+
+.ppEvidenceActiveHeader h3 {
+  margin: 3px 0 0;
+  color: var(--pp-slate-900);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ppEvidenceSignalCount {
+  padding: 5px 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ppEvidenceAiSummary {
+  margin: 0;
+  padding: 12px 13px;
+  border-left: 3px solid var(--pp-insight-violet);
+  border-radius: 10px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.055);
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ppEvidenceFindingStream {
+  display: grid;
+  gap: 9px;
+}
+
+.ppEvidenceFinding {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 11px 0;
+  border-top: 1px solid var(--pp-slate-200);
+}
+
+.ppEvidenceFinding:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ppEvidenceFindingIndex {
+  width: 28px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppEvidenceFinding strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.ppEvidenceFinding p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppEvidenceFinding-negative .ppEvidenceFindingIndex {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppEvidenceFinding-positive .ppEvidenceFindingIndex {
+  background: var(--pp-green-soft);
+  color: #15803d;
+}
+
+.ppEvidenceFinding-insight .ppEvidenceFindingIndex {
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppEvidenceContextColumn {
+  display: grid;
+  gap: 10px;
+}
+
+.ppEvidenceContextCard {
+  display: grid;
+  gap: 11px;
+  padding: 13px;
+}
+
+.ppEvidenceContextCard p {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+}
+
+.ppEvidenceLinkedIssues {
+  display: grid;
+  gap: 8px;
+}
+
+.ppEvidenceLinkedIssues > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-mist-gray);
+}
+
+.ppEvidenceLinkedIssues strong,
+.ppEvidenceLinkedIssues small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidenceLinkedIssues strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppEvidenceLinkedIssues small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+}
+
+.ppEvidenceLinkedIssues .ppMiniTrend {
+  grid-row: span 2;
+}
+
+.ppEvidenceDepthList {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppEvidenceDepthList li {
+  display: grid;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 2px solid var(--pp-slate-200);
+}
+
+.ppEvidenceDepthList strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppEvidenceDepthList small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .ppIssuesTableWrap {
   position: relative;
   overflow: visible;
@@ -7370,10 +7780,25 @@ s-page[inline-size="large-500"] {
   .ppProductSummaryGrid,
   .ppRiskSnapshot,
   .ppProductDetailGrid,
+  .ppEvidenceExecutiveGrid,
+  .ppEvidenceObservabilityGrid,
   .ppEvidenceSourceGrid,
   .ppEvidencePointList,
   .ppCheckedGrid {
     grid-template-columns: 1fr;
+  }
+
+  .ppEvidenceObservabilityHeader,
+  .ppEvidenceActiveHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .ppEvidenceHeaderMeta {
+    justify-items: start;
+  }
+
+  .ppEvidenceSourceRail button {
+    min-width: 186px;
   }
 
   .ppAnalyticsPanelRiskMargin,

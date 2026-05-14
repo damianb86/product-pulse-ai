@@ -219,6 +219,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Deep analysis completed").length).toBeGreaterThan(0);
     expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
+    expect(screen.getByText("AI evidence graph")).toBeInTheDocument();
+    expect(screen.getByText("Linked diagnostics")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit suggested text for Add fit note" }));
@@ -339,7 +341,7 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    expect(screen.getByText("Fear or safety concern")).toBeInTheDocument();
+    expect(screen.getAllByText("Fear or safety concern").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: /Customer language analysis/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByLabelText("All customer text sentiment: 3 negative, 1 neutral, 0 positive")).toBeInTheDocument();

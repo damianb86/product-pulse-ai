@@ -15,5 +15,5 @@ test("supports narrow viewport without hiding primary content", async ({ page })
   await page.goto("/preview");
 
   await expect(page.getByText("Product quality signals from reviews").first()).toBeVisible();
-  await expect(page.getByText("Linen Shirt").first()).toBeVisible();
+  await expect(page.getByText("Ceramic Pour Over").first()).toBeVisible();
 });
