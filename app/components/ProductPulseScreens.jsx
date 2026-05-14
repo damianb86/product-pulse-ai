@@ -2912,6 +2912,7 @@ export function AnalyticsScreen({ data }) {
               <h2>
                 <s-icon type="lightbulb" size="small"></s-icon>
                 Top insights
+                <AnalyticsInfoPopover info={getAnalyticsPanelInfo("Top insights")} />
               </h2>
               <div className="ppTopInsightList">
                 {topInsights.map((insight) => (
@@ -2928,7 +2929,10 @@ export function AnalyticsScreen({ data }) {
             <div className="ppAnalyticsPanel ppBusinessImpactPanel">
               <div className="ppAnalyticsPanelHeader">
                 <div>
-                  <h2>{businessImpact.title}</h2>
+                  <h2>
+                    {businessImpact.title}
+                    <AnalyticsInfoPopover info={getAnalyticsPanelInfo(businessImpact.title)} />
+                  </h2>
                   <p>{businessImpact.subtitle}</p>
                 </div>
               </div>
@@ -4189,6 +4193,8 @@ function AnalyticsKpiCard({ kpi }) {
 }
 
 function AnalyticsPanel({ title, subtitle, action, className = "", children }) {
+  const info = getAnalyticsPanelInfo(title);
+
   return (
     <s-section padding="none">
       <div className={`ppAnalyticsPanel ${className}`.trim()}>
@@ -4196,7 +4202,7 @@ function AnalyticsPanel({ title, subtitle, action, className = "", children }) {
           <div>
             <h2>
               {title}
-              <s-icon type="info" size="small" color="subdued"></s-icon>
+              <AnalyticsInfoPopover info={info} />
             </h2>
             {subtitle && <p>{subtitle}</p>}
           </div>
@@ -4206,6 +4212,118 @@ function AnalyticsPanel({ title, subtitle, action, className = "", children }) {
       </div>
     </s-section>
   );
+}
+
+function AnalyticsInfoPopover({ info }) {
+  const panelInfo = info || getAnalyticsPanelInfo("");
+  return (
+    <span className="ppAnalyticsInfoPopover">
+      <button className="ppAnalyticsInfoButton" type="button" aria-label={`About ${panelInfo.title}`}>
+        <s-icon type="info" size="small" color="subdued"></s-icon>
+      </button>
+      <span className="ppAnalyticsInfoBubble" role="tooltip">
+        <strong>{panelInfo.title}</strong>
+        <span>{panelInfo.body}</span>
+        {panelInfo.items?.length > 0 && (
+          <span className="ppAnalyticsInfoList">
+            {panelInfo.items.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+function getAnalyticsPanelInfo(title = "") {
+  const normalizedTitle = String(title).toLowerCase();
+  if (normalizedTitle.includes("risk signals over time")) {
+    return {
+      title: "Risk signals over time",
+      body: "Shows how stored product-quality signals are moving across the current scan window. It uses saved QuickScan and full diagnosis trend arrays, not synthetic forecast data.",
+      items: [
+        "Red, amber and green lines separate high, medium and low risk buckets.",
+        "Each point is built from the available signal trend stored for products in that bucket.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("issue distribution")) {
+    return {
+      title: "Issue distribution by type",
+      body: "Groups all detected issues into readable issue clusters and sums the stored signal count behind each cluster.",
+      items: [
+        "Full diagnosis issues are used first when available.",
+        "QuickScan products fall back to their primary issue and signal count.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("source contribution")) {
+    return {
+      title: "Source contribution",
+      body: "Breaks down where the evidence is coming from so you can see which sources are driving the current risk picture.",
+      items: [
+        "Includes returns, refunds, reviews, customer language and product-content checks when those signals exist.",
+        "If no detailed counts exist, it falls back to stored source coverage.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("risk vs") || normalizedTitle.includes("risk versus")) {
+    return {
+      title: "Risk vs. margin impact",
+      body: "Plots products by risk and estimated margin exposure so you can prioritize work by urgency and financial relevance.",
+      items: [
+        "X-axis: deterministic product risk score from 0 to 100.",
+        "Y-axis and bubble size: estimated margin at risk for that product.",
+        "Hover a bubble for product details; click it to open the product diagnosis page.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("margin at risk by collection")) {
+    return {
+      title: "Margin at risk by collection",
+      body: "Aggregates product-level margin exposure into Shopify collections or product-type fallbacks.",
+      items: [
+        "A product in multiple stored collections can contribute proportionally to more than one collection.",
+        "Only stored products with calculated margin exposure are included.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("analysis coverage")) {
+    return {
+      title: "Analysis coverage by depth",
+      body: "Compares how many stored products only have QuickScan results against how many already have a full AI product diagnosis.",
+      items: [
+        "QuickScan only means the product has lightweight Shopify-native risk scoring.",
+        "Full diagnosis means the deeper product-specific analysis has been completed.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("top insights")) {
+    return {
+      title: "Top insights",
+      body: "Summarizes the highest-signal observations ProductPulse can make from the stored analytics dataset.",
+      items: [
+        "Insights are ranked from issue concentration, high-risk impact, source coverage and diagnosis coverage.",
+        "They are meant to guide attention, not replace product-level diagnosis.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("estimated business impact")) {
+    return {
+      title: "Estimated business impact",
+      body: "Projects where product-quality work could reduce revenue leakage over the visible analysis window.",
+      items: [
+        "Uses stored refund value, projected return exposure, review pressure and eligible recommended actions.",
+        "This is a prioritization model, not an accounting report.",
+      ],
+    };
+  }
+  return {
+    title: "Analytics panel",
+    body: "Explains how this panel is calculated from stored ProductPulse scan and diagnosis data.",
+    items: [],
+  };
 }
 
 function RiskSignalsChart({ chart }) {
@@ -4328,15 +4446,25 @@ function RiskRevenueBubbleChart({ bubbles }) {
 
   return (
     <div className="ppRiskRevenueWrap">
-      <div className="ppBubbleChart" role="img" aria-label="Risk score compared with revenue impact">
+      <div className="ppBubbleChart" role="group" aria-label="Risk score compared with revenue impact">
         {safeBubbles.map((bubble) => (
-          <span
+          <Link
             key={`${bubble.label}-${bubble.x}-${bubble.y}-${bubble.size}`}
             className={`ppRiskBubble ppRiskBubble-${bubble.tone}`}
+            to={bubble.href || "/app/products"}
             style={{ left: `${bubble.x}%`, bottom: `${bubble.y}%`, width: `${bubble.size}px`, height: `${bubble.size}px` }}
-            aria-label={`${bubble.label}: risk ${bubble.riskScore}, margin impact ${formatMoney(bubble.impact || 0)}`}
-            title={`${bubble.label}: ${formatMoney(bubble.impact || 0)} margin at risk`}
-          />
+            aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, margin impact ${formatMoney(bubble.impact || 0)}`}
+          >
+            <span className="ppRiskBubblePopover" role="tooltip">
+              <strong>{bubble.label}</strong>
+              <span><b>{bubble.riskLabel || "Risk"}</b> risk score: {bubble.riskScore}/100</span>
+              <span><b>Margin impact:</b> {formatMoney(bubble.impact || 0)}</span>
+              <span><b>Main issue:</b> {bubble.issueLabel || "Product quality"}</span>
+              <span><b>Signals:</b> {formatInteger(bubble.signalCount || 0)} stored signals</span>
+              <span><b>Rates:</b> {formatPercent(bubble.returnRate || 0)} returns / {formatPercent(bubble.refundRate || 0)} refunds</span>
+              <em>{bubble.analysisLabel || "Stored product analysis"}. Click to open product details.</em>
+            </span>
+          </Link>
         ))}
         <span className="ppBubbleAxis ppBubbleAxis-y">Margin impact</span>
         <span className="ppBubbleAxis ppBubbleAxis-x">Risk score</span>
@@ -4510,6 +4638,10 @@ function formatCompactMoney(value) {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(Number(value || 0));
+}
+
+function formatPercent(value) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(Number(value || 0))}%`;
 }
 
 function formatInteger(value) {

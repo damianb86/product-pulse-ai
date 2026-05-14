@@ -1080,12 +1080,21 @@ function buildAnalyticsCollectionMargin(productList) {
 function buildAnalyticsRiskBubbles(productList) {
   const maxImpact = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
   return productList.slice(0, 24).map((product) => {
+    const metrics = product.metrics || {};
     const impact = getDashboardMetric(product, "marginAtRisk");
     const riskScore = Number(product.riskScore || 0);
+    const href = `/app/products/${product.handle || product.slug || product.id}`;
     return {
       label: product.title || product.productTitle || "Product",
+      href,
       riskScore,
+      riskLabel: getRiskLabel(riskScore),
       impact,
+      issueLabel: getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality"),
+      signalCount: Number(metrics.signalCount || metrics.issueCount || 0),
+      returnRate: Number(metrics.returnRate || 0),
+      refundRate: Number(metrics.refundRate || 0),
+      analysisLabel: hasDashboardFullDiagnosis(product) ? "Full diagnosis" : "QuickScan only",
       x: clampAnalyticsValue(riskScore, 3, 97),
       y: maxImpact ? clampAnalyticsValue(8 + (impact / maxImpact) * 82, 8, 92) : 12,
       size: maxImpact ? Math.round(10 + (impact / maxImpact) * 24) : 10,

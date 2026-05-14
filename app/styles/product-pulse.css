@@ -29,6 +29,7 @@
   --pp-warning-amber-rgb: 245, 158, 11;
   --pp-risk-red-rgb: 239, 68, 68;
   --pp-info-cyan-rgb: 6, 182, 212;
+  --pp-slate-700-rgb: 51, 65, 85;
   --pp-slate-500-rgb: 100, 116, 139;
   --pp-slate-100-rgb: 241, 245, 249;
   --pp-shadow-rgb: 15, 23, 42;
@@ -3204,6 +3205,107 @@ s-page[inline-size="large-500"] {
   line-height: 1.25;
 }
 
+.ppAnalyticsInfoPopover {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.ppAnalyticsInfoButton {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--pp-slate-500);
+  cursor: help;
+}
+
+.ppAnalyticsInfoButton:hover,
+.ppAnalyticsInfoButton:focus-visible {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.09);
+  color: var(--pp-pulse-blue);
+  outline: none;
+}
+
+.ppAnalyticsInfoBubble {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  z-index: 80;
+  width: min(292px, calc(100vw - 32px));
+  display: none;
+  transform: translateX(-50%);
+  padding: 12px 13px;
+  border: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  border-radius: 10px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 18px 44px rgba(var(--pp-shadow-rgb), 0.28);
+}
+
+.ppAnalyticsInfoBubble::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%) rotate(45deg);
+  border-left: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  border-top: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  background: var(--pp-midnight-ink);
+}
+
+.ppAnalyticsInfoBubble strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--pp-cloud-white);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.2;
+}
+
+.ppAnalyticsInfoBubble > span,
+.ppAnalyticsInfoList span {
+  display: block;
+  color: var(--pp-slate-200);
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1.38;
+}
+
+.ppAnalyticsInfoList {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+}
+
+.ppAnalyticsInfoList span {
+  position: relative;
+  padding-left: 12px;
+}
+
+.ppAnalyticsInfoList span::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.58em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--pp-info-cyan);
+}
+
+.ppAnalyticsInfoPopover:hover .ppAnalyticsInfoBubble,
+.ppAnalyticsInfoPopover:focus-within .ppAnalyticsInfoBubble {
+  display: block;
+}
+
 .ppAnalyticsPanelHeader p {
   margin: 4px 0 0;
   color: var(--pp-slate-700);
@@ -3510,6 +3612,79 @@ s-page[inline-size="large-500"] {
   border-radius: 50%;
   opacity: 0.82;
   transform: translate(-50%, 50%);
+  text-decoration: none;
+  outline: none;
+  transition: opacity 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.ppRiskBubble:hover,
+.ppRiskBubble:focus-visible {
+  z-index: 20;
+  opacity: 1;
+  transform: translate(-50%, 50%) scale(1.1);
+  box-shadow: 0 0 0 5px rgba(var(--pp-pulse-blue-rgb), 0.12), 0 12px 28px rgba(var(--pp-shadow-rgb), 0.22);
+}
+
+.ppRiskBubblePopover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  z-index: 90;
+  width: min(276px, calc(100vw - 32px));
+  display: none;
+  transform: translateX(-50%);
+  padding: 12px 13px;
+  border: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  border-radius: 12px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 18px 44px rgba(var(--pp-shadow-rgb), 0.28);
+  pointer-events: none;
+}
+
+.ppRiskBubblePopover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  border-bottom: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  background: var(--pp-midnight-ink);
+}
+
+.ppRiskBubble:hover .ppRiskBubblePopover,
+.ppRiskBubble:focus-visible .ppRiskBubblePopover {
+  display: grid;
+  gap: 5px;
+}
+
+.ppRiskBubblePopover strong {
+  color: var(--pp-cloud-white);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.ppRiskBubblePopover span,
+.ppRiskBubblePopover em {
+  color: var(--pp-slate-200);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 560;
+  line-height: 1.35;
+}
+
+.ppRiskBubblePopover b {
+  color: var(--pp-cloud-white);
+  font-weight: 760;
+}
+
+.ppRiskBubblePopover em {
+  margin-top: 4px;
+  color: var(--pp-info-cyan);
 }
 
 .ppRiskBubble-green {

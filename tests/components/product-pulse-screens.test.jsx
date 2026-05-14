@@ -408,9 +408,15 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<AnalyticsScreen data={defaultView} />);
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
     expect(screen.getAllByText("Estimated margin at risk").length).toBeGreaterThan(0);
-    expect(screen.getByText("Risk signals over time")).toBeInTheDocument();
-    expect(screen.getByText("Source contribution")).toBeInTheDocument();
-    expect(screen.getByText("Analysis coverage by depth")).toBeInTheDocument();
+    expect(screen.getAllByText("Risk signals over time").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Source contribution").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Analysis coverage by depth").length).toBeGreaterThan(0);
+    expect(screen.getByText("X-axis: deterministic product risk score from 0 to 100.")).toBeInTheDocument();
+    expect(screen.getByText("Hover a bubble for product details; click it to open the product diagnosis page.")).toBeInTheDocument();
+    expect(screen.getByText(/Insights are ranked from issue concentration/)).toBeInTheDocument();
+    const productBubbleLinks = screen.getAllByRole("link", { name: /open product detail/ });
+    expect(productBubbleLinks.length).toBeGreaterThan(0);
+    expect(productBubbleLinks[0].getAttribute("href")).toMatch(/^\/app\/products\//);
     expect(screen.queryByText("View all insights")).not.toBeInTheDocument();
     expect(screen.getByText("Estimated business impact (next 90 days)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Learn how ProductPulse AI improves these outcomes/ }));
