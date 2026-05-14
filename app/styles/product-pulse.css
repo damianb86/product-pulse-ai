@@ -3565,44 +3565,81 @@ s-page[inline-size="large-500"] {
 
 .ppRiskRevenueWrap {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 116px;
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(104px, 116px);
+  gap: 18px;
+  align-items: stretch;
+  min-height: 224px;
 }
 
 .ppBubbleChart {
   position: relative;
-  height: 168px;
-  margin: 0 8px 6px 48px;
+  min-width: 0;
+  min-height: 224px;
+  height: 100%;
+}
+
+.ppBubblePlot {
+  position: absolute;
+  inset: 8px 10px 34px 54px;
   border-left: 1px solid var(--pp-slate-300);
   border-bottom: 1px solid var(--pp-slate-300);
-  background:
-    repeating-linear-gradient(0deg, transparent, transparent 37px, var(--pp-slate-200) 38px),
-    repeating-linear-gradient(90deg, transparent, transparent 24%, var(--pp-slate-200) 25%);
 }
 
-.ppBubbleChart::before {
-  content: "$50K\A$20K\A$10K\A$5K\A$1K";
+.ppBubbleGridLine {
   position: absolute;
-  left: -42px;
+  pointer-events: none;
+  background: var(--pp-slate-200);
+}
+
+.ppBubbleGridLine-x {
   top: 0;
-  display: grid;
-  gap: 18px;
-  color: var(--pp-slate-700);
-  font-size: 11px;
-  line-height: 1;
-  white-space: pre;
+  bottom: 0;
+  width: 1px;
 }
 
-.ppBubbleChart::after {
-  content: "0        25        50        75        100";
-  position: absolute;
+.ppBubbleGridLine-y {
   left: 0;
   right: 0;
-  bottom: -20px;
+  height: 1px;
+}
+
+.ppBubbleYTicks {
+  position: absolute;
+  top: 8px;
+  bottom: 34px;
+  left: 0;
+  width: 50px;
+}
+
+.ppBubbleYTick {
+  position: absolute;
+  right: 8px;
+  transform: translateY(50%);
   color: var(--pp-slate-700);
   font-size: 11px;
-  white-space: pre;
+  font-weight: 540;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppBubbleXTicks {
+  position: absolute;
+  left: 54px;
+  right: 10px;
+  bottom: 13px;
+  height: 14px;
+}
+
+.ppBubbleXTick {
+  position: absolute;
+  width: 28px;
+  transform: translateX(-50%);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 540;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .ppRiskBubble {
@@ -3721,24 +3758,29 @@ s-page[inline-size="large-500"] {
   position: absolute;
   color: var(--pp-slate-700);
   font-size: 11px;
+  font-weight: 560;
 }
 
 .ppBubbleAxis-y {
-  left: -60px;
-  top: 46%;
+  left: -8px;
+  top: calc(50% - 13px);
   transform: rotate(-90deg);
+  transform-origin: center;
 }
 
 .ppBubbleAxis-x {
-  left: 46%;
-  bottom: -38px;
+  left: calc(50% + 22px);
+  bottom: -2px;
+  transform: translateX(-50%);
 }
 
 .ppBubbleLegend {
   display: grid;
-  gap: 16px;
+  align-content: center;
+  gap: 14px;
   color: var(--pp-slate-700);
   font-size: 12px;
+  min-width: 0;
 }
 
 .ppBubbleLegend > span {

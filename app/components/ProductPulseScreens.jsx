@@ -4461,6 +4461,9 @@ function AnalysisCoverageDonut({ rows, compact = false }) {
 function RiskRevenueBubbleChart({ bubbles }) {
   const safeBubbles = bubbles?.length ? bubbles : [];
   const maxImpact = Math.max(...safeBubbles.map((bubble) => Number(bubble.impact || 0)), 0);
+  const yAxisMax = getRiskBubbleAxisMax(maxImpact);
+  const xTicks = [0, 25, 50, 75, 100];
+  const yTicks = getRiskBubbleYAxisTicks(yAxisMax);
   const [activeBubble, setActiveBubble] = useState(null);
   const showBubble = (event, bubble) => {
     setActiveBubble({
@@ -4472,19 +4475,40 @@ function RiskRevenueBubbleChart({ bubbles }) {
   return (
     <div className="ppRiskRevenueWrap">
       <div className="ppBubbleChart" role="group" aria-label="Risk score compared with revenue impact">
-        {safeBubbles.map((bubble) => (
-          <Link
-            key={`${bubble.label}-${bubble.x}-${bubble.y}-${bubble.size}`}
-            className={`ppRiskBubble ppRiskBubble-${bubble.tone}`}
-            to={bubble.href || "/app/products"}
-            style={{ left: `${bubble.x}%`, bottom: `${bubble.y}%`, width: `${bubble.size}px`, height: `${bubble.size}px` }}
-            aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, margin impact ${formatMoney(bubble.impact || 0)}`}
-            onMouseEnter={(event) => showBubble(event, bubble)}
-            onFocus={(event) => showBubble(event, bubble)}
-            onMouseLeave={() => setActiveBubble(null)}
-            onBlur={() => setActiveBubble(null)}
-          />
-        ))}
+        <div className="ppBubbleYTicks" aria-hidden="true">
+          {yTicks.map((tick) => (
+            <span key={tick.value} className="ppBubbleYTick" style={{ bottom: `${tick.position}%` }}>{tick.label}</span>
+          ))}
+        </div>
+        <div className="ppBubblePlot">
+          {xTicks.slice(1).map((tick) => (
+            <span key={`x-${tick}`} className="ppBubbleGridLine ppBubbleGridLine-x" style={{ left: `${tick}%` }} />
+          ))}
+          {yTicks.slice(1).map((tick) => (
+            <span key={`y-${tick.value}`} className="ppBubbleGridLine ppBubbleGridLine-y" style={{ bottom: `${tick.position}%` }} />
+          ))}
+          {safeBubbles.map((bubble) => {
+            const position = getRiskBubblePlotPosition(bubble, yAxisMax);
+            return (
+              <Link
+                key={`${bubble.label}-${bubble.riskScore}-${bubble.impact}-${bubble.size}`}
+                className={`ppRiskBubble ppRiskBubble-${bubble.tone}`}
+                to={bubble.href || "/app/products"}
+                style={{ left: `${position.x}%`, bottom: `${position.y}%`, width: `${bubble.size}px`, height: `${bubble.size}px` }}
+                aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, margin impact ${formatMoney(bubble.impact || 0)}`}
+                onMouseEnter={(event) => showBubble(event, bubble)}
+                onFocus={(event) => showBubble(event, bubble)}
+                onMouseLeave={() => setActiveBubble(null)}
+                onBlur={() => setActiveBubble(null)}
+              />
+            );
+          })}
+        </div>
+        <div className="ppBubbleXTicks" aria-hidden="true">
+          {xTicks.map((tick) => (
+            <span key={tick} className="ppBubbleXTick" style={{ left: `${tick}%` }}>{tick}</span>
+          ))}
+        </div>
         <span className="ppBubbleAxis ppBubbleAxis-y">Margin impact</span>
         <span className="ppBubbleAxis ppBubbleAxis-x">Risk score</span>
       </div>
@@ -4499,6 +4523,44 @@ function RiskRevenueBubbleChart({ bubbles }) {
       </div>
     </div>
   );
+}
+
+function getRiskBubblePlotPosition(bubble, yAxisMax) {
+  const riskScore = Number.isFinite(Number(bubble.riskScore)) ? Number(bubble.riskScore) : Number(bubble.x || 0);
+  const impact = Number(bubble.impact || 0);
+  return {
+    x: clampNumber(riskScore, 0, 100),
+    y: yAxisMax > 0 ? clampNumber((impact / yAxisMax) * 100, 3, 97) : 3,
+  };
+}
+
+function getRiskBubbleYAxisTicks(maxValue) {
+  const axisMax = getRiskBubbleAxisMax(maxValue);
+  return [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+    const value = axisMax * ratio;
+    return {
+      value,
+      position: ratio * 100,
+      label: formatCompactMoney(value),
+    };
+  });
+}
+
+function getRiskBubbleAxisMax(value) {
+  const rawValue = Number(value || 0);
+  if (!rawValue || rawValue <= 0) return 1000;
+  const magnitude = 10 ** Math.floor(Math.log10(rawValue));
+  const normalized = rawValue / magnitude;
+  const niceStep = normalized <= 1
+    ? 1
+    : normalized <= 2
+      ? 2
+      : normalized <= 2.5
+        ? 2.5
+        : normalized <= 5
+          ? 5
+          : 10;
+  return niceStep * magnitude;
 }
 
 function RiskBubbleFloatingPopover({ bubble, position }) {
