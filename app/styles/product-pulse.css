@@ -2515,6 +2515,59 @@ s-page[inline-size="large-500"] {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
+.ppActionCurrentValueBox,
+.ppActionRelatedBox {
+  margin-bottom: 10px;
+  border-radius: 9px;
+}
+
+.ppActionCurrentValueBox {
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px dashed var(--pp-slate-300);
+  background: var(--pp-slate-100);
+}
+
+.ppActionCurrentValueBox > span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppActionCurrentValueBox p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppActionRelatedBox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 9px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.16);
+  background: rgba(var(--pp-insight-violet-rgb), 0.055);
+  color: var(--pp-insight-violet);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.ppActionRelatedBox span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ppActionSuggestionBox > span {
   color: var(--pp-signal-teal);
   font-size: 11px;
@@ -4395,6 +4448,7 @@ s-page[inline-size="large-500"] {
 
 .ppActionConfirmMeta > div,
 .ppActionConfirmChange,
+.ppActionConfirmCurrent,
 .ppActionConfirmNotice {
   padding: 12px;
   border: 1px solid var(--pp-slate-200);
@@ -4403,6 +4457,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppActionConfirmMeta span,
+.ppActionConfirmCurrent > span,
 .ppActionConfirmChange > span {
   display: block;
   margin-bottom: 4px;
@@ -4429,6 +4484,17 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
+.ppActionConfirmCurrent,
+.ppActionConfirmChange {
+  margin-top: 12px;
+}
+
+.ppActionConfirmCurrent {
+  border-style: dashed;
+  background: var(--pp-slate-100);
+}
+
+.ppActionConfirmCurrent pre,
 .ppActionConfirmChange pre {
   max-height: 230px;
   overflow: auto;

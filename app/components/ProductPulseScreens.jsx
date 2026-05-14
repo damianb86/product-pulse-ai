@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Form, Link, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
   buildConnectViewData,
@@ -1037,7 +1037,7 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
 
 function RecommendedActionConfirmModal({ confirmation, product, pending, onCancel }) {
   const action = confirmation.action || {};
-  const application = confirmation.application || getRecommendedActionApplication(action);
+  const application = confirmation.application || getRecommendedActionApplication(action, product);
   const editedText = String(confirmation.editedText ?? application.value ?? "");
   const isTagChange = String(application.target || "").toLowerCase().includes("tag");
   const valuePreview = editedText || "No value supplied.";
@@ -1067,6 +1067,13 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
             <strong>{application.operation}</strong>
           </div>
         </div>
+
+        {application.currentValue && (
+          <div className="ppActionConfirmCurrent">
+            <span>{application.currentValueLabel || "Current value"}</span>
+            <pre>{application.currentValue}</pre>
+          </div>
+        )}
 
         <div className="ppActionConfirmChange">
           <span>{application.valueLabel || "New value"}</span>
@@ -1699,8 +1706,9 @@ function getIssueIcon(issue) {
 function getProductRecommendedActions(product) {
   const actionHistory = Array.isArray(product.actionHistory) ? product.actionHistory : [];
   if (!product.recommendedActions?.length) return [];
+  const normalizedActions = consolidateReviewRecommendedActions(product.recommendedActions);
 
-  return product.recommendedActions.map((action, index) => ({
+  return normalizedActions.map((action, index) => ({
     id: action.id,
     icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     iconSymbol: getActionIconSymbol(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
@@ -1709,7 +1717,7 @@ function getProductRecommendedActions(product) {
     reason: getRecommendedActionReason(action, product),
     evidence: getRecommendedActionEvidence(action, product),
     priority: index === 0 ? "Primary next step" : getRecommendedActionPriority(action, product),
-    application: getRecommendedActionApplication(action),
+    application: getRecommendedActionApplication(action, product),
     meta: getRecommendedActionMeta(action),
     action: getRecommendedActionButtonLabel(action, index),
     mode: getRecommendedActionMode(action, index),
@@ -1719,17 +1727,149 @@ function getProductRecommendedActions(product) {
   }));
 }
 
+function consolidateReviewRecommendedActions(actions = []) {
+  const consolidated = actions.find((action) => action.id === "review-product-evidence");
+  if (consolidated) {
+    return actions.filter((action) => action.id === consolidated.id || !isLegacyReviewAction(action));
+  }
+
+  const reviewActions = actions.filter(isLegacyReviewAction);
+  if (reviewActions.length <= 1) return actions;
+
+  const firstReviewIndex = actions.findIndex(isLegacyReviewAction);
+  const mergedReviewAction = {
+    id: "review-product-evidence",
+    label: "Review product evidence",
+    type: "Workflow",
+    effort: "Low",
+    status: "Ready",
+    payload: mergeReviewActionPayloads(reviewActions),
+  };
+  const withoutReviews = actions.filter((action) => !isLegacyReviewAction(action));
+  return [
+    ...withoutReviews.slice(0, firstReviewIndex),
+    mergedReviewAction,
+    ...withoutReviews.slice(firstReviewIndex),
+  ];
+}
+
+function isLegacyReviewAction(action) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (action.id === "review-product-evidence") return false;
+  return normalized.includes("workflow") && normalized.includes("review");
+}
+
+function mergeReviewActionPayloads(actions = []) {
+  const payloads = actions.map((action) => action.payload || {});
+  const reviewSections = actions.map((action) => buildReviewSectionFromAction(action)).filter(Boolean);
+  return {
+    reviewSections,
+    focusSources: reviewSections.map((section) => section.source).filter(Boolean),
+    topReturnReasons: uniqueStrings(payloads.flatMap((payload) => payload.topReturnReasons || [])),
+    affectedVariants: uniqueStrings(payloads.flatMap((payload) => payload.affectedVariants || [])),
+    contentIssues: payloads.flatMap((payload) => payload.contentIssues || []),
+    negativeReviewCount: payloads.reduce((max, payload) => Math.max(max, Number(payload.negativeReviewCount || 0)), 0),
+    avgRating: payloads.find((payload) => payload.avgRating)?.avgRating || 0,
+    refundAmount: payloads.reduce((max, payload) => Math.max(max, Number(payload.refundAmount || 0)), 0),
+    refundUnits: payloads.reduce((max, payload) => Math.max(max, Number(payload.refundUnits || 0)), 0),
+    refundRate: payloads.reduce((max, payload) => Math.max(max, Number(payload.refundRate || 0)), 0),
+  };
+}
+
+function buildReviewSectionFromAction(action) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("return")) {
+    const reasons = Array.isArray(payload.topReturnReasons) ? payload.topReturnReasons : [];
+    return {
+      key: "returns",
+      label: "Return reasons",
+      source: "Shopify returns",
+      count: payload.returnUnits || reasons.length,
+      items: reasons.map((reason) => ({ label: reason, evidence: "Stored return reason" })),
+    };
+  }
+  if (normalized.includes("variant")) {
+    const variants = Array.isArray(payload.affectedVariants) ? payload.affectedVariants : [];
+    return {
+      key: "variants",
+      label: "Affected variants",
+      source: "Shopify variants",
+      count: variants.length,
+      items: variants.map((variant) => ({ label: variant, evidence: "Variant concentration" })),
+    };
+  }
+  if (normalized.includes("refund")) {
+    return {
+      key: "refunds",
+      label: "Refund impact",
+      source: "Shopify refunds",
+      count: payload.refundUnits || 0,
+      items: [{ label: `${payload.refundUnits || 0} refunded units`, evidence: `${payload.refundRate || 0}% refund rate` }],
+    };
+  }
+  if (normalized.includes("content") || normalized.includes("title") || normalized.includes("tag") || normalized.includes("collection")) {
+    const contentIssues = Array.isArray(payload.contentIssues) ? payload.contentIssues : [];
+    return {
+      key: "content",
+      label: "Title, tags and collection alignment",
+      source: "Product content",
+      count: contentIssues.length,
+      items: contentIssues.map((issue) => (typeof issue === "string" ? { label: issue } : issue)),
+    };
+  }
+  if (normalized.includes("review")) {
+    return {
+      key: "reviews",
+      label: "Negative Judge.me reviews",
+      source: "Judge.me reviews",
+      count: payload.negativeReviewCount || 0,
+      items: [{ label: `${payload.negativeReviewCount || 0} negative reviews`, evidence: `${payload.avgRating || 0} average rating` }],
+    };
+  }
+  return null;
+}
+
+function uniqueStrings(values = []) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function getEvidenceIndexForReviewTarget(target, evidenceSources = []) {
+  if (typeof target === "number") return Math.max(0, Math.min(target, evidenceSources.length - 1));
+  const payload = target?.payload || {};
+  const focusSources = [
+    ...(Array.isArray(payload.focusSources) ? payload.focusSources : []),
+    ...(Array.isArray(payload.reviewSections) ? payload.reviewSections.map((section) => section.source || section.label) : []),
+  ].map(normalizeEvidenceLabel).filter(Boolean);
+  if (!focusSources.length) return 0;
+
+  const matchedIndex = evidenceSources.findIndex((source) => {
+    const title = normalizeEvidenceLabel(`${source.title || ""} ${source.source || ""}`);
+    return focusSources.some((focus) => title.includes(focus) || focus.includes(title));
+  });
+  return matchedIndex >= 0 ? matchedIndex : 0;
+}
+
+function normalizeEvidenceLabel(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 function getRecommendedActionDetail(action) {
   const payload = action.payload || {};
   if (payload.draftText) return payload.draftText;
   if (payload.note) return payload.note;
+  if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
+    return payload.reviewSections
+      .map((section) => `${section.label}: ${formatInteger(section.count || section.items?.length || 0)} signal${Number(section.count || section.items?.length || 0) === 1 ? "" : "s"}`)
+      .join(". ");
+  }
   if (Array.isArray(payload.topReturnReasons) && payload.topReturnReasons.length) return payload.topReturnReasons.join(", ");
   if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) return payload.affectedVariants.join(", ");
   if (Number(payload.refundAmount || 0) > 0) return `${formatMoney(payload.refundAmount)} refunded across ${formatInteger(payload.refundUnits || 0)} units`;
   return "Ready from current stored product signals.";
 }
 
-function getRecommendedActionApplication(action) {
+function getRecommendedActionApplication(action, product = null) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
 
@@ -1751,17 +1891,22 @@ function getRecommendedActionApplication(action) {
 
   if (payload.draftText && (normalized.includes("pdp") || normalized.includes("description") || normalized.includes("faq") || normalized.includes("fit"))) {
     const operation = getDescriptionOperationForAction(action);
+    const currentDescription = getCurrentDescriptionForAction(product, payload);
+    const value = getDescriptionActionValue({ action, product, operation, currentDescription });
     return {
       kind: "shopify_product",
       editable: true,
       target: "Product description",
       operation: getDescriptionOperationText(operation),
-      intro: getDescriptionActionIntro(operation),
+      intro: getDescriptionActionIntro(operation, action),
       confirmationTitle: "Confirm product description update",
       confirmationDetail: getDescriptionConfirmationDetail(operation),
-      applyLabel: operation === "replace" ? "Replace product description" : "Apply to product",
-      valueLabel: "Description text to apply",
-      value: payload.draftText,
+      applyLabel: getDescriptionApplyLabel(operation),
+      valueLabel: operation === "replace" ? "Suggested improved description" : "Text to add",
+      value,
+      currentValueLabel: "Current Shopify description",
+      currentValue: currentDescription,
+      relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
     };
   }
 
@@ -1782,8 +1927,10 @@ function getRecommendedActionApplication(action) {
     kind: "review",
     editable: false,
     target: "Product evidence",
-    operation: "Review",
-    intro: "This action opens the supporting evidence so you can inspect the signal before deciding whether to change the product.",
+    operation: Array.isArray(payload.reviewSections) && payload.reviewSections.length ? "Review related evidence" : "Review",
+    intro: Array.isArray(payload.reviewSections) && payload.reviewSections.length
+      ? "This groups the related review tasks into one evidence pass: returns, variants, refunds, reviews and content alignment when those signals exist."
+      : "This action opens the supporting evidence so you can inspect the signal before deciding whether to change the product.",
     applyLabel: "Review evidence",
     valueLabel: "Evidence",
     value: getRecommendedActionDetail(action),
@@ -1792,31 +1939,99 @@ function getRecommendedActionApplication(action) {
 
 function getDescriptionOperationForAction(action) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
-  if (normalized.includes("rewrite") || normalized.includes("description")) return "replace";
+  if (normalized.includes("rewrite-product-description") || normalized.includes("rewrite")) return "replace";
   if (normalized.includes("faq")) return "append";
   return "prepend";
 }
 
 function getDescriptionOperationText(operation) {
-  if (operation === "replace") return "Replace description";
+  if (operation === "replace") return "Improve description";
   if (operation === "append") return "Append to description";
   return "Add to top of description";
 }
 
-function getDescriptionActionIntro(operation) {
+function getDescriptionActionIntro(operation, action = {}) {
   if (operation === "replace") {
-    return "ProductPulse suggests replacing the current Shopify product description with the editable text below. Review it carefully before applying it to the product.";
+    return "ProductPulse suggests improving the Shopify product description while preserving useful existing copy. The suggested draft can also incorporate related shopper-facing notes when they overlap.";
   }
   if (operation === "append") {
     return "ProductPulse suggests adding this section to the end of the Shopify product description. You can edit the text before applying it.";
   }
-  return "ProductPulse suggests adding this note to the beginning of the Shopify product description so shoppers see it before buying. You can edit the text before applying it.";
+  const placement = action.payload?.placement === "append" ? "end" : "beginning";
+  return `ProductPulse suggests adding this note to the ${placement} of the Shopify product description so shoppers see it before buying. You can edit the text before applying it.`;
 }
 
 function getDescriptionConfirmationDetail(operation) {
-  if (operation === "replace") return "This will replace the current Shopify product description with the text below.";
+  if (operation === "replace") return "This will update the Shopify product description with the suggested text below. Existing useful copy is included in the draft when available.";
   if (operation === "append") return "This will append the text below to the existing Shopify product description.";
   return "This will add the text below to the top of the existing Shopify product description.";
+}
+
+function getDescriptionApplyLabel(operation) {
+  if (operation === "replace") return "Update description";
+  if (operation === "append") return "Append to product";
+  return "Apply to product";
+}
+
+function getCurrentDescriptionForAction(product, payload = {}) {
+  return String(product?.currentDescriptionText || payload.currentDescriptionText || "").trim();
+}
+
+function getDescriptionActionValue({ action, product, operation, currentDescription }) {
+  const payload = action.payload || {};
+  const draftText = String(payload.draftText || "").trim();
+  if (operation !== "replace") return draftText;
+  return buildEnhancedDescriptionPreview({
+    currentDescription,
+    suggestedText: draftText,
+    relatedText: getRelatedDescriptionText(product, payload),
+  });
+}
+
+function getRelatedDescriptionText(product, payload = {}) {
+  const relatedIds = Array.isArray(payload.relatedActionIds) ? payload.relatedActionIds : [];
+  if (!relatedIds.length || !Array.isArray(product?.recommendedActions)) return "";
+  const relatedAction = product.recommendedActions.find((item) => relatedIds.includes(item.id) && item.payload?.draftText);
+  return relatedAction?.payload?.draftText || "";
+}
+
+function buildEnhancedDescriptionPreview({ currentDescription, suggestedText, relatedText }) {
+  const current = normalizeActionText(currentDescription);
+  const suggested = normalizeActionText(suggestedText);
+  const related = normalizeActionText(relatedText);
+  const additions = [related, suggested].filter(Boolean);
+  const uniqueAdditions = [];
+
+  additions.forEach((addition) => {
+    if (current && textIncludesMeaning(current, addition)) return;
+    if (uniqueAdditions.some((existing) => textIncludesMeaning(existing, addition))) return;
+    uniqueAdditions.push(addition);
+  });
+
+  if (!current) return uniqueAdditions.join("\n\n") || suggested;
+  if (!uniqueAdditions.length) return current;
+  return [current, ...uniqueAdditions].join("\n\n");
+}
+
+function normalizeActionText(value) {
+  return String(value || "")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function textIncludesMeaning(firstValue, secondValue) {
+  const first = String(firstValue || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const second = String(secondValue || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!first || !second) return false;
+  if (first.includes(second) || second.includes(first)) return true;
+  const firstTokens = new Set(first.split(/\s+/).filter((token) => token.length > 4));
+  const secondTokens = second.split(/\s+/).filter((token) => token.length > 4);
+  if (!firstTokens.size || !secondTokens.length) return false;
+  const shared = secondTokens.filter((token) => firstTokens.has(token)).length;
+  return shared / Math.max(secondTokens.length, 1) >= 0.72;
 }
 
 function getRecommendedActionReason(action, product) {
@@ -1824,6 +2039,10 @@ function getRecommendedActionReason(action, product) {
   const metrics = product.metrics || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   const contentIssueLabels = getContentIssueLabels(payload.contentIssues);
+
+  if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
+    return `ProductPulse grouped ${payload.reviewSections.length} related review area${payload.reviewSections.length === 1 ? "" : "s"} so you can inspect the evidence once instead of working through overlapping review tasks.`;
+  }
 
   if (contentIssueLabels.length) {
     return `ProductPulse found content issues that can reduce buyer confidence: ${contentIssueLabels.slice(0, 3).join(", ")}.`;
@@ -1870,6 +2089,11 @@ function getRecommendedActionEvidence(action, product) {
   const metrics = product.metrics || {};
   const evidence = [];
 
+  if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
+    payload.reviewSections.slice(0, 3).forEach((section) => {
+      evidence.push(`${formatInteger(section.count || section.items?.length || 0)} ${section.label}`);
+    });
+  }
   if (Array.isArray(payload.topReturnReasons) && payload.topReturnReasons.length) evidence.push(`${payload.topReturnReasons.length} return reason${payload.topReturnReasons.length === 1 ? "" : "s"}`);
   if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) evidence.push(`${payload.affectedVariants.length} affected variant${payload.affectedVariants.length === 1 ? "" : "s"}`);
   if (Array.isArray(payload.contentIssues) && payload.contentIssues.length) evidence.push(`${payload.contentIssues.length} content issue${payload.contentIssues.length === 1 ? "" : "s"}`);
@@ -2053,6 +2277,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
   const submit = useSubmit();
+  const evidencePanelRef = useRef(null);
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set());
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
@@ -2129,12 +2354,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
   const showToast = (message, status = "success") => setToastData({ status, message });
 
-  const handleReviewEvidence = (index = 0) => {
+  const handleReviewEvidence = (target = 0) => {
     if (!detail.evidenceSources.length) {
       showToast("0 stored evidence sources for this product.", "validation_error");
       return;
     }
-    setSelectedEvidenceIndex(Math.max(0, Math.min(index, detail.evidenceSources.length - 1)));
+    const index = getEvidenceIndexForReviewTarget(target, detail.evidenceSources);
+    setSelectedEvidenceIndex(index);
+    window.requestAnimationFrame(() => {
+      evidencePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const handleToggleRecommendedActions = () => {
@@ -2203,7 +2432,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setActionConfirmation({
       action,
       editedText,
-      application: action.application || getRecommendedActionApplication(action),
+      application: action.application || getRecommendedActionApplication(action, product),
     });
   };
 
@@ -2385,7 +2614,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
                       onEdit={handleEditAction}
                       onCopy={handleCopyAction}
-                      onReview={() => handleReviewEvidence(0)}
+                      onReview={handleReviewEvidence}
                       onRequestApply={handleRequestApplyAction}
                       onDismiss={handleDismissAction}
                     />
@@ -2420,7 +2649,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         <div className="ppProductDetailGrid">
           <div className="ppProductDetailMainColumn">
             <s-section padding="none">
-              <div className="ppProductPanel">
+              <div className="ppProductPanel" ref={evidencePanelRef}>
                 <h2>Issues detected</h2>
                 <div className="ppIssuesTableWrap">
                   <table className="ppIssuesTable">
@@ -3235,7 +3464,7 @@ function normalizeTrendForSparkline(values) {
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
-  const application = action.application || getRecommendedActionApplication(action);
+  const application = action.application || getRecommendedActionApplication(action, product);
   const [detailExpanded, setDetailExpanded] = useState(false);
   const [editedText, setEditedText] = useState(application.value || action.detail || "");
   const [isEditingInline, setIsEditingInline] = useState(false);
@@ -3284,10 +3513,23 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
           <strong>{application.operation}</strong>
           <p>{application.intro}</p>
         </div>
+        {application.currentValue && (
+          <div className="ppActionCurrentValueBox">
+            <span>{application.currentValueLabel || "Current value"}</span>
+            <p>{application.currentValue}</p>
+          </div>
+        )}
+        {application.relatedActions?.length > 0 && (
+          <div className="ppActionRelatedBox">
+            <s-icon type="link" size="small"></s-icon>
+            <span>Related suggestion: {application.relatedActions.join(", ")}</span>
+          </div>
+        )}
         {application.editable && isEditingInline ? (
           <label className="ppActionInlineEditor">
             <span>{application.valueLabel}</span>
             <textarea
+              aria-label="Description text to apply"
               value={editedText}
               rows={detailExpanded ? 10 : 6}
               onChange={(event) => setEditedText(event.target.value)}
@@ -3384,7 +3626,7 @@ function getRecommendedActionButton(action, mode, buttonText, disabled, context)
   }
   if (mode === "review") {
     return (
-      <button className="ppActionCtaButton" type="button" onClick={onReview}>
+      <button className="ppActionCtaButton" type="button" onClick={() => onReview(action)}>
         {content}
       </button>
     );

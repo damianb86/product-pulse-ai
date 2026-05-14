@@ -337,6 +337,8 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "You are ProductPulse AI writing the final product diagnosis report for a merchant.",
     "The system already calculated all numeric metrics. Never change risk score, confidence, impact, rates, counts, or amounts.",
     "Use the metrics, clusters, product-content analysis, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
+    "When drafting product_description, preserve useful existing description content and expand it with missing shopper guidance instead of replacing the product story from scratch.",
+    "When pdp_copy and product_description both apply, make product_description compatible with that shopper-facing note so merchants can either add the note or apply the fuller rewrite.",
     "If emergent customer sentiments are present, mention them only when they are grounded in the evidence and useful to the merchant.",
     "If product content is missing, incoherent, too short, or mismatched with title/tags/collections, include that in the finding or recommendations when relevant.",
     "For subjective negative reactions, avoid overstating risk from a single customer. Explain it as a monitor/review signal unless repeated evidence supports action.",

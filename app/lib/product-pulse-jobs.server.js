@@ -515,33 +515,40 @@ async function addProductTag(admin, productGid, tag) {
 
 function getDescriptionOperationForAction(action) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
-  if (normalized.includes("rewrite") || normalized.includes("description")) return "replace";
+  if (normalized.includes("rewrite-product-description") || normalized.includes("rewrite")) return "replace";
   if (normalized.includes("faq")) return "append";
   return "prepend";
 }
 
 function getDescriptionOperationLabel(operation) {
-  if (operation === "replace") return "Product description was replaced";
+  if (operation === "replace") return "Product description was updated";
   if (operation === "append") return "Product description was appended";
   return "Product description was updated";
 }
 
 function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action }) {
+  if (operation === "replace") return buildProductPulseDescriptionReplacement(draftText, action);
   const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action);
-  if (operation === "replace") return suggestionHtml;
   if (operation === "append") return [currentHtml, suggestionHtml].filter(Boolean).join("\n");
   return [suggestionHtml, currentHtml].filter(Boolean).join("\n");
 }
 
 function buildProductPulseDescriptionBlock(text, action) {
   const heading = String(action.id || "").includes("faq") ? "Product FAQ" : "Product note";
-  const paragraphs = String(text || "")
+  return `<section data-productpulse-action="${escapeHtml(action.id || "product-action")}">\n<h3>${heading}</h3>\n${buildHtmlParagraphs(text)}\n</section>`;
+}
+
+function buildProductPulseDescriptionReplacement(text, action) {
+  return `<div data-productpulse-action="${escapeHtml(action.id || "product-action")}">\n${buildHtmlParagraphs(text)}\n</div>`;
+}
+
+function buildHtmlParagraphs(text) {
+  return String(text || "")
     .split(/\n{2,}|\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => `<p>${escapeHtml(line)}</p>`)
     .join("\n");
-  return `<section data-productpulse-action="${escapeHtml(action.id || "product-action")}">\n<h3>${heading}</h3>\n${paragraphs}\n</section>`;
 }
 
 function escapeHtml(value) {
@@ -551,6 +558,24 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|section|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 async function findProductRiskSnapshot(shop, productId) {
@@ -1203,12 +1228,65 @@ async function attachProductImages(rows, admin) {
 
 async function attachProductImageToDiagnosis(product, admin) {
   if (!product || !admin?.graphql) return product;
-  const [rowWithImage] = await attachProductImages([{ productGid: product.id }], admin);
-  return {
-    ...product,
-    imageUrl: rowWithImage?.imageUrl || null,
-    imageAlt: rowWithImage?.imageAlt || null,
-  };
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query ProductPulseProductDetailPreview($id: ID!) {
+        product(id: $id) {
+          id
+          description
+          descriptionHtml
+          tags
+          featuredMedia {
+            preview {
+              image {
+                url
+                altText
+              }
+            }
+          }
+          media(first: 1) {
+            nodes {
+              preview {
+                image {
+                  url
+                  altText
+                }
+              }
+              ... on MediaImage {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { variables: { id: product.id } },
+    );
+    const json = await response.json();
+    const shopifyProduct = json.data?.product;
+    if (json.errors?.length || !shopifyProduct) return product;
+    const mediaNode = shopifyProduct.media?.nodes?.[0] || {};
+    const image = shopifyProduct.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
+
+    return {
+      ...product,
+      imageUrl: image.url || null,
+      imageAlt: image.altText || null,
+      currentDescriptionHtml: shopifyProduct.descriptionHtml || "",
+      currentDescriptionText: stripHtml(shopifyProduct.descriptionHtml || shopifyProduct.description || ""),
+      currentTags: Array.isArray(shopifyProduct.tags) ? shopifyProduct.tags : [],
+    };
+  } catch {
+    const [rowWithImage] = await attachProductImages([{ productGid: product.id }], admin);
+    return {
+      ...product,
+      imageUrl: rowWithImage?.imageUrl || null,
+      imageAlt: rowWithImage?.imageAlt || null,
+    };
+  }
 }
 
 async function getLiveShopifyProductDetail(productId, admin, shop) {
@@ -1223,6 +1301,8 @@ async function getLiveShopifyProductDetail(productId, admin, shop) {
             id
             title
             handle
+            description
+            descriptionHtml
             vendor
             productType
             status
@@ -1309,6 +1389,8 @@ function formatLiveShopifyProductForDiagnosis(product) {
     slug: product.handle,
     title: product.title,
     handle: product.handle,
+    currentDescriptionHtml: product.descriptionHtml || "",
+    currentDescriptionText: stripHtml(product.descriptionHtml || product.description || ""),
     collection: collections[0] || product.productType || product.vendor || "Shopify catalog",
     status: product.status || "Unknown",
     riskScore: 0,

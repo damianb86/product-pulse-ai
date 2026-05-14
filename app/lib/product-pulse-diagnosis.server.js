@@ -1260,23 +1260,41 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const pdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
+  const currentDescriptionText = deterministic.product?.description || "";
+  const reviewSections = [];
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
   const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
   const shouldRecommendSubjectiveAction = mainIssue !== "subjective_negative_reaction" || hasActionableSubjectiveEvidence(subjectiveSummary);
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
+  const pdpActionId = getPdpActionId(mainIssue);
+  const pdpActionLabel = getPdpActionLabel(mainIssue);
 
   if (hasActionableMainIssue && pdpCopy && mainIssue !== "product_content" && shouldRecommendSubjectiveAction) {
     recommendations.push({
-      id: getPdpActionId(mainIssue),
-      label: getPdpActionLabel(mainIssue),
+      id: pdpActionId,
+      label: pdpActionLabel,
       type: mainIssue === "fit_sizing" && copy.faq_answer ? "PDP copy" : "PDP copy",
       effort: "Low",
       status: "Draft",
-      payload: { draftText: pdpCopy, issue: mainIssue },
+      payload: {
+        draftText: pdpCopy,
+        issue: mainIssue,
+        placement: getPdpCopyPlacement(mainIssue),
+        relatedActionIds: contentIssues.length ? ["rewrite-product-description"] : [],
+        relatedActionLabels: contentIssues.length ? ["Rewrite product description"] : [],
+      },
     });
   }
 
   if (contentIssues.length > 0) {
+    const descriptionDraft = buildEnhancedDescriptionDraft({
+      title: snapshot.productTitle,
+      currentDescription: currentDescriptionText,
+      suggestedDescription: copy.product_description || "",
+      shopperGuidance: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "",
+      contentAnalysis,
+    });
+
     recommendations.push({
       id: "rewrite-product-description",
       label: "Rewrite product description",
@@ -1284,26 +1302,30 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       effort: "Low",
       status: "Draft",
       payload: {
-        draftText: copy.product_description || copy.pdp_copy || buildDefaultDescriptionRewrite(snapshot.productTitle, contentAnalysis),
+        draftText: descriptionDraft,
         issue: "product_content",
-        contentIssues: contentIssues.map((issue) => issue.label),
-      },
-    });
-
-    recommendations.push({
-      id: "review-product-content-alignment",
-      label: "Review title, tags and collection alignment",
-      type: "Workflow",
-      effort: "Low",
-      status: "Ready",
-      payload: {
-        contentQualityScore: contentAnalysis.score,
+        currentDescriptionText,
         contentIssues: contentIssues.map((issue) => ({
           label: issue.label,
           evidence: issue.evidence,
           severity: issue.severity,
         })),
+        changeStrategy: currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
+        relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
+        relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
       },
+    });
+
+    reviewSections.push({
+      key: "content",
+      label: "Title, tags and collection alignment",
+      source: "Product content",
+      count: contentIssues.length,
+      items: contentIssues.map((issue) => ({
+        label: issue.label,
+        evidence: issue.evidence,
+        severity: issue.severity,
+      })),
     });
   }
 
@@ -1322,49 +1344,66 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (topReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
-    recommendations.push({
-      id: "review-return-reasons",
-      label: "Review return reasons",
-      type: "Workflow",
-      effort: "Low",
-      status: "Ready",
-      payload: { topReturnReasons: topReasons, returnUnits: deterministic.metrics.returnUnits },
+    reviewSections.push({
+      key: "returns",
+      label: "Return reasons",
+      source: "Shopify returns",
+      count: deterministic.metrics.returnUnits,
+      items: topReasons.map((reason) => ({ label: reason, evidence: `${deterministic.metrics.returnUnits} returned unit${deterministic.metrics.returnUnits === 1 ? "" : "s"}` })),
     });
   }
 
   if (affectedVariants.length && (deterministic.metrics.returnUnits + deterministic.metrics.refundUnits) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
-    recommendations.push({
-      id: "review-affected-variants",
-      label: "Review affected variants",
-      type: "Workflow",
-      effort: "Low",
-      status: "Ready",
-      payload: { affectedVariants },
+    reviewSections.push({
+      key: "variants",
+      label: "Affected variants",
+      source: "Shopify variants",
+      count: affectedVariants.length,
+      items: affectedVariants.map((variant) => ({ label: variant, evidence: "Variant concentration found in stored return/refund signals" })),
     });
   }
 
   if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
-    recommendations.push({
-      id: "review-negative-reviews",
-      label: "Review negative Judge.me reviews",
-      type: "Workflow",
-      effort: "Low",
-      status: "Ready",
-      payload: {
-        negativeReviewCount: deterministic.metrics.negativeReviewCount,
-        avgRating: deterministic.metrics.avgRating,
-      },
+    reviewSections.push({
+      key: "reviews",
+      label: "Negative Judge.me reviews",
+      source: "Judge.me reviews",
+      count: deterministic.metrics.negativeReviewCount,
+      items: [{
+        label: `${deterministic.metrics.negativeReviewCount} negative review${deterministic.metrics.negativeReviewCount === 1 ? "" : "s"}`,
+        evidence: `${deterministic.metrics.avgRating || 0} average rating`,
+      }],
     });
   }
 
   if (deterministic.metrics.refundInsights?.shouldSurface || (deterministic.metrics.refundUnits >= 3 && deterministic.metrics.refundAmount > 0)) {
+    reviewSections.push({
+      key: "refunds",
+      label: "Refund impact",
+      source: "Shopify refunds",
+      count: deterministic.metrics.refundUnits,
+      items: [{
+        label: `${deterministic.metrics.refundUnits} refunded unit${deterministic.metrics.refundUnits === 1 ? "" : "s"}`,
+        evidence: `${deterministic.metrics.refundRate || 0}% refund rate, ${deterministic.metrics.refundAmount || 0} refund amount`,
+      }],
+    });
+  }
+
+  if (reviewSections.length > 0) {
     recommendations.push({
-      id: "review-refund-impact",
-      label: "Review refund impact",
+      id: "review-product-evidence",
+      label: "Review product evidence",
       type: "Workflow",
       effort: "Low",
       status: "Ready",
       payload: {
+        reviewSections,
+        focusSources: reviewSections.map((section) => section.source),
+        contentQualityScore: contentAnalysis.score,
+        topReturnReasons: topReasons,
+        affectedVariants,
+        negativeReviewCount: deterministic.metrics.negativeReviewCount,
+        avgRating: deterministic.metrics.avgRating,
         refundAmount: deterministic.metrics.refundAmount,
         refundUnits: deterministic.metrics.refundUnits,
         refundRate: deterministic.metrics.refundRate,
@@ -3667,6 +3706,11 @@ function getPdpActionLabel(issue) {
   return "Draft product quality note";
 }
 
+function getPdpCopyPlacement(issue) {
+  if (issue === "compatibility") return "append";
+  return "prepend";
+}
+
 function getIssueTag(issue) {
   if (issue === "fit_sizing") return "fit_issue";
   if (issue === "color_expectation") return "color_expectation_issue";
@@ -3686,6 +3730,47 @@ function buildDefaultPdpCopy(title, issueLabel, topReasons) {
 function buildDefaultDescriptionRewrite(title, contentAnalysis) {
   const issues = Array.isArray(contentAnalysis?.issues) ? contentAnalysis.issues.map((issue) => issue.label).join(", ") : "product content gaps";
   return `${title}: rewrite the product description so it clearly explains what the product is, who it is for, key specifications, important options, and any expectation-setting details. ProductPulse found ${issues}.`;
+}
+
+function buildEnhancedDescriptionDraft({ title, currentDescription, suggestedDescription, shopperGuidance, contentAnalysis }) {
+  const current = normalizeDraftParagraph(currentDescription);
+  const suggested = normalizeDraftParagraph(suggestedDescription);
+  const guidance = normalizeDraftParagraph(shopperGuidance);
+  const fallback = normalizeDraftParagraph(buildDefaultDescriptionRewrite(title, contentAnalysis));
+  const additions = [guidance, suggested || fallback].filter(Boolean);
+  const uniqueAdditions = [];
+
+  additions.forEach((addition) => {
+    if (!addition) return;
+    const alreadyInCurrent = current && hasSubstantialOverlap(current, addition);
+    const alreadyQueued = uniqueAdditions.some((existing) => hasSubstantialOverlap(existing, addition));
+    if (!alreadyInCurrent && !alreadyQueued) uniqueAdditions.push(addition);
+  });
+
+  if (!current) return uniqueAdditions.join("\n\n") || fallback;
+  if (!uniqueAdditions.length) return current;
+  return [current, ...uniqueAdditions].join("\n\n");
+}
+
+function normalizeDraftParagraph(value) {
+  return String(value || "")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function hasSubstantialOverlap(firstValue, secondValue) {
+  const first = normalizeText(firstValue);
+  const second = normalizeText(secondValue);
+  if (!first || !second) return false;
+  if (first.includes(second) || second.includes(first)) return true;
+  const firstTokens = new Set(first.split(/\s+/).filter((token) => token.length > 4));
+  const secondTokens = second.split(/\s+/).filter((token) => token.length > 4);
+  if (!firstTokens.size || !secondTokens.length) return false;
+  const shared = secondTokens.filter((token) => firstTokens.has(token)).length;
+  return shared / Math.max(secondTokens.length, 1) >= 0.72;
 }
 
 function getSeverityLabel(score) {
