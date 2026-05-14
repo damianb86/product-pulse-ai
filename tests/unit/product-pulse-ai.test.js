@@ -45,6 +45,8 @@ describe("ProductPulse AI provider fallback", () => {
     process.env.GEMINI_MODEL_FALLBACK_POOL = "gemini-b";
     process.env.OPENAI_API_KEY = "openai-test-key";
     process.env.OPENAI_BASIC_MODEL = "gpt-5.4-nano";
+    process.env.OPENAI_PREMIUM_MODEL = "gpt-5.4";
+    delete process.env.PRODUCT_PULSE_USE_PRODUCTION_AI;
   });
 
   afterEach(() => {
@@ -81,6 +83,71 @@ describe("ProductPulse AI provider fallback", () => {
     expect(mocks.recordJobLog).toHaveBeenCalledWith(expect.objectContaining({
       event: "product_diagnosis.gemini_pool_exhausted_openai_fallback",
     }));
+  });
+
+  it("uses OpenAI when production AI is enabled by environment", async () => {
+    process.env.PRODUCT_PULSE_USE_PRODUCTION_AI = "true";
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("generativelanguage")) {
+        throw new Error("Gemini should not be called when production AI is enabled.");
+      }
+
+      return new Response(JSON.stringify({ output_text: "OpenAI production response." }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateProductDiagnosisTestText({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-openai-env",
+      product: { title: "Linen Shirt", handle: "linen-shirt", metrics: {} },
+    });
+
+    expect(result).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "OpenAI production response.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("api.openai.com");
+    expect(mocks.recordJobLog).toHaveBeenCalledWith(expect.objectContaining({
+      event: "product_diagnosis.ai_provider_selected",
+      data: expect.objectContaining({
+        provider: "openai",
+        productionAiEnabled: true,
+        configuredBy: "PRODUCT_PULSE_USE_PRODUCTION_AI",
+      }),
+    }));
+  });
+
+  it("uses Gemini when production AI is disabled by environment", async () => {
+    process.env.PRODUCT_PULSE_USE_PRODUCTION_AI = "false";
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("api.openai.com")) {
+        throw new Error("OpenAI should not be called when production AI is disabled.");
+      }
+
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "Gemini development response." }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateProductDiagnosisTestText({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-gemini-env",
+      product: { title: "Linen Shirt", handle: "linen-shirt", metrics: {} },
+    });
+
+    expect(result).toMatchObject({
+      provider: "gemini",
+      model: "gemini-a",
+      text: "Gemini development response.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("generativelanguage");
   });
 
   it("fails with Gemini and OpenAI details when nano fallback fails", async () => {

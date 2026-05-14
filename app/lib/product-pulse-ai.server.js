@@ -400,7 +400,8 @@ function buildProductDiagnosisPrompt(product) {
 }
 
 async function generateAiText({ shop, jobId, task, prompt }) {
-  const provider = isProductPulseDevelopment() ? GEMINI_PROVIDER : OPENAI_PROVIDER;
+  const productionAiEnabled = isProductionAiEnabled();
+  const provider = productionAiEnabled ? OPENAI_PROVIDER : GEMINI_PROVIDER;
   const taskConfig = AI_TASKS[task] || AI_TASKS.final_report;
 
   await recordJobLog({
@@ -412,12 +413,28 @@ async function generateAiText({ shop, jobId, task, prompt }) {
       provider,
       task,
       developmentMode: isProductPulseDevelopment(),
+      productionAiEnabled,
+      configuredBy: process.env.PRODUCT_PULSE_USE_PRODUCTION_AI == null ? "environment_mode" : "PRODUCT_PULSE_USE_PRODUCTION_AI",
     },
   });
 
   return provider === GEMINI_PROVIDER
     ? generateWithGemini({ shop, jobId, task, taskConfig, prompt })
     : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt });
+}
+
+function isProductionAiEnabled() {
+  const configured = parseBooleanEnv(process.env.PRODUCT_PULSE_USE_PRODUCTION_AI);
+  if (configured !== null) return configured;
+  return !isProductPulseDevelopment();
+}
+
+function parseBooleanEnv(value) {
+  if (value == null || String(value).trim() === "") return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return null;
 }
 
 async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, modelOverride = null, requestContext = "primary" }) {
