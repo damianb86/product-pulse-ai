@@ -7,6 +7,7 @@ import {
   DashboardScreen,
   ProductDiagnosisScreen,
   ProductsScreen,
+  SettingsScreen,
 } from "../../app/components/ProductPulseScreens";
 import { defaultView } from "../fixtures/product-pulse-fixtures";
 
@@ -101,6 +102,27 @@ describe("ProductPulse screens", () => {
     expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
     expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
     expect(within(table).queryByRole("link", { name: /Linen Shirt/ })).not.toBeInTheDocument();
+  });
+
+  it("renders settings controls for thresholds and batch diagnostics", () => {
+    renderWithRouter(<SettingsScreen data={{
+      ...defaultView,
+      settings: {
+        risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
+        products: { defaultRowsPerPage: 50 },
+        diagnosis: { maxQueuedPerSubmission: 12, useOpenAiBatchForDiagnostics: true },
+      },
+    }} />);
+
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Risk score thresholds")).toBeInTheDocument();
+    expect(screen.getByLabelText("Minimum QuickScan score")).toHaveValue(50);
+    expect(screen.getByLabelText("Medium risk starts at")).toHaveValue(55);
+    expect(screen.getByLabelText("High risk starts at")).toHaveValue(75);
+    expect(screen.getByLabelText("Default rows per page")).toHaveValue("50");
+    expect(screen.getByLabelText("Max diagnoses queued at once")).toHaveValue(12);
+    expect(screen.getByLabelText(/Use OpenAI Batch/)).toBeChecked();
+    expect(screen.getByText(/current diagnosis jobs still use the existing realtime queue/)).toBeInTheDocument();
   });
 
   it("shows a scan overlay when a quick scan starts", () => {

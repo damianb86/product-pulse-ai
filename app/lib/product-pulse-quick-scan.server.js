@@ -2,6 +2,10 @@ import prisma from "../db.server";
 import { getNormalizedCsvReviewRatingsForShop } from "./product-pulse-csv.server";
 import { recordJobLog } from "./product-pulse-job-logs.server";
 import {
+  getProductPulseSettings,
+  getQuickScanMinimumRiskScore,
+} from "./product-pulse-settings.server";
+import {
   buildDatedSignalTrend,
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
@@ -68,6 +72,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   });
 
   const csvReviewRatings = await loadCsvReviewRatingsForQuickScan({ shop, jobId });
+  const settings = await getProductPulseSettings(shop);
 
   await updateQuickScanJob(jobId, {
     progress: 72,
@@ -80,6 +85,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     csvReviewRatings,
     windowDays,
     extractionMode: extraction.meta.extractionMode,
+    settings,
   });
   await recordJobLog({
     shop,
@@ -114,7 +120,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
       persistedCandidates: persistence.persistedCandidates,
       ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
       retainedFullDiagnosisProducts: persistence.retainedFullDiagnosisProducts,
-      persistenceRule: "risk_score >= 50 OR return anomaly/refund impact/repeated reasons threshold",
+      persistenceRule: `risk_score >= ${getQuickScanMinimumRiskScore(settings)}`,
     },
   });
   await waitForMinimumDuration(startedAt, QUICK_SCAN_MINIMUM_DURATION_MS);
@@ -181,6 +187,7 @@ export function buildQuickScanCandidates({
   csvReviewRatings = [],
   windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS,
   extractionMode = "bulk",
+  settings = undefined,
 }) {
   const productIndex = new Map();
   const variantIndex = new Map();
@@ -224,7 +231,7 @@ export function buildQuickScanCandidates({
 
   return aggregateList
     .map((aggregate) => scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionMode }))
-    .filter((candidate) => isPersistableCandidate(candidate, storeTotals))
+    .filter((candidate) => isPersistableCandidate(candidate, settings))
     .sort((a, b) => b.riskScore - a.riskScore)
     .slice(0, 50);
 }
@@ -1599,16 +1606,9 @@ async function shopifyGraphql(admin, query, variables) {
   return json.data;
 }
 
-function isPersistableCandidate(candidate, storeTotals) {
-  return (
-    candidate.riskScore >= 50 ||
-    candidate.metrics.returnRate >= Math.max(storeTotals.avgReturnRate * 100 * 2, 8) ||
-    (candidate.metrics.soldUnits > 10 && candidate.metrics.refundRate > 20) ||
-    candidate.metrics.refundAmount >= Math.max(storeTotals.avgRefundAmount, 250) ||
-    (candidate.metrics.csvRatingRisk >= 36 && candidate.metrics.reviewCount >= 5) ||
-    (candidate.metrics.reviewCount >= 8 && candidate.metrics.negativeReviewRate >= 45) ||
-    candidate.metrics.topReturnReasons.length >= 2
-  );
+function isPersistableCandidate(candidate, settings = undefined) {
+  const minimumRiskScore = getQuickScanMinimumRiskScore(settings);
+  return candidate.riskScore >= minimumRiskScore;
 }
 
 function getCsvRatingSummary(aggregate) {

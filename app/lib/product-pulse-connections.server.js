@@ -6,11 +6,12 @@ import {
   getConnectSourceDefinition,
 } from "./product-pulse-connect";
 import { CSV_REVIEW_IMPORT_DISPLAY_NAME, CsvReviewImportError, processCsvReviewUpload } from "./product-pulse-csv.server";
+import { PRODUCT_PULSE_SETTINGS_SOURCE_KEY } from "./product-pulse-settings.server";
 
 export async function getConnectViewDataForShop(shop) {
   await ensureSourceRows(shop);
   const records = await prisma.productPulseSource.findMany({
-    where: { shop },
+    where: { shop, sourceKey: { not: PRODUCT_PULSE_SETTINGS_SOURCE_KEY } },
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 

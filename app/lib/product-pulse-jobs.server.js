@@ -11,6 +11,15 @@ import {
   recordJobLog,
   serializeError,
 } from "./product-pulse-job-logs.server";
+import {
+  PRODUCT_PULSE_SETTINGS_SOURCE_KEY,
+  getProductPulseSettings,
+  getRiskFilterValueForScore,
+  getRiskLabelForScore,
+  getRiskToneForScore,
+  getStatusFilterValueForScore,
+  getStatusLabelForScore,
+} from "./product-pulse-settings.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -79,15 +88,16 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
   };
 }
 
-export async function getProductsQueueForShop(shop, admin, filters = {}) {
+export async function getProductsQueueForShop(shop, admin, filters = {}, options = {}) {
   await failStaleFastProductScans(shop);
-  const [snapshots, activeJob, activeDiagnosisJobs] = await Promise.all([
+  const [snapshots, activeJob, activeDiagnosisJobs, settings] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
     }),
     getActiveFastProductScan(shop),
     getActiveProductDiagnosisJobs(shop),
+    options.settings ? Promise.resolve(options.settings) : getProductPulseSettings(shop),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
@@ -96,13 +106,13 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
     getLatestCompletedDiagnosisMap(shop, snapshots),
     getResolvedProductActionsMap(shop, snapshots),
   ]);
-  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid);
+  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid, settings);
   const filteredSnapshots = sortProductSnapshots(
-    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid),
+    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings),
     filters,
     resolvedActionsByProductGid,
   );
-  const rowsPerPage = normalizeRowsPerPage(filters.rows);
+  const rowsPerPage = normalizeRowsPerPage(filters.rows || settings.products?.defaultRowsPerPage);
   const totalPages = Math.max(1, Math.ceil(filteredSnapshots.length / rowsPerPage));
   const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
@@ -110,6 +120,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
     snapshot,
     latestDiagnosisByProductGid.get(snapshot.productGid),
     resolvedActionsByProductGid.get(snapshot.productGid),
+    settings,
   ));
   const rowsWithImages = await attachProductImages(rows, admin);
   const rowsWithJobs = attachActiveProductDiagnosisJobs(rowsWithImages, activeDiagnosisJobs);
@@ -122,6 +133,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
     rowsPerPage,
     totalPages,
     filterOptions,
+    settings,
     activeScanJob: activeJob ? formatJob(activeJob) : null,
     activeDiagnosisJobs: activeDiagnosisJobs.map(formatJob),
   };
@@ -129,7 +141,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
 
 export async function getDashboardDataForShop(shop, admin) {
   await failStaleFastProductScans(shop);
-  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs] = await Promise.all([
+  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs, settings] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
@@ -140,6 +152,7 @@ export async function getDashboardDataForShop(shop, admin) {
     }),
     getActiveFastProductScan(shop),
     getActiveProductDiagnosisJobs(shop),
+    getProductPulseSettings(shop),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
@@ -150,6 +163,7 @@ export async function getDashboardDataForShop(shop, admin) {
     snapshot,
     [],
     latestDiagnosisByProductGid.get(snapshot.productGid),
+    settings,
   ));
   const dashboardProducts = await attachProductImages(dashboardProductsWithoutImages, admin);
   const dashboardProductsWithJobs = attachActiveProductDiagnosisJobs(dashboardProducts, activeDiagnosisJobs);
@@ -161,7 +175,7 @@ export async function getDashboardDataForShop(shop, admin) {
 
 export async function getAnalyticsDataForShop(shop) {
   await failStaleFastProductScans(shop);
-  const [snapshots, activeJob, activeDiagnosisJobs, sources, actions] = await Promise.all([
+  const [snapshots, activeJob, activeDiagnosisJobs, sources, actions, settings] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
@@ -169,7 +183,7 @@ export async function getAnalyticsDataForShop(shop) {
     getActiveFastProductScan(shop),
     getActiveProductDiagnosisJobs(shop),
     prisma.productPulseSource.findMany({
-      where: { shop },
+      where: { shop, sourceKey: { not: PRODUCT_PULSE_SETTINGS_SOURCE_KEY } },
       orderBy: [{ category: "asc" }, { sourceKey: "asc" }],
     }),
     prisma.productAction.findMany({
@@ -177,6 +191,7 @@ export async function getAnalyticsDataForShop(shop) {
       orderBy: { createdAt: "desc" },
       take: 250,
     }),
+    getProductPulseSettings(shop),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
@@ -187,6 +202,7 @@ export async function getAnalyticsDataForShop(shop) {
     snapshot,
     actions.filter((action) => action.productGid === snapshot.productGid).map(formatStoredProductAction),
     latestDiagnosisByProductGid.get(snapshot.productGid),
+    settings,
   ));
 
   return buildAnalyticsViewData(analyticsProducts, {
@@ -242,6 +258,14 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
   const uniqueProductIds = [...new Set(productIds.filter(Boolean))];
   if (!uniqueProductIds.length) {
     return { status: "validation_error", message: "Select at least one product to analyze." };
+  }
+  const settings = options.settings || await getProductPulseSettings(shop);
+  const maxQueued = Number(settings.diagnosis?.maxQueuedPerSubmission || 25);
+  if (uniqueProductIds.length > maxQueued) {
+    return {
+      status: "validation_error",
+      message: `You can queue up to ${maxQueued} product diagnosis job${maxQueued === 1 ? "" : "s"} at once. Update this limit in Settings if needed.`,
+    };
   }
 
   const jobs = [];
@@ -311,7 +335,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis, activeDiagnosisJobs] = await Promise.all([
+  const [actions, latestDiagnosis, activeDiagnosisJobs, settings] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -322,11 +346,12 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
       orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
     }),
     getActiveProductDiagnosisJobs(shop),
+    getProductPulseSettings(shop),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
   const product = {
-    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis),
+    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings),
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
   return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
@@ -1251,22 +1276,24 @@ function isActiveStatus(status) {
   return status === "Queued" || status === "Running";
 }
 
-function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null) {
+function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined) {
   const metrics = snapshot.metrics || {};
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
   const resolvedAt = resolvedAction?.appliedAt || resolvedAction?.createdAt || null;
+  const riskLabel = getRiskLabel(snapshot.riskScore, settings);
+  const riskTone = getRiskTone(snapshot.riskScore, settings);
   return {
     productGid: snapshot.productGid,
     handle: snapshot.handle,
     title: snapshot.productTitle,
     variant: getProductArtVariant(snapshot.handle),
     selected: false,
-    risk: getRiskLabel(snapshot.riskScore),
-    riskTone: getRiskTone(snapshot.riskScore),
+    risk: riskLabel,
+    riskTone,
     riskScore: snapshot.riskScore,
-    status: resolvedAt ? "Resolved" : snapshot.riskScore >= 75 ? "Needs attention" : snapshot.riskScore >= 55 ? "Monitor" : "Good",
-    statusTone: resolvedAt ? "success" : getRiskTone(snapshot.riskScore),
+    status: getStatusLabel(snapshot.riskScore, Boolean(resolvedAt), settings),
+    statusTone: resolvedAt ? "success" : riskTone,
     resolvedAt: toIso(resolvedAt),
     resolvedLabel: resolvedAt ? `Resolved ${formatJobDate(resolvedAt)}` : "",
     analysisDepth: analysisState.depth,
@@ -1276,7 +1303,7 @@ function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = nul
     analysisIcon: analysisState.icon,
     analysisCompletedAt: analysisState.completedAt,
     signals: metrics.signalCount || 0,
-    signalTone: snapshot.riskScore >= 75 ? "red" : snapshot.riskScore >= 55 ? "orange" : "green",
+    signalTone: riskLabel === "High" ? "red" : riskLabel === "Medium" ? "orange" : "green",
     signalBars: getSignalBars(metrics),
     signalDetails: getSignalDetails(snapshot, metrics),
     issue: snapshot.primaryIssue,
@@ -1349,7 +1376,7 @@ function isPreferredProductDiagnosisJob(candidate, current) {
   return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime();
 }
 
-function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map()) {
+function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map(), settings = undefined) {
   const query = String(filters.query || "").trim().toLowerCase();
 
   return snapshots.filter((snapshot) => {
@@ -1371,8 +1398,8 @@ function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProduc
     ].filter(Boolean).join(" ").toLowerCase();
 
     if (query && !searchable.includes(query)) return false;
-    if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore) !== filters.risk) return false;
-    if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore, isResolved) !== filters.status) return false;
+    if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore, settings) !== filters.risk) return false;
+    if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore, isResolved, settings) !== filters.status) return false;
     if (filters.issue && filters.issue !== "all" && slugifyFilterValue(snapshot.primaryIssue) !== filters.issue) return false;
     if (filters.source && filters.source !== "all" && !sources.some((source) => slugifyFilterValue(source) === filters.source)) return false;
 
@@ -1402,7 +1429,7 @@ function sortProductSnapshots(snapshots, filters = {}, resolvedActionsByProductG
   });
 }
 
-function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = new Map()) {
+function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = new Map(), settings = undefined) {
   const issues = new Map();
   const sources = new Map();
   const vendors = new Map();
@@ -1412,7 +1439,7 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
     const metrics = snapshot.metrics || {};
     const isResolved = resolvedActionsByProductGid.has(snapshot.productGid);
     addFilterOption(issues, snapshot.primaryIssue);
-    addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved), getStatusFilterValue(snapshot.riskScore, isResolved));
+    addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved, settings), getStatusFilterValue(snapshot.riskScore, isResolved, settings));
     (Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : []).forEach((source) => addFilterOption(sources, source));
     addFilterOption(vendors, metrics.vendor);
     addFilterOption(vendors, metrics.productType);
@@ -1452,24 +1479,16 @@ function slugifyFilterValue(value) {
     .replace(/^-|-$/g, "");
 }
 
-function getRiskFilterValue(score) {
-  if (score >= 75) return "high";
-  if (score >= 55) return "medium";
-  return "low";
+function getRiskFilterValue(score, settings = undefined) {
+  return getRiskFilterValueForScore(score, settings);
 }
 
-function getStatusFilterValue(score, resolved = false) {
-  if (resolved) return "resolved";
-  if (score >= 75) return "needs-attention";
-  if (score >= 55) return "monitor";
-  return "good";
+function getStatusFilterValue(score, resolved = false, settings = undefined) {
+  return getStatusFilterValueForScore(score, resolved, settings);
 }
 
-function getStatusLabel(score, resolved = false) {
-  if (resolved) return "Resolved";
-  if (score >= 75) return "Needs attention";
-  if (score >= 55) return "Monitor";
-  return "Good";
+function getStatusLabel(score, resolved = false, settings = undefined) {
+  return getStatusLabelForScore(score, resolved, settings);
 }
 
 function normalizeRowsPerPage(value) {
@@ -2038,7 +2057,7 @@ function formatLiveShopifyProductForDiagnosis(product) {
   };
 }
 
-function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null) {
+function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined) {
   const metrics = snapshot.metrics || {};
   const diagnosisReport = metrics.diagnosisReport || {};
   const diagnosisIssues = Array.isArray(latestDiagnosis?.issues) ? latestDiagnosis.issues : null;
@@ -2063,8 +2082,8 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     riskScore,
     impactScore: snapshot.impactScore,
     confidence,
-    riskTone: getRiskTone(riskScore),
-    riskLabel: getRiskLabel(riskScore),
+    riskTone: getRiskTone(riskScore, settings),
+    riskLabel: getRiskLabel(riskScore, settings),
     creditCost: 1,
     sourceCoverage: Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : ["Shopify products"],
     lastAnalysis: toIso(snapshot.updatedAt),
@@ -2119,7 +2138,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       orderAccessDenied: Boolean(metrics.orderAccessDenied),
     },
     evidence: diagnosisEvidence || getSnapshotEvidence(snapshot, metrics),
-    issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics),
+    issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics, settings),
     recommendedActions: hasFullDiagnosis ? (diagnosisRecommendations || getSnapshotRecommendedActions(snapshot, metrics)) : [],
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
@@ -2179,7 +2198,7 @@ function getSnapshotEvidence(snapshot, metrics) {
   return evidence;
 }
 
-function getSnapshotIssues(snapshot, metrics) {
+function getSnapshotIssues(snapshot, metrics, settings = undefined) {
   const rawSignalCount = Number(metrics.signalCount || 0);
   if (!snapshot.primaryIssue || rawSignalCount <= 0) return [];
 
@@ -2190,7 +2209,7 @@ function getSnapshotIssues(snapshot, metrics) {
   return [
     {
       issue: snapshot.primaryIssue,
-      severity: getRiskLabel(snapshot.riskScore),
+      severity: getRiskLabel(snapshot.riskScore, settings),
       confidence: snapshot.confidence,
       signals: signalCount,
       evidence: topReturnReasons,
@@ -2198,7 +2217,7 @@ function getSnapshotIssues(snapshot, metrics) {
     },
     {
       issue: affectedVariants.length ? `Variant concentration: ${affectedVariants.join(", ")}` : "Signal concentration needs review",
-      severity: snapshot.riskScore >= 75 ? "High" : snapshot.riskScore >= 55 ? "Medium" : "Low",
+      severity: getRiskLabel(snapshot.riskScore, settings),
       confidence: Math.max(snapshot.confidence - 9, 35),
       signals: Math.max(Math.round(signalCount * 0.62), 1),
       evidence: affectedVariants,
@@ -2410,16 +2429,12 @@ function getElapsedMs(startedAt, finishedAt) {
   return Math.max(0, end - start);
 }
 
-function getRiskLabel(score) {
-  if (score >= 75) return "High";
-  if (score >= 55) return "Medium";
-  return "Low";
+function getRiskLabel(score, settings = undefined) {
+  return getRiskLabelForScore(score, settings);
 }
 
-function getRiskTone(score) {
-  if (score >= 75) return "critical";
-  if (score >= 55) return "warning";
-  return "success";
+function getRiskTone(score, settings = undefined) {
+  return getRiskToneForScore(score, settings);
 }
 
 function getProductArtVariant(handle) {

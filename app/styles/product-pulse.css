@@ -5347,6 +5347,280 @@ s-page[inline-size="large-500"] {
   color: var(--pp-pulse-blue);
 }
 
+.ppSettingsScreen {
+  gap: 14px;
+}
+
+.ppSettingsHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 14px;
+  align-items: stretch;
+  padding: 20px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(var(--pp-insight-violet-rgb), 0.08)),
+    var(--pp-cloud-white);
+  box-shadow: 0 1px 1px rgba(var(--pp-shadow-rgb), 0.06), 0 10px 24px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppSettingsHero span,
+.ppSettingsCardHeader span {
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppSettingsHero h2 {
+  margin: 4px 0 8px;
+  color: var(--pp-slate-900);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.ppSettingsHero p,
+.ppSettingsCardHeader p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ppSettingsHeroSummary {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppSettingsHeroSummary strong {
+  color: var(--pp-pulse-blue);
+  font-size: 32px;
+  line-height: 1;
+}
+
+.ppSettingsHeroSummary span {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  text-transform: none;
+}
+
+.ppSettingsHeroSummary small {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppSettingsForm {
+  display: grid;
+  gap: 14px;
+}
+
+.ppSettingsCard {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 1px rgba(var(--pp-shadow-rgb), 0.05), 0 6px 18px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppSettingsCardHeader {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ppSettingsCardHeader h2 {
+  margin: 2px 0 5px;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.ppSettingsFieldGrid,
+.ppSettingsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ppSettingsGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.ppSettingsNumberField,
+.ppSettingsSelectField {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ppSettingsNumberField > span,
+.ppSettingsSelectField > span {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ppSettingsNumberField input,
+.ppSettingsSelectField select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 11px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  font: inherit;
+}
+
+.ppSettingsNumberField input:focus,
+.ppSettingsSelectField select:focus {
+  outline: 2px solid rgba(var(--pp-pulse-blue-rgb), 0.22);
+  border-color: var(--pp-pulse-blue);
+}
+
+.ppSettingsNumberField small,
+.ppSettingsSelectField small {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppSettingsRiskPreview {
+  min-height: 34px;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppSettingsRiskPreview span {
+  min-width: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ppSettingsRiskPreview span:nth-child(1) {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppSettingsRiskPreview span:nth-child(2) {
+  background: var(--pp-green-soft);
+  color: #15803D;
+}
+
+.ppSettingsRiskPreview span:nth-child(3) {
+  background: var(--pp-amber-soft);
+  color: #B45309;
+}
+
+.ppSettingsRiskPreview span:nth-child(4) {
+  background: var(--pp-red-soft);
+  color: #B91C1C;
+}
+
+.ppSettingsBatchCard {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.24);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.06), rgba(var(--pp-pulse-blue-rgb), 0.04)),
+    var(--pp-cloud-white);
+}
+
+.ppSettingsBatchCard.isEnabled {
+  box-shadow: 0 0 0 1px rgba(var(--pp-insight-violet-rgb), 0.24), 0 12px 30px rgba(var(--pp-insight-violet-rgb), 0.12);
+}
+
+.ppSettingsBatchLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 18px;
+  align-items: center;
+}
+
+.ppSettingsBatchToggle {
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.22);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  cursor: pointer;
+}
+
+.ppSettingsBatchToggle input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--pp-insight-violet);
+}
+
+.ppSettingsBatchToggle strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+}
+
+.ppSettingsBatchToggle small {
+  display: block;
+  margin-top: 4px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ppSettingsBatchFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ppSettingsBatchFacts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.16);
+  border-radius: 999px;
+  background: var(--pp-violet-soft);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppSettingsBatchFacts s-icon {
+  color: var(--pp-insight-violet);
+}
+
+.ppSettingsFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .ppProductsToolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -7156,6 +7430,23 @@ s-page[inline-size="large-500"] {
 
   .ppAnalyticsActions {
     justify-content: flex-start;
+  }
+
+  .ppSettingsHero,
+  .ppSettingsFieldGrid,
+  .ppSettingsGrid,
+  .ppSettingsBatchLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .ppSettingsFooter {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .ppSettingsFooter .ppPrimaryButton,
+  .ppSettingsFooter .ppSecondaryActionButton {
+    width: 100%;
   }
 
   .ppProductsHeader {

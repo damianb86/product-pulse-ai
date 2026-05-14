@@ -1013,6 +1013,214 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   );
 }
 
+export function SettingsScreen({ data = {}, actionData }) {
+  const navigation = useNavigation();
+  const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
+  const isSaving = navigation.state === "submitting";
+  const batchEnabled = Boolean(settings.diagnosis?.useOpenAiBatchForDiagnostics);
+
+  return (
+    <FullWidthPage heading="Settings" className="ppSettingsPage">
+      <ScreenShell className="ppDashboard ppSettingsScreen">
+        <div className="ppSettingsHero">
+          <div>
+            <span>ProductPulse controls</span>
+            <h2>Workspace controls</h2>
+            <p>
+              Tune how ProductPulse classifies product risk, keeps QuickScan candidates, and queues detailed AI diagnosis work.
+            </p>
+          </div>
+          <div className="ppSettingsHeroSummary" aria-label="Current risk threshold summary">
+            <strong>{settings.risk.highThreshold}+</strong>
+            <span>High risk</span>
+            <small>QuickScan keeps products from {settings.risk.minimumScore}+ risk score.</small>
+          </div>
+        </div>
+
+        <ActionBanner actionData={actionData} />
+
+        <Form method="post" className="ppSettingsForm">
+          <input type="hidden" name="_action" value="save-settings" />
+
+          <section className="ppSettingsCard ppSettingsRiskCard" aria-labelledby="settings-risk-title">
+            <div className="ppSettingsCardHeader">
+              <DashboardIcon type="target" tone="blue" />
+              <div>
+                <span>Risk scoring</span>
+                <h2 id="settings-risk-title">Risk score thresholds</h2>
+                <p>
+                  Control which products ProductPulse keeps after QuickScan and where low, medium and high risk start.
+                </p>
+              </div>
+            </div>
+
+            <div className="ppSettingsRiskPreview">
+              <span style={{ width: `${settings.risk.minimumScore}%` }}>Ignored</span>
+              <span style={{ width: `${Math.max(8, settings.risk.mediumThreshold - settings.risk.minimumScore)}%` }}>Low</span>
+              <span style={{ width: `${Math.max(8, settings.risk.highThreshold - settings.risk.mediumThreshold)}%` }}>Medium</span>
+              <span style={{ width: `${Math.max(8, 100 - settings.risk.highThreshold)}%` }}>High</span>
+            </div>
+
+            <div className="ppSettingsFieldGrid">
+              <SettingsNumberField
+                name="minimumScore"
+                label="Minimum QuickScan score"
+                detail="Products below this score are left out of ProductPulse after QuickScan."
+                defaultValue={settings.risk.minimumScore}
+                min="0"
+                max="90"
+              />
+              <SettingsNumberField
+                name="mediumThreshold"
+                label="Medium risk starts at"
+                detail="Products at or above this score are marked as Monitor."
+                defaultValue={settings.risk.mediumThreshold}
+                min="1"
+                max="95"
+              />
+              <SettingsNumberField
+                name="highThreshold"
+                label="High risk starts at"
+                detail="Products at or above this score are marked as Needs attention."
+                defaultValue={settings.risk.highThreshold}
+                min="2"
+                max="100"
+              />
+            </div>
+          </section>
+
+          <section className="ppSettingsGrid">
+            <div className="ppSettingsCard" aria-labelledby="settings-products-title">
+              <div className="ppSettingsCardHeader">
+                <DashboardIcon type="product" tone="green" />
+                <div>
+                  <span>Product list</span>
+                  <h2 id="settings-products-title">Table defaults</h2>
+                  <p>Set the defaults merchants see when they open the Products workspace.</p>
+                </div>
+              </div>
+
+              <label className="ppSettingsSelectField">
+                <span>Default rows per page</span>
+                <select
+                  name="defaultRowsPerPage"
+                  aria-label="Default rows per page"
+                  defaultValue={settings.products.defaultRowsPerPage}
+                >
+                  <option value="25">25 products</option>
+                  <option value="50">50 products</option>
+                </select>
+                <small>Used when the Products page is opened without an explicit rows parameter.</small>
+              </label>
+            </div>
+
+            <div className="ppSettingsCard" aria-labelledby="settings-queue-title">
+              <div className="ppSettingsCardHeader">
+                <DashboardIcon type="wand" tone="purple" />
+                <div>
+                  <span>AI diagnosis</span>
+                  <h2 id="settings-queue-title">Queue limits</h2>
+                  <p>Protect credits and make bulk diagnosis submissions deliberate.</p>
+                </div>
+              </div>
+
+              <SettingsNumberField
+                name="maxQueuedPerSubmission"
+                label="Max diagnoses queued at once"
+                detail="Bulk analysis submissions above this limit are rejected before jobs are created."
+                defaultValue={settings.diagnosis.maxQueuedPerSubmission}
+                min="1"
+                max="50"
+              />
+            </div>
+          </section>
+
+          <section className={`ppSettingsCard ppSettingsBatchCard ${batchEnabled ? "isEnabled" : ""}`.trim()} aria-labelledby="settings-batch-title">
+            <div className="ppSettingsBatchLayout">
+              <div className="ppSettingsCardHeader">
+                <DashboardIcon type="clock" tone="purple" />
+                <div>
+                  <span>Cost control</span>
+                  <h2 id="settings-batch-title">OpenAI Batch diagnostics</h2>
+                  <p>
+                    Batch processing groups non-urgent diagnosis requests into asynchronous OpenAI jobs. It can reduce
+                    model cost, but product diagnostics may complete later instead of immediately.
+                  </p>
+                </div>
+              </div>
+
+              <label className="ppSettingsBatchToggle">
+                <input
+                  type="checkbox"
+                  name="useOpenAiBatchForDiagnostics"
+                  aria-label="Use OpenAI Batch for detailed diagnostics"
+                  defaultChecked={batchEnabled}
+                />
+                <span>
+                  <strong>Use OpenAI Batch for detailed diagnostics</strong>
+                  <small>Planned setting. Saved here now, but current diagnosis jobs still use the existing realtime queue.</small>
+                </span>
+              </label>
+            </div>
+
+            <div className="ppSettingsBatchFacts">
+              <span><s-icon type="cash-dollar" size="small"></s-icon> Lower cost for non-urgent AI work</span>
+              <span><s-icon type="clock" size="small"></s-icon> Asynchronous completion window</span>
+              <span><s-icon type="info" size="small"></s-icon> Best for large diagnosis backlogs</span>
+            </div>
+          </section>
+
+          <div className="ppSettingsFooter">
+            <Link className="ppSecondaryActionButton" to="/app/products">
+              <s-icon type="product" size="small"></s-icon>
+              Back to Products
+            </Link>
+            <button className="ppPrimaryButton" type="submit" disabled={isSaving}>
+              <s-icon type="check" size="small"></s-icon>
+              {isSaving ? "Saving..." : "Save settings"}
+            </button>
+          </div>
+        </Form>
+      </ScreenShell>
+    </FullWidthPage>
+  );
+}
+
+function SettingsNumberField({ name, label, detail, defaultValue, min, max }) {
+  return (
+    <label className="ppSettingsNumberField">
+      <span>{label}</span>
+      <input
+        type="number"
+        name={name}
+        aria-label={label}
+        defaultValue={defaultValue}
+        min={min}
+        max={max}
+        step="1"
+      />
+      <small>{detail}</small>
+    </label>
+  );
+}
+
+function getDefaultProductPulseClientSettings() {
+  return {
+    risk: {
+      minimumScore: 50,
+      mediumThreshold: 55,
+      highThreshold: 75,
+    },
+    products: {
+      defaultRowsPerPage: 25,
+    },
+    diagnosis: {
+      maxQueuedPerSubmission: 25,
+      useOpenAiBatchForDiagnostics: false,
+    },
+  };
+}
+
 function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">

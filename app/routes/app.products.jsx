@@ -9,10 +9,12 @@ import {
   searchShopifyProductsForDiagnosis,
   startFastProductScan,
 } from "../lib/product-pulse-jobs.server";
+import { getProductPulseSettings } from "../lib/product-pulse-settings.server";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const url = new URL(request.url);
+  const settings = await getProductPulseSettings(session.shop);
   const filters = {
     query: url.searchParams.get("q") || "",
     risk: url.searchParams.get("risk") || "all",
@@ -21,7 +23,7 @@ export const loader = async ({ request }) => {
     source: url.searchParams.get("source") || "all",
     vendor: url.searchParams.get("vendor") || "all",
     page: url.searchParams.get("page") || "1",
-    rows: url.searchParams.get("rows") || "25",
+    rows: url.searchParams.get("rows") || String(settings.products.defaultRowsPerPage),
     sort: url.searchParams.get("sort") || "",
     direction: url.searchParams.get("direction") || "desc",
   };
@@ -29,7 +31,7 @@ export const loader = async ({ request }) => {
   return {
     data: {
       ...getAppViewData(filters),
-      productTable: await getProductsQueueForShop(session.shop, admin, filters),
+      productTable: await getProductsQueueForShop(session.shop, admin, filters, { settings }),
       persistProductJobs: true,
     },
     filters,

@@ -78,6 +78,46 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates[0].metrics.topReturnReasons).toContain("Size Too Small");
   });
 
+  it("honors the configured minimum QuickScan risk score", () => {
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      settings: {
+        risk: {
+          minimumScore: 95,
+          mediumThreshold: 96,
+          highThreshold: 98,
+        },
+      },
+      products: [{
+        id: "gid://shopify/Product/1",
+        handle: "linen-shirt",
+        title: "Linen Shirt",
+        productType: "Apparel",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "M", sku: "LIN-M" }],
+      }],
+      events: [
+        ...Array.from({ length: 20 }, () => ({
+          type: "sale",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 80,
+        })),
+        ...Array.from({ length: 7 }, () => ({
+          type: "return",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          reason: "SIZE_TOO_SMALL",
+          note: "too small",
+          occurredAt: new Date().toISOString(),
+        })),
+      ],
+    });
+
+    expect(candidates).toHaveLength(0);
+  });
+
   it("escalates sparse but severe Shopify risk while keeping confidence moderate", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
