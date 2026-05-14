@@ -2960,7 +2960,6 @@ export function AnalyticsScreen({ data }) {
   const issueDistribution = analyticsView.issueDistribution || { rows: [], max: 1 };
   const sourceContribution = analyticsView.sourceContribution || { rows: [], total: 0, totalLabel: "0" };
   const collectionMargin = analyticsView.collectionMargin || { rows: [], max: 1 };
-  const analysisCoverage = analyticsView.analysisCoverage || { rows: [], max: 1 };
   const topInsights = analyticsView.topInsights || [];
   const businessImpact = analyticsView.businessImpact || { title: "Estimated business impact", subtitle: "", metrics: [] };
   const riskSignals = analyticsView.riskSignals || { series: [], labels: [] };
@@ -2987,31 +2986,25 @@ export function AnalyticsScreen({ data }) {
           ))}
         </div>
 
-        <div className="ppAnalyticsChartsTop">
-          <AnalyticsPanel title="Risk signals over time" subtitle="Stored QuickScan and full diagnosis signal trends">
-            <RiskSignalsChart chart={riskSignals} />
-          </AnalyticsPanel>
-
-          <AnalyticsPanel title="Issue distribution by type" subtitle="Signal count by issue cluster">
-            <HorizontalBarChart rows={issueDistribution.rows} max={issueDistribution.max} />
-          </AnalyticsPanel>
-
-          <AnalyticsPanel title="Source contribution" subtitle="Extracted signals by evidence source">
-            <SourceContributionChart contribution={sourceContribution} />
-          </AnalyticsPanel>
-        </div>
-
-        <div className="ppAnalyticsChartsMid">
-          <AnalyticsPanel title="Risk vs. margin impact" subtitle="Each bubble is a product, sized by margin at risk">
+        <div className="ppAnalyticsChartGrid">
+          <AnalyticsPanel title="Risk vs. margin impact" subtitle="Each bubble is a product, sized by margin at risk" className="ppAnalyticsPanelRiskMargin">
             <RiskRevenueBubbleChart bubbles={riskBubbles} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Margin at risk by collection" subtitle="Estimated margin at risk">
-            <HorizontalBarChart rows={collectionMargin.rows} max={collectionMargin.max} money />
+          <AnalyticsPanel title="Issue distribution by type" subtitle="Signal count by issue cluster" className="ppAnalyticsPanelIssueDistribution">
+            <HorizontalBarChart rows={issueDistribution.rows} max={issueDistribution.max} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Analysis coverage by depth" subtitle="Stored products by analysis state">
-            <AnalysisCoverageDonut rows={analysisCoverage.rows} />
+          <AnalyticsPanel title="Risk signals over time" subtitle="Stored QuickScan and full diagnosis signal trends" className="ppAnalyticsPanelLine">
+            <RiskSignalsChart chart={riskSignals} />
+          </AnalyticsPanel>
+
+          <AnalyticsPanel title="Source contribution" subtitle="Extracted signals by evidence source" className="ppAnalyticsPanelSource">
+            <SourceContributionChart contribution={sourceContribution} />
+          </AnalyticsPanel>
+
+          <AnalyticsPanel title="Margin at risk by collection" subtitle="Estimated margin at risk" className="ppAnalyticsPanelCollection">
+            <HorizontalBarChart rows={collectionMargin.rows} max={collectionMargin.max} money />
           </AnalyticsPanel>
         </div>
 
@@ -4369,21 +4362,23 @@ function AnalyticsPanel({ title, subtitle, action, className = "", children }) {
   const info = getAnalyticsPanelInfo(title);
 
   return (
-    <s-section padding="none">
-      <div className={`ppAnalyticsPanel ${className}`.trim()}>
-        <div className="ppAnalyticsPanelHeader">
-          <div>
-            <h2>
-              {title}
-              <AnalyticsInfoPopover info={info} />
-            </h2>
-            {subtitle && <p>{subtitle}</p>}
+    <div className={`ppAnalyticsPanelShell ${className}`.trim()}>
+      <s-section padding="none">
+        <div className={`ppAnalyticsPanel ${className}`.trim()}>
+          <div className="ppAnalyticsPanelHeader">
+            <div>
+              <h2>
+                {title}
+                <AnalyticsInfoPopover info={info} />
+              </h2>
+              {subtitle && <p>{subtitle}</p>}
+            </div>
+            {action}
           </div>
-          {action}
+          {children}
         </div>
-        {children}
-      </div>
-    </s-section>
+      </s-section>
+    </div>
   );
 }
 

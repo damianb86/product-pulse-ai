@@ -3209,19 +3209,15 @@ s-page[inline-size="large-500"] {
   vertical-align: 1px;
 }
 
-.ppAnalyticsChartsTop,
-.ppAnalyticsChartsMid,
+.ppAnalyticsChartGrid,
 .ppAnalyticsBottom {
   display: grid;
   gap: 12px;
+  align-items: start;
 }
 
-.ppAnalyticsChartsTop {
-  grid-template-columns: minmax(430px, 1.16fr) minmax(360px, 1fr) minmax(360px, 0.96fr);
-}
-
-.ppAnalyticsChartsMid {
-  grid-template-columns: minmax(420px, 1.08fr) minmax(360px, 0.92fr) minmax(460px, 1.22fr);
+.ppAnalyticsChartGrid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .ppAnalyticsBottom {
@@ -3233,8 +3229,47 @@ s-page[inline-size="large-500"] {
   padding: 16px 18px;
 }
 
-.ppAnalyticsChartsMid .ppAnalyticsPanel {
-  min-height: 210px;
+.ppAnalyticsPanelShell {
+  min-width: 0;
+}
+
+.ppAnalyticsPanelRiskMargin {
+  grid-column: span 4;
+}
+
+.ppAnalyticsPanelIssueDistribution {
+  grid-column: span 2;
+}
+
+.ppAnalyticsPanelLine,
+.ppAnalyticsPanelSource,
+.ppAnalyticsPanelCollection {
+  grid-column: span 2;
+}
+
+.ppAnalyticsPanelRiskMargin .ppRiskRevenueWrap {
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 136px);
+  min-height: 314px;
+}
+
+.ppAnalyticsPanelRiskMargin .ppBubbleChart {
+  min-height: 314px;
+}
+
+.ppAnalyticsPanelRiskMargin .ppBubblePlot {
+  inset: 10px 16px 38px 62px;
+}
+
+.ppAnalyticsPanelRiskMargin .ppBubbleYTicks {
+  top: 10px;
+  bottom: 38px;
+  width: 58px;
+}
+
+.ppAnalyticsPanelRiskMargin .ppBubbleXTicks {
+  left: 62px;
+  right: 16px;
+  bottom: 13px;
 }
 
 .ppAnalyticsPanelHeader {
@@ -6807,6 +6842,21 @@ s-page[inline-size="large-500"] {
   .ppRecommendedActionList {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .ppAnalyticsChartGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppAnalyticsPanelRiskMargin {
+    grid-column: span 2;
+  }
+
+  .ppAnalyticsPanelIssueDistribution,
+  .ppAnalyticsPanelLine,
+  .ppAnalyticsPanelSource,
+  .ppAnalyticsPanelCollection {
+    grid-column: span 1;
+  }
 }
 
 @media (max-width: 820px) {
@@ -6824,8 +6874,7 @@ s-page[inline-size="large-500"] {
   .ppDashboardInsights,
   .ppDashboardBottom,
   .ppAnalyticsKpis,
-  .ppAnalyticsChartsTop,
-  .ppAnalyticsChartsMid,
+  .ppAnalyticsChartGrid,
   .ppAnalyticsBottom,
   .ppSourceContribution,
   .ppAnalysisCoverageDonut,
@@ -6847,6 +6896,14 @@ s-page[inline-size="large-500"] {
   .ppEvidencePointList,
   .ppCheckedGrid {
     grid-template-columns: 1fr;
+  }
+
+  .ppAnalyticsPanelRiskMargin,
+  .ppAnalyticsPanelIssueDistribution,
+  .ppAnalyticsPanelLine,
+  .ppAnalyticsPanelSource,
+  .ppAnalyticsPanelCollection {
+    grid-column: 1;
   }
 
   .ppStartProduct,
