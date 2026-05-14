@@ -94,6 +94,8 @@ export async function uploadCsvReviews(shop, file) {
         uploadedAt: now.toISOString(),
         checksum: result.checksum,
         normalizedFilePath: result.normalizedFilePath,
+        normalizedFileName: result.normalizedFileName,
+        importId: result.importId,
         storageKey: result.storageKey,
         normalizedRowCount: result.normalizedRowCount,
         totalRowCount: result.totalRows,

@@ -59,7 +59,7 @@ export async function processCsvReviewUpload({ shop, file }) {
     );
   }
 
-  const saved = await saveNormalizedCsvReviews({ shop, rows: normalized.rows });
+  const saved = await saveNormalizedCsvReviews({ shop, rows: normalized.rows, checksum });
 
   return {
     fileName,
@@ -70,6 +70,8 @@ export async function processCsvReviewUpload({ shop, file }) {
     normalizedRowCount: normalized.rows.length,
     rejectedRows: normalized.rejectedRows,
     normalizedFilePath: saved.filePath,
+    normalizedFileName: saved.fileName,
+    importId: saved.importId,
     storageKey: saved.storageKey,
   };
 }
@@ -436,19 +438,31 @@ function normalizeRating(value) {
   return String(Math.min(5, rating));
 }
 
-async function saveNormalizedCsvReviews({ shop, rows }) {
+async function saveNormalizedCsvReviews({ shop, rows, checksum }) {
   const storageRoot = process.env.PRODUCT_PULSE_CSV_STORAGE_DIR
     || path.join(process.cwd(), ".cache", "product-pulse", "csv-reviews");
   const storageKey = sanitizeStorageSegment(shop || "unknown-shop");
   const shopDir = path.join(storageRoot, storageKey);
-  const filePath = path.join(shopDir, "reviews.normalized.csv");
+  const importId = buildNormalizedCsvImportId(checksum);
+  const fileName = `${importId}.normalized.csv`;
+  const filePath = path.join(shopDir, fileName);
   const tmpPath = `${filePath}.${Date.now()}.tmp`;
 
   await mkdir(shopDir, { recursive: true });
   await writeFile(tmpPath, serializeCsvRows(rows), "utf8");
   await rename(tmpPath, filePath);
 
-  return { filePath, storageKey };
+  return { filePath, fileName, importId, storageKey };
+}
+
+function buildNormalizedCsvImportId(checksum) {
+  const timestamp = new Date().toISOString()
+    .replace(/\.\d{3}Z$/, "Z")
+    .replace(/[^0-9TZ]+/g, "")
+    .replace("T", "-")
+    .replace("Z", "");
+  const hash = String(checksum || "").replace(/[^a-f0-9]+/gi, "").slice(0, 12).toLowerCase() || "nohash";
+  return `csv-review-import-${timestamp}-${hash}`;
 }
 
 export function serializeCsvRows(rows) {

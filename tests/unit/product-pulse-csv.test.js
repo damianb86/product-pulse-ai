@@ -87,7 +87,10 @@ describe("ProductPulse CSV review import", () => {
     expect(result.normalizedRowCount).toBe(2);
     expect(result.rejectedRows).toHaveLength(1);
     expect(result.storageKey).toBe("test-shop.myshopify.com");
-    expect(result.normalizedFilePath).toContain("reviews.normalized.csv");
+    expect(result.normalizedFileName).toMatch(/^csv-review-import-\d{8}-\d{6}-[a-f0-9]{12}\.normalized\.csv$/);
+    expect(path.basename(result.normalizedFilePath)).toBe(result.normalizedFileName);
+    expect(result.normalizedFileName).not.toBe("reviews.csv");
+    expect(result.normalizedFileName).not.toBe("reviews.normalized.csv");
 
     const normalized = await readFile(result.normalizedFilePath, "utf8");
     expect(normalized).toContain("product_handle,shopify_product_id,rating");
