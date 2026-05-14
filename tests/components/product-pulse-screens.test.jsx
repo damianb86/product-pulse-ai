@@ -84,7 +84,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: "Judge.me API documentation" })).toHaveAttribute("href", "https://judge.me/help/en/articles/8409180-judge-me-api");
     fireEvent.change(screen.getByLabelText("Private API token"), { target: { value: "judgeme_private_123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    await waitFor(() => expect(screen.getAllByText("Connected to Judge.me.").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("Connected to Judge.me.")).toHaveLength(1));
+    expect(screen.queryByText("Done")).not.toBeInTheDocument();
     expect(screen.getByText("60% effective customer-signal coverage")).toBeInTheDocument();
   });
 
@@ -452,7 +453,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Source contribution").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Risk vs. margin impact").length).toBeGreaterThan(0);
     expect(screen.queryByText("Analysis coverage by depth")).not.toBeInTheDocument();
-    expect(screen.getByText("X-axis: deterministic product risk score from 0 to 100.")).toBeInTheDocument();
+    expect(screen.getByText("X-axis: deterministic product risk score, starting slightly below the lowest plotted product and ending at 100.")).toBeInTheDocument();
     expect(screen.getByText("Hover a bubble for product details; click it to open the product diagnosis page.")).toBeInTheDocument();
     expect(screen.getByText(/Insights are ranked from issue concentration/)).toBeInTheDocument();
     const productBubbleLinks = screen.getAllByRole("link", { name: /open product detail/ });
@@ -465,6 +466,50 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: /Learn how ProductPulse AI improves these outcomes/ }));
     expect(screen.getByRole("heading", { name: "How ProductPulse estimates business impact" })).toBeInTheDocument();
     expect(screen.getByText(/designed for prioritization, not accounting/)).toBeInTheDocument();
+  });
+
+  it("starts the risk margin x-axis near the lowest plotted risk score", () => {
+    const data = {
+      ...defaultView,
+      analytics: {
+        ...defaultView.analytics,
+        riskBubbles: [
+          {
+            label: "Product A",
+            href: "/app/products/product-a",
+            riskScore: 66,
+            riskLabel: "Medium",
+            impact: 1200,
+            issueLabel: "Refund pressure",
+            signalCount: 4,
+            returnRate: 8,
+            refundRate: 2,
+            analysisLabel: "QuickScan only",
+            size: 18,
+            tone: "orange",
+          },
+          {
+            label: "Product B",
+            href: "/app/products/product-b",
+            riskScore: 82,
+            riskLabel: "High",
+            impact: 2400,
+            issueLabel: "Return pressure",
+            signalCount: 8,
+            returnRate: 16,
+            refundRate: 5,
+            analysisLabel: "Full diagnosis",
+            size: 28,
+            tone: "red",
+          },
+        ],
+      },
+    };
+    const { container } = renderWithRouter(<AnalyticsScreen data={data} />);
+    const xTicks = [...container.querySelectorAll(".ppBubbleXTick")].map((tick) => tick.textContent);
+    expect(xTicks[0]).toBe("50");
+    expect(xTicks).not.toContain("0");
+    expect(screen.getByRole("link", { name: /Product A: open product detail/ })).toHaveStyle({ left: "32%" });
   });
 
 });

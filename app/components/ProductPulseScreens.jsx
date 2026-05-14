@@ -359,7 +359,7 @@ export function ConnectScreen({ data, actionData }) {
   return (
     <FullWidthPage label="Connect" className="ppConnectPage">
       <ScreenShell className="ppDashboard ppConnectScreen">
-        <ActionBanner actionData={localToast || actionData} />
+        <ActionBanner actionData={localToast || actionData} hideSuccess />
         <ConnectionToast actionData={localToast || actionData} />
 
         <div className="ppConnectHeader">
@@ -4326,8 +4326,9 @@ function FullWidthPage({ heading, label, className = "", children }) {
   );
 }
 
-function ActionBanner({ actionData }) {
+function ActionBanner({ actionData, hideSuccess = false }) {
   if (!actionData || actionData.suppressBanner) return null;
+  if (hideSuccess && actionData.status === "success") return null;
   const tone = actionData.status === "success" ? "success" : actionData.status === "validation_error" ? "warning" : "critical";
   return (
     <s-banner tone={tone} heading={actionData.status === "success" ? "Done" : "Action needs attention"}>
@@ -4449,7 +4450,7 @@ function getAnalyticsPanelInfo(title = "") {
       title: "Risk vs. margin impact",
       body: "Plots products by risk and estimated margin exposure so you can prioritize work by urgency and financial relevance.",
       items: [
-        "X-axis: deterministic product risk score from 0 to 100.",
+        "X-axis: deterministic product risk score, starting slightly below the lowest plotted product and ending at 100.",
         "Y-axis and bubble size: estimated margin at risk for that product.",
         "Hover a bubble for product details; click it to open the product diagnosis page.",
       ],
@@ -4620,7 +4621,7 @@ function RiskRevenueBubbleChart({ bubbles }) {
   const safeBubbles = bubbles?.length ? bubbles : [];
   const maxImpact = Math.max(...safeBubbles.map((bubble) => Number(bubble.impact || 0)), 0);
   const yAxisMax = getRiskBubbleAxisMax(maxImpact);
-  const xTicks = [0, 25, 50, 75, 100];
+  const xAxis = getRiskBubbleXAxis(safeBubbles);
   const yTicks = getRiskBubbleYAxisTicks(yAxisMax);
   const [activeBubble, setActiveBubble] = useState(null);
   const showBubble = (event, bubble) => {
@@ -4639,14 +4640,14 @@ function RiskRevenueBubbleChart({ bubbles }) {
           ))}
         </div>
         <div className="ppBubblePlot">
-          {xTicks.slice(1).map((tick) => (
-            <span key={`x-${tick}`} className="ppBubbleGridLine ppBubbleGridLine-x" style={{ left: `${tick}%` }} />
+          {xAxis.ticks.slice(1).map((tick) => (
+            <span key={`x-${tick}`} className="ppBubbleGridLine ppBubbleGridLine-x" style={{ left: `${getRiskBubbleXPosition(tick, xAxis)}%` }} />
           ))}
           {yTicks.slice(1).map((tick) => (
             <span key={`y-${tick.value}`} className="ppBubbleGridLine ppBubbleGridLine-y" style={{ bottom: `${tick.position}%` }} />
           ))}
           {safeBubbles.map((bubble) => {
-            const position = getRiskBubblePlotPosition(bubble, yAxisMax);
+            const position = getRiskBubblePlotPosition(bubble, yAxisMax, xAxis);
             return (
               <Link
                 key={`${bubble.label}-${bubble.riskScore}-${bubble.impact}-${bubble.size}`}
@@ -4663,8 +4664,8 @@ function RiskRevenueBubbleChart({ bubbles }) {
           })}
         </div>
         <div className="ppBubbleXTicks" aria-hidden="true">
-          {xTicks.map((tick) => (
-            <span key={tick} className="ppBubbleXTick" style={{ left: `${tick}%` }}>{tick}</span>
+          {xAxis.ticks.map((tick) => (
+            <span key={tick} className="ppBubbleXTick" style={{ left: `${getRiskBubbleXPosition(tick, xAxis)}%` }}>{tick}</span>
           ))}
         </div>
         <span className="ppBubbleAxis ppBubbleAxis-y">Margin impact</span>
@@ -4683,13 +4684,46 @@ function RiskRevenueBubbleChart({ bubbles }) {
   );
 }
 
-function getRiskBubblePlotPosition(bubble, yAxisMax) {
+function getRiskBubblePlotPosition(bubble, yAxisMax, xAxis = { min: 0, max: 100 }) {
   const riskScore = Number.isFinite(Number(bubble.riskScore)) ? Number(bubble.riskScore) : Number(bubble.x || 0);
   const impact = Number(bubble.impact || 0);
   return {
-    x: clampNumber(riskScore, 0, 100),
+    x: getRiskBubbleXPosition(riskScore, xAxis),
     y: yAxisMax > 0 ? clampNumber((impact / yAxisMax) * 100, 3, 97) : 3,
   };
+}
+
+function getRiskBubbleXAxis(bubbles = []) {
+  const scores = bubbles
+    .map((bubble) => Number.isFinite(Number(bubble.riskScore)) ? Number(bubble.riskScore) : Number(bubble.x || 0))
+    .filter((score) => Number.isFinite(score));
+  const lowestScore = scores.length ? Math.min(...scores) : 0;
+  const min = scores.length ? clampNumber(Math.floor((lowestScore - 10) / 10) * 10, 0, 90) : 0;
+  return {
+    min,
+    max: 100,
+    ticks: getRiskBubbleXTicks(min),
+  };
+}
+
+function getRiskBubbleXTicks(min) {
+  if (min <= 0) return [0, 25, 50, 75, 100];
+  const step = min >= 40 ? 10 : 20;
+  const ticks = [min];
+  let next = Math.ceil((min + step) / step) * step;
+  while (next < 100) {
+    ticks.push(next);
+    next += step;
+  }
+  ticks.push(100);
+  return [...new Set(ticks)];
+}
+
+function getRiskBubbleXPosition(value, xAxis) {
+  const min = Number(xAxis?.min || 0);
+  const max = Number(xAxis?.max || 100);
+  const range = Math.max(max - min, 1);
+  return clampNumber(((Number(value || 0) - min) / range) * 100, 0, 100);
 }
 
 function getRiskBubbleYAxisTicks(maxValue) {
