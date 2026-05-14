@@ -41,7 +41,7 @@ export default function App() {
 function getActiveNavSection(pathname) {
   if (pathname === "/app" || pathname === "/app/") return "dashboard";
   if (pathname.startsWith("/app/products")) return "products";
-  if (pathname.startsWith("/app/analytics") || pathname.startsWith("/app/analyses")) return "analytics";
+  if (pathname.startsWith("/app/analytics")) return "analytics";
   if (pathname.startsWith("/app/connect")) return "connect";
   return "";
 }

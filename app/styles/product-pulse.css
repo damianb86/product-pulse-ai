@@ -3384,6 +3384,33 @@ s-page[inline-size="large-500"] {
   min-height: 178px;
 }
 
+.ppAnalysisCoverageDonut {
+  display: grid;
+  grid-template-columns: minmax(146px, 0.78fr) minmax(170px, 1fr);
+  gap: 22px;
+  align-items: center;
+  min-height: 166px;
+}
+
+.ppAnalysisCoverageDonut.isCompact {
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 18px;
+  min-height: 136px;
+}
+
+.ppAnalysisCoverageDonut.isCompact .ppDonutChart {
+  width: 124px;
+}
+
+.ppAnalysisCoverageDonut.isCompact .ppDonutChart > div {
+  width: 78px;
+  height: 78px;
+}
+
+.ppAnalysisDepthDonut {
+  box-shadow: 0 18px 34px rgba(var(--pp-insight-violet-rgb), 0.13);
+}
+
 .ppDonutChart {
   width: 164px;
   aspect-ratio: 1;
@@ -3627,6 +3654,29 @@ s-page[inline-size="large-500"] {
   margin-bottom: 18px;
 }
 
+.ppAnalyticsInfoLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-pulse-blue);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.ppAnalyticsInfoLink:hover {
+  color: var(--pp-insight-violet);
+  text-decoration: underline;
+}
+
+.ppAnalyticsInfoLink s-icon {
+  color: currentColor;
+}
+
 .ppBusinessImpactGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3668,6 +3718,132 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
   font-size: 12px;
   line-height: 1.3;
+}
+
+.ppBusinessImpactModal {
+  width: min(760px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.06), rgba(var(--pp-insight-violet-rgb), 0.045) 46%, rgba(var(--pp-signal-teal-rgb), 0.05)),
+    var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  box-shadow: 0 30px 90px rgba(var(--pp-shadow-rgb), 0.26);
+}
+
+.ppBusinessImpactModalHero {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.ppBusinessImpactModalHero > div > span,
+.ppImpactFormula > span {
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 820;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppBusinessImpactModalHero h2 {
+  margin: 3px 0 7px;
+  color: var(--pp-slate-900);
+  font-size: 24px;
+  font-weight: 840;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.ppBusinessImpactModalHero p,
+.ppImpactFormula p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ppImpactFlow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.ppImpactFlow > div,
+.ppImpactExplainGrid article,
+.ppImpactFormula {
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.13);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.07);
+}
+
+.ppImpactFlow > div {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+}
+
+.ppImpactFlow s-icon {
+  color: var(--pp-insight-violet);
+}
+
+.ppImpactFlow strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+}
+
+.ppImpactFlow span {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppImpactExplainGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ppImpactExplainGrid article {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 13px;
+}
+
+.ppImpactExplainGrid span {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ppImpactExplainGrid strong {
+  display: block;
+  margin: 3px 0 5px;
+  color: var(--pp-slate-900);
+  font-size: 19px;
+  line-height: 1;
+}
+
+.ppImpactExplainGrid p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.38;
+}
+
+.ppImpactFormula {
+  margin-top: 12px;
+  padding: 13px;
+  border-left: 4px solid var(--pp-signal-teal);
 }
 
 .ppConnectPage {
@@ -6308,6 +6484,9 @@ s-page[inline-size="large-500"] {
   .ppAnalyticsChartsMid,
   .ppAnalyticsBottom,
   .ppSourceContribution,
+  .ppAnalysisCoverageDonut,
+  .ppImpactFlow,
+  .ppImpactExplainGrid,
   .ppRiskRevenueWrap,
   .ppBusinessImpactGrid,
   .ppConnectHeader,

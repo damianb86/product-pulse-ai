@@ -183,7 +183,6 @@ export function DashboardScreen({ data, actionData }) {
                   <SuggestedFix key={fix.label} fix={fix} />
                 ))}
               </div>
-              <s-link href="/app/analyses">View all recommended fixes</s-link>
             </div>
           </s-section>
 
@@ -2847,6 +2846,7 @@ function announceProductPulseJobs(actionData) {
 
 export function AnalyticsScreen({ data }) {
   const analyticsView = data?.analytics || {};
+  const [businessImpactOpen, setBusinessImpactOpen] = useState(false);
   const kpis = analyticsView.kpis || [];
   const issueDistribution = analyticsView.issueDistribution || { rows: [], max: 1 };
   const sourceContribution = analyticsView.sourceContribution || { rows: [], total: 0, totalLabel: "0" };
@@ -2902,7 +2902,7 @@ export function AnalyticsScreen({ data }) {
           </AnalyticsPanel>
 
           <AnalyticsPanel title="Analysis coverage by depth" subtitle="Stored products by analysis state">
-            <HorizontalBarChart rows={analysisCoverage.rows} max={analysisCoverage.max} />
+            <AnalysisCoverageDonut rows={analysisCoverage.rows} />
           </AnalyticsPanel>
         </div>
 
@@ -2921,7 +2921,6 @@ export function AnalyticsScreen({ data }) {
                   </p>
                 ))}
               </div>
-              <s-link href="/app/analyses">View all insights</s-link>
             </div>
           </s-section>
 
@@ -2938,51 +2937,22 @@ export function AnalyticsScreen({ data }) {
                   <AnalyticsImpactMetric key={metric.label} metric={metric} />
                 ))}
               </div>
-              <s-link href="/app/analytics">Learn how ProductPulse AI improves these outcomes</s-link>
+              <button className="ppAnalyticsInfoLink" type="button" onClick={() => setBusinessImpactOpen(true)}>
+                <s-icon type="info" size="small"></s-icon>
+                Learn how ProductPulse AI improves these outcomes
+              </button>
             </div>
           </s-section>
         </div>
+        {businessImpactOpen && (
+          <BusinessImpactInfoModal
+            businessImpact={businessImpact}
+            windowLabel={analyticsView.windowLabel || "Stored scan window"}
+            onClose={() => setBusinessImpactOpen(false)}
+          />
+        )}
       </ScreenShell>
     </FullWidthPage>
-  );
-}
-
-export function AnalysesScreen({ data }) {
-  return (
-    <s-page heading="Analyses" inline-size="large-500">
-      <ScreenShell>
-        <s-section heading="Diagnosis history">
-          <div className="ppTableWrap">
-            <table className="ppTable">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Status</th>
-                  <th>Risk</th>
-                  <th>Main issue</th>
-                  <th>Confidence</th>
-                  <th>Credits</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.analyses.map((analysis) => (
-                  <tr key={analysis.id}>
-                    <td><Link to={`/app/products/${analysis.productSlug}`}>{analysis.productTitle}</Link></td>
-                    <td><StatusBadge status={analysis.status} /></td>
-                    <td>{analysis.riskScore}</td>
-                    <td>{analysis.mainIssue}</td>
-                    <td>{analysis.confidence}%</td>
-                    <td>{analysis.credits}</td>
-                    <td>{analysis.actionsApplied}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </s-section>
-      </ScreenShell>
-    </s-page>
   );
 }
 
@@ -2995,13 +2965,11 @@ export function PreviewScreen({ data, actionData }) {
         <a href="#products">Products</a>
         <a href="#diagnosis">Diagnosis</a>
         <a href="#analytics">Analytics</a>
-        <a href="#analyses">Analyses</a>
       </nav>
       <section id="connect"><ConnectScreen data={data} /></section>
       <section id="products"><ProductsScreen data={data} filters={{ query: "", risk: "all" }} /></section>
       <section id="diagnosis"><ProductDiagnosisScreen product={data.startHere} data={data} actionData={actionData} /></section>
       <section id="analytics"><AnalyticsScreen data={data} /></section>
-      <section id="analyses"><AnalysesScreen data={data} /></section>
     </main>
   );
 }
@@ -3147,7 +3115,7 @@ function IssueBar({ issue }) {
 
 function SuggestedFix({ fix }) {
   return (
-    <a className="ppFixItem" href={fix.href || "/app/analyses"}>
+    <a className="ppFixItem" href={fix.href || "/app/products"}>
       <s-icon type={fix.icon}></s-icon>
       <span>{fix.label}</span>
       <s-badge tone={fix.tone}>{fix.impact}</s-badge>
@@ -3163,11 +3131,15 @@ function DashboardInsightPanel({ panel }) {
         <h2>{panel.title}</h2>
         {panel.detail && <span>{panel.detail}</span>}
       </div>
-      <div className="ppIssueBars">
-        {(panel.rows || []).map((row) => (
-          <IssueBar key={`${panel.title}-${row.label}`} issue={row} />
-        ))}
-      </div>
+      {panel.visual === "analysisCoverage" ? (
+        <AnalysisCoverageDonut rows={panel.rows || []} compact />
+      ) : (
+        <div className="ppIssueBars">
+          {(panel.rows || []).map((row) => (
+            <IssueBar key={`${panel.title}-${row.label}`} issue={row} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4319,6 +4291,37 @@ function SourceContributionChart({ contribution }) {
   );
 }
 
+function AnalysisCoverageDonut({ rows, compact = false }) {
+  const safeRows = rows?.length ? rows : [
+    { label: "Full diagnosis", value: 0, percent: 0, color: "purple", displayValue: "0%" },
+    { label: "QuickScan only", value: 0, percent: 0, color: "blue", displayValue: "0%" },
+  ];
+  const fullRow = safeRows.find((row) => String(row.label || "").toLowerCase().includes("full")) || safeRows[0];
+  const quickRow = safeRows.find((row) => String(row.label || "").toLowerCase().includes("quick")) || safeRows[1];
+  const total = safeRows.reduce((sum, row) => sum + Number(row.value || 0), 0);
+  const fullPercent = total ? Math.round((Number(fullRow?.value || 0) / total) * 100) : 0;
+  const donutGradient = buildDonutGradient(safeRows);
+
+  return (
+    <div className={`ppAnalysisCoverageDonut${compact ? " isCompact" : ""}`.trim()}>
+      <div className="ppDonutChart ppAnalysisDepthDonut" aria-label="Analysis coverage by depth" style={{ "--pp-donut-gradient": donutGradient }}>
+        <div>
+          <strong>{fullPercent}%</strong>
+          <span>Full diagnosis</span>
+        </div>
+      </div>
+      <div className="ppDonutLegend">
+        {[fullRow, quickRow].filter(Boolean).map((row) => (
+          <div key={row.label}>
+            <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
+            <strong>{row.displayValue || `${row.percent || 0}%`}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RiskRevenueBubbleChart({ bubbles }) {
   const safeBubbles = bubbles?.length ? bubbles : [];
   const maxImpact = Math.max(...safeBubbles.map((bubble) => Number(bubble.impact || 0)), 0);
@@ -4356,6 +4359,85 @@ function AnalyticsImpactMetric({ metric }) {
         <span>{metric.label}</span>
         <strong>{metric.value}</strong>
         <small>{metric.detail}</small>
+      </div>
+    </article>
+  );
+}
+
+function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
+  const metrics = businessImpact?.metrics || [];
+  const revenueMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("revenue"));
+  const marginMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("margin"));
+  const returnsMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("returns"));
+  const actionsMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("actions"));
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppBusinessImpactModal" role="dialog" aria-modal="true" aria-labelledby="business-impact-title">
+        <div className="ppBusinessImpactModalHero">
+          <span className="ppAnalysisConfirmIcon" aria-hidden="true">
+            <s-icon type="cash-dollar" size="small"></s-icon>
+          </span>
+          <div>
+            <span>{windowLabel}</span>
+            <h2 id="business-impact-title">How ProductPulse estimates business impact</h2>
+            <p>
+              This projection turns stored product risk signals into a practical next-90-day exposure view. It is designed for prioritization, not accounting.
+            </p>
+          </div>
+        </div>
+
+        <div className="ppImpactFlow">
+          <div>
+            <s-icon type="target" size="small"></s-icon>
+            <strong>Signals</strong>
+            <span>QuickScan and full diagnostics collect returns, refunds, reviews, content issues and recent trend pressure.</span>
+          </div>
+          <div>
+            <s-icon type="chart-line" size="small"></s-icon>
+            <strong>Projection</strong>
+            <span>Known refund value, return rate, revenue at risk and review drag are normalized to the active scan window.</span>
+          </div>
+          <div>
+            <s-icon type="wand" size="small"></s-icon>
+            <strong>Action value</strong>
+            <span>Recommended actions show where the product team can reduce preventable returns or buyer confusion.</span>
+          </div>
+        </div>
+
+        <div className="ppImpactExplainGrid">
+          <ImpactExplainCard metric={revenueMetric} label="Revenue at risk" detail="Refund value plus projected revenue pressure from products with stored risk signals." />
+          <ImpactExplainCard metric={marginMetric} label="Margin at risk" detail="Estimated margin exposure using the app's current margin assumption for prioritized products." />
+          <ImpactExplainCard metric={returnsMetric} label="Potential returns" detail="A lightweight forecast based on observed return units in each product's available Shopify order window." />
+          <ImpactExplainCard metric={actionsMetric} label="Recommended actions" detail="Open and applied actions indicate how much of the detected risk has an available workflow." />
+        </div>
+
+        <div className="ppImpactFormula">
+          <span>Working model</span>
+          <p>
+            ProductPulse combines <strong>refund value</strong>, <strong>projected return exposure</strong>, <strong>review conversion drag</strong> and <strong>margin at risk</strong>. More full diagnostics improve confidence because they add customer language, product-content analysis and recommendation quality.
+          </p>
+        </div>
+
+        <div className="ppAnalysisConfirmFooter">
+          <button className="ppPrimaryButton" type="button" onClick={onClose}>
+            <s-icon type="check" size="small"></s-icon>
+            Got it
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ImpactExplainCard({ metric, label, detail }) {
+  return (
+    <article>
+      <DashboardIcon type={metric?.icon || "info"} tone={metric?.tone || "blue"} size="small" />
+      <div>
+        <span>{metric?.label || label}</span>
+        <strong>{metric?.value || "0"}</strong>
+        <p>{metric?.detail || detail}</p>
       </div>
     </article>
   );
@@ -4411,11 +4493,6 @@ function getAnalyticsColorVar(color) {
     pink: "var(--pp-risk-red)",
   };
   return colors[color] || colors.blue;
-}
-
-function StatusBadge({ status }) {
-  const tone = status === "Completed" ? "success" : status === "Running" ? "info" : status === "Queued" ? "warning" : "info";
-  return <s-badge tone={tone}>{status}</s-badge>;
 }
 
 function formatMoney(value) {

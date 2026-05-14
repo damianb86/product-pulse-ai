@@ -440,7 +440,8 @@ export function buildDashboardViewData(productItems = products, options = {}) {
       },
       {
         title: "Analysis coverage",
-        detail: `${formatDashboardNumber(fullDiagnoses.length)} deep ${fullDiagnoses.length === 1 ? "diagnosis" : "diagnoses"} completed`,
+        detail: `${formatDashboardNumber(fullDiagnoses.length)} full / ${formatDashboardNumber(quickScanOnly.length)} QuickScan only`,
+        visual: "analysisCoverage",
         rows: analysisCoverage,
       },
       {
@@ -679,12 +680,7 @@ function buildDashboardImpactByCollection(productList) {
 }
 
 function buildDashboardAnalysisCoverage({ fullDiagnoses, quickScanOnly, totalProducts }) {
-  const notScanned = Math.max(0, totalProducts - fullDiagnoses.length - quickScanOnly.length);
-  return normalizeDashboardRows([
-    { label: "Full diagnosis", value: fullDiagnoses.length },
-    { label: "QuickScan only", value: quickScanOnly.length },
-    { label: "Not scanned", value: notScanned },
-  ], 3, "No products");
+  return buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts });
 }
 
 function buildDashboardRiskDistribution({ highRiskProducts, mediumRiskProducts, totalProducts }) {
@@ -1099,12 +1095,39 @@ function buildAnalyticsRiskBubbles(productList) {
 }
 
 function buildAnalyticsAnalysisCoverage({ totalProducts, fullDiagnoses, quickScanOnly }) {
-  const notScanned = Math.max(0, totalProducts - fullDiagnoses.length - quickScanOnly.length);
-  return withAnalyticsColors(normalizeDashboardRows([
-    { label: "Full diagnosis", value: fullDiagnoses.length },
-    { label: "QuickScan only", value: quickScanOnly.length },
-    { label: "Not analyzed", value: notScanned },
-  ], 3, "No products"));
+  return withAnalyticsColors(buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts }));
+}
+
+function buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts }) {
+  const full = Array.isArray(fullDiagnoses) ? fullDiagnoses.length : Number(fullDiagnoses || 0);
+  const explicitQuick = Array.isArray(quickScanOnly) ? quickScanOnly.length : Number(quickScanOnly || 0);
+  const total = Number(totalProducts || 0);
+  const quick = total > 0 ? Math.max(explicitQuick, total - full) : explicitQuick;
+  const scannedTotal = Math.max(full + quick, 0);
+  if (!scannedTotal) {
+    return [
+      { label: "Full diagnosis", value: 0, percent: 0, pct: 0, displayValue: "0%" },
+      { label: "QuickScan only", value: 0, percent: 0, pct: 0, displayValue: "0%" },
+    ];
+  }
+  return [
+    {
+      label: "Full diagnosis",
+      value: full,
+      percent: Math.round((full / scannedTotal) * 100),
+      pct: Math.round((full / scannedTotal) * 100),
+      displayValue: `${formatDashboardNumber(full)} (${formatAnalyticsPercent((full / scannedTotal) * 100)})`,
+      color: "purple",
+    },
+    {
+      label: "QuickScan only",
+      value: quick,
+      percent: Math.round((quick / scannedTotal) * 100),
+      pct: Math.round((quick / scannedTotal) * 100),
+      displayValue: `${formatDashboardNumber(quick)} (${formatAnalyticsPercent((quick / scannedTotal) * 100)})`,
+      color: "blue",
+    },
+  ];
 }
 
 function buildAnalyticsTopInsights({ productList, issueDistribution, highRiskProducts, sourceContribution, fullDiagnoses, totalProducts }) {
@@ -1239,12 +1262,6 @@ export const jobs = [
   { id: "job-risk-score", name: "Calculate risk", source: "ProductPulse", status: "Waiting", progress: 12, updatedAt: "1 min ago" },
 ];
 
-export const analyses = [
-  { id: "analysis-1001", productSlug: "core-linen-trouser", productTitle: "Core Linen Trouser", status: "Completed", riskScore: 88, mainIssue: "Fit runs small", confidence: 91, credits: 1, actionsApplied: 2 },
-  { id: "analysis-1002", productSlug: "trail-run-vest", productTitle: "Trail Run Vest", status: "Running", riskScore: 78, mainIssue: "Zipper failures", confidence: 84, credits: 1, actionsApplied: 0 },
-  { id: "analysis-1003", productSlug: "ceramic-pour-over", productTitle: "Ceramic Pour Over", status: "Completed", riskScore: 52, mainIssue: "Compatibility confusion", confidence: 76, credits: 1, actionsApplied: 1 },
-];
-
 export const billing = {
   plan: "Pulse Starter",
   includedScan: "Catalog Signal Scan",
@@ -1282,7 +1299,6 @@ export function getAppViewData({ query = "", risk = "all" } = {}) {
     products,
     filteredProducts,
     jobs,
-    analyses,
     analytics: buildAnalyticsViewData(products, { sources }),
     billing,
     dashboard,

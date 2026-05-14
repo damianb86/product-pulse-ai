@@ -26,6 +26,8 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Products to review")).not.toBeInTheDocument();
     expect(screen.getByText("Risk distribution")).toBeInTheDocument();
     expect(screen.getByText("Analysis coverage")).toBeInTheDocument();
+    expect(screen.queryByText("Not scanned")).not.toBeInTheDocument();
+    expect(screen.queryByText("View all recommended fixes")).not.toBeInTheDocument();
     expect(screen.getByText("Signal source mix")).toBeInTheDocument();
     expect(screen.getByText("Impact by collection")).toBeInTheDocument();
   });
@@ -408,7 +410,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Estimated margin at risk").length).toBeGreaterThan(0);
     expect(screen.getByText("Risk signals over time")).toBeInTheDocument();
     expect(screen.getByText("Source contribution")).toBeInTheDocument();
+    expect(screen.getByText("Analysis coverage by depth")).toBeInTheDocument();
+    expect(screen.queryByText("View all insights")).not.toBeInTheDocument();
     expect(screen.getByText("Estimated business impact (next 90 days)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Learn how ProductPulse AI improves these outcomes/ }));
+    expect(screen.getByRole("heading", { name: "How ProductPulse estimates business impact" })).toBeInTheDocument();
+    expect(screen.getByText(/designed for prioritization, not accounting/)).toBeInTheDocument();
   });
 
 });
