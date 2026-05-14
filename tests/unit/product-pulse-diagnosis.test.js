@@ -491,6 +491,99 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(confidence).toBeLessThanOrEqual(64);
   });
 
+  it("uses imported CSV reviews as deep-diagnosis review evidence", () => {
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        productGid: "gid://shopify/Product/123",
+        productTitle: "Night Watch Print",
+        handle: "night-watch-print",
+        primaryIssue: "Product quality",
+        metrics: {},
+      },
+      shopifyData: {
+        product: {
+          id: "gid://shopify/Product/123",
+          numericId: "123",
+          title: "Night Watch Print",
+          handle: "night-watch-print",
+          description: "Museum-inspired wall art printed on canvas with a dark palette and framed finish for home decor.",
+          variants: [],
+          tags: ["art", "canvas"],
+          collections: ["Art prints"],
+        },
+        sales: [],
+        refunds: [],
+        returns: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: {
+        connected: false,
+        reviews: [],
+        matchConfidence: 0,
+      },
+      csvReviewData: {
+        connected: true,
+        matchConfidence: 0.94,
+        reviews: [
+          {
+            title: "Too unsettling",
+            body: "This print scares me and feels too creepy for my wall.",
+            rating: 1,
+            createdAt: "2026-05-10T12:00:00Z",
+            sourceType: "csv_review",
+            sourceLabel: "CSV reviews",
+          },
+          {
+            title: "Dark mood",
+            body: "The image is scary and darker than expected.",
+            rating: 2,
+            createdAt: "2026-05-11T12:00:00Z",
+            sourceType: "csv_review",
+            sourceLabel: "CSV reviews",
+          },
+          {
+            title: "Good print",
+            body: "The print quality is good.",
+            rating: 5,
+            createdAt: "2026-05-12T12:00:00Z",
+            sourceType: "csv_review",
+            sourceLabel: "CSV reviews",
+          },
+        ],
+      },
+    });
+
+    expect(deterministic.metrics.reviewCount).toBe(3);
+    expect(deterministic.metrics.csvReviewCount).toBe(3);
+    expect(deterministic.metrics.csvNegativeReviewCount).toBe(2);
+    expect(deterministic.metrics.csvAverageRating).toBe(2.7);
+    expect(deterministic.sourceCoverage).toContain("CSV reviews");
+    expect(deterministic.evidenceSnippets.filter((snippet) => snippet.source === "csv_review")).toHaveLength(2);
+    expect(deterministic.metrics.textInsights.reviews.sentiment.negative).toBe(2);
+    expect(deterministic.metrics.textInsights.reviews.examples[0]).toMatchObject({
+      source: "csv_review",
+      sourceLabel: "CSV reviews",
+    });
+  });
+
+  it("matches CSV reviews by Shopify numeric ID or product handle", () => {
+    const snapshot = {
+      productGid: "gid://shopify/Product/98765",
+      productTitle: "Numeric ID Match",
+      handle: "numeric-id-match",
+    };
+    const product = {
+      id: "gid://shopify/Product/98765",
+      numericId: "98765",
+      handle: "numeric-id-match",
+      title: "Numeric ID Match",
+    };
+
+    expect(__productPulseDiagnosisTestHooks.getCsvReviewMatchConfidence({ shopifyProductId: "98765" }, snapshot, product)).toBe(1);
+    expect(__productPulseDiagnosisTestHooks.getCsvReviewMatchConfidence({ productHandle: "numeric-id-match" }, snapshot, product)).toBeGreaterThanOrEqual(0.9);
+    expect(__productPulseDiagnosisTestHooks.getCsvReviewMatchConfidence({ productHandle: "other-product" }, snapshot, product)).toBe(0);
+  });
+
   it("does not turn normal product metadata coverage gaps into main content issues", () => {
     const analysis = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
       title: "Core Linen Trouser",

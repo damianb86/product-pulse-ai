@@ -152,6 +152,7 @@ function buildSignalClassificationPrompt(input) {
     "Use the text evidence only to interpret language. Do not calculate financial metrics, rates, counts, confidence, or risk score.",
     "If a Shopify return reason is Other, Unknown, or generic, read the customer note/reason text and classify the actual product issue when the text supports it.",
     "Analyze sentiment in return notes and reviews. Capture repeated words, repeated phrases, recurring emotions, and fine-grained findings that should become merchant-facing issues.",
+    "Treat csv_review evidence as imported review evidence from a connected CSV source. Use its rating, text and date the same way you use Judge.me review evidence, but keep the source label distinct when explaining evidence.",
     "Shopify refund notes are usually written by the merchant or support team, not the customer. Use shopify_refund_note evidence as operational context: classify product issue patterns and repeated refund reasons, but do not treat staff wording as customer sentiment.",
     "Reserve safety_concern for physical danger, injury, hazard, toxicity, choking, fire, or clearly unsafe use. If the customer says the product is scary, creepy, unsettling, ugly, not their style, or they simply dislike it without objective danger, use subjective_negative_reaction.",
     "Subjective negative reactions start low severity and low confidence. Escalate them only when they repeat across independent texts or represent a meaningful share of available customer text.",
@@ -165,7 +166,7 @@ function buildSignalClassificationPrompt(input) {
     "Schema:",
     JSON.stringify({
       classified_signals: [{
-        source: "judgeme_review|shopify_return_note|shopify_return_reason|shopify_refund_note",
+        source: "judgeme_review|csv_review|shopify_return_note|shopify_return_reason|shopify_refund_note",
         text: "short evidence snippet",
         issue_category: "fit_sizing|quality_defect|durability|color_expectation|compatibility|shipping_delivery|safety_concern|subjective_negative_reaction|support_conversation|other",
         issue_detail: "snake_case_detail",
@@ -184,7 +185,7 @@ function buildSignalClassificationPrompt(input) {
         human_name: "Runs small",
         summary: "short explanation",
         signals: 0,
-        source_types: ["judgeme_reviews", "returns"],
+        source_types: ["judgeme_reviews", "csv_reviews", "returns"],
         severity: "low|medium|high",
       }],
       granular_findings: [{
@@ -203,7 +204,7 @@ function buildSignalClassificationPrompt(input) {
       repeated_language: [{
         term: "too small",
         count: 0,
-        source_types: ["judgeme_reviews", "shopify_return_note", "shopify_refund_note"],
+        source_types: ["judgeme_reviews", "csv_reviews", "shopify_return_note", "shopify_refund_note"],
         sentiment: "negative|neutral|positive",
         known_emotion: "frustration",
         suggested_emotion: "",
@@ -262,7 +263,7 @@ function buildEmergentSentimentPrompt(input, classification) {
         confidence: "low|medium|high",
         has_sufficient_evidence: true,
         merged_from: ["unsettled", "creeped_out"],
-        source_types: ["shopify_return_note", "judgeme_review", "shopify_refund_note"],
+        source_types: ["shopify_return_note", "judgeme_review", "csv_review", "shopify_refund_note"],
         issue_category: "safety_concern|subjective_negative_reaction|product_quality|other",
         merchant_summary: "Customers describe an unusual emotional reaction that is not covered by the known taxonomy.",
         evidence: ["short grounded quote or phrase"],

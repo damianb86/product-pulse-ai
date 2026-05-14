@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
+import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 import {
   buildDatedSignalTrend,
@@ -25,7 +26,8 @@ const DIAGNOSIS_RETURN_QUERY_PLANS = [
 export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
   const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot });
   const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product });
-  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData });
+  const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product });
+  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData });
   const recommendationCandidates = buildRuleRecommendationCandidates(deterministic);
   const aiInput = {
     product: buildAiProductInput(shopifyData.product, snapshot),
@@ -77,7 +79,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       discardedSuggestions: ai.emergentSentiments?.discarded_suggestions || [],
     },
   });
-  const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, deterministic, ai });
+  const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai });
   const diagnosis = await persistDetailedDiagnosis({ shop, snapshot, payload: diagnosisPayload });
 
   await recordJobLog({
@@ -783,6 +785,73 @@ async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct
   };
 }
 
+async function fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct }) {
+  const source = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
+  }).catch(() => null);
+
+  if (!source?.connected || !source.active || !source.config?.normalizedFilePath) {
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "product_diagnosis.csv_reviews_skipped",
+      message: "CSV reviews are not connected or active; diagnosis will continue without imported review evidence.",
+      data: { connected: Boolean(source?.connected), active: Boolean(source?.active) },
+    });
+    return { connected: false, reviews: [], matchConfidence: 0, errors: [] };
+  }
+
+  const errors = [];
+  const rows = await getNormalizedCsvReviewsForShop(shop).catch((error) => {
+    errors.push(serializeError(error));
+    return [];
+  });
+  const matched = rows
+    .map((row) => ({
+      row,
+      confidence: getCsvReviewMatchConfidence(row, snapshot, shopifyProduct),
+    }))
+    .filter((item) => item.confidence >= 0.75);
+  const reviews = matched
+    .map((item) => normalizeCsvDiagnosisReview(item.row, snapshot, shopifyProduct, item.confidence))
+    .filter(Boolean);
+  const matchConfidence = matched.length ? Math.max(...matched.map((item) => item.confidence)) : 0;
+
+  if (reviews.length) {
+    await prisma.productPulseSource.update({
+      where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
+      data: { health: "connected", lastSyncedAt: new Date() },
+    }).catch(() => {});
+  } else if (errors.length) {
+    await prisma.productPulseSource.update({
+      where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
+      data: { health: "error" },
+    }).catch(() => {});
+  }
+
+  await recordJobLog({
+    shop,
+    jobId,
+    level: errors.length && !reviews.length ? "warn" : "info",
+    event: "product_diagnosis.csv_reviews_extracted",
+    message: "CSV review extraction finished for this product.",
+    data: {
+      rows: rows.length,
+      matchedReviews: reviews.length,
+      matchConfidence,
+      usage: "ratings, text and dates are included as imported review evidence",
+      errors,
+    },
+  });
+
+  return {
+    connected: true,
+    reviews,
+    matchConfidence,
+    errors,
+  };
+}
+
 async function resolveJudgeMeProduct({ shop, token, snapshot, shopifyProduct }) {
   const numericProductId = shopifyProduct.numericId || extractNumericShopifyId(snapshot.productGid);
   const attempts = [
@@ -861,13 +930,15 @@ async function fetchAndMatchJudgeMeReviews({ shop, token, snapshot, shopifyProdu
   };
 }
 
-function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData }) {
+function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 } }) {
   const snapshotMetrics = snapshot.metrics || {};
   const product = shopifyData.product;
   const sales = shopifyData.sales || [];
   const refunds = shopifyData.refunds || [];
   const returns = shopifyData.returns || [];
-  const reviews = judgeMeData.reviews || [];
+  const judgeMeReviews = (judgeMeData.reviews || []).map((review) => normalizeReviewSource(review, "judgeme_review", "Judge.me reviews"));
+  const csvReviews = (csvReviewData.reviews || []).map((review) => normalizeReviewSource(review, "csv_review", "CSV reviews"));
+  const reviews = [...judgeMeReviews, ...csvReviews];
   const soldUnits = preferFreshNumber(sumBy(sales, "quantity"), snapshotMetrics.soldUnits);
   const salesAmount = roundCurrency(preferFreshNumber(sumBy(sales, "amount"), snapshotMetrics.salesAmount));
   const returnUnits = preferFreshNumber(sumBy(returns, "quantity"), snapshotMetrics.returnUnits);
@@ -886,7 +957,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
   const deterministicContent = analyzeProductContentDeterministically(product);
   const textInsights = buildCustomerTextInsights({ returns, reviews });
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
-  const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits, refundUnits, reviewCount });
+  const reviewSourceStats = buildReviewSourceStats(reviews);
+  const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const trendOptions = {
     startAt: getSinceDate(DIAGNOSIS_WINDOW_DAYS),
@@ -931,14 +1003,16 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       sourceCoverage,
       signalEvents,
       affectedVariants,
+      reviewSourceStats,
     },
   });
   const confidence = calculateConfidence({
     signalCount,
     sourceCoverage,
     judgeMeMatchConfidence: judgeMeData.matchConfidence,
+    csvReviewMatchConfidence: csvReviewData.matchConfidence,
     orderAccessDenied: shopifyData.orderAccessDenied,
-    sourceAgreement: hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount }),
+    sourceAgreement: hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats }),
     recentSignals: countRecentSignalEvents(signalEvents, 30),
     mainIssue,
     textInsights,
@@ -1019,8 +1093,16 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
       negativeReviewCount,
       negativeReviewRate,
       recentNegativeReviewCount,
+      judgeMeReviewCount: reviewSourceStats.judgeMe.reviewCount,
+      judgeMeNegativeReviewCount: reviewSourceStats.judgeMe.negativeReviewCount,
+      judgeMeAverageRating: reviewSourceStats.judgeMe.avgRating,
+      csvReviewCount: reviewSourceStats.csv.reviewCount,
+      csvNegativeReviewCount: reviewSourceStats.csv.negativeReviewCount,
+      csvAverageRating: reviewSourceStats.csv.avgRating,
+      reviewSourceStats,
       judgeMeInternalProductId: judgeMeData.internalProductId,
       judgeMeMatchConfidence: judgeMeData.matchConfidence,
+      csvReviewMatchConfidence: csvReviewData.matchConfidence,
       orderAccessDenied: shopifyData.orderAccessDenied,
       sourceCoverage,
     },
@@ -1032,11 +1114,11 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData })
     riskScore,
     confidence,
     estimatedImpact,
-    sourceAgreement: hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount }),
+    sourceAgreement: hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats }),
   };
 }
 
-function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, deterministic, ai }) {
+function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
   const knownEmotions = normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights);
@@ -1081,7 +1163,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, determini
   const adjustedMainFinding = adjustMainFindingForSignalStrength(mainFinding, scoredDeterministic);
   const recommendations = buildFinalRecommendations({ snapshot, deterministic: scoredDeterministic, ai, mainIssue });
   const issues = buildFinalIssues({ deterministic: scoredDeterministic, ai, mainIssue, recommendations });
-  const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, judgeMeData, shopifyData });
+  const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, judgeMeData, csvReviewData, shopifyData });
   const metrics = {
     ...scoredDeterministic.metrics,
     diagnosisReport: {
@@ -1214,6 +1296,13 @@ function buildAiDeterministicInput(deterministic) {
       negativeReviewCount: deterministic.metrics.negativeReviewCount,
       negativeReviewRate: deterministic.metrics.negativeReviewRate,
       recentNegativeReviewCount: deterministic.metrics.recentNegativeReviewCount,
+      judgeMeReviewCount: deterministic.metrics.judgeMeReviewCount,
+      judgeMeAverageRating: deterministic.metrics.judgeMeAverageRating,
+      judgeMeNegativeReviewCount: deterministic.metrics.judgeMeNegativeReviewCount,
+      csvReviewCount: deterministic.metrics.csvReviewCount,
+      csvAverageRating: deterministic.metrics.csvAverageRating,
+      csvNegativeReviewCount: deterministic.metrics.csvNegativeReviewCount,
+      reviewSourceStats: deterministic.metrics.reviewSourceStats,
       signalCount: deterministic.metrics.signalCount,
       customerSignalCount: deterministic.metrics.customerSignalCount,
       contentQualityScore: deterministic.metrics.contentQualityScore,
@@ -1248,7 +1337,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if ((issue === "quality_defect" || issue === "durability") && hasActionableMainIssue) candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
   if (deterministic.metrics.affectedVariants.length && (deterministic.metrics.returnUnits + deterministic.metrics.refundUnits) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
   if (deterministic.metrics.topReturnReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
-  if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Judge.me negative review text is available." });
+  if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Connected negative review text is available." });
   if (deterministic.metrics.contentIssueCount > 0) {
     const contentIssues = Array.isArray(deterministic.metrics.contentIssues) ? deterministic.metrics.contentIssues : [];
     const currentDescription = deterministic.product?.description || "";
@@ -1413,10 +1502,11 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
+    const reviewLabel = getReviewEvidenceLabel(deterministic.metrics);
     reviewSections.push({
       key: "reviews",
-      label: "Negative Judge.me reviews",
-      source: "Judge.me reviews",
+      label: `Negative ${reviewLabel.toLowerCase()}`,
+      source: reviewLabel,
       count: deterministic.metrics.negativeReviewCount,
       items: [{
         label: `${deterministic.metrics.negativeReviewCount} negative review${deterministic.metrics.negativeReviewCount === 1 ? "" : "s"}`,
@@ -2037,7 +2127,7 @@ function getIssueTrend(deterministic, issueCode) {
   return [];
 }
 
-function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
+function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, shopifyData }) {
   const textInsights = deterministic.metrics.textInsights || {};
   const aiKnownEmotions = normalizeAiKnownEmotions(ai, textInsights);
   const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
@@ -2101,24 +2191,7 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
     });
   }
 
-  if (judgeMeData.connected) {
-    const reviewInsights = textInsights.reviews || {};
-    evidence.push({
-      source: "Judge.me reviews",
-      quote: `${deterministic.metrics.negativeReviewCount} negative reviews out of ${deterministic.metrics.reviewCount}`,
-      weight: `${deterministic.metrics.avgRating || 0} average rating, ${deterministic.metrics.negativeReviewRate}% negative review rate`,
-      points: [
-        reviewInsights.sentiment?.total
-          ? `Review sentiment: ${reviewInsights.sentiment.negative} negative, ${reviewInsights.sentiment.neutral} neutral, ${reviewInsights.sentiment.positive} positive`
-          : "",
-        reviewInsights.emotions?.length
-          ? `Review emotions: ${formatEmotionCounts(reviewInsights.emotions)}`
-          : "",
-        ...((reviewInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated review language: "${item.term}" (${item.count})`)),
-        ...((reviewInsights.examples || []).slice(0, 3).map((item) => `Review text: "${item.text}"`)),
-      ].filter(Boolean),
-    });
-  }
+  buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, csvReviewData }).forEach((entry) => evidence.push(entry));
 
   if (textInsights.sentiment?.total || textInsights.repeatedLanguage?.length || ai.classification?.sentiment_summary?.summary) {
     evidence.push({
@@ -2189,6 +2262,75 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
   }
 
   return evidence.slice(0, 8);
+}
+
+function buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, csvReviewData }) {
+  const stats = deterministic.metrics.reviewSourceStats || {};
+  const reviewInsights = textInsights.reviews || {};
+  const entries = [];
+  const sources = [
+    { key: "judgeMe", label: "Judge.me reviews", connected: Boolean(judgeMeData?.connected) },
+    { key: "csv", label: "CSV reviews", connected: Boolean(csvReviewData?.connected) },
+  ];
+
+  sources.forEach((source) => {
+    const sourceStats = stats[source.key] || {};
+    if (!sourceStats.reviewCount) return;
+
+    entries.push({
+      source: source.label,
+      quote: `${sourceStats.negativeReviewCount || 0} negative reviews out of ${sourceStats.reviewCount || 0}`,
+      weight: `${sourceStats.avgRating || 0} average rating, ${sourceStats.negativeReviewRate || 0}% negative review rate`,
+      points: [
+        sourceStats.recentNegativeReviewCount
+          ? `${sourceStats.recentNegativeReviewCount} recent negative review${sourceStats.recentNegativeReviewCount === 1 ? "" : "s"}`
+          : "",
+        source.key === "csv" && sourceStats.reviewCount
+          ? "CSV review text, rating and review date were included in AI classification."
+          : "",
+        source.key === "judgeMe" && sourceStats.reviewCount
+          ? "Judge.me review text, rating and review date were included in AI classification."
+          : "",
+        ...getReviewExamplesForSource(reviewInsights, source.key),
+      ].filter(Boolean),
+    });
+  });
+
+  if (!entries.length && deterministic.metrics.reviewCount > 0) {
+    entries.push({
+      source: "Reviews",
+      quote: `${deterministic.metrics.negativeReviewCount} negative reviews out of ${deterministic.metrics.reviewCount}`,
+      weight: `${deterministic.metrics.avgRating || 0} average rating, ${deterministic.metrics.negativeReviewRate}% negative review rate`,
+    });
+  }
+
+  if (entries.length && reviewInsights.sentiment?.total) {
+    entries[0].points = [
+      `Review sentiment: ${reviewInsights.sentiment.negative} negative, ${reviewInsights.sentiment.neutral} neutral, ${reviewInsights.sentiment.positive} positive`,
+      reviewInsights.emotions?.length ? `Review emotions: ${formatEmotionCounts(reviewInsights.emotions)}` : "",
+      ...((reviewInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated review language: "${item.term}" (${item.count})`)),
+      ...(entries[0].points || []),
+    ].filter(Boolean);
+  }
+
+  return entries;
+}
+
+function getReviewEvidenceLabel(metrics = {}) {
+  const hasJudgeMe = Number(metrics.judgeMeReviewCount || 0) > 0;
+  const hasCsv = Number(metrics.csvReviewCount || 0) > 0;
+  if (hasJudgeMe && hasCsv) return "Connected reviews";
+  if (hasCsv) return "CSV reviews";
+  if (hasJudgeMe) return "Judge.me reviews";
+  return "Reviews";
+}
+
+function getReviewExamplesForSource(reviewInsights, sourceKey) {
+  const sourceType = sourceKey === "csv" ? "csv_review" : "judgeme_review";
+  return (Array.isArray(reviewInsights.examples) ? reviewInsights.examples : [])
+    .filter((item) => !item.source || item.source === sourceType)
+    .slice(0, 3)
+    .map((item) => `Review text: "${item.text}"`);
 }
 
 function buildCheckedSources(deterministic) {
@@ -2367,6 +2509,44 @@ function normalizeJudgeMeReview(review, snapshot, product) {
     externalProductId: String(review.external_product_id || review.product_external_id || review.product?.external_id || product.numericId || ""),
     handle: review.product_handle || review.handle || review.product?.handle || snapshot.handle,
     photos: review.pictures || review.photos || review.images || [],
+    sourceType: "judgeme_review",
+    sourceLabel: "Judge.me reviews",
+  };
+}
+
+function normalizeCsvDiagnosisReview(row, snapshot, product, matchConfidence = 0) {
+  if (!row) return null;
+  const body = stripHtml(row.reviewBody || "");
+  const title = stripHtml(row.reviewTitle || "");
+  const rating = Number(row.rating || 0);
+  if (!rating || (!body && !title)) return null;
+
+  return {
+    id: String(row.id || `csv-${snapshot.productGid}-${row.sourceRow || title}-${body}`),
+    rating,
+    title,
+    body,
+    createdAt: toIso(row.reviewDate),
+    published: true,
+    productId: String(row.sourceProductId || ""),
+    externalProductId: String(row.shopifyProductId || product.numericId || ""),
+    handle: row.productHandle || snapshot.handle,
+    reviewerName: row.reviewerName || "",
+    reviewStatus: row.reviewStatus || "",
+    sourceProductId: row.sourceProductId || "",
+    sourceRow: row.sourceRow || null,
+    sourceType: "csv_review",
+    sourceLabel: "CSV reviews",
+    matchConfidence,
+    photos: [],
+  };
+}
+
+function normalizeReviewSource(review, sourceType, sourceLabel) {
+  return {
+    ...review,
+    sourceType: review.sourceType || sourceType,
+    sourceLabel: review.sourceLabel || sourceLabel,
   };
 }
 
@@ -2423,6 +2603,54 @@ function getJudgeMeReviewMatchConfidence(review, snapshot, product) {
   if (title && reviewTitle && title === reviewTitle) return 0.82;
   if (title && reviewTitle && (title.includes(reviewTitle) || reviewTitle.includes(title))) return 0.76;
   return 0;
+}
+
+function getCsvReviewMatchConfidence(row, snapshot, product) {
+  const numericId = String(product.numericId || extractNumericShopifyId(snapshot.productGid) || "");
+  const productGid = String(product.id || snapshot.productGid || "").toLowerCase();
+  const csvProductId = String(row.shopifyProductId || "").trim().toLowerCase();
+  const csvProductNumericId = extractNumericShopifyId(csvProductId) || csvProductId;
+  if (csvProductId && (csvProductId === productGid || csvProductId === String(snapshot.productGid || "").toLowerCase())) return 1;
+  if (numericId && csvProductNumericId && csvProductNumericId === numericId) return 1;
+
+  const handle = String(snapshot.handle || product.handle || "").trim().toLowerCase();
+  const csvHandle = String(row.productHandle || "").trim().toLowerCase();
+  if (handle && csvHandle === handle) return 0.94;
+  if (handle && csvHandle && normalizeText(csvHandle).replace(/\s+/g, "-") === handle) return 0.9;
+  return 0;
+}
+
+function buildReviewSourceStats(reviews = []) {
+  const empty = { reviewCount: 0, negativeReviewCount: 0, avgRating: 0, negativeReviewRate: 0, recentNegativeReviewCount: 0 };
+  const stats = {
+    judgeMe: { ...empty },
+    csv: { ...empty },
+    total: { ...empty },
+  };
+
+  reviews.forEach((review) => {
+    const key = review.sourceType === "csv_review" ? "csv" : "judgeMe";
+    addReviewToStats(stats[key], review);
+    addReviewToStats(stats.total, review);
+  });
+
+  Object.keys(stats).forEach((key) => finalizeReviewStats(stats[key]));
+  return stats;
+}
+
+function addReviewToStats(stats, review) {
+  stats.reviewCount += 1;
+  stats.ratingSum = Number(stats.ratingSum || 0) + Number(review.rating || 0);
+  const negative = Number(review.rating || 0) <= 2 || containsIssueLanguage(review.body);
+  if (negative) stats.negativeReviewCount += 1;
+  if (negative && isRecentDate(review.createdAt, 30)) stats.recentNegativeReviewCount += 1;
+}
+
+function finalizeReviewStats(stats) {
+  stats.avgRating = roundRate(stats.reviewCount ? Number(stats.ratingSum || 0) / stats.reviewCount : 0, 1);
+  stats.negativeReviewRate = roundRate(stats.reviewCount ? (stats.negativeReviewCount / stats.reviewCount) * 100 : 0);
+  delete stats.ratingSum;
+  return stats;
 }
 
 function buildSignalEvents({ returns, refunds, negativeReviews }) {
@@ -2511,7 +2739,8 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
       const text = [review.title, review.body].filter(Boolean).join(" - ");
       if (!text.trim()) return null;
       return {
-        source: "reviews",
+        source: review.sourceType || "reviews",
+        sourceLabel: review.sourceLabel || "Reviews",
         text,
         analysisText: text,
         rating: Number(review.rating || 0),
@@ -2653,6 +2882,8 @@ function summarizeTextSource(items) {
         issueCode: item.issueCode,
         reason: item.reason || "",
         variant: item.variant || "",
+        source: item.source || "",
+        sourceLabel: item.sourceLabel || "",
       })),
   };
 }
@@ -3382,7 +3613,7 @@ function buildSignalRelevanceGuidance(deterministic) {
       customerEvidence,
       reviewSignals: {
         level: "normal",
-        summary: negativeReviews ? `${negativeReviews} negative Judge.me reviews are available with other supporting signals.` : "No negative review pressure is leading the finding.",
+        summary: negativeReviews ? `${negativeReviews} negative connected reviews are available with other supporting signals.` : "No negative review pressure is leading the finding.",
         guidance: "Use reviews alongside stronger return, refund, content, or multi-source evidence.",
       },
     };
@@ -3393,8 +3624,8 @@ function buildSignalRelevanceGuidance(deterministic) {
       customerEvidence,
       reviewSignals: {
         level: "weak",
-        summary: `${negativeReviews} negative Judge.me review${negativeReviews === 1 ? "" : "s"} out of ${reviewCount} total reviews is an early signal only.`,
-        guidance: `${negativeReviews} negative Judge.me review${negativeReviews === 1 ? "" : "s"} is below the ProductPulse action threshold. Treat it as low-confidence monitoring evidence and do not lead the main finding with review wording.`,
+        summary: `${negativeReviews} negative connected review${negativeReviews === 1 ? "" : "s"} out of ${reviewCount} total reviews is an early signal only.`,
+        guidance: `${negativeReviews} negative connected review${negativeReviews === 1 ? "" : "s"} is below the ProductPulse action threshold. Treat it as low-confidence monitoring evidence and do not lead the main finding with review wording.`,
       },
     };
   }
@@ -3404,8 +3635,8 @@ function buildSignalRelevanceGuidance(deterministic) {
       customerEvidence,
       reviewSignals: {
         level: "emerging",
-        summary: `${negativeReviews} negative Judge.me reviews out of ${reviewCount} total reviews is an emerging signal.`,
-        guidance: `${negativeReviews} negative Judge.me reviews can support a low-to-medium finding, but confidence should start near 50 and increase only if returns, refunds, repeated language, or more reviews agree.`,
+        summary: `${negativeReviews} negative connected reviews out of ${reviewCount} total reviews is an emerging signal.`,
+        guidance: `${negativeReviews} negative connected reviews can support a low-to-medium finding, but confidence should start near 50 and increase only if returns, refunds, repeated language, or more reviews agree.`,
       },
     };
   }
@@ -3414,7 +3645,7 @@ function buildSignalRelevanceGuidance(deterministic) {
     customerEvidence,
     reviewSignals: {
       level: "normal",
-      summary: `${negativeReviews} negative Judge.me reviews out of ${reviewCount} total reviews is enough review volume to support the finding.`,
+      summary: `${negativeReviews} negative connected reviews out of ${reviewCount} total reviews is enough review volume to support the finding.`,
       guidance: "Reviews have enough volume to inform the main finding when they are consistent.",
     },
   };
@@ -3544,6 +3775,7 @@ function calculateRiskScore({ snapshot, metrics }) {
     returnUnits: metrics.returnUnits,
     refundUnits: metrics.refundUnits,
     negativeReviewCount: metrics.negativeReviewCount,
+    reviewSourceStats: metrics.reviewSourceStats,
   }) ? 9 : 0;
   const recency = supportedSignalCount
     ? Math.min(9, (countRecentSignalEvents(metrics.signalEvents, 30) / Math.max(1, metrics.signalCount)) * 15) * getHardSignalSampleSupport(supportedSignalCount)
@@ -3643,6 +3875,7 @@ function calculateConfidence({
   signalCount,
   sourceCoverage,
   judgeMeMatchConfidence,
+  csvReviewMatchConfidence,
   orderAccessDenied,
   sourceAgreement,
   recentSignals,
@@ -3655,7 +3888,7 @@ function calculateConfidence({
 }) {
   const sample = Math.min(26, Math.log2(signalCount + 1) * 8);
   const coverage = Math.min(28, sourceCoverage.length * 7);
-  const match = Math.round((judgeMeMatchConfidence || 0) * 16);
+  const match = Math.round(Math.max(judgeMeMatchConfidence || 0, csvReviewMatchConfidence || 0) * 16);
   const agreement = sourceAgreement ? 18 : 5;
   const recency = recentSignals ? 10 : 0;
   const penalty = orderAccessDenied ? 16 : 0;
@@ -3785,10 +4018,11 @@ function buildEvidenceSnippets({ returns, refunds, reviews, product }) {
   });
   reviews.slice(0, 40).forEach((review) => {
     snippets.push({
-      source: "judgeme_review",
+      source: review.sourceType || "judgeme_review",
       text: [review.title, review.body].filter(Boolean).join(" - ").slice(0, 900),
       createdAt: review.createdAt,
       rating: review.rating,
+      reviewSource: review.sourceLabel || "Judge.me reviews",
       product: product.title,
     });
   });
@@ -3807,13 +4041,14 @@ function buildEvidenceSnippets({ returns, refunds, reviews, product }) {
   return snippets.slice(0, 60);
 }
 
-function buildSourceCoverage({ shopifyData, judgeMeData, soldUnits, returnUnits, refundUnits, reviewCount }) {
+function buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount }) {
   const sources = ["Shopify product"];
   if (soldUnits > 0 || !shopifyData.orderAccessDenied) sources.push("Shopify orders");
   if (returnUnits > 0) sources.push("Shopify returns");
   if (refundUnits > 0) sources.push("Shopify refunds");
   if (judgeMeData.connected) sources.push("Judge.me reviews");
-  if (reviewCount > 0 && !sources.includes("Judge.me reviews")) sources.push("Judge.me reviews");
+  if (csvReviewData?.connected) sources.push("CSV reviews");
+  if (reviewCount > 0 && !sources.includes("Judge.me reviews") && !sources.includes("CSV reviews")) sources.push("Reviews");
   return sources;
 }
 
@@ -3829,7 +4064,7 @@ function buildEvidenceSummary(deterministic) {
   if (metrics.refundUnits > 0 || metrics.refundAmount > 0) pieces.push(`${metrics.refundUnits} refunds worth ${formatMoney(metrics.refundAmount)}`);
   if (metrics.reviewCount > 0 && metrics.negativeReviewCount > 0) {
     pieces.push(relevance.reviewSignals.level === "normal"
-      ? `${metrics.negativeReviewCount} negative Judge.me reviews out of ${metrics.reviewCount}`
+      ? `${metrics.negativeReviewCount} negative connected reviews out of ${metrics.reviewCount}`
       : relevance.reviewSignals.summary);
   }
   if (productContentIssues.length > 0) {
@@ -3858,8 +4093,13 @@ function buildFallbackClusters(deterministic, mainIssue) {
   }]).filter((item, index, list) => list.findIndex((candidate) => candidate.issue_category === item.issue_category) === index);
 }
 
-function hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount }) {
-  return [returnUnits > 0, refundUnits > 0, negativeReviewCount > 0].filter(Boolean).length >= 2;
+function hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats = null }) {
+  const reviewSourceSignals = reviewSourceStats
+    ? [reviewSourceStats.judgeMe?.negativeReviewCount > 0, reviewSourceStats.csv?.negativeReviewCount > 0].filter(Boolean).length
+    : (negativeReviewCount > 0 ? 1 : 0);
+  const reviewSignalWeight = reviewSourceSignals >= 2 ? 2 : negativeReviewCount > 0 ? 1 : 0;
+  const sourceSignalWeight = [returnUnits > 0, refundUnits > 0].filter(Boolean).length + reviewSignalWeight;
+  return sourceSignalWeight >= 2;
 }
 
 function countRecentSignalEvents(events, days) {
@@ -4206,6 +4446,7 @@ export const __productPulseDiagnosisTestHooks = {
   getReturnReasonValue,
   getNodes,
   buildCustomerTextInsights,
+  calculateDeterministicDiagnosis,
   buildRefundOperationalInsights,
   calculateConfidence,
   calculateRiskScore,
@@ -4215,6 +4456,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildContentAnalysis,
   shouldRecommendFullDescriptionRewrite,
   classifyIssueText,
+  getCsvReviewMatchConfidence,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,
 };

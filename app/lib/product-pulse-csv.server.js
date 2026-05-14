@@ -75,6 +75,16 @@ export async function processCsvReviewUpload({ shop, file }) {
 }
 
 export async function getNormalizedCsvReviewRatingsForShop(shop) {
+  const rows = await getNormalizedCsvReviewsForShop(shop);
+  return rows.map((row) => ({
+    productHandle: row.productHandle,
+    shopifyProductId: row.shopifyProductId,
+    rating: row.rating,
+    reviewDate: row.reviewDate,
+  }));
+}
+
+export async function getNormalizedCsvReviewsForShop(shop) {
   if (!shop) return [];
   const source = await prisma.productPulseSource.findUnique({
     where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
@@ -86,11 +96,23 @@ export async function getNormalizedCsvReviewRatingsForShop(shop) {
   const csvText = await readFile(filePath, "utf8");
   const parsed = parseCsvText(csvText);
   return parsed.rows.map((row) => ({
+    id: `csv-review-${row.sourceRow}`,
+    sourceRow: row.sourceRow,
     productHandle: cleanScalar(row.values.product_handle),
     shopifyProductId: cleanScalar(row.values.shopify_product_id),
     rating: Number(normalizeRating(row.values.rating)),
+    reviewTitle: cleanText(row.values.review_title),
+    reviewBody: cleanText(row.values.review_body),
     reviewDate: cleanScalar(row.values.review_date),
-  })).filter((row) => Number.isFinite(row.rating) && row.rating > 0 && (row.productHandle || row.shopifyProductId));
+    reviewerName: cleanScalar(row.values.reviewer_name),
+    reviewStatus: cleanScalar(row.values.review_status),
+    sourceProductId: cleanScalar(row.values.source_product_id),
+  })).filter((row) => (
+    Number.isFinite(row.rating)
+      && row.rating > 0
+      && (row.productHandle || row.shopifyProductId)
+      && (row.reviewBody || row.reviewTitle)
+  ));
 }
 
 export function parseCsvText(csvText) {
