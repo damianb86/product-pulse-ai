@@ -334,6 +334,19 @@ describe("ProductPulse QuickScan", () => {
     expect(query).not.toContain("refundLineItems");
   });
 
+  it("uses paginated refund queries with refund reasons and refunded financial statuses", () => {
+    const query = __productPulseQuickScanTestHooks.buildPaginatedRefundsQuery();
+    const modes = __productPulseQuickScanTestHooks.buildRefundOrderQueries(60).map((item) => item.mode);
+
+    expect(query).toContain("refunds");
+    expect(query).toContain("note");
+    expect(query).toContain("processedAt");
+    expect(query).toContain("orderAdjustments");
+    expect(query).toContain("refundLineItems(first: $refundLineItemsFirst");
+    expect(query).toMatch(/variant\s*{[\s\S]*?product\s*{/);
+    expect(modes).toEqual(["updated_at", "partially_refunded", "refunded"]);
+  });
+
   it("requests flat Shopify bulk query output explicitly", () => {
     expect(__productPulseQuickScanTestHooks.quickScanBulkGroupObjects).toBe(false);
   });

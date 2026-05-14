@@ -19,6 +19,7 @@ const PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE = 20;
 const PAGINATED_ORDERS_PAGE_SIZE = 8;
 const PAGINATED_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
 const PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
+const PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = 5;
 const PAGINATED_RETURNS_PAGE_SIZE = 3;
 const PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE = 15;
 
@@ -682,16 +683,61 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
 
 async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
   const events = [];
-  let ordersCursor;
-  let hasNextOrdersPage = true;
-  const orderQuery = `updated_at:>=${getSinceDate(windowDays)}`;
+  const seenRefundLineItemIds = new Set();
 
-  while (hasNextOrdersPage) {
-    const data = await shopifyGraphql(
-      admin,
-      `#graphql
-      query ProductPulseRefundsPage($after: String, $query: String!, $ordersFirst: Int!, $refundLineItemsFirst: Int!) {
-        orders(first: $ordersFirst, after: $after, query: $query) {
+  for (const orderQuery of buildRefundOrderQueries(windowDays)) {
+    let ordersCursor;
+    let hasNextOrdersPage = true;
+
+    while (hasNextOrdersPage) {
+      const data = await shopifyGraphql(
+        admin,
+        buildPaginatedRefundsQuery(),
+        {
+          after: ordersCursor || null,
+          query: orderQuery.query,
+          ordersFirst: PAGINATED_ORDERS_PAGE_SIZE,
+          refundLineItemsFirst: PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE,
+          orderAdjustmentsFirst: PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE,
+        },
+      );
+
+      (data?.orders?.nodes || []).forEach((order) => {
+        (order.refunds || []).forEach((refund) => {
+          const adjustmentReasons = getRefundAdjustmentReasons(refund);
+          getNodes(refund.refundLineItems).forEach((refundLineItem) => {
+            if (refundLineItem.id && seenRefundLineItemIds.has(refundLineItem.id)) return;
+            if (refundLineItem.id) seenRefundLineItemIds.add(refundLineItem.id);
+            events.push(normalizeRefundLineItemEvent(refundLineItem, {
+              id: refund.id,
+              createdAt: refund.processedAt || refund.createdAt || order.createdAt,
+              updatedAt: refund.updatedAt || refund.processedAt || refund.createdAt || order.createdAt,
+              orderId: order.id,
+              note: refund.note,
+              adjustmentReasons,
+              totalRefundedAmount: moneyAmount(refund.totalRefundedSet),
+            }));
+          });
+        });
+      });
+      hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
+      ordersCursor = data?.orders?.pageInfo?.endCursor;
+    }
+  }
+
+  return events.filter(Boolean);
+}
+
+function buildPaginatedRefundsQuery() {
+  return `#graphql
+      query ProductPulseRefundsPage(
+        $after: String,
+        $query: String!,
+        $ordersFirst: Int!,
+        $refundLineItemsFirst: Int!,
+        $orderAdjustmentsFirst: Int!
+      ) {
+        orders(first: $ordersFirst, after: $after, query: $query, sortKey: UPDATED_AT, reverse: true) {
           pageInfo {
             hasNextPage
             endCursor
@@ -702,7 +748,25 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
             refunds {
               id
               createdAt
+              processedAt
+              updatedAt
               note
+              totalRefundedSet {
+                shopMoney {
+                  amount
+                }
+              }
+              orderAdjustments(first: $orderAdjustmentsFirst) {
+                nodes {
+                  id
+                  reason
+                  amountSet {
+                    shopMoney {
+                      amount
+                    }
+                  }
+                }
+              }
               refundLineItems(first: $refundLineItemsFirst) {
                 nodes {
                   id
@@ -720,16 +784,24 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
                     sku
                     product {
                       id
+                      legacyResourceId
                       handle
                       title
                     }
                     variant {
                       id
+                      legacyResourceId
                       title
                       sku
                       selectedOptions {
                         name
                         value
+                      }
+                      product {
+                        id
+                        legacyResourceId
+                        handle
+                        title
                       }
                     }
                   }
@@ -738,27 +810,16 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
             }
           }
         }
-      }`,
-      {
-        after: ordersCursor || null,
-        query: orderQuery,
-        ordersFirst: PAGINATED_ORDERS_PAGE_SIZE,
-        refundLineItemsFirst: PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE,
-      },
-    );
+      }`;
+}
 
-    (data?.orders?.nodes || []).forEach((order) => {
-      (order.refunds || []).forEach((refund) => {
-        getNodes(refund.refundLineItems).forEach((refundLineItem) => {
-          events.push(normalizeRefundLineItemEvent(refundLineItem, { id: refund.id, createdAt: refund.createdAt || order.createdAt, orderId: order.id, note: refund.note }));
-        });
-      });
-    });
-    hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
-    ordersCursor = data?.orders?.pageInfo?.endCursor;
-  }
-
-  return events.filter(Boolean);
+function buildRefundOrderQueries(windowDays) {
+  const since = getSinceDate(windowDays);
+  return [
+    { mode: "updated_at", query: `updated_at:>=${since}` },
+    { mode: "partially_refunded", query: `financial_status:partially_refunded updated_at:>=${since}` },
+    { mode: "refunded", query: `financial_status:refunded updated_at:>=${since}` },
+  ];
 }
 
 async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
@@ -1000,22 +1061,64 @@ function normalizeRefundLineItemEvent(refundLineItem, refund) {
   const lineItem = refundLineItem.lineItem || {};
   const product = lineItem.product || {};
   const variant = lineItem.variant || {};
+  const adjustmentReasons = Array.isArray(refund?.adjustmentReasons) ? refund.adjustmentReasons : [];
+  const reason = getRefundReasonText({
+    note: refund?.note,
+    restockType: refundLineItem.restockType,
+    adjustmentReasons,
+  });
 
   return {
     type: "refund",
     occurredAt: refundLineItem.createdAt || refund?.createdAt,
-    productId: product.id,
+    productId: product.id || variant.product?.id,
     variantId: variant.id,
-    handle: product.handle,
-    title: product.title || lineItem.title,
+    handle: product.handle || variant.product?.handle,
+    title: product.title || variant.product?.title || lineItem.title,
     quantity: toNumber(refundLineItem.quantity),
     amount: moneyAmount(refundLineItem.subtotalSet),
-    reason: refundLineItem.restockType || "Refund",
+    totalRefundedAmount: refund?.totalRefundedAmount || 0,
+    reason: reason || refundLineItem.restockType || "Refund",
+    reasonLabel: reason,
+    adjustmentReasons,
     note: refund?.note || "",
     variantTitle: variant.title,
     variantSku: variant.sku || lineItem.sku,
     variantOptions: variant.selectedOptions || [],
   };
+}
+
+function getRefundAdjustmentReasons(refund = {}) {
+  return getNodes(refund.orderAdjustments)
+    .map((adjustment) => normalizeRefundReasonLabel(adjustment.reason))
+    .filter(Boolean);
+}
+
+function getRefundReasonText(item = {}) {
+  return [
+    ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
+    normalizeRefundReasonLabel(item.restockType),
+  ]
+    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((value, index, list) => list.findIndex((nested) => nested.toLowerCase() === value.toLowerCase()) === index)
+    .join(" - ");
+}
+
+function normalizeRefundReasonLabel(value) {
+  const normalized = String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "no restock") return "No restock";
+  if (normalized === "cancel") return "Canceled before fulfillment";
+  if (normalized === "return") return "Returned item restocked";
+  if (normalized === "damage") return "Damage";
+  if (normalized === "customer") return "Customer request";
+  if (normalized === "restock") return "Restock discrepancy";
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
@@ -1173,7 +1276,8 @@ function applyEventToAggregate(aggregate, event) {
   if (event.type === "refund") {
     aggregate.refundUnits += quantity;
     aggregate.refundAmount += toNumber(event.amount);
-    if (event.note) aggregate.refundNotes.push(event.note);
+    const refundContext = [event.reason, event.note].filter(Boolean).join(" - ");
+    if (refundContext) aggregate.refundNotes.push(refundContext);
   }
 
   if (event.type === "return") {
@@ -2051,6 +2155,8 @@ export function buildOrdersBulkQuery(windowDays) {
 }
 
 export const __productPulseQuickScanTestHooks = {
+  buildPaginatedRefundsQuery,
+  buildRefundOrderQueries,
   normalizeBulkQuickScanData,
   normalizeBulkProducts,
   normalizeBulkOrderEvents,

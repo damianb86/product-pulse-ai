@@ -95,6 +95,41 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(legacyQuery).toContain("customerNote");
   });
 
+  it("requests refund notes, adjustment reasons, and variant product data for refund extraction", () => {
+    const query = __productPulseDiagnosisTestHooks.buildDiagnosisRefundsQuery({
+      includeVariantProduct: true,
+      includeAdjustments: true,
+    });
+    const fallbackQuery = __productPulseDiagnosisTestHooks.buildDiagnosisRefundsQuery({
+      includeVariantProduct: false,
+      includeAdjustments: false,
+    });
+    const queryModes = __productPulseDiagnosisTestHooks.buildRefundOrderQueries(90).map((item) => item.mode);
+
+    expect(query).toContain("refunds");
+    expect(query).toContain("note");
+    expect(query).toContain("processedAt");
+    expect(query).toContain("orderAdjustments");
+    expect(query).toContain("reason");
+    expect(query).toContain("refundLineItems(first: $refundLineItemsFirst");
+    expect(query).toMatch(/variant\s*{[\s\S]*?product\s*{/);
+    expect(fallbackQuery).not.toContain("orderAdjustments");
+    expect(fallbackQuery).not.toMatch(/variant\s*{[\s\S]*?product\s*{/);
+    expect(queryModes).toEqual(["updated_at", "partially_refunded", "refunded"]);
+  });
+
+  it("builds refund operational text from refund notes, adjustment reasons, and restock context", () => {
+    const text = __productPulseDiagnosisTestHooks.getRefundOperationalText({
+      note: "Refunded because the item arrived broken.",
+      restockType: "NO_RESTOCK",
+      adjustmentReasons: ["Damage"],
+    });
+
+    expect(text).toContain("arrived broken");
+    expect(text).toContain("Damage");
+    expect(text).toContain("No restock");
+  });
+
   it("can omit variant product data for the lowest-cost return query fallback", () => {
     const fallbackQuery = __productPulseDiagnosisTestHooks.buildDiagnosisReturnsQuery({
       includeReasonDefinition: true,
@@ -223,9 +258,33 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.highPressure).toBe(true);
     expect(insights.shouldSurface).toBe(true);
     expect(insights.noteCount).toBe(5);
+    expect(insights.textSignalCount).toBe(5);
     expect(insights.riskLift).toBeGreaterThan(0);
-    expect(insights.repeatedLanguage.map((item) => item.term)).toContain("refunded");
+    expect(insights.repeatedLanguage.map((item) => item.term)).not.toContain("refunded");
     expect(insights.examples[0].text).toContain("arrived broken");
+  });
+
+  it("surfaces repeated refund reasons even when Shopify refund notes are empty", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildRefundOperationalInsights({
+      soldUnits: 24,
+      refundUnits: 6,
+      refundRate: 25,
+      refundAmount: 600,
+      refunds: Array.from({ length: 6 }, (_, index) => ({
+        note: "",
+        restockType: index < 4 ? "NO_RESTOCK" : "RETURN",
+        adjustmentReasons: index < 4 ? ["Damage"] : ["Customer request"],
+        quantity: 1,
+        amount: 100,
+        createdAt: `2026-05-13T12:0${index}:00Z`,
+      })),
+    });
+
+    expect(insights.highPressure).toBe(true);
+    expect(insights.noteCount).toBe(0);
+    expect(insights.reasonCount).toBeGreaterThanOrEqual(6);
+    expect(insights.topReasons.map((item) => item.label)).toContain("Damage");
+    expect(insights.examples[0].reasonText).toContain("Damage");
   });
 
   it("keeps single subjective signals low-confidence while repeated subjective evidence escalates", () => {

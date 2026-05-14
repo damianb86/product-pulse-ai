@@ -16,7 +16,13 @@ const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
 const DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
+const DIAGNOSIS_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = 5;
 const MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE = 2;
+const DIAGNOSIS_REFUND_QUERY_PLANS = [
+  { label: "balanced", ordersFirst: 8, refundLineItemsFirst: DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE, orderAdjustmentsFirst: DIAGNOSIS_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE, includeVariantProduct: true, includeAdjustments: true },
+  { label: "low-cost", ordersFirst: 5, refundLineItemsFirst: 10, orderAdjustmentsFirst: 3, includeVariantProduct: true, includeAdjustments: true },
+  { label: "minimal", ordersFirst: 4, refundLineItemsFirst: 8, orderAdjustmentsFirst: 0, includeVariantProduct: false, includeAdjustments: false },
+];
 const DIAGNOSIS_RETURN_QUERY_PLANS = [
   { label: "balanced", ordersFirst: 8, returnsFirst: 3, returnLineItemsFirst: 15, includeVariantProduct: true },
   { label: "low-cost", ordersFirst: 5, returnsFirst: 2, returnLineItemsFirst: 10, includeVariantProduct: true },
@@ -131,19 +137,52 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot }) {
 
   try {
     sales = await fetchShopifySalesEvents({ admin, product, snapshot });
-    refunds = await fetchShopifyRefundEvents({ admin, product, snapshot });
-    returns = await fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot });
   } catch (error) {
-    orderAccessDenied = isShopifyOrderAccessDenied(error);
+    const denied = isShopifyOrderAccessDenied(error);
+    orderAccessDenied = orderAccessDenied || denied;
     await recordJobLog({
       shop,
       jobId,
-      level: orderAccessDenied ? "warn" : "error",
-      event: orderAccessDenied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_orders_failed",
-      message: orderAccessDenied
-        ? "Shopify denied Order object access; diagnosis will use stored QuickScan metrics and connected review data."
-        : "Shopify order, refund or return extraction failed.",
-      data: { error: serializeError(error), recovery: orderAccessDenied ? "snapshot-and-reviews" : "partial-shopify-data" },
+      level: denied ? "warn" : "error",
+      event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_sales_failed",
+      message: denied
+        ? "Shopify denied Order object access while reading sales; diagnosis will use stored QuickScan metrics and connected review data where needed."
+        : "Shopify sales extraction failed; diagnosis will continue with refunds, returns and review evidence where available.",
+      data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
+    });
+  }
+
+  try {
+    refunds = await fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot });
+  } catch (error) {
+    const denied = isShopifyOrderAccessDenied(error);
+    orderAccessDenied = orderAccessDenied || denied;
+    await recordJobLog({
+      shop,
+      jobId,
+      level: denied ? "warn" : "error",
+      event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_refunds_failed",
+      message: denied
+        ? "Shopify denied Order object access while reading refunds; refund evidence will fall back to stored QuickScan metrics."
+        : "Shopify refund extraction failed; diagnosis will continue with other evidence.",
+      data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
+    });
+  }
+
+  try {
+    returns = await fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot });
+  } catch (error) {
+    const denied = isShopifyOrderAccessDenied(error);
+    orderAccessDenied = orderAccessDenied || denied;
+    await recordJobLog({
+      shop,
+      jobId,
+      level: denied ? "warn" : "error",
+      event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_returns_failed",
+      message: denied
+        ? "Shopify denied Order object access while reading returns; return evidence will fall back to stored QuickScan metrics."
+        : "Shopify return extraction failed; diagnosis will continue with other evidence.",
+      data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
     });
   }
 
@@ -358,17 +397,191 @@ async function fetchShopifySalesEvents({ admin, product, snapshot }) {
   return events;
 }
 
-async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
+async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot }) {
+  for (const [index, queryPlan] of DIAGNOSIS_REFUND_QUERY_PLANS.entries()) {
+    try {
+      return await fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan });
+    } catch (error) {
+      const nextPlan = DIAGNOSIS_REFUND_QUERY_PLANS[index + 1];
+      if (!isShopifyQueryCostLimitError(error) || !nextPlan) throw error;
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.shopify_refund_query_cost_retried",
+        message: `Shopify rejected the ${queryPlan.label} refund query cost; retrying with ${nextPlan.label} limits.`,
+        data: {
+          productGid: snapshot.productGid,
+          failedPlan: queryPlan,
+          nextPlan,
+          error: serializeError(error),
+        },
+      });
+    }
+  }
+
+  return [];
+}
+
+async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan }) {
   if (!admin?.graphql) return [];
   const events = [];
+  const seenRefundLineItemIds = new Set();
   let cursor = null;
+  const stats = {
+    scannedRefunds: 0,
+    scannedRefundLineItems: 0,
+    matchedRefundLineItems: 0,
+    matchedRefundLineItemsWithNotes: 0,
+    matchedRefundLineItemsWithReasons: 0,
+    matchedReasonSamples: [],
+    matchedNoteSamples: [],
+    unmatchedSamples: [],
+    queryModes: [],
+    queryPlan: queryPlan.label,
+    queryLimits: {
+      ordersFirst: queryPlan.ordersFirst,
+      refundLineItemsFirst: queryPlan.refundLineItemsFirst,
+      orderAdjustmentsFirst: queryPlan.orderAdjustmentsFirst,
+      includeVariantProduct: queryPlan.includeVariantProduct,
+      includeAdjustments: queryPlan.includeAdjustments,
+    },
+  };
+  const orderQueries = buildRefundOrderQueries(DIAGNOSIS_WINDOW_DAYS);
 
-  for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
-    const data = await shopifyGraphql(
-      admin,
-      `#graphql
-      query ProductPulseDiagnosisRefunds($after: String, $query: String!, $ordersFirst: Int!, $refundLineItemsFirst: Int!) {
-        orders(first: $ordersFirst, after: $after, query: $query) {
+  for (const orderQuery of orderQueries) {
+    cursor = null;
+    stats.queryModes.push(orderQuery.mode);
+
+    for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
+      const variables = {
+        after: cursor,
+        query: orderQuery.query,
+        ordersFirst: queryPlan.ordersFirst,
+        refundLineItemsFirst: queryPlan.refundLineItemsFirst,
+      };
+      if (queryPlan.includeAdjustments) variables.orderAdjustmentsFirst = queryPlan.orderAdjustmentsFirst || DIAGNOSIS_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE;
+
+      const data = await shopifyGraphql(
+        admin,
+        buildDiagnosisRefundsQuery({
+          includeVariantProduct: queryPlan.includeVariantProduct,
+          includeAdjustments: queryPlan.includeAdjustments,
+        }),
+        variables,
+      );
+
+      getNodes(data?.orders).forEach((order) => {
+        (order.refunds || []).forEach((refund) => {
+          stats.scannedRefunds += 1;
+          const adjustmentReasons = getRefundAdjustmentReasons(refund);
+          getNodes(refund.refundLineItems).forEach((refundLineItem) => {
+            if (refundLineItem.id && seenRefundLineItemIds.has(refundLineItem.id)) return;
+            if (refundLineItem.id) seenRefundLineItemIds.add(refundLineItem.id);
+            stats.scannedRefundLineItems += 1;
+            const lineItem = refundLineItem.lineItem || {};
+            if (!lineItemMatchesProduct(lineItem, product, snapshot)) {
+              if (stats.unmatchedSamples.length < 4) {
+                stats.unmatchedSamples.push({
+                  title: lineItem.title || "",
+                  sku: lineItem.sku || lineItem.variant?.sku || "",
+                  productId: lineItem.product?.id || lineItem.variant?.product?.id || "",
+                  handle: lineItem.product?.handle || lineItem.variant?.product?.handle || "",
+                  restockType: refundLineItem.restockType || "",
+                  notePreview: truncateText(refund.note || "", 120),
+                  queryMode: orderQuery.mode,
+                });
+              }
+              return;
+            }
+
+            const noteText = getRefundNoteText({ note: refund.note });
+            const reasonText = getRefundReasonText({
+              note: refund.note,
+              restockType: refundLineItem.restockType,
+              adjustmentReasons,
+            });
+            if (noteText) {
+              stats.matchedRefundLineItemsWithNotes += 1;
+              if (stats.matchedNoteSamples.length < 5) {
+                stats.matchedNoteSamples.push({
+                  title: lineItem.title || product.title,
+                  sku: lineItem.sku || lineItem.variant?.sku || "",
+                  notePreview: truncateText(noteText, 180),
+                  queryMode: orderQuery.mode,
+                });
+              }
+            }
+            if (reasonText) {
+              stats.matchedRefundLineItemsWithReasons += 1;
+              if (stats.matchedReasonSamples.length < 5) {
+                stats.matchedReasonSamples.push({
+                  title: lineItem.title || product.title,
+                  sku: lineItem.sku || lineItem.variant?.sku || "",
+                  reasonPreview: truncateText(reasonText, 180),
+                  adjustmentReasons,
+                  restockType: refundLineItem.restockType || "",
+                  queryMode: orderQuery.mode,
+                });
+              }
+            }
+
+            stats.matchedRefundLineItems += 1;
+            events.push({
+              id: refundLineItem.id,
+              refundId: refund.id,
+              orderId: order.id,
+              createdAt: toIso(refund.processedAt || refund.createdAt || order.createdAt),
+              processedAt: toIso(refund.processedAt || refund.createdAt || order.createdAt),
+              updatedAt: toIso(refund.updatedAt || refund.processedAt || refund.createdAt || order.createdAt),
+              quantity: Number(refundLineItem.quantity || 0),
+              amount: Number(refundLineItem.subtotalSet?.shopMoney?.amount || 0),
+              totalRefundedAmount: Number(refund.totalRefundedSet?.shopMoney?.amount || 0),
+              restockType: refundLineItem.restockType || "",
+              adjustmentReasons,
+              reason: reasonText,
+              reasonLabel: reasonText || normalizeRefundReasonLabel(refundLineItem.restockType || ""),
+              note: noteText,
+              title: lineItem.title || product.title,
+              sku: lineItem.sku || lineItem.variant?.sku || "",
+              variantId: lineItem.variant?.id || null,
+              variantTitle: lineItem.variant?.title || "",
+              selectedOptions: lineItem.variant?.selectedOptions || [],
+            });
+          });
+        });
+      });
+
+      if (!data?.orders?.pageInfo?.hasNextPage) break;
+      cursor = data.orders.pageInfo.endCursor;
+    }
+  }
+
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "product_diagnosis.shopify_refunds_extracted",
+    message: "Shopify refund line items were extracted for product diagnosis.",
+    data: {
+      productGid: snapshot.productGid,
+      ...stats,
+      refundEvents: events.length,
+    },
+  });
+
+  return events;
+}
+
+function buildDiagnosisRefundsQuery({ includeVariantProduct = true, includeAdjustments = true } = {}) {
+  return `#graphql
+      query ProductPulseDiagnosisRefunds(
+        $after: String,
+        $query: String!,
+        $ordersFirst: Int!,
+        $refundLineItemsFirst: Int!${includeAdjustments ? `,
+        $orderAdjustmentsFirst: Int!` : ""}
+      ) {
+        orders(first: $ordersFirst, after: $after, query: $query, sortKey: UPDATED_AT, reverse: true) {
           pageInfo {
             hasNextPage
             endCursor
@@ -379,7 +592,26 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
             refunds {
               id
               createdAt
+              processedAt
+              updatedAt
               note
+              totalRefundedSet {
+                shopMoney {
+                  amount
+                }
+              }
+              ${includeAdjustments ? `
+              orderAdjustments(first: $orderAdjustmentsFirst) {
+                nodes {
+                  id
+                  reason
+                  amountSet {
+                    shopMoney {
+                      amount
+                    }
+                  }
+                }
+              }` : ""}
               refundLineItems(first: $refundLineItemsFirst) {
                 nodes {
                   id
@@ -396,17 +628,26 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
                     sku
                     product {
                       id
+                      legacyResourceId
                       handle
                       title
                     }
                     variant {
                       id
+                      legacyResourceId
                       title
                       sku
                       selectedOptions {
                         name
                         value
                       }
+                      ${includeVariantProduct ? `
+                      product {
+                        id
+                        legacyResourceId
+                        handle
+                        title
+                      }` : ""}
                     }
                   }
                 }
@@ -414,44 +655,16 @@ async function fetchShopifyRefundEvents({ admin, product, snapshot }) {
             }
           }
         }
-      }`,
-      {
-        after: cursor,
-        query: `updated_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}`,
-        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
-        refundLineItemsFirst: DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE,
-      },
-    );
+      }`;
+}
 
-    (data?.orders?.nodes || []).forEach((order) => {
-      (order.refunds || []).forEach((refund) => {
-        getNodes(refund.refundLineItems).forEach((refundLineItem) => {
-          const lineItem = refundLineItem.lineItem || {};
-          if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
-          events.push({
-            id: refundLineItem.id,
-            refundId: refund.id,
-            orderId: order.id,
-            createdAt: toIso(refund.createdAt || order.createdAt),
-            quantity: Number(refundLineItem.quantity || 0),
-            amount: Number(refundLineItem.subtotalSet?.shopMoney?.amount || 0),
-            restockType: refundLineItem.restockType || "",
-            note: refund.note || "",
-            title: lineItem.title || product.title,
-            sku: lineItem.sku || lineItem.variant?.sku || "",
-            variantId: lineItem.variant?.id || null,
-            variantTitle: lineItem.variant?.title || "",
-            selectedOptions: lineItem.variant?.selectedOptions || [],
-          });
-        });
-      });
-    });
-
-    if (!data?.orders?.pageInfo?.hasNextPage) break;
-    cursor = data.orders.pageInfo.endCursor;
-  }
-
-  return events;
+function buildRefundOrderQueries(windowDays) {
+  const since = getSinceDate(windowDays);
+  return [
+    { mode: "updated_at", query: `updated_at:>=${since}` },
+    { mode: "partially_refunded", query: `financial_status:partially_refunded updated_at:>=${since}` },
+    { mode: "refunded", query: `financial_status:refunded updated_at:>=${since}` },
+  ];
 }
 
 async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot }) {
@@ -953,6 +1166,12 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
   const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDate(review.createdAt, 30)).length;
   const topReturnReasons = countTopValues(returns.flatMap((item) => [item.reason, item.reasonNote, item.customerNote]).filter(Boolean), 4);
+  const topRefundReasons = countTopValues(refunds.flatMap((item) => [
+    item.reason,
+    item.reasonLabel,
+    ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
+    normalizeRefundReasonLabel(item.restockType),
+  ]).filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 4);
   const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const deterministicContent = analyzeProductContentDeterministically(product);
   const textInsights = buildCustomerTextInsights({ returns, reviews });
@@ -1101,6 +1320,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       optionNames: (product.options || []).map((option) => option.name).filter(Boolean),
       topReturnReasons: topReturnReasons.map((item) => item.label),
       topReturnReasonDetails: topReturnReasons,
+      topRefundReasons: topRefundReasons.map((item) => item.label),
+      topRefundReasonDetails: topRefundReasons,
       affectedVariants: affectedVariants.map((item) => item.label),
       affectedVariantDetails: affectedVariants,
       reviewCount,
@@ -1344,6 +1565,7 @@ function buildAiDeterministicInput(deterministic) {
       descriptionWordCount: deterministic.metrics.descriptionWordCount,
       hasDescription: deterministic.metrics.hasDescription,
       topReturnReasons: deterministic.metrics.topReturnReasons,
+      topRefundReasons: deterministic.metrics.topRefundReasons,
       affectedVariants: deterministic.metrics.affectedVariants,
       windowDays: deterministic.metrics.windowDays,
       orderAccessDenied: deterministic.metrics.orderAccessDenied,
@@ -1374,6 +1596,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if ((issue === "quality_defect" || issue === "durability") && hasActionableMainIssue) candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
   if (deterministic.metrics.affectedVariants.length && (deterministic.metrics.returnUnits + deterministic.metrics.refundUnits) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
   if (deterministic.metrics.topReturnReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
+  if (deterministic.metrics.refundInsights?.shouldSurface) candidates.push({ id: "review-refund-impact", type: "Workflow", reason: "Refund rate, refund value or refund notes indicate operational refund pressure." });
   if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Connected negative review text is available." });
   if (deterministic.metrics.contentIssueCount > 0) {
     const contentIssues = Array.isArray(deterministic.metrics.contentIssues) ? deterministic.metrics.contentIssues : [];
@@ -1731,15 +1954,24 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (deterministic.metrics.refundInsights?.shouldSurface || (deterministic.metrics.refundUnits >= 3 && deterministic.metrics.refundAmount > 0)) {
+    const refundReasons = deterministic.metrics.refundInsights?.topReasons?.length
+      ? deterministic.metrics.refundInsights.topReasons
+      : deterministic.metrics.topRefundReasonDetails || [];
     reviewSections.push({
       key: "refunds",
       label: "Refund impact",
       source: "Shopify refunds",
       count: deterministic.metrics.refundUnits,
-      items: [{
-        label: `${deterministic.metrics.refundUnits} refunded unit${deterministic.metrics.refundUnits === 1 ? "" : "s"}`,
-        evidence: `${deterministic.metrics.refundRate || 0}% refund rate, ${deterministic.metrics.refundAmount || 0} refund amount`,
-      }],
+      items: [
+        {
+          label: `${deterministic.metrics.refundUnits} refunded unit${deterministic.metrics.refundUnits === 1 ? "" : "s"}`,
+          evidence: `${deterministic.metrics.refundRate || 0}% refund rate, ${deterministic.metrics.refundAmount || 0} refund amount`,
+        },
+        ...refundReasons.slice(0, 3).map((reason) => ({
+          label: `Refund context: ${reason.label}`,
+          evidence: `${reason.count} refund signal${reason.count === 1 ? "" : "s"}`,
+        })),
+      ],
     });
   }
 
@@ -2001,6 +2233,8 @@ function buildRefundOperationalIssue(deterministic, recommendations) {
       `${refundInsights.total} refunded unit${refundInsights.total === 1 ? "" : "s"} across ${refundInsights.soldUnits} sold unit${refundInsights.soldUnits === 1 ? "" : "s"} (${refundInsights.refundRate}% refund rate).`,
       refundInsights.highPressure ? "Refund pressure is above the high-signal threshold: refund rate >20% and sold units >10." : "",
       refundInsights.noteCount ? `${refundInsights.noteCount} refund note${refundInsights.noteCount === 1 ? "" : "s"} available for operational pattern review.` : "",
+      refundInsights.reasonCount ? `${refundInsights.reasonCount} refund reason/restock context signal${refundInsights.reasonCount === 1 ? "" : "s"} available for operational pattern review.` : "",
+      ...((refundInsights.topReasons || []).slice(0, 3).map((item) => `Refund reason/context: "${item.label}" (${item.count})`)),
       ...((refundInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated refund-note language: "${item.term}" (${item.count})`)),
       ...((refundInsights.examples || []).slice(0, 2).map((item) => `Refund note: "${item.text}"`)),
     ].filter(Boolean),
@@ -2517,9 +2751,13 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, sho
         refundInsights.noteCount
           ? `Operational refund notes: ${refundInsights.noteCount} analyzed`
           : "",
+        refundInsights.reasonCount
+          ? `Refund reasons/restock context: ${refundInsights.reasonCount} signal${refundInsights.reasonCount === 1 ? "" : "s"} analyzed`
+          : "",
         refundInsights.sentiment?.total
           ? `Refund-note tone: ${refundInsights.sentiment.negative} negative, ${refundInsights.sentiment.neutral} neutral, ${refundInsights.sentiment.positive} positive`
           : "",
+        ...((refundInsights.topReasons || []).slice(0, 3).map((item) => `Refund reason/context: "${item.label}" (${item.count})`)),
         ...((refundInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated refund-note language: "${item.term}" (${item.count})`)),
         ...((refundInsights.examples || []).slice(0, 3).map((item) => `Refund note: "${item.text}"`)),
       ].filter(Boolean),
@@ -2545,6 +2783,9 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, sho
           : "",
         deterministic.metrics.refundInsights?.noteCount
           ? `Refund-note patterns: ${deterministic.metrics.refundInsights.noteCount} operational note${deterministic.metrics.refundInsights.noteCount === 1 ? "" : "s"} analyzed separately from customer sentiment`
+          : "",
+        deterministic.metrics.refundInsights?.reasonCount
+          ? `Refund reason/context patterns: ${deterministic.metrics.refundInsights.reasonCount} operational signal${deterministic.metrics.refundInsights.reasonCount === 1 ? "" : "s"} analyzed separately from customer sentiment`
           : "",
         textInsights.emotions?.length
           ? `Known emotion taxonomy: ${formatEmotionCounts(textInsights.emotions)}`
@@ -2814,6 +3055,47 @@ function getReturnLineItemNoteText(returnLineItem) {
   return [getReturnLineItemReasonNote(returnLineItem), getReturnLineItemCustomerNote(returnLineItem)].filter(Boolean).join(" ");
 }
 
+function getRefundAdjustmentReasons(refund = {}) {
+  return getNodes(refund.orderAdjustments)
+    .map((adjustment) => normalizeRefundReasonLabel(adjustment.reason))
+    .filter((reason) => reason && !isDefaultCustomerLanguageTerm(reason));
+}
+
+function getRefundNoteText(item = {}) {
+  return String(item.note || item.refundNote || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getRefundReasonText(item = {}) {
+  const reasons = [
+    ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
+    item.reasonLabel,
+    item.reason,
+    normalizeRefundReasonLabel(item.restockType),
+  ]
+    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+    .filter((value) => value && !isDefaultCustomerLanguageTerm(value));
+
+  return uniqueBy(reasons, (value) => normalizeText(value)).join(" - ");
+}
+
+function normalizeRefundReasonLabel(value) {
+  const normalized = String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "no restock") return "No restock";
+  if (normalized === "cancel") return "Canceled before fulfillment";
+  if (normalized === "return") return "Returned item restocked";
+  if (normalized === "damage") return "Damage";
+  if (normalized === "customer") return "Customer request";
+  if (normalized === "restock") return "Restock discrepancy";
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function extractJudgeMeProduct(json) {
   return json?.product || json?.data?.product || json?.data || json || null;
 }
@@ -2898,15 +3180,7 @@ function getReturnCustomerLanguageText(item) {
 }
 
 function getRefundOperationalText(item) {
-  const note = String(item?.note || item?.refundNote || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const restockType = String(item?.restockType || "")
-    .replace(/_/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const reason = isDefaultCustomerLanguageTerm(restockType) ? "" : restockType;
-  return [note, reason].filter(Boolean).join(" - ");
+  return [getRefundNoteText(item), getRefundReasonText(item)].filter(Boolean).join(" - ");
 }
 
 function getCustomerAnalysisText(item) {
@@ -3121,6 +3395,8 @@ function buildRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnit
     .map((item) => {
       const text = getRefundOperationalText(item);
       if (!text.trim()) return null;
+      const noteText = getRefundNoteText(item);
+      const reasonText = getRefundReasonText(item);
       return {
         source: "refunds",
         text,
@@ -3132,39 +3408,55 @@ function buildRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnit
         variant: item.variantTitle || item.sku || "",
         amount: Number(item.amount || 0),
         restockType: item.restockType || "",
+        noteText,
+        reasonText,
+        adjustmentReasons: Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : [],
       };
     })
     .filter(Boolean);
+  const refundReasons = countTopValues(refunds.flatMap((item) => [
+    getRefundReasonText(item),
+    ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
+    normalizeRefundReasonLabel(item.restockType),
+  ]).filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 5);
   const sentiment = summarizeSentiment(refundTexts);
   const repeatedLanguage = extractRepeatedLanguage(refundTexts).slice(0, 5);
   const issueCounts = countTopValues(refundTexts.map((item) => item.issueCode).filter(Boolean), 5);
   const highPressure = Number(soldUnits || 0) > 10 && Number(refundRate || 0) > 20;
   const monitorPressure = Number(refundUnits || 0) >= 3 && Number(refundRate || 0) >= 10;
   const dominantIssue = issueCounts[0]?.label || "refund_impact";
-  const riskLift = calculateRefundOperationalRiskLift({ refundUnits, refundRate, soldUnits, noteCount: refundTexts.length });
+  const noteCount = refundTexts.filter((item) => item.noteText).length;
+  const reasonCount = refundReasons.reduce((total, item) => total + Number(item.count || 0), 0);
+  const riskLift = calculateRefundOperationalRiskLift({ refundUnits, refundRate, soldUnits, noteCount: Math.max(noteCount, reasonCount) });
 
   return {
     total: Number(refundUnits || 0),
-    noteCount: refundTexts.length,
+    noteCount,
+    reasonCount,
+    textSignalCount: refundTexts.length,
     refundRate: Number(refundRate || 0),
     refundAmount: Number(refundAmount || 0),
     soldUnits: Number(soldUnits || 0),
     highPressure,
     monitorPressure,
     level: highPressure ? "high" : monitorPressure ? "monitor" : "low",
-    shouldSurface: highPressure || (monitorPressure && Number(refundUnits || 0) >= 3) || refundTexts.length >= 2,
+    shouldSurface: highPressure || (monitorPressure && Number(refundUnits || 0) >= 3) || refundTexts.length >= 2 || Number(refundUnits || 0) >= 3,
     dominantIssueCode: normalizeIssueCode(dominantIssue) || "refund_impact",
     sentiment,
     repeatedLanguage,
     issueCounts,
+    topReasons: refundReasons,
     riskLift,
     examples: refundTexts.slice(0, 4).map((item) => ({
       text: truncateText(item.text, 180),
+      noteText: truncateText(item.noteText, 180),
+      reasonText: truncateText(item.reasonText, 180),
       sentiment: item.sentiment,
       emotion: item.emotion,
       issueCode: item.issueCode,
       variant: item.variant || "",
       amount: item.amount,
+      adjustmentReasons: item.adjustmentReasons,
     })),
   };
 }
@@ -3463,7 +3755,7 @@ function customerLanguageTokens(value) {
 
 function classifyCustomerSentiment(text, rating = 0) {
   const normalized = normalizeText(text);
-  const negativeMatches = countRegexMatches(normalized, /(bad|poor|cheap|thin|broken|defect|damaged|disappointed|return|refund|small|large|tight|loose|wrong|issue|problem|unhappy|terrible|awful|not fit|doesn t fit|doesnt fit|not as pictured|late|scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/g);
+  const negativeMatches = countRegexMatches(normalized, /(bad|poor|cheap|thin|broken|defect|damage|damaged|disappointed|return|refund|small|large|tight|loose|wrong|issue|problem|unhappy|terrible|awful|not fit|doesn t fit|doesnt fit|not as pictured|late|scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/g);
   const positiveMatches = countRegexMatches(normalized, /(great|good|love|loved|perfect|excellent|happy|quality|comfortable|recommend|works well|beautiful)/g);
   if (rating > 0 && rating <= 2) return "negative";
   if (negativeMatches > positiveMatches) return "negative";
@@ -3630,6 +3922,7 @@ const CUSTOMER_TEXT_STOP_WORDS = new Set([
   "reasons",
   "refund",
   "refunds",
+  "refunded",
   "order",
   "item",
   "customer",
@@ -3682,7 +3975,7 @@ function classifyIssueText(text) {
   if (isObjectiveSafetyText(normalized)) return "safety_concern";
   if (isSubjectiveNegativeText(normalized)) return "subjective_negative_reaction";
   if (/(color|colour|pictured|photo|image|shade|looks different)/.test(normalized)) return "color_expectation";
-  if (/(break|broken|defect|damaged|quality|thin|poor|cheap|durability|durable|soft|softness|rough|scratchy|stiff|material|fabric|texture)/.test(normalized)) return "quality_defect";
+  if (/(break|broken|defect|damage|damaged|quality|thin|poor|cheap|durability|durable|soft|softness|rough|scratchy|stiff|material|fabric|texture)/.test(normalized)) return "quality_defect";
   if (/(compatible|compatibility|fit with|works with)/.test(normalized)) return "compatibility";
   if (/(shipping|delivery|late|arrived)/.test(normalized)) return "shipping_delivery";
   return "product_quality";
@@ -4351,16 +4644,6 @@ function buildEvidenceSnippets({ returns, refunds, reviews, product }) {
       quantity: item.quantity,
     });
   });
-  reviews.slice(0, 40).forEach((review) => {
-    snippets.push({
-      source: review.sourceType || "judgeme_review",
-      text: [review.title, review.body].filter(Boolean).join(" - ").slice(0, 900),
-      createdAt: review.createdAt,
-      rating: review.rating,
-      reviewSource: review.sourceLabel || "Judge.me reviews",
-      product: product.title,
-    });
-  });
   refunds.slice(0, 20).forEach((item) => {
     const operationalText = getRefundOperationalText(item);
     snippets.push({
@@ -4371,6 +4654,16 @@ function buildEvidenceSnippets({ returns, refunds, reviews, product }) {
       createdAt: item.createdAt,
       variant: item.variantTitle || item.sku || "",
       amount: item.amount,
+    });
+  });
+  reviews.slice(0, 40).forEach((review) => {
+    snippets.push({
+      source: review.sourceType || "judgeme_review",
+      text: [review.title, review.body].filter(Boolean).join(" - ").slice(0, 900),
+      createdAt: review.createdAt,
+      rating: review.rating,
+      reviewSource: review.sourceLabel || "Judge.me reviews",
+      product: product.title,
     });
   });
   return snippets.slice(0, 60);
@@ -4775,8 +5068,13 @@ function toIso(value) {
 }
 
 export const __productPulseDiagnosisTestHooks = {
+  buildDiagnosisRefundsQuery,
   buildDiagnosisReturnsQuery,
+  buildRefundOrderQueries,
   buildReturnOrderQueries,
+  getRefundOperationalText,
+  getRefundReasonText,
+  getRefundAdjustmentReasons,
   getReturnLineItemNoteText,
   getReturnReasonValue,
   getNodes,
