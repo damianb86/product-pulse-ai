@@ -492,6 +492,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [searchValue, setSearchValue] = useState(filters.query || "");
   const [shopifyProductSearchOpen, setShopifyProductSearchOpen] = useState(false);
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
+  const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const [quickScanConfirmation, setQuickScanConfirmation] = useState(false);
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
@@ -515,12 +516,18 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const allVisibleSelected = visibleProductKeys.length > 0 && visibleProductKeys.every((key) => selectedProducts.has(key));
   const hasVisibleSelection = visibleProductKeys.some((key) => selectedProducts.has(key));
   const currentSearchQuery = filters.query || "";
+  const normalizedShopifyProductSearchQuery = shopifyProductSearchQuery.trim();
   const shopifyProductSearchData = shopifyProductSearchFetcher.data || {};
-  const shopifyProductSearchResults = shopifyProductSearchQuery.trim().length >= 2
+  const shopifyProductSearchResponseQuery = String(shopifyProductSearchData.query || "");
+  const shopifyProductSearchHasQuery = normalizedShopifyProductSearchQuery.length >= 2;
+  const shopifyProductSearchHasFreshResponse = shopifyProductSearchHasQuery
+    && shopifyProductSearchResponseQuery === normalizedShopifyProductSearchQuery;
+  const shopifyProductSearchResults = shopifyProductSearchHasFreshResponse
     ? shopifyProductSearchData.products || []
     : [];
-  const shopifyProductSearchPending = shopifyProductSearchFetcher.state !== "idle";
-  const shopifyProductSearchError = shopifyProductSearchData.status === "validation_error"
+  const shopifyProductSearchPending = shopifyProductSearchHasQuery
+    && (shopifyProductSearchFetcher.state !== "idle" || !shopifyProductSearchHasFreshResponse);
+  const shopifyProductSearchError = shopifyProductSearchHasFreshResponse && shopifyProductSearchData.status === "validation_error"
     ? shopifyProductSearchData.message
     : "";
   const submitProductFilters = (overrides = {}) => {
@@ -569,6 +576,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   ]);
 
   useEffect(() => {
+    shopifyProductSearchSubmitRef.current = shopifyProductSearchFetcher.submit;
+  }, [shopifyProductSearchFetcher.submit]);
+
+  useEffect(() => {
     if (!shopifyProductSearchOpen) return undefined;
     const query = shopifyProductSearchQuery.trim();
     if (query.length < 2) return undefined;
@@ -577,11 +588,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
       const formData = new FormData();
       formData.set("_action", "search-shopify-products");
       formData.set("query", query);
-      shopifyProductSearchFetcher.submit(formData, { method: "post" });
+      shopifyProductSearchSubmitRef.current(formData, { method: "post" });
     }, 300);
 
     return () => window.clearTimeout(timeout);
-  }, [shopifyProductSearchFetcher, shopifyProductSearchOpen, shopifyProductSearchQuery]);
+  }, [shopifyProductSearchOpen, shopifyProductSearchQuery]);
 
   useEffect(() => {
     announceProductPulseJobs(actionData);

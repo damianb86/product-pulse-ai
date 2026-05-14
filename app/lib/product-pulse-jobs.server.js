@@ -383,10 +383,10 @@ export async function queueProductDiagnosisForShop(shop, productId) {
 export async function searchShopifyProductsForDiagnosis(shop, admin, rawQuery) {
   const query = String(rawQuery || "").trim();
   if (query.length < 2) {
-    return { status: "validation_error", message: "Type at least 2 characters to search Shopify products.", products: [] };
+    return { status: "validation_error", query, message: "Type at least 2 characters to search Shopify products.", products: [] };
   }
   if (!admin?.graphql) {
-    return { status: "validation_error", message: "Shopify Admin API is not available for product search.", products: [] };
+    return { status: "validation_error", query, message: "Shopify Admin API is not available for product search.", products: [] };
   }
 
   try {
@@ -454,12 +454,14 @@ export async function searchShopifyProductsForDiagnosis(shop, admin, rawQuery) {
 
     return {
       status: "success",
+      query,
       products: products.map((product) => formatShopifyProductSearchResult(product, existingProductGids)),
       message: products.length ? `${products.length} Shopify product${products.length === 1 ? "" : "s"} found.` : "No Shopify products matched that search.",
     };
   } catch (error) {
     return {
       status: "validation_error",
+      query,
       message: `Unable to search Shopify products: ${error.message}`,
       products: [],
     };

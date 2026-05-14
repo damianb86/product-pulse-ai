@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AnalyticsScreen,
   ConnectScreen,
@@ -13,6 +13,11 @@ import { defaultView } from "../fixtures/product-pulse-fixtures";
 
 function renderWithRouter(element) {
   const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
+  return render(<RouterProvider router={router} />);
+}
+
+function renderWithAction(element, action) {
+  const router = createMemoryRouter([{ path: "/", element, action }], { initialEntries: ["/"] });
   return render(<RouterProvider router={router} />);
 }
 
@@ -102,6 +107,37 @@ describe("ProductPulse screens", () => {
     expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
     expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
     expect(within(table).queryByRole("link", { name: /Linen Shirt/ })).not.toBeInTheDocument();
+  });
+
+  it("searches live Shopify products without resubmitting the same query loop", async () => {
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      const query = String(formData.get("query") || "");
+      return {
+        status: "success",
+        query,
+        products: [{
+          id: "gid://shopify/Product/123",
+          title: "Vintage Denim Jacket",
+          handle: "vintage-denim-jacket",
+          status: "ACTIVE",
+          detail: "Qorve / Outerwear",
+          sku: "VDJ-1",
+          imageUrl: null,
+          imageAlt: null,
+          variant: "shirt",
+          existingSnapshot: false,
+        }],
+      };
+    });
+
+    renderWithAction(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />, action);
+    fireEvent.click(screen.getByRole("button", { name: "Find Shopify product" }));
+    fireEvent.change(screen.getByPlaceholderText("Search by title, handle, product ID or SKU"), { target: { value: "denim" } });
+
+    await waitFor(() => expect(screen.getByText("Vintage Denim Jacket")).toBeInTheDocument());
+    await new Promise((resolve) => { window.setTimeout(resolve, 450); });
+    expect(action).toHaveBeenCalledTimes(1);
   });
 
   it("renders settings controls for thresholds and batch diagnostics", () => {
