@@ -3,6 +3,7 @@ import { Form, Link, useNavigate, useNavigation, useRevalidator, useSubmit } fro
 import {
   buildConnectViewData,
   chatMeConnectionLinks,
+  CSV_REVIEW_IMPORT_DISPLAY_NAME,
   judgeMeConnectionLinks,
   setLocalCategoryIgnored,
   upsertLocalConnectionRecord,
@@ -329,14 +330,15 @@ export function ConnectScreen({ data, actionData }) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const file = formData.get("csvFile");
-    const fileName = file?.name || "reviews.csv";
+    const originalFileName = file?.name || "reviews.csv";
+    const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
     setRecords((current) => upsertLocalConnectionRecord(current, "csvReviews", {
       connected: true,
       active: true,
       ignored: false,
       available: true,
       health: "connected",
-      config: { fileName, uploadedAt: new Date().toISOString() },
+      config: { fileName, displayFileName: fileName, originalFileName, uploadedAt: new Date().toISOString() },
       connectedAt: new Date().toISOString(),
       lastSyncedAt: new Date().toISOString(),
     }));

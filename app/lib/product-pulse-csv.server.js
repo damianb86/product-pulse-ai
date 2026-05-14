@@ -5,6 +5,7 @@ import prisma from "../db.server";
 
 const REQUIRED_MAPPING_FIELDS = ["review_body", "rating"];
 const PRODUCT_RELATION_FIELDS = ["product_handle", "shopify_product_id"];
+export const CSV_REVIEW_IMPORT_DISPLAY_NAME = "CSV import";
 const NORMALIZED_COLUMNS = [
   "source_row",
   "product_handle",
@@ -28,7 +29,7 @@ export class CsvReviewImportError extends Error {
 }
 
 export async function processCsvReviewUpload({ shop, file }) {
-  const fileName = typeof file?.name === "string" && file.name ? file.name : "reviews.csv";
+  const fileName = normalizeUploadedCsvFileName(typeof file?.name === "string" && file.name ? file.name : "reviews.csv");
   if (!file || typeof file.text !== "function") {
     throw new CsvReviewImportError("No se pudo cargar el CSV porque no se recibió ningún archivo.", "CSV_FILE_MISSING");
   }
@@ -63,6 +64,7 @@ export async function processCsvReviewUpload({ shop, file }) {
 
   return {
     fileName,
+    displayFileName: CSV_REVIEW_IMPORT_DISPLAY_NAME,
     checksum,
     headers: parsed.headers,
     mapping: validation.mapping,
@@ -426,6 +428,17 @@ function cleanScalar(value) {
 
 function cleanText(value) {
   return String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+}
+
+function normalizeUploadedCsvFileName(value) {
+  const text = String(value || "reviews.csv").trim() || "reviews.csv";
+  let decoded = text;
+  try {
+    decoded = decodeURIComponent(text);
+  } catch {
+    decoded = text.replace(/%2F/gi, "/").replace(/%20/g, " ");
+  }
+  return decoded.split(/[\\/]/).filter(Boolean).pop()?.trim() || "reviews.csv";
 }
 
 function normalizeRating(value) {

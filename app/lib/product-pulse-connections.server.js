@@ -5,7 +5,7 @@ import {
   getConnectCategoryDefinition,
   getConnectSourceDefinition,
 } from "./product-pulse-connect";
-import { CsvReviewImportError, processCsvReviewUpload } from "./product-pulse-csv.server";
+import { CSV_REVIEW_IMPORT_DISPLAY_NAME, CsvReviewImportError, processCsvReviewUpload } from "./product-pulse-csv.server";
 
 export async function getConnectViewDataForShop(shop) {
   await ensureSourceRows(shop);
@@ -78,9 +78,10 @@ export async function connectChatMeReviews(shop, privateApiToken) {
 }
 
 export async function uploadCsvReviews(shop, file) {
-  const fileName = typeof file?.name === "string" && file.name ? file.name : "reviews.csv";
+  const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
   try {
     const result = await processCsvReviewUpload({ shop, file });
+    const displayFileName = result.displayFileName || CSV_REVIEW_IMPORT_DISPLAY_NAME;
     const now = new Date();
     await upsertSource(shop, "csvReviews", {
       connected: true,
@@ -89,7 +90,8 @@ export async function uploadCsvReviews(shop, file) {
       available: true,
       health: "connected",
       config: {
-        fileName,
+        fileName: displayFileName,
+        displayFileName,
         originalFileName: result.fileName,
         uploadedAt: now.toISOString(),
         checksum: result.checksum,
@@ -110,7 +112,7 @@ export async function uploadCsvReviews(shop, file) {
 
     return {
       status: "success",
-      message: `${fileName} was processed and ${result.normalizedRowCount} review row${result.normalizedRowCount === 1 ? "" : "s"} were normalized.`,
+      message: `${displayFileName} was processed and ${result.normalizedRowCount} review row${result.normalizedRowCount === 1 ? "" : "s"} were normalized.`,
       providerKey: "csvReviews",
       csvImport: {
         rows: result.normalizedRowCount,

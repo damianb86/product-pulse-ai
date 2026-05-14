@@ -81,9 +81,11 @@ describe("ProductPulse CSV review import", () => {
 
     const result = await processCsvReviewUpload({
       shop: "Test-Shop.myshopify.com",
-      file: new File([csv], "reviews.csv", { type: "text/csv" }),
+      file: new File([csv], "-review-export%2Fqorve-dev-all-published-reviews-in-judgeme-format-2026-05-14-1778771736.csv", { type: "text/csv" }),
     });
 
+    expect(result.fileName).toBe("qorve-dev-all-published-reviews-in-judgeme-format-2026-05-14-1778771736.csv");
+    expect(result.displayFileName).toBe("CSV import");
     expect(result.normalizedRowCount).toBe(2);
     expect(result.rejectedRows).toHaveLength(1);
     expect(result.storageKey).toBe("test-shop.myshopify.com");

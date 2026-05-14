@@ -1,3 +1,5 @@
+export const CSV_REVIEW_IMPORT_DISPLAY_NAME = "CSV import";
+
 export const chatMeConnectionLinks = {
   app: "https://apps.shopify.com/what-is-chatme-app-button",
   docs: "https://chatme.ai/docs/api-token",
@@ -309,15 +311,40 @@ function getSourceDetail({ source, record, available, connected, active, locked 
   if (!available) return source.comingSoonMessage || "This connector is coming soon.";
   if (connected && !active) return "Connection saved but disabled.";
   if (connected) {
-    if (record?.config?.fileName && Number(record?.config?.normalizedRowCount || 0) > 0) {
+    if (source.actionKind === "csv" && (record?.config?.fileName || record?.config?.displayFileName || record?.config?.normalizedFileName)) {
+      const displayFileName = getCsvImportDisplayFileName(record.config);
       const rows = Number(record.config.normalizedRowCount || 0);
-      return `${record.config.fileName} processed (${rows} review${rows === 1 ? "" : "s"})`;
+      if (rows > 0) return `${displayFileName} processed (${rows} review${rows === 1 ? "" : "s"})`;
+      return `${displayFileName} uploaded`;
     }
     if (record?.config?.fileName) return `${record.config.fileName} uploaded`;
     if (record?.config?.tokenLast4) return `Token ending in ${record.config.tokenLast4}`;
     return record?.lastSyncedAt ? `Last synced ${formatConnectionDate(record.lastSyncedAt)}` : "Ready for sync";
   }
   return source.actionKind === "judgeme" ? "Add a private API token to connect." : "Ready to configure.";
+}
+
+function getCsvImportDisplayFileName(config = {}) {
+  const displayName = cleanCsvFileName(config.displayFileName || config.fileName);
+  if (!displayName || isLongImportedCsvName(displayName)) return CSV_REVIEW_IMPORT_DISPLAY_NAME;
+  return displayName;
+}
+
+function cleanCsvFileName(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  let decoded = text;
+  try {
+    decoded = decodeURIComponent(text);
+  } catch {
+    decoded = text.replace(/%2F/gi, "/").replace(/%20/g, " ");
+  }
+  return decoded.split(/[\\/]/).filter(Boolean).pop()?.trim() || decoded.trim();
+}
+
+function isLongImportedCsvName(value) {
+  const text = String(value || "");
+  return text.length > 32 || /%2f/i.test(text) || /review-export/i.test(text);
 }
 
 function formatConnectionDate(value) {
