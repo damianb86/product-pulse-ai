@@ -4,6 +4,7 @@ import { ProductsScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 import {
   getProductsQueueForShop,
+  recordProductDetailActionForShop,
   runSelectedProductDiagnosesForShop,
   startFastProductScan,
 } from "../lib/product-pulse-jobs.server";
@@ -44,6 +45,13 @@ export const action = async ({ request }) => {
 
   if (formData.get("_action") === "bulk-diagnose") {
     return runSelectedProductDiagnosesForShop(session.shop, formData.getAll("productId").map(String));
+  }
+
+  if (formData.get("_action") === "mark-resolved") {
+    const productId = String(formData.get("productId") || "");
+    const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
+    if (snapshotAction) return snapshotAction;
+    return { status: "validation_error", message: "Run QuickScan before resolving a product." };
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

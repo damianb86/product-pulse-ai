@@ -92,17 +92,25 @@ export async function getProductsQueueForShop(shop, admin, filters = {}) {
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
-  const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
-  const filterOptions = getProductTableFilterOptions(snapshots);
+  const [latestDiagnosisByProductGid, resolvedActionsByProductGid] = await Promise.all([
+    getLatestCompletedDiagnosisMap(shop, snapshots),
+    getResolvedProductActionsMap(shop, snapshots),
+  ]);
+  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid);
   const filteredSnapshots = sortProductSnapshots(
-    filterProductSnapshots(snapshots, filters),
+    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid),
     filters,
+    resolvedActionsByProductGid,
   );
   const rowsPerPage = normalizeRowsPerPage(filters.rows);
   const totalPages = Math.max(1, Math.ceil(filteredSnapshots.length / rowsPerPage));
   const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
-  const rows = pageSnapshots.map((snapshot) => formatProductRow(snapshot, latestDiagnosisByProductGid.get(snapshot.productGid)));
+  const rows = pageSnapshots.map((snapshot) => formatProductRow(
+    snapshot,
+    latestDiagnosisByProductGid.get(snapshot.productGid),
+    resolvedActionsByProductGid.get(snapshot.productGid),
+  ));
   const rowsWithImages = await attachProductImages(rows, admin);
   const rowsWithJobs = attachActiveProductDiagnosisJobs(rowsWithImages, activeDiagnosisJobs);
 
@@ -205,6 +213,27 @@ async function getLatestCompletedDiagnosisMap(shop, snapshots = []) {
     if (!latestByProductGid.has(diagnosis.productGid)) {
       latestByProductGid.set(diagnosis.productGid, diagnosis);
     }
+  });
+  return latestByProductGid;
+}
+
+async function getResolvedProductActionsMap(shop, snapshots = []) {
+  const productGids = [...new Set(snapshots.map((snapshot) => snapshot.productGid).filter(Boolean))];
+  if (!productGids.length) return new Map();
+
+  const actions = await prisma.productAction.findMany({
+    where: {
+      shop,
+      productGid: { in: productGids },
+      actionType: "mark-resolved",
+      status: "applied",
+    },
+    orderBy: [{ appliedAt: "desc" }, { createdAt: "desc" }],
+  });
+
+  const latestByProductGid = new Map();
+  actions.forEach((action) => {
+    if (!latestByProductGid.has(action.productGid)) latestByProductGid.set(action.productGid, action);
   });
   return latestByProductGid;
 }
@@ -946,10 +975,11 @@ function isActiveStatus(status) {
   return status === "Queued" || status === "Running";
 }
 
-function formatProductRow(snapshot, latestDiagnosis = null) {
+function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null) {
   const metrics = snapshot.metrics || {};
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
+  const resolvedAt = resolvedAction?.appliedAt || resolvedAction?.createdAt || null;
   return {
     productGid: snapshot.productGid,
     handle: snapshot.handle,
@@ -959,8 +989,10 @@ function formatProductRow(snapshot, latestDiagnosis = null) {
     risk: getRiskLabel(snapshot.riskScore),
     riskTone: getRiskTone(snapshot.riskScore),
     riskScore: snapshot.riskScore,
-    status: snapshot.riskScore >= 75 ? "Needs attention" : snapshot.riskScore >= 55 ? "Monitor" : "Good",
-    statusTone: getRiskTone(snapshot.riskScore),
+    status: resolvedAt ? "Resolved" : snapshot.riskScore >= 75 ? "Needs attention" : snapshot.riskScore >= 55 ? "Monitor" : "Good",
+    statusTone: resolvedAt ? "success" : getRiskTone(snapshot.riskScore),
+    resolvedAt: toIso(resolvedAt),
+    resolvedLabel: resolvedAt ? `Resolved ${formatJobDate(resolvedAt)}` : "",
     analysisDepth: analysisState.depth,
     analysisLabel: analysisState.label,
     analysisDetail: analysisState.detail,
@@ -1041,7 +1073,7 @@ function isPreferredProductDiagnosisJob(candidate, current) {
   return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime();
 }
 
-function filterProductSnapshots(snapshots, filters = {}) {
+function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map()) {
   const query = String(filters.query || "").trim().toLowerCase();
 
   return snapshots.filter((snapshot) => {
@@ -1049,10 +1081,12 @@ function filterProductSnapshots(snapshots, filters = {}) {
     const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
     const collections = Array.isArray(metrics.collections) ? metrics.collections : [];
     const tags = Array.isArray(metrics.tags) ? metrics.tags : [];
+    const isResolved = resolvedActionsByProductGid.has(snapshot.productGid);
     const searchable = [
       snapshot.productTitle,
       snapshot.handle,
       snapshot.primaryIssue,
+      isResolved ? "resolved" : "",
       metrics.vendor,
       metrics.productType,
       ...collections,
@@ -1062,7 +1096,7 @@ function filterProductSnapshots(snapshots, filters = {}) {
 
     if (query && !searchable.includes(query)) return false;
     if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore) !== filters.risk) return false;
-    if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore) !== filters.status) return false;
+    if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore, isResolved) !== filters.status) return false;
     if (filters.issue && filters.issue !== "all" && slugifyFilterValue(snapshot.primaryIssue) !== filters.issue) return false;
     if (filters.source && filters.source !== "all" && !sources.some((source) => slugifyFilterValue(source) === filters.source)) return false;
 
@@ -1075,11 +1109,15 @@ function filterProductSnapshots(snapshots, filters = {}) {
   });
 }
 
-function sortProductSnapshots(snapshots, filters = {}) {
+function sortProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map()) {
   const sort = filters.sort === "lastAnalysis" ? "lastAnalysis" : "riskScore";
   const direction = filters.direction === "asc" ? 1 : -1;
 
   return [...snapshots].sort((first, second) => {
+    const firstResolved = resolvedActionsByProductGid.has(first.productGid);
+    const secondResolved = resolvedActionsByProductGid.has(second.productGid);
+    if (firstResolved !== secondResolved) return firstResolved ? 1 : -1;
+
     const firstValue = sort === "lastAnalysis" ? new Date(first.updatedAt).getTime() : Number(first.riskScore || 0);
     const secondValue = sort === "lastAnalysis" ? new Date(second.updatedAt).getTime() : Number(second.riskScore || 0);
 
@@ -1088,7 +1126,7 @@ function sortProductSnapshots(snapshots, filters = {}) {
   });
 }
 
-function getProductTableFilterOptions(snapshots) {
+function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = new Map()) {
   const issues = new Map();
   const sources = new Map();
   const vendors = new Map();
@@ -1096,8 +1134,9 @@ function getProductTableFilterOptions(snapshots) {
 
   snapshots.forEach((snapshot) => {
     const metrics = snapshot.metrics || {};
+    const isResolved = resolvedActionsByProductGid.has(snapshot.productGid);
     addFilterOption(issues, snapshot.primaryIssue);
-    addFilterOption(statuses, getStatusLabel(snapshot.riskScore), getStatusFilterValue(snapshot.riskScore));
+    addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved), getStatusFilterValue(snapshot.riskScore, isResolved));
     (Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : []).forEach((source) => addFilterOption(sources, source));
     addFilterOption(vendors, metrics.vendor);
     addFilterOption(vendors, metrics.productType);
@@ -1143,13 +1182,15 @@ function getRiskFilterValue(score) {
   return "low";
 }
 
-function getStatusFilterValue(score) {
+function getStatusFilterValue(score, resolved = false) {
+  if (resolved) return "resolved";
   if (score >= 75) return "needs-attention";
   if (score >= 55) return "monitor";
   return "good";
 }
 
-function getStatusLabel(score) {
+function getStatusLabel(score, resolved = false) {
+  if (resolved) return "Resolved";
   if (score >= 75) return "Needs attention";
   if (score >= 55) return "Monitor";
   return "Good";

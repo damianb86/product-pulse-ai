@@ -792,8 +792,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   const selected = selectedProducts.has(actionKey);
                   const diagnosisState = getProductDiagnosisState(product, pendingAnalyzeIds);
 
+                  const rowClassName = [
+                    diagnosisState ? "isDiagnosing" : "",
+                    product.resolvedAt ? "isResolved" : "",
+                  ].filter(Boolean).join(" ");
+
                   return (
-                    <tr className={diagnosisState ? "isDiagnosing" : ""} key={actionKey}>
+                    <tr className={rowClassName} key={actionKey}>
                       <td>
                         <input
                           type="checkbox"
@@ -820,6 +825,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                           <span className="ppProductsProductText">
                             <span>{product.title}</span>
                             {diagnosisState && <small>{diagnosisState.label}</small>}
+                            {product.resolvedAt && (
+                              <small className="ppResolvedProductMarker">
+                                <s-icon type="check" size="small"></s-icon>
+                                {product.resolvedLabel || "Resolved"}
+                              </small>
+                            )}
                           </span>
                         </Link>
                       </td>
@@ -3238,6 +3249,21 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
             <s-icon type="duplicate" size="small"></s-icon>
             {copied ? "Copied handle" : "Copy handle"}
           </button>
+          {product.resolvedAt ? (
+            <button role="menuitem" type="button" disabled>
+              <s-icon type="check" size="small"></s-icon>
+              Resolved
+            </button>
+          ) : (
+            <Form method="post" role="none">
+              <input type="hidden" name="_action" value="mark-resolved" />
+              <input type="hidden" name="productId" value={getProductActionKey(product)} />
+              <button role="menuitem" type="submit" onClick={onClose}>
+                <s-icon type="check" size="small"></s-icon>
+                Mark as resolved
+              </button>
+            </Form>
+          )}
         </span>
       )}
     </span>

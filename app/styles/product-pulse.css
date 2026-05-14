@@ -4839,6 +4839,19 @@ s-page[inline-size="large-500"] {
   box-shadow: inset 3px 0 0 var(--pp-pulse-blue);
 }
 
+.ppProductsTable tbody tr.isResolved td {
+  background: linear-gradient(90deg, rgba(var(--pp-success-green-rgb), 0.07), rgba(var(--pp-slate-100-rgb), 0.5));
+  color: var(--pp-slate-500);
+}
+
+.ppProductsTable tbody tr.isResolved td:first-child {
+  box-shadow: inset 3px 0 0 var(--pp-success-green);
+}
+
+.ppProductsTable tbody tr.isResolved .ppProductsProductText > span {
+  color: var(--pp-slate-700);
+}
+
 .ppProductsEmptyRow td {
   height: 260px;
   background: var(--pp-cloud-white);
@@ -4994,6 +5007,17 @@ s-page[inline-size="large-500"] {
   line-height: 1.1;
 }
 
+.ppResolvedProductMarker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--pp-success-green) !important;
+}
+
+.ppResolvedProductMarker s-icon {
+  color: currentColor;
+}
+
 .ppProductsProductCell:hover {
   color: var(--pp-pulse-blue);
   text-decoration: underline;
@@ -5025,6 +5049,15 @@ s-page[inline-size="large-500"] {
   border-radius: 8px;
   background: var(--pp-cloud-white);
   box-shadow: 0 18px 48px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
+.ppActionMenu form {
+  display: block;
+  margin: 0;
+}
+
+.ppActionMenu form button {
+  width: 100%;
 }
 
 .ppActionMenu a,
