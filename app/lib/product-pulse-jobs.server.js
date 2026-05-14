@@ -543,6 +543,9 @@ async function addProductTag(admin, productGid, tag) {
 }
 
 function getDescriptionOperationForAction(action) {
+  const payload = action.payload || {};
+  if (["replace", "prepend", "append"].includes(payload.operation)) return payload.operation;
+  if (["prepend", "append"].includes(payload.placement)) return payload.placement;
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("rewrite-product-description") || normalized.includes("rewrite")) return "replace";
   if (normalized.includes("faq")) return "append";

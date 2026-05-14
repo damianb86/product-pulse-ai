@@ -1250,7 +1250,13 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (deterministic.metrics.topReturnReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
   if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Judge.me negative review text is available." });
   if (deterministic.metrics.contentIssueCount > 0) {
-    candidates.push({ id: "rewrite-product-description", type: "PDP copy", reason: "Product content analysis found missing, short or incoherent product copy." });
+    const contentIssues = Array.isArray(deterministic.metrics.contentIssues) ? deterministic.metrics.contentIssues : [];
+    const currentDescription = deterministic.product?.description || "";
+    if (shouldRecommendFullDescriptionRewrite({ contentIssues, currentDescription })) {
+      candidates.push({ id: "rewrite-product-description", type: "PDP copy", reason: "Product content analysis found missing, short or incoherent product copy." });
+    } else {
+      candidates.push({ id: "add-product-description-guidance", type: "PDP copy", reason: "Product content analysis found a specific shopper guidance gap that can be added without rewriting the full description." });
+    }
     candidates.push({ id: "align-product-metadata", type: "Workflow", reason: "Title, description, tags, collections and product type should tell a consistent story." });
   }
   if (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
@@ -1267,6 +1273,10 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
   const currentDescriptionText = deterministic.product?.description || "";
+  const shouldRewriteDescription = shouldRecommendFullDescriptionRewrite({
+    contentIssues,
+    currentDescription: currentDescriptionText,
+  });
   const reviewSections = [];
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
   const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
@@ -1293,34 +1303,67 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (contentIssues.length > 0) {
-    const descriptionDraft = buildEnhancedDescriptionDraft({
-      title: snapshot.productTitle,
-      currentDescription: currentDescriptionText,
-      suggestedDescription: copy.product_description || "",
-      shopperGuidance: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "",
-      contentAnalysis,
-    });
+    if (shouldRewriteDescription) {
+      const descriptionDraft = buildEnhancedDescriptionDraft({
+        title: snapshot.productTitle,
+        currentDescription: currentDescriptionText,
+        suggestedDescription: copy.product_description || "",
+        shopperGuidance: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "",
+        contentAnalysis,
+      });
 
-    recommendations.push({
-      id: "rewrite-product-description",
-      label: "Rewrite product description",
-      type: "PDP copy",
-      effort: "Low",
-      status: "Draft",
-      payload: {
-        draftText: descriptionDraft,
-        issue: "product_content",
-        currentDescriptionText,
-        contentIssues: contentIssues.map((issue) => ({
-          label: issue.label,
-          evidence: issue.evidence,
-          severity: issue.severity,
-        })),
-        changeStrategy: currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
-        relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
-        relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
-      },
-    });
+      recommendations.push({
+        id: "rewrite-product-description",
+        label: "Rewrite product description",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: descriptionDraft,
+          issue: "product_content",
+          currentDescriptionText,
+          contentIssues: contentIssues.map((issue) => ({
+            label: issue.label,
+            evidence: issue.evidence,
+            severity: issue.severity,
+            code: issue.code,
+          })),
+          changeStrategy: currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
+          operation: "replace",
+          relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
+          relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
+        },
+      });
+    } else {
+      recommendations.push({
+        id: "add-product-description-guidance",
+        label: "Add product description guidance",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: buildDescriptionGuidanceAddendum({
+            title: snapshot.productTitle,
+            contentIssues,
+            suggestedDescription: copy.product_description || "",
+            shopperGuidance: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "",
+          }),
+          issue: "product_content",
+          currentDescriptionText,
+          contentIssues: contentIssues.map((issue) => ({
+            label: issue.label,
+            evidence: issue.evidence,
+            severity: issue.severity,
+            code: issue.code,
+          })),
+          changeStrategy: "add-guidance",
+          operation: "append",
+          placement: "append",
+          relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
+          relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
+        },
+      });
+    }
 
     reviewSections.push({
       key: "content",
@@ -1545,7 +1588,7 @@ function buildRefundOperationalIssue(deterministic, recommendations) {
 function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   const textInsights = deterministic.metrics.textInsights || {};
   const aiFindings = Array.isArray(ai.classification?.granular_findings) ? ai.classification.granular_findings : [];
-  const aiRepeatedLanguage = Array.isArray(ai.classification?.repeated_language) ? ai.classification.repeated_language : [];
+  const aiRepeatedLanguage = getFilteredAiRepeatedLanguage(ai);
   const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
   const deterministicIssues = Array.isArray(textInsights.granularIssues) ? textInsights.granularIssues : [];
   const issues = [];
@@ -1631,6 +1674,11 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   });
 
   return uniqueBy(issues.filter((issue) => issue.issue), (issue) => `${issue.issueCode}-${issue.issue}`);
+}
+
+function getFilteredAiRepeatedLanguage(ai) {
+  return (Array.isArray(ai?.classification?.repeated_language) ? ai.classification.repeated_language : [])
+    .filter((item) => isUsefulRepeatedLanguageTerm(item?.term));
 }
 
 function isMerchantFacingIssueSupported(issue, deterministic) {
@@ -1834,7 +1882,7 @@ function normalizeAiKnownEmotions(ai, textInsights = {}) {
     });
   });
 
-  (Array.isArray(ai?.classification?.repeated_language) ? ai.classification.repeated_language : []).forEach((item) => {
+  getFilteredAiRepeatedLanguage(ai).forEach((item) => {
     if (normalizeEmotionCode(item.known_emotion) && normalizeEmotionCode(item.known_emotion) !== "none") aiEmotionCount += 1;
     addEmotion({
       code: item.known_emotion,
@@ -2101,7 +2149,7 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, shopifyData }) {
           : "",
         ...((Array.isArray(textInsights.otherReturnClassifications) ? textInsights.otherReturnClassifications : []).slice(0, 5).map((item) => `"Other" return notes classified as ${item.label} ${item.count} time${item.count === 1 ? "" : "s"}`)),
         ...((textInsights.repeatedLanguage || []).slice(0, 5).map((item) => `"${item.term}" repeated ${item.count} time${item.count === 1 ? "" : "s"} across ${item.sources.join(" and ")}`)),
-        ...((Array.isArray(ai.classification?.repeated_language) ? ai.classification.repeated_language : []).slice(0, 3).map((item) => `AI repeated-language finding: "${item.term}" - ${item.explanation || item.sentiment || "review"}`)),
+        ...getFilteredAiRepeatedLanguage(ai).slice(0, 3).map((item) => `AI repeated-language finding: "${item.term}" - ${item.explanation || item.sentiment || "review"}`),
         ...aiEmergentSentiments.slice(0, 4).map((item) => `Emergent sentiment: ${item.label} (${item.signals} signal${item.signals === 1 ? "" : "s"}) - ${item.merchantSummary}`),
       ].filter(Boolean),
     });
@@ -2805,13 +2853,14 @@ function extractRepeatedLanguage(items) {
   items.forEach((item) => {
     const analysisText = getCustomerAnalysisText(item);
     if (!analysisText) return;
-    const tokens = meaningfulTokens(analysisText).filter((token) => token.length > 3);
+    const tokens = customerLanguageTokens(analysisText);
     const phrases = new Set([
-      ...tokens,
-      ...tokens.slice(0, -1).map((token, index) => `${token} ${tokens[index + 1]}`),
+      ...tokens.filter((token) => isUsefulRepeatedLanguageTerm(token)),
+      ...tokens.slice(0, -1)
+        .map((token, index) => `${token} ${tokens[index + 1]}`)
+        .filter((term) => isUsefulRepeatedLanguageTerm(term)),
     ]);
     phrases.forEach((term) => {
-      if (term.length < 4 || isDefaultCustomerLanguageTerm(term)) return;
       const current = counts.get(term) || {
         term,
         count: 0,
@@ -2836,6 +2885,14 @@ function extractRepeatedLanguage(items) {
       sources: Array.from(item.sources),
       dominantSentiment: Object.entries(item.sentiments).sort((first, second) => second[1] - first[1])[0]?.[0] || "neutral",
     }));
+}
+
+function customerLanguageTokens(value) {
+  return normalizeText(value)
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !CUSTOMER_TEXT_STOP_WORDS.has(token));
 }
 
 function classifyCustomerSentiment(text, rating = 0) {
@@ -2894,16 +2951,112 @@ function isDefaultCustomerLanguageTerm(value) {
   return tokens.length > 0 && tokens.every((token) => CUSTOMER_TEXT_STOP_WORDS.has(token));
 }
 
+function isUsefulRepeatedLanguageTerm(value) {
+  const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  if (normalized.length < 4 || isDefaultCustomerLanguageTerm(normalized)) return false;
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (!tokens.length) return false;
+  if (tokens.length === 1 && tokens[0] === "not") return false;
+  return tokens.some((token) => !CUSTOMER_TEXT_STOP_WORDS.has(token) && (token.length >= 4 || CUSTOMER_TEXT_SHORT_SIGNAL_WORDS.has(token)));
+}
+
 const CUSTOMER_TEXT_STOP_WORDS = new Set([
+  "about",
+  "above",
+  "after",
+  "again",
+  "against",
+  "also",
+  "although",
+  "always",
+  "among",
+  "and",
+  "are",
+  "but",
+  "did",
+  "does",
+  "doing",
+  "done",
+  "get",
+  "gets",
+  "got",
+  "had",
+  "has",
+  "having",
+  "into",
+  "its",
+  "just",
+  "many",
+  "may",
+  "might",
+  "more",
+  "most",
+  "much",
+  "must",
+  "only",
+  "onto",
+  "our",
+  "out",
+  "own",
+  "same",
+  "shall",
+  "some",
+  "still",
+  "such",
+  "than",
+  "their",
+  "them",
+  "then",
+  "there",
+  "these",
+  "thing",
+  "things",
+  "those",
+  "through",
+  "took",
+  "take",
+  "taken",
+  "taking",
+  "under",
+  "want",
+  "wanted",
+  "was",
+  "way",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "will",
+  "would",
   "with",
+  "within",
+  "without",
   "from",
   "that",
   "this",
+  "been",
+  "being",
   "have",
-  "were",
   "they",
   "very",
+  "anything",
+  "because",
+  "before",
+  "between",
+  "could",
+  "during",
+  "even",
+  "nothing",
+  "over",
+  "should",
+  "something",
+  "away",
+  "back",
+  "really",
   "product",
+  "products",
   "return",
   "returns",
   "returned",
@@ -2923,6 +3076,12 @@ const CUSTOMER_TEXT_STOP_WORDS = new Set([
   "misc",
   "miscellaneous",
   "uncategorized",
+]);
+
+const CUSTOMER_TEXT_SHORT_SIGNAL_WORDS = new Set([
+  "bad",
+  "fit",
+  "red",
 ]);
 
 const DEFAULT_CUSTOMER_LANGUAGE_PHRASES = new Set([
@@ -3837,6 +3996,58 @@ function buildDefaultPdpCopy(title, issueLabel, topReasons) {
   return `${title}: ProductPulse detected ${issueLabel.toLowerCase()} signals.${reason} Add clear shopper-facing guidance before purchase to reduce avoidable returns and support questions.`;
 }
 
+function shouldRecommendFullDescriptionRewrite({ contentIssues = [], currentDescription = "" }) {
+  const description = normalizeDraftParagraph(currentDescription);
+  const wordCount = description ? description.split(/\s+/).filter(Boolean).length : 0;
+  if (!description || wordCount < 25) return true;
+
+  return (Array.isArray(contentIssues) ? contentIssues : []).some((issue) => {
+    const code = normalizeContentIssueCode(issue.code);
+    const label = normalizeText(`${issue.label || ""} ${issue.evidence || ""}`);
+    const severity = normalizeSeverity(issue.severity);
+    if (FULL_DESCRIPTION_REWRITE_CODES.has(code)) return true;
+    if (severity !== "high") return false;
+    return /(wrong product|different product|unrelated product|clearly disconnected|contradict|incoherent|mismatch)/.test(label);
+  });
+}
+
+const FULL_DESCRIPTION_REWRITE_CODES = new Set([
+  "missing_description",
+  "short_description",
+  "title_description_mismatch",
+  "contradiction",
+  "incoherent_description",
+  "wrong_product_description",
+]);
+
+function buildDescriptionGuidanceAddendum({ title, contentIssues = [], suggestedDescription = "", shopperGuidance = "" }) {
+  const focusedGuidance = normalizeDraftParagraph(shopperGuidance);
+  if (focusedGuidance) return focusedGuidance;
+
+  const suggested = normalizeDraftParagraph(suggestedDescription);
+  if (suggested && !looksLikeFullDescriptionRewrite(suggested, title)) return suggested;
+
+  const issueLabels = (Array.isArray(contentIssues) ? contentIssues : [])
+    .map((issue) => issue.label || getContentIssueLabel(issue.code))
+    .filter(Boolean);
+  const evidence = (Array.isArray(contentIssues) ? contentIssues : [])
+    .map((issue) => issue.evidence)
+    .filter(Boolean);
+  const focus = issueLabels.length ? issueLabels.slice(0, 3).join(", ").toLowerCase() : "product expectations";
+  const detail = evidence.length ? ` This note is based on: ${evidence.slice(0, 2).join(" ")}` : "";
+  return `${title}: add a short shopper-facing note that clarifies ${focus}.${detail}`;
+}
+
+function looksLikeFullDescriptionRewrite(value, title) {
+  const text = normalizeDraftParagraph(value);
+  if (!text) return false;
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  if (wordCount >= 45) return true;
+  const titleTokens = meaningfulTokens(title);
+  const textTokens = new Set(meaningfulTokens(text));
+  return wordCount >= 30 && titleTokens.filter((token) => textTokens.has(token)).length >= Math.min(2, titleTokens.length);
+}
+
 function buildDefaultDescriptionRewrite(title, contentAnalysis) {
   const findings = [
     ...(Array.isArray(contentAnalysis?.issues) ? contentAnalysis.issues : []),
@@ -4002,6 +4213,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildFinalIssues,
   analyzeProductContentDeterministically,
   buildContentAnalysis,
+  shouldRecommendFullDescriptionRewrite,
   classifyIssueText,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,

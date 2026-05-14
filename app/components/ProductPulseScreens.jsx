@@ -1082,7 +1082,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
         {application.currentValue && (
           <div className="ppActionConfirmCurrent">
             <span>{application.currentValueLabel || "Current value"}</span>
-            <pre>{application.currentValue}</pre>
+            <CurrentDescriptionInsertionPreview application={application} asPre />
           </div>
         )}
 
@@ -1951,6 +1951,7 @@ function getRecommendedActionApplication(action, product = null) {
       value,
       currentValueLabel: "Current Shopify description",
       currentValue: currentDescription,
+      insertionPosition: operation === "replace" ? "" : operation,
       relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
     };
   }
@@ -1983,6 +1984,9 @@ function getRecommendedActionApplication(action, product = null) {
 }
 
 function getDescriptionOperationForAction(action) {
+  const payload = action.payload || {};
+  if (["replace", "prepend", "append"].includes(payload.operation)) return payload.operation;
+  if (["prepend", "append"].includes(payload.placement)) return payload.placement;
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("rewrite-product-description") || normalized.includes("rewrite")) return "replace";
   if (normalized.includes("faq")) return "append";
@@ -3577,7 +3581,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
         {application.currentValue && (
           <div className="ppActionCurrentValueBox">
             <span>{application.currentValueLabel || "Current value"}</span>
-            <p>{application.currentValue}</p>
+            <CurrentDescriptionInsertionPreview application={application} />
           </div>
         )}
         {application.relatedActions?.length > 0 && (
@@ -3644,6 +3648,36 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       </div>
     </article>
   );
+}
+
+function CurrentDescriptionInsertionPreview({ application, asPre = false }) {
+  const currentValue = String(application.currentValue || "");
+  const marker = getDescriptionInsertionMarker(application);
+  const content = (
+    <>
+      {marker?.position === "prepend" && <DescriptionInsertionMarker label={marker.label} />}
+      {asPre ? <pre>{currentValue}</pre> : <p>{currentValue}</p>}
+      {marker?.position === "append" && <DescriptionInsertionMarker label={marker.label} />}
+    </>
+  );
+
+  return asPre ? <div className="ppDescriptionInsertionPreview isPre">{content}</div> : <div className="ppDescriptionInsertionPreview">{content}</div>;
+}
+
+function DescriptionInsertionMarker({ label }) {
+  return (
+    <span className="ppDescriptionInsertionMarker">
+      <s-icon type="plus-circle" size="small"></s-icon>
+      {label}
+    </span>
+  );
+}
+
+function getDescriptionInsertionMarker(application = {}) {
+  const position = application.insertionPosition;
+  if (position === "prepend") return { position, label: "ProductPulse text will be added here, before the current description" };
+  if (position === "append") return { position, label: "ProductPulse text will be added here, after the current description" };
+  return null;
 }
 
 function getRecommendedActionButton(action, mode, buttonText, disabled, context) {

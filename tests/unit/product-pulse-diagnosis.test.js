@@ -173,6 +173,23 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.returns.examples[0].text).not.toContain("Other reason");
   });
 
+  it("excludes common stop words from repeated customer language", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [],
+      reviews: [
+        { title: "", body: "I took it back because the softness was missing.", rating: 2, createdAt: "2026-05-13T12:00:00Z" },
+        { title: "", body: "Took this back; softness was not what I expected.", rating: 2, createdAt: "2026-05-13T12:05:00Z" },
+        { title: "", body: "The softness was poor and I would not buy again.", rating: 2, createdAt: "2026-05-13T12:10:00Z" },
+      ],
+    });
+    const terms = insights.repeatedLanguage.map((item) => item.term);
+
+    expect(terms).toContain("softness");
+    expect(terms).not.toContain("took");
+    expect(terms).not.toContain("would");
+    expect(terms).not.toContain("because");
+  });
+
   it("ignores generic Other return reasons when there is no customer note", () => {
     const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
       returns: [{
@@ -488,6 +505,29 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(analysis.issues.map((issue) => issue.code)).not.toContain("tag_description_mismatch");
     expect(analysis.riskLift).toBe(0);
     expect(analysis.advisories.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("only recommends a full description rewrite for missing, short or clearly broken descriptions", () => {
+    const contentIssues = [{
+      code: "missing_specifications",
+      label: "Missing product specifications",
+      severity: "medium",
+      evidence: "Add care and material details.",
+    }];
+    const goodDescription = "A breathable linen trouser with a relaxed leg, elastic waist, practical side pockets, and a lightweight everyday fit for warm weather travel, weekends, and casual office styling.";
+
+    expect(__productPulseDiagnosisTestHooks.shouldRecommendFullDescriptionRewrite({
+      contentIssues,
+      currentDescription: goodDescription,
+    })).toBe(false);
+    expect(__productPulseDiagnosisTestHooks.shouldRecommendFullDescriptionRewrite({
+      contentIssues: [{ code: "short_description", severity: "medium" }],
+      currentDescription: "Short linen pants.",
+    })).toBe(true);
+    expect(__productPulseDiagnosisTestHooks.shouldRecommendFullDescriptionRewrite({
+      contentIssues: [{ code: "title_description_mismatch", severity: "high", evidence: "Clearly disconnected from the title." }],
+      currentDescription: goodDescription,
+    })).toBe(true);
   });
 
   it("only flags title and description mismatch when product categories are clearly disconnected", () => {
