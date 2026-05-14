@@ -103,6 +103,70 @@ describe("ProductPulse AI provider fallback", () => {
     })).rejects.toThrow(/Gemini.*OpenAI nano.*rate limit reached/);
   });
 
+  it("uses the next Gemini model after an internal provider error", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("gemini-a")) {
+        return new Response(JSON.stringify({
+          error: { message: "Internal error encountered.", status: "INTERNAL", code: 500 },
+        }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "Gemini fallback model response." }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateProductDiagnosisTestText({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-internal",
+      product: { title: "Peacat Egg", handle: "peacat-egg", metrics: {} },
+    });
+
+    expect(result).toMatchObject({
+      provider: "gemini",
+      model: "gemini-b",
+      text: "Gemini fallback model response.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses OpenAI nano when all Gemini models hit transient fetch failures", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("generativelanguage")) {
+        const error = new TypeError("fetch failed");
+        error.cause = {
+          name: "HeadersTimeoutError",
+          code: "UND_ERR_HEADERS_TIMEOUT",
+          message: "Headers Timeout Error",
+        };
+        throw error;
+      }
+
+      return new Response(JSON.stringify({ output_text: "OpenAI nano recovered from Gemini timeout." }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateProductDiagnosisTestText({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-timeout",
+      product: { title: "Bakery Chef Doll", handle: "bakery-chef-doll", metrics: {} },
+    });
+
+    expect(result).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.4-nano",
+      text: "OpenAI nano recovered from Gemini timeout.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(mocks.recordJobLog).toHaveBeenCalledWith(expect.objectContaining({
+      event: "product_diagnosis.gemini_pool_exhausted_openai_fallback",
+    }));
+  });
+
   it("clusters AI-suggested emergent sentiments after signal classification", async () => {
     const prompts = [];
     vi.stubGlobal("fetch", vi.fn(async (_url, options) => {

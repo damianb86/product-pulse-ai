@@ -665,7 +665,16 @@ async function requestGeminiText({ apiKey, model, prompt, taskConfig }) {
 }
 
 function getGeminiRetryReason(error) {
-  const message = `${error?.message || ""} ${error?.code || ""}`.toLowerCase();
+  const message = [
+    error?.message,
+    error?.code,
+    error?.name,
+    error?.cause?.message,
+    error?.cause?.code,
+    error?.cause?.name,
+    error?.details?.message,
+    error?.details?.status,
+  ].filter(Boolean).join(" ").toLowerCase();
   if (
     error?.status === 503 ||
     message.includes("high demand") ||
@@ -689,6 +698,20 @@ function getGeminiRetryReason(error) {
   }
 
   if (
+    (Number(error?.status || 0) >= 500 && Number(error?.status || 0) < 600) ||
+    message.includes("internal") ||
+    message.includes("fetch failed") ||
+    message.includes("timeout") ||
+    message.includes("headers timeout") ||
+    message.includes("und_err_headers_timeout") ||
+    message.includes("network") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout")
+  ) {
+    return "transient";
+  }
+
+  if (
     error?.status === 404 ||
     message.includes("not found") ||
     message.includes("model")
@@ -700,7 +723,7 @@ function getGeminiRetryReason(error) {
 }
 
 function shouldFallbackToOpenAINano(retryReason) {
-  return retryReason === "high_demand" || retryReason === "quota";
+  return retryReason === "high_demand" || retryReason === "quota" || retryReason === "transient";
 }
 
 async function generateWithOpenAINanoAfterGeminiExhaustion({
@@ -887,6 +910,9 @@ function buildGeminiPoolExhaustedError(retryReason, error) {
   if (retryReason === "model_unavailable") {
     return new Error(`AI diagnosis could not be completed because no configured Gemini model is currently available. Gemini detail: ${detail}`);
   }
+  if (retryReason === "transient") {
+    return new Error(`AI diagnosis could not be completed because every configured Gemini model hit a temporary provider or network error. Gemini detail: ${detail}`);
+  }
   return error || new Error("AI diagnosis could not be completed with Gemini. Please try again later.");
 }
 
@@ -903,6 +929,7 @@ function getGeminiRetryReasonLabel(retryReason) {
   if (retryReason === "high_demand") return "high demand";
   if (retryReason === "quota") return "quota or rate limit";
   if (retryReason === "model_unavailable") return "model availability";
+  if (retryReason === "transient") return "a temporary provider or network error";
   return "an unknown Gemini error";
 }
 
