@@ -343,6 +343,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Use the metrics, clusters, product-content analysis, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
     "When drafting product_description, preserve useful existing description content and expand it with missing shopper guidance instead of replacing the product story from scratch.",
     "Only provide a full product_description rewrite when the current description is missing, very short, incoherent, contradictory, or clearly about the wrong product. If the current description is good and only needs a specific clarification, leave product_description empty or provide a short add-on note instead of a full rewrite.",
+    "When recommendation candidates include a FAQ, generate 2 to 4 concrete customer-facing FAQ items. Each FAQ must answer a repeated buyer uncertainty, content gap, compatibility concern, fit/size concern, return/review pattern, or product expectation issue. Do not invent precise specs; if a fact is not known, word the answer as guidance to check the selected variant, size, materials, compatibility, or product detail.",
     "When pdp_copy and product_description both apply, make product_description compatible with that shopper-facing note so merchants can either add the note or apply the fuller rewrite.",
     "If emergent customer sentiments are present, mention them only when they are grounded in the evidence and useful to the merchant.",
     "If product content is missing, incoherent, too short, contradictory, or clearly about the wrong product, include that in the finding or recommendations when relevant.",
@@ -363,6 +364,13 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
         product_description: "rewritten product description draft when product content has issues",
         faq_question: "How does this product fit?",
         faq_answer: "merchant-ready FAQ answer",
+        faq_items: [
+          {
+            question: "How does this product fit?",
+            answer: "Merchant-ready FAQ answer grounded in the supplied evidence.",
+            reason: "Repeated fit and sizing signals need pre-purchase guidance.",
+          },
+        ],
         support_note: "short internal support note",
       },
     }, null, 2),

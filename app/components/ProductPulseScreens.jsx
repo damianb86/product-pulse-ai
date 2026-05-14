@@ -1106,6 +1106,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           <input type="hidden" name="label" value={action.title || action.label || ""} />
           <input type="hidden" name="draftText" value={editedText} />
           <input type="hidden" name="applyMode" value="apply" />
+          <input type="hidden" name="actionVariant" value={application.variantId || ""} />
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
           <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim()}>
             <s-icon type={isTagChange ? "tag" : "wand"} size="small"></s-icon>
@@ -1758,6 +1759,10 @@ function getProductRecommendedActions(product) {
 
   return normalizedActions.map((action, index) => ({
     id: action.id,
+    label: action.label,
+    type: action.type,
+    status: action.status,
+    effort: action.effort,
     icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     iconSymbol: getActionIconSymbol(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     title: action.label,
@@ -1802,7 +1807,7 @@ function consolidateReviewRecommendedActions(actions = []) {
 }
 
 function isLegacyReviewAction(action) {
-  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
   if (action.id === "review-product-evidence") return false;
   return normalized.includes("workflow") && normalized.includes("review");
 }
@@ -1904,6 +1909,7 @@ function normalizeEvidenceLabel(value) {
 
 function getRecommendedActionDetail(action) {
   const payload = action.payload || {};
+  if (Array.isArray(payload.faqItems) && payload.faqItems.length) return formatFaqItemsForDisplay(payload.faqItems);
   if (payload.draftText) return payload.draftText;
   if (payload.note) return payload.note;
   if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
@@ -1917,9 +1923,97 @@ function getRecommendedActionDetail(action) {
   return "Ready from current stored product signals.";
 }
 
-function getRecommendedActionApplication(action, product = null) {
+function isFaqRecommendedAction(action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  return normalized.includes("faq") || Array.isArray(action.payload?.faqItems);
+}
+
+function getFaqRecommendedActionApplication(action, product = null, options = {}) {
   const payload = action.payload || {};
-  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  const variants = getFaqApplicationVariants(payload);
+  const defaultVariantId = payload.defaultApplyMode || variants[1]?.id || variants[0]?.id || "description-section";
+  const variantId = variants.some((variant) => variant.id === options.variantId) ? options.variantId : defaultVariantId;
+  const selectedVariant = variants.find((variant) => variant.id === variantId) || variants[0];
+  const currentDescription = getCurrentDescriptionForAction(product, payload);
+  const value = formatFaqItemsForDisplay(payload.faqItems, payload.draftText);
+  const isMetafield = variantId === "metafield-json";
+
+  return {
+    kind: "shopify_product",
+    editable: true,
+    target: selectedVariant.target,
+    operation: selectedVariant.operation,
+    intro: getFaqApplicationIntro(variantId, payload),
+    confirmationTitle: isMetafield ? "Confirm FAQ metafield update" : "Confirm product FAQ update",
+    confirmationDetail: getFaqConfirmationDetail(variantId, payload),
+    applyLabel: selectedVariant.applyLabel,
+    valueLabel: isMetafield ? "FAQ questions and answers to save" : "FAQ questions and answers to add",
+    value,
+    currentValueLabel: "Current Shopify description",
+    currentValue: isMetafield ? "" : currentDescription,
+    insertionPosition: isMetafield ? "" : "append",
+    variants,
+    variantId,
+    defaultVariantId,
+    relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
+  };
+}
+
+function getFaqApplicationVariants(payload = {}) {
+  const configured = Array.isArray(payload.applicationOptions) ? payload.applicationOptions : [];
+  const defaults = [
+    { id: "description-section", label: "Full FAQ in description", target: "Product description", operation: "Append FAQ section", applyLabel: "Add FAQ section" },
+    { id: "description-collapsible", label: "Collapsible FAQ", target: "Product description", operation: "Append collapsible FAQ", applyLabel: "Add collapsible FAQ" },
+    { id: "description-modal", label: "Modal-style FAQ", target: "Product description", operation: "Append modal-style FAQ", applyLabel: "Add FAQ modal" },
+    { id: "metafield-json", label: "Product metafield", target: "Product metafield", operation: "Save JSON metafield", applyLabel: "Save FAQ metafield" },
+  ];
+  const configuredById = new Map(configured.map((item) => [item.id, item]));
+  return defaults.map((item) => ({ ...item, ...(configuredById.get(item.id) || {}) }));
+}
+
+function getFaqApplicationIntro(variantId, payload = {}) {
+  const reasons = Array.isArray(payload.faqNeed?.reasons) ? payload.faqNeed.reasons : [];
+  const reasonText = reasons.length ? ` ProductPulse is suggesting FAQ coverage because ${reasons[0].toLowerCase()}` : "";
+  if (variantId === "description-section") {
+    return `This will append the generated questions and answers as a visible FAQ section in the Shopify product description.${reasonText}`;
+  }
+  if (variantId === "description-modal") {
+    return `This will append a modal-style FAQ block to the Shopify product description using HTML that can be styled by the theme.${reasonText}`;
+  }
+  if (variantId === "metafield-json") {
+    const namespace = payload.metafield?.namespace || "productpulse";
+    const key = payload.metafield?.key || "faq_items";
+    return `This will save the generated FAQ as JSON in the product metafield ${namespace}.${key}. A product template or theme block can render it from that metafield.${reasonText}`;
+  }
+  return `This will append a compact collapsible FAQ to the Shopify product description so shoppers can open it without making the PDP much longer.${reasonText}`;
+}
+
+function getFaqConfirmationDetail(variantId, payload = {}) {
+  if (variantId === "metafield-json") {
+    const namespace = payload.metafield?.namespace || "productpulse";
+    const key = payload.metafield?.key || "faq_items";
+    return `ProductPulse will write JSON FAQ data to ${namespace}.${key}. Existing product description HTML will not change.`;
+  }
+  if (variantId === "description-modal") return "ProductPulse will append modal-style FAQ HTML to the current Shopify product description.";
+  if (variantId === "description-section") return "ProductPulse will append a visible FAQ section to the current Shopify product description.";
+  return "ProductPulse will append a collapsible FAQ HTML block to the current Shopify product description.";
+}
+
+function formatFaqItemsForDisplay(faqItems = [], fallback = "") {
+  const items = Array.isArray(faqItems) ? faqItems : [];
+  if (!items.length) return String(fallback || "").trim();
+  return items
+    .map((item) => `${item.question}\n${item.answer}`)
+    .join("\n\n");
+}
+
+function getRecommendedActionApplication(action, product = null, options = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+
+  if (isFaqRecommendedAction(action)) {
+    return getFaqRecommendedActionApplication(action, product, options);
+  }
 
   if (payload.tag || normalized.includes("shopify tag") || normalized.includes("product tag")) {
     const tag = String(payload.tag || "").trim();
@@ -1990,7 +2084,7 @@ function getDescriptionOperationForAction(action) {
   const payload = action.payload || {};
   if (["replace", "prepend", "append"].includes(payload.operation)) return payload.operation;
   if (["prepend", "append"].includes(payload.placement)) return payload.placement;
-  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
   if (normalized.includes("rewrite-product-description") || normalized.includes("rewrite")) return "replace";
   if (normalized.includes("faq")) return "append";
   return "prepend";
@@ -2111,6 +2205,11 @@ function getRecommendedActionReason(action, product) {
   if (Number(payload.negativeReviewCount || 0) > 0) {
     return `${formatInteger(payload.negativeReviewCount)} negative Judge.me reviews are connected to this product. Reviewing them can clarify the language customers use.`;
   }
+  if (Array.isArray(payload.faqItems) && payload.faqItems.length) {
+    const reasons = Array.isArray(payload.faqNeed?.reasons) ? payload.faqNeed.reasons : [];
+    if (reasons.length) return `ProductPulse found FAQ-worthy buyer uncertainty: ${reasons.slice(0, 2).join(" ")}`;
+    return `ProductPulse generated ${payload.faqItems.length} FAQ item${payload.faqItems.length === 1 ? "" : "s"} from repeated diagnosis signals and product-content gaps.`;
+  }
   if (payload.note) {
     return "This creates a concise internal note so support can respond consistently while the product issue is being reviewed.";
   }
@@ -2152,6 +2251,11 @@ function getRecommendedActionEvidence(action, product) {
   if (Array.isArray(payload.contentIssues) && payload.contentIssues.length) evidence.push(`${payload.contentIssues.length} content issue${payload.contentIssues.length === 1 ? "" : "s"}`);
   if (Number(payload.refundAmount || 0) > 0) evidence.push(formatMoney(payload.refundAmount));
   if (Number(payload.negativeReviewCount || 0) > 0) evidence.push(`${formatInteger(payload.negativeReviewCount)} negative reviews`);
+  if (Array.isArray(payload.faqItems) && payload.faqItems.length) {
+    evidence.push(`${payload.faqItems.length} FAQ item${payload.faqItems.length === 1 ? "" : "s"}`);
+    if (Number(payload.faqNeed?.signals || 0) > 0) evidence.push(`${formatInteger(payload.faqNeed.signals)} FAQ signal${Number(payload.faqNeed.signals) === 1 ? "" : "s"}`);
+    if (Array.isArray(payload.faqNeed?.topics) && payload.faqNeed.topics[0]) evidence.push(payload.faqNeed.topics[0]);
+  }
   if (!evidence.length && Number(metrics.signalCount || 0) > 0) evidence.push(`${formatInteger(metrics.signalCount)} product signals`);
   if (!evidence.length && Number(metrics.confidence || product.confidence || 0) > 0) evidence.push(`${metrics.confidence || product.confidence}% confidence`);
 
@@ -2160,6 +2264,7 @@ function getRecommendedActionEvidence(action, product) {
 
 function getRecommendedActionPriority(action, product) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("faq")) return "Buyer clarity";
   if (normalized.includes("rewrite") || normalized.includes("draft") || normalized.includes("description") || normalized.includes("fit")) return "Customer-facing fix";
   if (normalized.includes("review")) return "Evidence review";
   if (normalized.includes("support") || normalized.includes("note")) return "Team workflow";
@@ -2276,10 +2381,10 @@ function getRecommendedActionMode(action, index) {
   const payload = action.payload || {};
   const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag);
   if (normalizedId.includes("run-ai-diagnosis")) return "diagnose";
-  if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
-  if (normalizedType.includes("workflow") || normalizedId.includes("review-return")) return "review";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
+  if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
+  if (normalizedType.includes("workflow") || normalizedId.includes("review-return")) return "review";
   return "submit";
 }
 
@@ -2481,11 +2586,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     showToast(`${action.title} copied.`);
   };
 
-  const handleRequestApplyAction = (action, editedText) => {
+  const handleRequestApplyAction = (action, editedText, application = null) => {
     setActionConfirmation({
       action,
       editedText,
-      application: action.application || getRecommendedActionApplication(action, product),
+      application: application || action.application || getRecommendedActionApplication(action, product),
     });
   };
 
@@ -3509,7 +3614,11 @@ function normalizeTrendForSparkline(values) {
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
-  const application = action.application || getRecommendedActionApplication(action, product);
+  const baseApplication = getRecommendedActionApplication(action, product);
+  const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
+  const application = getRecommendedActionApplication(action, product, { variantId: selectedVariantId || baseApplication.defaultVariantId });
+  const actionStateKey = action.id || action.title || "";
+  const productStateKey = product?.slug || product?.id || "";
   const [detailExpanded, setDetailExpanded] = useState(false);
   const [editedText, setEditedText] = useState(application.value || action.detail || "");
   const [isEditingInline, setIsEditingInline] = useState(false);
@@ -3517,7 +3626,15 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const buttonText = applied ? "Applied" : drafted ? "Draft saved" : pending ? "Working..." : action.action;
+  const buttonText = applied
+    ? "Applied"
+    : drafted
+      ? "Draft saved"
+      : pending
+        ? "Working..."
+        : mode === "apply-product"
+          ? application.applyLabel
+          : action.action;
   const detailText = String(application.editable ? editedText : action.detail || "");
   const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
   const disabled = pending || applied;
@@ -3533,10 +3650,15 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   });
 
   useEffect(() => {
-    setEditedText(application.value || action.detail || "");
+    setSelectedVariantId(baseApplication.defaultVariantId || baseApplication.variantId || "");
     setIsEditingInline(false);
     setDetailExpanded(false);
-  }, [action.id, action.detail, application.value]);
+  }, [actionStateKey, productStateKey, baseApplication.defaultVariantId, baseApplication.variantId]);
+
+  useEffect(() => {
+    setEditedText(application.value || action.detail || "");
+    setIsEditingInline(false);
+  }, [application.value, action.detail]);
 
   return (
     <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""}`.trim()}>
@@ -3558,6 +3680,24 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
           <strong>{application.operation}</strong>
           <p>{application.intro}</p>
         </div>
+        {application.variants?.length > 1 && (
+          <div className="ppActionVariantChooser" role="group" aria-label={`How to apply ${action.title}`}>
+            <span>Apply as</span>
+            <div>
+              {application.variants.map((variant) => (
+                <button
+                  key={variant.id}
+                  type="button"
+                  className={variant.id === application.variantId ? "isSelected" : ""}
+                  onClick={() => setSelectedVariantId(variant.id)}
+                >
+                  <strong>{variant.label}</strong>
+                  <small>{variant.operation}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {application.currentValue && (
           <div className="ppActionCurrentValueBox">
             <span>{application.currentValueLabel || "Current value"}</span>
@@ -3678,7 +3818,7 @@ function getRecommendedActionButton(action, mode, buttonText, disabled, context)
   }
   if (mode === "apply-product") {
     return (
-      <button className="ppActionCtaButton" type="button" disabled={disabled} onClick={() => onRequestApply(action, application.editable ? editedText : application.value)}>
+      <button className="ppActionCtaButton" type="button" disabled={disabled} onClick={() => onRequestApply(action, application.editable ? editedText : application.value, application)}>
         {content}
       </button>
     );

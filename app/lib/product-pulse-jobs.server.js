@@ -388,6 +388,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   const payload = {
     ...(action.payload || {}),
     ...(payloadOverride.draftText ? { draftText: payloadOverride.draftText } : {}),
+    ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
   };
   const shouldApplyToShopify = payloadOverride.applyMode === "apply";
   const applyResult = shouldApplyToShopify
@@ -425,6 +426,10 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
 
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
+
+  if (isFaqRecommendationAction(action, payload)) {
+    return applyFaqRecommendationAction({ admin, snapshot, action, payload });
+  }
 
   if (payload.tag || normalizedType.includes("tag")) {
     const tag = String(payload.tag || "").trim();
@@ -539,6 +544,175 @@ async function addProductTag(admin, productGid, tag) {
     return { status: "success" };
   } catch (error) {
     return { status: "validation_error", message: `Unable to add product tag: ${error.message}` };
+  }
+}
+
+async function applyFaqRecommendationAction({ admin, snapshot, action, payload }) {
+  const variant = getFaqApplyVariant(payload);
+  const faqItems = normalizeFaqItemsForApply(payload.faqItems, payload.draftText);
+  if (!faqItems.length) {
+    return { status: "validation_error", message: "This FAQ action does not include questions and answers to apply." };
+  }
+
+  if (variant === "metafield-json") {
+    const metafield = payload.metafield || {};
+    const namespace = metafield.namespace || "productpulse";
+    const key = metafield.key || "faq_items";
+    const type = metafield.type || "json";
+    const result = await setProductFaqMetafield(admin, snapshot.productGid, {
+      namespace,
+      key,
+      type,
+      faqItems,
+      sourceActionId: action.id,
+    });
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Product FAQ metafield ${namespace}.${key} was saved for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product metafield",
+        operation: "set",
+        value: faqItems,
+        namespace,
+        key,
+      },
+    };
+  }
+
+  const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
+  if (currentProduct.status === "validation_error") return currentProduct;
+  const faqHtml = buildProductPulseFaqHtml({ faqItems, variant, action });
+  const descriptionHtml = [currentProduct.descriptionHtml || "", faqHtml].filter(Boolean).join("\n");
+  const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
+  if (result.status === "validation_error") return result;
+
+  return {
+    message: `${getFaqApplyVariantLabel(variant)} for ${snapshot.productTitle}.`,
+    change: {
+      target: "Product description",
+      operation: variant,
+      value: faqItems,
+      descriptionHtml,
+    },
+  };
+}
+
+function isFaqRecommendationAction(action, payload = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  return normalized.includes("faq") || Array.isArray(payload.faqItems);
+}
+
+function getFaqApplyVariant(payload = {}) {
+  const variant = String(payload.actionVariant || payload.defaultApplyMode || "").trim();
+  if (["description-section", "description-collapsible", "description-modal", "metafield-json"].includes(variant)) return variant;
+  return "description-collapsible";
+}
+
+function getFaqApplyVariantLabel(variant) {
+  if (variant === "description-section") return "Product FAQ section was appended";
+  if (variant === "description-modal") return "Product FAQ modal block was appended";
+  return "Product FAQ was appended";
+}
+
+function normalizeFaqItemsForApply(faqItems = [], draftText = "") {
+  const parsed = parseFaqText(draftText);
+  if (parsed.length) return parsed.slice(0, 6);
+
+  const structured = (Array.isArray(faqItems) ? faqItems : [])
+    .map((item) => ({
+      question: normalizeFaqQuestion(item?.question),
+      answer: normalizeFaqAnswer(item?.answer),
+    }))
+    .filter((item) => item.question && item.answer);
+  return structured.slice(0, 6);
+}
+
+function parseFaqText(draftText = "") {
+  const lines = String(draftText || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const parsed = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!/[?？]$/.test(line)) continue;
+    const answer = lines[index + 1] || "";
+    if (answer && !/[?？]$/.test(answer)) parsed.push({ question: normalizeFaqQuestion(line), answer: normalizeFaqAnswer(answer) });
+  }
+  return parsed;
+}
+
+function normalizeFaqQuestion(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return /[?？]$/.test(text) ? text : `${text}?`;
+}
+
+function normalizeFaqAnswer(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function buildProductPulseFaqHtml({ faqItems, variant, action }) {
+  const actionId = escapeHtml(action.id || "product-faq");
+  const itemsHtml = faqItems.map((item) => (
+    `<dt>${escapeHtml(item.question)}</dt>\n<dd>${escapeHtml(item.answer)}</dd>`
+  )).join("\n");
+
+  if (variant === "description-section") {
+    return `<section data-productpulse-action="${actionId}" class="productpulse-faq productpulse-faq-section">\n<h3>Frequently asked questions</h3>\n<dl>\n${itemsHtml}\n</dl>\n</section>`;
+  }
+
+  if (variant === "description-modal") {
+    return `<section data-productpulse-action="${actionId}" class="productpulse-faq productpulse-faq-modal">\n<details>\n<summary>Open frequently asked questions</summary>\n<div role="dialog" aria-label="Frequently asked questions">\n<h3>Frequently asked questions</h3>\n<dl>\n${itemsHtml}\n</dl>\n</div>\n</details>\n</section>`;
+  }
+
+  return `<section data-productpulse-action="${actionId}" class="productpulse-faq productpulse-faq-collapsible">\n<details>\n<summary>Frequently asked questions</summary>\n<dl>\n${itemsHtml}\n</dl>\n</details>\n</section>`;
+}
+
+async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId }) {
+  try {
+    const value = JSON.stringify({
+      source: "ProductPulse AI",
+      sourceActionId,
+      updatedAt: new Date().toISOString(),
+      items: faqItems,
+    });
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseSetProductFaqMetafield($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields {
+            id
+            namespace
+            key
+            type
+            value
+          }
+          userErrors {
+            field
+            message
+            code
+          }
+        }
+      }`,
+      {
+        variables: {
+          metafields: [{
+            ownerId: productGid,
+            namespace,
+            key,
+            type,
+            value,
+          }],
+        },
+      },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.metafieldsSet?.userErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return { status: "success" };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to set product FAQ metafield: ${error.message}` };
   }
 }
 
@@ -2006,6 +2180,12 @@ function getSignalDetails(snapshot, metrics) {
     ],
   };
 }
+
+export const __productPulseJobsTestHooks = {
+  buildProductPulseFaqHtml,
+  normalizeFaqItemsForApply,
+  getFaqApplyVariant,
+};
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(value || 0));

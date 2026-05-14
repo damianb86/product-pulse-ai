@@ -37,6 +37,7 @@ export const action = async ({ request, params }) => {
         label: String(formData.get("label") || ""),
         draftText: String(formData.get("draftText") || ""),
         applyMode: String(formData.get("applyMode") || ""),
+        actionVariant: String(formData.get("actionVariant") || ""),
       },
       admin,
     );

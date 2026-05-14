@@ -974,6 +974,19 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     issueSignalCounts[issue.issueCode] = (issueSignalCounts[issue.issueCode] || 0) + 1;
   });
   const mainIssue = getMainIssueFromCounts(issueSignalCounts, snapshot.primaryIssue);
+  const faqNeed = analyzeFaqOpportunity({
+    mainIssue,
+    issueSignalCounts,
+    product,
+    contentAnalysis: deterministicContent,
+    textInsights,
+    topReturnReasons,
+    affectedVariants,
+    reviewCount,
+    negativeReviewCount,
+    returnUnits,
+    refundUnits,
+  });
   const customerSignalCount = Math.max(
     returnUnits + refundUnits + negativeReviewCount,
     Number(snapshotMetrics.signalCount || 0),
@@ -1054,6 +1067,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       contentQualityRisk: deterministicContent.riskLift,
       contentIssues: deterministicContent.issues,
       contentAdvisories: deterministicContent.advisories,
+      faqNeed,
       textInsights,
       descriptionLength: deterministicContent.descriptionLength,
       descriptionWordCount: deterministicContent.descriptionWordCount,
@@ -1154,6 +1168,19 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const mainIssue = contentShouldLead
     ? "product_content"
     : scoredDeterministic.issueSignalCounts[aiMainIssue] ? aiMainIssue : scoredDeterministic.mainIssue;
+  scoredDeterministic.metrics.faqNeed = analyzeFaqOpportunity({
+    mainIssue,
+    issueSignalCounts: scoredDeterministic.issueSignalCounts,
+    product: scoredDeterministic.product,
+    contentAnalysis,
+    textInsights: scoredDeterministic.metrics.textInsights,
+    topReturnReasons: scoredDeterministic.metrics.topReturnReasonDetails,
+    affectedVariants: scoredDeterministic.metrics.affectedVariantDetails,
+    reviewCount: scoredDeterministic.metrics.reviewCount,
+    negativeReviewCount: scoredDeterministic.metrics.negativeReviewCount,
+    returnUnits: scoredDeterministic.metrics.returnUnits,
+    refundUnits: scoredDeterministic.metrics.refundUnits,
+  });
   const issueLabel = ai.classification?.main_issue_label || getHumanIssueLabel(mainIssue);
   const mainFinding = {
     title: ai.report?.main_finding_title || `${issueLabel} signals need review`,
@@ -1311,6 +1338,7 @@ function buildAiDeterministicInput(deterministic) {
       contentIssues: deterministic.metrics.contentIssues,
       contentAdvisoryCount: deterministic.metrics.contentAdvisoryCount,
       contentAdvisories: deterministic.metrics.contentAdvisories,
+      faqNeed: deterministic.metrics.faqNeed,
       textInsights: deterministic.metrics.textInsights,
       refundInsights: deterministic.metrics.refundInsights,
       descriptionWordCount: deterministic.metrics.descriptionWordCount,
@@ -1326,10 +1354,19 @@ function buildAiDeterministicInput(deterministic) {
 function buildRuleRecommendationCandidates(deterministic) {
   const issue = deterministic.mainIssue;
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, issue);
+  const faqNeed = deterministic.metrics?.faqNeed || {};
   const candidates = [];
   if (issue === "fit_sizing" && hasActionableMainIssue) {
     candidates.push({ id: "draft-fit-note", type: "PDP copy", reason: "Fit or size language appears in returns/reviews." });
-    candidates.push({ id: "create-fit-faq", type: "FAQ", reason: "Repeated size questions deserve shopper-facing guidance." });
+  }
+  if (faqNeed.shouldRecommend) {
+    candidates.push({
+      id: "create-product-faq",
+      type: "FAQ",
+      reason: faqNeed.reasons?.[0] || "Repeated buyer uncertainty deserves a shopper-facing FAQ.",
+      topics: faqNeed.topics || [],
+      score: faqNeed.score,
+    });
   }
   if (issue === "color_expectation" && hasActionableMainIssue) candidates.push({ id: "draft-color-expectation-note", type: "PDP copy", reason: "Customers mention color expectation mismatch." });
   if (issue === "safety_concern" && hasActionableMainIssue) candidates.push({ id: "draft-safety-expectation-note", type: "PDP copy", reason: "Customer return text expresses fear, safety concern, or discomfort." });
@@ -1350,6 +1387,165 @@ function buildRuleRecommendationCandidates(deterministic) {
   }
   if (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
+}
+
+function analyzeFaqOpportunity({
+  mainIssue,
+  issueSignalCounts = {},
+  contentAnalysis = {},
+  textInsights = {},
+  topReturnReasons = [],
+  affectedVariants = [],
+  reviewCount = 0,
+  negativeReviewCount = 0,
+  returnUnits = 0,
+  refundUnits = 0,
+} = {}) {
+  const reasons = [];
+  const topics = new Set();
+  const sources = new Set();
+  let score = 0;
+  let signals = 0;
+
+  const add = ({ topic, reason, weight = 1, signalCount = 0, source = "" }) => {
+    if (topic) topics.add(topic);
+    if (reason && !reasons.includes(reason)) reasons.push(reason);
+    if (source) sources.add(source);
+    score += weight;
+    signals += Number(signalCount || 0);
+  };
+
+  const normalizedIssue = normalizeIssueCode(mainIssue);
+  const issueSignals = Number(issueSignalCounts[normalizedIssue] || 0);
+  const customerSignals = Number(returnUnits || 0) + Number(refundUnits || 0) + Number(negativeReviewCount || 0);
+  const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
+  const contentAdvisories = Array.isArray(contentAnalysis.advisories) ? contentAnalysis.advisories : [];
+  const guidanceIssues = [...contentIssues, ...contentAdvisories].filter(isFaqRelevantContentGap);
+  const emotions = Array.isArray(textInsights.emotions) ? textInsights.emotions : [];
+  const repeatedLanguage = Array.isArray(textInsights.repeatedLanguage) ? textInsights.repeatedLanguage : [];
+  const confusionSignals = emotions
+    .filter((item) => ["confusion", "uncertainty", "distrust"].includes(normalizeEmotionCode(item.code)))
+    .reduce((total, item) => total + Number(item.count || 0), 0);
+  const repeatedFaqLanguage = repeatedLanguage.filter((item) => isFaqRelevantText(item.term));
+  const returnReasonQuestions = (Array.isArray(topReturnReasons) ? topReturnReasons : [])
+    .filter((item) => isFaqRelevantText(item.label || item));
+
+  if (["fit_sizing", "compatibility", "color_expectation"].includes(normalizedIssue) && issueSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
+    add({
+      topic: getFaqTopicForIssue(normalizedIssue),
+      reason: `${getHumanIssueLabel(normalizedIssue)} signals repeat enough to answer before purchase.`,
+      weight: 3,
+      signalCount: issueSignals,
+      source: "Issue signals",
+    });
+  }
+
+  if (normalizedIssue === "quality_defect" && issueSignals >= 3 && guidanceIssues.length) {
+    add({
+      topic: "Product expectations",
+      reason: "Quality signals and product-content gaps indicate shoppers need clearer expectations.",
+      weight: 2,
+      signalCount: issueSignals,
+      source: "Quality evidence",
+    });
+  }
+
+  if (guidanceIssues.length) {
+    add({
+      topic: "Product information",
+      reason: `${guidanceIssues.length} product-content gap${guidanceIssues.length === 1 ? "" : "s"} can be answered as FAQ guidance.`,
+      weight: Math.min(3, guidanceIssues.length + 1),
+      signalCount: guidanceIssues.length,
+      source: "Product content",
+    });
+  }
+
+  if (confusionSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
+    add({
+      topic: "Buyer uncertainty",
+      reason: `${confusionSignals} customer text signal${confusionSignals === 1 ? "" : "s"} show confusion, uncertainty or distrust.`,
+      weight: 3,
+      signalCount: confusionSignals,
+      source: "Customer language",
+    });
+  }
+
+  if (repeatedFaqLanguage.length) {
+    const topTerm = repeatedFaqLanguage[0];
+    add({
+      topic: getFaqTopicForText(topTerm.term),
+      reason: `Repeated customer language points to FAQ-worthy guidance: "${topTerm.term}".`,
+      weight: Math.min(3, 1 + repeatedFaqLanguage.length),
+      signalCount: repeatedFaqLanguage.reduce((total, item) => total + Number(item.count || 0), 0),
+      source: "Repeated language",
+    });
+  }
+
+  if (returnReasonQuestions.length && Number(returnUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
+    add({
+      topic: getFaqTopicForText(returnReasonQuestions[0].label || returnReasonQuestions[0]),
+      reason: "Return reasons contain details that can be clarified before checkout.",
+      weight: 2,
+      signalCount: Number(returnUnits || 0),
+      source: "Returns",
+    });
+  }
+
+  if (affectedVariants.length && normalizedIssue === "fit_sizing" && customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
+    add({
+      topic: "Variant guidance",
+      reason: "Affected variants suggest shoppers may need size, option or variant guidance.",
+      weight: 1,
+      signalCount: affectedVariants.length,
+      source: "Variants",
+    });
+  }
+
+  const hasEvidenceThreshold = customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || guidanceIssues.length > 0
+    || Number(reviewCount || 0) >= 4;
+  const shouldRecommend = score >= 3 && hasEvidenceThreshold;
+
+  return {
+    shouldRecommend,
+    score,
+    signals,
+    topics: Array.from(topics).slice(0, 5),
+    reasons: reasons.slice(0, 5),
+    sourceTypes: Array.from(sources),
+    evidenceThreshold: hasEvidenceThreshold ? "met" : "not_met",
+  };
+}
+
+function isFaqRelevantContentGap(issue = {}) {
+  const code = normalizeContentIssueCode(issue.code);
+  const text = normalizeText(`${issue.label || ""} ${issue.evidence || ""} ${issue.suggested_action || ""}`);
+  if (["missing_customer_guidance", "missing_specifications", "short_description", "missing_description"].includes(code)) return true;
+  return /(faq|question|guidance|how to|how does|compatible|compatibility|fit|size|sizing|care|material|dimension|included|instruction|unclear|confus)/.test(text);
+}
+
+function isFaqRelevantText(value) {
+  const text = normalizeText(value);
+  if (!text) return false;
+  return /(fit|size|sizing|compatible|compatibility|work with|works with|filter|color|material|care|wash|dimension|included|how|what|which|does|can|confus|unclear|instruction|setup|install|use)/.test(text);
+}
+
+function getFaqTopicForIssue(issueCode) {
+  if (issueCode === "fit_sizing") return "Fit and sizing";
+  if (issueCode === "compatibility") return "Compatibility";
+  if (issueCode === "color_expectation") return "Color expectations";
+  if (issueCode === "quality_defect") return "Product quality";
+  return "Product guidance";
+}
+
+function getFaqTopicForText(value) {
+  const text = normalizeText(value);
+  if (/(fit|size|sizing)/.test(text)) return "Fit and sizing";
+  if (/(compatible|compatibility|work with|works with|filter)/.test(text)) return "Compatibility";
+  if (/(care|wash|material|fabric)/.test(text)) return "Materials and care";
+  if (/(dimension|measure|width|height|length)/.test(text)) return "Dimensions";
+  if (/(color|pictured|photo|image)/.test(text)) return "Color expectations";
+  return "Product guidance";
 }
 
 function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
@@ -1373,6 +1569,14 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
+  const faqNeed = deterministic.metrics.faqNeed || {};
+  const faqItems = buildRecommendedFaqItems({
+    copy,
+    snapshot,
+    mainIssue,
+    pdpCopy,
+    faqNeed,
+  });
 
   if (hasActionableMainIssue && pdpCopy && mainIssue !== "product_content" && shouldRecommendSubjectiveAction) {
     recommendations.push({
@@ -1467,16 +1671,27 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (mainIssue === "fit_sizing" && (copy.faq_question || copy.faq_answer)) {
+  if (faqNeed.shouldRecommend && faqItems.length) {
     recommendations.push({
-      id: "create-fit-faq",
-      label: "Create fit FAQ",
+      id: "create-product-faq",
+      label: getFaqActionLabel(mainIssue),
       type: "FAQ",
       effort: "Low",
       status: "Draft",
       payload: {
-        draftText: `${copy.faq_question || `How does ${snapshot.productTitle} fit?`}\n${copy.faq_answer || pdpCopy}`,
+        draftText: formatFaqItemsAsText(faqItems),
+        faqItems,
+        faqNeed,
         issue: mainIssue,
+        operation: "append",
+        placement: "append",
+        defaultApplyMode: "description-collapsible",
+        applicationOptions: getFaqApplicationOptions(),
+        metafield: {
+          namespace: "productpulse",
+          key: "faq_items",
+          type: "json",
+        },
       },
     });
   }
@@ -1575,6 +1790,126 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   return uniqueBy(recommendations, (item) => item.id).slice(0, 7);
+}
+
+function buildRecommendedFaqItems({ copy = {}, snapshot, mainIssue, pdpCopy = "", faqNeed = {} }) {
+  const aiItems = normalizeFaqItems(copy.faq_items);
+  const legacyItem = normalizeFaqItems([{
+    question: copy.faq_question,
+    answer: copy.faq_answer,
+    reason: "AI generated from product diagnosis signals.",
+  }]);
+  const fallbackItems = buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy, faqNeed });
+  return uniqueBy([...aiItems, ...legacyItem, ...fallbackItems], (item) => normalizeText(item.question))
+    .slice(0, 4);
+}
+
+function normalizeFaqItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const question = String(item?.question || "").replace(/\s+/g, " ").trim();
+      const answer = String(item?.answer || "").replace(/\s+/g, " ").trim();
+      if (!question || !answer) return null;
+      return {
+        question: question.endsWith("?") ? question : `${question}?`,
+        answer,
+        reason: String(item?.reason || "").replace(/\s+/g, " ").trim(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy = "", faqNeed = {} }) {
+  const title = snapshot.productTitle || "this product";
+  const topics = Array.isArray(faqNeed.topics) ? faqNeed.topics : [];
+  const items = [];
+  const add = (question, answer, reason) => {
+    items.push({ question, answer, reason });
+  };
+
+  if (mainIssue === "fit_sizing" || topics.includes("Fit and sizing")) {
+    add(
+      `How does ${title} fit?`,
+      "Customer signals suggest shoppers may need clearer sizing guidance before purchase. Review the selected size and fit notes, and consider sizing up or checking measurements if you are between sizes.",
+      "Fit or size language repeated in product signals.",
+    );
+  }
+
+  if (mainIssue === "compatibility" || topics.includes("Compatibility")) {
+    add(
+      `What is ${title} compatible with?`,
+      "Check the selected variant, product options and any compatibility notes before purchase. ProductPulse detected buyer uncertainty around whether this product works with a specific setup or related item.",
+      "Compatibility or usage uncertainty appeared in product evidence.",
+    );
+  }
+
+  if (mainIssue === "color_expectation" || topics.includes("Color expectations")) {
+    add(
+      `Will the color look exactly like the product photos?`,
+      "Color can vary by screen, lighting and production batch. Review the product images and any color notes before purchase.",
+      "Customer signals suggest expectation-setting around color may reduce avoidable confusion.",
+    );
+  }
+
+  if (topics.includes("Materials and care")) {
+    add(
+      `What should shoppers know about materials or care for ${title}?`,
+      "Use the product description, tags and variant details to confirm material and care expectations before purchase.",
+      "Product content gaps or customer language point to material or care questions.",
+    );
+  }
+
+  if (!items.length) {
+    add(
+      `What should shoppers know before buying ${title}?`,
+      pdpCopy || "ProductPulse detected product signals that would benefit from clearer pre-purchase guidance. Review the description, options and evidence before buying.",
+      "ProductPulse found FAQ-worthy buyer uncertainty in the diagnosis.",
+    );
+  }
+
+  return normalizeFaqItems(items);
+}
+
+function formatFaqItemsAsText(items = []) {
+  return normalizeFaqItems(items)
+    .map((item) => `${item.question}\n${item.answer}`)
+    .join("\n\n");
+}
+
+function getFaqActionLabel(mainIssue) {
+  if (mainIssue === "fit_sizing") return "Create fit FAQ";
+  if (mainIssue === "compatibility") return "Create compatibility FAQ";
+  if (mainIssue === "color_expectation") return "Create color expectations FAQ";
+  return "Create product FAQ";
+}
+
+function getFaqApplicationOptions() {
+  return [
+    {
+      id: "description-section",
+      label: "Full FAQ in description",
+      target: "Product description",
+      operation: "Append FAQ section",
+    },
+    {
+      id: "description-collapsible",
+      label: "Collapsible FAQ in description",
+      target: "Product description",
+      operation: "Append collapsible FAQ",
+    },
+    {
+      id: "description-modal",
+      label: "Modal-style FAQ in description",
+      target: "Product description",
+      operation: "Append modal-style FAQ",
+    },
+    {
+      id: "metafield-json",
+      label: "Save FAQ metafield",
+      target: "Product metafield",
+      operation: "Save JSON metafield",
+    },
+  ];
 }
 
 function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
@@ -4452,6 +4787,9 @@ export const __productPulseDiagnosisTestHooks = {
   calculateRiskScore,
   buildSignalRelevanceGuidance,
   buildFinalIssues,
+  buildFinalRecommendations,
+  analyzeFaqOpportunity,
+  buildRecommendedFaqItems,
   analyzeProductContentDeterministically,
   buildContentAnalysis,
   shouldRecommendFullDescriptionRewrite,

@@ -202,6 +202,20 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
   });
 
+  it("lets FAQ recommendations choose the Shopify application format", async () => {
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
+
+    const faqCard = screen.getByRole("heading", { name: "Add sizing FAQ" }).closest("article");
+    expect(within(faqCard).getByRole("group", { name: "How to apply Add sizing FAQ" })).toBeInTheDocument();
+    expect(within(faqCard).getByRole("button", { name: /Collapsible FAQ/ })).toHaveClass("isSelected");
+
+    fireEvent.click(within(faqCard).getByRole("button", { name: /Product metafield/ }));
+    await waitFor(() => expect(within(faqCard).getByRole("button", { name: /Product metafield/ })).toHaveClass("isSelected"));
+    fireEvent.click(within(faqCard).getByRole("button", { name: /Save FAQ metafield/ }));
+    expect(screen.getByRole("heading", { name: "Confirm FAQ metafield update" })).toBeInTheDocument();
+    expect(screen.getAllByText(/productpulse\.faq_items/).length).toBeGreaterThan(0);
+  });
+
   it("minimizes and expands the recommended actions panel", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
     expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();

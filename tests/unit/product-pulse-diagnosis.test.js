@@ -642,4 +642,100 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(connected.issues.map((issue) => issue.code)).not.toContain("title_description_mismatch");
     expect(disconnected.issues.map((issue) => issue.code)).toContain("title_description_mismatch");
   });
+
+  it("recommends product FAQs only when buyer uncertainty has enough evidence", () => {
+    const supported = __productPulseDiagnosisTestHooks.analyzeFaqOpportunity({
+      mainIssue: "compatibility",
+      issueSignalCounts: { compatibility: 3 },
+      contentAnalysis: { issues: [] },
+      textInsights: {
+        emotions: [{ code: "confusion", count: 2 }],
+        repeatedLanguage: [{ term: "compatible filters", count: 2, sources: ["csv_review"] }],
+      },
+      topReturnReasons: [],
+      affectedVariants: [],
+      reviewCount: 5,
+      negativeReviewCount: 3,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
+    const isolated = __productPulseDiagnosisTestHooks.analyzeFaqOpportunity({
+      mainIssue: "compatibility",
+      issueSignalCounts: { compatibility: 1 },
+      contentAnalysis: { issues: [] },
+      textInsights: { emotions: [], repeatedLanguage: [] },
+      reviewCount: 1,
+      negativeReviewCount: 1,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
+
+    expect(supported.shouldRecommend).toBe(true);
+    expect(supported.topics).toContain("Compatibility");
+    expect(isolated.shouldRecommend).toBe(false);
+  });
+
+  it("builds FAQ recommendations with application options and AI-generated items", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 4 },
+      product: {
+        title: "Core Linen Trouser",
+        description: "A breathable linen trouser for warm weather.",
+      },
+      metrics: {
+        faqNeed: {
+          shouldRecommend: true,
+          score: 6,
+          signals: 4,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit and sizing signals repeat enough to answer before purchase."],
+          sourceTypes: ["Issue signals"],
+        },
+        topReturnReasons: ["Too small"],
+        affectedVariants: [],
+        returnUnits: 2,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        contentIssueCount: 0,
+        signalCount: 4,
+        customerSignalCount: 4,
+        textInsights: {},
+        contentAnalysis: { issues: [] },
+      },
+    };
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Core Linen Trouser",
+      },
+      deterministic,
+      mainIssue: "fit_sizing",
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Fit note: shoppers should check measurements.",
+            faq_items: [{
+              question: "How does this trouser fit?",
+              answer: "It may feel closer around the waist; check measurements before purchase.",
+              reason: "Fit signals repeated.",
+            }],
+          },
+        },
+      },
+    });
+
+    const faq = recommendations.find((item) => item.id === "create-product-faq");
+    expect(faq).toBeTruthy();
+    expect(faq.payload.faqItems[0]).toMatchObject({
+      question: "How does this trouser fit?",
+      answer: "It may feel closer around the waist; check measurements before purchase.",
+    });
+    expect(faq.payload.applicationOptions.map((item) => item.id)).toEqual([
+      "description-section",
+      "description-collapsible",
+      "description-modal",
+      "metafield-json",
+    ]);
+  });
 });
