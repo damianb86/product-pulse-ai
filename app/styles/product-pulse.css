@@ -1466,6 +1466,31 @@ s-page[inline-size="large-500"] {
   min-height: 36px;
 }
 
+.ppProductDiagnosisRunning {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(var(--pp-info-cyan-rgb), 0.28);
+  border-radius: 8px;
+  background: var(--pp-cyan-soft);
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.ppMiniSpinner {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  border: 2px solid rgba(var(--pp-info-cyan-rgb), 0.22);
+  border-top-color: var(--pp-info-cyan);
+  border-radius: 999px;
+  animation: ppSpin 0.8s linear infinite;
+}
+
 .ppProductHeaderActions .ppResolveButton {
   min-height: 36px;
   color: var(--pp-slate-700);

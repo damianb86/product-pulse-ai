@@ -473,6 +473,7 @@ function getDashboardStartProduct(productList) {
   if (!product) return null;
   const metrics = product.metrics || {};
   const hasFullDiagnosis = hasDashboardFullDiagnosis(product);
+  const activeDiagnosis = getDashboardActiveDiagnosis(product);
   const returnRate = Number(metrics.returnRate || 0);
   const refundRate = Number(metrics.refundRate || 0);
   const negativeReviews = Number(metrics.negativeReviewCount || 0);
@@ -498,6 +499,8 @@ function getDashboardStartProduct(productList) {
     summary: buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }),
     actionLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
     actionHint: hasFullDiagnosis ? "Refresh the deep diagnosis for this product" : "Selected by risk, margin and signal volume",
+    diagnosisJob: activeDiagnosis,
+    diagnosisInProgress: Boolean(activeDiagnosis),
     badges: [
       {
         tone: Number(product.riskScore || 0) >= 75 ? "critical" : Number(product.riskScore || 0) >= 55 ? "warning" : "success",
@@ -529,6 +532,12 @@ function getDashboardStartProduct(productList) {
       windowDays: Number(metrics.windowDays || 60),
     },
   };
+}
+
+function getDashboardActiveDiagnosis(product) {
+  const job = product?.diagnosisJob;
+  const status = String(job?.status || "").toLowerCase();
+  return status === "queued" || status === "running" ? job : null;
 }
 
 function hasDashboardFullDiagnosis(product) {

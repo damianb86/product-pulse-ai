@@ -28,6 +28,7 @@ export function DashboardScreen({ data, actionData }) {
     buttonLabel: "Go to Products",
   };
   const pendingDashboardDiagnosis = navigation.state === "submitting" && navigation.formData?.get("_action") === "diagnose";
+  const startProductDiagnosisRunning = Boolean(startProduct?.diagnosisInProgress || startProduct?.diagnosisJob);
 
   useEffect(() => {
     announceProductPulseJobs(actionData);
@@ -35,7 +36,7 @@ export function DashboardScreen({ data, actionData }) {
   }, [actionData]);
 
   const handleRequestDashboardDiagnosis = () => {
-    if (!startProduct || pendingDashboardDiagnosis) return;
+    if (!startProduct || pendingDashboardDiagnosis || startProductDiagnosisRunning) return;
     setDiagnosisConfirmation({
       mode: "single",
       title: "Confirm product analysis",
@@ -119,7 +120,7 @@ export function DashboardScreen({ data, actionData }) {
               </div>
 
               <div className="ppStartActionPanel">
-                {startProduct ? (
+                {startProduct && !startProductDiagnosisRunning ? (
                   <button
                     className="ppPrimaryButton"
                     type="button"
@@ -132,10 +133,10 @@ export function DashboardScreen({ data, actionData }) {
                 ) : (
                   <Link className="ppPrimaryButton" to={diagnosisHref}>
                     <s-icon type="product" size="small"></s-icon>
-                    <span>Go to Products</span>
+                    <span>{startProductDiagnosisRunning ? "View running product" : "Go to Products"}</span>
                   </Link>
                 )}
-                <span>{startProduct?.actionHint || "Start with QuickScan"}</span>
+                <span>{startProductDiagnosisRunning ? getDashboardDiagnosisJobLabel(startProduct.diagnosisJob) : startProduct?.actionHint || "Start with QuickScan"}</span>
               </div>
             </div>
           </div>
@@ -202,6 +203,19 @@ export function DashboardScreen({ data, actionData }) {
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+function getDashboardDiagnosisJobLabel(job) {
+  const status = String(job?.status || "").toLowerCase();
+  if (status === "running") return "Product diagnosis is running";
+  if (status === "queued") return "Product diagnosis is queued";
+  return "Product diagnosis is already in progress";
+}
+
+function getProductDiagnosisRunningLabel(job) {
+  const status = String(job?.status || "").toLowerCase();
+  if (status === "queued") return "Diagnosis queued";
+  return "Diagnosis running";
 }
 
 const coverageUnlocks = [
@@ -1272,6 +1286,7 @@ function getProductDetailModel(product) {
   const hasRiskSnapshot = product.hasRiskSnapshot !== false;
   const analysisStatus = getProductAnalysisDisplay(product);
   const hasFullDiagnosis = analysisStatus.depth === "full";
+  const activeDiagnosisJob = getActiveProductDiagnosisFromProduct(product);
   const issueText = product.primaryIssue || "";
   const issueCategory = getProductIssueCategory(issueText);
   const firstAction = product.recommendedActions?.[0];
@@ -1292,6 +1307,8 @@ function getProductDetailModel(product) {
     analysisLabel: analysisStatus.label,
     analysisDetail: analysisStatus.detail,
     hasFullDiagnosis,
+    activeDiagnosisJob,
+    diagnosisInProgress: Boolean(activeDiagnosisJob),
     diagnosisButtonLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
@@ -1328,9 +1345,15 @@ function getProductDetailModel(product) {
     checkedItems,
     actionHistory: product.actionHistory || [],
     resolvedAt: product.resolvedAt || null,
-    canDiagnose: product.canDiagnose !== false && hasRiskSnapshot,
+    canDiagnose: product.canDiagnose !== false && hasRiskSnapshot && !activeDiagnosisJob,
     canResolve: product.canResolve !== false && hasRiskSnapshot && hasFullDiagnosis,
   };
+}
+
+function getActiveProductDiagnosisFromProduct(product = {}) {
+  const job = product.diagnosisJob;
+  const status = String(job?.status || "").toLowerCase();
+  return status === "queued" || status === "running" ? job : null;
 }
 
 function getConfidenceLabel(confidence, hasRiskSnapshot = true) {
@@ -2244,10 +2267,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <s-icon type="external" size="small"></s-icon>
               </a>
             )}
-            <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
-              <s-icon type="wand" size="small"></s-icon>
-              {diagnosisPending ? "Running..." : detail.diagnosisButtonLabel}
-            </button>
+            {detail.diagnosisInProgress ? (
+              <span className="ppProductDiagnosisRunning">
+                <span className="ppMiniSpinner" aria-hidden="true" />
+                {getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)}
+              </span>
+            ) : (
+              <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
+                <s-icon type="wand" size="small"></s-icon>
+                {diagnosisPending ? "Queueing..." : detail.diagnosisButtonLabel}
+              </button>
+            )}
             <Form method="post">
               <input type="hidden" name="_action" value="mark-resolved" />
               <input type="hidden" name="productId" value={product.slug} />

@@ -144,8 +144,9 @@ export async function getDashboardDataForShop(shop, admin) {
     latestDiagnosisByProductGid.get(snapshot.productGid),
   ));
   const dashboardProducts = await attachProductImages(dashboardProductsWithoutImages, admin);
+  const dashboardProductsWithJobs = attachActiveProductDiagnosisJobs(dashboardProducts, activeDiagnosisJobs);
 
-  return buildDashboardViewData(dashboardProducts, {
+  return buildDashboardViewData(dashboardProductsWithJobs, {
     billing: latestLedgerEntry ? { creditsAvailable: latestLedgerEntry.balanceAfter } : null,
   });
 }
@@ -281,7 +282,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis] = await Promise.all([
+  const [actions, latestDiagnosis, activeDiagnosisJobs] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -291,8 +292,14 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
       where: { shop, productGid: snapshot.productGid, status: "Completed" },
       orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
     }),
+    getActiveProductDiagnosisJobs(shop),
   ]);
-  const product = formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis);
+  if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+  const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
+  const product = {
+    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis),
+    ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
+  };
   return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
 }
 
@@ -561,6 +568,8 @@ async function findProductRiskSnapshot(shop, productId) {
 async function createProductDiagnosisJob(shop, productId) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
+  const activeJob = await getActiveProductDiagnosisJobForSnapshot(shop, snapshot);
+  if (activeJob) return activeJob;
 
   const job = await prisma.catalogSignalJob.create({
     data: {
@@ -616,6 +625,21 @@ async function getActiveProductDiagnosisJobs(shop) {
     },
     orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
   });
+}
+
+async function getActiveProductDiagnosisJobForSnapshot(shop, snapshot) {
+  const jobs = await getActiveProductDiagnosisJobs(shop);
+  return findActiveProductDiagnosisJobForSnapshot(snapshot, jobs);
+}
+
+function findActiveProductDiagnosisJobForSnapshot(snapshot, jobs = []) {
+  const keys = new Set([
+    snapshot?.productGid,
+    snapshot?.handle,
+  ].filter(Boolean).map(String));
+  if (!keys.size) return null;
+
+  return jobs.find((job) => getProductDiagnosisJobKeys(job).some((key) => keys.has(key))) || null;
 }
 
 async function failStaleFastProductScans(shop) {
