@@ -8,6 +8,8 @@ import {
   upsertLocalConnectionRecord,
 } from "../lib/product-pulse-connect";
 
+const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 4_000;
+
 export function DashboardScreen({ data, actionData }) {
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -514,7 +516,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   useEffect(() => {
     const hasProductDiagnosisJobs = activeDiagnosisJobs.length > 0 || productRows.some((product) => product.diagnosisJob);
     if ((!activeScanJob && !hasProductDiagnosisJobs) || !persistProductJobs) return undefined;
-    const interval = window.setInterval(() => revalidator.revalidate(), 2000);
+    const interval = window.setInterval(() => revalidator.revalidate(), PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
   }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, productRows, revalidator]);
 
