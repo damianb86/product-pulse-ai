@@ -4443,6 +4443,13 @@ function AnalysisCoverageDonut({ rows, compact = false }) {
 function RiskRevenueBubbleChart({ bubbles }) {
   const safeBubbles = bubbles?.length ? bubbles : [];
   const maxImpact = Math.max(...safeBubbles.map((bubble) => Number(bubble.impact || 0)), 0);
+  const [activeBubble, setActiveBubble] = useState(null);
+  const showBubble = (event, bubble) => {
+    setActiveBubble({
+      bubble,
+      position: getRiskBubblePopoverPosition(event.currentTarget),
+    });
+  };
 
   return (
     <div className="ppRiskRevenueWrap">
@@ -4454,21 +4461,18 @@ function RiskRevenueBubbleChart({ bubbles }) {
             to={bubble.href || "/app/products"}
             style={{ left: `${bubble.x}%`, bottom: `${bubble.y}%`, width: `${bubble.size}px`, height: `${bubble.size}px` }}
             aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, margin impact ${formatMoney(bubble.impact || 0)}`}
-          >
-            <span className="ppRiskBubblePopover" role="tooltip">
-              <strong>{bubble.label}</strong>
-              <span><b>{bubble.riskLabel || "Risk"}</b> risk score: {bubble.riskScore}/100</span>
-              <span><b>Margin impact:</b> {formatMoney(bubble.impact || 0)}</span>
-              <span><b>Main issue:</b> {bubble.issueLabel || "Product quality"}</span>
-              <span><b>Signals:</b> {formatInteger(bubble.signalCount || 0)} stored signals</span>
-              <span><b>Rates:</b> {formatPercent(bubble.returnRate || 0)} returns / {formatPercent(bubble.refundRate || 0)} refunds</span>
-              <em>{bubble.analysisLabel || "Stored product analysis"}. Click to open product details.</em>
-            </span>
-          </Link>
+            onMouseEnter={(event) => showBubble(event, bubble)}
+            onFocus={(event) => showBubble(event, bubble)}
+            onMouseLeave={() => setActiveBubble(null)}
+            onBlur={() => setActiveBubble(null)}
+          />
         ))}
         <span className="ppBubbleAxis ppBubbleAxis-y">Margin impact</span>
         <span className="ppBubbleAxis ppBubbleAxis-x">Risk score</span>
       </div>
+      {activeBubble && (
+        <RiskBubbleFloatingPopover bubble={activeBubble.bubble} position={activeBubble.position} />
+      )}
       <div className="ppBubbleLegend">
         <span>Est. margin at risk</span>
         <div><i className="ppBubbleSize ppBubbleSize-large" />{formatCompactMoney(maxImpact)}</div>
@@ -4477,6 +4481,46 @@ function RiskRevenueBubbleChart({ bubbles }) {
       </div>
     </div>
   );
+}
+
+function RiskBubbleFloatingPopover({ bubble, position }) {
+  const placement = position?.placement || "above";
+  return (
+    <div
+      className={`ppRiskBubbleFloatingPopover ppRiskBubbleFloatingPopover-${placement}`}
+      role="tooltip"
+      style={{
+        left: `${position?.left || 0}px`,
+        top: `${position?.top || 0}px`,
+      }}
+    >
+      <strong>{bubble.label}</strong>
+      <span><b>{bubble.riskLabel || "Risk"}</b> risk score: {bubble.riskScore}/100</span>
+      <span><b>Margin impact:</b> {formatMoney(bubble.impact || 0)}</span>
+      <span><b>Main issue:</b> {bubble.issueLabel || "Product quality"}</span>
+      <span><b>Signals:</b> {formatInteger(bubble.signalCount || 0)} stored signals</span>
+      <span><b>Rates:</b> {formatPercent(bubble.returnRate || 0)} returns / {formatPercent(bubble.refundRate || 0)} refunds</span>
+      <em>{bubble.analysisLabel || "Stored product analysis"}. Click to open product details.</em>
+    </div>
+  );
+}
+
+function getRiskBubblePopoverPosition(element) {
+  const rect = element.getBoundingClientRect();
+  const popoverWidth = 292;
+  const viewportWidth = typeof window === "undefined" ? popoverWidth + 32 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 720 : window.innerHeight;
+  const left = clampNumber(rect.left + rect.width / 2, popoverWidth / 2 + 12, viewportWidth - popoverWidth / 2 - 12);
+  const hasRoomAbove = rect.top > 170;
+  const top = hasRoomAbove
+    ? clampNumber(rect.top - 14, 12, viewportHeight - 12)
+    : clampNumber(rect.bottom + 14, 12, viewportHeight - 12);
+
+  return {
+    left,
+    top,
+    placement: hasRoomAbove ? "above" : "below",
+  };
 }
 
 function AnalyticsImpactMetric({ metric }) {
@@ -4646,4 +4690,9 @@ function formatPercent(value) {
 
 function formatInteger(value) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
+}
+
+function clampNumber(value, min, max) {
+  if (max < min) return min;
+  return Math.min(max, Math.max(min, Number(value || 0)));
 }

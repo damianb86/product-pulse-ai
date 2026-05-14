@@ -3625,14 +3625,12 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 0 0 5px rgba(var(--pp-pulse-blue-rgb), 0.12), 0 12px 28px rgba(var(--pp-shadow-rgb), 0.22);
 }
 
-.ppRiskBubblePopover {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 12px);
-  z-index: 90;
-  width: min(276px, calc(100vw - 32px));
-  display: none;
-  transform: translateX(-50%);
+.ppRiskBubbleFloatingPopover {
+  position: fixed;
+  z-index: 1000;
+  width: min(292px, calc(100vw - 32px));
+  display: grid;
+  gap: 5px;
   padding: 12px 13px;
   border: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
   border-radius: 12px;
@@ -3642,34 +3640,46 @@ s-page[inline-size="large-500"] {
   pointer-events: none;
 }
 
-.ppRiskBubblePopover::after {
+.ppRiskBubbleFloatingPopover-above {
+  transform: translate(-50%, -100%);
+}
+
+.ppRiskBubbleFloatingPopover-below {
+  transform: translate(-50%, 0);
+}
+
+.ppRiskBubbleFloatingPopover::after {
   content: "";
   position: absolute;
   left: 50%;
-  bottom: -6px;
   width: 10px;
   height: 10px;
-  transform: translateX(-50%) rotate(45deg);
-  border-right: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
-  border-bottom: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
   background: var(--pp-midnight-ink);
 }
 
-.ppRiskBubble:hover .ppRiskBubblePopover,
-.ppRiskBubble:focus-visible .ppRiskBubblePopover {
-  display: grid;
-  gap: 5px;
+.ppRiskBubbleFloatingPopover-above::after {
+  bottom: -6px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  border-bottom: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
 }
 
-.ppRiskBubblePopover strong {
+.ppRiskBubbleFloatingPopover-below::after {
+  top: -6px;
+  transform: translateX(-50%) rotate(45deg);
+  border-left: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+  border-top: 1px solid rgba(var(--pp-slate-700-rgb), 0.22);
+}
+
+.ppRiskBubbleFloatingPopover strong {
   color: var(--pp-cloud-white);
   font-size: 12px;
   font-weight: 780;
   line-height: 1.25;
 }
 
-.ppRiskBubblePopover span,
-.ppRiskBubblePopover em {
+.ppRiskBubbleFloatingPopover span,
+.ppRiskBubbleFloatingPopover em {
   color: var(--pp-slate-200);
   font-size: 11px;
   font-style: normal;
@@ -3677,12 +3687,12 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
 }
 
-.ppRiskBubblePopover b {
+.ppRiskBubbleFloatingPopover b {
   color: var(--pp-cloud-white);
   font-weight: 760;
 }
 
-.ppRiskBubblePopover em {
+.ppRiskBubbleFloatingPopover em {
   margin-top: 4px;
   color: var(--pp-info-cyan);
 }

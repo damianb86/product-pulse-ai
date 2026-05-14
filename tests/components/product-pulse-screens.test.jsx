@@ -417,6 +417,8 @@ describe("ProductPulse screens", () => {
     const productBubbleLinks = screen.getAllByRole("link", { name: /open product detail/ });
     expect(productBubbleLinks.length).toBeGreaterThan(0);
     expect(productBubbleLinks[0].getAttribute("href")).toMatch(/^\/app\/products\//);
+    fireEvent.mouseEnter(productBubbleLinks[0]);
+    expect(screen.getByText(/Click to open product details/)).toBeInTheDocument();
     expect(screen.queryByText("View all insights")).not.toBeInTheDocument();
     expect(screen.getByText("Estimated business impact (next 90 days)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Learn how ProductPulse AI improves these outcomes/ }));
