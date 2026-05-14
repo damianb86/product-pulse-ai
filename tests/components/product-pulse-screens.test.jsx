@@ -437,7 +437,10 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);
     expect(screen.getByText(/QuickScan product signals/)).toBeInTheDocument();
     expect(screen.getByText("Run product diagnosis")).toBeInTheDocument();
-    expect(screen.getByText("Recommended actions will appear after you run the full product diagnosis for this product.")).toBeInTheDocument();
+    const emptyRecommendedActions = screen.getByText("Recommended actions will appear after you run the full product diagnosis for this product.").closest(".ppProductDetailEmpty-recommended");
+    expect(emptyRecommendedActions).toBeInTheDocument();
+    expect(emptyRecommendedActions?.querySelector("s-icon")?.getAttribute("type")).toBe("wand");
+    expect(emptyRecommendedActions?.querySelector("s-icon")?.getAttribute("size")).toBe("large");
     expect(screen.queryByRole("heading", { name: "Add compatibility FAQ" })).not.toBeInTheDocument();
   });
 

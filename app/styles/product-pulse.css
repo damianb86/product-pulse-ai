@@ -2281,6 +2281,35 @@ s-page[inline-size="large-500"] {
   text-align: center;
 }
 
+.ppProductDetailEmpty-recommended {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: min(560px, 100%);
+  min-height: 118px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 28px;
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.24);
+  background:
+    linear-gradient(180deg, rgba(var(--pp-insight-violet-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.035)),
+    var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+}
+
+.ppProductDetailEmpty-recommended s-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.12);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductDetailEmpty-recommended span {
+  max-width: 420px;
+}
+
 .ppIssuesTable .ppMiniTrend {
   margin-top: 0;
 }

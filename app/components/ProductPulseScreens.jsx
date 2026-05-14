@@ -2760,9 +2760,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               <div id="pp-recommended-actions-content">
                 <div className="ppRecommendedActionList">
                   {!detail.hasFullDiagnosis ? (
-                    <EmptyProductDetailState message="Recommended actions will appear after you run the full product diagnosis for this product." />
+                    <EmptyProductDetailState
+                      message="Recommended actions will appear after you run the full product diagnosis for this product."
+                      variant="recommendedActions"
+                    />
                   ) : visibleRecommendedActions.length === 0 && (
-                    <EmptyProductDetailState message="0 deterministic recommended actions from current stored signals." />
+                    <EmptyProductDetailState
+                      message="0 deterministic recommended actions from current stored signals."
+                      variant="recommendedActions"
+                    />
                   )}
                   {visibleRecommendedActions.map((action) => (
                     <ProductRecommendedAction
@@ -3511,10 +3517,12 @@ function renderEvidenceText(text) {
   });
 }
 
-function EmptyProductDetailState({ message }) {
+function EmptyProductDetailState({ message, variant = "default" }) {
+  const recommendedActions = variant === "recommendedActions";
+
   return (
-    <div className="ppProductDetailEmpty">
-      <s-icon type="info" size="small"></s-icon>
+    <div className={`ppProductDetailEmpty${recommendedActions ? " ppProductDetailEmpty-recommended" : ""}`}>
+      <s-icon type={recommendedActions ? "wand" : "info"} size={recommendedActions ? "large" : "small"}></s-icon>
       <span>{message}</span>
     </div>
   );
