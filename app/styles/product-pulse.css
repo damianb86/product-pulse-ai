@@ -6621,8 +6621,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSettingsRiskRange::-webkit-slider-thumb {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border: 3px solid var(--pp-cloud-white);
   border-radius: 999px;
   appearance: none;
@@ -6633,8 +6633,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSettingsRiskRange::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border: 3px solid var(--pp-cloud-white);
   border-radius: 999px;
   background: var(--pp-pulse-blue);

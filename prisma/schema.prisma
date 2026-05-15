@@ -156,6 +156,18 @@ model ProductAction {
   @@index([shop, productGid])
 }
 
+model ContactRequest {
+  id        String   @id @default(cuid())
+  shop      String
+  type      String
+  subject   String
+  message   String
+  email     String?
+  createdAt DateTime @default(now())
+
+  @@index([shop, createdAt])
+}
+
 model CreditLedgerEntry {
   id           String   @id @default(cuid())
   shop         String

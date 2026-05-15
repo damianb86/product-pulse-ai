@@ -10,6 +10,7 @@ import {
 } from "../lib/product-pulse-connect";
 
 const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 4_000;
+const RISK_THRESHOLD_HANDLE_GAP = 5;
 
 export function DashboardScreen({ data, actionData }) {
   const submit = useSubmit();
@@ -1191,7 +1192,7 @@ function RiskThresholdSlider({ thresholds, onChange }) {
           type="range"
           aria-label="Minimum QuickScan score"
           min="0"
-          max="90"
+          max="100"
           step="1"
           value={thresholds.minimumScore}
           onChange={handleChange("minimumScore")}
@@ -1200,8 +1201,8 @@ function RiskThresholdSlider({ thresholds, onChange }) {
           className="ppSettingsRiskRange ppSettingsRiskRange-medium"
           type="range"
           aria-label="Medium risk starts at"
-          min="1"
-          max="95"
+          min="0"
+          max="100"
           step="1"
           value={thresholds.mediumThreshold}
           onChange={handleChange("mediumThreshold")}
@@ -1210,7 +1211,7 @@ function RiskThresholdSlider({ thresholds, onChange }) {
           className="ppSettingsRiskRange ppSettingsRiskRange-high"
           type="range"
           aria-label="High risk starts at"
-          min="2"
+          min="0"
           max="100"
           step="1"
           value={thresholds.highThreshold}
@@ -1270,8 +1271,18 @@ function getDefaultProductPulseClientSettings() {
 
 function normalizeClientRiskThresholds(risk = {}) {
   const minimumScore = clampClientInteger(risk.minimumScore, 0, 90, 50);
-  const mediumThreshold = clampClientInteger(risk.mediumThreshold, minimumScore + 1, 95, Math.max(55, minimumScore + 1));
-  const highThreshold = clampClientInteger(risk.highThreshold, mediumThreshold + 1, 100, Math.max(75, mediumThreshold + 1));
+  const mediumThreshold = clampClientInteger(
+    risk.mediumThreshold,
+    minimumScore + RISK_THRESHOLD_HANDLE_GAP,
+    95,
+    Math.max(55, minimumScore + RISK_THRESHOLD_HANDLE_GAP),
+  );
+  const highThreshold = clampClientInteger(
+    risk.highThreshold,
+    mediumThreshold + RISK_THRESHOLD_HANDLE_GAP,
+    100,
+    Math.max(75, mediumThreshold + RISK_THRESHOLD_HANDLE_GAP),
+  );
   return { minimumScore, mediumThreshold, highThreshold };
 }
 
@@ -1282,21 +1293,24 @@ function getNextClientRiskThresholds(current, key, value) {
   if (key === "minimumScore") {
     return {
       ...current,
-      minimumScore: Math.min(Math.min(90, current.mediumThreshold - 1), Math.max(0, number)),
+      minimumScore: Math.min(Math.min(90, current.mediumThreshold - RISK_THRESHOLD_HANDLE_GAP), Math.max(0, number)),
     };
   }
 
   if (key === "mediumThreshold") {
     return {
       ...current,
-      mediumThreshold: Math.min(current.highThreshold - 1, Math.max(current.minimumScore + 1, number)),
+      mediumThreshold: Math.min(
+        current.highThreshold - RISK_THRESHOLD_HANDLE_GAP,
+        Math.max(current.minimumScore + RISK_THRESHOLD_HANDLE_GAP, number),
+      ),
     };
   }
 
   if (key === "highThreshold") {
     return {
       ...current,
-      highThreshold: Math.min(100, Math.max(current.mediumThreshold + 1, number)),
+      highThreshold: Math.min(100, Math.max(current.mediumThreshold + RISK_THRESHOLD_HANDLE_GAP, number)),
     };
   }
 

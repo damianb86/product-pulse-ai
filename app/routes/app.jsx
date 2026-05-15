@@ -32,6 +32,7 @@ export default function App() {
         <s-link href="/app/analytics" aria-current={activeSection === "analytics" ? "page" : undefined} data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
         <s-link href="/app/connect" aria-current={activeSection === "connect" ? "page" : undefined} data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
         <s-link href="/app/settings" aria-current={activeSection === "settings" ? "page" : undefined} data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
+        <s-link href="/app/help" aria-current={activeSection === "help" ? "page" : undefined} data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
       </s-app-nav>
       <Outlet />
       <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
@@ -45,6 +46,7 @@ function getActiveNavSection(pathname) {
   if (pathname.startsWith("/app/analytics")) return "analytics";
   if (pathname.startsWith("/app/connect")) return "connect";
   if (pathname.startsWith("/app/settings")) return "settings";
+  if (pathname.startsWith("/app/help")) return "help";
   return "";
 }
 
