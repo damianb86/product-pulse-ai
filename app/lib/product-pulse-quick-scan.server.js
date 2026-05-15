@@ -24,6 +24,7 @@ const PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE = 20;
 const PAGINATED_ORDERS_PAGE_SIZE = 8;
 const PAGINATED_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
 const PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
+const PAGINATED_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE = 25;
 const PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = 5;
 const PAGINATED_RETURNS_PAGE_SIZE = 3;
 const PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE = 15;
@@ -692,6 +693,7 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
 async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
   const events = [];
   const seenRefundLineItemIds = new Set();
+  const seenOrderLevelRefundLineItemIds = new Set();
 
   for (const orderQuery of buildRefundOrderQueries(windowDays)) {
     let ordersCursor;
@@ -706,27 +708,51 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
           query: orderQuery.query,
           ordersFirst: PAGINATED_ORDERS_PAGE_SIZE,
           refundLineItemsFirst: PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE,
+          fallbackLineItemsFirst: PAGINATED_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE,
           orderAdjustmentsFirst: PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE,
         },
       );
 
       (data?.orders?.nodes || []).forEach((order) => {
-        (order.refunds || []).forEach((refund) => {
+        const refunds = order.refunds || [];
+        refunds.forEach((refund) => {
           const adjustmentReasons = getRefundAdjustmentReasons(refund);
-          getNodes(refund.refundLineItems).forEach((refundLineItem) => {
+          const refundLineItems = getNodes(refund.refundLineItems);
+          refundLineItems.forEach((refundLineItem) => {
             if (refundLineItem.id && seenRefundLineItemIds.has(refundLineItem.id)) return;
             if (refundLineItem.id) seenRefundLineItemIds.add(refundLineItem.id);
-            events.push(normalizeRefundLineItemEvent(refundLineItem, {
+            const event = normalizeRefundLineItemEvent(refundLineItem, {
               id: refund.id,
               createdAt: refund.processedAt || refund.createdAt || order.createdAt,
               updatedAt: refund.updatedAt || refund.processedAt || refund.createdAt || order.createdAt,
               orderId: order.id,
+              orderName: order.name,
+              displayFinancialStatus: order.displayFinancialStatus,
               note: refund.note,
               adjustmentReasons,
               totalRefundedAmount: moneyAmount(refund.totalRefundedSet),
-            }));
+            });
+            if (event?.productId || event?.variantId) events.push(event);
           });
+
+          if (!refundLineItems.length) {
+            events.push(...buildOrderLevelRefundFallbackEvents({
+              order,
+              refund,
+              adjustmentReasons,
+              seenOrderLevelRefundLineItemIds,
+            }));
+          }
         });
+
+        if (!refunds.length) {
+          events.push(...buildOrderLevelRefundFallbackEvents({
+            order,
+            refund: null,
+            adjustmentReasons: [],
+            seenOrderLevelRefundLineItemIds,
+          }));
+        }
       });
       hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
       ordersCursor = data?.orders?.pageInfo?.endCursor;
@@ -743,6 +769,7 @@ function buildPaginatedRefundsQuery() {
         $query: String!,
         $ordersFirst: Int!,
         $refundLineItemsFirst: Int!,
+        $fallbackLineItemsFirst: Int!,
         $orderAdjustmentsFirst: Int!
       ) {
         orders(first: $ordersFirst, after: $after, query: $query, sortKey: UPDATED_AT, reverse: true) {
@@ -752,7 +779,50 @@ function buildPaginatedRefundsQuery() {
           }
           nodes {
             id
+            name
             createdAt
+            updatedAt
+            displayFinancialStatus
+            totalRefundedSet {
+              shopMoney {
+                amount
+              }
+            }
+            lineItems(first: $fallbackLineItemsFirst) {
+              nodes {
+                id
+                quantity
+                title
+                sku
+                product {
+                  id
+                  legacyResourceId
+                  handle
+                  title
+                }
+                variant {
+                  id
+                  legacyResourceId
+                  title
+                  sku
+                  selectedOptions {
+                    name
+                    value
+                  }
+                  product {
+                    id
+                    legacyResourceId
+                    handle
+                    title
+                  }
+                }
+                originalTotalSet {
+                  shopMoney {
+                    amount
+                  }
+                }
+              }
+            }
             refunds {
               id
               createdAt
@@ -1094,6 +1164,117 @@ function normalizeRefundLineItemEvent(refundLineItem, refund) {
     variantSku: variant.sku || lineItem.sku,
     variantOptions: variant.selectedOptions || [],
   };
+}
+
+function buildOrderLevelRefundFallbackEvents({
+  order,
+  refund,
+  adjustmentReasons = [],
+  seenOrderLevelRefundLineItemIds = new Set(),
+}) {
+  const lineItems = getNodes(order?.lineItems);
+  if (!shouldUseOrderLevelRefundFallback(order, refund, lineItems)) return [];
+
+  const totalRefundedAmount = getOrderLevelRefundAmount(order, refund, lineItems);
+  const context = {
+    id: refund?.id || `order-refund:${order?.id || ""}`,
+    createdAt: refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt,
+    updatedAt: refund?.updatedAt || refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt,
+    orderId: order?.id,
+    orderName: order?.name,
+    displayFinancialStatus: order?.displayFinancialStatus,
+    note: refund?.note || "",
+    adjustmentReasons,
+    totalRefundedAmount,
+    lineItems,
+  };
+
+  return lineItems
+    .map((lineItem) => {
+      const fallbackKey = [order?.id, refund?.id || "order-level", lineItem?.id].filter(Boolean).join(":");
+      if (!fallbackKey || seenOrderLevelRefundLineItemIds.has(fallbackKey)) return null;
+      seenOrderLevelRefundLineItemIds.add(fallbackKey);
+      return normalizeOrderLevelRefundLineItemEvent(lineItem, context);
+    })
+    .filter((event) => event?.productId || event?.variantId);
+}
+
+function normalizeOrderLevelRefundLineItemEvent(lineItem, refund) {
+  const product = lineItem.product || {};
+  const variant = lineItem.variant || {};
+  const amount = calculateFallbackRefundLineAmount(lineItem, refund);
+  const reason = getOrderLevelRefundReasonText(refund);
+
+  return {
+    type: "refund",
+    occurredAt: refund?.createdAt,
+    productId: product.id || variant.product?.id,
+    variantId: variant.id,
+    handle: product.handle || variant.product?.handle,
+    title: product.title || variant.product?.title || lineItem.title,
+    quantity: calculateFallbackRefundQuantity(lineItem, amount),
+    amount,
+    totalRefundedAmount: refund?.totalRefundedAmount || amount,
+    reason,
+    reasonLabel: reason,
+    adjustmentReasons: refund?.adjustmentReasons || [],
+    note: refund?.note || "",
+    variantTitle: variant.title,
+    variantSku: variant.sku || lineItem.sku,
+    variantOptions: variant.selectedOptions || [],
+    fallbackSource: "order_financial_status",
+  };
+}
+
+function shouldUseOrderLevelRefundFallback(order, refund, lineItems = []) {
+  const status = String(order?.displayFinancialStatus || "").toUpperCase();
+  const hasRefundSignal = status.includes("REFUND")
+    || moneyAmount(order?.totalRefundedSet) > 0
+    || moneyAmount(refund?.totalRefundedSet) > 0;
+  if (!hasRefundSignal || !lineItems.length) return false;
+  if (status === "REFUNDED") return true;
+  if (status === "PARTIALLY_REFUNDED") return lineItems.length === 1;
+  return lineItems.length === 1;
+}
+
+function getOrderLevelRefundAmount(order, refund, lineItems = []) {
+  const refundAmount = moneyAmount(refund?.totalRefundedSet);
+  if (refundAmount > 0) return refundAmount;
+  const orderRefundedAmount = moneyAmount(order?.totalRefundedSet);
+  if (orderRefundedAmount > 0) return orderRefundedAmount;
+  return lineItems.reduce((total, lineItem) => total + moneyAmount(lineItem.originalTotalSet), 0);
+}
+
+function calculateFallbackRefundLineAmount(lineItem, refund) {
+  const lineItems = refund?.lineItems || [];
+  const totalRefundedAmount = toNumber(refund?.totalRefundedAmount);
+  const lineAmount = moneyAmount(lineItem.originalTotalSet);
+  if (!totalRefundedAmount) return roundMoney(lineAmount);
+
+  const lineItemsAmount = lineItems.reduce((total, item) => total + moneyAmount(item.originalTotalSet), 0);
+  if (lineItemsAmount > 0 && lineAmount > 0) {
+    return roundMoney((totalRefundedAmount * lineAmount) / lineItemsAmount);
+  }
+
+  const lineItemCount = Math.max(lineItems.length, 1);
+  return roundMoney(totalRefundedAmount / lineItemCount);
+}
+
+function calculateFallbackRefundQuantity(lineItem, amount) {
+  const quantity = Math.max(toNumber(lineItem.quantity), 0);
+  if (quantity <= 1) return quantity || 1;
+  const lineAmount = moneyAmount(lineItem.originalTotalSet);
+  if (!lineAmount || amount >= lineAmount) return quantity;
+  return Math.max(1, Math.min(quantity, Math.round(quantity * (amount / lineAmount))));
+}
+
+function getOrderLevelRefundReasonText(refund = {}) {
+  const reason = getRefundReasonText({
+    adjustmentReasons: refund.adjustmentReasons,
+  });
+  if (reason) return reason;
+  const status = normalizeRefundReasonLabel(refund.displayFinancialStatus || "");
+  return status || "Order-level refund";
 }
 
 function getRefundAdjustmentReasons(refund = {}) {
@@ -2009,6 +2190,7 @@ export function buildOrdersBulkQuery(windowDays) {
 export const __productPulseQuickScanTestHooks = {
   buildPaginatedRefundsQuery,
   buildRefundOrderQueries,
+  buildOrderLevelRefundFallbackEvents,
   normalizeBulkQuickScanData,
   normalizeBulkProducts,
   normalizeBulkOrderEvents,

@@ -111,11 +111,50 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(query).toContain("processedAt");
     expect(query).toContain("orderAdjustments");
     expect(query).toContain("reason");
+    expect(query).toContain("displayFinancialStatus");
+    expect(query).toContain("totalRefundedSet");
+    expect(query).toContain("lineItems(first: $fallbackLineItemsFirst");
     expect(query).toContain("refundLineItems(first: $refundLineItemsFirst");
     expect(query).toMatch(/variant\s*{[\s\S]*?product\s*{/);
     expect(fallbackQuery).not.toContain("orderAdjustments");
-    expect(fallbackQuery).not.toMatch(/variant\s*{[\s\S]*?product\s*{/);
+    expect(fallbackQuery).not.toContain(`                      product {
+                        id
+                        legacyResourceId
+                        handle
+                        title
+                      }`);
     expect(queryModes).toEqual(["updated_at", "partially_refunded", "refunded"]);
+  });
+
+  it("can normalize order-level refunded line items when refundLineItems are missing", () => {
+    expect(__productPulseDiagnosisTestHooks.shouldUseDiagnosisOrderLevelRefundFallback({
+      displayFinancialStatus: "REFUNDED",
+      totalRefundedSet: { shopMoney: { amount: "1100.00" } },
+    }, null, [{ id: "line-1" }])).toBe(true);
+
+    const event = __productPulseDiagnosisTestHooks.normalizeDiagnosisOrderLevelRefundLineItemEvent({
+      id: "gid://shopify/LineItem/1",
+      quantity: 1,
+      title: "SELF-PORTRAIT WITHOUT BEARD | VINCENT VAN RIJN",
+      sku: "PAINT09",
+      variant: { id: "gid://shopify/ProductVariant/paint09v", title: "Default Title", sku: "PAINT09", selectedOptions: [] },
+      originalTotalSet: { shopMoney: { amount: "1100.00" } },
+    }, {
+      id: "order-refund:gid://shopify/Order/1135",
+      orderId: "gid://shopify/Order/1135",
+      createdAt: "2026-05-12T19:28:00Z",
+      displayFinancialStatus: "REFUNDED",
+      totalRefundedAmount: 1100,
+      adjustmentReasons: [],
+      lineItems: [{ originalTotalSet: { shopMoney: { amount: "1100.00" } } }],
+    }, { title: "SELF-PORTRAIT WITHOUT BEARD | VINCENT VAN RIJN" });
+
+    expect(event).toMatchObject({
+      quantity: 1,
+      amount: 1100,
+      reason: "Refunded",
+      fallbackSource: "order_financial_status",
+    });
   });
 
   it("builds refund operational text from refund notes, adjustment reasons, and restock context", () => {

@@ -382,9 +382,52 @@ describe("ProductPulse QuickScan", () => {
     expect(query).toContain("note");
     expect(query).toContain("processedAt");
     expect(query).toContain("orderAdjustments");
+    expect(query).toContain("displayFinancialStatus");
+    expect(query).toContain("totalRefundedSet");
+    expect(query).toContain("lineItems(first: $fallbackLineItemsFirst");
     expect(query).toContain("refundLineItems(first: $refundLineItemsFirst");
     expect(query).toMatch(/variant\s*{[\s\S]*?product\s*{/);
     expect(modes).toEqual(["updated_at", "partially_refunded", "refunded"]);
+  });
+
+  it("falls back to refunded order line items when Shopify does not expose refund line items", () => {
+    const events = __productPulseQuickScanTestHooks.buildOrderLevelRefundFallbackEvents({
+      order: {
+        id: "gid://shopify/Order/1135",
+        name: "#1135",
+        createdAt: "2026-05-12T19:28:00Z",
+        displayFinancialStatus: "REFUNDED",
+        totalRefundedSet: { shopMoney: { amount: "1100.00" } },
+        lineItems: {
+          nodes: [{
+            id: "gid://shopify/LineItem/1",
+            quantity: 1,
+            title: "SELF-PORTRAIT WITHOUT BEARD | VINCENT VAN RIJN",
+            sku: "PAINT09",
+            product: {
+              id: "gid://shopify/Product/paint09",
+              handle: "self-portrait-without-beard",
+              title: "SELF-PORTRAIT WITHOUT BEARD | VINCENT VAN RIJN",
+            },
+            variant: { id: "gid://shopify/ProductVariant/paint09v", title: "Default Title", sku: "PAINT09", selectedOptions: [] },
+            originalTotalSet: { shopMoney: { amount: "1100.00" } },
+          }],
+        },
+      },
+      refund: null,
+      adjustmentReasons: [],
+      seenOrderLevelRefundLineItemIds: new Set(),
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "refund",
+      productId: "gid://shopify/Product/paint09",
+      quantity: 1,
+      amount: 1100,
+      reason: "Refunded",
+      fallbackSource: "order_financial_status",
+    });
   });
 
   it("requests flat Shopify bulk query output explicitly", () => {
