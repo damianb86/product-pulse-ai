@@ -3167,220 +3167,138 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       <ScreenShell className="ppDashboard ppProductDetailScreen">
         <ProductDetailToast actionData={toastData} onDismiss={() => setToastData(null)} />
 
-        <div className="ppProductDetailHeader">
-          <button className="ppProductBackButton" type="button" onClick={handleBack}>
-            <s-icon type="arrow-left" size="small"></s-icon>
-            Back
-          </button>
-          <div className="ppProductTitleRow">
-            <span className="ppProductHeroImageWrap">
-              <ProductArt
-                variant={detail.variant}
-                label={detail.title}
-                size="hero"
-                imageUrl={detail.imageUrl}
-                imageAlt={detail.imageAlt}
-              />
-            </span>
-            <div>
-              <div className="ppProductTitleHeading">
-                <h1>{detail.title}</h1>
-                {detail.hasFullDiagnosis && (
-                  <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly />
-                )}
-              </div>
-              <p>
-                {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
-                {" - Last analyzed "}
-                {detail.lastAnalysis}
-              </p>
-              <div className="ppBadgeRow">
-                <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
-                  {resolved ? "Resolved" : detail.riskLabel}
-                </InlineBadge>
-                {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
-                {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
-              </div>
-            </div>
-          </div>
-          <div className="ppProductHeaderActions">
-            {detail.shopifyAdminUrl && (
-              <a
-                className="ppProductExternalButton"
-                href={detail.shopifyAdminUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Open product in Shopify admin"
-              >
-                <s-icon type="external" size="small"></s-icon>
-              </a>
-            )}
-            {detail.diagnosisInProgress ? (
-              <span className="ppProductDiagnosisRunning">
-                <span className="ppMiniSpinner" aria-hidden="true" />
-                {getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)}
-              </span>
-            ) : (
-              <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
-                <s-icon type="wand" size="small"></s-icon>
-                {diagnosisPending ? "Queueing..." : detail.diagnosisButtonLabel}
-              </button>
-            )}
-            <Form method="post">
-              <input type="hidden" name="_action" value="mark-resolved" />
-              <input type="hidden" name="productId" value={product.slug} />
-              <button className="ppSecondaryButton ppResolveButton" type="submit" disabled={!detail.canResolve || resolved || resolvingPending}>
-                <s-icon type="check" size="small"></s-icon>
-                {resolved ? "Resolved" : resolvingPending ? "Resolving..." : "Mark as resolved"}
-              </button>
-            </Form>
-          </div>
-        </div>
-
-        <div className="ppProductSummaryGrid">
-          <s-section padding="none">
-            <div className="ppRiskSnapshot">
-              <ProductInsightMetric
-                title="Risk score"
-                value={detail.riskScoreLabel}
-                detail={`${detail.riskScore} / 100`}
-                tone={detail.riskTone}
-                sparkline={detail.riskTrend}
-              />
-              <ProductInsightMetric
-                title="Confidence"
-                value={detail.confidenceLabel}
-                detail={`${detail.confidence}%`}
-                footnote={`Based on ${detail.signalCount} signals`}
-                tone="green"
-                progress={detail.confidence}
-              />
-              <ProductInsightMetric
-                title="Estimated impact"
-                value={formatMoney(detail.estimatedImpact)}
-                detail={`${formatMoney(detail.marginAtRisk)} estimated margin at risk`}
-                footnote={`${detail.returnRate}% return rate`}
-                tone="red"
-              />
-              <ProductInsightMetric
-                title="Main issue"
-                value={detail.issueCategory}
-                detail={detail.issueDetail}
-                tone={detail.issueTone}
-                icon="product"
-              />
-              <ProductInsightMetric
-                title="Recommended fix"
-                value={detail.recommendedFix}
-                detail={detail.recommendedFixDetail}
-              />
-            </div>
-          </s-section>
-
-          <s-section padding="none">
-            <div className="ppMainFindingCard">
-              <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
-              <div>
-                <span>Main finding</span>
-                <h2>{detail.mainFindingTitle}</h2>
-                <div className="ppMainFindingText">
-                  {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
-                    <p key={`${detail.slug}-main-finding-${index}`}>{paragraph}</p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </s-section>
-        </div>
-
-        <s-section padding="none">
-          <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
-            <div className="ppRecommendedActionsHeader">
-              <div>
-                <h2>Recommended actions</h2>
-                <span>
-                  {detail.hasFullDiagnosis
-                    ? `${visibleRecommendedActionCount} active action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}`
-                    : "Run full diagnosis to unlock actions"}
-                </span>
-              </div>
-              <button
-                className="ppPanelCollapseButton"
-                type="button"
-                aria-expanded={!recommendedActionsCollapsed}
-                aria-controls="pp-recommended-actions-content"
-                onClick={handleToggleRecommendedActions}
-              >
-                <s-icon type={recommendedActionsCollapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
-                <span>{recommendedActionsCollapsed ? "Expand" : "Minimize"}</span>
-              </button>
-            </div>
-            {!recommendedActionsCollapsed && (
-              <div id="pp-recommended-actions-content">
-                <div className="ppRecommendedActionList">
-                  {!detail.hasFullDiagnosis ? (
-                    <EmptyProductDetailState
-                      message="Recommended actions will appear after you run the full product diagnosis for this product."
-                      variant="recommendedActions"
+        <div className="ppProductDetailLayout">
+          <main className="ppProductDetailPrimary">
+            <ProductDetailSectionLabel number="1" title="Overview" subtitle="Lo esencial al primer vistazo" />
+            <section className="ppProductDetailOverviewCard" aria-label="Product overview">
+              <div className="ppProductDetailHeader">
+                <button className="ppProductBackButton" type="button" onClick={handleBack}>
+                  <s-icon type="arrow-left" size="small"></s-icon>
+                  Back to products
+                </button>
+                <div className="ppProductTitleRow">
+                  <span className="ppProductHeroImageWrap">
+                    <ProductArt
+                      variant={detail.variant}
+                      label={detail.title}
+                      size="hero"
+                      imageUrl={detail.imageUrl}
+                      imageAlt={detail.imageAlt}
                     />
-                  ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
-                    <EmptyProductDetailState
-                      message="0 deterministic recommended actions from current stored signals."
-                      variant="recommendedActions"
-                    />
-                  )}
-                  {visibleRecommendedActions.map((action) => (
-                    <ProductRecommendedAction
-                      key={action.title}
-                      action={action}
-                      product={product}
-                      pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
-                      onEdit={handleEditAction}
-                      onCopy={handleCopyAction}
-                      onReview={handleReviewEvidence}
-                      onRequestApply={handleRequestApplyAction}
-                      onDismiss={handleDismissAction}
-                    />
-                  ))}
-                </div>
-                {minimizedRecommendedActions.length > 0 && (
-                  <MinimizedRecommendedActionsTray
-                    actions={minimizedRecommendedActions}
-                    minimizedActionStates={minimizedActionStates}
-                    onExpand={handleExpandArchivedAction}
-                  />
-                )}
-                {editingAction && (
-                  <Form method="post" className="ppActionDraftEditor">
-                    <input type="hidden" name="_action" value="apply-action" />
-                    <input type="hidden" name="productId" value={product.slug} />
-                    <input type="hidden" name="actionId" value={editingAction.id} />
-                    <input type="hidden" name="label" value={editingAction.title} />
-                    <label htmlFor="pp-action-draft">Draft</label>
-                    <textarea
-                      id="pp-action-draft"
-                      name="draftText"
-                      value={draftText}
-                      onChange={(event) => setDraftText(event.target.value)}
-                    />
-                    <div>
-                      <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
-                      <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
-                        {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
-                      </button>
+                  </span>
+                  <div>
+                    <div className="ppProductTitleHeading">
+                      <h1>{detail.title}</h1>
+                      {detail.hasFullDiagnosis && (
+                        <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly />
+                      )}
                     </div>
+                    <p>
+                      {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
+                      {" - Last analyzed "}
+                      {detail.lastAnalysis}
+                    </p>
+                    <div className="ppBadgeRow">
+                      <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
+                        {resolved ? "Resolved" : detail.riskLabel}
+                      </InlineBadge>
+                      {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
+                      {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
+                    </div>
+                  </div>
+                </div>
+                <div className="ppProductHeaderActions">
+                  {detail.shopifyAdminUrl && (
+                    <a
+                      className="ppProductExternalButton"
+                      href={detail.shopifyAdminUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Open product in Shopify admin"
+                    >
+                      <s-icon type="external" size="small"></s-icon>
+                    </a>
+                  )}
+                  {detail.diagnosisInProgress ? (
+                    <span className="ppProductDiagnosisRunning">
+                      <span className="ppMiniSpinner" aria-hidden="true" />
+                      {getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)}
+                    </span>
+                  ) : (
+                    <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
+                      <s-icon type="wand" size="small"></s-icon>
+                      {diagnosisPending ? "Queueing..." : detail.diagnosisButtonLabel}
+                    </button>
+                  )}
+                  <Form method="post">
+                    <input type="hidden" name="_action" value="mark-resolved" />
+                    <input type="hidden" name="productId" value={product.slug} />
+                    <button className="ppSecondaryButton ppResolveButton" type="submit" disabled={!detail.canResolve || resolved || resolvingPending}>
+                      <s-icon type="check" size="small"></s-icon>
+                      {resolved ? "Resolved" : resolvingPending ? "Resolving..." : "Mark as resolved"}
+                    </button>
                   </Form>
-                )}
+                </div>
               </div>
-            )}
-          </div>
-        </s-section>
 
-        <div className="ppProductDetailGrid">
-          <div className="ppProductDetailMainColumn">
-            <s-section padding="none">
-              <div className="ppProductPanel">
-                <h2>Issues detected</h2>
+              <div className="ppProductSummaryGrid">
+                <s-section padding="none">
+                  <div className="ppRiskSnapshot">
+                    <ProductInsightMetric
+                      title="Risk score"
+                      value={detail.riskScoreLabel}
+                      detail={`${detail.riskScore} / 100`}
+                      tone={detail.riskTone}
+                      sparkline={detail.riskTrend}
+                    />
+                    <ProductInsightMetric
+                      title="Confidence"
+                      value={detail.confidenceLabel}
+                      detail={`${detail.confidence}%`}
+                      footnote={`Based on ${detail.signalCount} signals`}
+                      tone="green"
+                      progress={detail.confidence}
+                    />
+                    <ProductInsightMetric
+                      title="Estimated impact"
+                      value={formatMoney(detail.estimatedImpact)}
+                      detail={`${formatMoney(detail.marginAtRisk)} estimated margin at risk`}
+                      footnote={`${detail.returnRate}% return rate`}
+                      tone="red"
+                    />
+                    <ProductInsightMetric
+                      title="Main issue"
+                      value={detail.issueCategory}
+                      detail={detail.issueDetail}
+                      tone={detail.issueTone}
+                      icon="product"
+                    />
+                    <ProductInsightMetric
+                      title="Recommended fix"
+                      value={detail.recommendedFix}
+                      detail={detail.recommendedFixDetail}
+                    />
+                  </div>
+                </s-section>
+
+                <s-section padding="none">
+                  <div className="ppMainFindingCard">
+                    <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
+                    <div>
+                      <span>AI Summary</span>
+                      <h2>{detail.mainFindingTitle}</h2>
+                      <div className="ppMainFindingText">
+                        {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
+                          <p key={`${detail.slug}-main-finding-${index}`}>{paragraph}</p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </s-section>
+              </div>
+
+              <div className="ppProductPanel ppIssuesOverviewPanel">
+                <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
                 <div className="ppIssuesTableWrap">
                   <table className="ppIssuesTable">
                     <thead>
@@ -3442,40 +3360,107 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   </table>
                 </div>
               </div>
-            </s-section>
-          </div>
-          <s-section padding="none">
-            <div className="ppCheckedPanel">
-              <h2>What ProductPulse checked</h2>
-              <div className="ppCheckedGrid">
-                {detail.checkedItems.map((item) => (
-                  <div className="ppCheckedItem" key={item.label}>
-                    <s-icon type={item.icon}></s-icon>
-                    <div>
-                      <span>{item.label}</span>
-                      <strong>{item.value}</strong>
-                      <small>{item.detail}</small>
-                    </div>
-                  </div>
-                ))}
-                {detail.checkedItems.length === 0 && (
-                  <EmptyProductDetailState message="0 product-specific checks stored yet." />
-                )}
-              </div>
+            </section>
+
+            <ProductDetailSectionLabel number="3" title="Evidence by source" subtitle="Explora la evidencia con claridad" />
+            <div ref={evidencePanelRef}>
+              <EvidenceObservabilityPanel
+                detail={detail}
+                product={product}
+                selectedEvidence={selectedEvidence}
+                selectedEvidenceIndex={selectedEvidenceIndex}
+                onSelectEvidence={setSelectedEvidenceIndex}
+              />
             </div>
-          </s-section>
+          </main>
+
+          <aside className="ppProductDetailSidebar">
+            <ProductDetailSectionLabel number="2" title="Evidence summary" subtitle="Resumen rapido por categoria" />
+            <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
+
+            <ProductDetailSectionLabel number="4" title="Recommended actions" subtitle="Pasos claros y accionables" />
+            <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
+              <div className="ppRecommendedActionsHeader">
+                <div>
+                  <h2>Recommended actions</h2>
+                  <span>
+                    {detail.hasFullDiagnosis
+                      ? `${visibleRecommendedActionCount} active action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}`
+                      : "Run full diagnosis to unlock actions"}
+                  </span>
+                </div>
+                <button
+                  className="ppPanelCollapseButton"
+                  type="button"
+                  aria-expanded={!recommendedActionsCollapsed}
+                  aria-controls="pp-recommended-actions-content"
+                  onClick={handleToggleRecommendedActions}
+                >
+                  <s-icon type={recommendedActionsCollapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
+                  <span>{recommendedActionsCollapsed ? "Expand" : "Minimize"}</span>
+                </button>
+              </div>
+              {!recommendedActionsCollapsed && (
+                <div id="pp-recommended-actions-content">
+                  <div className="ppRecommendedActionList">
+                    {!detail.hasFullDiagnosis ? (
+                      <EmptyProductDetailState
+                        message="Recommended actions will appear after you run the full product diagnosis for this product."
+                        variant="recommendedActions"
+                      />
+                    ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
+                      <EmptyProductDetailState
+                        message="0 deterministic recommended actions from current stored signals."
+                        variant="recommendedActions"
+                      />
+                    )}
+                    {visibleRecommendedActions.map((action) => (
+                      <ProductRecommendedAction
+                        key={action.title}
+                        action={action}
+                        product={product}
+                        pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
+                        onEdit={handleEditAction}
+                        onCopy={handleCopyAction}
+                        onReview={handleReviewEvidence}
+                        onRequestApply={handleRequestApplyAction}
+                        onDismiss={handleDismissAction}
+                      />
+                    ))}
+                  </div>
+                  {minimizedRecommendedActions.length > 0 && (
+                    <MinimizedRecommendedActionsTray
+                      actions={minimizedRecommendedActions}
+                      minimizedActionStates={minimizedActionStates}
+                      onExpand={handleExpandArchivedAction}
+                    />
+                  )}
+                  {editingAction && (
+                    <Form method="post" className="ppActionDraftEditor">
+                      <input type="hidden" name="_action" value="apply-action" />
+                      <input type="hidden" name="productId" value={product.slug} />
+                      <input type="hidden" name="actionId" value={editingAction.id} />
+                      <input type="hidden" name="label" value={editingAction.title} />
+                      <label htmlFor="pp-action-draft">Draft</label>
+                      <textarea
+                        id="pp-action-draft"
+                        name="draftText"
+                        value={draftText}
+                        onChange={(event) => setDraftText(event.target.value)}
+                      />
+                      <div>
+                        <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
+                        <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
+                          {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
+                        </button>
+                      </div>
+                    </Form>
+                  )}
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
-        <s-section padding="none">
-          <div ref={evidencePanelRef}>
-            <EvidenceObservabilityPanel
-              detail={detail}
-              product={product}
-              selectedEvidence={selectedEvidence}
-              selectedEvidenceIndex={selectedEvidenceIndex}
-              onSelectEvidence={setSelectedEvidenceIndex}
-            />
-          </div>
-        </s-section>
         {diagnosisConfirmation && (
           <ProductAnalysisConfirmModal
             confirmation={diagnosisConfirmation}
@@ -3495,6 +3480,80 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         )}
       </ScreenShell>
     </FullWidthPage>
+  );
+}
+
+function ProductDetailSectionLabel({ number, title, subtitle }) {
+  return (
+    <div className="ppProductDetailSectionLabel">
+      <span>{number}</span>
+      <div>
+        <strong>{title}</strong>
+        <small>{subtitle}</small>
+      </div>
+    </div>
+  );
+}
+
+function ProductEvidenceSummaryPanel({ detail, onSelectEvidence }) {
+  const evidenceRows = detail.evidenceSources.slice(0, 5);
+  const dataQualityGood = detail.evidenceSources.length >= 3 && detail.checkedItems.length > 0;
+  const dataQualityLabel = dataQualityGood ? "Good" : detail.evidenceSources.length > 0 ? "Partial" : "Missing";
+  const dataQualityTone = dataQualityGood ? "success" : detail.evidenceSources.length > 0 ? "warning" : "critical";
+  const checkedItems = detail.checkedItems.length
+    ? detail.checkedItems
+    : [{ icon: "product", label: "Shopify product data", value: "0 variants", detail: "No product-specific checks stored yet." }];
+  const checkedSummary = checkedItems.slice(0, 3).map((item) => item.value).join(", ");
+
+  return (
+    <div className="ppProductEvidenceSummaryPanel">
+      <div className="ppEvidenceSummaryList">
+        {evidenceRows.map((source, index) => (
+          <button className="ppEvidenceSummaryRow" type="button" key={source.title} onClick={() => onSelectEvidence(index)}>
+            <span className={`ppEvidenceSummaryIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
+              <s-icon type={source.icon} size="small"></s-icon>
+            </span>
+            <span>
+              <strong>{source.title}</strong>
+              <em>{formatInteger(source.points.length)} signal{source.points.length === 1 ? "" : "s"}</em>
+              <small>{source.summary}</small>
+            </span>
+            <s-icon type="chevron-right" size="small"></s-icon>
+          </button>
+        ))}
+        {evidenceRows.length === 0 && (
+          <div className="ppEvidenceSummaryEmpty">
+            <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
+          </div>
+        )}
+        <button className="ppEvidenceSummaryRow" type="button" onClick={() => onSelectEvidence(0)}>
+          <span className="ppEvidenceSummaryIcon ppEvidenceTone-insight" aria-hidden="true">
+            <s-icon type={checkedItems[0]?.icon || "product"} size="small"></s-icon>
+          </span>
+          <span>
+            <strong>Product data checked</strong>
+            <em>{checkedSummary}</em>
+            <small><span>What ProductPulse checked</span> for this product.</small>
+          </span>
+          <s-icon type="chevron-right" size="small"></s-icon>
+        </button>
+      </div>
+
+      <div className={`ppEvidenceDataQuality ppEvidenceDataQuality-${dataQualityTone}`}>
+        <div>
+          <strong>Data quality <span>{dataQualityLabel}</span></strong>
+          <p>
+            {dataQualityGood
+              ? "All required product diagnostic sources have stored evidence or checks."
+              : "Some diagnostic sources are unavailable or have limited product-level evidence."}
+          </p>
+        </div>
+        <button type="button" onClick={() => onSelectEvidence(0)}>
+          View all sources
+          <s-icon type="chevron-right" size="small"></s-icon>
+        </button>
+      </div>
+    </div>
   );
 }
 

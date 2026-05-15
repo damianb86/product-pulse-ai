@@ -1326,6 +1326,79 @@ s-page[inline-size="large-500"] {
   gap: 12px;
 }
 
+.ppProductDetailLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.36fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.ppProductDetailPrimary,
+.ppProductDetailSidebar {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  align-content: start;
+}
+
+.ppProductDetailOverviewCard,
+.ppProductEvidenceSummaryPanel {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 18px 44px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppProductDetailOverviewCard {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.ppProductDetailSectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.ppProductDetailSectionLabel > span {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.88), rgba(var(--pp-pulse-blue-rgb), 0.78));
+  color: var(--pp-cloud-white);
+  font-size: 13px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(var(--pp-insight-violet-rgb), 0.2);
+}
+
+.ppProductDetailSectionLabel div {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ppProductDetailSectionLabel strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.ppProductDetailSectionLabel small {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .ppProductDetailHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1661,6 +1734,10 @@ s-page[inline-size="large-500"] {
   align-items: start;
 }
 
+.ppProductDetailOverviewCard .ppProductSummaryGrid {
+  grid-template-columns: 1fr;
+}
+
 .ppProductSummaryGrid > s-section {
   min-width: 0;
   align-self: start;
@@ -1710,6 +1787,12 @@ s-page[inline-size="large-500"] {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: start;
   overflow: hidden;
+}
+
+.ppProductDetailOverviewCard .ppRiskSnapshot {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
 }
 
 .ppProductInsight {
@@ -1903,6 +1986,186 @@ s-page[inline-size="large-500"] {
 .ppCheckedPanel h2 {
   margin: 0 0 12px;
   font-size: 14px;
+}
+
+.ppIssuesOverviewPanel {
+  padding: 0;
+  overflow: visible;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppIssuesOverviewPanel h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  padding: 16px 18px 14px;
+}
+
+.ppIssuesOverviewPanel h2 span {
+  min-width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ppProductEvidenceSummaryPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.ppEvidenceSummaryList {
+  display: grid;
+}
+
+.ppEvidenceSummaryRow {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--pp-slate-200);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ppEvidenceSummaryRow:hover {
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceSummaryRow > s-icon {
+  color: var(--pp-slate-500);
+}
+
+.ppEvidenceSummaryIcon {
+  width: 48px;
+  height: 48px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceSummaryRow span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.ppEvidenceSummaryRow strong,
+.ppEvidenceDataQuality strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.ppEvidenceSummaryRow em {
+  overflow: hidden;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 780;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidenceSummaryRow small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ppEvidenceSummaryEmpty {
+  padding: 12px 0;
+}
+
+.ppEvidenceDataQuality {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(var(--pp-signal-teal-rgb), 0.18);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-signal-teal-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.04)),
+    var(--pp-cloud-white);
+}
+
+.ppEvidenceDataQuality-warning {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.22);
+  background: linear-gradient(135deg, rgba(var(--pp-warning-amber-rgb), 0.1), rgba(var(--pp-pulse-blue-rgb), 0.035)), var(--pp-cloud-white);
+}
+
+.ppEvidenceDataQuality-critical {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.22);
+  background: linear-gradient(135deg, rgba(var(--pp-risk-red-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.035)), var(--pp-cloud-white);
+}
+
+.ppEvidenceDataQuality strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ppEvidenceDataQuality strong span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.ppEvidenceDataQuality-warning strong span {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppEvidenceDataQuality-critical strong span {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppEvidenceDataQuality p {
+  margin: 8px 0 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ppEvidenceDataQuality button {
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-pulse-blue);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
 }
 
 .ppEvidenceSourceGrid {
@@ -3286,6 +3549,40 @@ s-page[inline-size="large-500"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   align-items: start;
+}
+
+.ppProductDetailSidebar .ppRecommendedActionList {
+  grid-template-columns: 1fr;
+}
+
+.ppProductDetailSidebar .ppRecommendedActionsPanel {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 18px 44px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppProductDetailSidebar .ppRecommendedActionsHeader {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.ppProductDetailSidebar .ppRecommendedActionsHeader h2 {
+  font-size: 16px;
+}
+
+.ppProductDetailSidebar .ppPanelCollapseButton span {
+  display: none;
+}
+
+.ppProductDetailSidebar .ppProductActionItem {
+  gap: 10px;
+  padding: 14px;
+  box-shadow: 0 8px 20px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppProductDetailSidebar .ppProductActionBody {
+  gap: 8px;
 }
 
 .ppMinimizedActionsTray {
@@ -8561,6 +8858,7 @@ s-page[inline-size="large-500"] {
   .ppConnectPieWrap,
   .ppProductsToolbar,
   .ppProductsFilters,
+  .ppProductDetailLayout,
   .ppProductDetailHeader,
   .ppProductTitleRow,
   .ppProductSummaryGrid,
