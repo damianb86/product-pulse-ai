@@ -23,6 +23,7 @@ import {
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
+const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
@@ -106,9 +107,9 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
     getLatestCompletedDiagnosisMap(shop, snapshots),
     getResolvedProductActionsMap(shop, snapshots),
   ]);
-  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid, settings);
+  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid);
   const filteredSnapshots = sortProductSnapshots(
-    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings),
+    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid),
     filters,
     resolvedActionsByProductGid,
   );
@@ -1202,22 +1203,22 @@ function ensureFastProductScanWorker(job, options = {}) {
 }
 
 function ensureProductDiagnosisQueueWorker(shop) {
-  if (!shop || activeDiagnosisQueueWorkers.has(shop)) return;
+  if (!shop || activeDiagnosisQueueWorkers.has(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY)) return;
 
-  activeDiagnosisQueueWorkers.add(shop);
+  activeDiagnosisQueueWorkers.add(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY);
   setTimeout(async () => {
     try {
-      await requeueRecoveredProductDiagnosisJobs(shop);
+      await requeueRecoveredProductDiagnosisJobs();
 
       for (;;) {
-        const job = await claimNextProductDiagnosisJob(shop);
+        const job = await claimNextProductDiagnosisJob();
         if (!job) break;
 
         try {
           await runProductDiagnosisJob(job);
         } catch (error) {
           await recordJobLog({
-            shop,
+            shop: job.shop,
             jobId: job.id,
             level: "error",
             event: "product_diagnosis.worker_failed",
@@ -1228,18 +1229,23 @@ function ensureProductDiagnosisQueueWorker(shop) {
         }
       }
     } finally {
-      activeDiagnosisQueueWorkers.delete(shop);
+      activeDiagnosisQueueWorkers.delete(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY);
+      const queuedCount = await prisma.catalogSignalJob.count({
+        where: { kind: PRODUCT_DIAGNOSIS_KIND, status: "Queued" },
+      });
+      if (queuedCount > 0) ensureProductDiagnosisQueueWorker(shop);
     }
   }, 0);
 }
 
 async function requeueRecoveredProductDiagnosisJobs(shop) {
+  const where = {
+    kind: PRODUCT_DIAGNOSIS_KIND,
+    status: "Running",
+    ...(shop ? { shop } : {}),
+  };
   const recovered = await prisma.catalogSignalJob.updateMany({
-    where: {
-      shop,
-      kind: PRODUCT_DIAGNOSIS_KIND,
-      status: "Running",
-    },
+    where,
     data: {
       status: "Queued",
       progress: 0,
@@ -1249,13 +1255,17 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
 
   if (recovered.count > 0) {
     const jobs = await prisma.catalogSignalJob.findMany({
-      where: { shop, kind: PRODUCT_DIAGNOSIS_KIND, status: "Queued" },
+      where: {
+        kind: PRODUCT_DIAGNOSIS_KIND,
+        status: "Queued",
+        ...(shop ? { shop } : {}),
+      },
       orderBy: [{ updatedAt: "desc" }],
       take: recovered.count,
     });
 
     await Promise.all(jobs.map((job) => recordJobLog({
-      shop,
+      shop: job.shop,
       jobId: job.id,
       event: "product_diagnosis.requeued",
       message: "Recovered running product diagnosis job and returned it to the queue.",
@@ -1267,9 +1277,9 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
 async function claimNextProductDiagnosisJob(shop) {
   const nextJob = await prisma.catalogSignalJob.findFirst({
     where: {
-      shop,
       kind: PRODUCT_DIAGNOSIS_KIND,
       status: "Queued",
+      ...(shop ? { shop } : {}),
     },
     orderBy: [{ startedAt: "asc" }],
   });
@@ -1529,7 +1539,7 @@ function isPreferredProductDiagnosisJob(candidate, current) {
   return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime();
 }
 
-function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map(), settings = undefined) {
+function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map(), settings = undefined, latestDiagnosisByProductGid = new Map()) {
   const query = String(filters.query || "").trim().toLowerCase();
 
   return snapshots.filter((snapshot) => {
@@ -1551,6 +1561,7 @@ function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProduc
     ].filter(Boolean).join(" ").toLowerCase();
 
     if (query && !searchable.includes(query)) return false;
+    if (filters.analysis && filters.analysis !== "all" && getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid) !== filters.analysis) return false;
     if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore, settings) !== filters.risk) return false;
     if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore, isResolved, settings) !== filters.status) return false;
     if (filters.issue && filters.issue !== "all" && slugifyFilterValue(snapshot.primaryIssue) !== filters.issue) return false;
@@ -1582,15 +1593,18 @@ function sortProductSnapshots(snapshots, filters = {}, resolvedActionsByProductG
   });
 }
 
-function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = new Map(), settings = undefined) {
+function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = new Map(), settings = undefined, latestDiagnosisByProductGid = new Map()) {
   const issues = new Map();
   const sources = new Map();
   const vendors = new Map();
   const statuses = new Map();
+  const analysisCounts = { all: snapshots.length, quickscan: 0, full: 0 };
 
   snapshots.forEach((snapshot) => {
     const metrics = snapshot.metrics || {};
     const isResolved = resolvedActionsByProductGid.has(snapshot.productGid);
+    const analysisDepth = getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid);
+    if (analysisCounts[analysisDepth] !== undefined) analysisCounts[analysisDepth] += 1;
     addFilterOption(issues, snapshot.primaryIssue);
     addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved, settings), getStatusFilterValue(snapshot.riskScore, isResolved, settings));
     (Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : []).forEach((source) => addFilterOption(sources, source));
@@ -1600,17 +1614,26 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
   });
 
   return {
+    analysis: [
+      { value: "all", label: "All", count: analysisCounts.all },
+      { value: "quickscan", label: "QuickScan", count: analysisCounts.quickscan },
+      { value: "full", label: "Full diagnostic", count: analysisCounts.full },
+    ],
     risks: [
-      { value: "all", label: "Risk" },
+      { value: "all", label: "All risk" },
       { value: "high", label: "High" },
       { value: "medium", label: "Medium" },
       { value: "low", label: "Low" },
     ],
-    statuses: [{ value: "all", label: "Status" }, ...Array.from(statuses.values()).sort(compareFilterOptions)],
+    statuses: [{ value: "all", label: "All statuses" }, ...Array.from(statuses.values()).sort(compareFilterOptions)],
     issues: [{ value: "all", label: "Issue type" }, ...Array.from(issues.values()).sort(compareFilterOptions)],
     sources: [{ value: "all", label: "Source" }, ...Array.from(sources.values()).sort(compareFilterOptions)],
     vendors: [{ value: "all", label: "Vendor or Collection" }, ...Array.from(vendors.values()).sort(compareFilterOptions)],
   };
+}
+
+function getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid = new Map()) {
+  return getProductAnalysisState(snapshot, latestDiagnosisByProductGid.get(snapshot.productGid)).depth;
 }
 
 function addFilterOption(map, label, value) {

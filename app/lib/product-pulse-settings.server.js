@@ -1,6 +1,7 @@
 import prisma from "../db.server";
 
 export const PRODUCT_PULSE_SETTINGS_SOURCE_KEY = "__productpulse_settings";
+export const PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES = 500;
 
 export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   risk: {
@@ -104,7 +105,7 @@ export function normalizeProductPulseSettings(input = {}) {
       maxQueuedPerSubmission: clampInteger(
         diagnosis.maxQueuedPerSubmission,
         1,
-        50,
+        PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES,
         DEFAULT_PRODUCT_PULSE_SETTINGS.diagnosis.maxQueuedPerSubmission,
       ),
       useOpenAiBatchForDiagnostics: Boolean(diagnosis.useOpenAiBatchForDiagnostics),
@@ -149,8 +150,8 @@ export function validateProductPulseSettings(input = {}) {
   if (highThreshold > 100) {
     return "High risk threshold cannot be higher than 100.";
   }
-  if (!Number.isFinite(maxQueuedPerSubmission) || maxQueuedPerSubmission < 1 || maxQueuedPerSubmission > 50) {
-    return "Max queued diagnoses must be between 1 and 50.";
+  if (!Number.isFinite(maxQueuedPerSubmission) || maxQueuedPerSubmission < 1 || maxQueuedPerSubmission > PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES) {
+    return `Max queued diagnoses must be between 1 and ${PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES}.`;
   }
 
   return "";

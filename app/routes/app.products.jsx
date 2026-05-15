@@ -17,6 +17,7 @@ export const loader = async ({ request }) => {
   const settings = await getProductPulseSettings(session.shop);
   const filters = {
     query: url.searchParams.get("q") || "",
+    analysis: url.searchParams.get("analysis") || "all",
     risk: url.searchParams.get("risk") || "all",
     status: url.searchParams.get("status") || "all",
     issue: url.searchParams.get("issue") || "all",

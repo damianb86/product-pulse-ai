@@ -476,6 +476,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const productCount = data.productTable?.total ?? productRows.length;
   const totalAllProducts = data.productTable?.totalAll ?? productCount;
   const filterOptions = data.productTable?.filterOptions || {};
+  const analysisFilterOptions = filterOptions.analysis || [
+    { value: "all", label: "All" },
+    { value: "quickscan", label: "QuickScan" },
+    { value: "full", label: "Full diagnostic" },
+  ];
   const page = data.productTable?.page || 1;
   const rowsPerPage = data.productTable?.rowsPerPage || Number(filters.rows || 25);
   const totalPages = data.productTable?.totalPages || 1;
@@ -540,6 +545,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     currentSearchQuery,
     filters.risk,
     filters.status,
+    filters.analysis,
     filters.issue,
     filters.source,
     filters.vendor,
@@ -715,12 +721,37 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
           <s-section padding="none">
             <div className="ppProductsToolbar">
-              <div className="ppProductsFilters" aria-label="Product filters" onChange={handleFilterChange}>
-                <ProductFilterSelect name="risk" label="Risk" value={filters.risk || "all"} options={filterOptions.risks} />
-                <ProductFilterSelect name="status" label="Status" value={filters.status || "all"} options={filterOptions.statuses} />
-                <ProductFilterSelect name="issue" label="Issue type" value={filters.issue || "all"} options={filterOptions.issues} />
-                <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
-                <ProductFilterSelect name="vendor" label="Vendor or Collection" value={filters.vendor || "all"} options={filterOptions.vendors} vendor />
+              <div className="ppProductsFilters" aria-label="Product filters">
+                <div className="ppProductsFilterPills">
+                  <ProductFilterPillGroup
+                    name="analysis"
+                    label="Analysis"
+                    value={filters.analysis || "all"}
+                    options={analysisFilterOptions}
+                    onChange={(value) => submitProductFilters({ analysis: value, page: "1" })}
+                  />
+                  <ProductFilterPillGroup
+                    name="risk"
+                    label="Risk"
+                    value={filters.risk || "all"}
+                    options={filterOptions.risks}
+                    onChange={(value) => submitProductFilters({ risk: value, page: "1" })}
+                  />
+                </div>
+                <div className="ppProductsFilterPills">
+                  <ProductFilterPillGroup
+                    name="status"
+                    label="Status"
+                    value={filters.status || "all"}
+                    options={filterOptions.statuses}
+                    onChange={(value) => submitProductFilters({ status: value, page: "1" })}
+                  />
+                </div>
+                <div className="ppProductsSelectFilters" onChange={handleFilterChange}>
+                  <ProductFilterSelect name="issue" label="Issue type" value={filters.issue || "all"} options={filterOptions.issues} />
+                  <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
+                  <ProductFilterSelect name="vendor" label="Vendor or Collection" value={filters.vendor || "all"} options={filterOptions.vendors} vendor />
+                </div>
               </div>
               <div className="ppProductsSecondaryActions">
                 <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
@@ -1071,10 +1102,10 @@ export function SettingsScreen({ data = {}, actionData }) {
               <SettingsNumberField
                 name="maxQueuedPerSubmission"
                 label="Max diagnoses queued at once"
-                detail="Bulk analysis submissions above this limit are rejected before jobs are created."
+                detail="Bulk analysis submissions above this limit are rejected before jobs are created. Use a finite cap to prevent accidental credit-heavy batches."
                 defaultValue={settings.diagnosis.maxQueuedPerSubmission}
                 min="1"
-                max="50"
+                max="500"
               />
             </div>
           </section>
@@ -1592,6 +1623,33 @@ function ShopifyProductSearchModal({
   );
 }
 
+function ProductFilterPillGroup({ label, value, options, onChange }) {
+  const normalizedOptions = Array.isArray(options) && options.length ? options : [{ value: "all", label: "All" }];
+
+  return (
+    <div className="ppFilterPillGroup" aria-label={`${label} filter`}>
+      <span className="ppFilterPillGroupLabel">{label}</span>
+      <div>
+        {normalizedOptions.map((option) => {
+          const active = (value || "all") === option.value;
+          return (
+            <button
+              className={`ppFilterPill ${active ? "isActive" : ""}`.trim()}
+              type="button"
+              key={option.value}
+              aria-pressed={active}
+              onClick={() => onChange?.(option.value)}
+            >
+              {option.label}
+              {Number.isFinite(option.count) && <small>{option.count}</small>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ProductFilterSelect({ name, label, value, options, vendor = false }) {
   const normalizedOptions = Array.isArray(options) && options.length ? options : [{ value: "all", label }];
 
@@ -1621,6 +1679,7 @@ function buildProductFilterFormData(current = {}, overrides = {}) {
     query: "",
     risk: "all",
     status: "all",
+    analysis: "all",
     issue: "all",
     source: "all",
     vendor: "all",
@@ -1634,7 +1693,7 @@ function buildProductFilterFormData(current = {}, overrides = {}) {
   const formData = new FormData();
 
   if (values.query) formData.set("q", values.query);
-  ["risk", "status", "issue", "source", "vendor"].forEach((name) => {
+  ["analysis", "risk", "status", "issue", "source", "vendor"].forEach((name) => {
     if (values[name] && values[name] !== "all") formData.set(name, values[name]);
   });
   if (String(values.page || "1") !== "1") formData.set("page", String(values.page));
