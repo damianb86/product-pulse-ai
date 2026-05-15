@@ -61,6 +61,21 @@ export const action = async ({ request, params }) => {
     return { status: "validation_error", message: "Run QuickScan before dismissing product actions." };
   }
 
+  if (actionType === "review-action") {
+    const snapshotAction = await recordProductDetailActionForShop(
+      session.shop,
+      productId,
+      String(formData.get("actionId") || ""),
+      {
+        label: String(formData.get("label") || ""),
+        actionStatus: "reviewed",
+      },
+      admin,
+    );
+    if (snapshotAction) return snapshotAction;
+    return { status: "validation_error", message: "Run QuickScan before marking product actions reviewed." };
+  }
+
   if (actionType === "ignore-issue") {
     const snapshotAction = await recordProductDetailActionForShop(
       session.shop,

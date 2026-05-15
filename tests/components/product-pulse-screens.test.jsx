@@ -458,6 +458,45 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Start verification" })).toBeInTheDocument();
   });
 
+  it("persists reviewed recommended actions and celebrates when every action is handled", async () => {
+    let submittedAction = "";
+    let submittedActionId = "";
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      submittedAction = String(formData.get("_action") || "");
+      submittedActionId = String(formData.get("actionId") || "");
+      return {
+        status: "success",
+        message: "Review return reasons was marked as reviewed.",
+        action: { id: submittedActionId, label: String(formData.get("label") || "") },
+        actionRecordStatus: "reviewed",
+      };
+    });
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "review-return-reasons",
+        label: "Review return reasons",
+        type: "Workflow",
+        effort: "Low",
+        status: "Ready",
+        payload: { returnUnits: 4 },
+      }],
+      actionHistory: [],
+    };
+
+    renderWithAction(<ProductDiagnosisScreen data={defaultView} product={product} />, action);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Review return reasons" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark reviewed" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(submittedAction).toBe("review-action");
+    expect(submittedActionId).toBe("review-return-reasons");
+    expect(screen.getByRole("dialog", { name: "All recommended actions are handled" })).toBeInTheDocument();
+    expect(screen.getByText("Product actions complete")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand Review return reasons" })).toHaveTextContent("Reviewed");
+  });
+
   it("renders granular sentiment and language evidence in product diagnosis", () => {
     const product = {
       ...defaultView.startHere,

@@ -376,7 +376,9 @@ export function buildDashboardViewData(productItems = products, options = {}) {
   const actionRows = buildDashboardActionRows(productList);
   const pendingActions = actionRows.filter((action) => action.status === "pending");
   const appliedActionIds = new Set(actionRows.filter((action) => action.status === "applied").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
+  const reviewedActionIds = new Set(actionRows.filter((action) => action.status === "reviewed").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
   const appliedActionCount = appliedActionIds.size;
+  const reviewedActionCount = reviewedActionIds.size;
   const resolvedProducts = productList.filter((product) => product.resolvedAt).length;
   const startProduct = getDashboardStartProduct(productList, { pendingActions });
   const priorityProducts = buildDashboardPriorityProducts(productList);
@@ -435,6 +437,7 @@ export function buildDashboardViewData(productItems = products, options = {}) {
       totalNegativeReviews,
       pendingActions: pendingActions.length,
       appliedActions: appliedActionCount,
+      reviewedActions: reviewedActionCount,
       resolvedProducts,
       creditsAvailable: options.billing?.creditsAvailable ?? billing.creditsAvailable,
     },
@@ -697,7 +700,7 @@ function buildDashboardActionRows(productList) {
       .filter((record) => !rowIds.has(record.actionId || record.id))
       .map((record) => {
         const status = normalizeDashboardActionStatus(record.status);
-        if (!["pending", "applied", "dismissed"].includes(status)) return null;
+        if (!["pending", "applied", "reviewed", "dismissed"].includes(status)) return null;
         const action = {
           id: record.actionId || record.id || record.label,
           label: record.label || "Stored product action",
@@ -738,6 +741,7 @@ function isSystemProductActionRecord(record = {}) {
 function normalizeDashboardActionStatus(status) {
   const normalized = String(status || "pending").toLowerCase();
   if (normalized.includes("applied")) return "applied";
+  if (normalized.includes("review")) return "reviewed";
   if (normalized.includes("dismiss") || normalized.includes("ignored")) return "dismissed";
   return "pending";
 }
@@ -1062,6 +1066,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
   const totals = getAnalyticsTotals(productList, { ...options, actionRows });
   const pendingActions = actionRows.filter((action) => action.status === "pending");
   const appliedActions = actionRows.filter((action) => action.status === "applied");
+  const reviewedActions = actionRows.filter((action) => action.status === "reviewed");
   const dismissedActions = actionRows.filter((action) => action.status === "dismissed");
   const productsNeedingAttention = productList.filter((product) => (
     Number(product.riskScore || 0) >= 55
@@ -1098,7 +1103,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       {
         label: "Pending actions",
         value: formatDashboardNumber(pendingActions.length),
-        detail: `${formatDashboardNumber(appliedActions.length)} applied, ${formatDashboardNumber(dismissedActions.length)} dismissed`,
+        detail: `${formatDashboardNumber(appliedActions.length)} applied, ${formatDashboardNumber(reviewedActions.length)} reviewed, ${formatDashboardNumber(dismissedActions.length)} dismissed`,
         icon: "wand",
         tone: pendingActions.length ? "purple" : "green",
       },
@@ -1209,14 +1214,17 @@ function getAnalyticsTotals(productList, options = {}) {
   if (actionRows.length) {
     base.openActions = actionRows.filter((action) => action.status === "pending").length;
     base.appliedActions = actionRows.filter((action) => action.status === "applied").length;
+    base.reviewedActions = actionRows.filter((action) => action.status === "reviewed").length;
     base.dismissedActions = actionRows.filter((action) => action.status === "dismissed").length;
   } else if (actions.length) {
     base.openActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "pending").length;
     base.appliedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length;
+    base.reviewedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length;
     base.dismissedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length;
   } else {
     base.openActions = productList.reduce((total, product) => total + (Array.isArray(product.recommendedActions) ? product.recommendedActions.length : 0), 0);
     base.appliedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length : 0), 0);
+    base.reviewedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length : 0), 0);
     base.dismissedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length : 0), 0);
   }
 
@@ -1638,15 +1646,17 @@ function buildAnalyticsActionPerformance(actionRows = []) {
   const counts = actionRows.reduce((summary, action) => {
     summary.suggested += 1;
     if (action.status === "applied") summary.applied += 1;
+    else if (action.status === "reviewed") summary.reviewed += 1;
     else if (action.status === "dismissed") summary.dismissed += 1;
     else summary.pending += 1;
     return summary;
-  }, { suggested: 0, pending: 0, applied: 0, dismissed: 0 });
+  }, { suggested: 0, pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
 
   const rows = [
     { label: "Suggested", value: counts.suggested, icon: "wand", tone: "purple", detail: "Actions generated from product diagnosis." },
     { label: "Pending", value: counts.pending, icon: "clock", tone: "orange", detail: "Waiting for merchant review or approval." },
     { label: "Applied", value: counts.applied, icon: "check", tone: "green", detail: "Actions already applied to products or workflows." },
+    { label: "Reviewed", value: counts.reviewed, icon: "view", tone: "blue", detail: "Manual follow-ups verified without applying a Shopify change." },
     { label: "Dismissed", value: counts.dismissed, icon: "x", tone: "slate", detail: "Actions intentionally ignored or rejected." },
   ];
 
@@ -1880,7 +1890,7 @@ function buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList }
     const productWindow = Number(metrics.windowDays || windowDays || 90);
     return sum + Number(metrics.returnUnits || 0) * (windowDays / Math.max(productWindow, 1));
   }, 0);
-  const actionCoverage = totals.openActions + totals.appliedActions + totals.dismissedActions;
+  const actionCoverage = totals.openActions + totals.appliedActions + totals.reviewedActions + totals.dismissedActions;
   return [
     {
       label: "Revenue at risk",
@@ -1908,7 +1918,7 @@ function buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList }
       value: formatDashboardNumber(actionCoverage),
       icon: "wand",
       tone: totals.openActions ? "purple" : "green",
-      detail: `${formatDashboardNumber(totals.openActions)} open, ${formatDashboardNumber(totals.appliedActions)} applied, ${formatDashboardNumber(totals.dismissedActions)} dismissed.`,
+      detail: `${formatDashboardNumber(totals.openActions)} open, ${formatDashboardNumber(totals.appliedActions)} applied, ${formatDashboardNumber(totals.reviewedActions)} reviewed, ${formatDashboardNumber(totals.dismissedActions)} dismissed.`,
     },
   ];
 }
@@ -1974,8 +1984,9 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
 
   const openActions = totals.openActions || 0;
   const appliedActions = totals.appliedActions || 0;
+  const reviewedActions = totals.reviewedActions || 0;
   const dismissedActions = totals.dismissedActions || 0;
-  const totalActions = actionRows.length || openActions + appliedActions + dismissedActions;
+  const totalActions = actionRows.length || openActions + appliedActions + reviewedActions + dismissedActions;
   const averageConfidence = productList.length ? impactTotals.confidenceSum / productList.length : 0;
   const availableInputCount = [
     productList.length,
@@ -2001,7 +2012,7 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
       { label: "Revenue at risk", expression: "observed refund value + projected return exposure + review conversion drag" },
       { label: "Margin at risk", expression: "projected return margin loss + refund margin loss + estimated operational exposure" },
       { label: "Potential returns", expression: "projected units exposed x estimated return probability" },
-      { label: "Recommended actions", expression: "open actions + applied actions + dismissed actions" },
+      { label: "Recommended actions", expression: "open actions + applied actions + reviewed actions + dismissed actions" },
     ],
     currentBreakdown: [
       {
@@ -2043,6 +2054,7 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
         components: [
           { label: "Open actions", value: openActions, valueLabel: formatDashboardNumber(openActions) },
           { label: "Applied actions", value: appliedActions, valueLabel: formatDashboardNumber(appliedActions) },
+          { label: "Reviewed actions", value: reviewedActions, valueLabel: formatDashboardNumber(reviewedActions) },
           { label: "Dismissed actions", value: dismissedActions, valueLabel: formatDashboardNumber(dismissedActions) },
           { label: "Pending review actions", value: openActions, valueLabel: formatDashboardNumber(openActions) },
         ],

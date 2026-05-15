@@ -3268,9 +3268,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
   const [actionConfirmation, setActionConfirmation] = useState(null);
+  const [actionsCompleteModalOpen, setActionsCompleteModalOpen] = useState(false);
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
   const [recommendedActionsCollapsed, setRecommendedActionsCollapsed] = useState(false);
   const [draftText, setDraftText] = useState("");
+  const productRef = useRef(product);
+  const minimizedActionStatesRef = useRef(minimizedActionStates);
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
   const pendingIgnoredIssueKey = navigation.state === "submitting" && navigation.formData?.get("_action") === "ignore-issue"
@@ -3278,11 +3281,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     : "";
 
   useEffect(() => {
+    productRef.current = product;
+  }, [product]);
+
+  useEffect(() => {
+    minimizedActionStatesRef.current = minimizedActionStates;
+  }, [minimizedActionStates]);
+
+  useEffect(() => {
     setResolvedLocally(Boolean(product?.resolvedAt));
     setIgnoredIssues(new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
     setMinimizedActionStates({});
     setSelectedRecommendedAction(null);
     setSelectedEvidenceIndex(0);
+    setActionsCompleteModalOpen(false);
     setDiagnosisConfirmation(null);
     setRecommendedActionsCollapsed(false);
   }, [product, product?.slug, product?.resolvedAt]);
@@ -3305,6 +3317,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "ignore-issue"].includes(actionData.action.id)) {
       const actionKey = actionData.action.id;
       const archivedState = getArchivedActionStateFromRecordStatus(actionData.actionRecordStatus || "applied");
+      if (archivedState && willCompleteProductRecommendedActions(productRef.current, actionKey, minimizedActionStatesRef.current)) {
+        setActionsCompleteModalOpen(true);
+      }
       if (archivedState) setMinimizedActionStates((current) => ({ ...current, [actionKey]: archivedState }));
       setSelectedRecommendedAction(null);
       setEditingAction(null);
@@ -3463,6 +3478,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const handleDismissAction = (action) => {
     const actionKey = getRecommendedActionKey(action);
+    if (willCompleteVisibleRecommendedActions(activeRecommendedActions, minimizedActionStates, actionKey)) {
+      setActionsCompleteModalOpen(true);
+    }
     setMinimizedActionStates((current) => ({ ...current, [actionKey]: "dismissed" }));
     setSelectedRecommendedAction(null);
     setActionConfirmation(null);
@@ -3478,11 +3496,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const handleMarkActionReviewed = (action) => {
     const actionKey = getRecommendedActionKey(action);
+    if (willCompleteVisibleRecommendedActions(activeRecommendedActions, minimizedActionStates, actionKey)) {
+      setActionsCompleteModalOpen(true);
+    }
     setMinimizedActionStates((current) => ({ ...current, [actionKey]: "reviewed" }));
     setSelectedRecommendedAction(null);
     setActionConfirmation(null);
     setEditingAction(null);
-    showToast(`${action.title} marked as reviewed for this review session.`);
+    const formData = new FormData();
+    formData.set("_action", "review-action");
+    formData.set("productId", product.slug || product.handle || "");
+    formData.set("actionId", action.id || actionKey);
+    formData.set("label", action.title || action.label || "");
+    dismissFetcher.submit(formData, { method: "post" });
+    showToast(`${action.title} marked as reviewed.`);
   };
 
   const handleAddInvestigationTag = (action) => {
@@ -3840,6 +3867,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             product={product}
             pending={pendingActionType === "apply-action"}
             onCancel={() => setActionConfirmation(null)}
+          />
+        )}
+        {actionsCompleteModalOpen && (
+          <RecommendedActionsCompleteModal
+            productTitle={detail.title}
+            onClose={() => setActionsCompleteModalOpen(false)}
           />
         )}
       </ScreenShell>
@@ -6071,8 +6104,44 @@ function MinimizedRecommendedActionsTray({ actions, minimizedActionStates, onExp
   );
 }
 
+function RecommendedActionsCompleteModal({ productTitle, onClose }) {
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppActionsCompleteModal" role="dialog" aria-modal="true" aria-labelledby="actions-complete-title">
+        <div className="ppActionsCompleteCheck" aria-hidden="true">
+          <s-icon type="check" size="large"></s-icon>
+        </div>
+        <span>Product actions complete</span>
+        <h2 id="actions-complete-title">All recommended actions are handled</h2>
+        <p>
+          You have reviewed, applied, or dismissed every open recommendation for {productTitle}. Keep monitoring this product and run another deep diagnosis in the next few days to confirm how the evidence evolves.
+        </p>
+        <button className="ppPrimaryButton" type="button" onClick={onClose}>
+          <s-icon type="check" size="small"></s-icon>
+          Done
+        </button>
+      </section>
+    </div>
+  );
+}
+
 function getRecommendedActionKey(action = {}) {
   return action.id || action.title || action.label || "recommended-action";
+}
+
+function willCompleteProductRecommendedActions(product, archivedActionKey, minimizedActionStates = {}) {
+  if (!product) return false;
+  const detail = getProductDetailModel(product);
+  if (!detail.hasFullDiagnosis || !detail.recommendedActions.length) return false;
+  return willCompleteVisibleRecommendedActions(detail.recommendedActions, minimizedActionStates, archivedActionKey);
+}
+
+function willCompleteVisibleRecommendedActions(actions = [], minimizedActionStates = {}, archivedActionKey = "") {
+  const normalizedArchivedKey = String(archivedActionKey || "");
+  return actions.length > 0 && actions.every((action) => {
+    const actionKey = getRecommendedActionKey(action);
+    return actionKey === normalizedArchivedKey || Boolean(getArchivedActionState(action, minimizedActionStates));
+  });
 }
 
 function getArchivedActionState(action = {}, minimizedActionStates = {}) {

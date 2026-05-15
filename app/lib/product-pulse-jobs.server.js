@@ -560,17 +560,17 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       };
     }
   }
-  if (status === "dismissed") {
-    const existingDismissedAction = await prisma.productAction.findFirst({
-      where: { shop, productGid: snapshot.productGid, actionType: recordActionId, status: "dismissed" },
+  if (["dismissed", "reviewed"].includes(status)) {
+    const existingCompletedAction = await prisma.productAction.findFirst({
+      where: { shop, productGid: snapshot.productGid, actionType: recordActionId, status },
       orderBy: { createdAt: "desc" },
     });
-    if (existingDismissedAction) {
+    if (existingCompletedAction) {
       return {
         status: "success",
-        message: `${recordLabel} is already dismissed for ${snapshot.productTitle}.`,
+        message: `${recordLabel} is already ${status} for ${snapshot.productTitle}.`,
         action,
-        actionRecordStatus: "dismissed",
+        actionRecordStatus: status,
         suppressBanner: true,
       };
     }
@@ -597,6 +597,8 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       ? `${recordLabel} was applied for ${snapshot.productTitle}.`
       : status === "dismissed"
       ? `${recordLabel} was dismissed for ${snapshot.productTitle}.`
+      : status === "reviewed"
+      ? `${recordLabel} was marked as reviewed for ${snapshot.productTitle}.`
       : `${recordLabel} was saved as a draft for ${snapshot.productTitle}.`),
     action,
     actionRecordStatus: status,
