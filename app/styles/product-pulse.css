@@ -4745,6 +4745,26 @@ s-page[inline-size="large-500"] {
 .ppActionPriorityPill {
   background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
+  gap: 5px;
+}
+
+.ppActionPriorityPill s-icon {
+  color: currentColor;
+}
+
+.ppActionPriorityPill-low {
+  background: var(--pp-teal-soft);
+  color: var(--pp-signal-teal);
+}
+
+.ppActionPriorityPill-medium {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppActionPriorityPill-high {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
 }
 
 .ppProductActionHeader em {
@@ -5149,6 +5169,358 @@ s-page[inline-size="large-500"] {
 .ppRecommendedActionModalFooter .ppActionCtaButton,
 .ppRecommendedActionModalFooter .ppActionDismissButton {
   width: auto;
+}
+
+.ppActionReviewBody {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppActionReviewSection {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppActionReviewSection:last-of-type {
+  border-bottom: 0;
+}
+
+.ppActionReviewSectionIcon {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.22);
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppActionReviewSectionIcon s-icon {
+  color: currentColor;
+}
+
+.ppActionReviewSectionContent {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ppActionReviewSectionContent h3 {
+  margin: 1px 0 0;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.ppActionSectionLead {
+  margin: -4px 0 0 !important;
+  color: var(--pp-slate-500) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+.ppActionProposedChangeBox {
+  position: relative;
+  min-height: 84px;
+  padding: 12px 44px 12px 13px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.42);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(var(--pp-insight-violet-rgb), 0.035), rgba(255, 255, 255, 0)),
+    var(--pp-cloud-white);
+  box-shadow: inset 0 0 0 1px rgba(var(--pp-insight-violet-rgb), 0.04);
+}
+
+.ppActionProposedChangeBox .ppActionDetailToggle {
+  margin-top: 8px;
+}
+
+.ppActionEditSuggestionButton-review {
+  right: 11px;
+  bottom: 11px;
+}
+
+.ppActionInlineEditor-review textarea {
+  min-height: 112px;
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.38);
+}
+
+.ppActionVariantChooser-review {
+  margin-top: 0;
+}
+
+.ppActionPreviewGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.ppActionPreviewColumn {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ppActionPreviewColumn > strong {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ppActionPreviewBox {
+  min-height: 118px;
+  max-height: 168px;
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-mist-gray);
+}
+
+.ppActionPreviewBox p {
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ppActionPreviewBox-after {
+  background: var(--pp-cloud-white);
+}
+
+.ppActionPreviewInsertedText {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 9px;
+  padding: 10px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.2);
+  border-radius: 7px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.075);
+}
+
+.ppActionPreviewInsertedText s-icon {
+  color: var(--pp-insight-violet);
+}
+
+.ppActionPreviewInsertedText p {
+  color: var(--pp-insight-violet);
+  font-weight: 800;
+}
+
+.ppActionPreviewArrow {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppActionWhyGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ppActionWhyItem {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 9px;
+  row-gap: 1px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 10px;
+  border-right: 1px solid var(--pp-slate-200);
+}
+
+.ppActionWhyItem:last-child {
+  border-right: 0;
+}
+
+.ppActionWhyItem s-icon {
+  grid-row: span 2;
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppActionWhyItem strong {
+  min-width: 0;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.ppActionWhyItem small {
+  min-width: 0;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.ppActionWhyItem-risk s-icon {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppActionWhyItem-warning s-icon {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppActionApplyDetailsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ppActionApplyDetail {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 9px;
+  row-gap: 2px;
+  min-height: 54px;
+  padding: 9px 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+}
+
+.ppActionApplyDetail s-icon {
+  grid-row: span 2;
+  width: 24px;
+  height: 24px;
+  padding: 5px;
+  border-radius: 7px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppActionApplyDetail small {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.ppActionApplyDetail strong {
+  color: var(--pp-slate-800);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.ppActionApplyDetail-low s-icon {
+  background: var(--pp-teal-soft);
+  color: var(--pp-signal-teal);
+}
+
+.ppActionApplyDetail-medium s-icon,
+.ppActionApplyDetail-warning s-icon {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppActionApplyDetail-high s-icon {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppActionAdvancedDetails {
+  padding: 12px 18px 14px 66px;
+  border-top: 1px solid var(--pp-slate-200);
+  background: var(--pp-mist-gray);
+}
+
+.ppActionAdvancedDetails summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ppActionAdvancedDetails summary::-webkit-details-marker {
+  display: none;
+}
+
+.ppActionAdvancedDetails[open] summary s-icon {
+  transform: rotate(90deg);
+}
+
+.ppActionAdvancedDetails > div {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+}
+
+.ppActionAdvancedDetails p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppActionEditFooterButton {
+  min-width: 0;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 9px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ppActionEditFooterButton:hover:not(:disabled) {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.3);
+  color: var(--pp-pulse-blue);
+  background: var(--pp-blue-soft);
+}
+
+.ppRecommendedActionModalFooter.ppProductActionCta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.ppRecommendedActionModalFooter .ppActionCtaButton,
+.ppRecommendedActionModalFooter .ppActionDismissButton,
+.ppRecommendedActionModalFooter .ppActionEditFooterButton {
+  width: 100%;
+  max-width: none;
 }
 
 .ppModalCloseButton {

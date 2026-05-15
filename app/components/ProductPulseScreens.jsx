@@ -6038,6 +6038,364 @@ function ProductActionRecipeDetails({ application }) {
   );
 }
 
+function RecommendedActionReviewBody({
+  action,
+  application,
+  product,
+  editedText,
+  detailExpanded,
+  hasLongDetail,
+  isEditingInline,
+  onDetailExpandedChange,
+  onEditedTextChange,
+  onEditText,
+  onSelectedVariantChange,
+}) {
+  const detailText = String(application.editable ? editedText : application.value || action.detail || "");
+
+  return (
+    <div className="ppProductActionBody ppActionReviewBody">
+      <RecommendedActionReviewSection icon="edit" title="Proposed change">
+        <p className="ppActionSectionLead">{application.intro}</p>
+        <RecommendedActionProposedChange
+          action={action}
+          application={application}
+          detailExpanded={detailExpanded}
+          detailText={detailText}
+          hasLongDetail={hasLongDetail}
+          isEditingInline={isEditingInline}
+          onDetailExpandedChange={onDetailExpandedChange}
+          onEditedTextChange={onEditedTextChange}
+          onEditText={onEditText}
+        />
+        {application.variants?.length > 1 && (
+          <div className="ppActionVariantChooser ppActionVariantChooser-review" role="group" aria-label={`How to apply ${action.title}`}>
+            <span>Apply as</span>
+            <div>
+              {application.variants.map((variant) => (
+                <button
+                  key={variant.id}
+                  type="button"
+                  className={variant.id === application.variantId ? "isSelected" : ""}
+                  onClick={() => onSelectedVariantChange(variant.id)}
+                >
+                  <strong>{variant.label}</strong>
+                  <small>{variant.operation}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionReviewSection icon="view" title="Preview">
+        <RecommendedActionPreview application={application} editedText={editedText} />
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionReviewSection icon="chart-line" title="Why this action">
+        <RecommendedActionWhyItems action={action} product={product} />
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionReviewSection icon="check-circle" title="Apply details">
+        <RecommendedActionApplyDetails application={application} />
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionAdvancedDetails action={action} application={application} />
+    </div>
+  );
+}
+
+function RecommendedActionReviewSection({ icon, title, children }) {
+  return (
+    <section className="ppActionReviewSection">
+      <span className="ppActionReviewSectionIcon" aria-hidden="true">
+        <s-icon type={icon} size="small"></s-icon>
+      </span>
+      <div className="ppActionReviewSectionContent">
+        <h3>{title}</h3>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function RecommendedActionProposedChange({
+  action,
+  application,
+  detailText,
+  detailExpanded,
+  hasLongDetail,
+  isEditingInline,
+  onDetailExpandedChange,
+  onEditedTextChange,
+  onEditText,
+}) {
+  return (
+    <div className="ppActionProposedChangeBox">
+      {isEditingInline ? (
+        <label className="ppActionInlineEditor ppActionInlineEditor-review">
+          <span>{application.valueLabel || "Proposed value"}</span>
+          <textarea
+            aria-label="Description text to apply"
+            value={detailText}
+            rows={detailExpanded ? 10 : 6}
+            onChange={(event) => onEditedTextChange(event.target.value)}
+          />
+        </label>
+      ) : (
+        <>
+          <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>
+            {detailText || "No proposed value supplied."}
+          </p>
+          {application.editable && (
+            <button className="ppActionEditSuggestionButton ppActionEditSuggestionButton-review" type="button" onClick={onEditText} aria-label={`Edit suggested text for ${action.title}`}>
+              <s-icon type="edit" size="small"></s-icon>
+            </button>
+          )}
+        </>
+      )}
+      {hasLongDetail && !isEditingInline && (
+        <button className="ppActionDetailToggle" type="button" onClick={() => onDetailExpandedChange((expanded) => !expanded)}>
+          {detailExpanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RecommendedActionPreview({ application, editedText }) {
+  const preview = getRecommendedActionPreviewParts(application, editedText);
+
+  return (
+    <div className="ppActionPreviewGrid">
+      <div className="ppActionPreviewColumn">
+        <strong>{preview.beforeLabel}</strong>
+        <div className="ppActionPreviewBox">
+          <p>{preview.beforeText}</p>
+        </div>
+      </div>
+      <span className="ppActionPreviewArrow" aria-hidden="true">
+        <s-icon type="chevron-right" size="small"></s-icon>
+      </span>
+      <div className="ppActionPreviewColumn">
+        <strong>{preview.afterLabel}</strong>
+        <div className="ppActionPreviewBox ppActionPreviewBox-after">
+          {preview.highlightText && (
+            <div className="ppActionPreviewInsertedText">
+              <s-icon type="wand" size="small"></s-icon>
+              <p>{preview.highlightText}</p>
+            </div>
+          )}
+          {preview.afterText && <p>{preview.afterText}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getRecommendedActionPreviewParts(application = {}, editedText = "") {
+  const proposed = normalizeActionText(editedText || application.value || "");
+  const current = normalizeActionText(application.currentValue || "");
+  const target = String(application.target || "").toLowerCase();
+  const isDescription = target.includes("description");
+  const beforeLabel = application.currentValueLabel
+    ? `${application.currentValueLabel}${isDescription ? " (excerpt)" : ""}`
+    : "Current Shopify value";
+  const afterLabel = isDescription ? "Updated description preview" : `${application.target || "Updated value"} preview`;
+  const emptyCurrent = isDescription ? "No current Shopify description was loaded for this product." : "No current Shopify value was loaded.";
+
+  if (application.insertionPosition === "prepend" && current) {
+    return {
+      beforeLabel,
+      afterLabel,
+      beforeText: toActionPreviewExcerpt(current || emptyCurrent),
+      highlightText: toActionPreviewExcerpt(proposed),
+      afterText: toActionPreviewExcerpt(current),
+    };
+  }
+
+  if (application.insertionPosition === "append" && current) {
+    return {
+      beforeLabel,
+      afterLabel,
+      beforeText: toActionPreviewExcerpt(current || emptyCurrent),
+      highlightText: "",
+      afterText: toActionPreviewExcerpt(`${current}\n\n${proposed}`),
+    };
+  }
+
+  return {
+    beforeLabel,
+    afterLabel,
+    beforeText: toActionPreviewExcerpt(current || emptyCurrent),
+    highlightText: isDescription ? "" : "",
+    afterText: toActionPreviewExcerpt(proposed || "No proposed value supplied."),
+  };
+}
+
+function toActionPreviewExcerpt(value = "", maxLength = 460) {
+  const text = normalizeActionText(value);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
+function RecommendedActionWhyItems({ action, product }) {
+  const items = getRecommendedActionWhyItems(action, product);
+  return (
+    <div className="ppActionWhyGrid">
+      {items.map((item) => (
+        <span className={`ppActionWhyItem ppActionWhyItem-${item.tone || "neutral"}`} key={`${item.label}-${item.value}`}>
+          <s-icon type={item.icon} size="small"></s-icon>
+          <strong>{item.value}</strong>
+          <small>{item.label}</small>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function getRecommendedActionWhyItems(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const metrics = product.metrics || {};
+  const items = [];
+  const windowDays = metrics.windowDays || payload.windowDays || 90;
+  const returnUnits = Number(payload.returnUnits ?? metrics.returnUnits ?? 0);
+  const returnRate = Number(payload.returnRate ?? metrics.returnRate ?? 0);
+  const negativeReviews = Number(payload.negativeReviewCount ?? metrics.negativeReviewCount ?? 0);
+  const contentIssues = Array.isArray(payload.contentIssues) ? payload.contentIssues.length : Number(metrics.contentIssueCount || 0);
+  const signalCount = Number(payload.signalsCount ?? metrics.signalCount ?? product.signalsCount ?? 0);
+  const affectedVariants = Array.isArray(payload.affectedVariants) ? payload.affectedVariants.length : 0;
+
+  if (returnUnits > 0 || returnRate > 0) {
+    items.push({
+      icon: "refresh",
+      tone: returnRate >= 15 ? "risk" : "warning",
+      value: returnUnits > 0 ? `${formatInteger(returnUnits)} return${returnUnits === 1 ? "" : "s"}` : `${returnRate}% return rate`,
+      label: `in the last ${windowDays} days`,
+    });
+  }
+
+  if (negativeReviews > 0) {
+    items.push({
+      icon: "star",
+      tone: negativeReviews >= 5 ? "risk" : "warning",
+      value: `${formatInteger(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`,
+      label: "mention product concerns",
+    });
+  }
+
+  if (contentIssues > 0) {
+    items.push({
+      icon: "info",
+      tone: "blue",
+      value: `${formatInteger(contentIssues)} content gap${contentIssues === 1 ? "" : "s"}`,
+      label: "may reduce buyer clarity",
+    });
+  }
+
+  if (affectedVariants > 0) {
+    items.push({
+      icon: "product",
+      tone: "blue",
+      value: `${formatInteger(affectedVariants)} affected variant${affectedVariants === 1 ? "" : "s"}`,
+      label: "concentrates the diagnosis",
+    });
+  }
+
+  if (signalCount > 0) {
+    items.push({
+      icon: "chart-line",
+      tone: "blue",
+      value: `${formatInteger(signalCount)} stored signal${signalCount === 1 ? "" : "s"}`,
+      label: "support this recommendation",
+    });
+  }
+
+  if (!items.length) {
+    items.push({
+      icon: "info",
+      tone: "blue",
+      value: "Diagnosis evidence",
+      label: action.reason || "ProductPulse found enough context to recommend this action.",
+    });
+  }
+
+  return items.slice(0, 3);
+}
+
+function RecommendedActionApplyDetails({ application }) {
+  const details = [
+    { icon: "edit", label: "Will edit", value: application.shopifyField || application.target || "ProductPulse workflow", tone: "blue" },
+    { icon: "alert-circle", label: "Risk", value: application.applicationRisk || "Low", tone: getActionRiskTone(application.applicationRisk) },
+    { icon: "check", label: "Approval", value: application.approval || "Review required", tone: "warning" },
+  ];
+
+  return (
+    <div className="ppActionApplyDetailsGrid">
+      {details.map((detail) => (
+        <span className={`ppActionApplyDetail ppActionApplyDetail-${detail.tone || "neutral"}`} key={detail.label}>
+          <s-icon type={detail.icon} size="small"></s-icon>
+          <small>{detail.label}</small>
+          <strong>{detail.value}</strong>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function RecommendedActionAdvancedDetails({ action, application }) {
+  const meta = Array.isArray(action.meta) ? action.meta : [];
+  const evidence = Array.isArray(action.evidence) ? action.evidence : [];
+  const hasDetails = application.trigger
+    || application.expectedImpact
+    || application.relatedActions?.length
+    || meta.length
+    || evidence.length
+    || action.reason;
+
+  if (!hasDetails) return null;
+
+  return (
+    <details className="ppActionAdvancedDetails">
+      <summary>
+        <span>Show details</span>
+        <s-icon type="chevron-right" size="small"></s-icon>
+      </summary>
+      <div>
+        <ProductActionRecipeDetails application={application} />
+        {application.trigger && (
+          <p><strong>Trigger:</strong> {application.trigger}</p>
+        )}
+        {application.expectedImpact && (
+          <p><strong>Expected impact:</strong> {application.expectedImpact}</p>
+        )}
+        {action.reason && (
+          <p><strong>Diagnosis rationale:</strong> {action.reason}</p>
+        )}
+        {application.relatedActions?.length > 0 && (
+          <p><strong>Related suggestion:</strong> {application.relatedActions.join(", ")}</p>
+        )}
+        {(meta.length > 0 || evidence.length > 0) && (
+          <div className="ppActionMetaRow">
+            {meta.map((item) => (
+              <span key={`advanced-${item.label}`}>
+                <s-icon type={item.icon} size="small"></s-icon>
+                {item.label}
+              </span>
+            ))}
+            {evidence.map((item) => (
+              <span className="ppActionEvidencePill" key={`advanced-${item}`}>
+                <s-icon type="chart-line" size="small"></s-icon>
+                {item}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function getActionRiskTone(value = "") {
   const normalized = String(value || "").toLowerCase();
   if (normalized.includes("high")) return "high";
@@ -6045,10 +6403,40 @@ function getActionRiskTone(value = "") {
   return "low";
 }
 
+function getRecommendedActionHeaderPills(action = {}, application = {}) {
+  return [
+    { icon: "star", label: action.priority || "Primary next step", tone: "blue" },
+    { icon: "check-circle", label: `${application.applicationRisk || "Low"} risk`, tone: getActionRiskTone(application.applicationRisk) },
+    { icon: "clock", label: `${action.effort || "Low"} effort`, tone: "blue" },
+  ].filter((pill) => pill.label);
+}
+
+function getRecommendedActionModalSubtitle(application = {}) {
+  const target = String(application.target || "").toLowerCase();
+  if (target.includes("description") && application.insertionPosition === "prepend") {
+    return "Create a note shoppers will see before they buy.";
+  }
+  if (target.includes("description") && application.insertionPosition === "append") {
+    return "Add product guidance without replacing the current description.";
+  }
+  if (target.includes("description")) {
+    return "Review the suggested product description update before applying it.";
+  }
+  if (target.includes("tag")) {
+    return "Add internal Shopify tags to support product-quality workflows.";
+  }
+  if (target.includes("status")) {
+    return "Review this high-impact operational change before updating Shopify.";
+  }
+  return "Review the proposed Shopify change before applying it.";
+}
+
 function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
   if (!action) return null;
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
+  const application = getRecommendedActionApplication(action, product);
+  const headerPills = getRecommendedActionHeaderPills(action, application);
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -6062,10 +6450,15 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
             <span className="ppRecommendedActionModalKicker">Recommended action</span>
             <h2 className="ppRecommendedActionModalTitle" id="recommended-action-detail-title">{action.title}</h2>
             <span className="ppRecommendedActionModalPills">
-              <span className="ppActionPriorityPill">{action.priority}</span>
+              {headerPills.map((pill) => (
+                <span className={`ppActionPriorityPill ppActionPriorityPill-${pill.tone}`} key={pill.label}>
+                  <s-icon type={pill.icon} size="small"></s-icon>
+                  {pill.label}
+                </span>
+              ))}
               {action.appliedRecord && <em>{applied ? "Applied" : drafted ? "Draft saved" : action.appliedRecord.status}</em>}
             </span>
-            <p>Review the trigger, proposed Shopify change, evidence and expected impact before applying it.</p>
+            <p>{getRecommendedActionModalSubtitle(application)}</p>
           </div>
           <button className="ppModalCloseButton" type="button" aria-label="Close recommended action" onClick={onClose}>
             <s-icon type="x" size="small"></s-icon>
@@ -6100,7 +6493,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const buttonText = applied
+  const defaultButtonText = applied
     ? "Applied"
     : drafted
       ? "Draft saved"
@@ -6109,6 +6502,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
         : mode === "apply-product"
           ? application.applyLabel
           : action.action;
+  const buttonText = !showHeader && mode === "apply-product" && !applied && !drafted && !pending ? "Apply change" : defaultButtonText;
   const detailText = String(application.editable ? editedText : action.detail || "");
   const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
   const disabled = pending || applied;
@@ -6135,91 +6529,19 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   }, [application.value, action.detail]);
 
   const actionBody = (
-    <div className="ppProductActionBody">
-      <div className="ppActionApplicationIntro">
-        <strong>{application.operation}</strong>
-        <p>{application.intro}</p>
-      </div>
-      <ProductActionRecipeDetails application={application} />
-      {application.variants?.length > 1 && (
-        <div className="ppActionVariantChooser" role="group" aria-label={`How to apply ${action.title}`}>
-          <span>Apply as</span>
-          <div>
-            {application.variants.map((variant) => (
-              <button
-                key={variant.id}
-                type="button"
-                className={variant.id === application.variantId ? "isSelected" : ""}
-                onClick={() => setSelectedVariantId(variant.id)}
-              >
-                <strong>{variant.label}</strong>
-                <small>{variant.operation}</small>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {application.currentValue && (
-        <div className="ppActionCurrentValueBox">
-          <span>{application.currentValueLabel || "Current value"}</span>
-          <CurrentDescriptionInsertionPreview application={application} />
-        </div>
-      )}
-      {application.relatedActions?.length > 0 && (
-        <div className="ppActionRelatedBox">
-          <s-icon type="link" size="small"></s-icon>
-          <span>Related suggestion: {application.relatedActions.join(", ")}</span>
-        </div>
-      )}
-      {application.editable && isEditingInline ? (
-        <label className="ppActionInlineEditor">
-          <span>{application.valueLabel}</span>
-          <textarea
-            aria-label="Description text to apply"
-            value={editedText}
-            rows={detailExpanded ? 10 : 6}
-            onChange={(event) => setEditedText(event.target.value)}
-          />
-        </label>
-      ) : application.editable ? (
-        <div className="ppActionSuggestionBox">
-          <span>{application.valueLabel}</span>
-          <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
-          <button className="ppActionEditSuggestionButton" type="button" onClick={() => setIsEditingInline(true)} aria-label={`Edit suggested text for ${action.title}`}>
-            <s-icon type="edit" size="small"></s-icon>
-            <span>Edit</span>
-          </button>
-        </div>
-      ) : (
-        <p className={`ppActionDetailText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
-      )}
-      {hasLongDetail && !isEditingInline && (
-        <button className="ppActionDetailToggle" type="button" onClick={() => setDetailExpanded((expanded) => !expanded)}>
-          {detailExpanded ? "Show less" : "Show more"}
-        </button>
-      )}
-      <div className="ppActionReasonBox">
-        <span>
-          <s-icon type="info" size="small"></s-icon>
-          Why this is suggested
-        </span>
-        <p>{action.reason}</p>
-      </div>
-      <div className="ppActionMetaRow">
-        {action.meta.map((meta) => (
-          <span key={`${actionId}-${meta.label}`}>
-            <s-icon type={meta.icon} size="small"></s-icon>
-            {meta.label}
-          </span>
-        ))}
-        {action.evidence.map((item) => (
-          <span className="ppActionEvidencePill" key={`${actionId}-${item}`}>
-            <s-icon type="chart-line" size="small"></s-icon>
-            {item}
-          </span>
-        ))}
-      </div>
-    </div>
+    <RecommendedActionReviewBody
+      action={action}
+      application={application}
+      product={product}
+      editedText={editedText}
+      detailExpanded={detailExpanded}
+      hasLongDetail={hasLongDetail}
+      isEditingInline={isEditingInline}
+      onDetailExpandedChange={setDetailExpanded}
+      onEditedTextChange={setEditedText}
+      onEditText={() => setIsEditingInline(true)}
+      onSelectedVariantChange={setSelectedVariantId}
+    />
   );
 
   const actionCta = (
@@ -6228,6 +6550,12 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
         <s-icon type="x" size="small"></s-icon>
         <span>Dismiss</span>
       </button>
+      {!showHeader && application.editable && (
+        <button className="ppActionEditFooterButton" type="button" onClick={() => setIsEditingInline(true)} disabled={pending || applied}>
+          <s-icon type="edit" size="small"></s-icon>
+          <span>Edit text</span>
+        </button>
+      )}
       {actionButton}
     </div>
   );

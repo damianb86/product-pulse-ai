@@ -281,7 +281,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit suggested text for Add fit note" }));
     fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Apply to product" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Apply change" })[0]);
     expect(screen.getByRole("heading", { name: "Confirm product description update" })).toBeInTheDocument();
     expect(screen.getAllByText("Updated fit guidance for shoppers.").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -323,7 +323,7 @@ describe("ProductPulse screens", () => {
 
     fireEvent.click(within(faqDialog).getByRole("button", { name: /Product metafield/ }));
     await waitFor(() => expect(within(faqDialog).getByRole("button", { name: /Product metafield/ })).toHaveClass("isSelected"));
-    fireEvent.click(within(faqDialog).getByRole("button", { name: /Save FAQ metafield/ }));
+    fireEvent.click(within(faqDialog).getByRole("button", { name: "Apply change" }));
     expect(screen.getByRole("heading", { name: "Confirm FAQ metafield update" })).toBeInTheDocument();
     expect(screen.getAllByText(/productpulse\.faq_items/).length).toBeGreaterThan(0);
   });
@@ -341,7 +341,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByRole("button", { name: "Minimize" })).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
-    expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
+    expect(screen.getAllByText(/customers report this trouser runs small/).length).toBeGreaterThan(0);
   });
 
   it("persists ignored issues and hides related recommendations", async () => {
