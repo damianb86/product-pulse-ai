@@ -55,6 +55,20 @@ export async function getProductScoreHistoryForShop(shop, productGid, { take = 4
   return rows.reverse();
 }
 
+export async function getProductScoreHistoryForProductsForShop(shop, productGids = [], { take = 40 } = {}) {
+  if (!shop) return new Map();
+  const uniqueProductGids = [...new Set(productGids.filter(Boolean))];
+  if (!uniqueProductGids.length) return new Map();
+
+  const entries = await Promise.all(
+    uniqueProductGids.map(async (productGid) => [
+      productGid,
+      await getProductScoreHistoryForShop(shop, productGid, { take }),
+    ]),
+  );
+  return new Map(entries);
+}
+
 function buildHistoryMetrics(snapshot = {}) {
   const metrics = snapshot.metrics || {};
   return {

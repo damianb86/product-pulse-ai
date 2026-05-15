@@ -1,5 +1,5 @@
 import prisma from "../db.server";
-import { getProductScoreHistoryForShop } from "./product-pulse-history.server";
+import { getProductScoreHistoryForProductsForShop } from "./product-pulse-history.server";
 import { getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 
 export const WATCHLIST_MAX_PRODUCTS = 5;
@@ -31,11 +31,12 @@ const DEFAULT_WATCH_SETTINGS = {
   summarySchedule: "daily_digest_8am",
   alertsEnabled: true,
 };
+const WATCH_TREND_COLORS = ["#3A6BFF", "#7C3AED", "#14B8A6", "#F59E0B", "#EF4444"];
 
 export async function getWatchlistForShop(shop) {
   const items = await prisma.productWatchlistItem.findMany({
     where: { shop },
-    orderBy: [{ addedAt: "asc" }],
+    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
   });
   const productGids = items.map((item) => item.productGid).filter(Boolean);
   const snapshots = productGids.length
@@ -46,10 +47,9 @@ export async function getWatchlistForShop(shop) {
   const snapshotByProductGid = new Map(snapshots.map((snapshot) => [snapshot.productGid, snapshot]));
   const rows = items.map((item) => formatWatchlistRow(item, snapshotByProductGid.get(item.productGid)));
   const watchedCount = rows.length;
-  const firstWatchedProductGid = rows[0]?.productGid || "";
-  const [activities, trendHistory, activityStats, settings] = await Promise.all([
+  const [activities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
-    firstWatchedProductGid ? getProductScoreHistoryForShop(shop, firstWatchedProductGid, { take: 40 }) : [],
+    productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 40 }) : new Map(),
     getWatchActivityStatsForShop(shop),
     getWatchSettingsForShop(shop),
   ]);
@@ -60,7 +60,7 @@ export async function getWatchlistForShop(shop) {
     slotsAvailable: Math.max(0, WATCHLIST_MAX_PRODUCTS - watchedCount),
     rows,
     activities,
-    trend: buildWatchlistTrend(rows[0], trendHistory),
+    trend: buildWatchlistTrend(rows, trendHistoryByProductGid),
     settings,
     mock: getWatchlistOverviewSections({ rows, activities, activityStats, settings }),
   };
@@ -179,7 +179,14 @@ export async function addWatchedProductForShop(shop, product = {}) {
     };
   }
 
-  const watchedCount = await prisma.productWatchlistItem.count({ where: { shop } });
+  const [watchedCount, lastItem] = await Promise.all([
+    prisma.productWatchlistItem.count({ where: { shop } }),
+    prisma.productWatchlistItem.findFirst({
+      where: { shop },
+      orderBy: [{ displayOrder: "desc" }, { addedAt: "desc" }],
+      select: { displayOrder: true },
+    }),
+  ]);
   if (watchedCount >= WATCHLIST_MAX_PRODUCTS) {
     return {
       status: "validation_error",
@@ -197,6 +204,7 @@ export async function addWatchedProductForShop(shop, product = {}) {
       status: "Watching",
       imageUrl: optionalString(product.imageUrl),
       imageAlt: optionalString(product.imageAlt),
+      displayOrder: Number(lastItem?.displayOrder ?? -1) + 1,
     },
   });
   await recordWatchActivityForShop(shop, {
@@ -263,6 +271,56 @@ export async function resumeWatchedProductForShop(shop, productGid) {
   return { status: "success", message: `${updated.productTitle} resumed on the watchlist.`, action: { id: "resume-watched-product" }, suppressBanner: true };
 }
 
+export async function moveWatchedProductForShop(shop, productGid, direction = "up") {
+  const normalizedDirection = direction === "down" ? "down" : "up";
+  const items = await prisma.productWatchlistItem.findMany({
+    where: { shop },
+    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
+  });
+  const index = items.findIndex((item) => item.productGid === productGid);
+  if (index === -1) return { status: "validation_error", message: "Watched product was not found." };
+
+  const targetIndex = normalizedDirection === "up" ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= items.length) {
+    return {
+      status: "success",
+      message: `${items[index].productTitle} is already ${normalizedDirection === "up" ? "first" : "last"} in the watchlist.`,
+      action: { id: "move-watched-product" },
+      suppressBanner: true,
+    };
+  }
+
+  const orderedItems = [...items];
+  [orderedItems[index], orderedItems[targetIndex]] = [orderedItems[targetIndex], orderedItems[index]];
+  await prisma.$transaction(
+    orderedItems.map((item, displayOrder) => prisma.productWatchlistItem.update({
+      where: { id: item.id },
+      data: { displayOrder },
+    })),
+  );
+
+  await recordWatchActivityForShop(shop, {
+    eventType: "watch_order_changed",
+    title: "Watchlist order changed",
+    detail: `${items[index].productTitle} moved ${normalizedDirection}.`,
+    productGid: items[index].productGid,
+    productTitle: items[index].productTitle,
+    watchlistItemId: items[index].id,
+    metadata: {
+      direction: normalizedDirection,
+      previousPosition: index + 1,
+      newPosition: targetIndex + 1,
+    },
+  });
+
+  return {
+    status: "success",
+    message: `${items[index].productTitle} moved ${normalizedDirection}.`,
+    action: { id: "move-watched-product", productGid: items[index].productGid },
+    suppressBanner: true,
+  };
+}
+
 export async function removeWatchedProductForShop(shop, productGid) {
   const item = await findWatchedProduct(shop, productGid);
   if (!item) return { status: "validation_error", message: "Watched product was not found." };
@@ -270,6 +328,7 @@ export async function removeWatchedProductForShop(shop, productGid) {
   await prisma.productWatchlistItem.delete({
     where: { shop_productGid: { shop, productGid: item.productGid } },
   });
+  await normalizeWatchlistOrderForShop(shop);
   await recordWatchActivityForShop(shop, {
     eventType: "product_removed",
     title: "Product removed from watchlist",
@@ -309,7 +368,7 @@ export async function getActiveWatchedProductsForShop(shop) {
   if (!shop) return [];
   return prisma.productWatchlistItem.findMany({
     where: { shop, status: { not: "Paused" } },
-    orderBy: [{ addedAt: "asc" }],
+    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
     select: {
       id: true,
       productGid: true,
@@ -384,6 +443,21 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
   return prisma.productWatchActivity.createMany({ data: rows });
 }
 
+async function normalizeWatchlistOrderForShop(shop) {
+  const items = await prisma.productWatchlistItem.findMany({
+    where: { shop },
+    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
+    select: { id: true },
+  });
+  if (!items.length) return null;
+  return prisma.$transaction(
+    items.map((item, displayOrder) => prisma.productWatchlistItem.update({
+      where: { id: item.id },
+      data: { displayOrder },
+    })),
+  );
+}
+
 async function findWatchedProduct(shop, productGid) {
   const normalizedProductGid = String(productGid || "").trim();
   if (!shop || !normalizedProductGid) return null;
@@ -411,6 +485,7 @@ function formatWatchlistRow(item, snapshot) {
     statusTone: status === "Paused" ? "subdued" : "success",
     imageUrl: item.imageUrl || null,
     imageAlt: item.imageAlt || item.productTitle,
+    displayOrder: Number(item.displayOrder || 0),
     href: item.handle ? `/app/products/${item.handle}` : `/app/products/${encodeURIComponent(item.productGid)}`,
     riskScore,
     riskLabel,
@@ -495,60 +570,86 @@ function formatWatchActivity(activity) {
   };
 }
 
-function buildWatchlistTrend(product, history = []) {
-  if (!product) {
+function buildWatchlistTrend(products = [], historyByProductGid = new Map()) {
+  const watchedProducts = Array.isArray(products) ? products : [products].filter(Boolean);
+  if (!watchedProducts.length) {
     return {
-      productTitle: "No watched product",
+      productTitle: "No watched products",
       riskLabel: "No data",
       riskScore: null,
-      points: [],
-      values: [],
+      series: [],
       calloutTitle: "Add a product to start watch trend tracking",
       calloutDetail: "Product risk history is stored every time ProductPulse updates a watched product.",
     };
   }
 
-  const values = history
-    .map((row) => ({
-      riskScore: Number(row.riskScore || 0),
-      recordedAt: row.recordedAt?.toISOString?.() || row.recordedAt,
-      source: row.source,
-      primaryIssue: row.primaryIssue || "",
-    }))
-    .filter((row) => Number.isFinite(row.riskScore));
-  if (!values.length && Number.isFinite(Number(product.riskScore))) {
-    values.push({
-      riskScore: Number(product.riskScore),
-      recordedAt: new Date().toISOString(),
-      source: "current-snapshot",
-      primaryIssue: product.latestChangeDetail || "",
-    });
-  }
+  const series = watchedProducts.map((product, index) => {
+    const history = historyByProductGid instanceof Map ? historyByProductGid.get(product.productGid) || [] : [];
+    const values = history
+      .map((row) => ({
+        riskScore: Number(row.riskScore || 0),
+        recordedAt: row.recordedAt?.toISOString?.() || row.recordedAt,
+        source: row.source,
+        primaryIssue: row.primaryIssue || "",
+      }))
+      .filter((row) => Number.isFinite(row.riskScore));
+    if (!values.length && Number.isFinite(Number(product.riskScore))) {
+      values.push({
+        riskScore: Number(product.riskScore),
+        recordedAt: new Date().toISOString(),
+        source: "current-snapshot",
+        primaryIssue: product.latestChangeDetail || "",
+      });
+    }
 
-  const latest = values[values.length - 1] || null;
-  const previous = values.length > 1 ? values[values.length - 2] : null;
-  const score = latest ? latest.riskScore : product.riskScore;
-  const direction = latest && previous ? latest.riskScore - previous.riskScore : 0;
-  const directionWord = direction > 0 ? "increased" : direction < 0 ? "decreased" : "stayed stable";
+    const latest = values[values.length - 1] || null;
+    const previous = values.length > 1 ? values[values.length - 2] : null;
+    const score = latest ? latest.riskScore : product.riskScore;
+    const points = normalizeTrendPoints(values.map((row) => row.riskScore));
+    const direction = latest && previous ? latest.riskScore - previous.riskScore : 0;
+    const directionWord = direction > 0 ? "increased" : direction < 0 ? "decreased" : "stayed stable";
+    return {
+      productGid: product.productGid,
+      productTitle: product.title,
+      href: product.href,
+      color: WATCH_TREND_COLORS[index % WATCH_TREND_COLORS.length],
+      riskScore: Number.isFinite(Number(score)) ? Math.round(Number(score)) : null,
+      riskLabel: Number.isFinite(Number(score)) ? getRiskLabelForScore(score) : "Pending",
+      values,
+      points,
+      path: points.map((point) => `${point.x},${point.y}`).join(" "),
+      latestChange: previous && latest
+        ? `Risk ${directionWord} from ${previous.riskScore} to ${latest.riskScore}`
+        : latest ? "Waiting for another scan to show movement" : "No score history yet",
+      latestDetail: latest?.primaryIssue || product.latestChangeDetail || "Product risk history will appear as rescans run.",
+    };
+  });
+  const scoredSeries = series.filter((item) => Number.isFinite(Number(item.riskScore)));
+  const averageScore = scoredSeries.length
+    ? Math.round(scoredSeries.reduce((sum, item) => sum + Number(item.riskScore || 0), 0) / scoredSeries.length)
+    : null;
+  const highestSeries = scoredSeries.reduce((highest, item) => (
+    !highest || Number(item.riskScore || 0) > Number(highest.riskScore || 0) ? item : highest
+  ), null);
 
   return {
-    productGid: product.productGid,
-    productTitle: product.title,
-    href: product.href,
-    riskScore: score,
-    riskLabel: Number.isFinite(Number(score)) ? getRiskLabelForScore(score) : "Pending",
-    values,
-    points: normalizeTrendPoints(values.map((row) => row.riskScore)),
-    calloutTitle: previous
-      ? `Latest risk ${directionWord} from ${previous.riskScore} to ${latest.riskScore}`
-      : "Waiting for another scan to show movement",
-    calloutDetail: latest?.primaryIssue || product.latestChangeDetail || "Product risk history will appear as rescans run.",
+    productTitle: `${watchedProducts.length} watched product${watchedProducts.length === 1 ? "" : "s"}`,
+    riskScore: averageScore,
+    riskLabel: Number.isFinite(Number(averageScore)) ? getRiskLabelForScore(averageScore) : "No data",
+    series,
+    calloutTitle: highestSeries
+      ? `${highestSeries.productTitle} is currently highest at ${highestSeries.riskScore}/100`
+      : "Waiting for score history",
+    calloutDetail: "Each line shows saved risk score movement for one watched product after scans or diagnostics.",
   };
 }
 
 function normalizeTrendPoints(values = []) {
   if (!values.length) return [];
-  if (values.length === 1) return [{ x: 0, y: 100 - values[0] }];
+  if (values.length === 1) {
+    const y = 100 - Math.max(0, Math.min(100, Number(values[0] || 0)));
+    return [{ x: 0, y }, { x: 100, y }];
+  }
   return values.map((value, index) => ({
     x: (index / (values.length - 1)) * 100,
     y: 100 - Math.max(0, Math.min(100, Number(value || 0))),
@@ -580,6 +681,7 @@ function getActivityIcon(eventType) {
   if (eventType === "diagnosis_completed") return "wand";
   if (eventType === "watch_scan_completed") return "refresh";
   if (eventType === "watch_scan_queued") return "play";
+  if (eventType === "watch_order_changed") return "arrow-up";
   if (eventType === "settings_changed") return "settings";
   if (eventType === "alert_sent") return "email";
   return "info";
@@ -593,6 +695,7 @@ function getActivityTone(eventType, metadata = {}) {
   if (eventType === "product_added") return "blue";
   if (eventType === "diagnosis_completed") return "purple";
   if (eventType === "watch_scan_queued") return "blue";
+  if (eventType === "watch_order_changed") return "purple";
   if (eventType === "watch_scan_completed") {
     const riskScore = Number(metadata.riskScore || 0);
     if (riskScore >= 75) return "red";

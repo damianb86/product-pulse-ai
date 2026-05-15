@@ -145,6 +145,23 @@ describe("ProductPulse screens", () => {
               lastIssueDetail: "May 18, 2:02 AM",
               href: "/app/products/nintendo-new-3ds-xl",
             },
+            {
+              id: "watch-2",
+              productGid: "gid://shopify/Product/2",
+              title: "THE NIGHT WATCH | REMBRANDT VAN RIJN",
+              sku: "ART-REMBRANDT",
+              status: "Watching",
+              statusTone: "success",
+              riskScore: 46,
+              riskLabel: "Low",
+              riskTone: "success",
+              latestChange: "No new issues",
+              latestChangeDetail: "All clear",
+              latestChangeTone: "green",
+              lastIssue: "All clear",
+              lastIssueDetail: "May 18, 9:10 AM",
+              href: "/app/products/the-night-watch",
+            },
           ],
           activities: [
             {
@@ -157,13 +174,31 @@ describe("ProductPulse screens", () => {
             },
           ],
           trend: {
-            productTitle: "Nintendo New 3DS XL",
-            riskScore: 63,
+            productTitle: "2 watched products",
+            riskScore: 55,
             riskLabel: "Medium",
-            points: [{ x: 0, y: 45 }, { x: 100, y: 37 }],
-            calloutTitle: "Latest risk increased from 55 to 63",
-            calloutDetail: "Product quality signal detected",
-            href: "/app/products/nintendo-new-3ds-xl",
+            series: [
+              {
+                productGid: "gid://shopify/Product/1",
+                productTitle: "Nintendo New 3DS XL",
+                href: "/app/products/nintendo-new-3ds-xl",
+                color: "#3A6BFF",
+                riskScore: 63,
+                riskLabel: "Medium",
+                path: "0,45 100,37",
+              },
+              {
+                productGid: "gid://shopify/Product/2",
+                productTitle: "THE NIGHT WATCH | REMBRANDT VAN RIJN",
+                href: "/app/products/the-night-watch",
+                color: "#7C3AED",
+                riskScore: 46,
+                riskLabel: "Low",
+                path: "0,56 100,54",
+              },
+            ],
+            calloutTitle: "Nintendo New 3DS XL is currently highest at 63/100",
+            calloutDetail: "Each line shows saved risk score movement.",
           },
           settings: {
             scanCadenceValue: "3",
@@ -192,7 +227,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Recent watch activity")).toBeInTheDocument();
     expect(screen.getByText("Product added to watchlist")).toBeInTheDocument();
     expect(screen.getByText("Watchlist trend (risk activity)")).toBeInTheDocument();
+    expect(screen.getByText("63 · Medium")).toBeInTheDocument();
+    expect(screen.getByText("46 · Low")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
+    expect(screen.getByRole("button", { name: "Move Nintendo New 3DS XL up" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Move Nintendo New 3DS XL down" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Move THE NIGHT WATCH | REMBRANDT VAN RIJN down" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove Nintendo New 3DS XL from watchlist" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Watch settings" })).not.toBeInTheDocument();

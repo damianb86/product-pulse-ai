@@ -9670,8 +9670,17 @@ s-page[inline-size="large-500"] {
   gap: 6px;
 }
 
-.ppWatchRowActions form {
+.ppWatchRowActions form,
+.ppWatchOrderGroup form {
   margin: 0;
+}
+
+.ppWatchOrderGroup {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding-right: 4px;
+  border-right: 1px solid var(--pp-slate-200);
 }
 
 .ppWatchActionsButton {
@@ -9687,15 +9696,35 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
 }
 
+.ppWatchOrderButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--pp-insight-violet);
+}
+
 .ppWatchActionsButton s-icon,
 .ppWatchActionsButton .ppBinocularsIcon {
   color: currentColor;
+}
+
+.ppWatchActionsButton:disabled {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-400);
+  cursor: not-allowed;
 }
 
 .ppWatchActionsButton:hover {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.35);
   background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
+}
+
+.ppWatchActionsButton:hover:disabled {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-400);
 }
 
 .ppWatchActionsButton-danger {
@@ -9876,16 +9905,58 @@ s-page[inline-size="large-500"] {
   overflow: visible;
 }
 
-.ppWatchTrendChart polygon {
-  fill: url("#ppWatchTrendFill");
-}
-
-.ppWatchTrendChart polyline {
+.ppWatchTrendLine {
   fill: none;
-  stroke: var(--pp-warning-amber);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppWatchTrendLegend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin-top: 10px;
+}
+
+.ppWatchTrendLegend a {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.ppWatchTrendLegend a > span {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppWatchTrendLegend strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchTrendLegend small {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.ppWatchTrendLegendEmpty {
+  grid-column: 1 / -1;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .ppWatchTrendCallout {

@@ -167,12 +167,14 @@ model ProductWatchlistItem {
   status       String   @default("Watching")
   imageUrl     String?
   imageAlt     String?
+  displayOrder Int      @default(0)
   addedAt      DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@unique([shop, productGid])
   @@index([shop, status])
   @@index([shop, addedAt])
+  @@index([shop, displayOrder])
 }
 
 model ProductWatchSettings {

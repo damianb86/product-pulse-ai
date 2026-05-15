@@ -1154,8 +1154,8 @@ export function WatchlistScreen({ data = {}, actionData }) {
                     </td>
                   </tr>
                 )}
-                {rows.map((product) => (
-                  <WatchlistProductRow product={product} key={product.productGid || product.id} />
+                {rows.map((product, index) => (
+                  <WatchlistProductRow product={product} position={index} total={rows.length} key={product.productGid || product.id} />
                 ))}
               </tbody>
             </table>
@@ -1207,10 +1207,12 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
   );
 }
 
-function WatchlistProductRow({ product }) {
+function WatchlistProductRow({ product, position = 0, total = 0 }) {
   const latestTone = product.latestChangeTone || "slate";
   const hasScore = Number.isFinite(Number(product.riskScore));
   const paused = product.status === "Paused";
+  const canMoveUp = position > 0;
+  const canMoveDown = position < total - 1;
 
   return (
     <tr>
@@ -1257,6 +1259,24 @@ function WatchlistProductRow({ product }) {
       </td>
       <td>
         <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
+          <div className="ppWatchOrderGroup" aria-label={`Change order for ${product.title}`}>
+            <Form method="post">
+              <input type="hidden" name="_action" value="move-watched-product" />
+              <input type="hidden" name="productGid" value={product.productGid || ""} />
+              <input type="hidden" name="direction" value="up" />
+              <button className="ppWatchActionsButton ppWatchOrderButton" type="submit" disabled={!canMoveUp} aria-label={`Move ${product.title} up`}>
+                <s-icon type="arrow-up" size="small"></s-icon>
+              </button>
+            </Form>
+            <Form method="post">
+              <input type="hidden" name="_action" value="move-watched-product" />
+              <input type="hidden" name="productGid" value={product.productGid || ""} />
+              <input type="hidden" name="direction" value="down" />
+              <button className="ppWatchActionsButton ppWatchOrderButton" type="submit" disabled={!canMoveDown} aria-label={`Move ${product.title} down`}>
+                <s-icon type="arrow-down" size="small"></s-icon>
+              </button>
+            </Form>
+          </div>
           <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
             <s-icon type="view" size="small"></s-icon>
           </Link>
@@ -1310,10 +1330,8 @@ function WatchlistActivityPanel({ activities = [], showAllLink = true }) {
 }
 
 function WatchlistTrendPanel({ trend = {} }) {
-  const points = Array.isArray(trend.points)
-    ? trend.points.map((point) => `${point.x},${point.y}`).join(" ")
-    : "";
-  const hasPoints = Boolean(points);
+  const series = Array.isArray(trend.series) ? trend.series.filter((item) => item.path) : [];
+  const hasSeries = series.length > 0;
   const riskScore = Number.isFinite(Number(trend.riskScore)) ? Math.round(Number(trend.riskScore)) : null;
 
   return (
@@ -1321,24 +1339,35 @@ function WatchlistTrendPanel({ trend = {} }) {
       <div className="ppWatchlistPanelHeader">
         <div>
           <h2>Watchlist trend (risk activity) <s-icon type="info" size="small"></s-icon></h2>
-          <small>{trend.productTitle ? `First watched product: ${trend.productTitle}` : "Risk history for the first watched product"}</small>
+          <small>{hasSeries ? "Risk history for all watched products" : "Risk history for watched products"}</small>
         </div>
       </div>
       <div className="ppWatchTrendMetric">
         <strong>{riskScore ?? "-"}</strong>
-        <span>{trend.riskLabel || "No data"}</span>
+        <span>{riskScore === null ? "No data" : `Avg ${trend.riskLabel || "risk"}`}</span>
       </div>
       <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="ppWatchTrendFill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="rgba(245, 158, 11, 0.3)" />
-              <stop offset="100%" stopColor="rgba(245, 158, 11, 0.02)" />
-            </linearGradient>
-          </defs>
-          {hasPoints ? <polygon points={`0,100 ${points} 100,100`} /> : null}
-          {hasPoints ? <polyline points={points} /> : null}
+          {series.map((item) => (
+            <polyline
+              key={item.productGid || item.productTitle}
+              className="ppWatchTrendLine"
+              points={item.path}
+              stroke={item.color || "#3A6BFF"}
+            />
+          ))}
         </svg>
+      </div>
+      <div className="ppWatchTrendLegend" aria-label="Watched product trend legend">
+        {hasSeries ? series.map((item) => (
+          <Link key={item.productGid || item.productTitle} to={item.href || "/app/products"} title={item.productTitle}>
+            <span style={{ backgroundColor: item.color || "#3A6BFF" }} aria-hidden="true" />
+            <strong>{item.productTitle || "Watched product"}</strong>
+            <small>{Number.isFinite(Number(item.riskScore)) ? `${item.riskScore} · ${item.riskLabel}` : item.riskLabel || "No data"}</small>
+          </Link>
+        )) : (
+          <span className="ppWatchTrendLegendEmpty">Run diagnostics to start storing score history.</span>
+        )}
       </div>
       <div className="ppWatchTrendCallout">
         <span className="ppWatchIssueDot ppWatchIssueDot-orange" aria-hidden="true" />
@@ -1346,7 +1375,7 @@ function WatchlistTrendPanel({ trend = {} }) {
           <strong>{trend.calloutTitle || "No watch trend yet"}</strong>
           <small>{trend.calloutDetail || "Add a watched product and run analyses to build history."}</small>
         </div>
-        {trend.href ? <Link to={trend.href} aria-label={`Open ${trend.productTitle || "watched product"}`}><s-icon type="chevron-right" size="small"></s-icon></Link> : <s-icon type="chevron-right" size="small"></s-icon>}
+        <s-icon type="chevron-right" size="small"></s-icon>
       </div>
     </section>
   );
