@@ -91,7 +91,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
 
 export async function getProductsQueueForShop(shop, admin, filters = {}, options = {}) {
   await failStaleFastProductScans(shop);
-  const [snapshots, activeJob, activeDiagnosisJobs, settings] = await Promise.all([
+  const [snapshots, activeJob, activeDiagnosisJobs, settings, watchedItems] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
@@ -99,6 +99,10 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
     getActiveFastProductScan(shop),
     getActiveProductDiagnosisJobs(shop),
     options.settings ? Promise.resolve(options.settings) : getProductPulseSettings(shop),
+    prisma.productWatchlistItem.findMany({
+      where: { shop },
+      select: { productGid: true, status: true },
+    }),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
@@ -117,11 +121,13 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
   const totalPages = Math.max(1, Math.ceil(filteredSnapshots.length / rowsPerPage));
   const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const watchedByProductGid = new Map(watchedItems.map((item) => [item.productGid, item]));
   const rows = pageSnapshots.map((snapshot) => formatProductRow(
     snapshot,
     latestDiagnosisByProductGid.get(snapshot.productGid),
     resolvedActionsByProductGid.get(snapshot.productGid),
     settings,
+    watchedByProductGid.get(snapshot.productGid),
   ));
   const rowsWithImages = await attachProductImages(rows, admin);
   const rowsWithJobs = attachActiveProductDiagnosisJobs(rowsWithImages, activeDiagnosisJobs);
@@ -361,7 +367,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis, activeDiagnosisJobs, settings] = await Promise.all([
+  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -373,11 +379,15 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     }),
     getActiveProductDiagnosisJobs(shop),
     getProductPulseSettings(shop),
+    prisma.productWatchlistItem.findUnique({
+      where: { shop_productGid: { shop, productGid: snapshot.productGid } },
+      select: { status: true },
+    }),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
   const product = {
-    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings),
+    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings, watchedItem),
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
   return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
@@ -1474,13 +1484,14 @@ function isActiveStatus(status) {
   return status === "Queued" || status === "Running";
 }
 
-function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined) {
+function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null) {
   const metrics = snapshot.metrics || {};
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
   const resolvedAt = resolvedAction?.appliedAt || resolvedAction?.createdAt || null;
   const riskLabel = getRiskLabel(snapshot.riskScore, settings);
   const riskTone = getRiskTone(snapshot.riskScore, settings);
+  const isWatched = Boolean(watchedItem);
   return {
     productGid: snapshot.productGid,
     handle: snapshot.handle,
@@ -1500,6 +1511,8 @@ function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = nul
     analysisTone: analysisState.tone,
     analysisIcon: analysisState.icon,
     analysisCompletedAt: analysisState.completedAt,
+    isWatched,
+    watchlistStatus: watchedItem?.status || null,
     signals: metrics.signalCount || 0,
     signalTone: getEvidenceToneForProduct(snapshot.riskScore, metrics, settings),
     signalBars: getSignalBars(metrics),
@@ -1915,7 +1928,12 @@ async function getLiveShopifyProductDetail(productId, admin, shop) {
     const json = await response.json();
     if (json.errors?.length) return null;
     const product = json.data?.products?.nodes?.[0];
-    return product ? withShopifyAdminUrl(formatLiveShopifyProductForDiagnosis(product), shop) : null;
+    if (!product) return null;
+    const watchedItem = await prisma.productWatchlistItem.findUnique({
+      where: { shop_productGid: { shop, productGid: product.id } },
+      select: { status: true },
+    });
+    return withShopifyAdminUrl(formatLiveShopifyProductForDiagnosis(product, watchedItem), shop);
   } catch {
     return null;
   }
@@ -2237,7 +2255,7 @@ function getShopifyProductAdminUrl(shop, productGid) {
   return `https://${shop}/admin/products/${numericId}`;
 }
 
-function formatLiveShopifyProductForDiagnosis(product) {
+function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
   const mediaNode = product.media?.nodes?.[0] || {};
   const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
   const variants = product.variants?.nodes || [];
@@ -2271,6 +2289,8 @@ function formatLiveShopifyProductForDiagnosis(product) {
     analysisTone: "neutral",
     analysisIcon: "product",
     analysisCompletedAt: null,
+    isWatched: Boolean(watchedItem),
+    watchlistStatus: watchedItem?.status || null,
     latestDiagnosisId: null,
     primaryIssue: null,
     hasRiskSnapshot: false,
@@ -2314,7 +2334,7 @@ function formatLiveShopifyProductForDiagnosis(product) {
   };
 }
 
-function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined) {
+function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined, watchedItem = null) {
   const metrics = snapshot.metrics || {};
   const diagnosisReport = metrics.diagnosisReport || {};
   const diagnosisIssues = Array.isArray(latestDiagnosis?.issues) ? latestDiagnosis.issues : null;
@@ -2350,6 +2370,8 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     analysisTone: analysisState.tone,
     analysisIcon: analysisState.icon,
     analysisCompletedAt: analysisState.completedAt,
+    isWatched: Boolean(watchedItem),
+    watchlistStatus: watchedItem?.status || null,
     latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
     primaryIssue,
     mainFinding: diagnosisReport.mainFinding || null,

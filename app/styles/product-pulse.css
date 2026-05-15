@@ -2248,6 +2248,17 @@ s-page[inline-size="large-500"] {
   font-size: 15px;
 }
 
+.ppProductWatchlistButton.isWatched {
+  color: var(--pp-risk-red);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.24);
+  background: var(--pp-red-soft);
+}
+
+.ppProductWatchlistButton.isWatched:hover {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.5);
+  background: rgba(var(--pp-risk-red-rgb), 0.1);
+}
+
 .ppAnalysisStatusWrap {
   position: relative;
   display: inline-flex;
@@ -9185,6 +9196,26 @@ s-page[inline-size="large-500"] {
   width: min(620px, 100%);
 }
 
+.ppWatchlistConfirmIcon-add {
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.2), transparent 24%),
+    linear-gradient(135deg, var(--pp-insight-violet), var(--pp-pulse-blue));
+}
+
+.ppWatchlistConfirmIcon-remove {
+  background: linear-gradient(135deg, var(--pp-risk-red), #fb7185);
+}
+
+.ppWatchlistRemoveConfirmButton {
+  color: var(--pp-risk-red);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.25);
+}
+
+.ppWatchlistRemoveConfirmButton:hover {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.45);
+  background: var(--pp-red-soft);
+}
+
 .ppActionConfirmMeta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -11128,6 +11159,11 @@ s-page[inline-size="large-500"] {
   text-align: left;
   text-decoration: none;
   cursor: pointer;
+}
+
+.ppActionMenu .ppBinocularsIcon {
+  width: 15px;
+  height: 15px;
 }
 
 .ppActionMenu a:hover,

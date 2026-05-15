@@ -1895,6 +1895,71 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
   );
 }
 
+function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
+  const product = confirmation.product || {};
+  const removing = confirmation.mode === "remove";
+  const titleId = removing ? "watchlist-remove-confirm-title" : "watchlist-add-confirm-title";
+  const submitLabel = removing
+    ? pending ? "Removing..." : "Remove from Watchlist"
+    : pending ? "Adding..." : "Add to Watchlist";
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal ppWatchlistConfirmModal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="ppAnalysisConfirmHeader">
+          <span className={`ppAnalysisConfirmIcon ${removing ? "ppWatchlistConfirmIcon-remove" : "ppWatchlistConfirmIcon-add"}`} aria-hidden="true">
+            {removing ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+          </span>
+          <div>
+            <span>Watchlist</span>
+            <h2 id={titleId}>{removing ? "Remove watched product" : "Add watched product"}</h2>
+            <p>
+              {removing
+                ? "ProductPulse will stop monitoring this product on the Watchlist cadence. Existing diagnostics and history will stay available."
+                : "ProductPulse will add this product to the Watchlist so it can be monitored by the configured automatic cadence."}
+            </p>
+          </div>
+        </div>
+
+        <div className="ppAnalysisConfirmProducts">
+          <span>Product</span>
+          <ul>
+            <li>{product.title || "Selected product"}</li>
+          </ul>
+        </div>
+
+        <div className="ppActionConfirmNotice">
+          <s-icon type="info" size="small"></s-icon>
+          <p>
+            {removing
+              ? "You can add this product back later from the product detail page or the Products table."
+              : "The Watchlist supports up to five products. If it is full, ProductPulse will ask you to remove one first."}
+          </p>
+        </div>
+
+        <Form method="post" className="ppAnalysisConfirmFooter">
+          <input type="hidden" name="_action" value={removing ? "remove-from-watchlist" : "add-to-watchlist"} />
+          <input type="hidden" name="productGid" value={product.productGid || ""} />
+          {!removing && (
+            <>
+              <input type="hidden" name="title" value={product.title || ""} />
+              <input type="hidden" name="handle" value={product.handle || ""} />
+              <input type="hidden" name="sku" value={product.sku || ""} />
+              <input type="hidden" name="imageUrl" value={product.imageUrl || ""} />
+              <input type="hidden" name="imageAlt" value={product.imageAlt || product.title || ""} />
+            </>
+          )}
+          <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className={removing ? "ppSecondaryButton ppWatchlistRemoveConfirmButton" : "ppPrimaryButton"} type="submit" disabled={pending || !product.productGid}>
+            {removing ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+            {submitLabel}
+          </button>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
 function RecommendedActionConfirmModal({ confirmation, product, pending, onCancel }) {
   const action = confirmation.action || {};
   const application = confirmation.application || getRecommendedActionApplication(action, product);
@@ -2488,6 +2553,8 @@ function getProductDetailModel(product) {
     checkedItems,
     actionHistory: product.actionHistory || [],
     ignoredIssues,
+    isWatched: Boolean(product.isWatched),
+    watchlistStatus: product.watchlistStatus || null,
     resolvedAt: product.resolvedAt || null,
     canDiagnose: product.canDiagnose !== false && hasRiskSnapshot && !activeDiagnosisJob,
     canResolve: product.canResolve !== false && hasRiskSnapshot && hasFullDiagnosis,
@@ -3864,6 +3931,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [actionConfirmation, setActionConfirmation] = useState(null);
   const [actionsCompleteModalOpen, setActionsCompleteModalOpen] = useState(false);
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
+  const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
+  const [watchlistLocalState, setWatchlistLocalState] = useState(null);
   const [recommendedActionsCollapsed, setRecommendedActionsCollapsed] = useState(false);
   const [draftText, setDraftText] = useState("");
   const productRef = useRef(product);
@@ -3891,6 +3960,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setSelectedEvidenceIndex(0);
     setActionsCompleteModalOpen(false);
     setDiagnosisConfirmation(null);
+    setWatchlistConfirmation(null);
+    setWatchlistLocalState(null);
     setRecommendedActionsCollapsed(false);
   }, [product, product?.slug, product?.resolvedAt]);
 
@@ -3901,6 +3972,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     }
     if (actionData?.status === "success" && actionData?.action?.id === "mark-unresolved") {
       setResolvedLocally(false);
+    }
+    if (actionData?.status === "success" && actionData?.action?.id === "add-watched-product") {
+      setWatchlistLocalState(true);
+      setWatchlistConfirmation(null);
+    }
+    if (actionData?.status === "success" && actionData?.action?.id === "remove-watched-product") {
+      setWatchlistLocalState(false);
+      setWatchlistConfirmation(null);
     }
     if (actionData?.status === "success" && actionData?.action?.id === "ignore-issue") {
       const issueKey = normalizeIssueIgnoreKey(actionData.action.payload?.issueKey || actionData.action.payload?.issueCode || actionData.action.payload?.issue);
@@ -3922,7 +4001,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         });
       }
     }
-    if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue"].includes(actionData.action.id)) {
+    if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue", "add-watched-product", "remove-watched-product"].includes(actionData.action.id)) {
       const actionKey = actionData.action.id;
       const archivedState = getArchivedActionStateFromRecordStatus(actionData.actionRecordStatus || "applied");
       if (archivedState && willCompleteProductRecommendedActions(productRef.current, actionKey, minimizedActionStatesRef.current)) {
@@ -3935,6 +4014,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     if (actionData?.status === "success") {
       setActionConfirmation(null);
       setDiagnosisConfirmation(null);
+      setWatchlistConfirmation(null);
     }
   }, [actionData]);
 
@@ -3979,6 +4059,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const resolved = resolvedLocally ?? Boolean(detail.resolvedAt);
   const diagnosisPending = pendingActionType === "diagnose";
   const resolvingPending = pendingActionType === "mark-resolved" || pendingActionType === "mark-unresolved";
+  const watchlistPending = pendingActionType === "add-to-watchlist" || pendingActionType === "remove-from-watchlist";
+  const isWatched = watchlistLocalState ?? Boolean(detail.isWatched);
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       navigate(-1);
@@ -4032,6 +4114,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     formData.set("_action", "diagnose");
     formData.set("productId", diagnosisConfirmation.products[0] || "");
     submit(formData, { method: "post" });
+  };
+
+  const handleRequestWatchlistToggle = () => {
+    if (watchlistPending || !detail.productGid) return;
+    setWatchlistConfirmation({
+      mode: isWatched ? "remove" : "add",
+      product: detail,
+    });
   };
 
   const handleIgnoreIssue = (issue) => {
@@ -4211,24 +4301,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       <s-icon type="external" size="small"></s-icon>
                     </a>
                   )}
-                  <Form method="post" className="ppProductIconForm">
-                    <input type="hidden" name="_action" value="add-to-watchlist" />
-                    <input type="hidden" name="productGid" value={detail.productGid} />
-                    <input type="hidden" name="title" value={detail.title} />
-                    <input type="hidden" name="handle" value={detail.handle} />
-                    <input type="hidden" name="sku" value={detail.sku || ""} />
-                    <input type="hidden" name="imageUrl" value={detail.imageUrl || ""} />
-                    <input type="hidden" name="imageAlt" value={detail.imageAlt || detail.title || ""} />
-                    <button
-                      className="ppProductExternalButton ppProductWatchlistButton"
-                      type="submit"
-                      aria-label="Add product to Watchlist"
-                      title="Add product to Watchlist"
-                      disabled={pendingActionType === "add-to-watchlist" || !detail.productGid}
-                    >
-                      <ProductPulseGlyph type="binoculars" />
-                    </button>
-                  </Form>
+                  <button
+                    className={`ppProductExternalButton ppProductWatchlistButton ${isWatched ? "isWatched" : ""}`.trim()}
+                    type="button"
+                    aria-label={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
+                    title={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
+                    disabled={watchlistPending || !detail.productGid}
+                    onClick={handleRequestWatchlistToggle}
+                  >
+                    {isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+                  </button>
                   {detail.diagnosisInProgress ? (
                     <span className="ppProductDiagnosisRunning">
                       <span className="ppMiniSpinner" aria-hidden="true" />
@@ -4479,6 +4561,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             pendingIds={diagnosisPending ? diagnosisConfirmation.products : []}
             onCancel={() => setDiagnosisConfirmation(null)}
             onConfirm={handleConfirmProductDiagnosis}
+          />
+        )}
+        {watchlistConfirmation && (
+          <WatchlistConfirmModal
+            confirmation={watchlistConfirmation}
+            pending={watchlistPending}
+            onCancel={() => setWatchlistConfirmation(null)}
           />
         )}
         {selectedRecommendedAction && !actionConfirmation && (
@@ -5337,7 +5426,7 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
         <s-icon type="menu-horizontal" size="small"></s-icon>
       </button>
       {open && (
-        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={190} estimatedHeight={150} placement="bottom-end" role="menu">
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={220} estimatedHeight={190} placement="bottom-end" role="menu">
           <Link role="menuitem" to={product.href} onClick={onClose}>
             <s-icon type="view" size="small"></s-icon>
             View diagnostics
@@ -5346,6 +5435,30 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
             <s-icon type="duplicate" size="small"></s-icon>
             {copied ? "Copied handle" : "Copy handle"}
           </button>
+          {product.isWatched ? (
+            <Form method="post" role="none">
+              <input type="hidden" name="_action" value="remove-from-watchlist" />
+              <input type="hidden" name="productGid" value={product.productGid || ""} />
+              <button role="menuitem" type="submit" onClick={onClose}>
+                <s-icon type="x" size="small"></s-icon>
+                Remove from Watchlist
+              </button>
+            </Form>
+          ) : (
+            <Form method="post" role="none">
+              <input type="hidden" name="_action" value="add-to-watchlist" />
+              <input type="hidden" name="productGid" value={product.productGid || ""} />
+              <input type="hidden" name="title" value={product.title || ""} />
+              <input type="hidden" name="handle" value={product.handle || ""} />
+              <input type="hidden" name="sku" value={product.sku || ""} />
+              <input type="hidden" name="imageUrl" value={product.imageUrl || ""} />
+              <input type="hidden" name="imageAlt" value={product.imageAlt || product.title || ""} />
+              <button role="menuitem" type="submit" onClick={onClose}>
+                <ProductPulseGlyph type="binoculars" />
+                Add to Watchlist
+              </button>
+            </Form>
+          )}
           {product.resolvedAt ? (
             <Form method="post" role="none">
               <input type="hidden" name="_action" value="mark-unresolved" />

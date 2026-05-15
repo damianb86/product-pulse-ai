@@ -379,7 +379,45 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
     expect(screen.getByRole("menuitem", { name: /View diagnostics/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByRole("menuitem", { name: "Copy handle" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Add to Watchlist" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Mark for review" })).not.toBeInTheDocument();
+  });
+
+  it("shows remove from Watchlist in product row actions when already watched", () => {
+    const data = {
+      ...defaultView,
+      productTable: {
+        rows: [{
+          title: "Watched Linen Shirt",
+          variant: "shirt",
+          risk: "Low",
+          riskTone: "success",
+          riskScore: 42,
+          status: "Healthy",
+          statusTone: "success",
+          analysisDepth: "quickscan",
+          analysisLabel: "QuickScan only",
+          analysisDetail: "Preliminary Shopify scan only.",
+          analysisTone: "info",
+          analysisIcon: "search",
+          signals: 2,
+          signalTone: "green",
+          signalBars: [20, 0, 0, 10, 0],
+          issue: "Low risk",
+          sources: [],
+          sourceOverflow: 0,
+          lastAnalysis: "Just now",
+          href: "/app/products/watched-linen-shirt",
+          handle: "watched-linen-shirt",
+          productGid: "gid://shopify/Product/9",
+          isWatched: true,
+        }],
+        total: 1,
+      },
+    };
+    renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Watched Linen Shirt" }));
+    expect(screen.getByRole("menuitem", { name: "Remove from Watchlist" })).toBeInTheDocument();
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
@@ -398,7 +436,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Deep analysis completed/ })).toBeInTheDocument();
     expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add product to Watchlist" })).toBeInTheDocument();
+    const watchButton = screen.getByRole("button", { name: "Add product to Watchlist" });
+    expect(watchButton).toBeInTheDocument();
+    fireEvent.click(watchButton);
+    expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
+    expect(screen.getByText(/configured automatic cadence/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByText("Explore and review the evidence behind each detected issue.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Returns" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Total returns")).toBeInTheDocument();
@@ -421,6 +464,15 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Expand Add fit note" }));
     expect(screen.getByRole("heading", { name: "Add fit note" })).toBeInTheDocument();
+  });
+
+  it("lets product detail remove an already watched product", () => {
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={{ ...defaultView.startHere, isWatched: true }} />);
+    const watchButton = screen.getByRole("button", { name: "Remove product from Watchlist" });
+    expect(watchButton).toBeInTheDocument();
+    fireEvent.click(watchButton);
+    expect(screen.getByRole("heading", { name: "Remove watched product" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove from Watchlist" })).toBeInTheDocument();
   });
 
   it("compacts applied recommended actions after successful Shopify changes", async () => {

@@ -7,7 +7,7 @@ import {
   recordProductDetailActionForShop,
   rerunProductDiagnosisForShop,
 } from "../lib/product-pulse-jobs.server";
-import { addWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
+import { addWatchedProductForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
 
 export const loader = async ({ request, params }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -132,6 +132,10 @@ export const action = async ({ request, params }) => {
       imageUrl: String(formData.get("imageUrl") || ""),
       imageAlt: String(formData.get("imageAlt") || ""),
     });
+  }
+
+  if (actionType === "remove-from-watchlist") {
+    return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

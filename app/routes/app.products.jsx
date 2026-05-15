@@ -10,6 +10,7 @@ import {
   startFastProductScan,
 } from "../lib/product-pulse-jobs.server";
 import { getProductPulseSettings } from "../lib/product-pulse-settings.server";
+import { addWatchedProductForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -68,6 +69,21 @@ export const action = async ({ request }) => {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-unresolved");
     if (snapshotAction) return snapshotAction;
     return { status: "validation_error", message: "Run QuickScan before restoring a product." };
+  }
+
+  if (formData.get("_action") === "add-to-watchlist") {
+    return addWatchedProductForShop(session.shop, {
+      productGid: String(formData.get("productGid") || ""),
+      title: String(formData.get("title") || ""),
+      handle: String(formData.get("handle") || ""),
+      sku: String(formData.get("sku") || ""),
+      imageUrl: String(formData.get("imageUrl") || ""),
+      imageAlt: String(formData.get("imageAlt") || ""),
+    });
+  }
+
+  if (formData.get("_action") === "remove-from-watchlist") {
+    return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
   }
 
   return { status: "validation_error", message: "Unsupported product action." };
