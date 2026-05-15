@@ -374,13 +374,8 @@ export function buildDashboardViewData(productItems = products, options = {}) {
   const totalRefunds = sumDashboardMetric(productList, "refundUnits");
   const totalNegativeReviews = sumDashboardMetric(productList, "negativeReviewCount");
   const actionRows = buildDashboardActionRows(productList);
-  const pendingActions = actionRows.filter((action) => action.status !== "applied" && action.status !== "dismissed");
+  const pendingActions = actionRows.filter((action) => action.status === "pending");
   const appliedActionIds = new Set(actionRows.filter((action) => action.status === "applied").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
-  productList.forEach((product) => {
-    (Array.isArray(product.actionHistory) ? product.actionHistory : [])
-      .filter((action) => action.status === "applied")
-      .forEach((action) => appliedActionIds.add(`${product.id || product.title}:${action.actionId || action.id || action.label || "applied-action"}`));
-  });
   const appliedActionCount = appliedActionIds.size;
   const resolvedProducts = productList.filter((product) => product.resolvedAt).length;
   const startProduct = getDashboardStartProduct(productList, { pendingActions });
@@ -675,7 +670,7 @@ function buildDashboardActionRows(productList) {
   return productList.flatMap((product) => {
     const actions = Array.isArray(product.recommendedActions) ? product.recommendedActions : [];
     const history = Array.isArray(product.actionHistory) ? product.actionHistory : [];
-    return actions.map((action) => {
+    const rows = actions.map((action) => {
       const actionId = action.id || action.label || "";
       const record = history.find((item) => item.actionId === actionId || item.id === actionId);
       const status = normalizeDashboardActionStatus(record?.status || action.status);
@@ -695,16 +690,55 @@ function buildDashboardActionRows(productList) {
         marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
       };
     });
+
+    const rowIds = new Set(rows.map((row) => row.id));
+    const historicalRows = history
+      .filter((record) => !isSystemProductActionRecord(record))
+      .filter((record) => !rowIds.has(record.actionId || record.id))
+      .map((record) => {
+        const status = normalizeDashboardActionStatus(record.status);
+        if (!["pending", "applied", "dismissed"].includes(status)) return null;
+        const action = {
+          id: record.actionId || record.id || record.label,
+          label: record.label || "Stored product action",
+          type: record.payload?.actionType || record.payload?.type || "Stored action",
+          status,
+          payload: record.payload || {},
+        };
+        const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
+        return {
+          id: action.id,
+          label: action.label,
+          type: action.type,
+          status,
+          product,
+          productTitle: product.title || product.productTitle || "Product",
+          href: `/app/products/${product.handle || product.slug || product.id}`,
+          icon: getDashboardActionIcon(action),
+          tone: getDashboardActionTone(action),
+          category: getDashboardActionCategory(action),
+          priorityScore,
+          marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+        };
+      })
+      .filter(Boolean);
+
+    return [...rows, ...historicalRows];
   }).sort((first, second) => (
     second.priorityScore - first.priorityScore
       || second.marginAtRisk - first.marginAtRisk
   ));
 }
 
+function isSystemProductActionRecord(record = {}) {
+  const actionId = String(record.actionId || record.actionType || record.id || "").toLowerCase();
+  return actionId === "mark-resolved" || actionId === "ignore-issue";
+}
+
 function normalizeDashboardActionStatus(status) {
   const normalized = String(status || "pending").toLowerCase();
   if (normalized.includes("applied")) return "applied";
-  if (normalized.includes("dismiss")) return "dismissed";
+  if (normalized.includes("dismiss") || normalized.includes("ignored")) return "dismissed";
   return "pending";
 }
 
@@ -1024,8 +1058,8 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
   const highRiskProducts = productList.filter((product) => Number(product.riskScore || 0) >= 75);
   const mediumRiskProducts = productList.filter((product) => Number(product.riskScore || 0) >= 55 && Number(product.riskScore || 0) < 75);
   const windowDays = getAnalyticsWindowDays(productList);
-  const totals = getAnalyticsTotals(productList, options);
   const actionRows = buildDashboardActionRows(productList);
+  const totals = getAnalyticsTotals(productList, { ...options, actionRows });
   const pendingActions = actionRows.filter((action) => action.status === "pending");
   const appliedActions = actionRows.filter((action) => action.status === "applied");
   const dismissedActions = actionRows.filter((action) => action.status === "dismissed");
@@ -1169,11 +1203,21 @@ function getAnalyticsTotals(productList, options = {}) {
     signalCount: 0,
   });
 
+  const actionRows = Array.isArray(options.actionRows) ? options.actionRows : [];
   const actions = Array.isArray(options.actions) ? options.actions : [];
-  base.openActions = actions.filter((action) => action.status !== "applied").length
-    || productList.reduce((total, product) => total + (Array.isArray(product.recommendedActions) ? product.recommendedActions.length : 0), 0);
-  base.appliedActions = actions.filter((action) => action.status === "applied").length
-    || productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => action.status === "applied").length : 0), 0);
+  if (actionRows.length) {
+    base.openActions = actionRows.filter((action) => action.status === "pending").length;
+    base.appliedActions = actionRows.filter((action) => action.status === "applied").length;
+    base.dismissedActions = actionRows.filter((action) => action.status === "dismissed").length;
+  } else if (actions.length) {
+    base.openActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "pending").length;
+    base.appliedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length;
+    base.dismissedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length;
+  } else {
+    base.openActions = productList.reduce((total, product) => total + (Array.isArray(product.recommendedActions) ? product.recommendedActions.length : 0), 0);
+    base.appliedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length : 0), 0);
+    base.dismissedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length : 0), 0);
+  }
 
   return base;
 }

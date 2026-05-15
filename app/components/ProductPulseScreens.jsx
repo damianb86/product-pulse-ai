@@ -3199,6 +3199,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
   const submit = useSubmit();
+  const dismissFetcher = useFetcher();
   const evidencePanelRef = useRef(null);
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
@@ -3244,7 +3245,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     }
     if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "ignore-issue"].includes(actionData.action.id)) {
       const actionKey = actionData.action.id;
-      setMinimizedActionStates((current) => ({ ...current, [actionKey]: "applied" }));
+      const archivedState = getArchivedActionStateFromRecordStatus(actionData.actionRecordStatus || "applied");
+      if (archivedState) setMinimizedActionStates((current) => ({ ...current, [actionKey]: archivedState }));
       setSelectedRecommendedAction(null);
       setEditingAction(null);
     }
@@ -3406,6 +3408,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setSelectedRecommendedAction(null);
     setActionConfirmation(null);
     setEditingAction(null);
+    const formData = new FormData();
+    formData.set("_action", "dismiss-action");
+    formData.set("productId", product.slug || product.handle || "");
+    formData.set("actionId", action.id || actionKey);
+    formData.set("label", action.title || action.label || "");
+    dismissFetcher.submit(formData, { method: "post" });
     showToast(`${action.title} dismissed for this review session.`);
   };
 
@@ -6011,7 +6019,8 @@ function getRecommendedActionKey(action = {}) {
 function getArchivedActionState(action = {}, minimizedActionStates = {}) {
   const actionKey = getRecommendedActionKey(action);
   if (minimizedActionStates[actionKey]) return minimizedActionStates[actionKey];
-  if (action.appliedRecord?.status === "applied") return "applied";
+  const storedState = getArchivedActionStateFromRecordStatus(action.appliedRecord?.status);
+  if (storedState) return storedState;
   return "";
 }
 
@@ -6020,6 +6029,14 @@ function getArchivedActionLabel(state) {
   if (state === "applied") return "Applied";
   if (state === "reviewed") return "Reviewed";
   return "Minimized";
+}
+
+function getArchivedActionStateFromRecordStatus(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized.includes("dismiss")) return "dismissed";
+  if (normalized.includes("review")) return "reviewed";
+  if (normalized.includes("applied")) return "applied";
+  return "";
 }
 
 function ProductRecommendedActionCompact({ action, index, onOpen }) {

@@ -263,7 +263,14 @@ describe("ProductPulse screens", () => {
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
+    renderWithAction(
+      <ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />,
+      async () => ({
+        status: "success",
+        action: { id: "fit-note", label: "Add fit note" },
+        actionRecordStatus: "dismissed",
+      }),
+    );
     expect(screen.getByText(/Sizing & fit expectations are not being met/)).toBeInTheDocument();
     expect(screen.getByText("$24,700")).toBeInTheDocument();
     expect(screen.getByText("$9,200 margin at risk")).toBeInTheDocument();

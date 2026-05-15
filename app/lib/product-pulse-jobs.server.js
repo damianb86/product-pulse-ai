@@ -141,7 +141,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
 
 export async function getDashboardDataForShop(shop, admin) {
   await failStaleFastProductScans(shop);
-  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs, settings, catalogProductCount] = await Promise.all([
+  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs, settings, catalogProductCount, actions] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
@@ -154,6 +154,11 @@ export async function getDashboardDataForShop(shop, admin) {
     getActiveProductDiagnosisJobs(shop),
     getProductPulseSettings(shop),
     getShopifyCatalogProductCount(admin),
+    prisma.productAction.findMany({
+      where: { shop },
+      orderBy: { createdAt: "desc" },
+      take: 250,
+    }),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
@@ -162,7 +167,7 @@ export async function getDashboardDataForShop(shop, admin) {
   const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
   const dashboardProductsWithoutImages = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
     snapshot,
-    [],
+    actions.filter((action) => action.productGid === snapshot.productGid).map(formatStoredProductAction),
     latestDiagnosisByProductGid.get(snapshot.productGid),
     settings,
   ));
@@ -525,13 +530,16 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     ...(payloadOverride.tag ? { tag: payloadOverride.tag } : {}),
     ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
   };
+  const recordActionId = action.id || actionId || payloadOverride.label || "product-action";
+  const recordLabel = action.label || payloadOverride.label || actionId || "Product action";
+  const requestedStatus = normalizeProductActionRecordStatus(payloadOverride.actionStatus);
   const shouldApplyToShopify = payloadOverride.applyMode === "apply";
   const applyResult = shouldApplyToShopify
     ? await applyProductRecommendationAction({ admin, snapshot, action, payload })
     : null;
   if (applyResult?.status === "validation_error") return applyResult;
 
-  const status = action.id === "ignore-issue" ? "ignored" : action.id === "mark-resolved" || action.applyImmediately || applyResult ? "applied" : "draft";
+  const status = requestedStatus || (action.id === "ignore-issue" ? "ignored" : action.id === "mark-resolved" || action.applyImmediately || applyResult ? "applied" : "draft");
   if (action.id === "ignore-issue") {
     const existingIgnoredActions = await prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid, actionType: "ignore-issue", status: "ignored" },
@@ -551,17 +559,32 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       };
     }
   }
+  if (status === "dismissed") {
+    const existingDismissedAction = await prisma.productAction.findFirst({
+      where: { shop, productGid: snapshot.productGid, actionType: recordActionId, status: "dismissed" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existingDismissedAction) {
+      return {
+        status: "success",
+        message: `${recordLabel} is already dismissed for ${snapshot.productTitle}.`,
+        action,
+        actionRecordStatus: "dismissed",
+        suppressBanner: true,
+      };
+    }
+  }
 
   await prisma.productAction.create({
     data: {
       shop,
       diagnosisId: latestDiagnosis?.id || null,
       productGid: snapshot.productGid,
-      actionType: action.id,
-      label: action.label,
+      actionType: recordActionId,
+      label: recordLabel,
       status,
       payload: applyResult ? { ...payload, appliedChange: applyResult.change } : payload,
-      appliedAt: status === "applied" || status === "ignored" ? new Date() : null,
+      appliedAt: isCompletedProductActionStatus(status) ? new Date() : null,
     },
   });
 
@@ -570,10 +593,23 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     message: applyResult?.message || (status === "ignored"
       ? `${payload.issue || "Issue"} ignored. Related recommendations are hidden for this product.`
       : status === "applied"
-      ? `${action.label} was applied for ${snapshot.productTitle}.`
-      : `${action.label} was saved as a draft for ${snapshot.productTitle}.`),
+      ? `${recordLabel} was applied for ${snapshot.productTitle}.`
+      : status === "dismissed"
+      ? `${recordLabel} was dismissed for ${snapshot.productTitle}.`
+      : `${recordLabel} was saved as a draft for ${snapshot.productTitle}.`),
     action,
+    actionRecordStatus: status,
   };
+}
+
+function normalizeProductActionRecordStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (["dismissed", "reviewed"].includes(normalized)) return normalized;
+  return "";
+}
+
+function isCompletedProductActionStatus(status) {
+  return ["applied", "ignored", "dismissed", "reviewed"].includes(String(status || "").toLowerCase());
 }
 
 async function applyProductRecommendationAction({ admin, snapshot, action, payload }) {
