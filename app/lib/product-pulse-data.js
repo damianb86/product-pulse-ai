@@ -372,13 +372,23 @@ export function buildDashboardViewData(productItems = products, options = {}) {
   const totalReturns = sumDashboardMetric(productList, "returnUnits");
   const totalRefunds = sumDashboardMetric(productList, "refundUnits");
   const totalNegativeReviews = sumDashboardMetric(productList, "negativeReviewCount");
-  const startProduct = getDashboardStartProduct(productList);
-  const issueBars = buildDashboardIssueBars(productList);
+  const actionRows = buildDashboardActionRows(productList);
+  const pendingActions = actionRows.filter((action) => action.status !== "applied" && action.status !== "dismissed");
+  const appliedActionIds = new Set(actionRows.filter((action) => action.status === "applied").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
+  productList.forEach((product) => {
+    (Array.isArray(product.actionHistory) ? product.actionHistory : [])
+      .filter((action) => action.status === "applied")
+      .forEach((action) => appliedActionIds.add(`${product.id || product.title}:${action.actionId || action.id || action.label || "applied-action"}`));
+  });
+  const appliedActionCount = appliedActionIds.size;
+  const resolvedProducts = productList.filter((product) => product.resolvedAt).length;
+  const startProduct = getDashboardStartProduct(productList, { pendingActions });
+  const priorityProducts = buildDashboardPriorityProducts(productList);
+  const actionQueue = buildDashboardActionQueue(pendingActions);
+  const topActiveIssues = buildDashboardTopActiveIssues(productList);
+  const coverageSummary = buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts });
   const suggestedFixes = buildDashboardSuggestedFixes(productList);
-  const sourceMix = buildDashboardSourceMix(productList);
-  const impactByCollection = buildDashboardImpactByCollection(productList);
-  const analysisCoverage = buildDashboardAnalysisCoverage({ fullDiagnoses, quickScanOnly, totalProducts });
-  const riskDistribution = buildDashboardRiskDistribution({ highRiskProducts, mediumRiskProducts, totalProducts });
+  const watchlistProducts = highRiskProducts.length ? highRiskProducts : mediumRiskProducts;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -387,16 +397,16 @@ export function buildDashboardViewData(productItems = products, options = {}) {
       {
         label: "Products needing attention",
         value: formatDashboardNumber(needingAttention.length),
-        detail: `${formatDashboardNumber(totalProducts)} scanned product${totalProducts === 1 ? "" : "s"}`,
+        detail: `${formatDashboardNumber(watchlistProducts.length)} watchlist / ${formatDashboardNumber(totalProducts)} scanned`,
         icon: "product",
         tone: "blue",
       },
       {
-        label: "High-risk products",
-        value: formatDashboardNumber(highRiskProducts.length),
-        detail: "Product risk 75+",
-        icon: "shield-check-mark",
-        tone: highRiskProducts.length ? "red" : "green",
+        label: "Pending recommended actions",
+        value: formatDashboardNumber(pendingActions.length),
+        detail: actionQueue.detail,
+        icon: "wand",
+        tone: pendingActions.length ? "purple" : "green",
       },
       {
         label: "Margin at risk",
@@ -406,11 +416,11 @@ export function buildDashboardViewData(productItems = products, options = {}) {
         tone: totalMarginAtRisk > 0 ? "green" : "blue",
       },
       {
-        label: "Full diagnoses completed",
-        value: formatDashboardNumber(fullDiagnoses.length),
-        detail: `${formatDashboardNumber(quickScanOnly.length)} QuickScan only`,
-        icon: "wand",
-        tone: "purple",
+        label: "Issues resolved / Risk reduced",
+        value: formatDashboardNumber(resolvedProducts + appliedActionCount),
+        detail: `${formatDashboardNumber(resolvedProducts)} products resolved, ${formatDashboardNumber(appliedActionCount)} actions applied`,
+        icon: "check",
+        tone: resolvedProducts + appliedActionCount ? "green" : "blue",
       },
     ],
     totals: {
@@ -426,45 +436,29 @@ export function buildDashboardViewData(productItems = products, options = {}) {
       totalReturns,
       totalRefunds,
       totalNegativeReviews,
+      pendingActions: pendingActions.length,
+      appliedActions: appliedActionCount,
+      resolvedProducts,
       creditsAvailable: options.billing?.creditsAvailable ?? billing.creditsAvailable,
     },
     startProduct,
-    evidenceMetrics: buildDashboardEvidenceMetrics(startProduct),
-    issueBars,
     suggestedFixes,
-    insightPanels: [
-      {
-        title: "Risk distribution",
-        detail: `${formatDashboardNumber(needingAttention.length)} product${needingAttention.length === 1 ? "" : "s"} above monitor threshold`,
-        rows: riskDistribution,
-      },
-      {
-        title: "Analysis coverage",
-        detail: `${formatDashboardNumber(fullDiagnoses.length)} full / ${formatDashboardNumber(quickScanOnly.length)} QuickScan only`,
-        visual: "analysisCoverage",
-        rows: analysisCoverage,
-      },
-      {
-        title: "Signal source mix",
-        detail: `${formatDashboardNumber(totalProducts)} scanned product${totalProducts === 1 ? "" : "s"} with stored source coverage`,
-        rows: sourceMix,
-      },
-      {
-        title: "Impact by collection",
-        detail: totalMarginAtRisk ? `${formatDashboardMoney(totalMarginAtRisk)} total margin at risk` : "No stored impact yet",
-        rows: impactByCollection,
-      },
-    ],
-    nextStep: buildDashboardNextStep(startProduct, totalProducts, suggestedFixes),
+    priorityProducts,
+    actionQueue,
+    topActiveIssues,
+    coverageSummary,
   };
 }
 
-function getDashboardStartProduct(productList) {
+function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
   const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
-  const candidates = productList
-    .filter((product) => !hasDashboardFullDiagnosis(product));
-  const pool = candidates.length ? candidates : productList;
-  const product = [...pool].sort((first, second) => (
+  const pendingAction = [...pendingActions]
+    .filter((action) => hasDashboardFullDiagnosis(action.product))
+    .sort((first, second) => second.priorityScore - first.priorityScore)[0] || null;
+  const diagnosisCandidates = productList.filter((product) => !hasDashboardFullDiagnosis(product));
+  const recheckCandidates = productList.filter((product) => product.resolvedAt || (Array.isArray(product.actionHistory) && product.actionHistory.some((action) => action.status === "applied")));
+  const fallbackPool = diagnosisCandidates.length ? diagnosisCandidates : recheckCandidates.length ? recheckCandidates : productList;
+  const product = pendingAction?.product || [...fallbackPool].sort((first, second) => (
     getDashboardPriorityScore(second, { maxMarginRisk })
       - getDashboardPriorityScore(first, { maxMarginRisk })
   ))[0];
@@ -478,6 +472,15 @@ function getDashboardStartProduct(productList) {
   const negativeReviews = Number(metrics.negativeReviewCount || 0);
   const mainIssue = getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality");
   const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
+  const actionMode = pendingAction
+    ? "pending-action"
+    : !hasFullDiagnosis
+      ? "next-diagnosis"
+      : recheckCandidates.includes(product)
+        ? "recheck"
+        : "analyze-more";
+  const actionTitle = getDashboardStartActionTitle({ product, action: pendingAction, actionMode });
+  const ctaKind = actionMode === "pending-action" || actionMode === "analyze-more" ? "link" : actionMode === "recheck" ? "recheck" : "diagnose";
 
   return {
     title: product.title || product.productTitle || "Product",
@@ -492,12 +495,18 @@ function getDashboardStartProduct(productList) {
     riskScore: Number(product.riskScore || 0),
     issueLabel: mainIssue,
     priorityScore,
-    selectionMode: hasFullDiagnosis ? "full-diagnosis-fallback" : "next-diagnosis",
-    priorityReason: buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore }),
-    eyebrow: hasFullDiagnosis ? "Recommended product to review" : "Recommended next product to analyze",
-    summary: buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }),
-    actionLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
-    actionHint: hasFullDiagnosis ? "Refresh the deep diagnosis for this product" : "Selected by product risk, confidence and financial exposure",
+    selectionMode: actionMode,
+    actionTitle,
+    priorityReason: buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore, actionMode }),
+    eyebrow: getDashboardStartEyebrow(actionMode),
+    summary: buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis, actionMode, action: pendingAction }),
+    whySummary: buildDashboardWhySummary({ product, mainIssue, pendingAction }),
+    whyMetrics: buildDashboardWhyMetrics({ product, returnRate, refundRate, negativeReviews }),
+    actionLabel: getDashboardStartCtaLabel(actionMode),
+    actionHint: getDashboardStartCtaHint(actionMode),
+    ctaKind,
+    ctaIcon: actionMode === "pending-action" ? getDashboardActionIcon(pendingAction) : actionMode === "analyze-more" ? "product" : "wand",
+    ctaHref: actionMode === "analyze-more" ? "/app/products" : `/app/products/${product.handle || product.slug || product.id}`,
     diagnosisJob: activeDiagnosis,
     diagnosisInProgress: Boolean(activeDiagnosis),
     badges: [
@@ -533,6 +542,52 @@ function getDashboardStartProduct(productList) {
   };
 }
 
+function getDashboardStartActionTitle({ product, action, actionMode }) {
+  if (actionMode === "pending-action") return action?.label || "Review recommended fix";
+  if (actionMode === "next-diagnosis") return "Run full product diagnosis";
+  if (actionMode === "recheck") return "Re-check product";
+  return product ? "Analyze more products" : "Run QuickScan";
+}
+
+function getDashboardStartEyebrow(actionMode) {
+  if (actionMode === "pending-action") return "Recommended fix waiting for review";
+  if (actionMode === "next-diagnosis") return "Highest-priority QuickScan candidate";
+  if (actionMode === "recheck") return "Previously changed product";
+  return "No urgent product action";
+}
+
+function getDashboardStartCtaLabel(actionMode) {
+  if (actionMode === "pending-action") return "Review recommended fix";
+  if (actionMode === "next-diagnosis") return "Run full diagnosis";
+  if (actionMode === "recheck") return "Re-check product";
+  return "Analyze more products";
+}
+
+function getDashboardStartCtaHint(actionMode) {
+  if (actionMode === "pending-action") return "Open the product diagnosis and review the recommended action.";
+  if (actionMode === "next-diagnosis") return "Queue a full AI diagnosis for the highest-priority QuickScan product.";
+  if (actionMode === "recheck") return "Run diagnostics again after applied changes or resolution.";
+  return "Open Products to find or scan the next product.";
+}
+
+function buildDashboardWhyMetrics({ product, returnRate, refundRate, negativeReviews }) {
+  const metrics = product.metrics || {};
+  const rows = [];
+  if (returnRate > 0) rows.push({ label: "return rate", value: formatDashboardRate(returnRate), tone: returnRate >= 15 ? "critical" : "warning" });
+  if (negativeReviews > 0) rows.push({ label: "negative reviews", value: formatDashboardNumber(negativeReviews), tone: "critical" });
+  if (refundRate > 0) rows.push({ label: "refund rate", value: formatDashboardRate(refundRate), tone: refundRate >= 10 ? "critical" : "warning" });
+  rows.push({ label: "margin at risk", value: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")), tone: getDashboardMetric(product, "marginAtRisk") > 0 ? "info" : "neutral" });
+  if (Number(metrics.signalCount || metrics.issueCount || 0) > 0) rows.push({ label: "stored signals", value: formatDashboardNumber(metrics.signalCount || metrics.issueCount), tone: "neutral" });
+  return rows.slice(0, 4);
+}
+
+function buildDashboardWhySummary({ product, mainIssue, pendingAction }) {
+  if (pendingAction) {
+    return `${pendingAction.label} is the highest-priority open action because ${product.title} still carries ${formatDashboardMoney(getDashboardMetric(product, "marginAtRisk"))} margin exposure tied to ${mainIssue.toLowerCase()}.`;
+  }
+  return `${product.title} is ranked by action priority: product risk, confidence, current margin exposure and evidence freshness.`;
+}
+
 function getDashboardActiveDiagnosis(product) {
   const job = product?.diagnosisJob;
   const status = String(job?.status || "").toLowerCase();
@@ -560,7 +615,7 @@ function getDashboardPriorityScore(product, { maxMarginRisk = 0 } = {}) {
   );
 }
 
-function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore }) {
+function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore, actionMode }) {
   const metrics = product.metrics || {};
   const reasons = [
     `${getRiskLabel(Number(product.riskScore || 0)).toLowerCase()} risk`,
@@ -571,14 +626,30 @@ function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore
     reasons.push(`${formatDashboardNumber(metrics.recentSignalUnits)} recent signal${Number(metrics.recentSignalUnits) === 1 ? "" : "s"}`);
   }
 
-  return `${hasFullDiagnosis ? "Fallback because all priority candidates already have full diagnostics" : "Next full-diagnosis candidate"}: ${reasons.join(", ")}. Action priority ${priorityScore}/100.`;
+  const prefix = actionMode === "pending-action"
+    ? "Next recommended action"
+    : actionMode === "recheck"
+      ? "Re-check candidate"
+      : hasFullDiagnosis
+        ? "Diagnosed product"
+        : "Next full-diagnosis candidate";
+  return `${prefix}: ${reasons.join(", ")}. Action priority ${priorityScore}/100.`;
 }
 
-function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }) {
+function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis, actionMode, action }) {
   const pieces = [];
   if (returnRate > 0) pieces.push(`${formatDashboardRate(returnRate)} return rate`);
   if (refundRate > 0) pieces.push(`${formatDashboardRate(refundRate)} refund rate`);
   if (negativeReviews > 0) pieces.push(`${formatDashboardNumber(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`);
+  if (actionMode === "pending-action") {
+    return `${action?.label || "The recommended action"} is ready to review for ${product.title}. ${pieces.length ? `${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.` : "ProductPulse found enough evidence to recommend a customer-facing fix."}`;
+  }
+  if (actionMode === "recheck") {
+    return `${product.title} has applied or resolved work. Re-check it to confirm risk moved down and the fix did not create new issues.`;
+  }
+  if (actionMode === "analyze-more") {
+    return "No urgent recommended action is waiting. Open Products to scan or choose another product for diagnosis.";
+  }
   if (!pieces.length) {
     return hasFullDiagnosis
       ? `${product.title} already has a full diagnosis and remains the highest-priority product to review.`
@@ -589,40 +660,192 @@ function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate
     : `${product.title} is the highest-priority product without a full diagnosis because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`;
 }
 
-function buildDashboardEvidenceMetrics(startProduct) {
-  if (!startProduct) {
-    return [
-      { icon: "return", label: "Return rate", value: "0%", detail: "No scan yet", tone: "neutral" },
-      { icon: "package", label: "Returns", value: "0", detail: "No scan yet", tone: "neutral" },
-      { icon: "star", label: "Negative reviews", value: "0", detail: "No reviews", tone: "neutral" },
-      { icon: "target", label: "Signals", value: "0", detail: "No signals", tone: "neutral" },
-    ];
-  }
-  const metrics = startProduct.metrics || {};
-  return [
-    { icon: "return", label: "Return rate", value: formatDashboardRate(metrics.returnRate), detail: `${formatDashboardNumber(metrics.windowDays)}d window`, tone: metrics.returnRate >= 15 ? "critical" : metrics.returnRate > 0 ? "warning" : "neutral" },
-    { icon: "package", label: "Returns", value: formatDashboardNumber(metrics.returnUnits), detail: `${formatDashboardNumber(metrics.refundUnits)} refunds`, tone: metrics.returnUnits > 0 ? "warning" : "neutral" },
-    { icon: "star", label: "Negative reviews", value: formatDashboardNumber(metrics.negativeReviewCount), detail: `${formatDashboardNumber(metrics.reviewCount)} reviews`, tone: metrics.negativeReviewCount > 0 ? "critical" : "neutral" },
-    { icon: "target", label: "Signals", value: formatDashboardNumber(metrics.signalCount), detail: `${formatDashboardMoney(metrics.marginAtRisk)} margin risk`, tone: metrics.signalCount > 0 ? "info" : "neutral" },
-  ];
+function buildDashboardActionRows(productList) {
+  const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
+  return productList.flatMap((product) => {
+    const actions = Array.isArray(product.recommendedActions) ? product.recommendedActions : [];
+    const history = Array.isArray(product.actionHistory) ? product.actionHistory : [];
+    return actions.map((action) => {
+      const actionId = action.id || action.label || "";
+      const record = history.find((item) => item.actionId === actionId || item.id === actionId);
+      const status = normalizeDashboardActionStatus(record?.status || action.status);
+      const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
+      return {
+        id: actionId,
+        label: action.label || "Review recommended action",
+        type: action.type || "",
+        status,
+        product,
+        productTitle: product.title || product.productTitle || "Product",
+        href: `/app/products/${product.handle || product.slug || product.id}`,
+        icon: getDashboardActionIcon(action),
+        tone: getDashboardActionTone(action),
+        category: getDashboardActionCategory(action),
+        priorityScore,
+        marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+      };
+    });
+  }).sort((first, second) => (
+    second.priorityScore - first.priorityScore
+      || second.marginAtRisk - first.marginAtRisk
+  ));
 }
 
-function buildDashboardIssueBars(productList) {
+function normalizeDashboardActionStatus(status) {
+  const normalized = String(status || "pending").toLowerCase();
+  if (normalized.includes("applied")) return "applied";
+  if (normalized.includes("dismiss")) return "dismissed";
+  return "pending";
+}
+
+function getDashboardActionCategory(action = {}) {
+  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (value.includes("faq")) return "Product FAQs";
+  if (value.includes("quality") || value.includes("support") || value.includes("note")) return "Product quality notes";
+  if (value.includes("description") || value.includes("copy") || value.includes("pdp")) return "Product descriptions";
+  if (value.includes("tag") || value.includes("collection")) return "Tags and workflows";
+  if (value.includes("variant") || value.includes("option")) return "Variant review";
+  if (value.includes("price")) return "Pricing review";
+  if (value.includes("evidence") || value.includes("review")) return "Evidence review";
+  return "Recommended fixes";
+}
+
+function getDashboardActionTone(action = {}) {
+  const category = getDashboardActionCategory(action);
+  if (category.includes("FAQ")) return "teal";
+  if (category.includes("description")) return "blue";
+  if (category.includes("quality")) return "purple";
+  if (category.includes("Tags")) return "orange";
+  return "blue";
+}
+
+function buildDashboardPriorityProducts(productList) {
+  const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
+  return [...productList]
+    .sort((first, second) => getDashboardPriorityScore(second, { maxMarginRisk }) - getDashboardPriorityScore(first, { maxMarginRisk }))
+    .slice(0, 3)
+    .map((product, index) => {
+      const pendingAction = buildDashboardActionRows([product]).find((action) => action.status === "pending");
+      const hasFullDiagnosis = hasDashboardFullDiagnosis(product);
+      return {
+        id: product.id || product.handle || product.slug || product.title,
+        rank: index + 1,
+        title: product.title || product.productTitle || "Product",
+        href: `/app/products/${product.handle || product.slug || product.id}`,
+        riskLabel: getRiskLabel(Number(product.riskScore || 0)),
+        riskTone: getRiskTone(Number(product.riskScore || 0)),
+        marginAtRiskLabel: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")),
+        issueLabel: getDashboardIssueLabel(product.primaryIssue || product.metrics?.mainIssue || "Product quality"),
+        actionLabel: pendingAction?.label || (hasFullDiagnosis ? "Review diagnosis" : "Run full diagnosis"),
+      };
+    });
+}
+
+function buildDashboardActionQueue(pendingActions) {
+  const grouped = new Map();
+  pendingActions.forEach((action) => {
+    const current = grouped.get(action.category) || {
+      label: action.category,
+      value: 0,
+      href: action.href,
+      icon: action.icon,
+      tone: action.tone,
+      products: new Set(),
+    };
+    current.value += 1;
+    current.products.add(action.productTitle);
+    if (action.priorityScore > (current.priorityScore || 0)) {
+      current.href = action.href;
+      current.priorityScore = action.priorityScore;
+    }
+    grouped.set(action.category, current);
+  });
+
+  const rows = Array.from(grouped.values())
+    .sort((first, second) => second.value - first.value || (second.priorityScore || 0) - (first.priorityScore || 0))
+    .map((row) => ({
+      label: row.label,
+      value: row.value,
+      valueLabel: formatDashboardNumber(row.value),
+      detail: `${formatDashboardNumber(row.products.size)} product${row.products.size === 1 ? "" : "s"} affected`,
+      href: row.href,
+      icon: row.icon,
+      tone: row.tone,
+    }));
+
+  const first = rows[0];
+  return {
+    total: pendingActions.length,
+    totalLabel: formatDashboardNumber(pendingActions.length),
+    detail: first ? `${first.valueLabel} ${first.label.toLowerCase()} pending` : "No pending fixes waiting for review.",
+    rows: rows.length ? rows : [{
+      label: "No pending actions",
+      value: 0,
+      valueLabel: "0",
+      detail: "Run product diagnosis to generate actionable fixes.",
+      href: "/app/products",
+      icon: "check",
+      tone: "green",
+    }],
+  };
+}
+
+function buildDashboardTopActiveIssues(productList) {
   const grouped = new Map();
   productList.forEach((product) => {
     const metrics = product.metrics || {};
-    const issues = Array.isArray(product.issues) && product.issues.length
-      ? product.issues
-      : [{ issue: product.primaryIssue, signals: metrics.signalCount || metrics.issueCount || 1 }];
-    issues.forEach((issue) => {
-      const label = getDashboardIssueLabel(issue.issueCode || issue.issue || product.primaryIssue);
-      const current = grouped.get(label) || { label, value: 0 };
-      current.value += Math.max(1, Number(issue.signals || metrics.signalCount || metrics.issueCount || 1));
-      grouped.set(label, current);
-    });
+    const issueLabel = getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality");
+    const current = grouped.get(issueLabel) || {
+      label: issueLabel,
+      products: new Set(),
+      marginAtRisk: 0,
+    };
+    current.products.add(product.id || product.handle || product.slug || product.title);
+    current.marginAtRisk += getDashboardMetric(product, "marginAtRisk");
+    grouped.set(issueLabel, current);
   });
 
-  return normalizeDashboardRows(Array.from(grouped.values()), 5, "No issues detected");
+  return Array.from(grouped.values())
+    .sort((first, second) => second.marginAtRisk - first.marginAtRisk || second.products.size - first.products.size)
+    .slice(0, 4)
+    .map((issue) => ({
+      label: issue.label,
+      productsAffected: issue.products.size,
+      productsLabel: `${formatDashboardNumber(issue.products.size)} product${issue.products.size === 1 ? "" : "s"}`,
+      marginAtRisk: issue.marginAtRisk,
+      marginAtRiskLabel: formatDashboardMoney(issue.marginAtRisk),
+    }));
+}
+
+function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts }) {
+  const connectedLabels = new Set();
+  productList.forEach((product) => {
+    (Array.isArray(product.sourceCoverage) ? product.sourceCoverage : []).forEach((source) => {
+      connectedLabels.add(normalizeDashboardSourceLabel(source));
+    });
+  });
+  if (totalProducts > 0) connectedLabels.add("Product data");
+
+  const sources = [
+    { label: "Products", source: "Product data", icon: "product" },
+    { label: "Reviews", source: "Reviews", icon: "star" },
+    { label: "Returns", source: "Returns", icon: "return" },
+    { label: "Refunds", source: "Refunds", icon: "cash-dollar" },
+  ].map((source) => ({
+    ...source,
+    tone: connectedLabels.has(source.source) ? "success" : "neutral",
+  }));
+
+  const connectedCount = sources.filter((source) => source.tone === "success").length;
+  const statusLabel = connectedCount >= 3 ? "Data coverage: Good" : connectedCount > 1 ? "Data coverage: Partial" : "Data coverage: Needs setup";
+  return {
+    statusLabel,
+    tone: connectedCount >= 3 ? "green" : connectedCount > 1 ? "orange" : "blue",
+    icon: connectedCount >= 3 ? "check" : "info",
+    detail: `${formatDashboardNumber(fullDiagnoses.length)} / ${formatDashboardNumber(totalProducts)} products fully diagnosed.`,
+    coverageLine: `Coverage: ${formatDashboardNumber(fullDiagnoses.length)} / ${formatDashboardNumber(totalProducts)} full diagnosis · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only`,
+    sources,
+  };
 }
 
 function buildDashboardSuggestedFixes(productList) {
@@ -648,93 +871,6 @@ function buildDashboardSuggestedFixes(productList) {
     tone: "info",
     href: productList.length ? "/app/products" : "/app/products",
   }];
-}
-
-function buildDashboardSourceMix(productList) {
-  const grouped = new Map();
-  productList.forEach((product) => {
-    const sources = Array.isArray(product.sourceCoverage) ? product.sourceCoverage : [];
-    sources.forEach((source) => {
-      const label = normalizeDashboardSourceLabel(source);
-      grouped.set(label, (grouped.get(label) || 0) + 1);
-    });
-  });
-  return normalizeDashboardRows(Array.from(grouped.entries()).map(([label, value]) => ({ label, value })), 5, "No source data");
-}
-
-function buildDashboardImpactByCollection(productList) {
-  const grouped = new Map();
-  productList.forEach((product) => {
-    const collection = product.collection || product.metrics?.collections?.[0] || product.metrics?.productType || "Uncategorized";
-    const value = getDashboardMetric(product, "marginAtRisk");
-    if (value <= 0) return;
-    grouped.set(collection, (grouped.get(collection) || 0) + value);
-  });
-  return normalizeDashboardRows(Array.from(grouped.entries()).map(([label, value]) => ({
-    label,
-    value,
-    displayValue: formatDashboardMoney(value),
-  })), 5, "No impact yet");
-}
-
-function buildDashboardAnalysisCoverage({ fullDiagnoses, quickScanOnly, totalProducts }) {
-  return buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts });
-}
-
-function buildDashboardRiskDistribution({ highRiskProducts, mediumRiskProducts, totalProducts }) {
-  const low = Math.max(0, totalProducts - highRiskProducts.length - mediumRiskProducts.length);
-  return normalizeDashboardRows([
-    { label: "High risk", value: highRiskProducts.length },
-    { label: "Medium risk", value: mediumRiskProducts.length },
-    { label: "Low risk", value: low },
-  ], 3, "No products");
-}
-
-function buildDashboardNextStep(startProduct, totalProducts, suggestedFixes = []) {
-  if (!totalProducts) {
-    return {
-      title: "Run QuickScan",
-      subtitle: "Start with native Shopify signals",
-      detail: "QuickScan builds a lightweight product risk list from Shopify products, orders, refunds and returns.",
-      href: "/app/products",
-      buttonLabel: "Go to Products",
-    };
-  }
-  if (!startProduct) {
-    return {
-      title: "Review products",
-      subtitle: "Open the product list",
-      detail: "ProductPulse has stored scan data. Review the Products page to choose where to run a deep diagnosis.",
-      href: "/app/products",
-      buttonLabel: "View products",
-    };
-  }
-  if (startProduct.selectionMode === "next-diagnosis") {
-    return {
-      title: "Run product diagnosis",
-      subtitle: "Run the next full diagnosis",
-      detail: `${startProduct.title} was selected with an action priority of ${startProduct.priorityScore}/100 because it has no full diagnosis yet and ranks highest by product risk, diagnosis confidence and financial exposure.`,
-      href: startProduct.href,
-      buttonLabel: "Open product",
-    };
-  }
-  const topFix = suggestedFixes[0];
-  if (topFix && topFix.impact !== "Needs diagnosis") {
-    return {
-      title: "Review recommended action",
-      subtitle: topFix.label,
-      detail: "All high-priority candidates already have a full diagnosis. The next best step is to review and apply the highest-impact recommended action.",
-      href: topFix.href || startProduct.href,
-      buttonLabel: "Review action",
-    };
-  }
-  return {
-    title: "Review product diagnosis",
-    subtitle: startProduct.title,
-    detail: "All current priority candidates already have a full diagnosis. Review the top product's evidence and recommended actions.",
-    href: startProduct.href,
-    buttonLabel: "Open diagnosis",
-  };
 }
 
 function normalizeDashboardRows(rows, limit, emptyLabel) {

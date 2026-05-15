@@ -25,18 +25,24 @@ function renderWithAction(element, action) {
 describe("ProductPulse screens", () => {
   it("renders dashboard KPIs and start-here product", () => {
     renderWithRouter(<DashboardScreen data={defaultView} />);
-    expect(screen.getByText(/Product quality signals from reviews/)).toBeInTheDocument();
+    expect(screen.getByText(/Current product quality status/)).toBeInTheDocument();
     expect(screen.getByText("Products needing attention")).toBeInTheDocument();
-    expect(screen.getAllByText("Ceramic Pour Over").length).toBeGreaterThan(0);
-    expect(screen.getByText(/highest-priority product without a full diagnosis/)).toBeInTheDocument();
+    expect(screen.getByText("Pending recommended actions")).toBeInTheDocument();
+    expect(screen.getByText("Issues resolved / Risk reduced")).toBeInTheDocument();
+    expect(screen.getByText("Next best action")).toBeInTheDocument();
+    expect(screen.getAllByText("Core Linen Trouser").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
+    expect(screen.getByText(/ready to review for Core Linen Trouser/)).toBeInTheDocument();
     expect(screen.getByText("$21,000")).toBeInTheDocument();
     expect(screen.queryByText("Products to review")).not.toBeInTheDocument();
-    expect(screen.getByText("Risk distribution")).toBeInTheDocument();
-    expect(screen.getByText("Analysis coverage")).toBeInTheDocument();
+    expect(screen.getByText("Priority products")).toBeInTheDocument();
+    expect(screen.getByText("Action queue")).toBeInTheDocument();
+    expect(screen.getByText("Top active issue types")).toBeInTheDocument();
+    expect(screen.getByText("Data coverage / scan coverage")).toBeInTheDocument();
     expect(screen.queryByText("Not scanned")).not.toBeInTheDocument();
     expect(screen.queryByText("View all recommended fixes")).not.toBeInTheDocument();
-    expect(screen.getByText("Signal source mix")).toBeInTheDocument();
-    expect(screen.getByText("Impact by collection")).toBeInTheDocument();
+    expect(screen.queryByText("Signal source mix")).not.toBeInTheDocument();
+    expect(screen.queryByText("Impact by collection")).not.toBeInTheDocument();
   });
 
   it("renders source coverage categories", () => {

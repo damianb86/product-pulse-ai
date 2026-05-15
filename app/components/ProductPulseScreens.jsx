@@ -21,19 +21,16 @@ export function DashboardScreen({ data, actionData }) {
   const startProduct = dashboard.startProduct || null;
   const diagnosisHref = startProduct?.href || "/app/products";
   const dashboardKpis = dashboard.kpis || [];
-  const evidenceMetrics = dashboard.evidenceMetrics || [];
-  const topIssueBars = dashboard.issueBars || [];
-  const suggestedFixes = dashboard.suggestedFixes || [];
-  const insightPanels = dashboard.insightPanels || [];
-  const nextStep = dashboard.nextStep || {
-    title: "Review products",
-    subtitle: "Open the product list",
-    detail: "Run QuickScan or open a product diagnosis to start building the dashboard.",
-    href: "/app/products",
-    buttonLabel: "Go to Products",
-  };
+  const priorityProducts = dashboard.priorityProducts || [];
+  const actionQueue = dashboard.actionQueue || { total: 0, rows: [] };
+  const topActiveIssues = dashboard.topActiveIssues || [];
+  const coverageSummary = dashboard.coverageSummary || {};
   const pendingDashboardDiagnosis = navigation.state === "submitting" && navigation.formData?.get("_action") === "diagnose";
   const startProductDiagnosisRunning = Boolean(startProduct?.diagnosisInProgress || startProduct?.diagnosisJob);
+  const dashboardCtaKind = startProduct?.ctaKind || "link";
+  const dashboardCtaHref = startProduct?.ctaHref || startProduct?.href || "/app/products";
+  const dashboardCtaIcon = startProduct?.ctaIcon || (dashboardCtaKind === "diagnose" ? "wand" : "product");
+  const dashboardCtaRequiresDiagnosis = dashboardCtaKind === "diagnose" || dashboardCtaKind === "recheck";
 
   useEffect(() => {
     announceProductPulseJobs(actionData);
@@ -41,7 +38,7 @@ export function DashboardScreen({ data, actionData }) {
   }, [actionData]);
 
   const handleRequestDashboardDiagnosis = () => {
-    if (!startProduct || pendingDashboardDiagnosis || startProductDiagnosisRunning) return;
+    if (!startProduct || !dashboardCtaRequiresDiagnosis || pendingDashboardDiagnosis || startProductDiagnosisRunning) return;
     setDiagnosisConfirmation({
       mode: "single",
       title: "Confirm product analysis",
@@ -68,7 +65,7 @@ export function DashboardScreen({ data, actionData }) {
         <PermissionBanner permissionState={data.permissionState} />
 
         <p className="ppDashboardSubtitle">
-          Product quality signals from reviews, returns, refunds and support.
+          Current product quality status from product diagnostics, recommended actions and connected evidence.
         </p>
 
         <div className="ppDashboardKpis" aria-label="Product quality overview">
@@ -78,10 +75,10 @@ export function DashboardScreen({ data, actionData }) {
         </div>
 
         <s-section padding="none">
-          <div className="ppStartPanel">
+          <div className="ppStartPanel ppNextBestActionPanel">
             <div className="ppStartHeading">
               <DashboardIcon type="wand" tone="purple" size="small" />
-              <h2>Start here</h2>
+              <h2>Next best action</h2>
             </div>
             <div className="ppStartContent">
               {startProduct ? (
@@ -94,8 +91,9 @@ export function DashboardScreen({ data, actionData }) {
                     imageAlt={startProduct.imageAlt}
                   />
                   <div className="ppStartCopy">
-                    <span>{startProduct.eyebrow || "Recommended next product to analyze"}</span>
-                    <h3>{startProduct.title}</h3>
+                    <span>{startProduct.eyebrow || "Recommended next step"}</span>
+                    <h3>{startProduct.actionTitle || startProduct.title}</h3>
+                    <strong className="ppNextBestProductName">{startProduct.title}</strong>
                     <div className="ppBadgeRow">
                       {(startProduct.badges || []).map((badge) => (
                         <InlineBadge key={`${badge.label}-${badge.tone}`} tone={badge.tone} icon={badge.icon}>{badge.label}</InlineBadge>
@@ -115,17 +113,21 @@ export function DashboardScreen({ data, actionData }) {
                 </div>
               )}
 
-              <div className="ppEvidenceGlance">
-                <h3>Evidence at a glance</h3>
-                <div className="ppEvidenceMetrics">
-                  {evidenceMetrics.map((metric) => (
-                    <EvidenceMetric key={metric.label} metric={metric} />
+              <div className="ppNextBestWhy">
+                <h3>Why this matters</h3>
+                <div>
+                  {(startProduct?.whyMetrics || []).map((metric) => (
+                    <span className={`ppNextBestWhyMetric ppNextBestWhyMetric-${metric.tone || "neutral"}`} key={metric.label}>
+                      <strong>{metric.value}</strong>
+                      <small>{metric.label}</small>
+                    </span>
                   ))}
                 </div>
+                <p>{startProduct?.whySummary || "ProductPulse ranks the next action by product risk, diagnosis confidence, financial exposure and open recommended actions."}</p>
               </div>
 
               <div className="ppStartActionPanel">
-                {startProduct && !startProductDiagnosisRunning ? (
+                {startProduct && !startProductDiagnosisRunning && dashboardCtaRequiresDiagnosis ? (
                   <button
                     className="ppPrimaryButton"
                     type="button"
@@ -133,12 +135,12 @@ export function DashboardScreen({ data, actionData }) {
                     onClick={handleRequestDashboardDiagnosis}
                   >
                     <s-icon type="wand" size="small"></s-icon>
-                    <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run product diagnosis"}</span>
+                    <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run full diagnosis"}</span>
                   </button>
                 ) : (
-                  <Link className="ppPrimaryButton" to={diagnosisHref}>
-                    <s-icon type="product" size="small"></s-icon>
-                    <span>{startProductDiagnosisRunning ? "View running product" : "Go to Products"}</span>
+                  <Link className="ppPrimaryButton" to={startProductDiagnosisRunning ? diagnosisHref : dashboardCtaHref}>
+                    <s-icon type={startProductDiagnosisRunning ? "product" : dashboardCtaIcon} size="small"></s-icon>
+                    <span>{startProductDiagnosisRunning ? "View running product" : startProduct?.actionLabel || "Analyze more products"}</span>
                   </Link>
                 )}
                 <span>{startProductDiagnosisRunning ? getDashboardDiagnosisJobLabel(startProduct.diagnosisJob) : startProduct?.actionHint || "Start with QuickScan"}</span>
@@ -157,51 +159,23 @@ export function DashboardScreen({ data, actionData }) {
           />
         )}
 
-        <div className="ppDashboardInsights">
-          {insightPanels.map((panel) => (
-            <s-section padding="none" key={panel.title}>
-              <DashboardInsightPanel panel={panel} />
-            </s-section>
-          ))}
+        <div className="ppDashboardActionGrid">
+          <s-section padding="none">
+            <DashboardPriorityProducts products={priorityProducts} />
+          </s-section>
+
+          <s-section padding="none">
+            <DashboardActionQueue queue={actionQueue} />
+          </s-section>
         </div>
 
-        <div className="ppDashboardBottom">
+        <div className="ppDashboardOperationalGrid">
           <s-section padding="none">
-            <div className="ppDashboardPanel">
-              <h2>Top issues</h2>
-              <div className="ppIssueBars">
-                {topIssueBars.map((issue) => (
-                  <IssueBar key={issue.label} issue={issue} />
-                ))}
-              </div>
-              <s-link href="/app/analytics">View all issues</s-link>
-            </div>
+            <DashboardTopActiveIssues issues={topActiveIssues} />
           </s-section>
 
           <s-section padding="none">
-            <div className="ppDashboardPanel">
-              <h2>Suggested fixes</h2>
-              <div className="ppFixList">
-                {suggestedFixes.map((fix) => (
-                  <SuggestedFix key={fix.label} fix={fix} />
-                ))}
-              </div>
-            </div>
-          </s-section>
-
-          <s-section padding="none">
-            <div className="ppNextStepPanel">
-              <DashboardIcon type="wand" tone="purple" />
-              <div>
-                <h2>Next step</h2>
-                <h3>{nextStep.subtitle}</h3>
-                <p>{nextStep.detail}</p>
-                <Link className="ppNextStepButton" to={nextStep.href || diagnosisHref}>
-                  <s-icon type="product" size="small"></s-icon>
-                  <span>{nextStep.buttonLabel || nextStep.title}</span>
-                </Link>
-              </div>
-            </div>
+            <DashboardCoverageSummary summary={coverageSummary} />
           </s-section>
         </div>
       </ScreenShell>
@@ -4023,13 +3997,108 @@ function InlineBadge({ tone, icon, children }) {
   );
 }
 
-function EvidenceMetric({ metric }) {
+function DashboardPriorityProducts({ products }) {
+  const rows = Array.isArray(products) ? products : [];
   return (
-    <div className={`ppEvidenceMetric ppEvidenceMetric-${metric.tone || "neutral"}`}>
-      <s-icon type={metric.icon}></s-icon>
-      <span>{metric.label}</span>
-      <strong>{metric.value}</strong>
-      <small>{metric.detail}</small>
+    <div className="ppDashboardPanel ppPriorityProductsPanel">
+      <div className="ppDashboardPanelHeader">
+        <h2>Priority products</h2>
+        <span>Products ranked by action priority, exposure and evidence strength.</span>
+      </div>
+      <div className="ppPriorityProductList">
+        {rows.map((product) => (
+          <Link className="ppPriorityProductItem" to={product.href || "/app/products"} key={product.id || product.title}>
+            <span className={`ppPriorityProductRank ppPriorityProductRank-${product.riskTone || "neutral"}`}>{product.rank}</span>
+            <span>
+              <strong>{product.title}</strong>
+              <small>{product.riskLabel} · {product.marginAtRiskLabel} margin at risk · {product.issueLabel}</small>
+            </span>
+            <em>{product.actionLabel}</em>
+            <s-icon type="chevron-right" size="small"></s-icon>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardActionQueue({ queue }) {
+  const rows = Array.isArray(queue?.rows) ? queue.rows : [];
+  return (
+    <div className="ppDashboardPanel ppActionQueuePanel">
+      <div className="ppDashboardPanelHeader">
+        <h2>Action queue</h2>
+        <span>{queue?.detail || "Recommended actions waiting for review."}</span>
+      </div>
+      <div className="ppActionQueueTotal">
+        <strong>{queue?.totalLabel || "0"}</strong>
+        <span>pending actions</span>
+      </div>
+      <div className="ppActionQueueList">
+        {rows.map((row) => (
+          <Link className="ppActionQueueItem" to={row.href || "/app/products"} key={row.label}>
+            <span className={`ppActionQueueIcon ppActionQueueIcon-${row.tone || "blue"}`}>
+              <s-icon type={row.icon || "wand"} size="small"></s-icon>
+            </span>
+            <span>
+              <strong>{row.label}</strong>
+              <small>{row.detail}</small>
+            </span>
+            <em>{row.valueLabel}</em>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardTopActiveIssues({ issues }) {
+  const rows = Array.isArray(issues) ? issues : [];
+  return (
+    <div className="ppDashboardPanel ppTopActiveIssuesPanel">
+      <div className="ppDashboardPanelHeader">
+        <h2>Top active issue types</h2>
+        <span>Ranked by affected products and margin exposure, not raw signal count.</span>
+      </div>
+      <div className="ppTopIssueTable" role="table" aria-label="Top active issue types">
+        <div role="row">
+          <span role="columnheader">Issue type</span>
+          <span role="columnheader">Products affected</span>
+          <span role="columnheader">Margin at risk</span>
+        </div>
+        {rows.map((issue) => (
+          <div role="row" key={issue.label}>
+            <strong role="cell">{issue.label}</strong>
+            <span role="cell">{issue.productsLabel}</span>
+            <em role="cell">{issue.marginAtRiskLabel}</em>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardCoverageSummary({ summary }) {
+  const sources = Array.isArray(summary?.sources) ? summary.sources : [];
+  return (
+    <div className="ppDashboardPanel ppCoverageSummaryPanel">
+      <div className="ppDashboardPanelHeader">
+        <h2>Data coverage / scan coverage</h2>
+        <span>{summary?.detail || "Coverage updates as products are scanned and sources connect."}</span>
+      </div>
+      <div className={`ppCoverageSummaryStatus ppCoverageSummaryStatus-${summary?.tone || "blue"}`}>
+        <s-icon type={summary?.icon || "check"} size="small"></s-icon>
+        <strong>{summary?.statusLabel || "No scan data"}</strong>
+        <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
+      </div>
+      <div className="ppCoverageSourcePills">
+        {sources.map((source) => (
+          <span className={`ppCoverageSourcePill ppCoverageSourcePill-${source.tone || "neutral"}`} key={source.label}>
+            <s-icon type={source.icon || "check"} size="small"></s-icon>
+            {source.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -4188,49 +4257,6 @@ function useFloatingTablePopoverStyle(anchorRef, open, { width = 320, estimatedH
   }, [anchorRef, open, width, estimatedHeight, placement]);
 
   return style;
-}
-
-function IssueBar({ issue }) {
-  return (
-    <div className="ppIssueBar">
-      <span>{issue.label}</span>
-      <div>
-        <span style={{ width: `${issue.pct}%` }} />
-      </div>
-      <strong>{issue.displayValue || issue.value}</strong>
-    </div>
-  );
-}
-
-function SuggestedFix({ fix }) {
-  return (
-    <a className="ppFixItem" href={fix.href || "/app/products"}>
-      <s-icon type={fix.icon}></s-icon>
-      <span>{fix.label}</span>
-      <s-badge tone={fix.tone}>{fix.impact}</s-badge>
-      <s-icon type="chevron-right" size="small"></s-icon>
-    </a>
-  );
-}
-
-function DashboardInsightPanel({ panel }) {
-  return (
-    <div className="ppDashboardPanel ppDashboardInsightPanel">
-      <div className="ppDashboardPanelHeader">
-        <h2>{panel.title}</h2>
-        {panel.detail && <span>{panel.detail}</span>}
-      </div>
-      {panel.visual === "analysisCoverage" ? (
-        <AnalysisCoverageDonut rows={panel.rows || []} compact />
-      ) : (
-        <div className="ppIssueBars">
-          {(panel.rows || []).map((row) => (
-            <IssueBar key={`${panel.title}-${row.label}`} issue={row} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function ProductSourceIconGroup({ sources, overflow }) {
@@ -6887,37 +6913,6 @@ function SourceContributionChart({ contribution }) {
           <div key={row.label}>
             <span><i className={`ppDot-${row.color}`} />{row.label}</span>
             <strong>{row.percent}%</strong>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AnalysisCoverageDonut({ rows, compact = false }) {
-  const safeRows = rows?.length ? rows : [
-    { label: "Full diagnosis", value: 0, percent: 0, color: "purple", displayValue: "0%" },
-    { label: "QuickScan only", value: 0, percent: 0, color: "blue", displayValue: "0%" },
-  ];
-  const fullRow = safeRows.find((row) => String(row.label || "").toLowerCase().includes("full")) || safeRows[0];
-  const quickRow = safeRows.find((row) => String(row.label || "").toLowerCase().includes("quick")) || safeRows[1];
-  const total = safeRows.reduce((sum, row) => sum + Number(row.value || 0), 0);
-  const fullPercent = total ? Math.round((Number(fullRow?.value || 0) / total) * 100) : 0;
-  const donutGradient = buildDonutGradient(safeRows);
-
-  return (
-    <div className={`ppAnalysisCoverageDonut${compact ? " isCompact" : ""}`.trim()}>
-      <div className="ppDonutChart ppAnalysisDepthDonut" aria-label="Analysis coverage by depth" style={{ "--pp-donut-gradient": donutGradient }}>
-        <div>
-          <strong>{fullPercent}%</strong>
-          <span>Full diagnosis</span>
-        </div>
-      </div>
-      <div className="ppDonutLegend">
-        {[fullRow, quickRow].filter(Boolean).map((row) => (
-          <div key={row.label}>
-            <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
-            <strong>{row.displayValue || `${row.percent || 0}%`}</strong>
           </div>
         ))}
       </div>
