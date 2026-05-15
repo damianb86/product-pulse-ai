@@ -702,6 +702,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
     expect(screen.getAllByText("Margin at risk").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Margin at risk over time").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Products needing attention/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /High risk/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Evidence source coverage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Issue impact by type").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Action performance").length).toBeGreaterThan(0);
@@ -723,8 +725,11 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("View all insights")).not.toBeInTheDocument();
     expect(screen.getByText("Estimated business impact (next 90 days)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Learn how ProductPulse AI improves these outcomes/ }));
-    expect(screen.getByRole("heading", { name: "How ProductPulse estimates business impact" })).toBeInTheDocument();
-    expect(screen.getByText(/designed for prioritization, not accounting/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "How ProductPulse calculates business impact" })).toBeInTheDocument();
+    expect(screen.getByText("Calculation model")).toBeInTheDocument();
+    expect(screen.getByText("Current breakdown")).toBeInTheDocument();
+    expect(screen.getByText("Inputs used")).toBeInTheDocument();
+    expect(screen.getByText(/designed for prioritization/)).toBeInTheDocument();
   });
 
   it("starts the risk margin x-axis near the lowest plotted risk score", () => {

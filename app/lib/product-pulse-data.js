@@ -1168,6 +1168,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       title: `Estimated business impact (next ${windowDays} days)`,
       subtitle: "Projected from the stored QuickScan and full diagnosis metrics.",
       metrics: buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList, options }),
+      calculation: buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productList, actionRows }),
     },
   };
 }
@@ -1879,7 +1880,7 @@ function buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList }
     const productWindow = Number(metrics.windowDays || windowDays || 90);
     return sum + Number(metrics.returnUnits || 0) * (windowDays / Math.max(productWindow, 1));
   }, 0);
-  const actionCoverage = totals.openActions + totals.appliedActions;
+  const actionCoverage = totals.openActions + totals.appliedActions + totals.dismissedActions;
   return [
     {
       label: "Revenue at risk",
@@ -1907,9 +1908,199 @@ function buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList }
       value: formatDashboardNumber(actionCoverage),
       icon: "wand",
       tone: totals.openActions ? "purple" : "green",
-      detail: `${formatDashboardNumber(totals.openActions)} open, ${formatDashboardNumber(totals.appliedActions)} applied.`,
+      detail: `${formatDashboardNumber(totals.openActions)} open, ${formatDashboardNumber(totals.appliedActions)} applied, ${formatDashboardNumber(totals.dismissedActions)} dismissed.`,
     },
   ];
+}
+
+function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productList, actionRows = [] }) {
+  const impactTotals = productList.reduce((summary, product) => {
+    const metrics = product.metrics || {};
+    const impact = metrics.impactFactors || metrics.estimatedImpactFactors || {};
+    const productWindow = Number(metrics.windowDays || windowDays || 90);
+    const projectedReturnUnits = Number(metrics.returnUnits || 0) * (windowDays / Math.max(productWindow, 1));
+    const revenueAtRisk = getDashboardMetric(product, "revenueAtRisk");
+    const marginAtRisk = getDashboardMetric(product, "marginAtRisk");
+    const refundAmount = Number(metrics.refundAmount || impact.refunds || impact.refundValueAtRisk || 0);
+    const projectedLostRevenue = Number(impact.projectedLostRevenue || 0);
+    const reviewConversionRevenueDrag = Number(impact.reviewConversionRevenueDrag || 0);
+    const projectedLostMargin = Number(impact.projectedLostMargin || impact.projectedReturnLoss || 0);
+    const refundMarginLoss = Number(impact.refundMarginLoss || (refundAmount * Number(impact.marginRate || metrics.marginRate || 0.45)) || 0);
+    const operationalExposure = Number(impact.returnProcessingCost || impact.reviewConversionMarginDrag || 0);
+
+    summary.projectedReturnUnits += projectedReturnUnits;
+    summary.observedRefundValue += refundAmount;
+    summary.projectedReturnExposure += projectedLostRevenue;
+    summary.reviewConversionDrag += reviewConversionRevenueDrag;
+    summary.projectedReturnMarginLoss += projectedLostMargin;
+    summary.refundMarginLoss += refundMarginLoss;
+    summary.estimatedOperationalExposure += operationalExposure;
+    summary.productRiskExposure += Math.max(0, marginAtRisk - projectedLostMargin - refundMarginLoss - operationalExposure);
+    const trendValues = Array.isArray(metrics.riskTrend) && metrics.riskTrend.length
+      ? metrics.riskTrend
+      : Array.isArray(metrics.signalTrend) && metrics.signalTrend.length
+        ? metrics.signalTrend
+        : [];
+    summary.productsWithTrend += trendValues.length ? 1 : 0;
+    summary.productsWithMargin += Number(metrics.marginAtRisk || impact.marginAtRisk || 0) > 0 ? 1 : 0;
+    summary.confidenceSum += Number(product.confidence || metrics.confidence || 0);
+    summary.productRows.push({
+      id: product.id,
+      title: product.title,
+      riskScore: Number(product.riskScore || 0),
+      confidence: Number(product.confidence || metrics.confidence || 0),
+      revenueAtRisk,
+      marginAtRisk,
+      refundAmount,
+      returnUnits: Number(metrics.returnUnits || 0),
+      sourceCoverage: Array.isArray(product.sourceCoverage) ? product.sourceCoverage.length : 0,
+      calculatedAt: product.lastAnalysis || metrics.lastSignalAt || product.analysisCompletedAt || "",
+    });
+    return summary;
+  }, {
+    observedRefundValue: 0,
+    projectedReturnExposure: 0,
+    reviewConversionDrag: 0,
+    projectedReturnMarginLoss: 0,
+    refundMarginLoss: 0,
+    estimatedOperationalExposure: 0,
+    productRiskExposure: 0,
+    projectedReturnUnits: 0,
+    productsWithTrend: 0,
+    productsWithMargin: 0,
+    confidenceSum: 0,
+    productRows: [],
+  });
+
+  const openActions = totals.openActions || 0;
+  const appliedActions = totals.appliedActions || 0;
+  const dismissedActions = totals.dismissedActions || 0;
+  const totalActions = actionRows.length || openActions + appliedActions + dismissedActions;
+  const averageConfidence = productList.length ? impactTotals.confidenceSum / productList.length : 0;
+  const availableInputCount = [
+    productList.length,
+    totals.returnUnits,
+    totals.refundAmount,
+    totals.reviewCount,
+    totals.negativeReviewCount,
+    totals.contentIssueCount,
+    totals.customerTextSignals,
+    impactTotals.productsWithTrend,
+    totalActions,
+  ].filter((value) => Number(value || 0) > 0).length;
+  const confidenceScore = Math.min(100, Math.round(
+    18
+      + availableInputCount * 6
+      + Math.min(22, averageConfidence * 0.22)
+      + Math.min(16, Math.log1p(Math.max(totals.soldUnits + totals.returnUnits + totals.reviewCount, 0)) * 4),
+  ));
+
+  return {
+    windowLabel: `Last ${windowDays} days`,
+    formulas: [
+      { label: "Revenue at risk", expression: "observed refund value + projected return exposure + review conversion drag" },
+      { label: "Margin at risk", expression: "projected return margin loss + refund margin loss + estimated operational exposure" },
+      { label: "Potential returns", expression: "projected units exposed x estimated return probability" },
+      { label: "Recommended actions", expression: "open actions + applied actions + dismissed actions" },
+    ],
+    currentBreakdown: [
+      {
+        label: "Revenue at risk",
+        value: totals.revenueAtRisk,
+        valueLabel: formatDashboardMoney(totals.revenueAtRisk),
+        components: [
+          { label: "Observed refund value", value: impactTotals.observedRefundValue, valueLabel: formatDashboardMoney(impactTotals.observedRefundValue) },
+          { label: "Projected return exposure", value: impactTotals.projectedReturnExposure, valueLabel: formatDashboardMoney(impactTotals.projectedReturnExposure) },
+          { label: "Review conversion drag", value: impactTotals.reviewConversionDrag, valueLabel: formatDashboardMoney(impactTotals.reviewConversionDrag) },
+        ],
+      },
+      {
+        label: "Margin at risk",
+        value: totals.marginAtRisk,
+        valueLabel: formatDashboardMoney(totals.marginAtRisk),
+        components: [
+          { label: "Projected return margin loss", value: impactTotals.projectedReturnMarginLoss, valueLabel: formatDashboardMoney(impactTotals.projectedReturnMarginLoss) },
+          { label: "Refund margin loss", value: impactTotals.refundMarginLoss, valueLabel: formatDashboardMoney(impactTotals.refundMarginLoss) },
+          { label: "Product risk exposure", value: impactTotals.productRiskExposure, valueLabel: formatDashboardMoney(impactTotals.productRiskExposure) },
+          { label: "Estimated operational exposure", value: impactTotals.estimatedOperationalExposure, valueLabel: formatDashboardMoney(impactTotals.estimatedOperationalExposure) },
+        ],
+      },
+      {
+        label: "Potential returns",
+        value: impactTotals.projectedReturnUnits,
+        valueLabel: `~${formatDashboardNumber(impactTotals.projectedReturnUnits)}`,
+        components: [
+          { label: "Products analyzed", value: productList.length, valueLabel: formatDashboardNumber(productList.length) },
+          { label: "Return signals", value: totals.returnUnits, valueLabel: formatDashboardNumber(totals.returnUnits) },
+          { label: "Active return window", value: windowDays, valueLabel: `${windowDays} days` },
+          { label: "Projected affected units", value: impactTotals.projectedReturnUnits, valueLabel: formatDashboardNumber(impactTotals.projectedReturnUnits) },
+        ],
+      },
+      {
+        label: "Recommended actions",
+        value: totalActions,
+        valueLabel: formatDashboardNumber(totalActions),
+        components: [
+          { label: "Open actions", value: openActions, valueLabel: formatDashboardNumber(openActions) },
+          { label: "Applied actions", value: appliedActions, valueLabel: formatDashboardNumber(appliedActions) },
+          { label: "Dismissed actions", value: dismissedActions, valueLabel: formatDashboardNumber(dismissedActions) },
+          { label: "Pending review actions", value: openActions, valueLabel: formatDashboardNumber(openActions) },
+        ],
+      },
+    ],
+    inputs: [
+      buildAnalyticsImpactInput("Product risk score", productList.length ? "Available" : "Missing", `${formatDashboardNumber(productList.length)} stored product scores`),
+      buildAnalyticsImpactInput("Return rate", totals.soldUnits > 0 ? "Available" : totals.returnUnits > 0 ? "Estimated" : "Missing", `${formatDashboardNumber(totals.returnUnits)} return units / ${formatDashboardNumber(totals.soldUnits)} sold units`),
+      buildAnalyticsImpactInput("Refund value", totals.refundAmount > 0 ? "Available" : "Missing", formatDashboardMoney(totals.refundAmount)),
+      buildAnalyticsImpactInput("Review sentiment", totals.reviewCount > 0 ? "Available" : "Missing", `${formatDashboardNumber(totals.negativeReviewCount)} negative / ${formatDashboardNumber(totals.reviewCount)} reviews`),
+      buildAnalyticsImpactInput("Negative review volume", totals.negativeReviewCount > 0 ? "Available" : "Not used", `${formatDashboardNumber(totals.negativeReviewCount)} negative reviews`),
+      buildAnalyticsImpactInput("Product content issues", totals.contentIssueCount > 0 ? "Available" : "Not used", `${formatDashboardNumber(totals.contentIssueCount)} content issues`),
+      buildAnalyticsImpactInput("Customer language signals", totals.customerTextSignals > 0 ? "Available" : "Not used", `${formatDashboardNumber(totals.customerTextSignals)} text signals`),
+      buildAnalyticsImpactInput("Recent trend", impactTotals.productsWithTrend > 0 ? "Available" : "Estimated", `${formatDashboardNumber(impactTotals.productsWithTrend)} products with stored trend data`),
+      buildAnalyticsImpactInput("Margin estimate", productList.length && impactTotals.productsWithMargin === productList.length ? "Available" : impactTotals.productsWithMargin > 0 ? "Estimated" : "Missing", `${formatDashboardNumber(impactTotals.productsWithMargin)} products with explicit margin exposure`),
+      buildAnalyticsImpactInput("Recommended action status", totalActions > 0 ? "Available" : "Not used", `${formatDashboardNumber(totalActions)} stored actions`),
+    ],
+    confidence: {
+      label: confidenceScore >= 75 ? "High" : confidenceScore >= 50 ? "Medium" : "Low",
+      score: confidenceScore,
+      drivers: [
+        `${formatDashboardNumber(productList.length)} products in the analytics set`,
+        `${formatDashboardNumber(availableInputCount)} input groups available`,
+        `${formatDashboardNumber(totals.returnUnits + totals.refundUnits + totals.reviewCount)} observed evidence events`,
+        impactTotals.productsWithMargin ? "Margin exposure is available for at least part of the set" : "Margin exposure uses conservative estimates",
+      ],
+    },
+    assumptions: [
+      `Projection window: ${windowDays} days`,
+      "Uses stored QuickScan and full diagnosis signals.",
+      "Uses observed returns and refunds where Shopify order data is available.",
+      "Uses review drag only when negative review or rating signals exist.",
+      "Uses conservative margin estimates when exact margin data is unavailable.",
+      "Does not include external ad spend, taxes, chargebacks or fulfillment exceptions unless connected.",
+    ],
+    productRows: impactTotals.productRows
+      .sort((first, second) => second.marginAtRisk - first.marginAtRisk || second.riskScore - first.riskScore)
+      .slice(0, 12)
+      .map((row) => ({
+        ...row,
+        riskLabel: formatDashboardNumber(row.riskScore),
+        confidenceLabel: formatAnalyticsPercent(row.confidence),
+        revenueAtRiskLabel: formatDashboardMoney(row.revenueAtRisk),
+        marginAtRiskLabel: formatDashboardMoney(row.marginAtRisk),
+        refundAmountLabel: formatDashboardMoney(row.refundAmount),
+        returnUnitsLabel: formatDashboardNumber(row.returnUnits),
+        calculatedAtLabel: row.calculatedAt ? formatAnalyticsRelativeTime(new Date(row.calculatedAt)) : "No timestamp",
+      })),
+  };
+}
+
+function buildAnalyticsImpactInput(label, status, detail) {
+  return {
+    label,
+    status,
+    detail,
+    tone: status === "Available" ? "green" : status === "Estimated" ? "orange" : status === "Not used" ? "slate" : "red",
+  };
 }
 
 function sumAnalyticsTrends(trends) {

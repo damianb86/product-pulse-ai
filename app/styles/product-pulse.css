@@ -6427,6 +6427,81 @@ s-page[inline-size="large-500"] {
   line-height: 1.28;
 }
 
+.ppAnalyticsTrendLegend {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: rgba(var(--pp-slate-100-rgb), 0.62);
+}
+
+.ppAnalyticsTrendLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: help;
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppAnalyticsTrendLegendItem:hover,
+.ppAnalyticsTrendLegendItem:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.28);
+  color: var(--pp-pulse-blue);
+  outline: none;
+}
+
+.ppAnalyticsTrendLegendItem i {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.ppAnalyticsTrendLegendItem s-icon {
+  color: currentColor;
+}
+
+.ppAnalyticsTrendLegendPopover {
+  position: absolute;
+  z-index: 8;
+  right: 10px;
+  bottom: calc(100% + 8px);
+  width: min(320px, calc(100vw - 48px));
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 14px 36px rgba(var(--pp-shadow-rgb), 0.22);
+}
+
+.ppAnalyticsTrendLegendPopover strong {
+  color: var(--pp-cloud-white);
+  font-size: 13px;
+}
+
+.ppAnalyticsTrendLegendPopover span,
+.ppAnalyticsTrendLegendPopover small {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .ppAnalyticsImpactTrendSvg {
   height: 158px;
 }
@@ -7438,7 +7513,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppBusinessImpactModal {
-  width: min(760px, 100%);
+  width: min(980px, 100%);
   max-height: min(760px, calc(100vh - 48px));
   overflow: auto;
   padding: 22px;
@@ -7458,13 +7533,25 @@ s-page[inline-size="large-500"] {
   align-items: start;
 }
 
-.ppBusinessImpactModalHero > div > span,
-.ppImpactFormula > span {
+.ppBusinessImpactModalBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+
+.ppBusinessImpactModalBadges span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
   color: var(--pp-pulse-blue);
   font-size: 12px;
-  font-weight: 820;
+  font-weight: 780;
   letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .ppBusinessImpactModalHero h2 {
@@ -7476,12 +7563,300 @@ s-page[inline-size="large-500"] {
   line-height: 1.12;
 }
 
-.ppBusinessImpactModalHero p,
-.ppImpactFormula p {
+.ppBusinessImpactModalHero p {
   margin: 0;
   color: var(--pp-slate-700);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.ppImpactCalculationModel,
+.ppImpactBreakdownModalGrid article,
+.ppImpactInputsSection,
+.ppImpactConfidenceSection,
+.ppImpactInterpretationSection > div,
+.ppImpactAuditNote,
+.ppImpactFullCalculation {
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.13);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppImpactCalculationModel {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px;
+  border-left: 4px solid var(--pp-insight-violet);
+}
+
+.ppImpactCalculationModel > span,
+.ppImpactAuditNote > span {
+  color: var(--pp-insight-violet);
+  font-size: 12px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.ppImpactCalculationModel p {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  line-height: 1.36;
+}
+
+.ppImpactCalculationModel strong {
+  color: var(--pp-slate-900);
+}
+
+.ppImpactCalculationModel span:last-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.ppImpactBreakdownModalSection,
+.ppImpactInputsSection,
+.ppImpactConfidenceSection,
+.ppImpactInterpretationSection,
+.ppImpactFullCalculation,
+.ppImpactAuditNote {
+  margin-top: 14px;
+}
+
+.ppImpactBreakdownModalSection h3,
+.ppImpactInputsSection h3,
+.ppImpactInterpretationSection h3,
+.ppImpactFullCalculation h3 {
+  margin: 0 0 8px;
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  font-weight: 820;
+}
+
+.ppImpactBreakdownModalGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppImpactBreakdownModalGrid article {
+  overflow: hidden;
+}
+
+.ppImpactBreakdownModalGrid header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 13px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppImpactBreakdownModalGrid header span {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.ppImpactBreakdownModalGrid header strong {
+  color: var(--pp-slate-900);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.ppImpactBreakdownModalGrid article > div {
+  display: grid;
+  gap: 0;
+  padding: 3px 13px 11px;
+}
+
+.ppImpactBreakdownModalGrid p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--pp-slate-200);
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppImpactBreakdownModalGrid p:last-child {
+  border-bottom: 0;
+}
+
+.ppImpactBreakdownModalGrid p strong {
+  color: var(--pp-slate-900);
+  font-weight: 800;
+}
+
+.ppImpactInputsSection {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.ppImpactInputsSection p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ppImpactInputGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppImpactInputGrid article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-mist-gray);
+}
+
+.ppImpactInputGrid strong,
+.ppImpactInputGrid small {
+  display: block;
+}
+
+.ppImpactInputGrid strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+}
+
+.ppImpactInputGrid small {
+  margin-top: 3px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.ppImpactInputStatus {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.ppImpactInputStatus-green {
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  color: color-mix(in srgb, var(--pp-success-green) 70%, var(--pp-midnight-ink));
+}
+
+.ppImpactInputStatus-orange {
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: color-mix(in srgb, var(--pp-warning-amber) 72%, var(--pp-midnight-ink));
+}
+
+.ppImpactInputStatus-red {
+  background: rgba(var(--pp-risk-red-rgb), 0.12);
+  color: var(--pp-risk-red);
+}
+
+.ppImpactInputStatus-slate {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppImpactConfidenceSection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.85fr);
+  gap: 16px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(var(--pp-signal-teal-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.04)), var(--pp-cloud-white);
+}
+
+.ppImpactConfidenceSection span {
+  color: var(--pp-signal-teal);
+  font-size: 12px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.ppImpactConfidenceSection strong {
+  display: block;
+  margin: 4px 0 6px;
+  color: var(--pp-slate-900);
+  font-size: 20px;
+}
+
+.ppImpactConfidenceSection p,
+.ppImpactConfidenceSection li,
+.ppImpactInterpretationSection p,
+.ppImpactInterpretationSection li,
+.ppImpactAuditNote p {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppImpactConfidenceSection p,
+.ppImpactAuditNote p {
+  margin: 0;
+}
+
+.ppImpactConfidenceSection ul,
+.ppImpactInterpretationSection ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ppImpactInterpretationSection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.ppImpactInterpretationSection > div {
+  padding: 14px;
+}
+
+.ppImpactInterpretationSection p {
+  margin: 0;
+}
+
+.ppImpactFullCalculation {
+  overflow-x: auto;
+  padding: 14px;
+}
+
+.ppImpactFullCalculation table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.ppImpactFullCalculation th,
+.ppImpactFullCalculation td {
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  text-align: left;
+}
+
+.ppImpactFullCalculation th {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.ppImpactAuditNote {
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.07), rgba(var(--pp-pulse-blue-rgb), 0.035)), var(--pp-cloud-white);
 }
 
 .ppImpactFlow {
@@ -11149,6 +11524,19 @@ s-page[inline-size="large-500"] {
 
   .ppBusinessImpactMetric:first-child {
     border-top: 0;
+  }
+
+  .ppImpactCalculationModel p,
+  .ppImpactBreakdownModalGrid,
+  .ppImpactInputGrid,
+  .ppImpactConfidenceSection,
+  .ppImpactInterpretationSection {
+    grid-template-columns: 1fr;
+  }
+
+  .ppAnalyticsTrendLegendPopover {
+    right: auto;
+    left: 8px;
   }
 
   .ppProductHeaderActions {

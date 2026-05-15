@@ -7672,6 +7672,7 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
   const series = chart?.series || [];
   const labels = chart?.labels || [];
   const safeSeries = series.length ? series : [{ label: "No trend data", color: "blue", values: [0, 0, 0, 0, 0, 0, 0], displayValue: "0", detail: "Run scans to build trend data." }];
+  const [activeLegend, setActiveLegend] = useState(null);
 
   return (
     <div className="ppAnalyticsTrendChart">
@@ -7683,6 +7684,30 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
             {row.detail && <small>{row.detail}</small>}
           </article>
         ))}
+      </div>
+      <div className="ppAnalyticsTrendLegend" aria-label="Trend line legend">
+        {safeSeries.map((row) => (
+          <button
+            key={`legend-${row.label}`}
+            type="button"
+            className="ppAnalyticsTrendLegendItem"
+            onMouseEnter={() => setActiveLegend(row)}
+            onFocus={() => setActiveLegend(row)}
+            onMouseLeave={() => setActiveLegend(null)}
+            onBlur={() => setActiveLegend(null)}
+          >
+            <i className={`ppDot-${row.color || "blue"}`} aria-hidden="true" />
+            <span>{row.label}</span>
+            <s-icon type="info" size="small"></s-icon>
+          </button>
+        ))}
+        {activeLegend && (
+          <div className="ppAnalyticsTrendLegendPopover" role="tooltip">
+            <strong>{activeLegend.label}</strong>
+            <span>{activeLegend.detail || "This line is calculated from stored ProductPulse analytics values."}</span>
+            <small>Current value: {activeLegend.displayValue || formatInteger((activeLegend.values || []).at(-1) || 0)}</small>
+          </div>
+        )}
       </div>
       <svg className="ppRiskSignalsSvg ppAnalyticsImpactTrendSvg" viewBox="0 0 640 245" role="img" aria-label={ariaLabel}>
         {[28, 68, 108, 148, 188].map((y) => (
@@ -8107,10 +8132,10 @@ function AnalyticsImpactMetric({ metric }) {
 
 function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
   const metrics = businessImpact?.metrics || [];
-  const revenueMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("revenue"));
-  const marginMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("margin"));
-  const returnsMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("returns"));
-  const actionsMetric = metrics.find((metric) => String(metric.label || "").toLowerCase().includes("actions"));
+  const [showFullCalculation, setShowFullCalculation] = useState(false);
+  const calculation = businessImpact?.calculation || buildBusinessImpactModalFallbackCalculation(metrics, windowLabel);
+  const inputRows = calculation.inputs || [];
+  const breakdownRows = calculation.currentBreakdown || [];
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -8120,47 +8145,149 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
             <s-icon type="cash-dollar" size="small"></s-icon>
           </span>
           <div>
-            <span>{windowLabel}</span>
-            <h2 id="business-impact-title">How ProductPulse estimates business impact</h2>
+            <div className="ppBusinessImpactModalBadges" aria-label="Business impact model attributes">
+              {[calculation.windowLabel || windowLabel, "Stored signals", "Projection model", "Not accounting total"].map((badge) => (
+                <span key={badge}>{badge}</span>
+              ))}
+            </div>
+            <h2 id="business-impact-title">How ProductPulse calculates business impact</h2>
             <p>
-              This projection turns stored product risk signals into a practical next-90-day exposure view. It is designed for prioritization, not accounting.
+              Business impact estimates the next 90-day exposure from stored product risk signals, returns, refunds, reviews, margin data and recommended actions.
             </p>
           </div>
         </div>
 
-        <div className="ppImpactFlow">
-          <div>
-            <s-icon type="target" size="small"></s-icon>
-            <strong>Signals</strong>
-            <span>QuickScan and full diagnostics collect returns, refunds, reviews, content issues and recent trend pressure.</span>
-          </div>
-          <div>
-            <s-icon type="chart-line" size="small"></s-icon>
-            <strong>Projection</strong>
-            <span>Known refund value, return rate, revenue at risk and review drag are normalized to the active scan window.</span>
-          </div>
-          <div>
-            <s-icon type="wand" size="small"></s-icon>
-            <strong>Action value</strong>
-            <span>Recommended actions show where the product team can reduce preventable returns or buyer confusion.</span>
+        <div className="ppImpactCalculationModel">
+          <span>Calculation model</span>
+          {(calculation.formulas || []).map((formula) => (
+            <p key={formula.label}>
+              <strong>{formula.label}</strong>
+              <span>= {formula.expression}</span>
+            </p>
+          ))}
+        </div>
+
+        <div className="ppImpactBreakdownModalSection">
+          <h3>Current breakdown</h3>
+          <div className="ppImpactBreakdownModalGrid">
+            {breakdownRows.map((row) => (
+              <article key={row.label}>
+                <header>
+                  <span>{row.label}</span>
+                  <strong>{row.valueLabel || row.value || "0"}</strong>
+                </header>
+                <div>
+                  {(row.components || []).map((component) => (
+                    <p key={`${row.label}-${component.label}`}>
+                      <span>{component.label}</span>
+                      <strong>{component.valueLabel || component.value || "0"}</strong>
+                    </p>
+                  ))}
+                </div>
+              </article>
+            ))}
           </div>
         </div>
 
-        <div className="ppImpactExplainGrid">
-          <ImpactExplainCard metric={revenueMetric} label="Revenue at risk" detail="Refund value plus projected revenue pressure from products with stored risk signals." />
-          <ImpactExplainCard metric={marginMetric} label="Margin at risk" detail="Estimated margin exposure using the app's current margin assumption for prioritized products." />
-          <ImpactExplainCard metric={returnsMetric} label="Potential returns" detail="A lightweight forecast based on observed return units in each product's available Shopify order window." />
-          <ImpactExplainCard metric={actionsMetric} label="Recommended actions" detail="Open and applied actions indicate how much of the detected risk has an available workflow." />
+        <div className="ppImpactInputsSection">
+          <div>
+            <h3>Inputs used</h3>
+            <p>Each input is marked as available, estimated, missing or not used for this current calculation.</p>
+          </div>
+          <div className="ppImpactInputGrid">
+            {inputRows.map((input) => (
+              <article key={input.label}>
+                <div>
+                  <strong>{input.label}</strong>
+                  <small>{input.detail}</small>
+                </div>
+                <span className={`ppImpactInputStatus ppImpactInputStatus-${input.tone || "blue"}`}>{input.status}</span>
+              </article>
+            ))}
+          </div>
         </div>
 
-        <div className="ppImpactFormula">
-          <span>Working model</span>
+        <div className="ppImpactConfidenceSection">
+          <div>
+            <span>Calculation confidence</span>
+            <strong>{calculation.confidence?.label || "Medium"} · {formatInteger(calculation.confidence?.score || 0)}/100</strong>
+            <p>
+              Confidence is higher when product orders, returns, reviews and margin data are available. If margin data is missing, ProductPulse uses a conservative margin estimate.
+            </p>
+          </div>
+          <ul>
+            {(calculation.confidence?.drivers || []).map((driver) => (
+              <li key={driver}>{driver}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="ppImpactInterpretationSection">
+          <div>
+            <h3>How to interpret this</h3>
+            <p>
+              This estimate is designed for prioritization. It shows where product issues may create financial exposure over the next 90 days. It is not a replacement for accounting, payout, tax or profit reporting.
+            </p>
+          </div>
+          <div>
+            <h3>Assumptions</h3>
+            <ul>
+              {(calculation.assumptions || []).map((assumption) => (
+                <li key={assumption}>{assumption}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {showFullCalculation && (
+          <div className="ppImpactFullCalculation">
+            <h3>Full calculation detail</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Risk</th>
+                  <th>Confidence</th>
+                  <th>Revenue at risk</th>
+                  <th>Margin at risk</th>
+                  <th>Refund value</th>
+                  <th>Returns</th>
+                  <th>Calculated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(calculation.productRows || []).map((row) => (
+                  <tr key={row.id || row.title}>
+                    <td>{row.title}</td>
+                    <td>{row.riskLabel}</td>
+                    <td>{row.confidenceLabel}</td>
+                    <td>{row.revenueAtRiskLabel}</td>
+                    <td>{row.marginAtRiskLabel}</td>
+                    <td>{row.refundAmountLabel}</td>
+                    <td>{row.returnUnitsLabel}</td>
+                    <td>{row.calculatedAtLabel}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!(calculation.productRows || []).length && (
+              <p>No product-level calculation rows are available yet. Run QuickScan or product diagnostics to populate this table.</p>
+            )}
+          </div>
+        )}
+
+        <div className="ppImpactAuditNote">
+          <span>Audit note</span>
           <p>
-            ProductPulse combines <strong>refund value</strong>, <strong>projected return exposure</strong>, <strong>review conversion drag</strong> and <strong>margin at risk</strong>. More full diagnostics improve confidence because they add customer language, product-content analysis and recommendation quality.
+            ProductPulse stores the calculation components separately from product risk. Risk explains severity, confidence explains reliability, and business impact estimates exposure. Those numbers should be reviewed together before prioritizing operational work.
           </p>
         </div>
 
         <div className="ppAnalysisConfirmFooter">
+          <button className="ppSecondaryButton" type="button" onClick={() => setShowFullCalculation((value) => !value)}>
+            <s-icon type="chart-line" size="small"></s-icon>
+            {showFullCalculation ? "Hide full calculation" : "View full calculation"}
+          </button>
           <button className="ppPrimaryButton" type="button" onClick={onClose}>
             <s-icon type="check" size="small"></s-icon>
             Got it
@@ -8171,17 +8298,31 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
   );
 }
 
-function ImpactExplainCard({ metric, label, detail }) {
-  return (
-    <article>
-      <DashboardIcon type={metric?.icon || "info"} tone={metric?.tone || "blue"} size="small" />
-      <div>
-        <span>{metric?.label || label}</span>
-        <strong>{metric?.value || "0"}</strong>
-        <p>{metric?.detail || detail}</p>
-      </div>
-    </article>
-  );
+function buildBusinessImpactModalFallbackCalculation(metrics = [], windowLabel = "Last 90 days") {
+  const findMetric = (keyword) => metrics.find((metric) => String(metric.label || "").toLowerCase().includes(keyword));
+  const revenueMetric = findMetric("revenue");
+  const marginMetric = findMetric("margin");
+  const returnsMetric = findMetric("returns");
+  const actionsMetric = findMetric("actions");
+  return {
+    windowLabel,
+    formulas: [
+      { label: "Revenue at risk", expression: "observed refund value + projected return exposure + review conversion drag" },
+      { label: "Margin at risk", expression: "projected return margin loss + refund margin loss + estimated operational exposure" },
+      { label: "Potential returns", expression: "projected units exposed x estimated return probability" },
+      { label: "Recommended actions", expression: "open actions + applied actions + dismissed actions" },
+    ],
+    currentBreakdown: [
+      { label: "Revenue at risk", valueLabel: revenueMetric?.value || "$0", components: [{ label: "Current displayed estimate", valueLabel: revenueMetric?.detail || "No revenue exposure stored yet" }] },
+      { label: "Margin at risk", valueLabel: marginMetric?.value || "$0", components: [{ label: "Current displayed estimate", valueLabel: marginMetric?.detail || "No margin exposure stored yet" }] },
+      { label: "Potential returns", valueLabel: returnsMetric?.value || "~0", components: [{ label: "Current displayed estimate", valueLabel: returnsMetric?.detail || "No return projection stored yet" }] },
+      { label: "Recommended actions", valueLabel: actionsMetric?.value || "0", components: [{ label: "Current displayed estimate", valueLabel: actionsMetric?.detail || "No action status stored yet" }] },
+    ],
+    inputs: [],
+    confidence: { label: "Low", score: 0, drivers: ["Detailed calculation inputs are not available in this payload."] },
+    assumptions: ["Projection window: current analytics window", "Uses stored diagnosis signals when available."],
+    productRows: [],
+  };
 }
 
 function getAnalyticsLinePoints(values = []) {
