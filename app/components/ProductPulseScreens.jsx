@@ -160,24 +160,24 @@ export function DashboardScreen({ data, actionData }) {
         )}
 
         <div className="ppDashboardActionGrid">
-          <s-section padding="none">
-            <DashboardPriorityProducts products={priorityProducts} />
-          </s-section>
+          <div className="ppDashboardPriorityStack">
+            <s-section padding="none">
+              <DashboardPriorityProducts products={priorityProducts} />
+            </s-section>
+
+            <s-section padding="none">
+              <DashboardTopActiveIssues issues={topActiveIssues} />
+            </s-section>
+          </div>
 
           <s-section padding="none">
             <DashboardActionQueue queue={actionQueue} />
           </s-section>
         </div>
 
-        <div className="ppDashboardOperationalGrid">
-          <s-section padding="none">
-            <DashboardTopActiveIssues issues={topActiveIssues} />
-          </s-section>
-
-          <s-section padding="none">
-            <DashboardCoverageSummary summary={coverageSummary} />
-          </s-section>
-        </div>
+        <s-section padding="none">
+          <DashboardCoverageSummary summary={coverageSummary} />
+        </s-section>
       </ScreenShell>
     </FullWidthPage>
   );
@@ -4087,26 +4087,72 @@ function DashboardTopActiveIssues({ issues }) {
 
 function DashboardCoverageSummary({ summary }) {
   const sources = Array.isArray(summary?.sources) ? summary.sources : [];
+  const catalog = summary?.catalogCoverage || {};
   return (
     <div className="ppDashboardPanel ppCoverageSummaryPanel">
       <div className="ppDashboardPanelHeader">
         <h2>Data coverage / scan coverage</h2>
         <span>{summary?.detail || "Coverage updates as products are scanned and sources connect."}</span>
       </div>
-      <div className={`ppCoverageSummaryStatus ppCoverageSummaryStatus-${summary?.tone || "blue"}`}>
-        <s-icon type={summary?.icon || "check"} size="small"></s-icon>
-        <strong>{summary?.statusLabel || "No scan data"}</strong>
-        <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
+      <div className="ppCoverageSummaryGrid">
+        <div className={`ppCoverageSummaryStatus ppCoverageSummaryStatus-${summary?.tone || "blue"}`}>
+          <s-icon type={summary?.icon || "check"} size="small"></s-icon>
+          <strong>{summary?.statusLabel || "No scan data"}</strong>
+          <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
+        </div>
+        <div className={`ppCoverageCatalogCard ppCoverageCatalogCard-${catalog.tone || "blue"}`}>
+          <div>
+            <span>Total catalog full diagnostics</span>
+            <strong>{catalog.percentLabel || "0%"}</strong>
+          </div>
+          <div className="ppCoverageCatalogMeter" aria-label={catalog.ariaLabel || "Full diagnostics coverage across the catalog"}>
+            <span style={{ width: `${Math.max(0, Math.min(100, Number(catalog.percent || 0)))}%` }} />
+          </div>
+          <p>{catalog.detail || "Products below the QuickScan threshold may not appear in the table, but can still carry hidden risk."}</p>
+        </div>
       </div>
+      {summary?.recommendation && (
+        <div className={`ppCoverageRecommendation ppCoverageRecommendation-${summary.recommendation.tone || "blue"}`}>
+          <s-icon type={summary.recommendation.icon || "info"} size="small"></s-icon>
+          <p>{summary.recommendation.text}</p>
+        </div>
+      )}
       <div className="ppCoverageSourcePills">
         {sources.map((source) => (
-          <span className={`ppCoverageSourcePill ppCoverageSourcePill-${source.tone || "neutral"}`} key={source.label}>
-            <s-icon type={source.icon || "check"} size="small"></s-icon>
-            {source.label}
-          </span>
+          <DashboardCoverageSourcePill source={source} key={source.label} />
         ))}
       </div>
     </div>
+  );
+}
+
+function DashboardCoverageSourcePill({ source }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const connected = source.tone === "success";
+
+  return (
+    <button
+      className={`ppCoverageSourcePill ppCoverageSourcePill-${source.tone || "neutral"}`}
+      ref={triggerRef}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      type="button"
+      aria-label={`${source.label}: ${connected ? "connected" : "not connected"}`}
+    >
+      <span className="ppCoverageSourceIcon" aria-hidden="true">
+        <s-icon type={source.icon || "check"} size="small"></s-icon>
+      </span>
+      <span>{source.label}</span>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppCoverageSourcePopover" width={300} estimatedHeight={130}>
+        <strong>{source.label} {connected ? "connected" : "not connected"}</strong>
+        <span>{source.detail || (connected
+          ? `${source.label} evidence was found in stored product diagnostics and contributes to coverage quality.`
+          : `${source.label} evidence has not been found yet. Connect or import this source to improve diagnosis confidence.`)}</span>
+      </FloatingTablePopover>
+    </button>
   );
 }
 
@@ -6001,6 +6047,8 @@ function getActionRiskTone(value = "") {
 
 function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
   if (!action) return null;
+  const applied = action.appliedRecord?.status === "applied";
+  const drafted = action.appliedRecord?.status === "draft";
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -6012,7 +6060,11 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
           </div>
           <div>
             <span className="ppRecommendedActionModalKicker">Recommended action</span>
-            <strong className="ppRecommendedActionModalTitle" id="recommended-action-detail-title">{action.title}</strong>
+            <h2 className="ppRecommendedActionModalTitle" id="recommended-action-detail-title">{action.title}</h2>
+            <span className="ppRecommendedActionModalPills">
+              <span className="ppActionPriorityPill">{action.priority}</span>
+              {action.appliedRecord && <em>{applied ? "Applied" : drafted ? "Draft saved" : action.appliedRecord.status}</em>}
+            </span>
             <p>Review the trigger, proposed Shopify change, evidence and expected impact before applying it.</p>
           </div>
           <button className="ppModalCloseButton" type="button" aria-label="Close recommended action" onClick={onClose}>
@@ -6028,13 +6080,14 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
           onReview={onReview}
           onRequestApply={onRequestApply}
           onDismiss={onDismiss}
+          showHeader={false}
         />
       </section>
     </div>
   );
 }
 
-function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onCollapse }) {
+function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onCollapse, showHeader = true }) {
   const baseApplication = getRecommendedActionApplication(action, product);
   const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
   const application = getRecommendedActionApplication(action, product, { variantId: selectedVariantId || baseApplication.defaultVariantId });
@@ -6082,25 +6135,27 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   }, [application.value, action.detail]);
 
   return (
-    <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""}`.trim()}>
-      <div className="ppProductActionHeader">
-        <div className="ppProductActionIcon">
-          <s-icon type={action.icon} size="small"></s-icon>
-          <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
-        </div>
-        <div className="ppProductActionTitleBlock">
-          <h3>{action.title}</h3>
-          <div className="ppProductActionPills">
-            <span className="ppActionPriorityPill">{action.priority}</span>
-            {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
+    <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""} ${showHeader ? "" : "isModalContent"}`.trim()}>
+      {showHeader && (
+        <div className="ppProductActionHeader">
+          <div className="ppProductActionIcon">
+            <s-icon type={action.icon} size="small"></s-icon>
+            <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
           </div>
+          <div className="ppProductActionTitleBlock">
+            <h3>{action.title}</h3>
+            <div className="ppProductActionPills">
+              <span className="ppActionPriorityPill">{action.priority}</span>
+              {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
+            </div>
+          </div>
+          {onCollapse && (
+            <button className="ppProductActionCollapseButton" type="button" aria-label={`Collapse ${action.title}`} onClick={() => onCollapse(action)}>
+              <s-icon type="chevron-up" size="small"></s-icon>
+            </button>
+          )}
         </div>
-        {onCollapse && (
-          <button className="ppProductActionCollapseButton" type="button" aria-label={`Collapse ${action.title}`} onClick={() => onCollapse(action)}>
-            <s-icon type="chevron-up" size="small"></s-icon>
-          </button>
-        )}
-      </div>
+      )}
       <div className="ppProductActionBody">
         <div className="ppActionApplicationIntro">
           <strong>{application.operation}</strong>

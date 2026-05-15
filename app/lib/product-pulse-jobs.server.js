@@ -141,7 +141,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
 
 export async function getDashboardDataForShop(shop, admin) {
   await failStaleFastProductScans(shop);
-  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs, settings] = await Promise.all([
+  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs, settings, catalogProductCount] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
@@ -153,6 +153,7 @@ export async function getDashboardDataForShop(shop, admin) {
     getActiveFastProductScan(shop),
     getActiveProductDiagnosisJobs(shop),
     getProductPulseSettings(shop),
+    getShopifyCatalogProductCount(admin),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
@@ -170,7 +171,25 @@ export async function getDashboardDataForShop(shop, admin) {
 
   return buildDashboardViewData(dashboardProductsWithJobs, {
     billing: latestLedgerEntry ? { creditsAvailable: latestLedgerEntry.balanceAfter } : null,
+    catalogProductCount,
   });
+}
+
+async function getShopifyCatalogProductCount(admin) {
+  if (!admin?.graphql) return null;
+  try {
+    const data = await shopifyGraphql(admin, `#graphql
+      query ProductPulseCatalogProductCount {
+        productsCount {
+          count
+        }
+      }
+    `);
+    const count = Number(data?.productsCount?.count || 0);
+    return Number.isFinite(count) && count > 0 ? count : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getAnalyticsDataForShop(shop) {

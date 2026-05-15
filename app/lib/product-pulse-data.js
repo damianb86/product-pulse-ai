@@ -361,6 +361,7 @@ export const products = rawProducts
 export function buildDashboardViewData(productItems = products, options = {}) {
   const productList = (Array.isArray(productItems) ? productItems : []).filter(Boolean);
   const totalProducts = productList.length;
+  const catalogProductCount = Math.max(Number(options.catalogProductCount || 0), totalProducts);
   const highRiskProducts = productList.filter((product) => Number(product.riskScore || 0) >= 75);
   const mediumRiskProducts = productList.filter((product) => Number(product.riskScore || 0) >= 55 && Number(product.riskScore || 0) < 75);
   const needingAttention = productList.filter((product) => Number(product.riskScore || 0) >= 55);
@@ -386,7 +387,7 @@ export function buildDashboardViewData(productItems = products, options = {}) {
   const priorityProducts = buildDashboardPriorityProducts(productList);
   const actionQueue = buildDashboardActionQueue(pendingActions);
   const topActiveIssues = buildDashboardTopActiveIssues(productList);
-  const coverageSummary = buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts });
+  const coverageSummary = buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts, catalogProductCount });
   const suggestedFixes = buildDashboardSuggestedFixes(productList);
   const watchlistProducts = highRiskProducts.length ? highRiskProducts : mediumRiskProducts;
 
@@ -425,6 +426,7 @@ export function buildDashboardViewData(productItems = products, options = {}) {
     ],
     totals: {
       totalProducts,
+      catalogProductCount,
       needingAttention: needingAttention.length,
       highRiskProducts: highRiskProducts.length,
       mediumRiskProducts: mediumRiskProducts.length,
@@ -528,6 +530,7 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
     ],
     metrics: {
       returnRate,
+      soldUnits: Number(metrics.soldUnits || 0),
       refundRate,
       returnUnits: Number(metrics.returnUnits || 0),
       refundUnits: Number(metrics.refundUnits || 0),
@@ -573,7 +576,13 @@ function getDashboardStartCtaHint(actionMode) {
 function buildDashboardWhyMetrics({ product, returnRate, refundRate, negativeReviews }) {
   const metrics = product.metrics || {};
   const rows = [];
-  if (returnRate > 0) rows.push({ label: "return rate", value: formatDashboardRate(returnRate), tone: returnRate >= 15 ? "critical" : "warning" });
+  if (returnRate > 0) {
+    rows.push({
+      label: getDashboardReturnRateLabel(returnRate, metrics),
+      value: formatDashboardReturnRate(returnRate, metrics),
+      tone: returnRate >= 15 ? "critical" : "warning",
+    });
+  }
   if (negativeReviews > 0) rows.push({ label: "negative reviews", value: formatDashboardNumber(negativeReviews), tone: "critical" });
   if (refundRate > 0) rows.push({ label: "refund rate", value: formatDashboardRate(refundRate), tone: refundRate >= 10 ? "critical" : "warning" });
   rows.push({ label: "margin at risk", value: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")), tone: getDashboardMetric(product, "marginAtRisk") > 0 ? "info" : "neutral" });
@@ -637,8 +646,9 @@ function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore
 }
 
 function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis, actionMode, action }) {
+  const metrics = product.metrics || {};
   const pieces = [];
-  if (returnRate > 0) pieces.push(`${formatDashboardRate(returnRate)} return rate`);
+  if (returnRate > 0) pieces.push(formatDashboardReturnRateSummary(returnRate, metrics));
   if (refundRate > 0) pieces.push(`${formatDashboardRate(refundRate)} refund rate`);
   if (negativeReviews > 0) pieces.push(`${formatDashboardNumber(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`);
   if (actionMode === "pending-action") {
@@ -817,7 +827,7 @@ function buildDashboardTopActiveIssues(productList) {
     }));
 }
 
-function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts }) {
+function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts, catalogProductCount }) {
   const connectedLabels = new Set();
   productList.forEach((product) => {
     (Array.isArray(product.sourceCoverage) ? product.sourceCoverage : []).forEach((source) => {
@@ -827,25 +837,74 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
   if (totalProducts > 0) connectedLabels.add("Product data");
 
   const sources = [
-    { label: "Products", source: "Product data", icon: "product" },
-    { label: "Reviews", source: "Reviews", icon: "star" },
-    { label: "Returns", source: "Returns", icon: "return" },
-    { label: "Refunds", source: "Refunds", icon: "cash-dollar" },
+    { label: "Products", source: "Product data", icon: "product", connectedDetail: "Shopify product data is available by default and is used for title, description, tags, variants and catalog metadata.", missingDetail: "ProductPulse has not stored product data yet. Run QuickScan to begin catalog coverage." },
+    { label: "Reviews", source: "Reviews", icon: "star", connectedDetail: "Review evidence was found through connected review sources or CSV imports and can improve issue confidence.", missingDetail: "No review evidence has been found yet. Connect Judge.me or upload a reviews CSV to improve coverage." },
+    { label: "Returns", source: "Returns", icon: "return", connectedDetail: "Return evidence was found in stored diagnostics and can explain post-purchase friction.", missingDetail: "No return evidence has been found yet. Order access may be missing or no returns were found in the available window." },
+    { label: "Refunds", source: "Refunds", icon: "cash-dollar", connectedDetail: "Refund evidence was found and can contribute to financial pressure and operational risk.", missingDetail: "No refund evidence has been found yet. Refund access may be missing or no refunds were found in the available window." },
   ].map((source) => ({
     ...source,
     tone: connectedLabels.has(source.source) ? "success" : "neutral",
+    detail: connectedLabels.has(source.source) ? source.connectedDetail : source.missingDetail,
   }));
 
   const connectedCount = sources.filter((source) => source.tone === "success").length;
-  const statusLabel = connectedCount >= 3 ? "Data coverage: Good" : connectedCount > 1 ? "Data coverage: Partial" : "Data coverage: Needs setup";
+  const storedFullPercent = totalProducts ? Math.round((fullDiagnoses.length / totalProducts) * 100) : 0;
+  const catalogTotal = Math.max(Number(catalogProductCount || 0), totalProducts);
+  const catalogFullPercent = catalogTotal ? Math.round((fullDiagnoses.length / catalogTotal) * 100) : 0;
+  const missingCatalogFull = Math.max(0, catalogTotal - fullDiagnoses.length);
+  const catalogTone = catalogFullPercent >= 70 ? "green" : catalogFullPercent >= 30 ? "orange" : "red";
+  const statusLabel = connectedCount >= 3 && storedFullPercent >= 70
+    ? "Coverage quality: Good"
+    : connectedCount > 1 || storedFullPercent >= 35
+      ? "Coverage quality: Partial"
+      : "Coverage quality: Needs attention";
   return {
     statusLabel,
-    tone: connectedCount >= 3 ? "green" : connectedCount > 1 ? "orange" : "blue",
+    tone: connectedCount >= 3 && storedFullPercent >= 70 ? "green" : connectedCount > 1 || storedFullPercent >= 35 ? "orange" : "blue",
     icon: connectedCount >= 3 ? "check" : "info",
-    detail: `${formatDashboardNumber(fullDiagnoses.length)} / ${formatDashboardNumber(totalProducts)} products fully diagnosed.`,
-    coverageLine: `Coverage: ${formatDashboardNumber(fullDiagnoses.length)} / ${formatDashboardNumber(totalProducts)} full diagnosis · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only`,
+    detail: `${formatDashboardNumber(fullDiagnoses.length)} / ${formatDashboardNumber(totalProducts)} products in the risk table have full diagnostics.`,
+    coverageLine: `Risk table: ${formatDashboardNumber(fullDiagnoses.length)} full diagnosis · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only`,
+    catalogCoverage: {
+      percent: catalogFullPercent,
+      percentLabel: formatDashboardRate(catalogFullPercent),
+      tone: catalogTone,
+      ariaLabel: `${formatDashboardRate(catalogFullPercent)} of total catalog products have full diagnostics`,
+      detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(catalogTotal)} total catalog products have full diagnostics. ${formatDashboardNumber(missingCatalogFull)} still have no full analysis.`,
+    },
+    recommendation: {
+      tone: catalogTone,
+      icon: catalogTone === "green" ? "check" : "alert-circle",
+      text: catalogTone === "green"
+        ? "Full-diagnosis coverage is healthy. Keep running targeted diagnostics when new products or evidence appear."
+        : "Products below the QuickScan threshold may not appear in the table, but they can still carry hidden risk. ProductPulse recommends running full diagnostics on important products even when QuickScan did not flag them.",
+    },
     sources,
   };
+}
+
+function getDashboardReturnRateLabel(returnRate, metrics = {}) {
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const soldUnits = Number(metrics.soldUnits || 0);
+  if (Number(returnRate || 0) > 100 && returnUnits > 0 && soldUnits > 0) return "returns in order window";
+  return "return rate";
+}
+
+function formatDashboardReturnRate(returnRate, metrics = {}) {
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const soldUnits = Number(metrics.soldUnits || 0);
+  if (Number(returnRate || 0) > 100 && returnUnits > 0 && soldUnits > 0) {
+    return `${formatDashboardNumber(returnUnits)} / ${formatDashboardNumber(soldUnits)}`;
+  }
+  return formatDashboardRate(returnRate);
+}
+
+function formatDashboardReturnRateSummary(returnRate, metrics = {}) {
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const soldUnits = Number(metrics.soldUnits || 0);
+  if (Number(returnRate || 0) > 100 && returnUnits > 0 && soldUnits > 0) {
+    return `${formatDashboardNumber(returnUnits)} return${returnUnits === 1 ? "" : "s"} against ${formatDashboardNumber(soldUnits)} sold unit${soldUnits === 1 ? "" : "s"} in the available order window`;
+  }
+  return `${formatDashboardRate(returnRate)} return rate`;
 }
 
 function buildDashboardSuggestedFixes(productList) {

@@ -1175,7 +1175,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppDashboardActionGrid,
-.ppDashboardOperationalGrid {
+.ppDashboardPriorityStack {
   display: grid;
   gap: 12px;
 }
@@ -1184,8 +1184,8 @@ s-page[inline-size="large-500"] {
   grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
 }
 
-.ppDashboardOperationalGrid {
-  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+.ppDashboardPriorityStack {
+  align-content: start;
 }
 
 .ppDashboardInsights {
@@ -1421,6 +1421,13 @@ s-page[inline-size="large-500"] {
   background: var(--pp-slate-100);
 }
 
+.ppCoverageSummaryGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(280px, 1.05fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
 .ppCoverageSummaryStatus s-icon {
   grid-row: span 2;
 }
@@ -1438,8 +1445,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCoverageSummaryStatus-green {
-  border-color: rgba(var(--pp-signal-teal-rgb), 0.18);
-  background: var(--pp-green-soft);
+  border-color: rgba(var(--pp-signal-teal-rgb), 0.22);
+  background:
+    radial-gradient(circle at 22px 22px, rgba(var(--pp-signal-teal-rgb), 0.18), transparent 42px),
+    var(--pp-cloud-white);
   color: var(--pp-signal-teal);
 }
 
@@ -1447,6 +1456,101 @@ s-page[inline-size="large-500"] {
   border-color: rgba(var(--pp-warning-amber-rgb), 0.22);
   background: var(--pp-amber-soft);
   color: var(--pp-warning-amber);
+}
+
+.ppCoverageCatalogCard {
+  min-height: 82px;
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppCoverageCatalogCard > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ppCoverageCatalogCard span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.ppCoverageCatalogCard strong {
+  color: var(--pp-slate-900);
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ppCoverageCatalogCard p,
+.ppCoverageRecommendation p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.ppCoverageCatalogMeter {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppCoverageCatalogMeter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-signal-teal));
+  transition: width 160ms ease;
+}
+
+.ppCoverageCatalogCard-orange .ppCoverageCatalogMeter span {
+  background: linear-gradient(90deg, var(--pp-warning-amber), var(--pp-pulse-blue));
+}
+
+.ppCoverageCatalogCard-red .ppCoverageCatalogMeter span {
+  background: linear-gradient(90deg, var(--pp-risk-red), var(--pp-warning-amber));
+}
+
+.ppCoverageRecommendation {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 10px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.055);
+}
+
+.ppCoverageRecommendation s-icon {
+  color: var(--pp-pulse-blue);
+}
+
+.ppCoverageRecommendation-orange {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.2);
+  background: rgba(var(--pp-warning-amber-rgb), 0.08);
+}
+
+.ppCoverageRecommendation-orange s-icon {
+  color: var(--pp-warning-amber);
+}
+
+.ppCoverageRecommendation-red {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.18);
+  background: rgba(var(--pp-risk-red-rgb), 0.06);
+}
+
+.ppCoverageRecommendation-red s-icon {
+  color: var(--pp-risk-red);
 }
 
 .ppCoverageSourcePills {
@@ -1459,20 +1563,70 @@ s-page[inline-size="large-500"] {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 9px;
+  gap: 8px;
+  padding: 7px 10px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 999px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-500);
+  font: inherit;
   font-size: 12px;
   font-weight: 760;
+  cursor: help;
 }
 
 .ppCoverageSourcePill-success {
-  border-color: rgba(var(--pp-signal-teal-rgb), 0.2);
-  background: var(--pp-green-soft);
+  border-color: rgba(var(--pp-signal-teal-rgb), 0.28);
+  background:
+    radial-gradient(circle at 18px 50%, rgba(var(--pp-signal-teal-rgb), 0.22), transparent 28px),
+    var(--pp-cloud-white);
   color: var(--pp-signal-teal);
+}
+
+.ppCoverageSourcePill:hover,
+.ppCoverageSourcePill:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.3);
+  outline: none;
+  box-shadow: 0 8px 20px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppCoverageSourceIcon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppCoverageSourcePill-success .ppCoverageSourceIcon {
+  background: rgba(var(--pp-signal-teal-rgb), 0.12);
+  color: var(--pp-signal-teal);
+  box-shadow: 0 0 0 4px rgba(var(--pp-signal-teal-rgb), 0.08), 0 0 18px rgba(var(--pp-signal-teal-rgb), 0.22);
+}
+
+.ppCoverageSourcePopover {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
+  border-radius: 10px;
+  background: var(--pp-slate-900);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.24);
+}
+
+.ppCoverageSourcePopover strong {
+  color: var(--pp-cloud-white);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ppCoverageSourcePopover span {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+  line-height: 1.38;
 }
 
 .ppIssueBars {
@@ -4940,10 +5094,42 @@ s-page[inline-size="large-500"] {
   line-height: 1.4;
 }
 
+.ppRecommendedActionModalPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.ppRecommendedActionModalPills em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .ppRecommendedActionModal > .ppProductActionItem {
   min-height: 0;
   overflow: auto;
   padding: 14px;
+  box-shadow: none;
+}
+
+.ppRecommendedActionModal > .ppProductActionItem.isModalContent {
+  grid-template-areas:
+    "body"
+    "cta";
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 2px 4px 4px;
   box-shadow: none;
 }
 
@@ -10276,7 +10462,7 @@ s-page[inline-size="large-500"] {
   .ppStartContent,
   .ppNextBestWhy,
   .ppDashboardActionGrid,
-  .ppDashboardOperationalGrid,
+  .ppCoverageSummaryGrid,
   .ppDashboardInsights,
   .ppDashboardBottom,
   .ppAnalyticsKpis,

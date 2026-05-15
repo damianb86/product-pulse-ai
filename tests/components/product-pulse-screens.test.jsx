@@ -317,13 +317,13 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add sizing FAQ" }));
-    const faqCard = screen.getByRole("heading", { name: "Add sizing FAQ" }).closest("article");
-    expect(within(faqCard).getByRole("group", { name: "How to apply Add sizing FAQ" })).toBeInTheDocument();
-    expect(within(faqCard).getByRole("button", { name: /Collapsible FAQ/ })).toHaveClass("isSelected");
+    const faqDialog = screen.getByRole("dialog", { name: "Add sizing FAQ" });
+    expect(within(faqDialog).getByRole("group", { name: "How to apply Add sizing FAQ" })).toBeInTheDocument();
+    expect(within(faqDialog).getByRole("button", { name: /Collapsible FAQ/ })).toHaveClass("isSelected");
 
-    fireEvent.click(within(faqCard).getByRole("button", { name: /Product metafield/ }));
-    await waitFor(() => expect(within(faqCard).getByRole("button", { name: /Product metafield/ })).toHaveClass("isSelected"));
-    fireEvent.click(within(faqCard).getByRole("button", { name: /Save FAQ metafield/ }));
+    fireEvent.click(within(faqDialog).getByRole("button", { name: /Product metafield/ }));
+    await waitFor(() => expect(within(faqDialog).getByRole("button", { name: /Product metafield/ })).toHaveClass("isSelected"));
+    fireEvent.click(within(faqDialog).getByRole("button", { name: /Save FAQ metafield/ }));
     expect(screen.getByRole("heading", { name: "Confirm FAQ metafield update" })).toBeInTheDocument();
     expect(screen.getAllByText(/productpulse\.faq_items/).length).toBeGreaterThan(0);
   });
