@@ -1,6 +1,12 @@
 import { useActionData, useLoaderData } from "react-router";
 import { WatchlistScreen } from "../components/ProductPulseScreens";
-import { addWatchedProductForShop, getWatchlistForShop } from "../lib/product-pulse-watchlist.server";
+import {
+  addWatchedProductForShop,
+  getWatchlistForShop,
+  pauseWatchedProductForShop,
+  removeWatchedProductForShop,
+  resumeWatchedProductForShop,
+} from "../lib/product-pulse-watchlist.server";
 import { searchShopifyProductsForDiagnosis } from "../lib/product-pulse-jobs.server";
 import { authenticate } from "../shopify.server";
 
@@ -31,6 +37,18 @@ export const action = async ({ request }) => {
       imageUrl: String(formData.get("imageUrl") || ""),
       imageAlt: String(formData.get("imageAlt") || ""),
     });
+  }
+
+  if (actionType === "pause-watched-product") {
+    return pauseWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
+  }
+
+  if (actionType === "resume-watched-product") {
+    return resumeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
+  }
+
+  if (actionType === "remove-watched-product") {
+    return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
   }
 
   return { status: "validation_error", message: "Unsupported watchlist action." };

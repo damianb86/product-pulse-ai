@@ -1,6 +1,7 @@
 import prisma from "../db.server";
 import { getNormalizedCsvReviewRatingsForShop } from "./product-pulse-csv.server";
 import { recordJobLog } from "./product-pulse-job-logs.server";
+import { recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import {
   getProductPulseSettings,
   getQuickScanMinimumRiskScore,
@@ -10,6 +11,7 @@ import {
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
@@ -1701,7 +1703,7 @@ async function persistQuickScanCandidates(shop, candidates) {
   const productGids = persistableCandidates.map((candidate) => candidate.productGid);
   const retainedProductGids = Array.from(new Set([...productGids, ...fullDiagnosisProductGids]));
 
-  await prisma.$transaction(async (tx) => {
+  const persistedSnapshots = await prisma.$transaction(async (tx) => {
     if (retainedProductGids.length) {
       await tx.productRiskSnapshot.deleteMany({
         where: {
@@ -1713,7 +1715,7 @@ async function persistQuickScanCandidates(shop, candidates) {
       await tx.productRiskSnapshot.deleteMany({ where: { shop } });
     }
 
-    await Promise.all(persistableCandidates.map((candidate) => tx.productRiskSnapshot.upsert({
+    return Promise.all(persistableCandidates.map((candidate) => tx.productRiskSnapshot.upsert({
       where: {
         shop_productGid: {
           shop,
@@ -1745,6 +1747,10 @@ async function persistQuickScanCandidates(shop, candidates) {
       },
     })));
   });
+  await Promise.all([
+    recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" }),
+    recordWatchlistScanActivities(shop, persistedSnapshots, { source: "quickscan" }),
+  ]);
 
   return {
     persistedCandidates: persistableCandidates.length,

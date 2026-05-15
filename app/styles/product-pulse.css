@@ -9526,6 +9526,16 @@ s-page[inline-size="large-500"] {
   background: var(--pp-success-green);
 }
 
+.ppWatchRowActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ppWatchRowActions form {
+  margin: 0;
+}
+
 .ppWatchActionsButton {
   width: 34px;
   height: 34px;
@@ -9536,6 +9546,17 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   cursor: pointer;
+  text-decoration: none;
+}
+
+.ppWatchActionsButton:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.35);
+  color: var(--pp-pulse-blue);
+}
+
+.ppWatchActionsButton-danger:hover {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.35);
+  color: var(--pp-risk-red);
 }
 
 .ppWatchlistTableFooter {
@@ -9605,7 +9626,8 @@ s-page[inline-size="large-500"] {
   font-size: 11px;
 }
 
-.ppWatchlistPanelHeader button {
+.ppWatchlistPanelHeader button,
+.ppWatchlistPanelHeader a {
   border: 0;
   background: transparent;
   color: var(--pp-pulse-blue);
@@ -9613,6 +9635,13 @@ s-page[inline-size="large-500"] {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+  text-decoration: none;
+}
+
+.ppWatchlistPanelHeader > span {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .ppWatchActivityList {
@@ -9625,6 +9654,23 @@ s-page[inline-size="large-500"] {
   grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+}
+
+.ppWatchPanelEmpty {
+  min-height: 120px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ppWatchPanelEmpty-large {
+  min-height: 220px;
+  justify-content: center;
+  grid-template-columns: 50px minmax(0, 320px);
 }
 
 .ppWatchActivityList strong,
@@ -9703,6 +9749,50 @@ s-page[inline-size="large-500"] {
   border: 1px solid var(--pp-slate-200);
   border-radius: 9px;
   background: var(--pp-cloud-white);
+}
+
+.ppWatchTrendCallout a {
+  display: inline-grid;
+  place-items: center;
+  color: var(--pp-pulse-blue);
+  text-decoration: none;
+}
+
+.ppWatchActivityScreen .ppWatchlistStats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ppWatchActivityFullPanel {
+  min-height: 420px;
+}
+
+.ppWatchActivityTimeline {
+  display: grid;
+  gap: 18px;
+}
+
+.ppWatchActivityTimeline h3 {
+  margin: 0 0 10px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ppWatchActivityList-full {
+  gap: 0;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ppWatchActivityList-full article {
+  padding: 12px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchActivityList-full article:last-child {
+  border-bottom: 0;
 }
 
 .ppWatchTrendCallout strong,

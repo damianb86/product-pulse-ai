@@ -1,12 +1,14 @@
 import prisma from "../db.server";
 import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
 import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
+import { recordProductScoreHistory } from "./product-pulse-history.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 import {
   buildDatedSignalTrend,
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 
 const DIAGNOSIS_WINDOW_DAYS = 90;
@@ -1811,7 +1813,7 @@ async function persistDetailedDiagnosis({ shop, snapshot, payload }) {
     },
   });
 
-  await prisma.productRiskSnapshot.update({
+  const updatedSnapshot = await prisma.productRiskSnapshot.update({
     where: { shop_productGid: { shop, productGid: snapshot.productGid } },
     data: {
       riskScore: payload.riskScore,
@@ -1827,6 +1829,10 @@ async function persistDetailedDiagnosis({ shop, snapshot, payload }) {
       calculatedAt: new Date(),
     },
   });
+  await Promise.all([
+    recordProductScoreHistory({ shop, snapshot: updatedSnapshot, source: "full-diagnosis", diagnosisId: diagnosis.id }),
+    recordWatchlistScanActivities(shop, [updatedSnapshot], { source: "full-diagnosis" }),
+  ]);
 
   await prisma.productAction.create({
     data: {

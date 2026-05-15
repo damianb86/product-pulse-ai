@@ -9,6 +9,7 @@ import {
   ProductEvidenceReportScreen,
   ProductsScreen,
   SettingsScreen,
+  WatchlistActivityScreen,
   WatchlistScreen,
 } from "../../app/components/ProductPulseScreens";
 import { defaultView } from "../fixtures/product-pulse-fixtures";
@@ -145,6 +146,25 @@ describe("ProductPulse screens", () => {
               href: "/app/products/nintendo-new-3ds-xl",
             },
           ],
+          activities: [
+            {
+              id: "activity-1",
+              icon: "plus",
+              tone: "blue",
+              title: "Product added to watchlist",
+              detail: "Nintendo New 3DS XL",
+              time: "Just now",
+            },
+          ],
+          trend: {
+            productTitle: "Nintendo New 3DS XL",
+            riskScore: 63,
+            riskLabel: "Medium",
+            points: [{ x: 0, y: 45 }, { x: 100, y: 37 }],
+            calloutTitle: "Latest risk increased from 55 to 63",
+            calloutDetail: "Product quality signal detected",
+            href: "/app/products/nintendo-new-3ds-xl",
+          },
           mock: {},
         },
       }}
@@ -154,10 +174,44 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("2 / 5")).toBeInTheDocument();
     expect(screen.getAllByText("Nintendo New 3DS XL").length).toBeGreaterThan(0);
     expect(screen.getByText("Recent watch activity")).toBeInTheDocument();
+    expect(screen.getByText("Product added to watchlist")).toBeInTheDocument();
     expect(screen.getByText("Watchlist trend (risk activity)")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
+    expect(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Nintendo New 3DS XL from watchlist" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add watched product" }));
     expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
     expect(screen.getByText(/add one product to automatic monitoring/i)).toBeInTheDocument();
+  });
+
+  it("renders full watchlist activity history", () => {
+    renderWithRouter(<WatchlistActivityScreen
+      data={{
+        watchlist: {
+          maxProducts: 5,
+          watchedCount: 1,
+          slotsAvailable: 4,
+          rows: [{ status: "Watching" }],
+          activities: [
+            { id: "a1", eventType: "product_added", icon: "plus", tone: "blue", title: "Product added to watchlist", detail: "Nintendo New 3DS XL", timestamp: "May 15, 10:20 AM" },
+            { id: "a2", eventType: "watch_scan_completed", icon: "refresh", tone: "orange", title: "Watch scan updated product risk", detail: "Medium risk (63/100)", timestamp: "May 15, 10:30 AM" },
+          ],
+          groupedActivities: [
+            {
+              day: "Fri, May 15",
+              items: [
+                { id: "a1", icon: "plus", tone: "blue", title: "Product added to watchlist", detail: "Nintendo New 3DS XL", timestamp: "May 15, 10:20 AM" },
+                { id: "a2", icon: "refresh", tone: "orange", title: "Watch scan updated product risk", detail: "Medium risk (63/100)", timestamp: "May 15, 10:30 AM" },
+              ],
+            },
+          ],
+        },
+      }}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Watch activity" })).toBeInTheDocument();
+    expect(screen.getByText("All watch activity")).toBeInTheDocument();
+    expect(screen.getByText("Watch scan updated product risk")).toBeInTheDocument();
   });
 
   it("searches live Shopify products without resubmitting the same query loop", async () => {

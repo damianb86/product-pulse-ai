@@ -1025,6 +1025,8 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const watchlist = data.watchlist || {};
   const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
+  const activities = Array.isArray(watchlist.activities) ? watchlist.activities : [];
+  const trend = watchlist.trend || {};
   const mock = watchlist.mock || {};
   const maxProducts = Number(watchlist.maxProducts || 5);
   const watchedCount = Number(watchlist.watchedCount ?? rows.length);
@@ -1165,8 +1167,8 @@ export function WatchlistScreen({ data = {}, actionData }) {
         </s-section>
 
         <div className="ppWatchlistBottomGrid">
-          <WatchlistActivityPanel />
-          <WatchlistTrendPanel />
+          <WatchlistActivityPanel activities={activities} />
+          <WatchlistTrendPanel trend={trend} />
           <WatchlistSettingsPanel />
         </div>
       </ScreenShell>
@@ -1209,6 +1211,7 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
 function WatchlistProductRow({ product }) {
   const latestTone = product.latestChangeTone || "slate";
   const hasScore = Number.isFinite(Number(product.riskScore));
+  const paused = product.status === "Paused";
 
   return (
     <tr>
@@ -1254,32 +1257,46 @@ function WatchlistProductRow({ product }) {
         </div>
       </td>
       <td>
-        <button className="ppWatchActionsButton" type="button" aria-label={`Open watch actions for ${product.title}`}>
-          <s-icon type="menu-horizontal" size="small"></s-icon>
-        </button>
+        <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
+          <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
+            <s-icon type="view" size="small"></s-icon>
+          </Link>
+          <Form method="post">
+            <input type="hidden" name="_action" value={paused ? "resume-watched-product" : "pause-watched-product"} />
+            <input type="hidden" name="productGid" value={product.productGid || ""} />
+            <button className="ppWatchActionsButton" type="submit" aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}>
+              <s-icon type={paused ? "play" : "pause"} size="small"></s-icon>
+            </button>
+          </Form>
+          <Form method="post">
+            <input type="hidden" name="_action" value="remove-watched-product" />
+            <input type="hidden" name="productGid" value={product.productGid || ""} />
+            <button className="ppWatchActionsButton ppWatchActionsButton-danger" type="submit" aria-label={`Remove ${product.title} from watchlist`}>
+              <s-icon type="x" size="small"></s-icon>
+            </button>
+          </Form>
+        </div>
       </td>
     </tr>
   );
 }
 
-function WatchlistActivityPanel() {
-  const activities = [
-    { icon: "alert-triangle", tone: "orange", title: "New product quality issue detected", detail: "Nintendo New 3DS XL", time: "6h ago" },
-    { icon: "email", tone: "green", title: "Alert email sent to ops@store.com", detail: "New issue on Nintendo New 3DS XL", time: "6h ago" },
-    { icon: "pause", tone: "purple", title: "Product paused", detail: "The Collection Snowboard: Hydrogen", time: "8 days ago" },
-    { icon: "settings", tone: "blue", title: "Watch cadence changed", detail: "Every 2 days -> Every 3 days", time: "9 days ago" },
-    { icon: "plus", tone: "blue", title: "Product added to watchlist", detail: "THE NIGHT WATCH | REMBRANDT VAN RIJN", time: "13 days ago" },
-  ];
-
+function WatchlistActivityPanel({ activities = [], showAllLink = true }) {
   return (
     <section className="ppWatchlistPanel">
       <div className="ppWatchlistPanelHeader">
         <h2>Recent watch activity</h2>
-        <button type="button">View all</button>
+        {showAllLink ? <Link to="/app/watchlist/activity">View all</Link> : null}
       </div>
       <div className="ppWatchActivityList">
+        {activities.length === 0 && (
+          <div className="ppWatchPanelEmpty">
+            <DashboardIcon type="refresh" tone="blue" size="small" />
+            <span>Watch activity will appear when products are added, paused, removed or scanned.</span>
+          </div>
+        )}
         {activities.map((activity) => (
-          <article key={`${activity.title}-${activity.time}`}>
+          <article key={activity.id || `${activity.title}-${activity.detail}-${activity.time}`}>
             <DashboardIcon type={activity.icon} tone={activity.tone} size="small" />
             <div>
               <strong>{activity.title}</strong>
@@ -1293,24 +1310,26 @@ function WatchlistActivityPanel() {
   );
 }
 
-function WatchlistTrendPanel() {
-  const values = [56, 58, 51, 49, 44, 47, 45, 42, 46, 49, 48, 46, 43, 41, 44, 47, 52, 51, 55, 53, 59, 57, 62, 60, 64, 63, 69, 72];
-  const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${100 - value}`).join(" ");
+function WatchlistTrendPanel({ trend = {} }) {
+  const points = Array.isArray(trend.points)
+    ? trend.points.map((point) => `${point.x},${point.y}`).join(" ")
+    : "";
+  const hasPoints = Boolean(points);
+  const riskScore = Number.isFinite(Number(trend.riskScore)) ? Math.round(Number(trend.riskScore)) : null;
 
   return (
     <section className="ppWatchlistPanel ppWatchTrendPanel">
       <div className="ppWatchlistPanelHeader">
         <div>
           <h2>Watchlist trend (risk activity) <s-icon type="info" size="small"></s-icon></h2>
-          <small>Average risk score across all watched products</small>
+          <small>{trend.productTitle ? `First watched product: ${trend.productTitle}` : "Risk history for the first watched product"}</small>
         </div>
-        <button type="button">Last 30 days <s-icon type="chevron-down" size="small"></s-icon></button>
       </div>
       <div className="ppWatchTrendMetric">
-        <strong>52</strong>
-        <span>Moderate</span>
+        <strong>{riskScore ?? "-"}</strong>
+        <span>{trend.riskLabel || "No data"}</span>
       </div>
-      <div className="ppWatchTrendChart" aria-label="Mock watchlist trend">
+      <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
             <linearGradient id="ppWatchTrendFill" x1="0" x2="0" y1="0" y2="1">
@@ -1318,19 +1337,75 @@ function WatchlistTrendPanel() {
               <stop offset="100%" stopColor="rgba(245, 158, 11, 0.02)" />
             </linearGradient>
           </defs>
-          <polygon points={`0,100 ${points} 100,100`} />
-          <polyline points={points} />
+          {hasPoints ? <polygon points={`0,100 ${points} 100,100`} /> : null}
+          {hasPoints ? <polyline points={points} /> : null}
         </svg>
       </div>
       <div className="ppWatchTrendCallout">
         <span className="ppWatchIssueDot ppWatchIssueDot-orange" aria-hidden="true" />
         <div>
-          <strong>May 18: Average risk score increased from 45 to 52</strong>
-          <small>Due to a new issue on Nintendo New 3DS XL</small>
+          <strong>{trend.calloutTitle || "No watch trend yet"}</strong>
+          <small>{trend.calloutDetail || "Add a watched product and run analyses to build history."}</small>
         </div>
-        <s-icon type="chevron-right" size="small"></s-icon>
+        {trend.href ? <Link to={trend.href} aria-label={`Open ${trend.productTitle || "watched product"}`}><s-icon type="chevron-right" size="small"></s-icon></Link> : <s-icon type="chevron-right" size="small"></s-icon>}
       </div>
     </section>
+  );
+}
+
+export function WatchlistActivityScreen({ data = {} }) {
+  const watchlist = data.watchlist || {};
+  const groups = Array.isArray(watchlist.groupedActivities) ? watchlist.groupedActivities : [];
+  const activities = Array.isArray(watchlist.activities) ? watchlist.activities : [];
+
+  return (
+    <FullWidthPage heading="Watch activity">
+      <ScreenShell className="ppDashboard ppWatchlistScreen ppWatchActivityScreen">
+        <div className="ppWatchlistHeader">
+          <div>
+            <Link className="ppBackLink" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
+            <p className="ppDashboardSubtitle">Complete activity log for watched products, scan updates and watchlist changes.</p>
+          </div>
+        </div>
+        <div className="ppWatchlistStats" aria-label="Watch activity overview">
+          <WatchlistStatCard icon="view" tone="purple" label="Watched products" value={`${watchlist.watchedCount || 0} / ${watchlist.maxProducts || 5}`} detail={`${watchlist.slotsAvailable || 0} slots available`} />
+          <WatchlistStatCard icon="refresh" tone="blue" label="Stored events" value={activities.length} detail="Latest watchlist activity" />
+          <WatchlistStatCard icon="pause" tone="purple" label="Paused products" value={(watchlist.rows || []).filter((row) => row.status === "Paused").length} detail="Not included in automatic watches" />
+          <WatchlistStatCard icon="wand" tone="orange" label="Risk updates" value={activities.filter((activity) => ["watch_scan_completed", "diagnosis_completed"].includes(activity.eventType)).length} detail="Scan or diagnosis events" />
+        </div>
+        <section className="ppWatchlistPanel ppWatchActivityFullPanel">
+          <div className="ppWatchlistPanelHeader">
+            <h2>All watch activity</h2>
+            <span>{activities.length} event{activities.length === 1 ? "" : "s"}</span>
+          </div>
+          {groups.length === 0 && (
+            <div className="ppWatchPanelEmpty ppWatchPanelEmpty-large">
+              <DashboardIcon type="refresh" tone="blue" />
+              <span>No watch activity has been recorded yet.</span>
+            </div>
+          )}
+          <div className="ppWatchActivityTimeline">
+            {groups.map((group) => (
+              <section key={group.day}>
+                <h3>{group.day}</h3>
+                <div className="ppWatchActivityList ppWatchActivityList-full">
+                  {group.items.map((activity) => (
+                    <article key={activity.id}>
+                      <DashboardIcon type={activity.icon} tone={activity.tone} size="small" />
+                      <div>
+                        <strong>{activity.title}</strong>
+                        <small>{activity.detail || activity.productTitle || "Watchlist activity"}</small>
+                      </div>
+                      <span>{activity.timestamp}</span>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </section>
+      </ScreenShell>
+    </FullWidthPage>
   );
 }
 

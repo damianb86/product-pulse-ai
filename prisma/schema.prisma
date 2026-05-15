@@ -175,6 +175,44 @@ model ProductWatchlistItem {
   @@index([shop, addedAt])
 }
 
+model ProductWatchActivity {
+  id              String   @id @default(cuid())
+  shop            String
+  productGid      String?
+  productTitle    String?
+  watchlistItemId String?
+  eventType       String
+  title           String
+  detail          String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, productGid, createdAt])
+  @@index([shop, eventType])
+}
+
+model ProductScoreHistory {
+  id           String   @id @default(cuid())
+  shop         String
+  productGid   String
+  productTitle String
+  handle       String?
+  source       String
+  riskScore    Int
+  impactScore  Int?
+  confidence   Int?
+  primaryIssue String?
+  metrics      Json?
+  snapshotId   String?
+  diagnosisId  String?
+  recordedAt   DateTime @default(now())
+
+  @@index([shop, productGid, recordedAt])
+  @@index([shop, recordedAt])
+  @@index([shop, source])
+}
+
 model ContactRequest {
   id        String   @id @default(cuid())
   shop      String
