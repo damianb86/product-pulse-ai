@@ -4,7 +4,7 @@ export const PRODUCT_PULSE_SETTINGS_SOURCE_KEY = "__productpulse_settings";
 
 export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   risk: {
-    minimumScore: 50,
+    minimumScore: 18,
     mediumThreshold: 55,
     highThreshold: 75,
   },

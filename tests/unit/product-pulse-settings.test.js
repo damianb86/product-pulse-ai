@@ -12,7 +12,7 @@ describe("ProductPulse settings", () => {
     const settings = normalizeProductPulseSettings();
 
     expect(settings.risk).toEqual({
-      minimumScore: 50,
+      minimumScore: 18,
       mediumThreshold: 55,
       highThreshold: 75,
     });

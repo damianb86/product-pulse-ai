@@ -7,6 +7,7 @@ import {
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import { calculateProductScoreModel } from "./product-pulse-scoring";
 
 const DIAGNOSIS_WINDOW_DAYS = 90;
 const MAX_ORDER_PAGES = 5;
@@ -1214,6 +1215,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const signalCount = customerSignalCount + deterministicContent.issues.length;
   const scoringMetrics = {
     soldUnits,
+    salesAmount,
     returnUnits,
     refundUnits,
     refundAmount,
@@ -1235,38 +1237,38 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     affectedVariants,
     reviewSourceStats,
   };
-  const riskComponents = calculateRiskScoreBreakdown({ snapshot, metrics: scoringMetrics });
-  const riskScore = riskComponents.riskScore;
-  const confidence = calculateConfidence({
-    signalCount,
-    sourceCoverage,
-    judgeMeMatchConfidence: judgeMeData.matchConfidence,
-    csvReviewMatchConfidence: csvReviewData.matchConfidence,
-    orderAccessDenied: shopifyData.orderAccessDenied,
-    sourceAgreement: hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats }),
-    recentSignals: countRecentSignalEvents(signalEvents, 30),
-    mainIssue,
-    textInsights,
-    returnUnits,
-    refundUnits,
-    negativeReviewCount,
-    contentIssueCount: deterministicContent.issues.length,
-  });
-  const estimatedImpact = calculateEstimatedImpact({
-    refundAmount,
+  const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
+  const scoreModel = calculateProductScoreModel({
+    ...scoringMetrics,
     salesAmount,
-    soldUnits,
-    returnUnits,
-    refundUnits,
-    returnRate,
-    refundRate,
-    negativeReviewCount,
-    negativeReviewRate,
-    recentNegativeReviewCount,
-    signalCount,
+    storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
+    storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
+    storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate || snapshotMetrics.csvNegativeRatingRate,
+    sentimentTotal: textInsights?.sentiment?.total || 0,
+    sentimentNegativeCount: textInsights?.sentiment?.negative || 0,
+    subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
+    subjectiveNegativeRatio: textInsights?.subjectiveNegativity?.ratio || 0,
+    variantCount: product.variants?.length || Number(snapshotMetrics.variantCount || 0),
+    affectedVariantCount: affectedVariants.length,
+    affectedVariantSignalCount: affectedVariants.reduce((sum, variant) => sum + Number(variant.count || 0), 0),
+    strongestVariantSignalCount: affectedVariants[0]?.count || 0,
+    recentSignalUnits: countRecentSignalEvents(signalEvents, 30),
+    signalEventCount: customerSignalCount,
+    effectiveSampleSize: returnUnits + refundUnits + reviewCount + deterministicContent.issues.length,
+    sourceCoverage,
+    sourceAgreement,
+    productMatchConfidence: Math.max(judgeMeData.matchConfidence || 0, csvReviewData.matchConfidence || 0, reviews.length ? 0 : 1),
+    orderAccessDenied: shopifyData.orderAccessDenied,
+    missingOrders: shopifyData.orderAccessDenied,
+    dataQualityIncomplete: shopifyData.orderAccessDenied,
+    subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
+    calculationState: "calculated_from_persisted_components",
     windowDays: DIAGNOSIS_WINDOW_DAYS,
-    snapshotMetrics,
-  });
+  }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
+  const riskComponents = scoreModel.riskComponents;
+  const riskScore = scoreModel.riskScore;
+  const confidence = scoreModel.confidenceScore;
+  const estimatedImpact = scoreModel.impactFactors;
   const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore, snapshotMetrics.riskTrend);
   const evidenceSnippets = buildEvidenceSnippets({ returns, refunds, reviews: negativeReviews, product });
 
@@ -1284,6 +1286,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       contentQualityScore: deterministicContent.score,
       contentQualityRisk: deterministicContent.riskLift,
       riskComponents,
+      confidenceFactors: scoreModel.confidenceFactors,
       contentIssues: deterministicContent.issues,
       contentAdvisories: deterministicContent.advisories,
       faqNeed,
@@ -1293,8 +1296,16 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       hasDescription: deterministicContent.hasDescription,
       revenueAtRisk: estimatedImpact.revenueAtRisk,
       marginAtRisk: estimatedImpact.marginAtRisk,
-      estimatedImpact: estimatedImpact.revenueAtRisk,
+      estimatedImpact: estimatedImpact.estimatedImpact,
+      impactRange: {
+        low: estimatedImpact.impactLow,
+        mid: estimatedImpact.impactMid,
+        high: estimatedImpact.impactHigh,
+      },
       impactFactors: estimatedImpact,
+      priorityScore: scoreModel.priorityScore,
+      evidenceStrengthScore: scoreModel.evidenceStrengthScore,
+      scoreCalculationStatus: "Score calculated from persisted components",
       signalCount,
       salesAmount,
       avgUnitRevenue: estimatedImpact.avgUnitRevenue,
@@ -1358,7 +1369,8 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
   const knownEmotions = normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights);
-  const adjustedRiskScore = clamp(deterministic.riskScore + contentAnalysis.additionalRiskLift, 0, 100);
+  const adjustedRiskComponents = adjustRiskComponentsForContentAnalysis(deterministic.metrics.riskComponents, contentAnalysis);
+  const adjustedRiskScore = adjustedRiskComponents.riskScore;
   const scoredDeterministic = {
     ...deterministic,
     riskScore: adjustedRiskScore,
@@ -1378,6 +1390,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
       contentAdvisories: contentAnalysis.advisories,
       signalCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
       issueCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
+      riskComponents: adjustedRiskComponents,
       riskTrend: buildRiskTrendFromSignalTrend(deterministic.metrics.signalTrend, adjustedRiskScore, deterministic.metrics.riskTrend),
     },
   };
@@ -4084,6 +4097,24 @@ function buildContentAnalysis(deterministic, contentGaps) {
   };
 }
 
+function adjustRiskComponentsForContentAnalysis(riskComponents = {}, contentAnalysis = {}) {
+  const next = { ...riskComponents };
+  const existingContentScore = Number(next.contentGapScore ?? next.contentRisk ?? 0);
+  const contentGapScore = clamp(Math.max(existingContentScore, Number(contentAnalysis.riskLift || 0)), 0, 15);
+  const rawScore = Number(next.rawScore ?? next.calculated ?? next.riskScore ?? 0) - existingContentScore + contentGapScore;
+  const riskScore = Math.round(clamp(rawScore, 0, 100));
+
+  return {
+    ...next,
+    contentGapScore: roundRate(contentGapScore, 2),
+    contentRisk: roundRate(contentGapScore, 2),
+    rawScore: roundRate(rawScore, 2),
+    calculated: riskScore,
+    riskScore,
+    calculationState: next.calculationState || "calculated_from_persisted_components",
+  };
+}
+
 function normalizeAiContentFindings(contentGaps) {
   const findings = (Array.isArray(contentGaps?.content_issues) ? contentGaps.content_issues : [])
     .map((issue) => {
@@ -4390,157 +4421,45 @@ function calculateRiskScore({ snapshot, metrics }) {
 }
 
 function calculateRiskScoreBreakdown({ snapshot, metrics }) {
-  const storeAvgReturnRate = Number(snapshot.metrics?.storeAvgReturnRate || 0);
-  const storeAvgRefundRate = Number(snapshot.metrics?.storeAvgRefundRate || 0);
-  const returnSampleSupport = getHardSignalSampleSupport(metrics.returnUnits);
-  const refundSampleSupport = getRefundRiskSampleSupport(metrics);
-  const supportedSignalCount = getSupportedRiskSignalCount(metrics);
-  const returnAnomaly = (storeAvgReturnRate > 0
-    ? Math.max(0, Math.min(25, ((metrics.returnRate / storeAvgReturnRate) - 1) * 14))
-    : Math.min(22, metrics.returnRate * 1.2)) * returnSampleSupport;
-  const refundAnomaly = (storeAvgRefundRate > 0
-    ? Math.max(0, Math.min(20, ((metrics.refundRate / storeAvgRefundRate) - 1) * 11))
-    : Math.min(18, metrics.refundRate)) * refundSampleSupport;
-  const refundImpact = Math.min(15, Math.log10(metrics.refundAmount + 1) * 4) * refundSampleSupport;
-  const reviewAnomaly = calculateReviewAnomaly(metrics);
-  const signalVolume = Math.min(12, Math.sqrt(supportedSignalCount) * 2.6);
-  const sourceAgreement = hasSourceAgreement({
-    returnUnits: metrics.returnUnits,
-    refundUnits: metrics.refundUnits,
-    negativeReviewCount: metrics.negativeReviewCount,
-    reviewSourceStats: metrics.reviewSourceStats,
-  }) ? 9 : 0;
-  const recency = supportedSignalCount
-    ? Math.min(9, (countRecentSignalEvents(metrics.signalEvents, 30) / Math.max(1, metrics.signalCount)) * 15) * getHardSignalSampleSupport(supportedSignalCount)
-    : 0;
-  const variantConcentration = metrics.affectedVariants.length ? 5 : 0;
-  const volumeWeight = metrics.soldUnits ? Math.min(7, Math.log10(metrics.soldUnits + 1) * 3) : 0;
-  const contentRisk = Math.min(16, Number(metrics.contentQualityRisk || 0));
-  const textSentimentRisk = calculateTextSentimentRisk(metrics.textInsights);
-  const refundOperationalRisk = Math.min(10, Number(metrics.refundInsights?.riskLift || 0));
-  const rawScore = 8 + returnAnomaly + refundAnomaly + refundImpact + refundOperationalRisk + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk + textSentimentRisk;
-  const calculated = Math.round(rawScore);
-
   if (!metrics.signalCount && !metrics.contentIssueCount && Number(snapshot.riskScore || 0) > 0) {
     return {
       base: 0,
-      returnAnomaly: 0,
-      refundAnomaly: 0,
-      refundImpact: 0,
-      refundOperationalRisk: 0,
-      reviewAnomaly: 0,
-      signalVolume: 0,
-      sourceAgreement: 0,
-      recency: 0,
-      variantConcentration: 0,
-      volumeWeight: 0,
-      contentRisk: 0,
-      textSentimentRisk: 0,
+      returnsScore: 0,
+      reviewsScore: 0,
+      sentimentScore: 0,
+      contentGapScore: 0,
+      refundScore: 0,
+      variantScore: 0,
+      agreementBonus: 0,
+      recencyBonus: 0,
       rawScore: Number(snapshot.riskScore),
       calculated: Number(snapshot.riskScore),
       riskScore: Number(snapshot.riskScore),
       recovery: "snapshot-fallback",
+      calculationState: "score_breakdown_reconstructed",
     };
   }
 
-  return {
-    base: 8,
-    returnAnomaly: roundRate(returnAnomaly, 2),
-    refundAnomaly: roundRate(refundAnomaly, 2),
-    refundImpact: roundRate(refundImpact, 2),
-    refundOperationalRisk: roundRate(refundOperationalRisk, 2),
-    reviewAnomaly: roundRate(reviewAnomaly, 2),
-    signalVolume: roundRate(signalVolume, 2),
-    sourceAgreement: roundRate(sourceAgreement, 2),
-    recency: roundRate(recency, 2),
-    variantConcentration: roundRate(variantConcentration, 2),
-    volumeWeight: roundRate(volumeWeight, 2),
-    contentRisk: roundRate(contentRisk, 2),
-    textSentimentRisk: roundRate(textSentimentRisk, 2),
-    rawScore: roundRate(rawScore, 2),
-    calculated,
-    riskScore: clamp(calculated, 0, 100),
-  };
-}
-
-function calculateTextSentimentRisk(textInsights) {
-  const total = Number(textInsights?.sentiment?.total || 0);
-  if (!total) return 0;
-  const negative = Number(textInsights?.sentiment?.negative || 0);
-  const subjective = Number(textInsights?.subjectiveNegativity?.count || 0);
-  const subjectiveRatio = Number(textInsights?.subjectiveNegativity?.ratio || 0);
-  const objectiveNegative = Math.max(0, negative - subjective);
-  const objectiveSampleSupport = getHardSignalSampleSupport(objectiveNegative);
-  const objectiveRisk = Math.min(8, (objectiveNegative / total) * 10) * objectiveSampleSupport;
-  const subjectiveRisk = calculateSubjectiveTextRisk({ count: subjective, ratio: subjectiveRatio });
-  return Math.min(8, objectiveRisk + subjectiveRisk);
-}
-
-function getSupportedRiskSignalCount(metrics) {
-  const hardSignals = Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) + Number(metrics.negativeReviewCount || 0);
-  const repeatedLanguageSignals = Math.max(...(metrics.textInsights?.repeatedLanguage || []).map((item) => Number(item.count || 0)), 0);
-  const subjectiveSignals = hasActionableSubjectiveEvidence(metrics.textInsights?.subjectiveNegativity)
-    ? Number(metrics.textInsights?.subjectiveNegativity?.count || 0)
-    : 0;
-  const contentSignals = Number(metrics.contentIssueCount || 0);
-  return Math.max(
-    hardSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE ? hardSignals : 0,
-    repeatedLanguageSignals,
-    subjectiveSignals,
-    contentSignals,
-  );
-}
-
-function getHardSignalSampleSupport(count) {
-  const signalCount = Number(count || 0);
-  if (signalCount <= 0) return 0;
-  if (signalCount === 1) return 0.28;
-  if (signalCount === 2) return 0.58;
-  if (signalCount === 3) return 0.74;
-  if (signalCount === 4) return 0.86;
-  return 1;
-}
-
-function getRefundRiskSampleSupport(metrics) {
-  const refundUnits = Number(metrics.refundUnits || 0);
-  if (refundUnits <= 0) return 0;
-  const base = getHardSignalSampleSupport(refundUnits);
-  const soldUnits = Number(metrics.soldUnits || 0);
-  const refundRate = Number(metrics.refundRate || 0);
-  if (soldUnits > 10 && refundRate > 20) return 1;
-  if (refundUnits <= 2) return base * 0.45;
-  if (soldUnits > 0 && soldUnits <= 10) return base * 0.62;
-  return Math.min(1, base * 0.85);
-}
-
-function calculateSubjectiveTextRisk({ count, ratio }) {
-  const subjectiveCount = Number(count || 0);
-  const subjectiveRatio = Number(ratio || 0);
-  if (!subjectiveCount) return 0;
-  if (subjectiveCount <= 1) return Math.min(1.5, subjectiveRatio * 1.5);
-  if (!hasActionableSubjectiveEvidence({ count: subjectiveCount, ratio: subjectiveRatio })) {
-    return Math.min(3.5, 1.2 + subjectiveRatio * 3 + Math.log2(subjectiveCount + 1) * 0.55);
-  }
-  return Math.min(8, 2.8 + subjectiveRatio * 6 + Math.log2(subjectiveCount + 1) * 0.9);
-}
-
-function calculateReviewAnomaly(metrics) {
-  const reviewCount = Number(metrics.reviewCount || 0);
-  const negativeReviewCount = Number(metrics.negativeReviewCount || 0);
-  if (!reviewCount || !negativeReviewCount) return 0;
-
-  const ratePressure = Number(metrics.negativeReviewRate || 0) * 0.18;
-  const ratingPressure = Math.max(0, 4 - Number(metrics.avgRating || 0)) * 2.5;
-  const raw = Math.min(20, ratePressure + ratingPressure);
-  const sampleSupport = negativeReviewCount <= 1
-    ? 0.18
-    : negativeReviewCount === 2
-      ? 0.32
-      : negativeReviewCount <= 4
-        ? 0.58
-        : Math.min(1, 0.62 + Math.log2(negativeReviewCount) / 5);
-
-  return roundRate(raw * sampleSupport, 2);
+  return calculateProductScoreModel({
+    ...metrics,
+    storeReturnBaseline: snapshot.metrics?.storeAvgReturnRate,
+    storeRefundBaseline: snapshot.metrics?.storeAvgRefundRate,
+    storeNegativeReviewBaseline: snapshot.metrics?.storeAvgNegativeReviewRate || snapshot.metrics?.csvNegativeRatingRate,
+    sentimentTotal: metrics.textInsights?.sentiment?.total || 0,
+    sentimentNegativeCount: metrics.textInsights?.sentiment?.negative || 0,
+    subjectiveNegativeCount: metrics.textInsights?.subjectiveNegativity?.count || 0,
+    subjectiveNegativeRatio: metrics.textInsights?.subjectiveNegativity?.ratio || 0,
+    affectedVariantCount: metrics.affectedVariants?.length || 0,
+    sourceAgreement: hasSourceAgreement({
+      returnUnits: metrics.returnUnits,
+      refundUnits: metrics.refundUnits,
+      negativeReviewCount: metrics.negativeReviewCount,
+      reviewSourceStats: metrics.reviewSourceStats,
+    }),
+    recentSignalUnits: countRecentSignalEvents(metrics.signalEvents, 30),
+    effectiveSampleSize: Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) + Number(metrics.reviewCount || 0) + Number(metrics.contentIssueCount || 0),
+    calculationState: "calculated_from_persisted_components",
+  }, { sentimentSharesReviewSource: !(metrics.returnUnits || metrics.refundUnits) }).riskComponents;
 }
 
 function calculateConfidence({
@@ -4603,76 +4522,6 @@ function adjustSubjectiveConfidence(confidence, mainIssue, textInsights) {
   if (!hasActionableSubjectiveEvidence(summary)) return Math.min(confidence, 62);
   if (count < 5 && ratio < 0.5) return Math.min(confidence, 76);
   return confidence;
-}
-
-function calculateEstimatedImpact({
-  refundAmount,
-  salesAmount,
-  soldUnits,
-  returnUnits,
-  refundUnits,
-  returnRate,
-  refundRate,
-  negativeReviewCount,
-  negativeReviewRate,
-  recentNegativeReviewCount,
-  signalCount,
-  windowDays,
-  snapshotMetrics,
-}) {
-  const knownRefundValue = Number(refundAmount || snapshotMetrics.refundAmount || 0);
-  const knownSalesAmount = Number(salesAmount || snapshotMetrics.salesAmount || 0);
-  const knownSoldUnits = Number(soldUnits || snapshotMetrics.soldUnits || 0);
-  const knownReturnUnits = Number(returnUnits || snapshotMetrics.returnUnits || 0);
-  const knownRefundUnits = Number(refundUnits || snapshotMetrics.refundUnits || 0);
-  const knownReturnRate = Number(returnRate || snapshotMetrics.returnRate || 0) / 100;
-  const knownRefundRate = Number(refundRate || snapshotMetrics.refundRate || 0) / 100;
-  const knownNegativeReviewCount = Number(negativeReviewCount || snapshotMetrics.negativeReviewCount || 0);
-  const knownNegativeReviewRate = Number(negativeReviewRate || snapshotMetrics.negativeReviewRate || 0) / 100;
-  const knownSignalCount = Number(signalCount || snapshotMetrics.signalCount || 0);
-  const avgUnitRevenue = roundCurrency(
-    knownSoldUnits > 0 && knownSalesAmount > 0
-      ? knownSalesAmount / knownSoldUnits
-      : knownRefundUnits > 0 && knownRefundValue > 0
-        ? knownRefundValue / knownRefundUnits
-        : Number(snapshotMetrics.avgUnitRevenue || 0),
-  );
-
-  const affectedUnitValue = avgUnitRevenue > 0
-    ? avgUnitRevenue * Math.max(knownReturnUnits, knownRefundUnits)
-    : 0;
-  const returnRateValueAtRisk = knownSalesAmount > 0
-    ? knownSalesAmount * Math.max(knownReturnRate, knownRefundRate)
-    : affectedUnitValue;
-  const reviewSignalPressure = Math.max(knownNegativeReviewRate, knownNegativeReviewCount > 0 ? knownNegativeReviewCount / Math.max(knownSignalCount, knownNegativeReviewCount, 1) : 0);
-  const reviewConversionDrag = knownSalesAmount > 0 && reviewSignalPressure > 0
-    ? knownSalesAmount * clamp(reviewSignalPressure * 0.35, 0, 0.18)
-    : 0;
-  const recencyMultiplier = recentNegativeReviewCount || knownSignalCount
-    ? 1 + clamp(Number(recentNegativeReviewCount || 0) / Math.max(knownSignalCount, 1), 0, 0.25)
-    : 1;
-
-  const projectedFutureRefundLoss = windowDays > 0 ? roundCurrency((knownRefundValue / windowDays) * 30) : 0;
-  const projectedFutureReturnLoss = windowDays > 0 ? roundCurrency((returnRateValueAtRisk / windowDays) * 30) : 0;
-  const revenueAtRisk = roundCurrency(Math.max(
-    Number(snapshotMetrics.revenueAtRisk || 0),
-    knownRefundValue + projectedFutureRefundLoss,
-    (returnRateValueAtRisk + projectedFutureReturnLoss + reviewConversionDrag) * recencyMultiplier,
-  ));
-  const marginAtRisk = roundCurrency(Math.max(
-    Number(snapshotMetrics.marginAtRisk || 0),
-    revenueAtRisk * 0.45,
-  ));
-
-  return {
-    refundValueAtRisk: knownRefundValue,
-    projectedFutureRefundLoss,
-    projectedFutureReturnLoss,
-    reviewConversionDrag: roundCurrency(reviewConversionDrag),
-    revenueAtRisk,
-    marginAtRisk,
-    avgUnitRevenue,
-  };
 }
 
 function buildEvidenceSnippets({ returns, refunds, reviews, product }) {

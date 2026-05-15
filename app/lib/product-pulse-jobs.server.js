@@ -2242,7 +2242,7 @@ function getSnapshotIssues(snapshot, metrics, settings = undefined) {
       trend: Array.isArray(metrics.signalTrend) ? metrics.signalTrend : [],
     },
     {
-      issue: affectedVariants.length ? `Variant concentration: ${affectedVariants.join(", ")}` : "Signal concentration needs review",
+      issue: affectedVariants.length ? `Affected scope: ${affectedVariants.join(", ")}` : "Signal concentration needs review",
       severity: getRiskLabel(snapshot.riskScore, settings),
       confidence: Math.max(snapshot.confidence - 9, 35),
       signals: Math.max(Math.round(signalCount * 0.62), 1),
@@ -2574,7 +2574,7 @@ function getSignalDetails(snapshot, metrics) {
     : "";
 
   return {
-    summary: `${snapshot.primaryIssue || "Product quality"} risk score ${snapshot.riskScore}/100 from ${signalCount} signal${signalCount === 1 ? "" : "s"}. Bars run left to right from product setup to post-purchase pressure.${strongestSummary}`,
+    summary: `${snapshot.primaryIssue || "Product quality"} product risk ${snapshot.riskScore}/100 from ${signalCount} signal${signalCount === 1 ? "" : "s"}. Bars run left to right from product setup to post-purchase pressure.${strongestSummary}`,
     bars,
   };
 }

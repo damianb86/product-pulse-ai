@@ -394,12 +394,12 @@ export function buildDashboardViewData(productItems = products, options = {}) {
       {
         label: "High-risk products",
         value: formatDashboardNumber(highRiskProducts.length),
-        detail: "Risk score 75+",
+        detail: "Product risk 75+",
         icon: "shield-check-mark",
         tone: highRiskProducts.length ? "red" : "green",
       },
       {
-        label: "Estimated margin at risk",
+        label: "Margin at risk",
         value: formatDashboardMoney(totalMarginAtRisk),
         detail: `${formatDashboardMoney(totalRevenueAtRisk)} revenue at risk`,
         icon: "cash-dollar",
@@ -461,14 +461,12 @@ export function buildDashboardViewData(productItems = products, options = {}) {
 
 function getDashboardStartProduct(productList) {
   const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
-  const maxSignals = Math.max(...productList.map((product) => getDashboardMetric(product, "signalCount")), 0);
-  const maxRecentSignals = Math.max(...productList.map((product) => getDashboardMetric(product, "recentSignalUnits")), 0);
   const candidates = productList
     .filter((product) => !hasDashboardFullDiagnosis(product));
   const pool = candidates.length ? candidates : productList;
   const product = [...pool].sort((first, second) => (
-    getDashboardPriorityScore(second, { maxMarginRisk, maxSignals, maxRecentSignals })
-      - getDashboardPriorityScore(first, { maxMarginRisk, maxSignals, maxRecentSignals })
+    getDashboardPriorityScore(second, { maxMarginRisk })
+      - getDashboardPriorityScore(first, { maxMarginRisk })
   ))[0];
 
   if (!product) return null;
@@ -479,7 +477,7 @@ function getDashboardStartProduct(productList) {
   const refundRate = Number(metrics.refundRate || 0);
   const negativeReviews = Number(metrics.negativeReviewCount || 0);
   const mainIssue = getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality");
-  const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk, maxSignals, maxRecentSignals });
+  const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
 
   return {
     title: product.title || product.productTitle || "Product",
@@ -499,7 +497,7 @@ function getDashboardStartProduct(productList) {
     eyebrow: hasFullDiagnosis ? "Recommended product to review" : "Recommended next product to analyze",
     summary: buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }),
     actionLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
-    actionHint: hasFullDiagnosis ? "Refresh the deep diagnosis for this product" : "Selected by risk, margin and signal volume",
+    actionHint: hasFullDiagnosis ? "Refresh the deep diagnosis for this product" : "Selected by product risk, confidence and financial exposure",
     diagnosisJob: activeDiagnosis,
     diagnosisInProgress: Boolean(activeDiagnosis),
     badges: [
@@ -545,20 +543,20 @@ function hasDashboardFullDiagnosis(product) {
   return product?.analysisDepth === "full" || Boolean(product?.metrics?.latestDiagnosisId);
 }
 
-function getDashboardPriorityScore(product, { maxMarginRisk = 0, maxSignals = 0, maxRecentSignals = 0 } = {}) {
+function getDashboardPriorityScore(product, { maxMarginRisk = 0 } = {}) {
+  const storedPriority = Number(product?.metrics?.priorityScore || product?.priorityScore || 0);
+  if (storedPriority > 0) return Math.round(Math.min(Math.max(storedPriority, 0), 100));
+
   const riskScore = Number(product?.riskScore || 0);
+  const confidenceScore = Number(product?.confidence || product?.metrics?.confidence || 0);
   const marginRisk = getDashboardMetric(product, "marginAtRisk");
-  const signalCount = getDashboardMetric(product, "signalCount");
-  const recentSignalUnits = getDashboardMetric(product, "recentSignalUnits");
-  const marginScore = maxMarginRisk > 0 ? (marginRisk / maxMarginRisk) * 100 : 0;
-  const signalScore = maxSignals > 0 ? (signalCount / maxSignals) * 100 : 0;
-  const recencyScore = maxRecentSignals > 0 ? (recentSignalUnits / maxRecentSignals) * 100 : 0;
+  const maxReferenceImpact = Math.max(maxMarginRisk, 25000);
+  const normalizedLogImpactScore = Math.min(100, Math.max(0, 100 * Math.log1p(Math.max(0, marginRisk)) / Math.log1p(maxReferenceImpact)));
 
   return Math.round(
-    riskScore * 0.55
-      + marginScore * 0.25
-      + signalScore * 0.15
-      + recencyScore * 0.05,
+    riskScore * 0.5
+      + confidenceScore * 0.25
+      + normalizedLogImpactScore * 0.25,
   );
 }
 
@@ -573,7 +571,7 @@ function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore
     reasons.push(`${formatDashboardNumber(metrics.recentSignalUnits)} recent signal${Number(metrics.recentSignalUnits) === 1 ? "" : "s"}`);
   }
 
-  return `${hasFullDiagnosis ? "Fallback because all priority candidates already have full diagnostics" : "Next full-diagnosis candidate"}: ${reasons.join(", ")}. Priority score ${priorityScore}/100.`;
+  return `${hasFullDiagnosis ? "Fallback because all priority candidates already have full diagnostics" : "Next full-diagnosis candidate"}: ${reasons.join(", ")}. Action priority ${priorityScore}/100.`;
 }
 
 function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate, negativeReviews, hasFullDiagnosis }) {
@@ -715,7 +713,7 @@ function buildDashboardNextStep(startProduct, totalProducts, suggestedFixes = []
     return {
       title: "Run product diagnosis",
       subtitle: "Run the next full diagnosis",
-      detail: `${startProduct.title} was selected with a priority score of ${startProduct.priorityScore}/100 because it has no full diagnosis yet and ranks highest by risk, margin at risk and signal volume.`,
+      detail: `${startProduct.title} was selected with an action priority of ${startProduct.priorityScore}/100 because it has no full diagnosis yet and ranks highest by product risk, diagnosis confidence and financial exposure.`,
       href: startProduct.href,
       buttonLabel: "Open product",
     };
@@ -847,7 +845,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
     lastUpdatedLabel: getAnalyticsLastUpdatedLabel(productList),
     kpis: [
       {
-        label: "Estimated margin at risk",
+        label: "Margin at risk",
         value: formatDashboardMoney(totals.marginAtRisk),
         detail: `${formatDashboardMoney(totals.revenueAtRisk)} revenue at risk`,
         icon: "cash-dollar",

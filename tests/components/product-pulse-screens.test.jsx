@@ -151,7 +151,7 @@ describe("ProductPulse screens", () => {
     }} />);
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Risk score thresholds")).toBeInTheDocument();
+    expect(screen.getByText("Product risk thresholds")).toBeInTheDocument();
     expect(screen.getByLabelText("Minimum QuickScan score")).toHaveValue("50");
     expect(screen.getByLabelText("Medium risk starts at")).toHaveValue("55");
     expect(screen.getByLabelText("High risk starts at")).toHaveValue("75");
@@ -230,7 +230,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/Only the fast Shopify scan has run/)).toBeInTheDocument();
     expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
-    fireEvent.click(screen.getByRole("button", { name: "Risk score" }));
+    fireEvent.click(screen.getByRole("button", { name: "Product risk" }));
     expect(screen.getByText("↓")).toBeInTheDocument();
     expect(screen.getByText("Return rate contribution.")).toBeInTheDocument();
     expect(screen.getByLabelText("3 sources used for this product")).toBeInTheDocument();
@@ -250,7 +250,7 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
     expect(screen.getByText(/Sizing & fit expectations are not being met/)).toBeInTheDocument();
     expect(screen.getByText("$24,700")).toBeInTheDocument();
-    expect(screen.getByText("$9,200 estimated margin at risk")).toBeInTheDocument();
+    expect(screen.getByText("$9,200 margin at risk")).toBeInTheDocument();
     expect(screen.getAllByText(/Fit runs small around waist and inseam/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Deep analysis completed").length).toBeGreaterThan(0);
@@ -510,10 +510,10 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductEvidenceReportScreen product={product} source="Customer language analysis" />);
     expect(screen.getByText("Full Evidence Report")).toBeInTheDocument();
     expect(screen.getByText("Score calculation")).toBeInTheDocument();
-    expect(screen.getByText("Risk score formula")).toBeInTheDocument();
-    expect(screen.getByText("Risk score calculation")).toBeInTheDocument();
-    expect(screen.getByText("Confidence calculation")).toBeInTheDocument();
-    expect(screen.getByText("Estimated impact calculation")).toBeInTheDocument();
+    expect(screen.getByText("Product risk formula")).toBeInTheDocument();
+    expect(screen.getByText("Product risk calculation")).toBeInTheDocument();
+    expect(screen.getByText("Diagnosis confidence calculation")).toBeInTheDocument();
+    expect(screen.getByText("Financial exposure calculation")).toBeInTheDocument();
     expect(screen.getByText("Issues detected")).toBeInTheDocument();
     expect(screen.getByText("Evidence sources")).toBeInTheDocument();
     expect(screen.getByText("Raw product metrics")).toBeInTheDocument();
@@ -651,12 +651,12 @@ describe("ProductPulse screens", () => {
   it("renders analytics overview and chart panels", () => {
     renderWithRouter(<AnalyticsScreen data={defaultView} />);
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
-    expect(screen.getAllByText("Estimated margin at risk").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Margin at risk").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Risk signals over time").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Source contribution").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Risk vs. margin impact").length).toBeGreaterThan(0);
     expect(screen.queryByText("Analysis coverage by depth")).not.toBeInTheDocument();
-    expect(screen.getByText("X-axis: deterministic product risk score, starting slightly below the lowest plotted product and ending at 100.")).toBeInTheDocument();
+    expect(screen.getByText("X-axis: deterministic product risk, starting slightly below the lowest plotted product and ending at 100.")).toBeInTheDocument();
     expect(screen.getByText("Hover a bubble for product details; click it to open the product diagnosis page.")).toBeInTheDocument();
     expect(screen.getByText(/Insights are ranked from issue concentration/)).toBeInTheDocument();
     const productBubbleLinks = screen.getAllByRole("link", { name: /open product detail/ });

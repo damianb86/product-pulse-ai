@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateCoverageScore,
   calculateImpactScore,
+  calculateProductScoreModel,
   calculateRiskScore,
   getCoverageState,
   validateCreditBalance,
@@ -22,11 +23,22 @@ describe("ProductPulse scoring", () => {
       issueCount: 5,
     });
 
-    expect(risk).toBe(98);
+    expect(risk).toBe(52);
   });
 
-  it("caps impact score to a bounded range", () => {
-    expect(calculateImpactScore({ revenueAtRisk: 100000, marginAtRisk: 40000, signalCount: 100 })).toBe(100);
+  it("keeps financial impact as money outside product risk", () => {
+    const model = calculateProductScoreModel({
+      returnRate: 20,
+      refundRate: 10,
+      refundAmount: 400,
+      revenueAtRisk: 100000,
+      marginAtRisk: 40000,
+      issueCount: 5,
+    });
+
+    expect(calculateImpactScore({ revenueAtRisk: 100000, marginAtRisk: 40000, signalCount: 100 })).toBe(40000);
+    expect(model.impactScore).toBeGreaterThan(model.riskScore);
+    expect(model.priorityScore).toBeGreaterThan(model.riskScore);
   });
 
   it("blocks diagnosis when credits are insufficient", () => {

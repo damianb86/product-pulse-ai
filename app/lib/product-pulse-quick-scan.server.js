@@ -10,6 +10,7 @@ import {
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import { calculateProductScoreModel } from "./product-pulse-scoring";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
@@ -1357,51 +1358,56 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
   const csvRatingSummary = getCsvRatingSummary(aggregate);
   const csvRatingRisk = getCsvRatingRiskScore({ summary: csvRatingSummary, storeTotals });
   const csvReviewSignalCount = csvRatingSummary.lowRatingCount + csvRatingSummary.neutralRatingCount;
+  const lightweightTextSignalCount = getQuickScanLightweightTextSignalCount({ aggregate, topReasons });
   const signalCount = aggregate.returnUnits
     + aggregate.refundUnits
     + topReasons.reduce((sum, reason) => sum + reason.count, 0)
     + csvReviewSignalCount;
-  const returnRisk = getRateRiskScore({
-    rate: returnRate,
-    average: storeTotals.avgReturnRate,
-    signalUnits: aggregate.returnUnits,
-    maxScore: 48,
-  });
-  const rawRefundRisk = getRateRiskScore({
-    rate: refundRate,
-    average: storeTotals.avgRefundRate,
-    signalUnits: aggregate.refundUnits,
-    maxScore: 40,
-  });
-  const refundRisk = rawRefundRisk * getQuickScanRefundRiskSupport({ aggregate, refundRate });
-  const impactRisk = getRefundImpactRiskScore(aggregate, storeTotals);
-  const refundPressureRisk = getRefundPressureRiskScore({ aggregate, refundRate });
-  const repeatedReasons = getRepeatedReasonRiskScore(topReasons);
-  const variantConcentration = getVariantConcentrationScore(aggregate, affectedVariants);
-  const recentSpike = getRecentSpikeScore(aggregate);
-  const volumeWeight = getVolumeSupportScore(aggregate);
+  const sourceCoverage = getSourceCoverage(aggregate);
+  const hasCrossSourceAgreement = Boolean(
+    (aggregate.returnUnits > 0 && aggregate.refundUnits > 0)
+    || (csvRatingRisk > 0 && (aggregate.returnUnits > 0 || aggregate.refundUnits > 0)),
+  );
+  const scoreModel = calculateProductScoreModel({
+    soldUnits: aggregate.soldUnits,
+    salesAmount: aggregate.salesAmount,
+    returnUnits: aggregate.returnUnits,
+    refundUnits: aggregate.refundUnits,
+    refundAmount: aggregate.refundAmount,
+    returnRate,
+    refundRate,
+    storeReturnBaseline: storeTotals.avgReturnRate,
+    storeRefundBaseline: storeTotals.avgRefundRate,
+    reviewCount: csvRatingSummary.ratingCount,
+    negativeReviewCount: csvRatingSummary.lowRatingCount,
+    negativeReviewRate: csvRatingSummary.negativeRatingRate,
+    storeNegativeReviewBaseline: storeTotals.avgCsvLowRatingRate,
+    avgRating: csvRatingSummary.averageRating,
+    sentimentTotal: lightweightTextSignalCount,
+    sentimentNegativeCount: lightweightTextSignalCount,
+    variantCount: (aggregate.product.variants || []).length,
+    affectedVariantCount: affectedVariants.length,
+    affectedVariantSignalCount: affectedVariants.reduce((sum, variant) => sum + variant.count, 0),
+    strongestVariantSignalCount: affectedVariants[0]?.count || 0,
+    recentSignalUnits: aggregate.recentSignalUnits,
+    signalEventCount: signalCount,
+    effectiveSampleSize: aggregate.returnUnits + aggregate.refundUnits + csvRatingSummary.ratingCount,
+    sourceCoverage,
+    sourceAgreement: hasCrossSourceAgreement,
+    productMatchConfidence: 1,
+    dataQualityIncomplete: extractionMode === "catalog-only",
+    missingOrders: extractionMode === "catalog-only",
+    calculationState: "calculated_from_persisted_components",
+    windowDays,
+  }, { sentimentSharesReviewSource: true });
+  const riskScore = scoreModel.riskScore;
   const riskComponents = {
-    returnRisk: roundScore(returnRisk),
-    refundRisk: roundScore(refundRisk),
-    impactRisk: roundScore(impactRisk),
-    refundPressureRisk: roundScore(refundPressureRisk),
-    csvRatingRisk: roundScore(csvRatingRisk),
-    repeatedReasonRisk: roundScore(repeatedReasons),
-    variantConcentration: roundScore(variantConcentration),
-    recentSpike: roundScore(recentSpike),
-    volumeSupport: roundScore(volumeWeight),
+    ...scoreModel.riskComponents,
+    returnRisk: scoreModel.riskComponents.returnsScore,
+    refundRisk: scoreModel.riskComponents.refundScore,
+    csvRatingRisk: scoreModel.riskComponents.reviewsScore,
+    repeatedReasonRisk: scoreModel.riskComponents.sentimentScore,
   };
-  const riskScore = calculateQuickScanRiskScore({
-    returnRisk,
-    refundRisk,
-    impactRisk,
-    refundPressureRisk,
-    csvRatingRisk,
-    repeatedReasons,
-    variantConcentration,
-    recentSpike,
-    volumeWeight,
-  });
 
   const primaryIssue = getPrimaryIssue({
     topReasons,
@@ -1420,30 +1426,18 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
   const signalTrend = signalTrendResult.values;
   const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore);
   const issueSignalTrends = buildIssueTrendMap(aggregate.signalEvents, trendOptions);
-  const sourceCoverage = getSourceCoverage(aggregate);
-  const confidenceResult = calculateQuickScanConfidence({
-    aggregate,
-    sourceCoverage,
-    signalCount,
-    topReasons,
-    affectedVariants,
-    csvRatingSummary,
-    csvRatingRisk,
-    extractionMode,
-  });
-  const ratingRevenueAtRisk = getCsvRatingRevenueAtRisk({ aggregate, csvRatingSummary, csvRatingRisk });
-  const revenueAtRisk = Math.max(
-    aggregate.refundAmount,
-    aggregate.salesAmount * Math.max(returnRate, refundRate),
-    ratingRevenueAtRisk,
-  );
+  const confidenceResult = {
+    confidence: scoreModel.confidenceScore,
+    factors: scoreModel.confidenceFactors,
+  };
+  const impactFactors = scoreModel.impactFactors;
 
   return {
     productGid: aggregate.product.id,
     productTitle: aggregate.product.title,
     handle: aggregate.product.handle,
     riskScore,
-    impactScore: Math.round(clamp(impactRisk * 2.6 + csvRatingRisk * 0.55 + aggregate.refundAmount / 650 + signalCount * 1.4, 0, 100)),
+    impactScore: Math.round(impactFactors.estimatedImpact || 0),
     confidence: confidenceResult.confidence,
     primaryIssue,
     sourceCoverage,
@@ -1463,8 +1457,18 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       refundNoteCount: aggregate.refundNotes.length,
       refundNotes: aggregate.refundNotes.slice(0, 5),
       refundPressure: getRefundPressureSummary({ aggregate, refundRate: refundRatePercent }),
-      revenueAtRisk: roundMoney(revenueAtRisk),
-      marginAtRisk: roundMoney(Math.max(aggregate.refundAmount * 0.38, revenueAtRisk * 0.28)),
+      revenueAtRisk: roundMoney(impactFactors.revenueAtRisk),
+      marginAtRisk: roundMoney(impactFactors.marginAtRisk),
+      estimatedImpact: roundMoney(impactFactors.estimatedImpact),
+      impactRange: {
+        low: roundMoney(impactFactors.impactLow),
+        mid: roundMoney(impactFactors.impactMid),
+        high: roundMoney(impactFactors.impactHigh),
+      },
+      impactFactors,
+      priorityScore: scoreModel.priorityScore,
+      evidenceStrengthScore: scoreModel.evidenceStrengthScore,
+      scoreCalculationStatus: "Score calculated from persisted components",
       avgRating: csvRatingSummary.averageRating,
       reviewRating: csvRatingSummary.averageRating,
       reviewCount: csvRatingSummary.ratingCount,
@@ -1499,6 +1503,15 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       productStatus: aggregate.product.status,
     },
   };
+}
+
+function getQuickScanLightweightTextSignalCount({ aggregate, topReasons }) {
+  const noteCount = [...aggregate.notes, ...aggregate.refundNotes]
+    .filter((note) => String(note || "").trim().length >= 3).length;
+  const repeatedReasonCount = (topReasons || [])
+    .filter((reason) => reason.count >= 2)
+    .reduce((sum, reason) => sum + reason.count, 0);
+  return Math.max(noteCount, repeatedReasonCount);
 }
 
 async function persistQuickScanCandidates(shop, candidates) {
@@ -1663,62 +1676,6 @@ function getCsvRatingSampleSupport(ratingCount) {
   return 1;
 }
 
-function getCsvRatingRevenueAtRisk({ aggregate, csvRatingSummary, csvRatingRisk }) {
-  if (!aggregate.salesAmount || !csvRatingRisk || !csvRatingSummary.ratingCount) return 0;
-  const ratingDeficit = clamp((4.2 - csvRatingSummary.averageRating) / 3.2, 0, 1);
-  const negativeShare = safeRate(csvRatingSummary.lowRatingCount, csvRatingSummary.ratingCount);
-  const sampleSupport = getCsvRatingSampleSupport(csvRatingSummary.ratingCount);
-  const revenueShare = clamp(0.03 + ratingDeficit * 0.11 + negativeShare * 0.08, 0, 0.22);
-
-  return aggregate.salesAmount * revenueShare * sampleSupport;
-}
-
-function calculateQuickScanRiskScore({
-  returnRisk,
-  refundRisk,
-  impactRisk,
-  refundPressureRisk,
-  csvRatingRisk,
-  repeatedReasons,
-  variantConcentration,
-  recentSpike,
-  volumeWeight,
-}) {
-  const evidenceRisks = [returnRisk, refundRisk, repeatedReasons, csvRatingRisk].sort((a, b) => b - a);
-  const dominantEvidence = evidenceRisks[0] || 0;
-  const supportingEvidence = evidenceRisks.slice(1).reduce((sum, score) => sum + score, 0) * 0.38;
-  const operationalRisk = impactRisk * 0.75
-    + refundPressureRisk * 0.6
-    + csvRatingRisk * 0.24
-    + variantConcentration * 0.6
-    + recentSpike * 0.7
-    + volumeWeight * 0.35;
-  const rawRisk = dominantEvidence + supportingEvidence + operationalRisk;
-
-  return Math.round(clamp(100 * (1 - Math.exp(-rawRisk / 52)), 0, 100));
-}
-
-function getRefundPressureRiskScore({ aggregate, refundRate }) {
-  if (!aggregate.refundUnits || aggregate.refundUnits < 3) return 0;
-  const soldUnits = Number(aggregate.soldUnits || 0);
-  if (soldUnits > 10 && refundRate > 0.2) {
-    return clamp(4 + (refundRate - 0.2) * 45 + Math.log2(aggregate.refundUnits + 1) * 1.1, 0, 12);
-  }
-  if (refundRate >= 0.1) {
-    return clamp(1.4 + refundRate * 10 + Math.log2(aggregate.refundUnits + 1) * 0.35, 0, 4);
-  }
-  return 0;
-}
-
-function getQuickScanRefundRiskSupport({ aggregate, refundRate }) {
-  const refundUnits = Number(aggregate.refundUnits || 0);
-  if (refundUnits <= 0) return 0;
-  if (Number(aggregate.soldUnits || 0) > 10 && Number(refundRate || 0) > 0.2) return 1;
-  if (refundUnits <= 2) return 0.42;
-  if (Number(aggregate.soldUnits || 0) > 0 && Number(aggregate.soldUnits || 0) <= 10) return 0.62;
-  return 0.82;
-}
-
 function getRefundPressureSummary({ aggregate, refundRate }) {
   const highPressure = Number(aggregate.soldUnits || 0) > 10 && Number(refundRate || 0) > 20;
   return {
@@ -1729,95 +1686,6 @@ function getRefundPressureSummary({ aggregate, refundRate }) {
     refundRate,
     noteCount: aggregate.refundNotes.length,
   };
-}
-
-function getRateRiskScore({ rate, average, signalUnits, maxScore }) {
-  if (rate <= 0 || signalUnits <= 0) return 0;
-  const absoluteSeverity = maxScore * (1 - Math.exp(-(rate * 100) / 11));
-  const anomalySeverity = anomalyScore(rate, average, maxScore * 0.82);
-  const sampleSupport = clamp(Math.log2(signalUnits + 1) * 2.4, 0, maxScore * 0.16);
-
-  return clamp(Math.max(absoluteSeverity, anomalySeverity) + sampleSupport, 0, maxScore);
-}
-
-function getRefundImpactRiskScore(aggregate, storeTotals) {
-  if (aggregate.refundAmount <= 0) return 0;
-  const relativeImpact = clamp((aggregate.refundAmount / Math.max(storeTotals.avgRefundAmount, 1)) * 14, 0, 28);
-  const absoluteImpact = 28 * (1 - Math.exp(-aggregate.refundAmount / 850));
-  const revenueShareImpact = aggregate.salesAmount > 0
-    ? clamp((aggregate.refundAmount / aggregate.salesAmount) * 55, 0, 24)
-    : 0;
-
-  return clamp(Math.max(relativeImpact, absoluteImpact, revenueShareImpact), 0, 30);
-}
-
-function getRepeatedReasonRiskScore(topReasons) {
-  const repeatedReasonUnits = topReasons.reduce((sum, reason) => sum + reason.count, 0);
-  if (!repeatedReasonUnits) return 0;
-  const repetitionSeverity = 22 * (1 - Math.exp(-repeatedReasonUnits / 4));
-  const diversitySupport = clamp(topReasons.length * 2.2, 0, 7);
-
-  return clamp(repetitionSeverity + diversitySupport, 0, 24);
-}
-
-function getVolumeSupportScore(aggregate) {
-  if (aggregate.soldUnits <= 0) return 0;
-  return clamp(Math.log10(aggregate.soldUnits + 1) * 5, 0, 8);
-}
-
-function calculateQuickScanConfidence({
-  aggregate,
-  sourceCoverage,
-  signalCount,
-  topReasons,
-  affectedVariants,
-  csvRatingSummary,
-  csvRatingRisk,
-  extractionMode,
-}) {
-  const sourceCount = sourceCoverage.length;
-  const coverageScore = 8
-    + (aggregate.soldUnits > 0 ? 14 : 0)
-    + (aggregate.refundUnits > 0 ? 10 : 0)
-    + (aggregate.returnUnits > 0 ? 14 : 0)
-    + (csvRatingSummary.ratingCount > 0 ? 10 : 0);
-  const sampleScore = clamp(Math.log10(aggregate.soldUnits + 1) * 9, 0, 20)
-    + clamp(Math.log10(signalCount + 1) * 11, 0, 18)
-    + clamp(Math.log10(csvRatingSummary.ratingCount + 1) * 8, 0, 12);
-  const consistencyScore = (aggregate.returnUnits > 0 && aggregate.refundUnits > 0 ? 8 : 0)
-    + (csvRatingRisk > 0 && (aggregate.returnUnits > 0 || aggregate.refundUnits > 0) ? 6 : 0)
-    + (csvRatingSummary.lowRatingCount >= 3 ? 4 : 0)
-    + (csvRatingSummary.ratingCount >= 10 ? 3 : 0)
-    + (topReasons[0]?.count >= 3 ? 6 : 0)
-    + (affectedVariants.length > 1 ? 3 : 0)
-    + (aggregate.recentSignalUnits > 0 ? 3 : 0);
-  const lowSamplePenalty = (aggregate.soldUnits > 0 && aggregate.soldUnits < 10 ? 8 : 0)
-    + (signalCount > 0 && signalCount < 3 ? 8 : 0)
-    + (csvRatingSummary.ratingCount > 0 && csvRatingSummary.ratingCount < 3 ? 6 : 0)
-    + (sourceCount <= 2 ? 5 : 0)
-    + (extractionMode === "catalog-only" ? 18 : 0);
-  const rawConfidence = coverageScore + sampleScore + consistencyScore - lowSamplePenalty;
-  const maxConfidence = getQuickScanConfidenceCap({ sourceCount, soldUnits: aggregate.soldUnits, extractionMode });
-  const confidence = Math.round(clamp(rawConfidence, signalCount > 0 ? 24 : 12, maxConfidence));
-
-  return {
-    confidence,
-    factors: {
-      coverageScore: roundScore(coverageScore),
-      sampleScore: roundScore(sampleScore),
-      consistencyScore: roundScore(consistencyScore),
-      lowSamplePenalty: roundScore(lowSamplePenalty),
-      maxConfidence,
-      sourceCount,
-    },
-  };
-}
-
-function getQuickScanConfidenceCap({ sourceCount, soldUnits, extractionMode }) {
-  if (extractionMode === "catalog-only") return 34;
-  const sourceCap = sourceCount <= 1 ? 38 : sourceCount === 2 ? 62 : sourceCount === 3 ? 76 : 86;
-  const sampleCap = soldUnits < 10 ? 58 : soldUnits < 30 ? 76 : 86;
-  return Math.min(sourceCap, sampleCap);
 }
 
 function getSourceCoverage(aggregate) {
@@ -1852,26 +1720,6 @@ function classifyQuickScanIssueEvent(event) {
   if (event.type === "refund") return "refund_impact";
   if (event.type === "return") return "return_rate_anomaly";
   return "product_quality";
-}
-
-function getVariantConcentrationScore(aggregate, affectedVariants) {
-  if (!aggregate.totalSignalUnits || !affectedVariants.length) return 0;
-  const topVariantShare = affectedVariants[0].count / Math.max(aggregate.totalSignalUnits, 1);
-  if (aggregate.totalSignalUnits < 3) return 0;
-  return clamp(topVariantShare * 14, 0, 12);
-}
-
-function getRecentSpikeScore(aggregate) {
-  if (!aggregate.totalSignalUnits) return 0;
-  const recentShare = aggregate.recentSignalUnits / aggregate.totalSignalUnits;
-  if (aggregate.totalSignalUnits < 3) return recentShare >= 0.75 ? 8 : 0;
-  return clamp(recentShare * 12, 0, 12);
-}
-
-function anomalyScore(rate, average, maxScore) {
-  if (rate <= 0) return 0;
-  if (average <= 0) return clamp(rate * 100 * 1.8, 0, maxScore);
-  return clamp((rate / average - 1) * (maxScore / 1.5), 0, maxScore);
 }
 
 function getVariantLabel(event) {

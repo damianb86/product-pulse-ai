@@ -814,7 +814,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                     <SortableHeader
                       active={sortConfig?.key === "riskScore"}
                       direction={sortConfig?.direction}
-                      label="Risk score"
+                      label="Product risk"
                       onSort={() => handleSort("riskScore")}
                     />
                   </th>
@@ -1051,7 +1051,7 @@ export function SettingsScreen({ data = {}, actionData }) {
           <div className="ppSettingsHeroSummary" aria-label="Current risk threshold summary">
             <strong>{riskThresholds.highThreshold}+</strong>
             <span>High risk</span>
-            <small>QuickScan keeps products from {riskThresholds.minimumScore}+ risk score.</small>
+            <small>QuickScan keeps products from {riskThresholds.minimumScore}+ product risk.</small>
           </div>
         </div>
 
@@ -1065,7 +1065,7 @@ export function SettingsScreen({ data = {}, actionData }) {
               <DashboardIcon type="target" tone="blue" />
               <div>
                 <span>Risk scoring</span>
-                <h2 id="settings-risk-title">Risk score thresholds</h2>
+                <h2 id="settings-risk-title">Product risk thresholds</h2>
                 <p>
                   Control which products ProductPulse keeps after QuickScan and where low, medium and high risk start.
                 </p>
@@ -1225,7 +1225,7 @@ function RiskThresholdSlider({ thresholds, onChange }) {
         <span><strong>High starts</strong> {thresholds.highThreshold}</span>
       </div>
 
-      <div className="ppSettingsRiskLegend" aria-label="Risk score intervals">
+      <div className="ppSettingsRiskLegend" aria-label="Product risk intervals">
         {legend.map((item) => (
           <span key={item.label}>
             <strong>{item.label}</strong>
@@ -1258,7 +1258,7 @@ function SettingsNumberField({ name, label, detail, defaultValue, min, max }) {
 function getDefaultProductPulseClientSettings() {
   return {
     risk: {
-      minimumScore: 50,
+      minimumScore: 18,
       mediumThreshold: 55,
       highThreshold: 75,
     },
@@ -1270,7 +1270,7 @@ function getDefaultProductPulseClientSettings() {
 }
 
 function normalizeClientRiskThresholds(risk = {}) {
-  const minimumScore = clampClientInteger(risk.minimumScore, 0, 90, 50);
+  const minimumScore = clampClientInteger(risk.minimumScore, 0, 90, 18);
   const mediumThreshold = clampClientInteger(
     risk.mediumThreshold,
     minimumScore + RISK_THRESHOLD_HANDLE_GAP,
@@ -1831,6 +1831,14 @@ function getProductDetailModel(product) {
     estimatedImpact: getEstimatedImpactValue(metrics),
     marginAtRisk: getEstimatedMarginValue(metrics),
     revenueAtRisk: getEstimatedRevenueValue(metrics),
+    impactRange: metrics.impactRange || {
+      low: metrics.impactFactors?.impactLow,
+      mid: metrics.impactFactors?.impactMid,
+      high: metrics.impactFactors?.impactHigh,
+    },
+    priorityScore: Number(metrics.priorityScore || 0),
+    evidenceStrengthScore: Number(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore || 0),
+    scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
     riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
@@ -1880,6 +1888,36 @@ function getEstimatedImpactValue(metrics = {}) {
 
 function getEstimatedRevenueValue(metrics = {}) {
   return Number(metrics.revenueAtRisk || metrics.estimatedImpact || metrics.refundAmount || 0);
+}
+
+function getScoreCalculationStatus(metrics = {}) {
+  if (metrics.riskComponents?.calculationState === "score_breakdown_reconstructed" || metrics.scoreBreakdownReconstructed) {
+    return "Score breakdown reconstructed";
+  }
+  if (metrics.riskComponents && Object.keys(metrics.riskComponents).length) {
+    return "Score calculated from persisted components";
+  }
+  return "Score components unavailable";
+}
+
+function getFinancialExposureFootnote(detail = {}) {
+  const range = detail.impactRange || {};
+  const low = Number(range.low || 0);
+  const high = Number(range.high || 0);
+  if (low > 0 && high > 0 && high > low) {
+    return `Likely range ${formatMoney(low)} - ${formatMoney(high)}`;
+  }
+  return `${detail.returnRate}% return rate`;
+}
+
+function getFinancialExposureRangeLabel(detail = {}) {
+  const range = detail.impactRange || {};
+  const low = Number(range.low || 0);
+  const high = Number(range.high || 0);
+  if (low > 0 && high > 0 && high > low) {
+    return `${formatMoney(low)} - ${formatMoney(high)}`;
+  }
+  return "No range available";
 }
 
 function getEstimatedMarginValue(metrics = {}) {
@@ -2501,7 +2539,7 @@ function buildReviewSectionFromAction(action) {
       label: "Affected variants",
       source: "Shopify variants",
       count: variants.length,
-      items: variants.map((variant) => ({ label: variant, evidence: "Variant concentration" })),
+      items: variants.map((variant) => ({ label: variant, evidence: "Affected scope" })),
     };
   }
   if (normalized.includes("refund")) {
@@ -3434,14 +3472,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <s-section padding="none">
                   <div className="ppRiskSnapshot">
                     <ProductInsightMetric
-                      title="Risk score"
+                      title="Product risk"
                       value={detail.riskScoreLabel}
                       detail={`${detail.riskScore} / 100`}
                       tone={detail.riskTone}
                       sparkline={detail.riskTrend}
                     />
                     <ProductInsightMetric
-                      title="Confidence"
+                      title="Diagnosis confidence"
                       value={detail.confidenceLabel}
                       detail={`${detail.confidence}%`}
                       footnote={`Based on ${detail.signalCount} signals`}
@@ -3449,10 +3487,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       progress={detail.confidence}
                     />
                     <ProductInsightMetric
-                      title="Estimated impact"
+                      title="Financial exposure"
                       value={formatMoney(detail.estimatedImpact)}
-                      detail={`${formatMoney(detail.marginAtRisk)} estimated margin at risk`}
-                      footnote={`${detail.returnRate}% return rate`}
+                      detail={`${formatMoney(detail.marginAtRisk)} margin at risk`}
+                      footnote={getFinancialExposureFootnote(detail)}
                       tone="red"
                     />
                     <ProductInsightMetric
@@ -3823,7 +3861,7 @@ export function AnalyticsScreen({ data }) {
             <SourceContributionChart contribution={sourceContribution} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Margin at risk by collection" subtitle="Estimated margin at risk" className="ppAnalyticsPanelCollection">
+          <AnalyticsPanel title="Margin at risk by collection" subtitle="Margin at risk" className="ppAnalyticsPanelCollection">
             <HorizontalBarChart rows={collectionMargin.rows} max={collectionMargin.max} money />
           </AnalyticsPanel>
         </div>
@@ -4014,7 +4052,7 @@ function buildFallbackSignalDetails(product) {
   ];
 
   return {
-    summary: `${product.issue || "Product quality"} risk score ${product.riskScore || 0}/100 from ${product.signals || 0} signals. Bars run left to right from product setup to post-purchase pressure.`,
+    summary: `${product.issue || "Product quality"} product risk ${product.riskScore || 0}/100 from ${product.signals || 0} signals. Bars run left to right from product setup to post-purchase pressure.`,
     bars: fallbackBars.map(([label, detail], index) => ({
       label,
       value: values[index] || 0,
@@ -4247,12 +4285,12 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
 
 function getInsightMetricHelp(title) {
   switch (title) {
-    case "Risk score":
-      return "Deterministic score from the stored product signals. Higher values mean this product should be reviewed before lower-ranked products.";
-    case "Confidence":
-      return "How complete and consistent the available signals are for this diagnosis. More stored evidence generally increases confidence.";
-    case "Estimated impact":
-      return "Estimated revenue opportunity at risk from refunds, return rate, negative review pressure and recent product signals. Margin at risk is shown underneath.";
+    case "Product risk":
+      return "Severity of the product problem only. Financial impact is not included in this score.";
+    case "Diagnosis confidence":
+      return "Reliability of the diagnosis based on source coverage, effective sample size, product match quality, source agreement, freshness and confidence caps.";
+    case "Financial exposure":
+      return "Estimated observed and projected financial exposure from refunds, return processing, returned-unit margin loss and review conversion drag.";
     case "Main issue":
       return "The strongest issue category found in the product's current signals, such as returns, refunds, variants or expectation mismatch.";
     case "Recommended fix":
@@ -4436,10 +4474,10 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
             </div>
           </div>
           <div className="ppEvidenceReportSummary">
-            <EvidenceMetricCard card={{ label: "Risk score", value: `${detail.riskScore}/100`, detail: detail.riskScoreLabel, icon: "target", tone: detail.riskBadgeTone }} />
-            <EvidenceMetricCard card={{ label: "Confidence", value: `${detail.confidence}%`, detail: detail.confidenceLabel, icon: "shield-check-mark", tone: "blue" }} />
-            <EvidenceMetricCard card={{ label: "Estimated impact", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} margin at risk`, icon: "cash-dollar", tone: "teal" }} />
-            <EvidenceMetricCard card={{ label: "Sources", value: formatInteger(detail.evidenceSources.length), detail: `${detail.signalCount} stored signals`, icon: "duplicate", tone: "violet" }} />
+            <EvidenceMetricCard card={{ label: "Product risk", value: `${detail.riskScore}/100`, detail: detail.riskScoreLabel, icon: "target", tone: detail.riskBadgeTone }} />
+            <EvidenceMetricCard card={{ label: "Diagnosis confidence", value: `${detail.confidence}%`, detail: detail.confidenceLabel, icon: "shield-check-mark", tone: "blue" }} />
+            <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} margin at risk`, icon: "cash-dollar", tone: "teal" }} />
+            <EvidenceMetricCard card={{ label: "Evidence strength", value: `${detail.evidenceStrengthScore || 0}/100`, detail: `${detail.signalCount} stored signals`, icon: "duplicate", tone: "violet" }} />
           </div>
         </div>
 
@@ -4453,50 +4491,58 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
           </div>
           <div className="ppEvidenceScoreTheoryGrid">
             <article>
-              <h3>Risk score formula</h3>
+              <h3>Product risk formula</h3>
               <p>
-                ProductPulse starts from a small baseline, adds normalized risk families, then clamps the
-                result to 0-100. Returns, refunds, repeated customer language, content quality, recency,
-                variant concentration and source agreement increase risk only when there is enough evidence.
+                ProductPulse scores product severity separately from money. It starts from a small baseline,
+                adds smoothed risk families, then applies small agreement and recency bonuses. Financial
+                exposure is intentionally excluded from product risk.
               </p>
-              <code>risk = clamp(base + signal families + agreement + recency + impact, 0, 100)</code>
+              <code>risk_score = clamp(base + returns_score + reviews_score + sentiment_score + content_gap_score + refund_score + variant_score + agreement_bonus + recency_bonus, 0, 100)</code>
             </article>
             <article>
-              <h3>Confidence model</h3>
+              <h3>Diagnosis confidence model</h3>
               <p>
-                Confidence is not risk. It measures how reliable the diagnosis is: sample size, source coverage,
-                product match quality, agreement between sources and recent signal availability raise confidence;
-                missing order access or sparse evidence lowers it.
+                Diagnosis confidence is reliability, not severity. It uses source coverage, independent sources,
+                effective sample size, product match quality, agreement and freshness, then applies caps for
+                sparse samples, single-source diagnoses, incomplete data and reconstructed score details.
               </p>
-              <code>confidence = coverage + sample + match + agreement + recency - penalties</code>
+              <code>confidence_score = min(coverage + independent_sources + effective_sample + match + agreement + freshness - penalties, caps)</code>
             </article>
             <article>
-              <h3>Impact model</h3>
+              <h3>Financial exposure model</h3>
               <p>
-                Estimated impact is the revenue at risk from observed refund value, projected return/refund loss,
-                review conversion drag and margin exposure. Margin defaults to the stored margin estimate or a
-                conservative percentage of revenue at risk.
+                Financial exposure is money, not product severity. It separates observed loss, projected return
+                loss, review conversion drag, revenue at risk and margin at risk. Sparse samples show a likely
+                range around the expected estimate.
               </p>
-              <code>impact = max(refunds + projection, return exposure + review drag)</code>
+              <code>impact_score = observed_loss + projected_return_loss + review_conversion_drag</code>
+            </article>
+            <article>
+              <h3>Action priority model</h3>
+              <p>
+                Action priority combines severity, reliability and normalized financial exposure so operational
+                triage can prioritize high-risk products with enough evidence and meaningful business exposure.
+              </p>
+              <code>priority_score = 0.50 * risk_score + 0.25 * confidence_score + 0.25 * normalized_log_impact_score</code>
             </article>
           </div>
           <div className="ppEvidenceScoreGrid">
             <EvidenceScoreBreakdownCard
-              title="Risk score calculation"
+              title="Product risk calculation"
               subtitle={scoreModel.riskSubtitle}
               total={`${detail.riskScore}/100`}
               rows={scoreModel.riskRows}
               footer={scoreModel.riskFooter}
             />
             <EvidenceScoreBreakdownCard
-              title="Confidence calculation"
+              title="Diagnosis confidence calculation"
               subtitle="Reliability of the diagnosis, not severity."
               total={`${detail.confidence}%`}
               rows={scoreModel.confidenceRows}
               footer={scoreModel.confidenceFooter}
             />
             <EvidenceScoreBreakdownCard
-              title="Estimated impact calculation"
+              title="Financial exposure calculation"
               subtitle="Stored financial exposure from Shopify and connected evidence."
               total={formatMoney(detail.estimatedImpact)}
               rows={scoreModel.impactRows}
@@ -4693,8 +4739,8 @@ function getEvidenceReportScoreModel(product = {}, detail = {}) {
   return {
     riskRows,
     riskSubtitle: hasPersistedRiskComponents
-      ? "Persisted risk components from the scan or deep diagnosis."
-      : "Reconstructed from stored metrics because this product predates component persistence.",
+      ? detail.scoreCalculationStatus || "Score calculated from persisted components."
+      : "Score breakdown reconstructed from stored metrics because this product predates component persistence.",
     riskFooter: getRiskScoreFooter(metrics, detail, riskRows, hasPersistedRiskComponents),
     confidenceRows,
     confidenceFooter: getConfidenceFooter(metrics, detail),
@@ -4748,16 +4794,16 @@ function getEvidenceReportRiskRows(product = {}, detail = {}) {
     },
     {
       key: "supportingSignals",
-      label: "Signal volume, recency and agreement",
+      label: "Evidence strength",
       weight: getSignalSupportRiskWeight(product, metrics),
-      detail: `${formatInteger(metrics.signalCount)} total signals across ${formatInteger(product.sourceCoverage?.length || detail.evidenceSources?.length)} sources.`,
+      detail: `${formatInteger(metrics.signalCount)} total signals across ${formatInteger(product.sourceCoverage?.length || detail.evidenceSources?.length)} sources. This reconstructs confidence-style support, not financial impact.`,
       tone: "teal",
     },
     {
       key: "variants",
-      label: "Variant concentration",
+      label: "Affected scope",
       weight: getEvidenceList(metrics.affectedVariants).length ? 5 : 0,
-      detail: `${formatInteger(getEvidenceList(metrics.affectedVariants).length)} affected variants stored.`,
+      detail: `${formatInteger(getEvidenceList(metrics.affectedVariants).length)} affected variants stored. A single-variant product contributes 0 variant-risk points.`,
       tone: "amber",
     },
   ].filter((factor) => Number(factor.weight || 0) > 0);
@@ -4800,18 +4846,14 @@ function getEvidenceReportRiskRows(product = {}, detail = {}) {
 function getPersistedRiskComponentRows(components = {}) {
   const rows = [
     riskComponentRow(components.base, "base", "Model baseline", "Small baseline applied before signal families.", "blue"),
-    riskComponentRow(components.returnAnomaly ?? components.returnRate, "returns", "Returns anomaly", "Return rate pressure versus the store or category baseline.", "red"),
-    riskComponentRow(components.refundAnomaly ?? components.refundRate, "refunds", "Refund anomaly", "Refund rate pressure versus the store baseline.", "amber"),
-    riskComponentRow(components.refundImpact ?? components.impact, "refundImpact", "Refund amount impact", "Dollar value and share of refunded revenue.", "amber"),
-    riskComponentRow(components.refundOperationalRisk ?? components.refundPressure, "refundOps", "Refund operations signal", "Refund notes, operational reasons and refund pressure.", "amber"),
-    riskComponentRow(components.reviewAnomaly ?? components.csvRatings, "reviews", "Review anomaly", "Negative review rate, rating pressure and CSV/Judge.me review signals.", "violet"),
-    riskComponentRow(components.signalVolume ?? components.repeatedReasons, "signalVolume", "Repeated signal volume", "Repeated return reasons, customer language or other supported signal clusters.", "teal"),
-    riskComponentRow(components.sourceAgreement, "sourceAgreement", "Source agreement", "Multiple independent sources point to the same product issue.", "teal"),
-    riskComponentRow(components.recency ?? components.recentSpike, "recency", "Recency pressure", "Recent evidence is stronger than older evidence.", "blue"),
-    riskComponentRow(components.variantConcentration, "variants", "Variant concentration", "Signals cluster on affected variants, options or SKUs.", "amber"),
-    riskComponentRow(components.volumeWeight ?? components.volumeSupport, "volume", "Product volume support", "Higher product volume makes the observed signal more stable.", "blue"),
-    riskComponentRow(components.contentRisk, "content", "Product content quality", "Description, title, tag, collection and PDP clarity signals.", "violet"),
-    riskComponentRow(components.textSentimentRisk, "sentiment", "AI language and sentiment", "AI-classified return notes, review text, emotions and repeated phrasing.", "violet"),
+    riskComponentRow(components.returnsScore ?? components.returnAnomaly ?? components.returnRate, "returns", "Returns score", "Smoothed excess return rate versus the store or category baseline.", "red"),
+    riskComponentRow(components.reviewsScore ?? components.reviewAnomaly ?? components.csvRatings, "reviews", "Reviews score", "Smoothed negative review rate, rating pressure and CSV/Judge.me review signals.", "violet"),
+    riskComponentRow(components.sentimentScore ?? components.textSentimentRisk, "sentiment", "Sentiment score", "Semantic modifier from AI-classified return notes, review text, emotions and repeated phrasing.", "violet"),
+    riskComponentRow(components.contentGapScore ?? components.contentRisk, "content", "Content gap score", "Description, title, tag, collection and PDP clarity signals.", "blue"),
+    riskComponentRow(components.refundScore ?? components.refundOperationalRisk ?? components.refundPressure ?? components.refundAnomaly, "refunds", "Refund score", "Refund rate pressure and operational refund signals. Dollar impact is kept outside product risk.", "amber"),
+    riskComponentRow(components.variantScore ?? components.variantConcentration, "variants", "Affected scope", "Variant concentration contributes only when there is more than one variant and repeated affected-variant evidence.", "amber"),
+    riskComponentRow(components.agreementBonus ?? components.sourceAgreement, "sourceAgreement", "Agreement bonus", "Small capped bonus when independent sources point to the same product issue.", "teal"),
+    riskComponentRow(components.recencyBonus ?? components.recency ?? components.recentSpike, "recency", "Recency bonus", "Small capped bonus when recent evidence is stronger than older evidence.", "blue"),
   ].filter(Boolean);
 
   return rows.length ? rows : Object.entries(components)
@@ -4838,11 +4880,12 @@ function getEvidenceReportConfidenceRows(product = {}, detail = {}) {
   if (Object.keys(factors).length) {
     const rows = [
       confidenceRow(factors.coverageScore, "coverage", "Source coverage", "Signals available from Shopify products, orders, returns, refunds and connected review sources.", "blue"),
-      confidenceRow(factors.sampleScore ?? factors.sample, "sample", "Sample size", "More sold units, customer signals and review rows make the diagnosis more reliable.", "teal"),
-      confidenceRow(factors.consistencyScore ?? factors.agreement, "agreement", "Source consistency", "Multiple sources agree on the same issue or pressure.", "violet"),
-      confidenceRow(factors.matchScore ?? factors.match, "match", "Product match quality", "Connected reviews matched this Shopify product by product ID, handle, title or SKU.", "blue"),
-      confidenceRow(factors.recencyScore ?? factors.recency, "recency", "Recent evidence", "Recent signals make the diagnosis easier to trust.", "teal"),
-      confidenceRow(factors.lowSamplePenalty ? -Number(factors.lowSamplePenalty) : factors.penalty ? -Number(factors.penalty) : 0, "penalty", "Sparse data penalty", "Applied when samples are small, sources are missing or order access is partial.", "red"),
+      confidenceRow(factors.independentSourceScore, "independentSources", "Independent sources", `${formatInteger(factors.independentSourceCount || 0)} independent source families contributed to reliability.`, "violet"),
+      confidenceRow(factors.effectiveSampleScore ?? factors.sampleScore ?? factors.sample, "sample", "Effective sample size", `${formatInteger(factors.effectiveSampleSize || metrics.signalCount || 0)} deduplicated events or customers, not raw signal count.`, "teal"),
+      confidenceRow(factors.productMatchScore ?? factors.matchScore ?? factors.match, "match", "Product match quality", "Connected reviews matched this Shopify product by product ID, handle, title or SKU.", "blue"),
+      confidenceRow(factors.agreementScore ?? factors.consistencyScore ?? factors.agreement, "agreement", "Source agreement", "Multiple independent sources agree on the same issue or pressure.", "violet"),
+      confidenceRow(factors.freshnessScore ?? factors.recencyScore ?? factors.recency, "freshness", "Freshness", "Recent evidence makes the diagnosis easier to trust.", "teal"),
+      confidenceRow(factors.penalties ? -Number(factors.penalties) : factors.lowSamplePenalty ? -Number(factors.lowSamplePenalty) : factors.penalty ? -Number(factors.penalty) : 0, "penalty", "Confidence penalties", "Missing order, return or refund access, sparse samples, weak product matching, duplicate signals, single-source diagnoses or subjective-only issues reduce confidence.", "red"),
       confidenceRow(factors.maxConfidence, "cap", "Confidence cap", "Maximum confidence allowed for the available source coverage.", "amber"),
     ].filter(Boolean);
     if (rows.length) return rows;
@@ -4858,9 +4901,9 @@ function getEvidenceReportConfidenceRows(product = {}, detail = {}) {
     },
     {
       key: "sampleSize",
-      label: "Sample size",
+      label: "Effective sample size",
       value: `${formatInteger(metrics.signalCount)} signals`,
-      detail: `${formatInteger(metrics.soldUnits)} sold units, ${formatInteger(metrics.returnUnits)} returns, ${formatInteger(metrics.refundUnits)} refunds, ${formatInteger(metrics.negativeReviewCount)} negative reviews.`,
+      detail: `${formatInteger(metrics.soldUnits)} sold units, ${formatInteger(metrics.returnUnits)} returns, ${formatInteger(metrics.refundUnits)} refunds, ${formatInteger(metrics.negativeReviewCount)} negative reviews. Newer score models deduplicate this before confidence scoring.`,
       tone: "teal",
     },
     {
@@ -4898,6 +4941,13 @@ function getEvidenceReportImpactRows(product = {}, detail = {}) {
   const avgUnitRevenue = Number(metrics.avgUnitRevenue || 0);
   const rows = [
     {
+      key: "observedLoss",
+      label: "Observed loss",
+      value: formatMoney(impact.observedLoss ?? 0),
+      detail: "Refunded value, return processing cost and lost margin from returned units already observed.",
+      tone: "red",
+    },
+    {
       key: "refundValue",
       label: "Observed refunded value",
       value: formatMoney(impact.refundValueAtRisk ?? metrics.refundAmount ?? 0),
@@ -4905,17 +4955,17 @@ function getEvidenceReportImpactRows(product = {}, detail = {}) {
       tone: "red",
     },
     {
-      key: "returnExposure",
-      label: "Return exposure",
-      value: formatMoney(impact.projectedFutureReturnLoss ?? getReturnExposureValue(metrics)),
-      detail: `${formatPercent(metrics.returnRate)} return rate over ${formatInteger(metrics.soldUnits)} sold units.`,
+      key: "returnProcessing",
+      label: "Return processing cost",
+      value: formatMoney(impact.returnProcessingCost ?? 0),
+      detail: `${formatInteger(metrics.returnUnits)} returned units multiplied by the configured processing-cost assumption.`,
       tone: "amber",
     },
     {
-      key: "projectedRefundLoss",
-      label: "Projected refund loss",
-      value: formatMoney(impact.projectedFutureRefundLoss ?? getProjectedRefundLoss(metrics)),
-      detail: `${formatInteger(metrics.windowDays || 60)} day window annualized to a short forward-looking estimate.`,
+      key: "projectedReturnLoss",
+      label: "Projected return loss",
+      value: formatMoney(impact.projectedReturnLoss ?? impact.projectedFutureReturnLoss ?? getReturnExposureValue(metrics)),
+      detail: `${formatPercent(metrics.returnRate)} return rate over ${formatInteger(metrics.soldUnits)} sold units, projected through the available scan window.`,
       tone: "amber",
     },
     {
@@ -4926,15 +4976,29 @@ function getEvidenceReportImpactRows(product = {}, detail = {}) {
       tone: "violet",
     },
     {
+      key: "revenue",
+      label: "Revenue at risk",
+      value: formatMoney(impact.revenueAtRisk ?? detail.revenueAtRisk),
+      detail: "Projected lost revenue, return revenue exposure and review conversion revenue drag.",
+      tone: "blue",
+    },
+    {
       key: "margin",
-      label: "Estimated margin at risk",
+      label: "Margin at risk",
       value: formatMoney(detail.marginAtRisk),
       detail: avgUnitRevenue ? `${formatMoney(avgUnitRevenue)} average unit revenue used where available.` : "Uses stored margin at risk or a conservative share of revenue at risk.",
       tone: "teal",
     },
+    {
+      key: "range",
+      label: "Likely range",
+      value: getFinancialExposureRangeLabel(detail),
+      detail: "Low and high estimates widen when the effective sample is small.",
+      tone: "blue",
+    },
   ];
 
-  return rows.filter((row) => row.value !== formatMoney(0) || row.key === "margin");
+  return rows.filter((row) => row.value !== formatMoney(0) || ["margin", "range"].includes(row.key));
 }
 
 function getRiskScoreFooter(metrics = {}, detail = {}, riskRows = [], hasPersistedRiskComponents = false) {
@@ -4942,13 +5006,13 @@ function getRiskScoreFooter(metrics = {}, detail = {}, riskRows = [], hasPersist
   const rawScore = components.rawScore ?? components.calculated ?? components.rawRisk;
   const componentTotal = riskRows.reduce((sum, row) => sum + Number(String(row.value || "").replace(/[^0-9.-]/g, "") || 0), 0);
   if (hasPersistedRiskComponents && Number.isFinite(Number(rawScore))) {
-    return `Raw component sum: ${formatScorePoints(rawScore)} points. Final persisted risk score: ${detail.riskScore}/100 after caps, sample support and 0-100 clamping.`;
+    return `${detail.scoreCalculationStatus || "Score calculated from persisted components"}. Raw component sum: ${formatScorePoints(rawScore)} points. Final product risk: ${detail.riskScore}/100. Financial exposure is excluded from product risk.`;
   }
   if (hasPersistedRiskComponents && componentTotal > 0) {
-    return `Persisted component total: ${formatScorePoints(componentTotal)} risk units. Final persisted risk score: ${detail.riskScore}/100 after normalization, caps and sample support.`;
+    return `${detail.scoreCalculationStatus || "Score calculated from persisted components"}. Persisted component total: ${formatScorePoints(componentTotal)} risk units. Final product risk: ${detail.riskScore}/100.`;
   }
   if (componentTotal > 0) {
-    return `Reconstructed rows sum to ${formatScorePoints(componentTotal)} points, matching the persisted ${detail.riskScore}/100 risk score from stored metrics.`;
+    return `Score breakdown reconstructed. Rows sum to ${formatScorePoints(componentTotal)} points, matching the persisted ${detail.riskScore}/100 product risk from stored metrics.`;
   }
   return "No score components are available yet. Run QuickScan or a full product diagnosis to persist scoring evidence.";
 }
@@ -4956,16 +5020,17 @@ function getRiskScoreFooter(metrics = {}, detail = {}, riskRows = [], hasPersist
 function getConfidenceFooter(metrics = {}, detail = {}) {
   const factors = metrics.confidenceFactors || {};
   if (Object.keys(factors).length) {
-    const maxConfidence = factors.maxConfidence ? ` The model capped confidence at ${formatScorePoints(factors.maxConfidence)} for the available coverage.` : "";
-    return `Final persisted confidence: ${detail.confidence}%.${maxConfidence}`;
+    const maxConfidence = factors.maxConfidence ? ` The model capped diagnosis confidence at ${formatScorePoints(factors.maxConfidence)} for sample size, source independence, data quality or reconstruction limits.` : "";
+    return `Final diagnosis confidence: ${detail.confidence}%. It measures reliability, not product severity.${maxConfidence}`;
   }
-  return `Final persisted confidence: ${detail.confidence}%. Confidence is capped down when evidence is sparse, subjective or available from only one weak source.`;
+  return `Final diagnosis confidence: ${detail.confidence}%. Confidence is capped down when evidence is sparse, subjective or available from only one weak source.`;
 }
 
 function getImpactFooter(metrics = {}, detail = {}) {
   const revenue = getEstimatedRevenueValue(metrics);
   const margin = getEstimatedMarginValue(metrics);
-  return `Final persisted estimated impact: ${formatMoney(detail.estimatedImpact)}. Revenue at risk is ${formatMoney(revenue)} and estimated margin at risk is ${formatMoney(margin)}.`;
+  const range = getFinancialExposureRangeLabel(detail);
+  return `Final financial exposure: ${formatMoney(detail.estimatedImpact)}. Revenue at risk is ${formatMoney(revenue)} and margin at risk is ${formatMoney(margin)}. Likely range: ${range}.`;
 }
 
 function getReturnRiskWeight(metrics = {}) {
@@ -5070,12 +5135,6 @@ function getReturnExposureValue(metrics = {}) {
   if (salesAmount > 0 && returnRate > 0) return salesAmount * returnRate;
   if (avgUnitRevenue > 0 && returnUnits > 0) return avgUnitRevenue * returnUnits;
   return 0;
-}
-
-function getProjectedRefundLoss(metrics = {}) {
-  const refundAmount = Number(metrics.refundAmount || 0);
-  const windowDays = Number(metrics.windowDays || 60);
-  return windowDays > 0 ? (refundAmount / windowDays) * 30 : 0;
 }
 
 function getReviewDragValue(metrics = {}) {
@@ -5216,7 +5275,7 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Variant count", formatInteger(metrics.variantCount), "Shopify product variants", "product", "teal");
     add("SKU count", formatInteger(metrics.skuCount), "Variant SKUs captured", "number", "blue");
     add("Options", getEvidenceList(metrics.optionNames).join(", ") || "No options stored", "Size, color or product options", "checkbox", "violet");
-    add("Variant concentration", formatPercent(metrics.variantConcentration || 0), "Share of signals concentrated in affected variants", "target", "amber");
+    add("Affected scope", formatPercent(metrics.variantConcentration || 0), "Share of signals concentrated in affected variants", "target", "amber");
     add("Signal trend", getEvidenceTrendLabel(metrics.signalTrend), "Issue movement for variant-related signals", "chart-line", "blue", { trend: metrics.signalTrend });
   } else if (normalized.includes("product") || normalized.includes("shopify")) {
     add("Description words", formatInteger(metrics.descriptionWordCount), metrics.hasDescription ? "Shopify PDP copy is present" : "Missing description", "note", metrics.hasDescription ? "teal" : "red");
@@ -6326,7 +6385,7 @@ function getAnalyticsPanelInfo(title = "") {
       title: "Risk vs. margin impact",
       body: "Plots products by risk and estimated margin exposure so you can prioritize work by urgency and financial relevance.",
       items: [
-        "X-axis: deterministic product risk score, starting slightly below the lowest plotted product and ending at 100.",
+        "X-axis: deterministic product risk, starting slightly below the lowest plotted product and ending at 100.",
         "Y-axis and bubble size: estimated margin at risk for that product.",
         "Hover a bubble for product details; click it to open the product diagnosis page.",
       ],
@@ -6509,7 +6568,7 @@ function RiskRevenueBubbleChart({ bubbles }) {
 
   return (
     <div className="ppRiskRevenueWrap">
-      <div className="ppBubbleChart" role="group" aria-label="Risk score compared with revenue impact">
+      <div className="ppBubbleChart" role="group" aria-label="Product risk compared with revenue impact">
         <div className="ppBubbleYTicks" aria-hidden="true">
           {yTicks.map((tick) => (
             <span key={tick.value} className="ppBubbleYTick" style={{ bottom: `${tick.position}%` }}>{tick.label}</span>
@@ -6545,7 +6604,7 @@ function RiskRevenueBubbleChart({ bubbles }) {
           ))}
         </div>
         <span className="ppBubbleAxis ppBubbleAxis-y">Margin impact</span>
-        <span className="ppBubbleAxis ppBubbleAxis-x">Risk score</span>
+        <span className="ppBubbleAxis ppBubbleAxis-x">Product risk</span>
       </div>
       {activeBubble && (
         <RiskBubbleFloatingPopover bubble={activeBubble.bubble} position={activeBubble.position} />
@@ -6643,7 +6702,7 @@ function RiskBubbleFloatingPopover({ bubble, position }) {
       }}
     >
       <strong>{bubble.label}</strong>
-      <span><b>{bubble.riskLabel || "Risk"}</b> risk score: {bubble.riskScore}/100</span>
+      <span><b>{bubble.riskLabel || "Risk"}</b> product risk: {bubble.riskScore}/100</span>
       <span><b>Margin impact:</b> {formatMoney(bubble.impact || 0)}</span>
       <span><b>Main issue:</b> {bubble.issueLabel || "Product quality"}</span>
       <span><b>Signals:</b> {formatInteger(bubble.signalCount || 0)} stored signals</span>
