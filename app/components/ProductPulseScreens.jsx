@@ -1918,6 +1918,7 @@ function getProductEvidenceSources(product) {
         title: `${item.source}`,
         summary: getEvidenceSourceSummary(item.source, points, product),
         tone: getEvidenceSourceTone(item.source, points),
+        cards: getEvidenceSourceCards(item.source, points, product),
         points,
         priority: getEvidenceSourcePriority(item.source),
       };
@@ -3244,7 +3245,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         <div className="ppProductDetailGrid">
           <div className="ppProductDetailMainColumn">
             <s-section padding="none">
-              <div className="ppProductPanel" ref={evidencePanelRef}>
+              <div className="ppProductPanel">
                 <h2>Issues detected</h2>
                 <div className="ppIssuesTableWrap">
                   <table className="ppIssuesTable">
@@ -3308,15 +3309,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 </div>
               </div>
             </s-section>
-
-            <s-section padding="none">
-              <EvidenceObservabilityPanel
-                detail={detail}
-                selectedEvidence={selectedEvidence}
-                selectedEvidenceIndex={selectedEvidenceIndex}
-                onSelectEvidence={setSelectedEvidenceIndex}
-              />
-            </s-section>
           </div>
           <s-section padding="none">
             <div className="ppCheckedPanel">
@@ -3339,6 +3331,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             </div>
           </s-section>
         </div>
+        <s-section padding="none">
+          <div ref={evidencePanelRef}>
+            <EvidenceObservabilityPanel
+              detail={detail}
+              product={product}
+              selectedEvidence={selectedEvidence}
+              selectedEvidenceIndex={selectedEvidenceIndex}
+              onSelectEvidence={setSelectedEvidenceIndex}
+            />
+          </div>
+        </s-section>
         {diagnosisConfirmation && (
           <ProductAnalysisConfirmModal
             confirmation={diagnosisConfirmation}
@@ -3860,7 +3863,7 @@ function getInsightMetricHelp(title) {
   }
 }
 
-function EvidenceObservabilityPanel({ detail, selectedEvidence, selectedEvidenceIndex, onSelectEvidence }) {
+function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selectedEvidenceIndex, onSelectEvidence }) {
   const sources = detail.evidenceSources || [];
   if (!sources.length) {
     return (
@@ -3872,38 +3875,16 @@ function EvidenceObservabilityPanel({ detail, selectedEvidence, selectedEvidence
   }
 
   const activeSource = selectedEvidence || sources[0];
-  const sourceSignals = sources.reduce((sum, source) => sum + source.points.length, 0);
-  const topIssues = detail.detectedIssues.slice(0, 3);
-  const trendTone = getTrendTone(detail.riskTrend, detail.riskScore);
-  const trendLabel = getEvidenceTrendLabel(detail.riskTrend);
+  const activeCards = activeSource.cards?.length
+    ? activeSource.cards
+    : getEvidenceSourceCards(activeSource.title, activeSource.points, product);
+  const reportHref = getProductEvidenceReportHref(product, activeSource);
 
   return (
     <div className="ppProductPanel ppEvidenceObservabilityPanel">
       <EvidenceObservabilityHeader detail={detail} />
 
-      <div className="ppEvidenceExecutiveGrid" aria-label="Evidence summary">
-        <EvidenceExecutiveCard
-          label="Primary driver"
-          value={topIssues[0]?.issue || detail.issueCategory}
-          detail={topIssues[0]?.action || detail.issueDetail}
-          tone={topIssues[0]?.tone || detail.riskBadgeTone}
-        />
-        <EvidenceExecutiveCard
-          label="Source agreement"
-          value={sources.length > 1 ? `${sources.length} sources` : "Single source"}
-          detail={`${sourceSignals} supporting signal${sourceSignals === 1 ? "" : "s"} stored for this product`}
-          tone={sources.length > 2 ? "success" : "neutral"}
-        />
-        <EvidenceExecutiveCard
-          label="Signal trend"
-          value={trendLabel}
-          detail={`${detail.confidence}% confidence across current evidence`}
-          tone={trendTone === "red" ? "critical" : trendTone === "green" ? "success" : "warning"}
-          trend={detail.riskTrend}
-        />
-      </div>
-
-      <div className="ppEvidenceSourceRail" role="tablist" aria-label="Evidence source filters">
+      <div className="ppEvidenceTabsModern" role="tablist" aria-label="Evidence sources">
         {sources.map((source, index) => (
           <button
             className={index === selectedEvidenceIndex ? "isActive" : ""}
@@ -3914,67 +3895,52 @@ function EvidenceObservabilityPanel({ detail, selectedEvidence, selectedEvidence
             key={source.title}
             onClick={() => onSelectEvidence(index)}
           >
-            <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${source.tone}`}>
+            <span className={`ppEvidenceTabIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
               <s-icon type={source.icon} size="small"></s-icon>
             </span>
-            <span>
-              <strong>{source.title}</strong>
-              <small>{source.points.length} findings</small>
-            </span>
+            <span>{source.title}</span>
+            <strong>{source.points.length}</strong>
           </button>
         ))}
       </div>
 
-      <div className="ppEvidenceObservabilityGrid">
-        <article className="ppEvidenceActiveFinding">
-          <div className="ppEvidenceActiveHeader">
+      <div className="ppEvidenceSourcePanel">
+        <div className="ppEvidenceActiveHeader">
+          <div className="ppEvidenceActiveTitle">
             <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${activeSource.tone}`}>
               <s-icon type={activeSource.icon} size="small"></s-icon>
             </span>
             <div>
-              <span>Active source</span>
-              <h3>{activeSource.title}</h3>
+              <span>{activeSource.title}</span>
+              <h3>{getEvidenceSourcePanelTitle(activeSource.title)}</h3>
+              <p>{activeSource.summary}</p>
             </div>
-            <span className="ppEvidenceSignalCount">{activeSource.points.length} signals</span>
           </div>
+          <span className="ppEvidenceSignalCount">{activeSource.points.length} signals</span>
+        </div>
 
-          <p className="ppEvidenceAiSummary">{activeSource.summary}</p>
+        <div className="ppEvidenceMetricGrid">
+          {activeCards.map((card) => (
+            <EvidenceMetricCard card={card} key={`${activeSource.title}-${card.label}-${card.value}`} />
+          ))}
+          <Link className="ppEvidenceReportCard" to={reportHref}>
+            <span className="ppEvidenceReportIcon" aria-hidden="true">
+              <s-icon type="chart-line" size="small"></s-icon>
+            </span>
+            <span>
+              <strong>View full report</strong>
+              <small>See technical evidence, detected issues and raw source data</small>
+            </span>
+            <s-icon type="chevron-right" size="small"></s-icon>
+          </Link>
+        </div>
 
-          <div className="ppEvidenceFindingStream">
-            {activeSource.points.map((point, index) => (
-              <EvidenceFinding point={point} index={index} key={`${point}-${index}`} />
-            ))}
-          </div>
-        </article>
-
-        <aside className="ppEvidenceContextColumn" aria-label="Evidence context">
-          <div className="ppEvidenceContextCard">
-            <span>Linked diagnostics</span>
-            {topIssues.length > 0 ? (
-              <div className="ppEvidenceLinkedIssues">
-                {topIssues.map((issue) => (
-                  <div key={issue.issue}>
-                    <strong>{issue.issue}</strong>
-                    <small>{issue.severity} severity / {issue.confidence} confidence</small>
-                    <MiniTrend tone={issue.trendTone} values={issue.trend} />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p>No deterministic issue linked yet.</p>
-            )}
-          </div>
-
-          <div className="ppEvidenceContextCard">
-            <span>Depth levels</span>
-            <ol className="ppEvidenceDepthList">
-              <li><strong>Executive summary</strong><small>Risk driver, source agreement and confidence.</small></li>
-              <li><strong>Insights</strong><small>AI-readable findings from the selected evidence source.</small></li>
-              <li><strong>Supporting evidence</strong><small>Signal-level facts used by the diagnosis.</small></li>
-              <li><strong>Raw source data</strong><small>{activeSource.points.slice(-2).join(" | ") || "No raw source detail stored."}</small></li>
-            </ol>
-          </div>
-        </aside>
+        <div className="ppEvidencePanelFooter">
+          <Link className="ppEvidenceFullReportButton" to={reportHref}>
+            <s-icon type="file" size="small"></s-icon>
+            View Full Report
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -3984,12 +3950,8 @@ function EvidenceObservabilityHeader({ detail }) {
   return (
     <div className="ppEvidenceObservabilityHeader">
       <div>
-        <span>AI evidence graph</span>
         <h2>Evidence by source</h2>
-        <p>
-          ProductPulse connects product signals into diagnostic findings so you can see why the issue exists,
-          which sources agree, and what evidence supports the recommendation.
-        </p>
+        <p>Explore and review the evidence behind each detected issue.</p>
       </div>
       <div className="ppEvidenceHeaderMeta">
         <strong>{detail.evidenceSources.length}</strong>
@@ -3999,14 +3961,20 @@ function EvidenceObservabilityHeader({ detail }) {
   );
 }
 
-function EvidenceExecutiveCard({ label, value, detail, tone = "neutral", trend = null }) {
+function EvidenceMetricCard({ card }) {
   return (
-    <div className={`ppEvidenceExecutiveCard ppEvidenceExecutive-${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-      {Array.isArray(trend) && trend.length > 0 && <MiniTrend tone={getTrendTone(trend)} values={trend} />}
-    </div>
+    <article className={`ppEvidenceMetricCard ppEvidenceMetricCard-${card.tone || "blue"}`}>
+      <span className="ppEvidenceMetricIcon" aria-hidden="true">
+        <s-icon type={card.icon || "info"} size="small"></s-icon>
+      </span>
+      <div>
+        <span>{card.label}</span>
+        <strong>{card.value}</strong>
+        <small>{card.detail}</small>
+      </div>
+      {card.badge && <em>{card.badge}</em>}
+      {Array.isArray(card.trend) && card.trend.length > 0 && <MiniTrend tone={getTrendTone(card.trend)} values={card.trend} />}
+    </article>
   );
 }
 
@@ -4021,6 +3989,216 @@ function EvidenceFinding({ point, index }) {
       </div>
     </div>
   );
+}
+
+export function ProductEvidenceReportScreen({ product, source = "" }) {
+  if (!product) {
+    return (
+      <FullWidthPage heading="Evidence report not found">
+        <ScreenShell>
+          <s-banner tone="critical" heading="This product is not in the current signal snapshot">
+            Return to Products and choose another item.
+          </s-banner>
+          <Link className="ppPrimaryButton" to="/app/products">Back to Products</Link>
+        </ScreenShell>
+      </FullWidthPage>
+    );
+  }
+
+  const detail = getProductDetailModel(product);
+  const selectedSourceName = source || "All sources";
+  const metricRows = getEvidenceReportMetricRows(product.metrics || {});
+  const reportGeneratedAt = product.metrics?.lastDetailedDiagnosisAt || product.lastAnalysis;
+
+  return (
+    <FullWidthPage heading="Full Evidence Report">
+      <ScreenShell className="ppDashboard ppEvidenceReportScreen">
+        <div className="ppEvidenceReportHeader">
+          <Link className="ppProductBackButton" to={product.href || `/app/products/${product.slug}`}>
+            <s-icon type="arrow-left" size="small"></s-icon>
+            Back to product
+          </Link>
+          <div className="ppEvidenceReportHero">
+            <ProductArt
+              variant={detail.variant}
+              label={detail.title}
+              imageUrl={detail.imageUrl}
+              imageAlt={detail.imageAlt}
+            />
+            <div>
+              <span>Technical evidence report</span>
+              <h1>{detail.title}</h1>
+              <p>
+                Full diagnostic record for {selectedSourceName}. This page keeps the raw supporting evidence,
+                issue relationships, product metrics and recommended action context in one technical view.
+              </p>
+              <small>{reportGeneratedAt ? `Last report signal: ${formatProductAnalysisDate(reportGeneratedAt)}` : "No report timestamp stored"}</small>
+            </div>
+          </div>
+          <div className="ppEvidenceReportSummary">
+            <EvidenceMetricCard card={{ label: "Risk score", value: `${detail.riskScore}/100`, detail: detail.riskScoreLabel, icon: "target", tone: detail.riskBadgeTone }} />
+            <EvidenceMetricCard card={{ label: "Confidence", value: `${detail.confidence}%`, detail: detail.confidenceLabel, icon: "shield-check-mark", tone: "blue" }} />
+            <EvidenceMetricCard card={{ label: "Estimated impact", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} margin at risk`, icon: "cash-dollar", tone: "teal" }} />
+            <EvidenceMetricCard card={{ label: "Sources", value: formatInteger(detail.evidenceSources.length), detail: `${detail.signalCount} stored signals`, icon: "duplicate", tone: "violet" }} />
+          </div>
+        </div>
+
+        <section className="ppEvidenceReportSection">
+          <div className="ppEvidenceReportSectionHeader">
+            <span>01</span>
+            <div>
+              <h2>Issues detected</h2>
+              <p>Every issue currently stored for this product, including confidence, severity, trend and source snippets.</p>
+            </div>
+          </div>
+          <div className="ppEvidenceReportIssueGrid">
+            {detail.detectedIssues.length > 0 ? detail.detectedIssues.map((issue) => (
+              <article className="ppEvidenceReportIssue" key={issue.issue}>
+                <div>
+                  <span className={`ppIssueIcon ppIssueIcon-${issue.tone}`} aria-hidden="true">
+                    <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                  </span>
+                  <div>
+                    <h3>{issue.issue}</h3>
+                    <p>{issue.action}</p>
+                  </div>
+                </div>
+                <dl>
+                  <div><dt>Severity</dt><dd><s-badge tone={issue.tone}>{issue.severity}</s-badge></dd></div>
+                  <div><dt>Confidence</dt><dd>{issue.confidence}</dd></div>
+                  <div><dt>Signals</dt><dd>{issue.signals}</dd></div>
+                  <div><dt>Trend</dt><dd><MiniTrend tone={issue.trendTone} values={issue.trend} /></dd></div>
+                </dl>
+                {issue.evidence?.length > 0 && (
+                  <ul>
+                    {issue.evidence.map((item) => <li key={`${issue.issue}-${item}`}>{renderEvidenceText(item)}</li>)}
+                  </ul>
+                )}
+              </article>
+            )) : (
+              <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
+            )}
+          </div>
+        </section>
+
+        <section className="ppEvidenceReportSection">
+          <div className="ppEvidenceReportSectionHeader">
+            <span>02</span>
+            <div>
+              <h2>Evidence sources</h2>
+              <p>All source summaries, compact metrics and every stored evidence point used by the diagnosis.</p>
+            </div>
+          </div>
+          <div className="ppEvidenceReportSourceList">
+            {detail.evidenceSources.map((sourceItem) => (
+              <article className="ppEvidenceReportSource" key={sourceItem.title}>
+                <div className="ppEvidenceReportSourceHeader">
+                  <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${sourceItem.tone}`} aria-hidden="true">
+                    <s-icon type={sourceItem.icon} size="small"></s-icon>
+                  </span>
+                  <div>
+                    <h3>{sourceItem.title}</h3>
+                    <p>{sourceItem.summary}</p>
+                  </div>
+                  <strong>{sourceItem.points.length} signals</strong>
+                </div>
+                <div className="ppEvidenceMetricGrid">
+                  {(sourceItem.cards || getEvidenceSourceCards(sourceItem.title, sourceItem.points, product)).map((card) => (
+                    <EvidenceMetricCard card={card} key={`${sourceItem.title}-report-${card.label}-${card.value}`} />
+                  ))}
+                </div>
+                <div className="ppEvidenceFindingStream">
+                  {sourceItem.points.map((point, index) => (
+                    <EvidenceFinding point={point} index={index} key={`${sourceItem.title}-${point}-${index}`} />
+                  ))}
+                </div>
+              </article>
+            ))}
+            {detail.evidenceSources.length === 0 && <EmptyProductDetailState message="0 evidence sources stored for this product yet." />}
+          </div>
+        </section>
+
+        <section className="ppEvidenceReportSection">
+          <div className="ppEvidenceReportSectionHeader">
+            <span>03</span>
+            <div>
+              <h2>Raw product metrics</h2>
+              <p>Structured metrics currently stored for scoring, confidence, impact and diagnosis generation.</p>
+            </div>
+          </div>
+          <div className="ppEvidenceRawTableWrap">
+            <table className="ppEvidenceRawTable">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {metricRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>{row.key}</td>
+                    <td>{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="ppEvidenceReportSection">
+          <div className="ppEvidenceReportSectionHeader">
+            <span>04</span>
+            <div>
+              <h2>Recommendations and checks</h2>
+              <p>Action context and the ProductPulse checks that were available when this report was rendered.</p>
+            </div>
+          </div>
+          <div className="ppEvidenceReportTwoColumn">
+            <div className="ppEvidenceReportBlock">
+              <h3>Recommended actions</h3>
+              {detail.recommendedActions.length ? detail.recommendedActions.map((action) => (
+                <article key={action.id || action.title}>
+                  <strong>{action.title}</strong>
+                  <p>{action.detail}</p>
+                  <small>{action.type} / {action.status} / {action.effort} effort</small>
+                  {action.payload && <pre>{formatRawReportValue(action.payload)}</pre>}
+                </article>
+              )) : <EmptyProductDetailState message="0 recommended actions stored for this product." />}
+            </div>
+            <div className="ppEvidenceReportBlock">
+              <h3>What ProductPulse checked</h3>
+              {detail.checkedItems.length ? detail.checkedItems.map((item) => (
+                <article key={item.label}>
+                  <strong>{item.label}</strong>
+                  <p>{item.value}</p>
+                  <small>{item.detail}</small>
+                </article>
+              )) : <EmptyProductDetailState message="0 product-specific checks stored yet." />}
+            </div>
+          </div>
+        </section>
+      </ScreenShell>
+    </FullWidthPage>
+  );
+}
+
+function getEvidenceSourcePanelTitle(source) {
+  const normalized = String(source || "").toLowerCase();
+  if (normalized.includes("return")) return "Returns";
+  if (normalized.includes("refund")) return "Refunds";
+  if (normalized.includes("review") || normalized.includes("judge")) return "Reviews";
+  if (normalized.includes("csv")) return "CSV data";
+  if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) return "AI sentiment";
+  if (normalized.includes("variant")) return "Variants";
+  if (normalized.includes("product") || normalized.includes("shopify")) return "Product data";
+  return source || "Evidence";
+}
+
+function getProductEvidenceReportHref(product, source) {
+  const base = product?.href || (product?.slug ? `/app/products/${product.slug}` : "/app/products");
+  const sourceQuery = source?.title ? `?source=${encodeURIComponent(source.title)}` : "";
+  return `${base}/evidence${sourceQuery}`;
 }
 
 function getEvidenceTrendLabel(values = []) {
@@ -4040,6 +4218,148 @@ function getEvidenceFindingTitle(point) {
   if (tone === "insight") return "AI language insight";
   if (tone === "neutral") return "Context signal";
   return "Supporting finding";
+}
+
+function getEvidenceReportMetricRows(metrics = {}) {
+  const rows = [];
+  const visit = (value, path) => {
+    if (value === null || value === undefined || value === "") return;
+    if (Array.isArray(value)) {
+      rows.push({ key: path, value: value.length ? formatRawReportValue(value) : "[]" });
+      return;
+    }
+    if (typeof value === "object") {
+      const entries = Object.entries(value);
+      if (!entries.length) return;
+      entries.forEach(([key, child]) => visit(child, path ? `${path}.${key}` : key));
+      return;
+    }
+    rows.push({ key: path, value: String(value) });
+  };
+  Object.entries(metrics).forEach(([key, value]) => visit(value, key));
+  return rows.length ? rows : [{ key: "metrics", value: "No stored metrics" }];
+}
+
+function formatRawReportValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value, null, 2);
+}
+
+function getEvidenceSourceCards(source, points = [], product = {}) {
+  const metrics = product.metrics || {};
+  const textInsights = metrics.textInsights || {};
+  const normalized = String(source || "").toLowerCase();
+  const cards = [];
+  const add = (label, value, detail, icon = "info", tone = "blue", extra = {}) => {
+    if (value === null || value === undefined || value === "") return;
+    cards.push({ label, value, detail: detail || "Stored evidence", icon, tone, ...extra });
+  };
+
+  if (normalized.includes("return")) {
+    const topReasons = getEvidenceReasonItems(metrics.topReturnReasonDetails || metrics.topReturnReasons);
+    add("Total returns", formatInteger(metrics.returnUnits), `${formatPercent(metrics.returnRate)} return rate`, "return", "blue");
+    add("Return rate", formatPercent(metrics.returnRate), `${formatInteger(metrics.soldUnits)} sold units in scan window`, "chart-line", "teal");
+    add("Returned within window", `${formatInteger(metrics.returnUnits)} units`, `${metrics.windowDays || 60} day evidence window`, "clock", "blue", { trend: metrics.signalTrend });
+    add("Top reason", topReasons[0]?.label || metrics.primaryIssue || "No reason stored", topReasons[0]?.detail || "Highest-count return signal", "target", "violet", topReasons[0]?.badge ? { badge: topReasons[0].badge } : {});
+    add("Other reason signal", topReasons[1]?.label || "No second reason", topReasons[1]?.detail || "Secondary return reason", "note", "violet", topReasons[1]?.badge ? { badge: topReasons[1].badge } : {});
+    add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
+  } else if (normalized.includes("refund")) {
+    const topReasons = getEvidenceReasonItems(metrics.topRefundReasonDetails || metrics.topRefundReasons);
+    add("Refunded units", formatInteger(metrics.refundUnits), `${formatPercent(metrics.refundRate)} refund rate`, "cash-dollar", "blue");
+    add("Refund amount", formatMoney(metrics.refundAmount || 0), "Stored refund value from Shopify", "cash-dollar", "red");
+    add("Refund pressure", formatPercent(metrics.refundRate), `${formatInteger(metrics.soldUnits)} sold units baseline`, "chart-line", Number(metrics.refundRate || 0) > 20 ? "red" : "amber");
+    add("Top refund reason", topReasons[0]?.label || "No reason stored", topReasons[0]?.detail || "Primary refund signal", "target", "violet", topReasons[0]?.badge ? { badge: topReasons[0].badge } : {});
+    add("Margin at risk", formatMoney(metrics.marginAtRisk || 0), `${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`, "cash-dollar", "teal");
+    add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
+  } else if (normalized.includes("review") || normalized.includes("judge")) {
+    add("Total reviews", formatInteger(metrics.reviewCount || metrics.csvReviewCount || metrics.judgeMeReviewCount), `${formatInteger(metrics.negativeReviewCount)} negative reviews`, "star", "blue");
+    add("Average rating", metrics.avgRating || metrics.reviewRating || "0", "Product-level review rating", "star", "teal");
+    add("Negative reviews", formatInteger(metrics.negativeReviewCount), `${formatPercent(metrics.negativeReviewRate)} negative review rate`, "alert-circle", Number(metrics.negativeReviewRate || 0) > 25 ? "red" : "amber");
+    add("Recent negatives", formatInteger(metrics.recentNegativeReviewCount), "Recent negative review signals", "clock", "violet");
+    add("Review sentiment", formatSentimentSummary(textInsights.reviews?.sentiment), "AI-readable review language", "note", "violet");
+    add("Review emotions", getTopEmotionLabel(textInsights.reviews?.emotions), "Dominant detected review emotion", "lightbulb", "violet");
+  } else if (normalized.includes("csv")) {
+    add("CSV reviews", formatInteger(metrics.csvReviewCount || metrics.csvReviewRatingCount), "Normalized external review rows", "file", "blue");
+    add("CSV rating", metrics.csvAverageRating || metrics.csvReviewRating || metrics.avgRating || "0", "Average rating from uploaded CSV", "star", "teal");
+    add("Matched products", formatInteger(metrics.csvMatchedReviewCount || metrics.csvReviewCount), "Rows matched to Shopify product identifiers", "link", "violet");
+    add("Negative CSV reviews", formatInteger(metrics.csvNegativeReviewCount || metrics.negativeReviewCount), "Imported low-rating signals", "alert-circle", "amber");
+    add("Source health", metrics.csvReviewCount || metrics.csvReviewRatingCount ? "Available" : "No CSV data", "CSV can be disabled from Connect", "check-circle", "blue");
+    add("Last imported", metrics.csvImportedAt ? formatProductAnalysisDate(metrics.csvImportedAt) : "Stored import", "Normalized file is stored by shop", "calendar", "blue");
+  } else if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) {
+    add("Text signals", formatInteger(textInsights.sentiment?.total), "Customer language analyzed across sources", "note", "blue");
+    add("Negative language", formatInteger(textInsights.sentiment?.negative), `${formatInteger(textInsights.sentiment?.neutral)} neutral / ${formatInteger(textInsights.sentiment?.positive)} positive`, "alert-circle", Number(textInsights.sentiment?.negative || 0) > 0 ? "red" : "teal");
+    add("Dominant emotion", getTopEmotionLabel(textInsights.emotions), "Deterministic emotion taxonomy", "lightbulb", "violet");
+    add("AI emotions", getTopEmotionLabel(textInsights.aiKnownEmotions), "Known AI sentiment labels", "wand", "violet");
+    add("Emergent emotion", getTopEmotionLabel(textInsights.aiEmergentSentiments), "New sentiment clusters suggested by AI", "target", "violet");
+    add("Subjective reactions", formatInteger(textInsights.subjectiveNegativity?.count), `${formatInteger(textInsights.subjectiveNegativity?.total)} customer text signals`, "view", "amber");
+  } else if (normalized.includes("variant")) {
+    add("Affected variants", formatInteger(getEvidenceList(metrics.affectedVariants).length), getEvidenceList(metrics.affectedVariants).slice(0, 3).join(", ") || "No affected variants stored", "duplicate", "blue");
+    add("Variant count", formatInteger(metrics.variantCount), "Shopify product variants", "product", "teal");
+    add("SKU count", formatInteger(metrics.skuCount), "Variant SKUs captured", "number", "blue");
+    add("Options", getEvidenceList(metrics.optionNames).join(", ") || "No options stored", "Size, color or product options", "checkbox", "violet");
+    add("Variant concentration", formatPercent(metrics.variantConcentration || 0), "Share of signals concentrated in affected variants", "target", "amber");
+    add("Signal trend", getEvidenceTrendLabel(metrics.signalTrend), "Issue movement for variant-related signals", "chart-line", "blue", { trend: metrics.signalTrend });
+  } else if (normalized.includes("product") || normalized.includes("shopify")) {
+    add("Description words", formatInteger(metrics.descriptionWordCount), metrics.hasDescription ? "Shopify PDP copy is present" : "Missing description", "note", metrics.hasDescription ? "teal" : "red");
+    add("Content quality", metrics.contentQualityScore ? `${metrics.contentQualityScore}/100` : "Not scored", "Deterministic content scan", "shield-check-mark", "violet");
+    add("Product type", metrics.productType || "Not stored", metrics.vendor || "Vendor not stored", "product", "blue");
+    add("Collections", formatInteger(getEvidenceList(metrics.collections).length), getEvidenceList(metrics.collections).slice(0, 3).join(", ") || "No collections stored", "duplicate", "teal");
+    add("Tags", formatInteger(getEvidenceList(metrics.tags).length), getEvidenceList(metrics.tags).slice(0, 4).join(", ") || "No tags stored", "target", "blue");
+    add("Variants", formatInteger(metrics.variantCount), `${formatInteger(metrics.skuCount)} SKUs`, "product", "violet");
+  }
+
+  if (!cards.length) {
+    points.slice(0, 6).forEach((point, index) => {
+      const parsed = parseEvidencePoint(point);
+      add(parsed.label || `Finding ${index + 1}`, parsed.body || point, "Stored source evidence", getEvidenceIcon(source), getEvidencePointTone(point) === "negative" ? "red" : "blue");
+    });
+  }
+
+  return cards.slice(0, 7);
+}
+
+function detailLastAnalysis(product) {
+  return product?.lastAnalysis && product.lastAnalysis !== "Not analyzed"
+    ? formatProductAnalysisDate(product.lastAnalysis)
+    : "Not captured";
+}
+
+function getEvidenceReasonItems(value) {
+  return getEvidenceList(value).map((item) => {
+    if (typeof item === "string") return { label: item, detail: "Stored reason", badge: "" };
+    const label = item.label || item.reason || item.name || item.value || "Reason";
+    const count = Number(item.count || item.quantity || item.units || 0);
+    const share = Number(item.share || item.percent || item.percentage || 0);
+    return {
+      label,
+      detail: count ? `${formatInteger(count)} signal${count === 1 ? "" : "s"}` : "Stored reason",
+      badge: share ? formatPercent(share) : "",
+    };
+  }).filter((item) => item.label);
+}
+
+function getEvidenceList(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function formatSentimentSummary(sentiment = {}) {
+  const total = Number(sentiment.total || 0);
+  if (!total) return "0";
+  return `${formatInteger(sentiment.negative)} negative`;
+}
+
+function getTopEmotionLabel(items = []) {
+  const list = getEvidenceList(items)
+    .map((item) => ({
+      label: item.label || item.normalizedLabel || item.code || "",
+      count: Number(item.count || item.signals || 0),
+    }))
+    .filter((item) => item.label);
+  if (!list.length) return "None stored";
+  list.sort((a, b) => b.count - a.count);
+  return list[0].count ? `${list[0].label} ${formatInteger(list[0].count)}` : list[0].label;
 }
 
 function parseEvidencePoint(point) {

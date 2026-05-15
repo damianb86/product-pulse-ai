@@ -2538,6 +2538,496 @@ s-page[inline-size="large-500"] {
   -webkit-line-clamp: 2;
 }
 
+.ppEvidenceObservabilityPanel {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-color: var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 18px 44px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppEvidenceObservabilityHeader {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppEvidenceObservabilityHeader h2 {
+  margin: 0 0 7px;
+  font-size: 17px;
+}
+
+.ppEvidenceObservabilityHeader p {
+  max-width: none;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+}
+
+.ppEvidenceTabsModern {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  border-bottom: 1px solid var(--pp-slate-200);
+  background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.52));
+}
+
+.ppEvidenceTabsModern button {
+  min-width: 0;
+  min-height: 50px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 0;
+  border-right: 1px solid var(--pp-slate-200);
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--pp-slate-500);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.ppEvidenceTabsModern button:last-child {
+  border-right: 0;
+}
+
+.ppEvidenceTabsModern button:hover,
+.ppEvidenceTabsModern button.isActive {
+  color: var(--pp-pulse-blue);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.035);
+}
+
+.ppEvidenceTabsModern button.isActive {
+  border-bottom-color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceTabsModern button > strong {
+  min-width: 22px;
+  min-height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.ppEvidenceTabsModern button.isActive > strong {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceTabIcon {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 7px;
+}
+
+.ppEvidenceSourcePanel {
+  display: grid;
+  gap: 18px;
+  margin: 14px;
+  padding: 16px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(var(--pp-slate-100-rgb), 0.36));
+}
+
+.ppEvidenceActiveHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ppEvidenceActiveTitle {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ppEvidenceActiveTitle h3 {
+  margin: 2px 0 3px;
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 820;
+  line-height: 1.2;
+}
+
+.ppEvidenceActiveTitle p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppEvidenceMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ppEvidenceMetricCard,
+.ppEvidenceReportCard {
+  min-width: 0;
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  text-decoration: none;
+}
+
+.ppEvidenceMetricCard {
+  position: relative;
+}
+
+.ppEvidenceMetricIcon,
+.ppEvidenceReportIcon {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceMetricCard > div,
+.ppEvidenceReportCard > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.ppEvidenceMetricCard span,
+.ppEvidenceReportCard small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.ppEvidenceMetricCard strong,
+.ppEvidenceReportCard strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidenceMetricCard small {
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidenceMetricCard em {
+  align-self: start;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 820;
+}
+
+.ppEvidenceMetricCard .ppMiniTrend {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.ppEvidenceMetricCard-red .ppEvidenceMetricIcon,
+.ppEvidenceMetricCard-critical .ppEvidenceMetricIcon {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppEvidenceMetricCard-amber .ppEvidenceMetricIcon,
+.ppEvidenceMetricCard-warning .ppEvidenceMetricIcon {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppEvidenceMetricCard-teal .ppEvidenceMetricIcon,
+.ppEvidenceMetricCard-success .ppEvidenceMetricIcon {
+  background: var(--pp-teal-soft);
+  color: var(--pp-signal-teal);
+}
+
+.ppEvidenceMetricCard-violet .ppEvidenceMetricIcon {
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppEvidenceReportCard {
+  background: linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(var(--pp-insight-violet-rgb), 0.07));
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceReportCard:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.3);
+  box-shadow: 0 10px 28px rgba(var(--pp-pulse-blue-rgb), 0.12);
+}
+
+.ppEvidencePanelFooter {
+  display: flex;
+  justify-content: center;
+}
+
+.ppEvidenceFullReportButton {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.32);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  font-size: 13px;
+  font-weight: 820;
+  text-decoration: none;
+}
+
+.ppEvidenceFullReportButton:hover {
+  background: var(--pp-blue-soft);
+}
+
+.ppEvidenceReportScreen {
+  gap: 18px;
+}
+
+.ppEvidenceReportHeader,
+.ppEvidenceReportSection {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppEvidenceReportHero {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.ppEvidenceReportHero > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.ppEvidenceReportHero span,
+.ppEvidenceReportSectionHeader > span {
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ppEvidenceReportHero h1 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 25px;
+  line-height: 1.1;
+}
+
+.ppEvidenceReportHero p,
+.ppEvidenceReportHero small {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ppEvidenceReportSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppEvidenceReportSectionHeader {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ppEvidenceReportSectionHeader > span {
+  width: 34px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--pp-blue-soft);
+}
+
+.ppEvidenceReportSectionHeader h2,
+.ppEvidenceReportSourceHeader h3,
+.ppEvidenceReportIssue h3,
+.ppEvidenceReportBlock h3 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 16px;
+}
+
+.ppEvidenceReportSectionHeader p,
+.ppEvidenceReportSourceHeader p,
+.ppEvidenceReportIssue p,
+.ppEvidenceReportBlock p {
+  margin: 4px 0 0;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppEvidenceReportIssueGrid,
+.ppEvidenceReportSourceList,
+.ppEvidenceReportBlock {
+  display: grid;
+  gap: 12px;
+}
+
+.ppEvidenceReportIssue,
+.ppEvidenceReportSource,
+.ppEvidenceReportBlock article {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-mist-gray);
+}
+
+.ppEvidenceReportIssue > div:first-child,
+.ppEvidenceReportSourceHeader {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+}
+
+.ppEvidenceReportIssue dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.ppEvidenceReportIssue dl > div {
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+}
+
+.ppEvidenceReportIssue dt {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceReportIssue dd {
+  margin: 4px 0 0;
+  color: var(--pp-slate-900);
+  font-weight: 820;
+}
+
+.ppEvidenceReportIssue ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+}
+
+.ppEvidenceReportSourceHeader > strong {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+}
+
+.ppEvidenceRawTableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+}
+
+.ppEvidenceRawTable {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+}
+
+.ppEvidenceRawTable th,
+.ppEvidenceRawTable td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ppEvidenceRawTable th {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-900);
+  font-size: 11px;
+  font-weight: 840;
+  text-transform: uppercase;
+}
+
+.ppEvidenceRawTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.ppEvidenceReportTwoColumn {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.ppEvidenceReportBlock pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .ppIssuesTableWrap {
   position: relative;
   overflow: visible;
@@ -7784,6 +8274,10 @@ s-page[inline-size="large-500"] {
   .ppEvidenceObservabilityGrid,
   .ppEvidenceSourceGrid,
   .ppEvidencePointList,
+  .ppEvidenceMetricGrid,
+  .ppEvidenceReportSummary,
+  .ppEvidenceReportTwoColumn,
+  .ppEvidenceReportIssue dl,
   .ppCheckedGrid {
     grid-template-columns: 1fr;
   }
@@ -7795,6 +8289,27 @@ s-page[inline-size="large-500"] {
 
   .ppEvidenceHeaderMeta {
     justify-items: start;
+  }
+
+  .ppEvidenceTabsModern {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppEvidenceTabsModern button {
+    justify-content: flex-start;
+  }
+
+  .ppEvidenceActiveHeader,
+  .ppEvidenceReportIssue > div:first-child,
+  .ppEvidenceReportSourceHeader {
+    display: grid;
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+  }
+
+  .ppEvidenceSourcePanel {
+    margin: 10px;
+    padding: 12px;
   }
 
   .ppEvidenceSourceRail button {

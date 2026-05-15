@@ -6,6 +6,7 @@ import {
   ConnectScreen,
   DashboardScreen,
   ProductDiagnosisScreen,
+  ProductEvidenceReportScreen,
   ProductsScreen,
   SettingsScreen,
 } from "../../app/components/ProductPulseScreens";
@@ -251,14 +252,17 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/Sizing & fit expectations are not being met/)).toBeInTheDocument();
     expect(screen.getByText("$24,700")).toBeInTheDocument();
     expect(screen.getByText("$9,200 estimated margin at risk")).toBeInTheDocument();
-    expect(screen.getByText("Too tight in waist")).toBeInTheDocument();
+    expect(screen.getAllByText(/Fit runs small around waist and inseam/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Deep analysis completed").length).toBeGreaterThan(0);
     expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
-    expect(screen.getByText("AI evidence graph")).toBeInTheDocument();
-    expect(screen.getByText("Linked diagnostics")).toBeInTheDocument();
+    expect(screen.getByText("Explore and review the evidence behind each detected issue.")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Returns" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Total returns")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View Full Report" })).toHaveAttribute("href", "/app/products/core-linen-trouser/evidence?source=Returns");
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
-    expect(screen.getByText("Sizing is smaller than the size chart")).toBeInTheDocument();
+    expect(screen.getByText("Total reviews")).toBeInTheDocument();
+    expect(screen.getByText("Negative reviews")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit suggested text for Add fit note" }));
     fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
     fireEvent.click(screen.getAllByRole("button", { name: "Apply to product" })[0]);
@@ -380,13 +384,56 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Fear or safety concern").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: /Customer language analysis/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("All customer text sentiment: 3 negative, 1 neutral, 0 positive")).toBeInTheDocument();
-    expect(screen.getByLabelText("Deterministic emotion taxonomy: Fear 2, Disappointment 1")).toBeInTheDocument();
-    expect(screen.getByLabelText("AI emotion taxonomy: Fear 2")).toBeInTheDocument();
-    expect(screen.getByLabelText("Emergent emotions: Superstitious discomfort 2")).toBeInTheDocument();
-    expect(screen.getByLabelText("Return notes sentiment: 2 negative, 1 neutral, 0 positive")).toBeInTheDocument();
-    expect(screen.getByLabelText("\"Other\" return notes classified as Fit & sizing 2 times")).toBeInTheDocument();
+    expect(screen.getByText("Text signals")).toBeInTheDocument();
+    expect(screen.getByText("Negative language")).toBeInTheDocument();
+    expect(screen.getByText("Dominant emotion")).toBeInTheDocument();
+    expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
+    expect(screen.getByText("AI emotions")).toBeInTheDocument();
+    expect(screen.getByText("Emergent emotion")).toBeInTheDocument();
+    expect(screen.getByText("Superstitious discomfort 2")).toBeInTheDocument();
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
+  });
+
+  it("renders the full product evidence report with raw evidence relationships", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        textInsights: {
+          sentiment: { total: 4, negative: 3, neutral: 1, positive: 0 },
+          returns: {
+            sentiment: { total: 3, negative: 2, neutral: 1, positive: 0 },
+            emotions: [{ code: "fear", label: "Fear", polarity: "negative", count: 2 }],
+            examples: [{
+              text: "Other - Scares me more than nothing. I want them to take him away.",
+              sentiment: "negative",
+              emotion: "fear",
+            }],
+          },
+          emotions: [{ code: "fear", label: "Fear", polarity: "negative", count: 2 }],
+          aiKnownEmotions: [{ code: "fear", label: "Fear", polarity: "negative", count: 2 }],
+          aiEmergentSentiments: [{ label: "Superstitious discomfort", normalizedLabel: "superstitious_discomfort", polarity: "negative", signals: 2 }],
+          otherReturnClassifications: [{ issueCode: "fit_sizing", label: "Fit & sizing", count: 2 }],
+        },
+      },
+      evidence: [
+        ...defaultView.startHere.evidence,
+        { source: "Customer language analysis", quote: "Dominant sentiment: negative", weight: "4 customer text signals analyzed" },
+      ],
+    };
+
+    renderWithRouter(<ProductEvidenceReportScreen product={product} source="Customer language analysis" />);
+    expect(screen.getByText("Full Evidence Report")).toBeInTheDocument();
+    expect(screen.getByText("Issues detected")).toBeInTheDocument();
+    expect(screen.getByText("Evidence sources")).toBeInTheDocument();
+    expect(screen.getByText("Raw product metrics")).toBeInTheDocument();
+    expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
+    expect(screen.getByText("All customer text sentiment")).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent === "3 negative, 1 neutral, 0 positive")).toBeInTheDocument();
+    expect(screen.getAllByText("Deterministic emotion taxonomy").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
+    expect(screen.getByText((_, element) => element?.textContent === "\"Other\" return notes classified as Fit & sizing 2 times")).toBeInTheDocument();
+    expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
   });
 
   it("collapses long recommended action descriptions", () => {
