@@ -5063,7 +5063,12 @@ s-page[inline-size="large-500"] {
   width: min(1040px, calc(100vw - 40px));
   max-height: min(86vh, 900px);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "header"
+    "content"
+    "footer";
   gap: 14px;
   overflow: hidden;
   padding: 18px;
@@ -5076,6 +5081,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionModalHeader {
+  grid-area: header;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: start;
@@ -5136,6 +5142,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionModal > .ppProductActionItem {
+  grid-area: content;
+  width: 100%;
   min-height: 0;
   overflow: auto;
   padding: 14px;
@@ -5152,6 +5160,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionModalFooter {
+  grid-area: footer;
   padding: 12px 4px 2px;
   border-top: 1px solid var(--pp-slate-200);
 }
