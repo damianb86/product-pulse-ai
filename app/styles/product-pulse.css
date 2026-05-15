@@ -6328,9 +6328,12 @@ s-page[inline-size="large-500"] {
   grid-column: span 2;
 }
 
-.ppAnalyticsPanelIssueImpact,
+.ppAnalyticsPanelIssueImpact {
+  grid-column: span 4;
+}
+
 .ppAnalyticsPanelBreakdown {
-  grid-column: span 3;
+  grid-column: span 2;
 }
 
 .ppAnalyticsPanelActionPerformance,
@@ -6814,6 +6817,27 @@ s-page[inline-size="large-500"] {
   margin: 0;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-insight-violet));
+}
+
+.ppImpactBreakdownMore {
+  justify-self: center;
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--pp-pulse-blue);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ppImpactBreakdownMore:hover,
+.ppImpactBreakdownMore:focus-visible {
+  color: var(--pp-insight-violet);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  outline: none;
 }
 
 .ppActionPerformance,
@@ -9158,14 +9182,33 @@ s-page[inline-size="large-500"] {
   color: var(--pp-insight-violet);
 }
 
+.ppProductPulseSearchStatusPopover {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.28);
+}
+
 .ppProductPulseSearchStatusPopover strong,
 .ppProductPulseSearchStatusPopover small {
   display: block;
 }
 
+.ppProductPulseSearchStatusPopover strong {
+  color: var(--pp-cloud-white);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
 .ppProductPulseSearchStatusPopover small {
   margin-top: 4px;
   color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -9704,8 +9747,33 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchActionsButton s-icon,
-.ppWatchActionsButton .ppBinocularsIcon {
+.ppWatchActionsButton .ppBinocularsIcon,
+.ppWatchActionsButton .ppPauseGlyph {
   color: currentColor;
+}
+
+.ppPauseGlyph {
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: currentColor;
+}
+
+.ppPauseGlyph span {
+  width: 3px;
+  height: 12px;
+  display: block;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.ppPauseGlyph-inline {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .ppWatchActionsButton:disabled {
@@ -12457,8 +12525,11 @@ s-page[inline-size="large-500"] {
     grid-column: span 2;
   }
 
+  .ppAnalyticsPanelIssueImpact {
+    grid-column: span 2;
+  }
+
   .ppAnalyticsPanelTrend,
-  .ppAnalyticsPanelIssueImpact,
   .ppAnalyticsPanelBreakdown,
   .ppAnalyticsPanelActionPerformance,
   .ppAnalyticsPanelCatalogCoverage,

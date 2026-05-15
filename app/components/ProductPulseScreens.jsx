@@ -1284,7 +1284,11 @@ function WatchlistProductRow({ product, position = 0, total = 0 }) {
             <input type="hidden" name="_action" value={paused ? "resume-watched-product" : "pause-watched-product"} />
             <input type="hidden" name="productGid" value={product.productGid || ""} />
             <button className="ppWatchActionsButton" type="submit" aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}>
-              <s-icon type={paused ? "play" : "pause"} size="small"></s-icon>
+              {paused ? (
+                <s-icon type="play" size="small"></s-icon>
+              ) : (
+                <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
+              )}
             </button>
           </Form>
           <Form method="post">
@@ -1550,7 +1554,7 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
             <Form method="post">
               <input type="hidden" name="_action" value="pause-all-watches" />
               <button className="ppSecondaryButton" type="submit" disabled={!activeWatchedCount || pendingAction === "pause-all-watches"}>
-                <s-icon type="pause" size="small"></s-icon>
+                <span className="ppPauseGlyph ppPauseGlyph-inline" aria-hidden="true"><span /><span /></span>
                 {pendingAction === "pause-all-watches" ? "Pausing..." : "Pause all watches"}
               </button>
             </Form>
@@ -8733,11 +8737,19 @@ function AnalyticsBreakdownTabs({ filters, selectedKey, onChange }) {
 }
 
 function ImpactBreakdownPanel({ breakdown }) {
+  const [expanded, setExpanded] = useState(false);
   const rows = breakdown?.rows?.length ? breakdown.rows : [];
+  const visibleRows = expanded ? rows : rows.slice(0, 6);
+  const hiddenCount = Math.max(rows.length - visibleRows.length, 0);
   const max = Math.max(...rows.map((row) => Number(row.marginAtRisk || row.value || 0)), 1);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [breakdown?.key]);
+
   return (
     <div className="ppImpactBreakdownList">
-      {rows.map((row) => {
+      {visibleRows.map((row) => {
         const pct = Math.max(5, Math.round((Number(row.marginAtRisk || row.value || 0) / max) * 100));
         return (
           <article key={`${breakdown?.key || "breakdown"}-${row.label}`}>
@@ -8755,6 +8767,11 @@ function ImpactBreakdownPanel({ breakdown }) {
           </article>
         );
       })}
+      {!expanded && hiddenCount > 0 && (
+        <button className="ppImpactBreakdownMore" type="button" onClick={() => setExpanded(true)}>
+          View More
+        </button>
+      )}
     </div>
   );
 }
