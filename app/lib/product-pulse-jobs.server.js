@@ -522,6 +522,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   const payload = {
     ...(action.payload || {}),
     ...(payloadOverride.draftText ? { draftText: payloadOverride.draftText } : {}),
+    ...(payloadOverride.tag ? { tag: payloadOverride.tag } : {}),
     ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
   };
   const shouldApplyToShopify = payloadOverride.applyMode === "apply";

@@ -426,6 +426,31 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
   });
 
+  it("uses an investigation modal for non-Shopify-change actions", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "supplier-qa-review",
+        label: "Supplier / QA review needed",
+        type: "Workflow",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          contentIssues: [{ label: "Quality complaints need review" }],
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Supplier / QA review needed" }));
+    expect(screen.getByText("Manual follow-up")).toBeInTheDocument();
+    expect(screen.getByText("No Shopify change")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What to verify" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Preview" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add QA tag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start verification" })).toBeInTheDocument();
+  });
+
   it("renders granular sentiment and language evidence in product diagnosis", () => {
     const product = {
       ...defaultView.startHere,

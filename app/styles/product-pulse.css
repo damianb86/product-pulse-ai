@@ -5188,6 +5188,13 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
+.ppActionReviewBody-investigation {
+  border-color: rgba(var(--pp-slate-500-rgb), 0.18);
+  background:
+    linear-gradient(180deg, rgba(var(--pp-slate-100-rgb), 0.68), rgba(255, 255, 255, 0) 30%),
+    var(--pp-cloud-white);
+}
+
 .ppActionReviewSection {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
@@ -5401,6 +5408,10 @@ s-page[inline-size="large-500"] {
   gap: 12px;
 }
 
+.ppActionApplyDetailsGrid-investigation {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .ppActionApplyDetail {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -5452,6 +5463,48 @@ s-page[inline-size="large-500"] {
 .ppActionApplyDetail-high s-icon {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
+}
+
+.ppInvestigationLead {
+  max-width: 760px;
+  color: var(--pp-slate-700) !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+.ppInvestigationChecklist {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppInvestigationChecklist li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.ppInvestigationChecklist s-icon {
+  margin-top: 1px;
+  color: var(--pp-signal-teal);
+}
+
+.ppInvestigationNextSteps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
 .ppActionAdvancedDetails {

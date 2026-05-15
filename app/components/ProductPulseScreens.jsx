@@ -1400,6 +1400,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
   const application = confirmation.application || getRecommendedActionApplication(action, product);
   const editedText = String(confirmation.editedText ?? application.value ?? "");
   const isTagChange = String(application.target || "").toLowerCase().includes("tag");
+  const tagOverride = String(confirmation.tagOverride || "");
   const valuePreview = editedText || "No value supplied.";
   const submitLabel = pending ? "Applying change..." : "Accept and apply change";
 
@@ -1451,6 +1452,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           <input type="hidden" name="actionId" value={action.id || ""} />
           <input type="hidden" name="label" value={action.title || action.label || ""} />
           <input type="hidden" name="draftText" value={editedText} />
+          {tagOverride && <input type="hidden" name="tag" value={tagOverride} />}
           <input type="hidden" name="applyMode" value="apply" />
           <input type="hidden" name="actionVariant" value={application.variantId || ""} />
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
@@ -3407,6 +3409,37 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     showToast(`${action.title} dismissed for this review session.`);
   };
 
+  const handleMarkActionReviewed = (action) => {
+    const actionKey = getRecommendedActionKey(action);
+    setMinimizedActionStates((current) => ({ ...current, [actionKey]: "reviewed" }));
+    setSelectedRecommendedAction(null);
+    setActionConfirmation(null);
+    setEditingAction(null);
+    showToast(`${action.title} marked as reviewed for this review session.`);
+  };
+
+  const handleAddInvestigationTag = (action) => {
+    const tag = getInvestigationTagForAction(action);
+    if (!tag) {
+      showToast("No internal tag is available for this investigation.", "validation_error");
+      return;
+    }
+    const tagAction = {
+      ...action,
+      payload: {
+        ...(action.payload || {}),
+        tag,
+      },
+    };
+    setSelectedRecommendedAction(null);
+    setActionConfirmation({
+      action: tagAction,
+      editedText: tag,
+      tagOverride: tag,
+      application: getRecommendedActionApplication(tagAction, product),
+    });
+  };
+
   const handleExpandArchivedAction = (action) => {
     setSelectedRecommendedAction(action);
   };
@@ -3730,6 +3763,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             onReview={handleReviewEvidence}
             onRequestApply={handleRequestApplyAction}
             onDismiss={handleDismissAction}
+            onMarkReviewed={handleMarkActionReviewed}
+            onAddInvestigationTag={handleAddInvestigationTag}
           />
         )}
         {actionConfirmation && (
@@ -5983,6 +6018,7 @@ function getArchivedActionState(action = {}, minimizedActionStates = {}) {
 function getArchivedActionLabel(state) {
   if (state === "dismissed") return "Dismissed";
   if (state === "applied") return "Applied";
+  if (state === "reviewed") return "Reviewed";
   return "Minimized";
 }
 
@@ -6016,11 +6052,11 @@ function getCompactActionPriorityTone(priority = "") {
 
 function ProductActionRecipeDetails({ application }) {
   const rows = [
-    { label: "Trigger", value: application.trigger, icon: "chart-line" },
-    { label: "Shopify field", value: application.shopifyField, icon: "product" },
-    { label: "Expected impact", value: application.expectedImpact, icon: "target" },
-    { label: "Apply risk", value: application.applicationRisk, icon: "alert-circle", tone: getActionRiskTone(application.applicationRisk) },
-    { label: "Flow", value: application.approval || application.reviewApplyFlow, icon: "check" },
+    { label: "Reason detected", value: application.trigger, icon: "chart-line" },
+    { label: "Will edit", value: application.shopifyField, icon: "product" },
+    { label: "Expected benefit", value: application.expectedImpact, icon: "target" },
+    { label: "Risk", value: application.applicationRisk, icon: "alert-circle", tone: getActionRiskTone(application.applicationRisk) },
+    { label: "Approval", value: application.approval || application.reviewApplyFlow, icon: "check" },
   ].filter((item) => item.value);
 
   if (!rows.length) return null;
@@ -6040,6 +6076,7 @@ function ProductActionRecipeDetails({ application }) {
 
 function RecommendedActionReviewBody({
   action,
+  actionKind = "applyable",
   application,
   product,
   editedText,
@@ -6052,6 +6089,16 @@ function RecommendedActionReviewBody({
   onSelectedVariantChange,
 }) {
   const detailText = String(application.editable ? editedText : application.value || action.detail || "");
+
+  if (actionKind === "investigation") {
+    return (
+      <RecommendedActionInvestigationBody
+        action={action}
+        application={application}
+        product={product}
+      />
+    );
+  }
 
   return (
     <div className="ppProductActionBody ppActionReviewBody">
@@ -6103,6 +6150,152 @@ function RecommendedActionReviewBody({
       <RecommendedActionAdvancedDetails action={action} application={application} />
     </div>
   );
+}
+
+function RecommendedActionInvestigationBody({ action, application, product }) {
+  return (
+    <div className="ppProductActionBody ppActionReviewBody ppActionReviewBody-investigation">
+      <RecommendedActionReviewSection icon="search" title="Recommended follow-up">
+        <p className="ppInvestigationLead">{getInvestigationFollowupText(action, application, product)}</p>
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionReviewSection icon="check-circle" title="What to verify">
+        <ul className="ppInvestigationChecklist">
+          {getInvestigationChecklistItems(action, product).map((item) => (
+            <li key={item}>
+              <s-icon type="check" size="small"></s-icon>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionReviewSection icon="chart-line" title="Evidence summary">
+        <RecommendedActionWhyItems action={action} product={product} />
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionReviewSection icon="target" title="Suggested next steps">
+        <ol className="ppInvestigationNextSteps">
+          {getInvestigationNextSteps(action).map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ol>
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionReviewSection icon="info" title="Apply details">
+        <RecommendedActionInvestigationDetails action={action} application={application} />
+      </RecommendedActionReviewSection>
+
+      <RecommendedActionAdvancedDetails action={action} application={application} />
+    </div>
+  );
+}
+
+function getInvestigationFollowupText(action = {}, application = {}, product = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (normalized.includes("supplier") || normalized.includes("qa")) {
+    return "Verify whether this product has a QA issue, source mismatch, supplier-related quality problem, or a signal that should be escalated internally.";
+  }
+  if (normalized.includes("variant")) {
+    return "Inspect whether the diagnosis is concentrated in one variant, SKU, size, color, supplier, or product option before changing customer-facing content.";
+  }
+  if (normalized.includes("source") || normalized.includes("integrity") || normalized.includes("mismatch")) {
+    return "Confirm whether the evidence belongs to this exact Shopify product and whether reviews, returns, or CSV data were linked correctly.";
+  }
+  if (normalized.includes("fulfillment") || normalized.includes("return") || normalized.includes("refund")) {
+    return "Review the operational evidence and decide whether the issue is product-related, fulfillment-related, refund-policy noise, or a customer expectation mismatch.";
+  }
+  return application.intro || action.reason || `Review the supporting evidence for ${product.title || "this product"} before deciding whether a Shopify change or internal follow-up is needed.`;
+}
+
+function getInvestigationChecklistItems(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  const items = [];
+
+  if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
+    items.push("Open each supporting evidence source and confirm which signals are tied to this product.");
+  }
+  if (normalized.includes("source") || normalized.includes("mismatch")) {
+    items.push("Check whether reviews or imported records mention another product, SKU, title, handle, or collection.");
+  }
+  if (normalized.includes("variant") || Array.isArray(payload.affectedVariants)) {
+    items.push("Confirm whether one variant, SKU, size, color, or supplier is driving most of the issue.");
+  }
+  if (normalized.includes("qa") || normalized.includes("supplier") || normalized.includes("quality") || String(product.primaryIssue || "").toLowerCase().includes("quality")) {
+    items.push("Inspect quality complaints and decide whether QA or supplier escalation is needed.");
+  }
+  if (Number(payload.returnUnits || product.metrics?.returnUnits || 0) > 0 || Number(product.metrics?.returnRate || 0) > 0) {
+    items.push("Review return reasons and notes to separate product defects from expectation or fulfillment noise.");
+  }
+  if (Number(payload.negativeReviewCount || product.metrics?.negativeReviewCount || 0) > 0) {
+    items.push("Read negative review language and confirm whether it describes a repeatable product problem.");
+  }
+
+  items.push("Decide whether the next step is a product content change, internal tag, QA check, supplier escalation, or dismissal.");
+  return uniqueStrings(items).slice(0, 6);
+}
+
+function getInvestigationNextSteps(action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  const steps = ["Open supporting evidence"];
+  if (normalized.includes("qa") || normalized.includes("supplier") || normalized.includes("quality")) {
+    steps.push("Add an internal QA tag if the issue is confirmed");
+    steps.push("Escalate internally with the strongest evidence");
+  } else if (normalized.includes("variant")) {
+    steps.push("Inspect affected variants in Shopify");
+    steps.push("Create a variant-specific fix if one option is responsible");
+  } else {
+    steps.push("Mark as reviewed after verification");
+    steps.push("Escalate internally only if the issue is confirmed");
+  }
+  steps.push("Dismiss the action if the evidence does not support it");
+  return steps.slice(0, 4);
+}
+
+function RecommendedActionInvestigationDetails({ action, application }) {
+  const optionalAction = getInvestigationOptionalShopifyAction(action);
+  const details = [
+    { icon: "product", label: "Will edit", value: "Nothing by default", tone: "blue" },
+    { icon: "tag", label: "Optional Shopify action", value: optionalAction, tone: "blue" },
+    { icon: "alert-circle", label: "Risk", value: application.applicationRisk || "Low", tone: getActionRiskTone(application.applicationRisk) },
+    { icon: "check", label: "Approval", value: "Manual review required", tone: "warning" },
+  ];
+
+  return (
+    <div className="ppActionApplyDetailsGrid ppActionApplyDetailsGrid-investigation">
+      {details.map((detail) => (
+        <span className={`ppActionApplyDetail ppActionApplyDetail-${detail.tone || "neutral"}`} key={detail.label}>
+          <s-icon type={detail.icon} size="small"></s-icon>
+          <small>{detail.label}</small>
+          <strong>{detail.value}</strong>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function getInvestigationOptionalShopifyAction(action = {}) {
+  if (action.payload?.tag || (Array.isArray(action.payload?.tags) && action.payload.tags.length)) return "Add internal tag";
+  if (getInvestigationTagForAction(action)) return "Add QA review tag";
+  return "None";
+}
+
+function getInvestigationTagForAction(action = {}) {
+  if (action.payload?.tag) return String(action.payload.tag).trim();
+  if (Array.isArray(action.payload?.tags) && action.payload.tags.length) return String(action.payload.tags[0] || "").trim();
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (normalized.includes("qa") || normalized.includes("supplier") || normalized.includes("quality")) return "qa-review-needed";
+  return "";
+}
+
+function getInvestigationPrimaryActionLabel(action = {}, mode = "") {
+  if (mode === "copy") return "Copy note";
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (normalized.includes("variant")) return "Inspect evidence";
+  if (normalized.includes("source") || normalized.includes("integrity") || normalized.includes("mismatch")) return "Open evidence";
+  if (normalized.includes("qa") || normalized.includes("supplier")) return "Start verification";
+  return "Open evidence";
 }
 
 function RecommendedActionReviewSection({ icon, title, children }) {
@@ -6364,10 +6557,10 @@ function RecommendedActionAdvancedDetails({ action, application }) {
       <div>
         <ProductActionRecipeDetails application={application} />
         {application.trigger && (
-          <p><strong>Trigger:</strong> {application.trigger}</p>
+          <p><strong>Reason detected:</strong> {application.trigger}</p>
         )}
         {application.expectedImpact && (
-          <p><strong>Expected impact:</strong> {application.expectedImpact}</p>
+          <p><strong>Expected benefit:</strong> {application.expectedImpact}</p>
         )}
         {action.reason && (
           <p><strong>Diagnosis rationale:</strong> {action.reason}</p>
@@ -6403,7 +6596,22 @@ function getActionRiskTone(value = "") {
   return "low";
 }
 
-function getRecommendedActionHeaderPills(action = {}, application = {}) {
+function getRecommendedActionKind(mode = "", application = {}) {
+  if (mode === "apply-product") return "applyable";
+  const target = String(application.target || "").toLowerCase();
+  if (target.includes("product description") || target.includes("product title") || target.includes("product tags") || target.includes("product status")) return "applyable";
+  return "investigation";
+}
+
+function getRecommendedActionHeaderPills(action = {}, application = {}, actionKind = "applyable") {
+  if (actionKind === "investigation") {
+    return [
+      { icon: "info", label: "No Shopify change", tone: "blue" },
+      { icon: "check-circle", label: "Manual verification required", tone: "medium" },
+      { icon: "alert-circle", label: `${application.applicationRisk || "Low"} risk`, tone: getActionRiskTone(application.applicationRisk) },
+    ];
+  }
+
   return [
     { icon: "star", label: action.priority || "Primary next step", tone: "blue" },
     { icon: "check-circle", label: `${application.applicationRisk || "Low"} risk`, tone: getActionRiskTone(application.applicationRisk) },
@@ -6411,7 +6619,19 @@ function getRecommendedActionHeaderPills(action = {}, application = {}) {
   ].filter((pill) => pill.label);
 }
 
-function getRecommendedActionModalSubtitle(application = {}) {
+function getRecommendedActionModalKicker(actionKind = "applyable", action = {}) {
+  if (actionKind !== "investigation") return "Recommended action";
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (normalized.includes("source") || normalized.includes("integrity") || normalized.includes("mismatch")) return "Verification needed";
+  if (normalized.includes("qa") || normalized.includes("supplier")) return "Manual follow-up";
+  return "Investigation recommended";
+}
+
+function getRecommendedActionModalSubtitle(application = {}, actionKind = "applyable") {
+  if (actionKind === "investigation") {
+    return "Review the checklist and evidence before deciding whether this needs a Shopify change or an internal follow-up.";
+  }
+
   const target = String(application.target || "").toLowerCase();
   if (target.includes("description") && application.insertionPosition === "prepend") {
     return "Create a note shoppers will see before they buy.";
@@ -6431,23 +6651,25 @@ function getRecommendedActionModalSubtitle(application = {}) {
   return "Review the proposed Shopify change before applying it.";
 }
 
-function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
+function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss, onMarkReviewed, onAddInvestigationTag }) {
   if (!action) return null;
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
   const application = getRecommendedActionApplication(action, product);
-  const headerPills = getRecommendedActionHeaderPills(action, application);
+  const mode = action.mode || getRecommendedActionMode(action, 0);
+  const actionKind = getRecommendedActionKind(mode, application);
+  const headerPills = getRecommendedActionHeaderPills(action, application, actionKind);
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
-      <section className="ppRecommendedActionModal" role="dialog" aria-modal="true" aria-labelledby="recommended-action-detail-title">
+      <section className={`ppRecommendedActionModal ppRecommendedActionModal-${actionKind}`} role="dialog" aria-modal="true" aria-labelledby="recommended-action-detail-title">
         <div className="ppRecommendedActionModalHeader">
           <div className="ppProductActionIcon">
             <s-icon type={action.icon} size="small"></s-icon>
             <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
           </div>
           <div>
-            <span className="ppRecommendedActionModalKicker">Recommended action</span>
+            <span className="ppRecommendedActionModalKicker">{getRecommendedActionModalKicker(actionKind, action)}</span>
             <h2 className="ppRecommendedActionModalTitle" id="recommended-action-detail-title">{action.title}</h2>
             <span className="ppRecommendedActionModalPills">
               {headerPills.map((pill) => (
@@ -6458,7 +6680,7 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
               ))}
               {action.appliedRecord && <em>{applied ? "Applied" : drafted ? "Draft saved" : action.appliedRecord.status}</em>}
             </span>
-            <p>{getRecommendedActionModalSubtitle(application)}</p>
+            <p>{getRecommendedActionModalSubtitle(application, actionKind)}</p>
           </div>
           <button className="ppModalCloseButton" type="button" aria-label="Close recommended action" onClick={onClose}>
             <s-icon type="x" size="small"></s-icon>
@@ -6473,6 +6695,9 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
           onReview={onReview}
           onRequestApply={onRequestApply}
           onDismiss={onDismiss}
+          onMarkReviewed={onMarkReviewed}
+          onAddInvestigationTag={onAddInvestigationTag}
+          actionKind={actionKind}
           showHeader={false}
         />
       </section>
@@ -6480,7 +6705,7 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
   );
 }
 
-function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onCollapse, showHeader = true }) {
+function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onMarkReviewed, onAddInvestigationTag, onCollapse, showHeader = true, actionKind: forcedActionKind = "" }) {
   const baseApplication = getRecommendedActionApplication(action, product);
   const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
   const application = getRecommendedActionApplication(action, product, { variantId: selectedVariantId || baseApplication.defaultVariantId });
@@ -6492,6 +6717,8 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
+  const actionKind = forcedActionKind || getRecommendedActionKind(mode, application);
+  const investigationTag = actionKind === "investigation" ? getInvestigationTagForAction(action) : "";
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const defaultButtonText = applied
     ? "Applied"
@@ -6502,7 +6729,11 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
         : mode === "apply-product"
           ? application.applyLabel
           : action.action;
-  const buttonText = !showHeader && mode === "apply-product" && !applied && !drafted && !pending ? "Apply change" : defaultButtonText;
+  const buttonText = !showHeader && actionKind === "applyable" && mode === "apply-product" && !applied && !drafted && !pending
+    ? "Apply change"
+    : !showHeader && actionKind === "investigation" && !applied && !drafted && !pending
+      ? getInvestigationPrimaryActionLabel(action, mode)
+      : defaultButtonText;
   const detailText = String(application.editable ? editedText : action.detail || "");
   const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
   const disabled = pending || applied;
@@ -6515,6 +6746,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     onEdit,
     onRequestApply,
     onReview,
+    actionKind,
   });
 
   useEffect(() => {
@@ -6531,6 +6763,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const actionBody = (
     <RecommendedActionReviewBody
       action={action}
+      actionKind={actionKind}
       application={application}
       product={product}
       editedText={editedText}
@@ -6550,10 +6783,21 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
         <s-icon type="x" size="small"></s-icon>
         <span>Dismiss</span>
       </button>
-      {!showHeader && application.editable && (
+      {!showHeader && actionKind === "applyable" && application.editable && (
         <button className="ppActionEditFooterButton" type="button" onClick={() => setIsEditingInline(true)} disabled={pending || applied}>
           <s-icon type="edit" size="small"></s-icon>
           <span>Edit text</span>
+        </button>
+      )}
+      {!showHeader && actionKind === "investigation" && (
+        <button
+          className="ppActionEditFooterButton"
+          type="button"
+          onClick={() => investigationTag ? onAddInvestigationTag?.(action) : onMarkReviewed?.(action)}
+          disabled={pending || applied}
+        >
+          <s-icon type={investigationTag ? "tag" : "check"} size="small"></s-icon>
+          <span>{investigationTag ? "Add QA tag" : "Mark reviewed"}</span>
         </button>
       )}
       {actionButton}
@@ -6628,13 +6872,21 @@ function getDescriptionInsertionMarker(application = {}) {
 }
 
 function getRecommendedActionButton(action, mode, buttonText, disabled, context) {
-  const { actionId, application, editedText, product, onCopy, onEdit, onRequestApply, onReview } = context;
+  const { actionId, application, editedText, product, onCopy, onEdit, onRequestApply, onReview, actionKind } = context;
   const content = (
     <>
       <span>{buttonText}</span>
       <s-icon type={disabled ? "check" : "chevron-right"} size="small"></s-icon>
     </>
   );
+
+  if (actionKind === "investigation" && mode !== "copy") {
+    return (
+      <button className="ppActionCtaButton" type="button" onClick={() => onReview(action)} disabled={disabled}>
+        {content}
+      </button>
+    );
+  }
 
   if (mode === "edit") {
     return (
