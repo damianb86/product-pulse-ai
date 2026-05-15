@@ -1016,6 +1016,360 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   );
 }
 
+export function WatchlistScreen({ data = {}, actionData }) {
+  const navigation = useNavigation();
+  const submit = useSubmit();
+  const shopifyProductSearchFetcher = useFetcher();
+  const [shopifyProductSearchOpen, setShopifyProductSearchOpen] = useState(false);
+  const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
+  const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
+  const watchlist = data.watchlist || {};
+  const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
+  const mock = watchlist.mock || {};
+  const maxProducts = Number(watchlist.maxProducts || 5);
+  const watchedCount = Number(watchlist.watchedCount ?? rows.length);
+  const slotsAvailable = Math.max(0, Number(watchlist.slotsAvailable ?? maxProducts - watchedCount));
+  const watchedProductIds = useMemo(() => new Set(rows.map((row) => row.productGid).filter(Boolean)), [rows]);
+  const pendingAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-watched-product";
+  const normalizedShopifyProductSearchQuery = shopifyProductSearchQuery.trim();
+  const shopifyProductSearchData = shopifyProductSearchFetcher.data || {};
+  const shopifyProductSearchResponseQuery = String(shopifyProductSearchData.query || "");
+  const shopifyProductSearchHasQuery = normalizedShopifyProductSearchQuery.length >= 2;
+  const shopifyProductSearchHasFreshResponse = shopifyProductSearchHasQuery
+    && shopifyProductSearchResponseQuery === normalizedShopifyProductSearchQuery;
+  const shopifyProductSearchResults = shopifyProductSearchHasFreshResponse
+    ? shopifyProductSearchData.products || []
+    : [];
+  const shopifyProductSearchPending = shopifyProductSearchHasQuery
+    && (shopifyProductSearchFetcher.state !== "idle" || !shopifyProductSearchHasFreshResponse);
+  const shopifyProductSearchError = shopifyProductSearchHasFreshResponse && shopifyProductSearchData.status === "validation_error"
+    ? shopifyProductSearchData.message
+    : "";
+  const atCapacity = watchedCount >= maxProducts;
+
+  useEffect(() => {
+    shopifyProductSearchSubmitRef.current = shopifyProductSearchFetcher.submit;
+  }, [shopifyProductSearchFetcher.submit]);
+
+  useEffect(() => {
+    if (!shopifyProductSearchOpen) return undefined;
+    const query = shopifyProductSearchQuery.trim();
+    if (query.length < 2) return undefined;
+
+    const timeout = window.setTimeout(() => {
+      const formData = new FormData();
+      formData.set("_action", "search-shopify-products");
+      formData.set("query", query);
+      shopifyProductSearchSubmitRef.current(formData, { method: "post" });
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [shopifyProductSearchOpen, shopifyProductSearchQuery]);
+
+  useEffect(() => {
+    if (actionData?.status === "success" && actionData?.action?.id === "add-watched-product") {
+      setShopifyProductSearchOpen(false);
+      setShopifyProductSearchQuery("");
+    }
+  }, [actionData]);
+
+  const handleAddWatchedProduct = (product) => {
+    if (pendingAdd || !product?.id || watchedProductIds.has(product.id)) return;
+    const formData = new FormData();
+    formData.set("_action", "add-watched-product");
+    formData.set("productGid", product.id);
+    formData.set("title", product.title || "");
+    formData.set("handle", product.handle || "");
+    formData.set("sku", product.sku || "");
+    formData.set("imageUrl", product.imageUrl || "");
+    formData.set("imageAlt", product.imageAlt || product.title || "");
+    submit(formData, { method: "post" });
+  };
+
+  return (
+    <FullWidthPage heading="Watchlist">
+      <ScreenShell className="ppDashboard ppWatchlistScreen">
+        <div className="ppWatchlistHeader">
+          <div>
+            <p className="ppDashboardSubtitle">Monitor up to 5 products with automatic rescans and email alerts.</p>
+          </div>
+          <div className="ppWatchlistHeaderActions">
+            <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={atCapacity || pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
+              <s-icon type="plus" size="small"></s-icon>
+              {pendingAdd ? "Adding..." : "Add watched product"}
+            </button>
+            <button className="ppSecondaryButton" type="button">
+              <s-icon type="settings" size="small"></s-icon>
+              Watch settings
+            </button>
+          </div>
+        </div>
+
+        <ActionBanner actionData={actionData} />
+
+        <div className="ppWatchlistStats" aria-label="Watchlist overview">
+          <WatchlistStatCard icon="view" tone="purple" label="Watched products" value={`${watchedCount} / ${maxProducts}`} detail={`${slotsAvailable} slot${slotsAvailable === 1 ? "" : "s"} available`} />
+          <WatchlistStatCard icon="calendar" tone="blue" label="Scan cadence" value={mock.scanCadence || "Every 3 days"} detail={mock.scanCadenceDetail || "Automatic rescans"} />
+          <WatchlistStatCard icon="refresh" tone="green" label="Last watch run" value={mock.lastRun || "6h ago"} detail={mock.lastRunDetail || "All active products scanned"} />
+          <WatchlistStatCard icon="clock" tone="blue" label="Next watch run" value={mock.nextRun || "In 2d 18h"} detail={mock.nextRunDetail || "May 21, 9:00 AM"} />
+          <WatchlistStatCard icon="alert-triangle" tone="orange" label="New issues detected" value={mock.newIssues || "2 this week"} detail={mock.newIssuesDetail || "2 vs last week"} trend="up" />
+          <WatchlistStatCard icon="email" tone="green" label="Alert status" value={mock.alertStatus || "Email alerts on"} detail={mock.alertStatusDetail || "2 recipients"} />
+        </div>
+
+        <div className="ppWatchlistInfoBanner">
+          <s-icon type="info" size="small"></s-icon>
+          <span>Automatic rescans run on your selected cadence. We&apos;ll email you when new issues are detected.</span>
+          <a href="/app/help">Learn more <s-icon type="external" size="small"></s-icon></a>
+        </div>
+
+        <s-section padding="none">
+          <div className="ppWatchlistTableWrap">
+            <table className="ppWatchlistTable">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Status</th>
+                  <th>Latest risk score</th>
+                  <th>Latest change / new issue</th>
+                  <th>Last issue / last update</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan="6">
+                      <div className="ppWatchlistEmptyState">
+                        <DashboardIcon type="view" tone="purple" />
+                        <div>
+                          <h2>No watched products yet</h2>
+                          <p>Add up to five Shopify products to monitor on the watch cadence.</p>
+                        </div>
+                        <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
+                          <s-icon type="plus" size="small"></s-icon>
+                          Add watched product
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {rows.map((product) => (
+                  <WatchlistProductRow product={product} key={product.productGid || product.id} />
+                ))}
+              </tbody>
+            </table>
+            <div className="ppWatchlistTableFooter">
+              {rows.length ? `1-${rows.length} of ${rows.length} products` : `0 of ${maxProducts} products`}
+            </div>
+          </div>
+        </s-section>
+
+        <div className="ppWatchlistBottomGrid">
+          <WatchlistActivityPanel />
+          <WatchlistTrendPanel />
+          <WatchlistSettingsPanel />
+        </div>
+      </ScreenShell>
+
+      {shopifyProductSearchOpen && (
+        <ShopifyProductSearchModal
+          query={shopifyProductSearchQuery}
+          results={shopifyProductSearchResults}
+          pending={shopifyProductSearchPending}
+          error={shopifyProductSearchError}
+          onAnalyze={handleAddWatchedProduct}
+          onCancel={() => setShopifyProductSearchOpen(false)}
+          onQueryChange={setShopifyProductSearchQuery}
+          title="Add watched product"
+          eyebrow="Watchlist"
+          description="Search the live Shopify catalog and add one product to automatic monitoring. You can watch up to five products."
+          actionLabel="Add to watchlist"
+          actionIcon="plus"
+          addedProductIds={watchedProductIds}
+          addedActionLabel="Watching"
+        />
+      )}
+    </FullWidthPage>
+  );
+}
+
+function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
+  return (
+    <article className="ppWatchlistStatCard">
+      <DashboardIcon type={icon} tone={tone} />
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small className={trend ? `ppWatchlistStatTrend ppWatchlistStatTrend-${trend}` : ""}>{detail}</small>
+      </div>
+    </article>
+  );
+}
+
+function WatchlistProductRow({ product }) {
+  const latestTone = product.latestChangeTone || "slate";
+  const hasScore = Number.isFinite(Number(product.riskScore));
+
+  return (
+    <tr>
+      <td>
+        <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
+          <ProductArt
+            variant={product.variant || "shirt"}
+            label={product.title}
+            imageUrl={product.imageUrl}
+            imageAlt={product.imageAlt}
+          />
+          <span>
+            <strong>{product.title}</strong>
+            <small>{product.sku ? `SKU: ${product.sku}` : product.handle ? `/${product.handle}` : "Shopify product"}</small>
+          </span>
+        </Link>
+      </td>
+      <td>
+        <span className={`ppWatchStatus ppWatchStatus-${product.statusTone || "success"}`}>
+          <span aria-hidden="true" />
+          {product.status || "Watching"}
+        </span>
+      </td>
+      <td>
+        <div className="ppWatchRiskCell">
+          <span className={`ppWatchRiskDial ppWatchRiskDial-${product.riskTone || "subdued"}`}>{hasScore ? product.riskScore : "-"}</span>
+          <strong className={`ppWatchRiskLabel ppWatchRiskLabel-${product.riskTone || "subdued"}`}>{product.riskLabel || "Pending"}</strong>
+        </div>
+      </td>
+      <td>
+        <div className="ppWatchIssueCell">
+          <span className={`ppWatchIssueDot ppWatchIssueDot-${latestTone}`} aria-hidden="true" />
+          <span>
+            <strong>{product.latestChange || "Awaiting first scan"}</strong>
+            <small>{product.latestChangeDetail || "This product will be checked on the next watch run."}</small>
+          </span>
+        </div>
+      </td>
+      <td>
+        <div className="ppWatchUpdateCell">
+          <strong>{product.lastIssue || "Not scanned yet"}</strong>
+          <small>{product.lastIssueDetail || "Waiting for automatic watch cadence"}</small>
+        </div>
+      </td>
+      <td>
+        <button className="ppWatchActionsButton" type="button" aria-label={`Open watch actions for ${product.title}`}>
+          <s-icon type="menu-horizontal" size="small"></s-icon>
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function WatchlistActivityPanel() {
+  const activities = [
+    { icon: "alert-triangle", tone: "orange", title: "New product quality issue detected", detail: "Nintendo New 3DS XL", time: "6h ago" },
+    { icon: "email", tone: "green", title: "Alert email sent to ops@store.com", detail: "New issue on Nintendo New 3DS XL", time: "6h ago" },
+    { icon: "pause", tone: "purple", title: "Product paused", detail: "The Collection Snowboard: Hydrogen", time: "8 days ago" },
+    { icon: "settings", tone: "blue", title: "Watch cadence changed", detail: "Every 2 days -> Every 3 days", time: "9 days ago" },
+    { icon: "plus", tone: "blue", title: "Product added to watchlist", detail: "THE NIGHT WATCH | REMBRANDT VAN RIJN", time: "13 days ago" },
+  ];
+
+  return (
+    <section className="ppWatchlistPanel">
+      <div className="ppWatchlistPanelHeader">
+        <h2>Recent watch activity</h2>
+        <button type="button">View all</button>
+      </div>
+      <div className="ppWatchActivityList">
+        {activities.map((activity) => (
+          <article key={`${activity.title}-${activity.time}`}>
+            <DashboardIcon type={activity.icon} tone={activity.tone} size="small" />
+            <div>
+              <strong>{activity.title}</strong>
+              <small>{activity.detail}</small>
+            </div>
+            <span>{activity.time}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WatchlistTrendPanel() {
+  const values = [56, 58, 51, 49, 44, 47, 45, 42, 46, 49, 48, 46, 43, 41, 44, 47, 52, 51, 55, 53, 59, 57, 62, 60, 64, 63, 69, 72];
+  const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${100 - value}`).join(" ");
+
+  return (
+    <section className="ppWatchlistPanel ppWatchTrendPanel">
+      <div className="ppWatchlistPanelHeader">
+        <div>
+          <h2>Watchlist trend (risk activity) <s-icon type="info" size="small"></s-icon></h2>
+          <small>Average risk score across all watched products</small>
+        </div>
+        <button type="button">Last 30 days <s-icon type="chevron-down" size="small"></s-icon></button>
+      </div>
+      <div className="ppWatchTrendMetric">
+        <strong>52</strong>
+        <span>Moderate</span>
+      </div>
+      <div className="ppWatchTrendChart" aria-label="Mock watchlist trend">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="ppWatchTrendFill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="rgba(245, 158, 11, 0.3)" />
+              <stop offset="100%" stopColor="rgba(245, 158, 11, 0.02)" />
+            </linearGradient>
+          </defs>
+          <polygon points={`0,100 ${points} 100,100`} />
+          <polyline points={points} />
+        </svg>
+      </div>
+      <div className="ppWatchTrendCallout">
+        <span className="ppWatchIssueDot ppWatchIssueDot-orange" aria-hidden="true" />
+        <div>
+          <strong>May 18: Average risk score increased from 45 to 52</strong>
+          <small>Due to a new issue on Nintendo New 3DS XL</small>
+        </div>
+        <s-icon type="chevron-right" size="small"></s-icon>
+      </div>
+    </section>
+  );
+}
+
+function WatchlistSettingsPanel() {
+  const rows = [
+    ["clock", "Scan cadence", "Every 3 days"],
+    ["profile", "Alert recipients", "2 emails"],
+    ["email", "Trigger rule", "Notify on new issues or rising risk"],
+    ["email", "Digest / summary", "Daily digest at 8:00 AM"],
+  ];
+
+  return (
+    <section className="ppWatchlistPanel ppWatchSettingsPanel">
+      <div className="ppWatchlistPanelHeader">
+        <h2>Watch settings</h2>
+        <button type="button">Edit</button>
+      </div>
+      <div className="ppWatchSettingsRows">
+        {rows.map(([icon, label, value]) => (
+          <div key={label}>
+            <s-icon type={icon} size="small"></s-icon>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+        <div>
+          <s-icon type="info" size="small"></s-icon>
+          <span>Alerts</span>
+          <strong>On <span className="ppWatchToggle" aria-hidden="true" /></strong>
+        </div>
+      </div>
+      <div className="ppWatchSettingsActions">
+        <button className="ppSecondaryButton" type="button"><s-icon type="pause" size="small"></s-icon>Pause all watches</button>
+        <button className="ppSecondaryButton ppWatchRunNowButton" type="button"><s-icon type="play" size="small"></s-icon>Run scan now</button>
+      </div>
+    </section>
+  );
+}
+
 export function SettingsScreen({ data = {}, actionData }) {
   const navigation = useNavigation();
   const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
@@ -1467,9 +1821,17 @@ function ShopifyProductSearchModal({
   onAnalyze,
   onCancel,
   onQueryChange,
+  title = "Find Shopify product",
+  eyebrow = "Shopify catalog",
+  description = "Search the live Shopify catalog, select a product that has not appeared in QuickScan, and queue a full AI diagnosis.",
+  actionLabel = "Run diagnosis",
+  actionIcon = "wand",
+  addedProductIds = [],
+  addedActionLabel = "Added",
 }) {
   const normalizedQuery = query.trim();
   const hasQuery = normalizedQuery.length >= 2;
+  const addedProductIdSet = addedProductIds instanceof Set ? addedProductIds : new Set(addedProductIds);
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -1479,11 +1841,9 @@ function ShopifyProductSearchModal({
             <s-icon type="search" size="small"></s-icon>
           </span>
           <div>
-            <span>Shopify catalog</span>
-            <h2 id="shopify-product-search-title">Find Shopify product</h2>
-            <p>
-              Search the live Shopify catalog, select a product that has not appeared in QuickScan, and queue a full AI diagnosis.
-            </p>
+            <span>{eyebrow}</span>
+            <h2 id="shopify-product-search-title">{title}</h2>
+            <p>{description}</p>
           </div>
         </div>
 
@@ -1531,34 +1891,38 @@ function ShopifyProductSearchModal({
 
           {hasQuery && !pending && !error && results.length > 0 && (
             <div className="ppShopifyProductResults" role="list">
-              {results.map((product) => (
-                <article className="ppShopifyProductResult" role="listitem" key={product.id}>
-                  <ProductArt
-                    variant={product.variant}
-                    label={product.title}
-                    imageUrl={product.imageUrl}
-                    imageAlt={product.imageAlt}
-                  />
-                  <div className="ppShopifyProductResultText">
-                    <div>
-                      <strong>{product.title}</strong>
-                      <span>{product.existingSnapshot ? "In ProductPulse" : "Not in QuickScan"}</span>
+              {results.map((product) => {
+                const alreadyAdded = addedProductIdSet.has(product.id);
+                return (
+                  <article className="ppShopifyProductResult" role="listitem" key={product.id}>
+                    <ProductArt
+                      variant={product.variant}
+                      label={product.title}
+                      imageUrl={product.imageUrl}
+                      imageAlt={product.imageAlt}
+                    />
+                    <div className="ppShopifyProductResultText">
+                      <div>
+                        <strong>{product.title}</strong>
+                        <span>{alreadyAdded ? addedActionLabel : product.existingSnapshot ? "In ProductPulse" : "Not in QuickScan"}</span>
+                      </div>
+                      <p>{product.handle ? `/${product.handle}` : "Shopify product"}</p>
+                      <small>
+                        {[product.status, product.detail, product.sku ? `SKU ${product.sku}` : ""].filter(Boolean).join(" - ")}
+                      </small>
                     </div>
-                    <p>{product.handle ? `/${product.handle}` : "Shopify product"}</p>
-                    <small>
-                      {[product.status, product.detail, product.sku ? `SKU ${product.sku}` : ""].filter(Boolean).join(" - ")}
-                    </small>
-                  </div>
-                  <button
-                    className="ppShopifyProductResultAction"
-                    type="button"
-                    onClick={() => onAnalyze(product)}
-                  >
-                    <s-icon type="wand" size="small"></s-icon>
-                    Run diagnosis
-                  </button>
-                </article>
-              ))}
+                    <button
+                      className="ppShopifyProductResultAction"
+                      type="button"
+                      disabled={alreadyAdded}
+                      onClick={() => onAnalyze(product)}
+                    >
+                      <s-icon type={alreadyAdded ? "check" : actionIcon} size="small"></s-icon>
+                      {alreadyAdded ? addedActionLabel : actionLabel}
+                    </button>
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>
@@ -4106,15 +4470,47 @@ export function PreviewScreen({ data, actionData }) {
       <nav className="ppPreviewNav" aria-label="Preview screens">
         <a href="#connect">Connect</a>
         <a href="#products">Products</a>
+        <a href="#watchlist">Watchlist</a>
         <a href="#diagnosis">Diagnosis</a>
         <a href="#analytics">Analytics</a>
       </nav>
       <section id="connect"><ConnectScreen data={data} /></section>
       <section id="products"><ProductsScreen data={data} filters={{ query: "", risk: "all" }} /></section>
+      <section id="watchlist"><WatchlistScreen data={{ watchlist: getPreviewWatchlistData(data) }} /></section>
       <section id="diagnosis"><ProductDiagnosisScreen product={data.startHere} data={data} actionData={actionData} /></section>
       <section id="analytics"><AnalyticsScreen data={data} /></section>
     </main>
   );
+}
+
+function getPreviewWatchlistData(data = {}) {
+  const product = data.startHere || {};
+  return {
+    maxProducts: 5,
+    watchedCount: product.title ? 1 : 0,
+    slotsAvailable: product.title ? 4 : 5,
+    rows: product.title ? [{
+      id: "preview-watch-1",
+      productGid: product.productGid || product.id || "gid://shopify/Product/preview",
+      title: product.title,
+      handle: product.handle || product.slug || "",
+      sku: product.sku || "WATCH-PREVIEW",
+      status: "Watching",
+      statusTone: "success",
+      imageUrl: product.imageUrl,
+      imageAlt: product.imageAlt || product.title,
+      href: product.href || "/app/products",
+      riskScore: product.riskScore || 63,
+      riskLabel: product.risk || "Medium",
+      riskTone: product.riskTone || "warning",
+      latestChange: "New product quality issue",
+      latestChangeDetail: product.issue || "Product quality signal detected",
+      latestChangeTone: "orange",
+      lastIssue: product.lastAnalysis ? `Updated ${product.lastAnalysis}` : "Detected 6h ago",
+      lastIssueDetail: "May 18, 2:02 AM",
+    }] : [],
+    mock: {},
+  };
 }
 function DashboardKpiCard({ kpi }) {
   const [trendValue, trendContext] = kpi.trend ? kpi.trend.split(" vs ") : [];

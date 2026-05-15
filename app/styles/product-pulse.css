@@ -9054,6 +9054,13 @@ s-page[inline-size="large-500"] {
   background: var(--pp-blue-soft);
 }
 
+.ppShopifyProductResultAction:disabled {
+  border-color: var(--pp-slate-300);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  cursor: not-allowed;
+}
+
 .ppShopifyProductSearchEmpty {
   min-height: 170px;
   display: grid;
@@ -9213,6 +9220,568 @@ s-page[inline-size="large-500"] {
 }
 
 .ppShopifyProductSearchButton s-icon {
+  color: var(--pp-pulse-blue);
+}
+
+.ppWatchlistScreen {
+  gap: 12px;
+}
+
+.ppWatchlistHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ppWatchlistHeader .ppDashboardSubtitle {
+  margin: 0;
+}
+
+.ppWatchlistHeaderActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.ppWatchlistAddButton {
+  min-height: 40px;
+  padding-inline: 16px;
+  border: 0;
+  background: linear-gradient(135deg, var(--pp-insight-violet), var(--pp-pulse-blue));
+  box-shadow: 0 10px 22px rgba(var(--pp-pulse-blue-rgb), 0.22);
+}
+
+.ppWatchlistAddButton:disabled {
+  background: var(--pp-slate-200);
+  color: var(--pp-slate-500);
+  box-shadow: none;
+}
+
+.ppWatchlistStats {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppWatchlistStatCard,
+.ppWatchlistPanel,
+.ppWatchlistTableWrap {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppWatchlistStatCard {
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+}
+
+.ppWatchlistStatCard .ppDashboardIcon {
+  width: 44px;
+  height: 44px;
+}
+
+.ppWatchlistStatCard > div {
+  min-width: 0;
+}
+
+.ppWatchlistStatCard span {
+  display: block;
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.ppWatchlistStatCard strong {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchlistStatCard small {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchlistStatTrend-up {
+  color: var(--pp-risk-red) !important;
+}
+
+.ppWatchlistInfoBanner {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.22);
+  border-radius: 9px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
+  color: var(--pp-slate-700);
+  font-size: 13px;
+}
+
+.ppWatchlistInfoBanner > s-icon {
+  color: var(--pp-pulse-blue);
+}
+
+.ppWatchlistInfoBanner a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--pp-pulse-blue);
+  font-weight: 750;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ppWatchlistTableWrap {
+  overflow: hidden;
+}
+
+.ppWatchlistTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ppWatchlistTable th,
+.ppWatchlistTable td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ppWatchlistTable th {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppWatchlistProductCell {
+  min-width: 250px;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ppWatchlistProductCell strong,
+.ppWatchlistProductCell small,
+.ppWatchIssueCell strong,
+.ppWatchIssueCell small,
+.ppWatchUpdateCell strong,
+.ppWatchUpdateCell small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ppWatchlistProductCell strong,
+.ppWatchIssueCell strong,
+.ppWatchUpdateCell strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.ppWatchlistProductCell small,
+.ppWatchIssueCell small,
+.ppWatchUpdateCell small {
+  margin-top: 3px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+}
+
+.ppWatchStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppWatchStatus > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.ppWatchStatus-success {
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchStatus-subdued {
+  color: var(--pp-slate-600);
+}
+
+.ppWatchRiskCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ppWatchRiskDial {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 3px solid var(--pp-slate-300);
+  border-radius: 999px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ppWatchRiskDial-critical {
+  border-color: var(--pp-risk-red);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchRiskDial-warning {
+  border-color: var(--pp-warning-amber);
+  color: color-mix(in srgb, var(--pp-warning-amber) 78%, var(--pp-midnight-ink));
+}
+
+.ppWatchRiskDial-success {
+  border-color: var(--pp-success-green);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchRiskLabel {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppWatchRiskLabel-critical {
+  color: var(--pp-risk-red);
+}
+
+.ppWatchRiskLabel-warning {
+  color: color-mix(in srgb, var(--pp-warning-amber) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchRiskLabel-success {
+  color: color-mix(in srgb, var(--pp-success-green) 70%, var(--pp-midnight-ink));
+}
+
+.ppWatchIssueCell {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+}
+
+.ppWatchIssueDot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--pp-slate-400);
+}
+
+.ppWatchIssueDot-orange {
+  background: var(--pp-warning-amber);
+}
+
+.ppWatchIssueDot-red {
+  background: var(--pp-risk-red);
+}
+
+.ppWatchIssueDot-green {
+  background: var(--pp-success-green);
+}
+
+.ppWatchActionsButton {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  cursor: pointer;
+}
+
+.ppWatchlistTableFooter {
+  padding: 10px 14px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ppWatchlistEmptyState {
+  min-height: 150px;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 18px;
+}
+
+.ppWatchlistEmptyState h2,
+.ppWatchlistEmptyState p {
+  margin: 0;
+}
+
+.ppWatchlistEmptyState h2 {
+  color: var(--pp-slate-900);
+  font-size: 18px;
+}
+
+.ppWatchlistEmptyState p {
+  margin-top: 4px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+}
+
+.ppWatchlistBottomGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.95fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.ppWatchlistPanel {
+  min-height: 250px;
+  padding: 14px;
+}
+
+.ppWatchlistPanelHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ppWatchlistPanelHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.ppWatchlistPanelHeader small {
+  display: block;
+  margin-top: 3px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+}
+
+.ppWatchlistPanelHeader button {
+  border: 0;
+  background: transparent;
+  color: var(--pp-pulse-blue);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ppWatchActivityList {
+  display: grid;
+  gap: 11px;
+}
+
+.ppWatchActivityList article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.ppWatchActivityList strong,
+.ppWatchActivityList small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchActivityList strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppWatchActivityList small,
+.ppWatchActivityList article > span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+}
+
+.ppWatchTrendMetric {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: -8px 2px 4px;
+}
+
+.ppWatchTrendMetric strong {
+  color: var(--pp-slate-900);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.ppWatchTrendMetric span {
+  color: var(--pp-warning-amber);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppWatchTrendChart {
+  height: 126px;
+  padding: 8px 0 0;
+  background:
+    linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 0 / 100% 25%,
+    linear-gradient(90deg, var(--pp-slate-200) 1px, transparent 1px) 0 0 / 20% 100%;
+}
+
+.ppWatchTrendChart svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ppWatchTrendChart polygon {
+  fill: url("#ppWatchTrendFill");
+}
+
+.ppWatchTrendChart polyline {
+  fill: none;
+  stroke: var(--pp-warning-amber);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.ppWatchTrendCallout {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 9px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchTrendCallout strong,
+.ppWatchTrendCallout small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchTrendCallout strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+}
+
+.ppWatchTrendCallout small {
+  margin-top: 3px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+}
+
+.ppWatchSettingsRows {
+  display: grid;
+}
+
+.ppWatchSettingsRows > div {
+  display: grid;
+  grid-template-columns: 18px minmax(110px, 0.72fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+}
+
+.ppWatchSettingsRows > div:last-child {
+  border-bottom: 0;
+}
+
+.ppWatchSettingsRows strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--pp-slate-900);
+  font-weight: 850;
+}
+
+.ppWatchToggle {
+  width: 34px;
+  height: 20px;
+  display: inline-block;
+  position: relative;
+  border-radius: 999px;
+  background: var(--pp-success-green);
+  box-shadow: inset 0 0 0 1px rgba(var(--pp-success-green-rgb), 0.2);
+}
+
+.ppWatchToggle::after {
+  content: "";
+  width: 16px;
+  height: 16px;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 3px rgba(var(--pp-shadow-rgb), 0.2);
+}
+
+.ppWatchSettingsActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ppWatchRunNowButton {
   color: var(--pp-pulse-blue);
 }
 

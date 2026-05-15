@@ -29,6 +29,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app" data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
         <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
+        <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
         <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
         <s-link href="/app/connect" data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
         <s-link href="/app/settings" data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
@@ -43,6 +44,7 @@ export default function App() {
 function getActiveNavSection(pathname) {
   if (pathname === "/app" || pathname === "/app/") return "dashboard";
   if (pathname.startsWith("/app/products")) return "products";
+  if (pathname.startsWith("/app/watchlist")) return "watchlist";
   if (pathname.startsWith("/app/analytics")) return "analytics";
   if (pathname.startsWith("/app/connect")) return "connect";
   if (pathname.startsWith("/app/settings")) return "settings";

@@ -157,6 +157,24 @@ model ProductAction {
   @@index([shop, productGid])
 }
 
+model ProductWatchlistItem {
+  id           String   @id @default(cuid())
+  shop         String
+  productGid   String
+  productTitle String
+  handle       String?
+  sku          String?
+  status       String   @default("Watching")
+  imageUrl     String?
+  imageAlt     String?
+  addedAt      DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([shop, productGid])
+  @@index([shop, status])
+  @@index([shop, addedAt])
+}
+
 model ContactRequest {
   id        String   @id @default(cuid())
   shop      String

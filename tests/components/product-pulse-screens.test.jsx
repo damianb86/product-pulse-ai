@@ -9,6 +9,7 @@ import {
   ProductEvidenceReportScreen,
   ProductsScreen,
   SettingsScreen,
+  WatchlistScreen,
 } from "../../app/components/ProductPulseScreens";
 import { defaultView } from "../fixtures/product-pulse-fixtures";
 
@@ -116,6 +117,47 @@ describe("ProductPulse screens", () => {
     expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
     expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
     expect(within(table).queryByRole("link", { name: /Linen Shirt/ })).not.toBeInTheDocument();
+  });
+
+  it("renders the watchlist and opens the add watched product modal", () => {
+    renderWithRouter(<WatchlistScreen
+      data={{
+        watchlist: {
+          maxProducts: 5,
+          watchedCount: 2,
+          slotsAvailable: 3,
+          rows: [
+            {
+              id: "watch-1",
+              productGid: "gid://shopify/Product/1",
+              title: "Nintendo New 3DS XL",
+              sku: "N3DSXL-BLUE",
+              status: "Watching",
+              statusTone: "success",
+              riskScore: 63,
+              riskLabel: "Medium",
+              riskTone: "warning",
+              latestChange: "New product quality issue",
+              latestChangeDetail: "Product quality signal detected",
+              latestChangeTone: "orange",
+              lastIssue: "Detected 6h ago",
+              lastIssueDetail: "May 18, 2:02 AM",
+              href: "/app/products/nintendo-new-3ds-xl",
+            },
+          ],
+          mock: {},
+        },
+      }}
+    />);
+
+    expect(screen.getByText("Watched products")).toBeInTheDocument();
+    expect(screen.getByText("2 / 5")).toBeInTheDocument();
+    expect(screen.getAllByText("Nintendo New 3DS XL").length).toBeGreaterThan(0);
+    expect(screen.getByText("Recent watch activity")).toBeInTheDocument();
+    expect(screen.getByText("Watchlist trend (risk activity)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add watched product" }));
+    expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
+    expect(screen.getByText(/add one product to automatic monitoring/i)).toBeInTheDocument();
   });
 
   it("searches live Shopify products without resubmitting the same query loop", async () => {
