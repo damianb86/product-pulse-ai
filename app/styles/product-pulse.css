@@ -1744,11 +1744,37 @@ s-page[inline-size="large-500"] {
 }
 
 .ppMainFindingCard {
+  position: relative;
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
-  padding: 20px 22px;
+  overflow: hidden;
+  padding: 18px 20px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.16);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.09), rgba(var(--pp-pulse-blue-rgb), 0.055) 46%, rgba(var(--pp-signal-teal-rgb), 0.035)),
+    var(--pp-cloud-white);
+}
+
+.ppMainFindingCard::after {
+  position: absolute;
+  inset: auto -80px -120px auto;
+  width: 260px;
+  height: 180px;
+  content: "";
+  background: radial-gradient(circle, rgba(var(--pp-insight-violet-rgb), 0.14), rgba(var(--pp-insight-violet-rgb), 0));
+  pointer-events: none;
+}
+
+.ppMainFindingCard .ppDashboardIcon {
+  width: 34px;
+  height: 34px;
+  margin-top: 1px;
+  background: linear-gradient(135deg, var(--pp-insight-violet), var(--pp-pulse-blue));
+  color: var(--pp-cloud-white);
+  box-shadow: 0 10px 22px rgba(var(--pp-insight-violet-rgb), 0.16);
 }
 
 .ppMainFindingCard span,
@@ -1761,25 +1787,42 @@ s-page[inline-size="large-500"] {
   line-height: 1.3;
 }
 
+.ppMainFindingCard > div {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.ppMainFindingCard > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pp-insight-violet);
+  font-size: 12px;
+  font-weight: 850;
+}
+
 .ppMainFindingCard h2 {
-  margin: 6px 0 10px;
+  margin: 5px 0 8px;
   color: var(--pp-slate-900);
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 800;
   line-height: 1.25;
 }
 
 .ppMainFindingText {
   display: grid;
-  gap: 10px;
-  max-width: 680px;
+  gap: 8px;
+  width: 100%;
+  max-width: none;
 }
 
 .ppMainFindingText p {
   margin: 0;
   color: var(--pp-slate-700);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.5;
 }
 
 .ppRiskSnapshot {

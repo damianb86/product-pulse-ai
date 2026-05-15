@@ -3169,7 +3169,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
         <div className="ppProductDetailLayout">
           <main className="ppProductDetailPrimary">
-            <ProductDetailSectionLabel number="1" title="Overview" subtitle="Lo esencial al primer vistazo" />
+            <ProductDetailSectionLabel number="1" title="Overview" subtitle="The essentials at a glance" />
             <section className="ppProductDetailOverviewCard" aria-label="Product overview">
               <div className="ppProductDetailHeader">
                 <button className="ppProductBackButton" type="button" onClick={handleBack}>
@@ -3362,7 +3362,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               </div>
             </section>
 
-            <ProductDetailSectionLabel number="3" title="Evidence by source" subtitle="Explora la evidencia con claridad" />
+            <ProductDetailSectionLabel number="3" title="Evidence by source" subtitle="Explore the evidence clearly" />
             <div ref={evidencePanelRef}>
               <EvidenceObservabilityPanel
                 detail={detail}
@@ -3375,10 +3375,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </main>
 
           <aside className="ppProductDetailSidebar">
-            <ProductDetailSectionLabel number="2" title="Evidence summary" subtitle="Resumen rapido por categoria" />
+            <ProductDetailSectionLabel number="2" title="Evidence summary" subtitle="Quick summary by category" />
             <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
 
-            <ProductDetailSectionLabel number="4" title="Recommended actions" subtitle="Pasos claros y accionables" />
+            <ProductDetailSectionLabel number="4" title="Recommended actions" subtitle="Clear, actionable next steps" />
             <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
               <div className="ppRecommendedActionsHeader">
                 <div>
