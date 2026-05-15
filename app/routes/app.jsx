@@ -27,7 +27,7 @@ export default function App() {
   return (
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
-        <s-link href="/app" data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
+        <s-link href="/app?nav=dashboard" data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
         <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
         <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
         <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>

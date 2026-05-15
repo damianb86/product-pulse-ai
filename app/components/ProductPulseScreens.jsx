@@ -1154,8 +1154,8 @@ export function WatchlistScreen({ data = {}, actionData }) {
                     </td>
                   </tr>
                 )}
-                {rows.map((product, index) => (
-                  <WatchlistProductRow product={product} position={index} total={rows.length} key={product.productGid || product.id} />
+                {rows.map((product) => (
+                  <WatchlistProductRow product={product} key={product.productGid || product.id} />
                 ))}
               </tbody>
             </table>
@@ -1207,12 +1207,10 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
   );
 }
 
-function WatchlistProductRow({ product, position = 0, total = 0 }) {
+function WatchlistProductRow({ product }) {
   const latestTone = product.latestChangeTone || "slate";
   const hasScore = Number.isFinite(Number(product.riskScore));
   const paused = product.status === "Paused";
-  const canMoveUp = position > 0;
-  const canMoveDown = position < total - 1;
 
   return (
     <tr>
@@ -1259,24 +1257,6 @@ function WatchlistProductRow({ product, position = 0, total = 0 }) {
       </td>
       <td>
         <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
-          <div className="ppWatchOrderGroup" aria-label={`Change order for ${product.title}`}>
-            <Form method="post">
-              <input type="hidden" name="_action" value="move-watched-product" />
-              <input type="hidden" name="productGid" value={product.productGid || ""} />
-              <input type="hidden" name="direction" value="up" />
-              <button className="ppWatchActionsButton ppWatchOrderButton" type="submit" disabled={!canMoveUp} aria-label={`Move ${product.title} up`}>
-                <s-icon type="arrow-up" size="small"></s-icon>
-              </button>
-            </Form>
-            <Form method="post">
-              <input type="hidden" name="_action" value="move-watched-product" />
-              <input type="hidden" name="productGid" value={product.productGid || ""} />
-              <input type="hidden" name="direction" value="down" />
-              <button className="ppWatchActionsButton ppWatchOrderButton" type="submit" disabled={!canMoveDown} aria-label={`Move ${product.title} down`}>
-                <s-icon type="arrow-down" size="small"></s-icon>
-              </button>
-            </Form>
-          </div>
           <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
             <s-icon type="view" size="small"></s-icon>
           </Link>
@@ -1309,7 +1289,7 @@ function WatchlistActivityPanel({ activities = [], showAllLink = true }) {
     <section className="ppWatchlistPanel">
       <div className="ppWatchlistPanelHeader">
         <h2>Recent watch activity</h2>
-        {showAllLink ? <Link to="/app/watchlist/activity">View all</Link> : null}
+        {showAllLink ? <Link to="/app/watchlist/activity" reloadDocument>View all</Link> : null}
       </div>
       <div className="ppWatchActivityList">
         {activities.length === 0 && (
@@ -4927,6 +4907,9 @@ function ProductPulseGlyph({ type }) {
         <path d="M7.7 8.7a6.2 6.2 0 0 1 8.6 0" />
       </svg>
     );
+  }
+  if (type === "pause") {
+    return <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>;
   }
   return <s-icon type={type}></s-icon>;
 }

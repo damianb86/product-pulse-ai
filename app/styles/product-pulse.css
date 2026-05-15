@@ -9713,17 +9713,8 @@ s-page[inline-size="large-500"] {
   gap: 6px;
 }
 
-.ppWatchRowActions form,
-.ppWatchOrderGroup form {
+.ppWatchRowActions form {
   margin: 0;
-}
-
-.ppWatchOrderGroup {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  padding-right: 4px;
-  border-right: 1px solid var(--pp-slate-200);
 }
 
 .ppWatchActionsButton {
@@ -9737,13 +9728,6 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-700);
   cursor: pointer;
   text-decoration: none;
-}
-
-.ppWatchOrderButton {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  color: var(--pp-insight-violet);
 }
 
 .ppWatchActionsButton s-icon,

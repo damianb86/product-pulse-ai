@@ -4,7 +4,6 @@ import {
   addWatchedProductForShop,
   getActiveWatchedProductsForShop,
   getWatchlistForShop,
-  moveWatchedProductForShop,
   pauseAllWatchesForShop,
   pauseWatchedProductForShop,
   recordWatchActivityForShop,
@@ -58,14 +57,6 @@ export const action = async ({ request }) => {
 
   if (actionType === "remove-watched-product") {
     return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
-  }
-
-  if (actionType === "move-watched-product") {
-    return moveWatchedProductForShop(
-      session.shop,
-      String(formData.get("productGid") || ""),
-      String(formData.get("direction") || "up"),
-    );
   }
 
   if (actionType === "update-watch-settings") {

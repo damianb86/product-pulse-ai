@@ -230,9 +230,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("63 · Medium")).toBeInTheDocument();
     expect(screen.getByText("46 · Low")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
-    expect(screen.getByRole("button", { name: "Move Nintendo New 3DS XL up" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Nintendo New 3DS XL down" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Move THE NIGHT WATCH | REMBRANDT VAN RIJN down" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Move Nintendo New 3DS XL/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/app/watchlist/activity");
     expect(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove Nintendo New 3DS XL from watchlist" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Watch settings" })).not.toBeInTheDocument();

@@ -36,7 +36,7 @@ const WATCH_TREND_COLORS = ["#3A6BFF", "#7C3AED", "#14B8A6", "#F59E0B", "#EF4444
 export async function getWatchlistForShop(shop) {
   const items = await prisma.productWatchlistItem.findMany({
     where: { shop },
-    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
+    orderBy: { addedAt: "asc" },
   });
   const productGids = items.map((item) => item.productGid).filter(Boolean);
   const snapshots = productGids.length
@@ -179,14 +179,7 @@ export async function addWatchedProductForShop(shop, product = {}) {
     };
   }
 
-  const [watchedCount, lastItem] = await Promise.all([
-    prisma.productWatchlistItem.count({ where: { shop } }),
-    prisma.productWatchlistItem.findFirst({
-      where: { shop },
-      orderBy: [{ displayOrder: "desc" }, { addedAt: "desc" }],
-      select: { displayOrder: true },
-    }),
-  ]);
+  const watchedCount = await prisma.productWatchlistItem.count({ where: { shop } });
   if (watchedCount >= WATCHLIST_MAX_PRODUCTS) {
     return {
       status: "validation_error",
@@ -204,7 +197,6 @@ export async function addWatchedProductForShop(shop, product = {}) {
       status: "Watching",
       imageUrl: optionalString(product.imageUrl),
       imageAlt: optionalString(product.imageAlt),
-      displayOrder: Number(lastItem?.displayOrder ?? -1) + 1,
     },
   });
   await recordWatchActivityForShop(shop, {
@@ -271,56 +263,6 @@ export async function resumeWatchedProductForShop(shop, productGid) {
   return { status: "success", message: `${updated.productTitle} resumed on the watchlist.`, action: { id: "resume-watched-product" }, suppressBanner: true };
 }
 
-export async function moveWatchedProductForShop(shop, productGid, direction = "up") {
-  const normalizedDirection = direction === "down" ? "down" : "up";
-  const items = await prisma.productWatchlistItem.findMany({
-    where: { shop },
-    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
-  });
-  const index = items.findIndex((item) => item.productGid === productGid);
-  if (index === -1) return { status: "validation_error", message: "Watched product was not found." };
-
-  const targetIndex = normalizedDirection === "up" ? index - 1 : index + 1;
-  if (targetIndex < 0 || targetIndex >= items.length) {
-    return {
-      status: "success",
-      message: `${items[index].productTitle} is already ${normalizedDirection === "up" ? "first" : "last"} in the watchlist.`,
-      action: { id: "move-watched-product" },
-      suppressBanner: true,
-    };
-  }
-
-  const orderedItems = [...items];
-  [orderedItems[index], orderedItems[targetIndex]] = [orderedItems[targetIndex], orderedItems[index]];
-  await prisma.$transaction(
-    orderedItems.map((item, displayOrder) => prisma.productWatchlistItem.update({
-      where: { id: item.id },
-      data: { displayOrder },
-    })),
-  );
-
-  await recordWatchActivityForShop(shop, {
-    eventType: "watch_order_changed",
-    title: "Watchlist order changed",
-    detail: `${items[index].productTitle} moved ${normalizedDirection}.`,
-    productGid: items[index].productGid,
-    productTitle: items[index].productTitle,
-    watchlistItemId: items[index].id,
-    metadata: {
-      direction: normalizedDirection,
-      previousPosition: index + 1,
-      newPosition: targetIndex + 1,
-    },
-  });
-
-  return {
-    status: "success",
-    message: `${items[index].productTitle} moved ${normalizedDirection}.`,
-    action: { id: "move-watched-product", productGid: items[index].productGid },
-    suppressBanner: true,
-  };
-}
-
 export async function removeWatchedProductForShop(shop, productGid) {
   const item = await findWatchedProduct(shop, productGid);
   if (!item) return { status: "validation_error", message: "Watched product was not found." };
@@ -328,7 +270,6 @@ export async function removeWatchedProductForShop(shop, productGid) {
   await prisma.productWatchlistItem.delete({
     where: { shop_productGid: { shop, productGid: item.productGid } },
   });
-  await normalizeWatchlistOrderForShop(shop);
   await recordWatchActivityForShop(shop, {
     eventType: "product_removed",
     title: "Product removed from watchlist",
@@ -368,7 +309,7 @@ export async function getActiveWatchedProductsForShop(shop) {
   if (!shop) return [];
   return prisma.productWatchlistItem.findMany({
     where: { shop, status: { not: "Paused" } },
-    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
+    orderBy: { addedAt: "asc" },
     select: {
       id: true,
       productGid: true,
@@ -443,21 +384,6 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
   return prisma.productWatchActivity.createMany({ data: rows });
 }
 
-async function normalizeWatchlistOrderForShop(shop) {
-  const items = await prisma.productWatchlistItem.findMany({
-    where: { shop },
-    orderBy: [{ displayOrder: "asc" }, { addedAt: "asc" }],
-    select: { id: true },
-  });
-  if (!items.length) return null;
-  return prisma.$transaction(
-    items.map((item, displayOrder) => prisma.productWatchlistItem.update({
-      where: { id: item.id },
-      data: { displayOrder },
-    })),
-  );
-}
-
 async function findWatchedProduct(shop, productGid) {
   const normalizedProductGid = String(productGid || "").trim();
   if (!shop || !normalizedProductGid) return null;
@@ -485,7 +411,6 @@ function formatWatchlistRow(item, snapshot) {
     statusTone: status === "Paused" ? "subdued" : "success",
     imageUrl: item.imageUrl || null,
     imageAlt: item.imageAlt || item.productTitle,
-    displayOrder: Number(item.displayOrder || 0),
     href: item.handle ? `/app/products/${item.handle}` : `/app/products/${encodeURIComponent(item.productGid)}`,
     riskScore,
     riskLabel,
@@ -520,7 +445,7 @@ function getWatchlistOverviewSections({ rows = [], activities = [], activityStat
 
 async function getWatchActivityRowsForShop(shop, { take = 5 } = {}) {
   const activities = await prisma.productWatchActivity.findMany({
-    where: { shop },
+    where: { shop, eventType: { not: "watch_order_changed" } },
     orderBy: { createdAt: "desc" },
     take,
   });
@@ -681,7 +606,6 @@ function getActivityIcon(eventType) {
   if (eventType === "diagnosis_completed") return "wand";
   if (eventType === "watch_scan_completed") return "refresh";
   if (eventType === "watch_scan_queued") return "play";
-  if (eventType === "watch_order_changed") return "arrow-up";
   if (eventType === "settings_changed") return "settings";
   if (eventType === "alert_sent") return "email";
   return "info";
@@ -695,7 +619,6 @@ function getActivityTone(eventType, metadata = {}) {
   if (eventType === "product_added") return "blue";
   if (eventType === "diagnosis_completed") return "purple";
   if (eventType === "watch_scan_queued") return "blue";
-  if (eventType === "watch_order_changed") return "purple";
   if (eventType === "watch_scan_completed") {
     const riskScore = Number(metadata.riskScore || 0);
     if (riskScore >= 75) return "red";

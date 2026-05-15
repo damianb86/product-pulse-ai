@@ -207,7 +207,7 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
 async function getActiveWatchlistItemsByShop() {
   const items = await prisma.productWatchlistItem.findMany({
     where: { status: { not: "Paused" } },
-    orderBy: [{ shop: "asc" }, { displayOrder: "asc" }, { addedAt: "asc" }],
+    orderBy: [{ shop: "asc" }, { addedAt: "asc" }],
     select: {
       id: true,
       shop: true,
@@ -215,7 +215,6 @@ async function getActiveWatchlistItemsByShop() {
       productTitle: true,
       handle: true,
       sku: true,
-      displayOrder: true,
     },
   });
 
