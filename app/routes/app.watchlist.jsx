@@ -2,6 +2,7 @@ import { useActionData, useLoaderData } from "react-router";
 import { WatchlistScreen } from "../components/ProductPulseScreens";
 import {
   addWatchedProductForShop,
+  getActiveWatchedProductsForShop,
   getWatchlistForShop,
   pauseAllWatchesForShop,
   pauseWatchedProductForShop,
@@ -11,7 +12,10 @@ import {
   toggleWatchAlertsForShop,
   updateWatchSettingsForShop,
 } from "../lib/product-pulse-watchlist.server";
-import { searchShopifyProductsForDiagnosis, startFastProductScan } from "../lib/product-pulse-jobs.server";
+import {
+  runSelectedProductDiagnosesForShop,
+  searchShopifyProductsForDiagnosis,
+} from "../lib/product-pulse-jobs.server";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
@@ -68,18 +72,36 @@ export const action = async ({ request }) => {
   }
 
   if (actionType === "run-watch-scan") {
-    const result = await startFastProductScan({ shop: session.shop, admin, scopes: session.scope });
-    await recordWatchActivityForShop(session.shop, {
-      eventType: "watch_scan_queued",
-      title: "Watch scan queued",
-      detail: "Manual watch scan started from Watch settings.",
-      metadata: { jobId: result?.job?.id || null },
-    });
+    const watchedProducts = await getActiveWatchedProductsForShop(session.shop);
+    const productIds = watchedProducts.map((product) => product.productGid).filter(Boolean);
+    if (!productIds.length) {
+      return {
+        status: "validation_error",
+        message: "There are no active watched products to diagnose.",
+        action: { id: "run-watch-scan" },
+      };
+    }
+
+    const result = await runSelectedProductDiagnosesForShop(session.shop, productIds, { admin });
+    if (result?.status === "success") {
+      await recordWatchActivityForShop(session.shop, {
+        eventType: "watch_scan_queued",
+        title: "Watch diagnostics queued",
+        detail: `${result.queuedCount || productIds.length} deep product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued from Watchlist.`,
+        metadata: {
+          queuedCount: result.queuedCount || productIds.length,
+          productGids: productIds,
+          productTitles: watchedProducts.map((product) => product.productTitle).filter(Boolean),
+        },
+      });
+    }
     return {
       ...result,
       action: { id: "run-watch-scan" },
-      message: result?.message || "Watch scan queued.",
-      suppressBanner: true,
+      message: result?.status === "success"
+        ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued.`
+        : result?.message || "Watch diagnostics could not be queued.",
+      suppressBanner: result?.status === "success",
     };
   }
 

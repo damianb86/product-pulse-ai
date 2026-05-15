@@ -1031,6 +1031,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const mock = watchlist.mock || {};
   const maxProducts = Number(watchlist.maxProducts || 5);
   const watchedCount = Number(watchlist.watchedCount ?? rows.length);
+  const activeWatchedCount = rows.filter((row) => row.status !== "Paused").length;
   const slotsAvailable = Math.max(0, Number(watchlist.slotsAvailable ?? maxProducts - watchedCount));
   const watchedProductIds = useMemo(() => new Set(rows.map((row) => row.productGid).filter(Boolean)), [rows]);
   const pendingAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-watched-product";
@@ -1070,6 +1071,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   }, [shopifyProductSearchOpen, shopifyProductSearchQuery]);
 
   useEffect(() => {
+    announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && actionData?.action?.id === "add-watched-product") {
       setShopifyProductSearchOpen(false);
       setShopifyProductSearchQuery("");
@@ -1166,7 +1168,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
         <div className="ppWatchlistBottomGrid">
           <WatchlistActivityPanel activities={activities} />
           <WatchlistTrendPanel trend={trend} />
-          <WatchlistSettingsPanel settings={settings} watchedCount={watchedCount} actionData={actionData} />
+          <WatchlistSettingsPanel settings={settings} watchedCount={watchedCount} activeWatchedCount={activeWatchedCount} actionData={actionData} />
         </div>
       </ScreenShell>
 
@@ -1406,7 +1408,7 @@ export function WatchlistActivityScreen({ data = {} }) {
   );
 }
 
-function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, actionData }) {
+function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatchedCount = watchedCount, actionData }) {
   const navigation = useNavigation();
   const [editing, setEditing] = useState(false);
   const pendingAction = navigation.state === "submitting" ? String(navigation.formData?.get("_action") || "") : "";
@@ -1518,15 +1520,15 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, actionData })
           <div className="ppWatchSettingsActions">
             <Form method="post">
               <input type="hidden" name="_action" value="pause-all-watches" />
-              <button className="ppSecondaryButton" type="submit" disabled={!watchedCount || pendingAction === "pause-all-watches"}>
+              <button className="ppSecondaryButton" type="submit" disabled={!activeWatchedCount || pendingAction === "pause-all-watches"}>
                 <s-icon type="pause" size="small"></s-icon>
                 {pendingAction === "pause-all-watches" ? "Pausing..." : "Pause all watches"}
               </button>
             </Form>
             <Form method="post">
               <input type="hidden" name="_action" value="run-watch-scan" />
-              <button className="ppSecondaryButton ppWatchRunNowButton" type="submit" disabled={!watchedCount || pendingAction === "run-watch-scan"}>
-                <s-icon type="play" size="small"></s-icon>
+              <button className="ppSecondaryButton ppWatchRunNowButton" type="submit" disabled={!activeWatchedCount || pendingAction === "run-watch-scan"}>
+                <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
                 {pendingAction === "run-watch-scan" ? "Queueing..." : "Run scan now"}
               </button>
             </Form>
@@ -4882,12 +4884,14 @@ function ProductPulseGlyph({ type }) {
   if (type === "binoculars") {
     return (
       <svg className="ppBinocularsIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M8.4 5.5H10l1.3 7.1" />
-        <path d="M15.6 5.5H14l-1.3 7.1" />
-        <path d="M9.2 5.5V4.1h5.6v1.4" />
-        <path d="M11.1 13.2h1.8" />
-        <circle cx="7.7" cy="16" r="4.2" />
-        <circle cx="16.3" cy="16" r="4.2" />
+        <circle cx="12" cy="12" r="8.2" />
+        <circle cx="12" cy="12" r="2.4" />
+        <path d="M12 2.8v3.1" />
+        <path d="M12 18.1v3.1" />
+        <path d="M2.8 12h3.1" />
+        <path d="M18.1 12h3.1" />
+        <path d="M12 12l5.2-5.2" />
+        <path d="M7.7 8.7a6.2 6.2 0 0 1 8.6 0" />
       </svg>
     );
   }

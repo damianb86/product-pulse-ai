@@ -305,6 +305,21 @@ export async function pauseAllWatchesForShop(shop) {
   return { status: "success", message: `${activeItems.length} watched product${activeItems.length === 1 ? "" : "s"} paused.`, action: { id: "pause-all-watches" }, suppressBanner: true };
 }
 
+export async function getActiveWatchedProductsForShop(shop) {
+  if (!shop) return [];
+  return prisma.productWatchlistItem.findMany({
+    where: { shop, status: { not: "Paused" } },
+    orderBy: [{ addedAt: "asc" }],
+    select: {
+      id: true,
+      productGid: true,
+      productTitle: true,
+      handle: true,
+      sku: true,
+    },
+  });
+}
+
 export async function getWatchlistActivityForShop(shop, { take = 100 } = {}) {
   const [watchlist, activities] = await Promise.all([
     getWatchlistForShop(shop),

@@ -193,7 +193,7 @@ s-page[inline-size="large-500"] {
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2;
+  stroke-width: 1.9;
 }
 
 .ppDashboardIcon-small {
@@ -9687,13 +9687,24 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
 }
 
+.ppWatchActionsButton s-icon,
+.ppWatchActionsButton .ppBinocularsIcon {
+  color: currentColor;
+}
+
 .ppWatchActionsButton:hover {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.35);
+  background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
+}
+
+.ppWatchActionsButton-danger {
+  color: var(--pp-risk-red);
 }
 
 .ppWatchActionsButton-danger:hover {
   border-color: rgba(var(--pp-risk-red-rgb), 0.35);
+  background: var(--pp-red-soft);
   color: var(--pp-risk-red);
 }
 
@@ -10053,8 +10064,30 @@ s-page[inline-size="large-500"] {
   width: 100%;
 }
 
-.ppWatchRunNowButton {
+.ppSecondaryButton.ppWatchRunNowButton {
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.28);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-info-cyan-rgb), 0.16), rgba(var(--pp-pulse-blue-rgb), 0.1)),
+    var(--pp-cloud-white);
+  color: color-mix(in srgb, var(--pp-info-cyan) 78%, var(--pp-pulse-blue));
+  font-weight: 850;
+  box-shadow: 0 5px 16px rgba(var(--pp-info-cyan-rgb), 0.14), 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppSecondaryButton.ppWatchRunNowButton:hover:not(:disabled) {
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.58);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-info-cyan-rgb), 0.22), rgba(var(--pp-pulse-blue-rgb), 0.16)),
+    var(--pp-cloud-white);
   color: var(--pp-pulse-blue);
+  box-shadow: 0 10px 24px rgba(var(--pp-info-cyan-rgb), 0.2), 0 2px 4px rgba(var(--pp-shadow-rgb), 0.08);
+  transform: translateY(-2px);
+}
+
+.ppSecondaryButton.ppWatchRunNowButton:disabled .ppQuickScanBolt {
+  background: var(--pp-slate-300);
+  color: var(--pp-slate-500);
+  box-shadow: none;
 }
 
 .ppWatchSettingsForm {
