@@ -659,6 +659,32 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(analysis.advisories.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("uses Shopify plain description before HTML and cleans HTML when only descriptionHtml is available", () => {
+    expect(__productPulseDiagnosisTestHooks.cleanProductDescription({
+      description: "Clean Shopify description text.",
+      descriptionHtml: "<p>HTML fallback should not win.</p>",
+    })).toBe("Clean Shopify description text.");
+
+    expect(__productPulseDiagnosisTestHooks.cleanProductDescription({
+      description: "",
+      descriptionHtml: "<section><p>Canvas print&nbsp;with <strong>framed finish</strong>.</p><script>bad()</script></section>",
+    })).toBe("Canvas print with framed finish.");
+  });
+
+  it("counts product description words from cleaned HTML in content analysis", () => {
+    const analysis = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
+      title: "Rembrandt Night Watch Canvas Print",
+      descriptionHtml: "<p>Museum-inspired wall art printed on canvas with a dark palette and framed finish for home decor.</p><p>Includes hanging hardware and clear sizing details for gallery walls.</p>",
+      productType: "Wall art",
+      tags: ["canvas", "art", "rembrandt"],
+      collections: ["Art prints"],
+    });
+
+    expect(analysis.hasDescription).toBe(true);
+    expect(analysis.descriptionWordCount).toBeGreaterThan(20);
+    expect(analysis.issues.map((issue) => issue.code)).not.toContain("missing_description");
+  });
+
   it("only recommends a full description rewrite for missing, short or clearly broken descriptions", () => {
     const contentIssues = [{
       code: "missing_specifications",

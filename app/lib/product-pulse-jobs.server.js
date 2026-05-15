@@ -951,17 +951,34 @@ function stripHtml(value) {
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|section|li|h[1-6])>/gi, "\n")
+    .replace(/<\/(p|div|section|article|li|ul|ol|h[1-6]|blockquote|tr|td|th)>/gi, "\n")
     .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
     .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const parsed = Number(code);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : " ";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const parsed = Number.parseInt(code, 16);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : " ";
+    })
+    .replace(/\s+([.,;:!?])/g, "$1")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function cleanProductDescription(product = {}) {
+  const plainDescription = String(product.description || "").trim();
+  if (plainDescription) return stripHtml(plainDescription);
+  return stripHtml(product.descriptionHtml || "");
 }
 
 async function findProductRiskSnapshot(shop, productId) {
@@ -1681,7 +1698,7 @@ async function attachProductImageToDiagnosis(product, admin) {
       imageUrl: image.url || null,
       imageAlt: image.altText || null,
       currentDescriptionHtml: shopifyProduct.descriptionHtml || "",
-      currentDescriptionText: stripHtml(shopifyProduct.descriptionHtml || shopifyProduct.description || ""),
+      currentDescriptionText: cleanProductDescription(shopifyProduct),
       currentTags: Array.isArray(shopifyProduct.tags) ? shopifyProduct.tags : [],
     };
   } catch {
@@ -1941,7 +1958,7 @@ function buildManualProductRiskSnapshotPayload(shop, product) {
   const collections = getConnectionNodes(product.collections);
   const tags = Array.isArray(product.tags) ? product.tags : [];
   const options = Array.isArray(product.options) ? product.options : [];
-  const descriptionText = stripHtml(product.descriptionHtml || product.description || "");
+  const descriptionText = cleanProductDescription(product);
   const descriptionWordCount = descriptionText ? descriptionText.split(/\s+/).filter(Boolean).length : 0;
   const optionNames = options.map((option) => option.name).filter(Boolean);
   const skuCount = variants.filter((variant) => variant.sku).length;
@@ -2061,6 +2078,8 @@ function formatLiveShopifyProductForDiagnosis(product) {
   const tags = Array.isArray(product.tags) ? product.tags : [];
   const optionNames = (product.options || []).map((option) => option.name).filter(Boolean);
   const skuCount = variants.filter((variant) => variant.sku).length;
+  const descriptionText = cleanProductDescription(product);
+  const descriptionWordCount = descriptionText ? descriptionText.split(/\s+/).filter(Boolean).length : 0;
 
   return {
     id: product.id,
@@ -2068,7 +2087,7 @@ function formatLiveShopifyProductForDiagnosis(product) {
     title: product.title,
     handle: product.handle,
     currentDescriptionHtml: product.descriptionHtml || "",
-    currentDescriptionText: stripHtml(product.descriptionHtml || product.description || ""),
+    currentDescriptionText: descriptionText,
     collection: collections[0] || product.productType || product.vendor || "Shopify catalog",
     status: product.status || "Unknown",
     riskScore: 0,
@@ -2113,6 +2132,8 @@ function formatLiveShopifyProductForDiagnosis(product) {
       variantCount: variants.length,
       skuCount,
       optionNames,
+      hasDescription: descriptionWordCount > 0,
+      descriptionWordCount,
     },
     evidence: [{
       source: "Shopify product",
@@ -2205,6 +2226,19 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       checkedSources: Array.isArray(diagnosisReport.checkedSources) ? diagnosisReport.checkedSources : [],
       aiModels: diagnosisReport.aiModels || null,
       orderAccessDenied: Boolean(metrics.orderAccessDenied),
+      descriptionLength: metrics.descriptionLength || 0,
+      descriptionWordCount: metrics.descriptionWordCount || 0,
+      hasDescription: Boolean(metrics.hasDescription || Number(metrics.descriptionWordCount || 0) > 0),
+      contentQualityScore: metrics.contentQualityScore || 0,
+      contentQualityRisk: metrics.contentQualityRisk || 0,
+      contentIssueCount: metrics.contentIssueCount || 0,
+      contentIssues: Array.isArray(metrics.contentIssues) ? metrics.contentIssues : [],
+      contentAdvisoryCount: metrics.contentAdvisoryCount || 0,
+      contentAdvisories: Array.isArray(metrics.contentAdvisories) ? metrics.contentAdvisories : [],
+      mediaCount: metrics.mediaCount || 0,
+      mediaWithoutAltCount: metrics.mediaWithoutAltCount || 0,
+      titleNeedsReview: Boolean(metrics.titleNeedsReview),
+      variantNamingAdvisory: Boolean(metrics.variantNamingAdvisory),
     },
     evidence: diagnosisEvidence || getSnapshotEvidence(snapshot, metrics),
     issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics, settings),
@@ -2237,7 +2271,7 @@ function getSnapshotEvidence(snapshot, metrics) {
   const evidence = [{
     source: "Shopify product",
     quote: `${metrics.productType || "Product"}${metrics.vendor ? ` by ${metrics.vendor}` : ""}`,
-    weight: `${Array.isArray(metrics.collections) ? metrics.collections.length : 0} collections, ${Array.isArray(metrics.tags) ? metrics.tags.length : 0} tags`,
+    weight: `${metrics.descriptionWordCount || 0} description words, ${Array.isArray(metrics.collections) ? metrics.collections.length : 0} collections, ${Array.isArray(metrics.tags) ? metrics.tags.length : 0} tags`,
   }];
 
   if (Number(metrics.returnUnits || 0) > 0 || topReturnReasons.length) {

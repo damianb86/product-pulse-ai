@@ -3564,7 +3564,7 @@ function normalizeShopifyProduct(product, snapshot) {
     numericId: String(product.legacyResourceId || extractNumericShopifyId(product.id) || ""),
     title: product.title || snapshot.productTitle,
     handle: product.handle || snapshot.handle,
-    description: stripHtml(product.descriptionHtml || product.description || ""),
+    description: cleanProductDescription(product),
     vendor: product.vendor || "",
     productType: product.productType || "",
     status: product.status || "Unknown",
@@ -3600,6 +3600,12 @@ function normalizeSnapshotProduct(snapshot) {
     metafields: [],
     media: [],
   };
+}
+
+function cleanProductDescription(product = {}) {
+  const plainDescription = String(product.description || "").trim();
+  if (plainDescription) return stripHtml(plainDescription);
+  return stripHtml(product.descriptionHtml || "");
 }
 
 function normalizeMoneyValue(value) {
@@ -4592,7 +4598,7 @@ function classifyIssueText(text) {
 }
 
 function analyzeProductContentDeterministically(product) {
-  const description = String(product.description || "").replace(/\s+/g, " ").trim();
+  const description = stripHtml(product.description || product.descriptionHtml || "").replace(/\s+/g, " ").trim();
   const descriptionWordCount = description ? description.split(/\s+/).filter(Boolean).length : 0;
   const normalizedDescription = normalizeText(description);
   const normalizedTitle = normalizeText(product.title);
@@ -5557,7 +5563,32 @@ function escapeShopifyQueryValue(value) {
 }
 
 function stripHtml(value) {
-  return String(value || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|section|article|li|ul|ol|h[1-6]|blockquote|tr|td|th)>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const parsed = Number(code);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : " ";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const parsed = Number.parseInt(code, 16);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : " ";
+    })
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function normalizeText(value) {
@@ -5618,6 +5649,7 @@ export const __productPulseDiagnosisTestHooks = {
   getCsvReviewMatchConfidence,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,
+  cleanProductDescription,
 };
 
 function formatMoney(value) {
