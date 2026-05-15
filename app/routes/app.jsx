@@ -27,12 +27,12 @@ export default function App() {
   return (
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
-        <s-link href="/app" aria-current={activeSection === "dashboard" ? "page" : undefined} data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
-        <s-link href="/app/products" aria-current={activeSection === "products" ? "page" : undefined} data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
-        <s-link href="/app/analytics" aria-current={activeSection === "analytics" ? "page" : undefined} data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
-        <s-link href="/app/connect" aria-current={activeSection === "connect" ? "page" : undefined} data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
-        <s-link href="/app/settings" aria-current={activeSection === "settings" ? "page" : undefined} data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
-        <s-link href="/app/help" aria-current={activeSection === "help" ? "page" : undefined} data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
+        <s-link href="/app" data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
+        <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
+        <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
+        <s-link href="/app/connect" data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
+        <s-link href="/app/settings" data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
+        <s-link href="/app/help" data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
       </s-app-nav>
       <Outlet />
       <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />

@@ -582,6 +582,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
 
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
+  const normalizedField = String(payload.field || "").toLowerCase();
 
   if (isFaqRecommendationAction(action, payload)) {
     return applyFaqRecommendationAction({ admin, snapshot, action, payload });
@@ -617,8 +618,18 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
-  if (payload.productStatus || payload.field === "status" || normalizedId.includes("draft") || normalizedId.includes("archive")) {
-    const status = normalizeShopifyProductStatus(payload.draftText || payload.productStatus);
+  const isProductStatusAction = payload.productStatus
+    || normalizedField === "status"
+    || normalizedId.includes("product-status")
+    || normalizedId.includes("set-product-status")
+    || normalizedId.includes("set-product-to-draft")
+    || normalizedId.includes("put-product-in-draft")
+    || normalizedId.includes("archive-product")
+    || normalizedType.includes("product status");
+
+  if (isProductStatusAction) {
+    const inferredStatus = normalizedId.includes("archive") ? "ARCHIVED" : normalizedId.includes("draft") ? "DRAFT" : "";
+    const status = normalizeShopifyProductStatus(payload.productStatus || payload.draftText || inferredStatus);
     if (!status) return { status: "validation_error", message: "This status action does not include a valid Shopify product status." };
     const result = await updateProductFields(admin, snapshot.productGid, { status });
     if (result.status === "validation_error") return result;

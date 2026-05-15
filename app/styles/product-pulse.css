@@ -5043,7 +5043,7 @@ s-page[inline-size="large-500"] {
   width: min(1040px, calc(100vw - 40px));
   max-height: min(86vh, 900px);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
   overflow: hidden;
   padding: 18px;
@@ -5123,14 +5123,32 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionModal > .ppProductActionItem.isModalContent {
-  grid-template-areas:
-    "body"
-    "cta";
+  grid-template-areas: "body";
   border: 0;
   border-radius: 0;
   background: transparent;
   padding: 2px 4px 4px;
   box-shadow: none;
+}
+
+.ppRecommendedActionModalFooter {
+  padding: 12px 4px 2px;
+  border-top: 1px solid var(--pp-slate-200);
+}
+
+.ppRecommendedActionModalFooter.ppProductActionCta {
+  justify-content: flex-end;
+}
+
+.ppRecommendedActionModalFooter.ppProductActionCta form,
+.ppRecommendedActionModalFooter.ppProductActionCta > .ppActionCtaButton {
+  flex: 0 1 auto;
+  max-width: none;
+}
+
+.ppRecommendedActionModalFooter .ppActionCtaButton,
+.ppRecommendedActionModalFooter .ppActionDismissButton {
+  width: auto;
 }
 
 .ppModalCloseButton {

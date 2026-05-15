@@ -6134,120 +6134,137 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     setIsEditingInline(false);
   }, [application.value, action.detail]);
 
-  return (
-    <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""} ${showHeader ? "" : "isModalContent"}`.trim()}>
-      {showHeader && (
-        <div className="ppProductActionHeader">
-          <div className="ppProductActionIcon">
-            <s-icon type={action.icon} size="small"></s-icon>
-            <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
+  const actionBody = (
+    <div className="ppProductActionBody">
+      <div className="ppActionApplicationIntro">
+        <strong>{application.operation}</strong>
+        <p>{application.intro}</p>
+      </div>
+      <ProductActionRecipeDetails application={application} />
+      {application.variants?.length > 1 && (
+        <div className="ppActionVariantChooser" role="group" aria-label={`How to apply ${action.title}`}>
+          <span>Apply as</span>
+          <div>
+            {application.variants.map((variant) => (
+              <button
+                key={variant.id}
+                type="button"
+                className={variant.id === application.variantId ? "isSelected" : ""}
+                onClick={() => setSelectedVariantId(variant.id)}
+              >
+                <strong>{variant.label}</strong>
+                <small>{variant.operation}</small>
+              </button>
+            ))}
           </div>
-          <div className="ppProductActionTitleBlock">
-            <h3>{action.title}</h3>
-            <div className="ppProductActionPills">
-              <span className="ppActionPriorityPill">{action.priority}</span>
-              {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
-            </div>
-          </div>
-          {onCollapse && (
-            <button className="ppProductActionCollapseButton" type="button" aria-label={`Collapse ${action.title}`} onClick={() => onCollapse(action)}>
-              <s-icon type="chevron-up" size="small"></s-icon>
-            </button>
-          )}
         </div>
       )}
-      <div className="ppProductActionBody">
-        <div className="ppActionApplicationIntro">
-          <strong>{application.operation}</strong>
-          <p>{application.intro}</p>
+      {application.currentValue && (
+        <div className="ppActionCurrentValueBox">
+          <span>{application.currentValueLabel || "Current value"}</span>
+          <CurrentDescriptionInsertionPreview application={application} />
         </div>
-        <ProductActionRecipeDetails application={application} />
-        {application.variants?.length > 1 && (
-          <div className="ppActionVariantChooser" role="group" aria-label={`How to apply ${action.title}`}>
-            <span>Apply as</span>
-            <div>
-              {application.variants.map((variant) => (
-                <button
-                  key={variant.id}
-                  type="button"
-                  className={variant.id === application.variantId ? "isSelected" : ""}
-                  onClick={() => setSelectedVariantId(variant.id)}
-                >
-                  <strong>{variant.label}</strong>
-                  <small>{variant.operation}</small>
-                </button>
-              ))}
-            </div>
+      )}
+      {application.relatedActions?.length > 0 && (
+        <div className="ppActionRelatedBox">
+          <s-icon type="link" size="small"></s-icon>
+          <span>Related suggestion: {application.relatedActions.join(", ")}</span>
+        </div>
+      )}
+      {application.editable && isEditingInline ? (
+        <label className="ppActionInlineEditor">
+          <span>{application.valueLabel}</span>
+          <textarea
+            aria-label="Description text to apply"
+            value={editedText}
+            rows={detailExpanded ? 10 : 6}
+            onChange={(event) => setEditedText(event.target.value)}
+          />
+        </label>
+      ) : application.editable ? (
+        <div className="ppActionSuggestionBox">
+          <span>{application.valueLabel}</span>
+          <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
+          <button className="ppActionEditSuggestionButton" type="button" onClick={() => setIsEditingInline(true)} aria-label={`Edit suggested text for ${action.title}`}>
+            <s-icon type="edit" size="small"></s-icon>
+            <span>Edit</span>
+          </button>
+        </div>
+      ) : (
+        <p className={`ppActionDetailText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
+      )}
+      {hasLongDetail && !isEditingInline && (
+        <button className="ppActionDetailToggle" type="button" onClick={() => setDetailExpanded((expanded) => !expanded)}>
+          {detailExpanded ? "Show less" : "Show more"}
+        </button>
+      )}
+      <div className="ppActionReasonBox">
+        <span>
+          <s-icon type="info" size="small"></s-icon>
+          Why this is suggested
+        </span>
+        <p>{action.reason}</p>
+      </div>
+      <div className="ppActionMetaRow">
+        {action.meta.map((meta) => (
+          <span key={`${actionId}-${meta.label}`}>
+            <s-icon type={meta.icon} size="small"></s-icon>
+            {meta.label}
+          </span>
+        ))}
+        {action.evidence.map((item) => (
+          <span className="ppActionEvidencePill" key={`${actionId}-${item}`}>
+            <s-icon type="chart-line" size="small"></s-icon>
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+
+  const actionCta = (
+    <div className={`ppProductActionCta ${showHeader ? "" : "ppRecommendedActionModalFooter"}`.trim()}>
+      <button className="ppActionDismissButton" type="button" onClick={() => onDismiss(action)} disabled={pending || applied}>
+        <s-icon type="x" size="small"></s-icon>
+        <span>Dismiss</span>
+      </button>
+      {actionButton}
+    </div>
+  );
+
+  if (!showHeader) {
+    return (
+      <>
+        <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""} isModalContent`.trim()}>
+          {actionBody}
+        </article>
+        {actionCta}
+      </>
+    );
+  }
+
+  return (
+    <article className={`ppProductActionItem ${applied || drafted ? "isApplied" : ""}`.trim()}>
+      <div className="ppProductActionHeader">
+        <div className="ppProductActionIcon">
+          <s-icon type={action.icon} size="small"></s-icon>
+          <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
+        </div>
+        <div className="ppProductActionTitleBlock">
+          <h3>{action.title}</h3>
+          <div className="ppProductActionPills">
+            <span className="ppActionPriorityPill">{action.priority}</span>
+            {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
           </div>
-        )}
-        {application.currentValue && (
-          <div className="ppActionCurrentValueBox">
-            <span>{application.currentValueLabel || "Current value"}</span>
-            <CurrentDescriptionInsertionPreview application={application} />
-          </div>
-        )}
-        {application.relatedActions?.length > 0 && (
-          <div className="ppActionRelatedBox">
-            <s-icon type="link" size="small"></s-icon>
-            <span>Related suggestion: {application.relatedActions.join(", ")}</span>
-          </div>
-        )}
-        {application.editable && isEditingInline ? (
-          <label className="ppActionInlineEditor">
-            <span>{application.valueLabel}</span>
-            <textarea
-              aria-label="Description text to apply"
-              value={editedText}
-              rows={detailExpanded ? 10 : 6}
-              onChange={(event) => setEditedText(event.target.value)}
-            />
-          </label>
-        ) : application.editable ? (
-          <div className="ppActionSuggestionBox">
-            <span>{application.valueLabel}</span>
-            <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
-            <button className="ppActionEditSuggestionButton" type="button" onClick={() => setIsEditingInline(true)} aria-label={`Edit suggested text for ${action.title}`}>
-              <s-icon type="edit" size="small"></s-icon>
-              <span>Edit</span>
-            </button>
-          </div>
-        ) : (
-          <p className={`ppActionDetailText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>{detailText}</p>
-        )}
-        {hasLongDetail && !isEditingInline && (
-          <button className="ppActionDetailToggle" type="button" onClick={() => setDetailExpanded((expanded) => !expanded)}>
-            {detailExpanded ? "Show less" : "Show more"}
+        </div>
+        {onCollapse && (
+          <button className="ppProductActionCollapseButton" type="button" aria-label={`Collapse ${action.title}`} onClick={() => onCollapse(action)}>
+            <s-icon type="chevron-up" size="small"></s-icon>
           </button>
         )}
-        <div className="ppActionReasonBox">
-          <span>
-            <s-icon type="info" size="small"></s-icon>
-            Why this is suggested
-          </span>
-          <p>{action.reason}</p>
-        </div>
-        <div className="ppActionMetaRow">
-          {action.meta.map((meta) => (
-            <span key={`${actionId}-${meta.label}`}>
-              <s-icon type={meta.icon} size="small"></s-icon>
-              {meta.label}
-            </span>
-          ))}
-          {action.evidence.map((item) => (
-            <span className="ppActionEvidencePill" key={`${actionId}-${item}`}>
-              <s-icon type="chart-line" size="small"></s-icon>
-              {item}
-            </span>
-          ))}
-        </div>
       </div>
-      <div className="ppProductActionCta">
-        <button className="ppActionDismissButton" type="button" onClick={() => onDismiss(action)} disabled={pending || applied}>
-          <s-icon type="x" size="small"></s-icon>
-          <span>Dismiss</span>
-        </button>
-        {actionButton}
-      </div>
+      {actionBody}
+      {actionCta}
     </article>
   );
 }
