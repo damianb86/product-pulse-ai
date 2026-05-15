@@ -824,6 +824,12 @@ s-page[inline-size="large-500"] {
   transform: translateY(0);
 }
 
+.ppFloatingTablePopover {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: none !important;
+}
+
 .ppSourceTokenWrap {
   outline: none;
 }
@@ -4453,6 +4459,87 @@ s-page[inline-size="large-500"] {
 
 .ppActionRecipeItem-high s-icon {
   color: var(--pp-risk-red);
+}
+
+.ppRecommendedActionModal {
+  width: min(1040px, calc(100vw - 40px));
+  max-height: min(86vh, 900px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.055), rgba(255, 255, 255, 0) 34%),
+    var(--pp-cloud-white);
+  box-shadow: 0 30px 90px rgba(var(--pp-shadow-rgb), 0.26);
+}
+
+.ppRecommendedActionModalHeader {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 2px 2px 12px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppRecommendedActionModalHeader > div:nth-child(2) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppRecommendedActionModalKicker {
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ppRecommendedActionModalTitle {
+  display: block;
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 20px;
+  font-weight: 850;
+  line-height: 1.18;
+}
+
+.ppRecommendedActionModalHeader p {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.ppRecommendedActionModal > .ppProductActionItem {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  box-shadow: none;
+}
+
+.ppModalCloseButton {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  cursor: pointer;
+}
+
+.ppModalCloseButton:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.28);
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
 }
 
 .ppActionDetailText.isClamped {

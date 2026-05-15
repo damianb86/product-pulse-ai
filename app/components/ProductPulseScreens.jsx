@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Form, Link, useFetcher, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
   buildConnectViewData,
@@ -1755,13 +1756,24 @@ function getProductAnalysisDisplay(product = {}) {
 }
 
 function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true, titleIcon = false, completionOnly = false }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
   const analysis = getProductAnalysisDisplay(product);
   const popoverTitle = completionOnly && analysis.depth === "full" ? "Deep analysis completed" : getAnalysisPopoverTitle(analysis);
   const popoverDetail = completionOnly
     ? formatProductAnalysisDate(analysis.completedAt || product.lastAnalysis)
     : analysis.detail;
   return (
-    <button className={`ppAnalysisStatusWrap ${titleIcon ? "ppAnalysisStatusWrap-titleIcon" : ""}`.trim()} type="button" aria-label={`${popoverTitle}. ${popoverDetail}`}>
+    <button
+      className={`ppAnalysisStatusWrap ${titleIcon ? "ppAnalysisStatusWrap-titleIcon" : ""}`.trim()}
+      type="button"
+      ref={triggerRef}
+      aria-label={`${popoverTitle}. ${popoverDetail}`}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <span className={`ppAnalysisStatus ppAnalysisStatus-${analysis.depth} ${detail ? "ppAnalysisStatus-detail" : ""} ${titleIcon ? "ppAnalysisStatus-titleIcon" : ""}`.trim()}>
         <span className="ppAnalysisStatusIcon" aria-hidden="true">
           <s-icon type={analysis.icon} size="small"></s-icon>
@@ -1773,10 +1785,10 @@ function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true,
           </span>
         )}
       </span>
-      <span className="ppAnalysisStatusPopover" role="tooltip">
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppAnalysisStatusPopover" width={244} placement="bottom-center">
         <strong>{popoverTitle}</strong>
         <small>{popoverDetail}</small>
-      </span>
+      </FloatingTablePopover>
     </button>
   );
 }
@@ -3216,8 +3228,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
   const [minimizedActionStates, setMinimizedActionStates] = useState(() => ({}));
-  const [expandedArchivedActionIds, setExpandedArchivedActionIds] = useState(() => new Set());
-  const [expandedRecommendedActionIds, setExpandedRecommendedActionIds] = useState(() => new Set());
+  const [selectedRecommendedAction, setSelectedRecommendedAction] = useState(null);
   const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
   const [actionConfirmation, setActionConfirmation] = useState(null);
@@ -3234,8 +3245,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setResolvedLocally(Boolean(product?.resolvedAt));
     setIgnoredIssues(new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
     setMinimizedActionStates({});
-    setExpandedArchivedActionIds(new Set());
-    setExpandedRecommendedActionIds(new Set());
+    setSelectedRecommendedAction(null);
     setSelectedEvidenceIndex(0);
     setDiagnosisConfirmation(null);
     setRecommendedActionsCollapsed(false);
@@ -3259,16 +3269,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "ignore-issue"].includes(actionData.action.id)) {
       const actionKey = actionData.action.id;
       setMinimizedActionStates((current) => ({ ...current, [actionKey]: "applied" }));
-      setExpandedArchivedActionIds((current) => {
-        const next = new Set(current);
-        next.delete(actionKey);
-        return next;
-      });
-      setExpandedRecommendedActionIds((current) => {
-        const next = new Set(current);
-        next.delete(actionKey);
-        return next;
-      });
+      setSelectedRecommendedAction(null);
       setEditingAction(null);
     }
     if (actionData?.status === "success") {
@@ -3308,8 +3309,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const ignoredIssueRows = detail.detectedIssues.filter((issue) => isIssueIgnored(issue, ignoredIssues));
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
   const isActionArchived = (action) => {
-    const actionKey = getRecommendedActionKey(action);
-    return Boolean(getArchivedActionState(action, minimizedActionStates)) && !expandedArchivedActionIds.has(actionKey);
+    return Boolean(getArchivedActionState(action, minimizedActionStates));
   };
   const activeRecommendedActions = detail.recommendedActions.filter((action) => !isRecommendedActionRelatedToIgnoredIssues(action, ignoredIssueRows, product));
   const hiddenIgnoredRecommendedActionCount = Math.max(0, detail.recommendedActions.length - activeRecommendedActions.length);
@@ -3349,22 +3349,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
 
   const handleOpenRecommendedAction = (action) => {
-    const actionKey = getRecommendedActionKey(action);
-    setExpandedRecommendedActionIds((current) => {
-      const next = new Set(current);
-      next.add(actionKey);
-      return next;
-    });
-  };
-
-  const handleCollapseRecommendedAction = (action) => {
-    const actionKey = getRecommendedActionKey(action);
-    setExpandedRecommendedActionIds((current) => {
-      const next = new Set(current);
-      next.delete(actionKey);
-      return next;
-    });
-    setEditingAction((current) => (getRecommendedActionKey(current || {}) === actionKey ? null : current));
+    setSelectedRecommendedAction(action);
+    setEditingAction(null);
   };
 
   const handleRequestProductDiagnosis = () => {
@@ -3430,6 +3416,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
 
   const handleRequestApplyAction = (action, editedText, application = null) => {
+    setSelectedRecommendedAction(null);
     setActionConfirmation({
       action,
       editedText,
@@ -3440,39 +3427,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const handleDismissAction = (action) => {
     const actionKey = getRecommendedActionKey(action);
     setMinimizedActionStates((current) => ({ ...current, [actionKey]: "dismissed" }));
-    setExpandedArchivedActionIds((current) => {
-      const next = new Set(current);
-      next.delete(actionKey);
-      return next;
-    });
-    setExpandedRecommendedActionIds((current) => {
-      const next = new Set(current);
-      next.delete(actionKey);
-      return next;
-    });
+    setSelectedRecommendedAction(null);
     setActionConfirmation(null);
     setEditingAction(null);
     showToast(`${action.title} dismissed for this review session.`);
   };
 
   const handleExpandArchivedAction = (action) => {
-    const actionKey = getRecommendedActionKey(action);
-    setExpandedArchivedActionIds((current) => {
-      const next = new Set(current);
-      next.add(actionKey);
-      return next;
-    });
-    setExpandedRecommendedActionIds((current) => {
-      const next = new Set(current);
-      next.add(actionKey);
-      return next;
-    });
-    setMinimizedActionStates((current) => {
-      if (current[actionKey] !== "dismissed") return current;
-      const next = { ...current };
-      delete next[actionKey];
-      return next;
-    });
+    setSelectedRecommendedAction(action);
   };
 
   return (
@@ -3732,31 +3694,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         variant="recommendedActions"
                       />
                     )}
-                    {visibleRecommendedActions.map((action, index) => {
-                      const actionKey = getRecommendedActionKey(action);
-                      const expanded = expandedRecommendedActionIds.has(actionKey);
-                      return expanded ? (
-                        <ProductRecommendedAction
-                          key={actionKey}
-                          action={action}
-                          product={product}
-                          pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
-                          onEdit={handleEditAction}
-                          onCopy={handleCopyAction}
-                          onReview={handleReviewEvidence}
-                          onRequestApply={handleRequestApplyAction}
-                          onDismiss={handleDismissAction}
-                          onCollapse={handleCollapseRecommendedAction}
-                        />
-                      ) : (
-                        <ProductRecommendedActionCompact
-                          key={actionKey}
-                          action={action}
-                          index={index}
-                          onOpen={handleOpenRecommendedAction}
-                        />
-                      );
-                    })}
+                    {visibleRecommendedActions.map((action, index) => (
+                      <ProductRecommendedActionCompact
+                        key={getRecommendedActionKey(action)}
+                        action={action}
+                        index={index}
+                        onOpen={handleOpenRecommendedAction}
+                      />
+                    ))}
                   </div>
                   {minimizedRecommendedActions.length > 0 && (
                     <MinimizedRecommendedActionsTray
@@ -3798,6 +3743,19 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             pendingIds={diagnosisPending ? diagnosisConfirmation.products : []}
             onCancel={() => setDiagnosisConfirmation(null)}
             onConfirm={handleConfirmProductDiagnosis}
+          />
+        )}
+        {selectedRecommendedAction && !actionConfirmation && (
+          <RecommendedActionDetailModal
+            action={selectedRecommendedAction}
+            product={product}
+            pending={pendingActionId === selectedRecommendedAction.id || (selectedRecommendedAction.mode === "diagnose" && diagnosisPending)}
+            onClose={() => setSelectedRecommendedAction(null)}
+            onEdit={handleEditAction}
+            onCopy={handleCopyAction}
+            onReview={handleReviewEvidence}
+            onRequestApply={handleRequestApplyAction}
+            onDismiss={handleDismissAction}
           />
         )}
         {actionConfirmation && (
@@ -4097,15 +4055,24 @@ function ProductArt({ variant, label, size = "small", imageUrl, imageAlt }) {
 }
 
 function ProductSignalCell({ product }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
   const details = product.signalDetails || buildFallbackSignalDetails(product);
 
   return (
-    <span className="ppSignalPopoverWrap">
+    <span
+      className="ppSignalPopoverWrap"
+      ref={triggerRef}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button className="ppSignalTrigger" type="button" aria-label={`Explain signals for ${product.title}`}>
         <SignalBars tone={product.signalTone} values={product.signalBars || []} />
         <span>{product.signals}</span>
       </button>
-      <span className="ppSignalPopover" role="tooltip">
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppSignalPopover" width={380} estimatedHeight={260}>
         <strong>{details.summary}</strong>
         <span className="ppSignalPopoverList">
           {(details.bars || []).map((bar, index) => (
@@ -4120,7 +4087,7 @@ function ProductSignalCell({ product }) {
             </span>
           ))}
         </span>
-      </span>
+      </FloatingTablePopover>
     </span>
   );
 }
@@ -4155,6 +4122,72 @@ function SignalBars({ values, tone }) {
       ))}
     </span>
   );
+}
+
+function FloatingTablePopover({ anchorRef, open, className = "", width = 320, estimatedHeight = 220, placement = "bottom-start", role = "tooltip", children }) {
+  const style = useFloatingTablePopoverStyle(anchorRef, open, { width, estimatedHeight, placement });
+  if (!open || !style || typeof document === "undefined") return null;
+
+  return createPortal(
+    <span className={`${className} ppFloatingTablePopover`.trim()} role={role} style={style}>
+      {children}
+    </span>,
+    document.body,
+  );
+}
+
+function useFloatingTablePopoverStyle(anchorRef, open, { width = 320, estimatedHeight = 220, placement = "bottom-start" } = {}) {
+  const [style, setStyle] = useState(null);
+
+  useEffect(() => {
+    if (!open || typeof window === "undefined") {
+      setStyle(null);
+      return undefined;
+    }
+
+    const update = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const margin = 12;
+      const offset = 8;
+      const viewportWidth = window.innerWidth || 0;
+      const viewportHeight = window.innerHeight || 0;
+      let left = rect.left;
+
+      if (placement.endsWith("end")) {
+        left = rect.right - width;
+      } else if (placement.endsWith("center")) {
+        left = rect.left + rect.width / 2 - width / 2;
+      }
+
+      left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+
+      const preferredBelow = rect.bottom + offset;
+      const preferredAbove = rect.top - estimatedHeight - offset;
+      const top = preferredBelow + estimatedHeight <= viewportHeight - margin
+        ? preferredBelow
+        : Math.max(margin, preferredAbove);
+
+      setStyle({
+        position: "fixed",
+        top: `${Math.round(top)}px`,
+        left: `${Math.round(left)}px`,
+        width: `${width}px`,
+        zIndex: 10000,
+      });
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [anchorRef, open, width, estimatedHeight, placement]);
+
+  return style;
 }
 
 function IssueBar({ issue }) {
@@ -4201,6 +4234,8 @@ function DashboardInsightPanel({ panel }) {
 }
 
 function ProductSourceIconGroup({ sources, overflow }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
   const sourceTokens = (sources || []).map(normalizeSourceToken);
   const overflowCount = Number(overflow || 0);
   const hasFullSourceList = sourceTokens.length > 3;
@@ -4208,13 +4243,20 @@ function ProductSourceIconGroup({ sources, overflow }) {
   const primarySource = sourceTokens[0] || normalizeSourceToken("source");
 
   return (
-    <span className="ppSourceTokenWrap">
+    <span
+      className="ppSourceTokenWrap"
+      ref={triggerRef}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button className="ppSourceSummaryTrigger" type="button" aria-label={`${totalCount || 1} source${totalCount === 1 ? "" : "s"} used for this product`}>
         <span className={`ppSourceSummaryGlyph ppSourceSummaryGlyph-${primarySource.key}`} aria-hidden="true">
           <s-icon type="duplicate" size="small"></s-icon>
         </span>
       </button>
-      <span className="ppSourcePopover ppSourceSummaryPopover" role="tooltip">
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppSourcePopover ppSourceSummaryPopover" width={360} estimatedHeight={260} placement="bottom-end">
         <strong>Sources used</strong>
         <span className="ppSourcePopoverList">
           {sourceTokens.map((source, index) => (
@@ -4239,7 +4281,7 @@ function ProductSourceIconGroup({ sources, overflow }) {
             <small>{overflowCount} additional source{overflowCount === 1 ? "" : "s"} stored for this product.</small>
           )}
         </span>
-      </span>
+      </FloatingTablePopover>
     </span>
   );
 }
@@ -4281,6 +4323,7 @@ function getSourceGlyph(key) {
 }
 
 function ProductActionMenu({ product, open, onToggle, onClose }) {
+  const triggerRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const handle = product.handle || product.href?.split("/").filter(Boolean).pop() || product.title;
 
@@ -4296,7 +4339,7 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
   };
 
   return (
-    <span className="ppActionMenuWrap">
+    <span className="ppActionMenuWrap" ref={triggerRef}>
       <button
         className="ppIconButton"
         type="button"
@@ -4307,7 +4350,7 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
         <s-icon type="menu-horizontal" size="small"></s-icon>
       </button>
       {open && (
-        <span className="ppActionMenu" role="menu">
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={190} estimatedHeight={150} placement="bottom-end" role="menu">
           <Link role="menuitem" to={product.href} onClick={onClose}>
             <s-icon type="view" size="small"></s-icon>
             View diagnostics
@@ -4331,7 +4374,7 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
               </button>
             </Form>
           )}
-        </span>
+        </FloatingTablePopover>
       )}
     </span>
   );
@@ -5842,6 +5885,41 @@ function getActionRiskTone(value = "") {
   if (normalized.includes("high")) return "high";
   if (normalized.includes("medium")) return "medium";
   return "low";
+}
+
+function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
+  if (!action) return null;
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppRecommendedActionModal" role="dialog" aria-modal="true" aria-labelledby="recommended-action-detail-title">
+        <div className="ppRecommendedActionModalHeader">
+          <div className="ppProductActionIcon">
+            <s-icon type={action.icon} size="small"></s-icon>
+            <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
+          </div>
+          <div>
+            <span className="ppRecommendedActionModalKicker">Recommended action</span>
+            <strong className="ppRecommendedActionModalTitle" id="recommended-action-detail-title">{action.title}</strong>
+            <p>Review the trigger, proposed Shopify change, evidence and expected impact before applying it.</p>
+          </div>
+          <button className="ppModalCloseButton" type="button" aria-label="Close recommended action" onClick={onClose}>
+            <s-icon type="x" size="small"></s-icon>
+          </button>
+        </div>
+        <ProductRecommendedAction
+          action={action}
+          product={product}
+          pending={pending}
+          onEdit={onEdit}
+          onCopy={onCopy}
+          onReview={onReview}
+          onRequestApply={onRequestApply}
+          onDismiss={onDismiss}
+        />
+      </section>
+    </div>
+  );
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onCollapse }) {

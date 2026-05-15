@@ -173,7 +173,7 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText(/8%/)).not.toBeInTheDocument();
   });
 
-  it("keeps the quick scan action available when product rows exist", () => {
+  it("keeps the quick scan action available when product rows exist", async () => {
     const data = {
       ...defaultView,
       persistProductJobs: false,
@@ -226,15 +226,19 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: /Linen Shirt/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
     expect(screen.getByText("Diagnosis running")).toBeInTheDocument();
-    expect(screen.getAllByText("Fast Analysis completed").length).toBeGreaterThan(0);
+    const analysisButton = screen.getByRole("button", { name: /Fast Analysis completed/ });
+    fireEvent.mouseEnter(analysisButton);
+    expect(await screen.findByText("Fast Analysis completed")).toBeInTheDocument();
     expect(screen.getByText(/Only the fast Shopify scan has run/)).toBeInTheDocument();
     expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
     fireEvent.click(screen.getByRole("button", { name: "Product risk" }));
     expect(screen.getByText("↓")).toBeInTheDocument();
-    expect(screen.getByText("Return rate contribution.")).toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Explain signals for Linen Shirt" }));
+    expect(await screen.findByText("Return rate contribution.")).toBeInTheDocument();
     expect(screen.getByLabelText("3 sources used for this product")).toBeInTheDocument();
-    expect(screen.getByText("Sources used")).toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByLabelText("3 sources used for this product"));
+    expect(await screen.findByText("Sources used")).toBeInTheDocument();
     expect(screen.getByText("Returns")).toBeInTheDocument();
     expect(screen.getByText("Refunds")).toBeInTheDocument();
     expect(screen.getByText("Shopify product metadata.")).toBeInTheDocument();
@@ -253,7 +257,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("$9,200 margin at risk")).toBeInTheDocument();
     expect(screen.getAllByText(/Fit runs small around waist and inseam/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Deep analysis completed").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Deep analysis completed/ })).toBeInTheDocument();
     expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
     expect(screen.getByText("Explore and review the evidence behind each detected issue.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Returns" })).toHaveAttribute("aria-selected", "true");
@@ -269,6 +273,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Confirm product description update" })).toBeInTheDocument();
     expect(screen.getAllByText("Updated fit guidance for shoppers.").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
     expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
     expect(screen.getByText("Completed and dismissed")).toBeInTheDocument();
