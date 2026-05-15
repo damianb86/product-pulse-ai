@@ -3093,6 +3093,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
   const [minimizedActionStates, setMinimizedActionStates] = useState(() => ({}));
   const [expandedArchivedActionIds, setExpandedArchivedActionIds] = useState(() => new Set());
+  const [expandedRecommendedActionIds, setExpandedRecommendedActionIds] = useState(() => new Set());
   const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
   const [actionConfirmation, setActionConfirmation] = useState(null);
@@ -3110,6 +3111,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setIgnoredIssues(new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
     setMinimizedActionStates({});
     setExpandedArchivedActionIds(new Set());
+    setExpandedRecommendedActionIds(new Set());
     setSelectedEvidenceIndex(0);
     setDiagnosisConfirmation(null);
     setRecommendedActionsCollapsed(false);
@@ -3134,6 +3136,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       const actionKey = actionData.action.id;
       setMinimizedActionStates((current) => ({ ...current, [actionKey]: "applied" }));
       setExpandedArchivedActionIds((current) => {
+        const next = new Set(current);
+        next.delete(actionKey);
+        return next;
+      });
+      setExpandedRecommendedActionIds((current) => {
         const next = new Set(current);
         next.delete(actionKey);
         return next;
@@ -3217,6 +3224,25 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     });
   };
 
+  const handleOpenRecommendedAction = (action) => {
+    const actionKey = getRecommendedActionKey(action);
+    setExpandedRecommendedActionIds((current) => {
+      const next = new Set(current);
+      next.add(actionKey);
+      return next;
+    });
+  };
+
+  const handleCollapseRecommendedAction = (action) => {
+    const actionKey = getRecommendedActionKey(action);
+    setExpandedRecommendedActionIds((current) => {
+      const next = new Set(current);
+      next.delete(actionKey);
+      return next;
+    });
+    setEditingAction((current) => (getRecommendedActionKey(current || {}) === actionKey ? null : current));
+  };
+
   const handleRequestProductDiagnosis = () => {
     if (!detail.canDiagnose || diagnosisPending) return;
     const productId = product.slug || product.handle || "";
@@ -3295,6 +3321,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       next.delete(actionKey);
       return next;
     });
+    setExpandedRecommendedActionIds((current) => {
+      const next = new Set(current);
+      next.delete(actionKey);
+      return next;
+    });
     setActionConfirmation(null);
     setEditingAction(null);
     showToast(`${action.title} dismissed for this review session.`);
@@ -3303,6 +3334,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const handleExpandArchivedAction = (action) => {
     const actionKey = getRecommendedActionKey(action);
     setExpandedArchivedActionIds((current) => {
+      const next = new Set(current);
+      next.add(actionKey);
+      return next;
+    });
+    setExpandedRecommendedActionIds((current) => {
       const next = new Set(current);
       next.add(actionKey);
       return next;
@@ -3541,7 +3577,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   <h2>Recommended actions</h2>
                   <span>
                     {detail.hasFullDiagnosis
-                      ? `${visibleRecommendedActionCount} active action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
+                      ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
                       : "Run full diagnosis to unlock actions"}
                   </span>
                 </div>
@@ -3572,19 +3608,31 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         variant="recommendedActions"
                       />
                     )}
-                    {visibleRecommendedActions.map((action) => (
-                      <ProductRecommendedAction
-                        key={action.title}
-                        action={action}
-                        product={product}
-                        pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
-                        onEdit={handleEditAction}
-                        onCopy={handleCopyAction}
-                        onReview={handleReviewEvidence}
-                        onRequestApply={handleRequestApplyAction}
-                        onDismiss={handleDismissAction}
-                      />
-                    ))}
+                    {visibleRecommendedActions.map((action, index) => {
+                      const actionKey = getRecommendedActionKey(action);
+                      const expanded = expandedRecommendedActionIds.has(actionKey);
+                      return expanded ? (
+                        <ProductRecommendedAction
+                          key={actionKey}
+                          action={action}
+                          product={product}
+                          pending={pendingActionId === action.id || (action.mode === "diagnose" && diagnosisPending)}
+                          onEdit={handleEditAction}
+                          onCopy={handleCopyAction}
+                          onReview={handleReviewEvidence}
+                          onRequestApply={handleRequestApplyAction}
+                          onDismiss={handleDismissAction}
+                          onCollapse={handleCollapseRecommendedAction}
+                        />
+                      ) : (
+                        <ProductRecommendedActionCompact
+                          key={actionKey}
+                          action={action}
+                          index={index}
+                          onOpen={handleOpenRecommendedAction}
+                        />
+                      );
+                    })}
                   </div>
                   {minimizedRecommendedActions.length > 0 && (
                     <MinimizedRecommendedActionsTray
@@ -5415,7 +5463,35 @@ function getArchivedActionLabel(state) {
   return "Minimized";
 }
 
-function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss }) {
+function ProductRecommendedActionCompact({ action, index, onOpen }) {
+  const badgeLabel = action.priority || action.type || action.effort || "Recommended";
+  return (
+    <button
+      className="ppCompactRecommendedAction"
+      type="button"
+      aria-label={`Open recommended action ${action.title}`}
+      onClick={() => onOpen(action)}
+    >
+      <span className="ppCompactRecommendedIndex">{index + 1}</span>
+      <strong>{action.title}</strong>
+      <span className={`ppCompactRecommendedBadge ppCompactRecommendedBadge-${getCompactActionPriorityTone(badgeLabel)}`}>
+        {badgeLabel}
+      </span>
+      <s-icon type="chevron-right" size="small"></s-icon>
+    </button>
+  );
+}
+
+function getCompactActionPriorityTone(priority = "") {
+  const normalized = String(priority || "").toLowerCase();
+  if (normalized.includes("primary")) return "violet";
+  if (normalized.includes("customer") || normalized.includes("clarity") || normalized.includes("buyer")) return "teal";
+  if (normalized.includes("risk")) return "red";
+  if (normalized.includes("review") || normalized.includes("evidence")) return "blue";
+  return "blue";
+}
+
+function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onCollapse }) {
   const baseApplication = getRecommendedActionApplication(action, product);
   const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
   const application = getRecommendedActionApplication(action, product, { variantId: selectedVariantId || baseApplication.defaultVariantId });
@@ -5476,6 +5552,11 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
             {action.appliedRecord && <em>{applied ? "Applied" : "Draft saved"}</em>}
           </div>
         </div>
+        {onCollapse && (
+          <button className="ppProductActionCollapseButton" type="button" aria-label={`Collapse ${action.title}`} onClick={() => onCollapse(action)}>
+            <s-icon type="chevron-up" size="small"></s-icon>
+          </button>
+        )}
       </div>
       <div className="ppProductActionBody">
         <div className="ppActionApplicationIntro">

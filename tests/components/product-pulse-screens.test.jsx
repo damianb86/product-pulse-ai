@@ -262,6 +262,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Total reviews")).toBeInTheDocument();
     expect(screen.getByText("Negative reviews")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit suggested text for Add fit note" }));
     fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
     fireEvent.click(screen.getAllByRole("button", { name: "Apply to product" })[0]);
@@ -298,6 +299,7 @@ describe("ProductPulse screens", () => {
   it("lets FAQ recommendations choose the Shopify application format", async () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add sizing FAQ" }));
     const faqCard = screen.getByRole("heading", { name: "Add sizing FAQ" }).closest("article");
     expect(within(faqCard).getByRole("group", { name: "How to apply Add sizing FAQ" })).toBeInTheDocument();
     expect(within(faqCard).getByRole("button", { name: /Collapsible FAQ/ })).toHaveClass("isSelected");
@@ -311,15 +313,17 @@ describe("ProductPulse screens", () => {
 
   it("minimizes and expands the recommended actions panel", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
-    expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
+    expect(screen.queryByText(/customers report this trouser runs small/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Minimize" }));
     expect(screen.getByRole("button", { name: "Expand" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/customers report this trouser runs small/)).not.toBeInTheDocument();
-    expect(screen.getByText("3 active actions")).toBeInTheDocument();
+    expect(screen.getByText("3 actions")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByRole("button", { name: "Minimize" })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
   });
 
@@ -344,7 +348,7 @@ describe("ProductPulse screens", () => {
     });
 
     renderWithAction(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />, action);
-    expect(screen.getByRole("heading", { name: "Add fit note" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Ignore Fit runs small around waist and inseam" }));
 
@@ -352,7 +356,7 @@ describe("ProductPulse screens", () => {
     expect(submittedAction).toBe("ignore-issue");
     expect(submittedIssueKey).toBe("fit-runs-small-around-waist-and-inseam");
     await waitFor(() => expect(screen.getByText("Ignored")).toBeInTheDocument());
-    expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open recommended action Add fit note" })).not.toBeInTheDocument();
     expect(screen.getByText(/hidden because related issues are ignored/)).toBeInTheDocument();
   });
 
@@ -376,7 +380,7 @@ describe("ProductPulse screens", () => {
     />);
 
     expect(screen.getByText("Ignored")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open recommended action Add fit note" })).not.toBeInTheDocument();
     expect(screen.getByText(/1 ignored issue/)).toBeInTheDocument();
   });
 
@@ -400,6 +404,7 @@ describe("ProductPulse screens", () => {
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     expect(screen.getAllByText("Review title, tags and collection alignment").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Review title, tags and collection alignment" }));
     expect(screen.getByText("ProductPulse found content issues that can reduce buyer confidence: Missing product description.")).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
   });
@@ -536,6 +541,7 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Rewrite detailed product guidance" }));
     expect(screen.getByText(longDetail)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
