@@ -475,7 +475,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
     expect(screen.getByText("AI emotions")).toBeInTheDocument();
     expect(screen.getByText("Emergent emotion")).toBeInTheDocument();
-    expect(screen.getByText("Superstitious discomfort 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Superstitious discomfort 2").length).toBeGreaterThan(0);
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
   });
 
@@ -518,11 +518,11 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Evidence sources")).toBeInTheDocument();
     expect(screen.getByText("Raw product metrics")).toBeInTheDocument();
     expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
-    expect(screen.getByText("All customer text sentiment")).toBeInTheDocument();
-    expect(screen.getByText((_, element) => element?.textContent === "3 negative, 1 neutral, 0 positive")).toBeInTheDocument();
+    expect(screen.getAllByText("All customer text sentiment").length).toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent === "3 negative, 1 neutral, 0 positive").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Deterministic emotion taxonomy").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
-    expect(screen.getByText((_, element) => element?.textContent === "\"Other\" return notes classified as Fit & sizing 2 times")).toBeInTheDocument();
+    expect(screen.getAllByText((_, element) => element?.textContent === "\"Other\" return notes classified as Fit & sizing 2 times").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
   });
 

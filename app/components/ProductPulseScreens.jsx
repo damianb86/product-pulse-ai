@@ -4399,6 +4399,7 @@ function EvidenceObservabilityHeader({ detail }) {
 }
 
 function EvidenceMetricCard({ card }) {
+  const popover = getEvidenceMetricCardPopover(card);
   return (
     <article className={`ppEvidenceMetricCard ppEvidenceMetricCard-${card.tone || "blue"}`}>
       <span className="ppEvidenceMetricIcon" aria-hidden="true">
@@ -4411,8 +4412,51 @@ function EvidenceMetricCard({ card }) {
       </div>
       {card.badge && <em>{card.badge}</em>}
       {Array.isArray(card.trend) && card.trend.length > 0 && <MiniTrend tone={getTrendTone(card.trend)} values={card.trend} />}
+      <span className="ppEvidenceMetricPopover" role="tooltip">
+        <strong>{popover.title}</strong>
+        <span>{popover.body}</span>
+        {popover.items.length > 0 && (
+          <span className="ppEvidenceMetricPopoverList">
+            {popover.items.map((item) => (
+              <small key={`${card.label}-${item.label}`}>
+                <b>{item.label}</b>
+                {item.value}
+              </small>
+            ))}
+          </span>
+        )}
+      </span>
     </article>
   );
+}
+
+function getEvidenceMetricCardPopover(card = {}) {
+  const title = card.popoverTitle || `${card.label}: ${card.value}`;
+  const body = card.popoverBody || card.popoverDetail || `This card summarizes ${String(card.label || "this evidence").toLowerCase()} for the selected evidence source. ProductPulse uses it as an early reading of what was found and why it may matter for product diagnosis.`;
+  const items = Array.isArray(card.popoverItems) ? card.popoverItems : [];
+  if (items.length) return { title, body, items };
+
+  return {
+    title,
+    body,
+    items: [
+      { label: "Current value", value: String(card.value || "No value stored") },
+      { label: "Source detail", value: String(card.detail || "No additional source detail stored yet.") },
+      { label: "Why it matters", value: getEvidenceMetricWhyItMatters(card) },
+    ],
+  };
+}
+
+function getEvidenceMetricWhyItMatters(card = {}) {
+  const label = String(card.label || "").toLowerCase();
+  if (label.includes("return")) return "Returns are hard post-purchase evidence and help separate real product friction from isolated feedback.";
+  if (label.includes("refund")) return "Refunds add operational and financial pressure, especially when the rate is high across enough orders.";
+  if (label.includes("rating") || label.includes("review")) return "Reviews capture customer expectations and sentiment that may not appear in Shopify returns.";
+  if (label.includes("emotion") || label.includes("sentiment") || label.includes("language") || label.includes("reaction")) return "Customer language helps explain the reason behind a metric and can reveal subjective or emerging patterns.";
+  if (label.includes("variant") || label.includes("scope") || label.includes("sku") || label.includes("option")) return "Affected scope shows whether the issue is broad or concentrated in a specific variant, option or SKU.";
+  if (label.includes("description") || label.includes("content") || label.includes("tag") || label.includes("collection")) return "Product content can create or reduce expectation gaps before the shopper buys.";
+  if (label.includes("impact") || label.includes("margin") || label.includes("revenue")) return "Financial exposure is tracked separately from product risk so prioritization can consider business impact without inflating severity.";
+  return "This finding adds context to the source tab and helps explain the evidence behind the diagnosis.";
 }
 
 function EvidenceFinding({ point, index }) {
@@ -5230,7 +5274,15 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
   const cards = [];
   const add = (label, value, detail, icon = "info", tone = "blue", extra = {}) => {
     if (value === null || value === undefined || value === "") return;
-    cards.push({ label, value, detail: detail || "Stored evidence", icon, tone, ...extra });
+    cards.push({
+      label,
+      value,
+      detail: detail || "Stored evidence",
+      icon,
+      tone,
+      popoverBody: getEvidenceMetricPopoverBody({ source, label, value, detail, metrics, textInsights, product }),
+      ...extra,
+    });
   };
 
   if (normalized.includes("return")) {
@@ -5286,14 +5338,102 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Variants", formatInteger(metrics.variantCount), `${formatInteger(metrics.skuCount)} SKUs`, "product", "violet");
   }
 
-  if (!cards.length) {
-    points.slice(0, 6).forEach((point, index) => {
-      const parsed = parseEvidencePoint(point);
-      add(parsed.label || `Finding ${index + 1}`, parsed.body || point, "Stored source evidence", getEvidenceIcon(source), getEvidencePointTone(point) === "negative" ? "red" : "blue");
+  appendEvidencePointCards(cards, { source, points, metrics, product });
+
+  return cards;
+}
+
+function appendEvidencePointCards(cards, { source, points = [], metrics = {}, product = {} }) {
+  const existingKeys = new Set(cards.map((card) => `${String(card.label).toLowerCase()}|${String(card.value).toLowerCase()}`));
+  points.forEach((point, index) => {
+    const parsed = parseEvidencePoint(point);
+    const label = parsed.label || `Finding ${index + 1}`;
+    const value = getEvidencePointValue(parsed, index);
+    const detail = summarizeEvidencePoint(parsed.body || parsed.label || point);
+    const key = `${String(label).toLowerCase()}|${String(value).toLowerCase()}`;
+    if (existingKeys.has(key)) return;
+    existingKeys.add(key);
+    cards.push({
+      label,
+      value,
+      detail,
+      icon: getEvidenceIcon(source),
+      tone: getEvidencePointTone(point) === "negative" ? "red" : getEvidencePointTone(point) === "positive" ? "teal" : getEvidencePointTone(point) === "insight" ? "violet" : "blue",
+      popoverTitle: `${label}: ${value}`,
+      popoverBody: getEvidencePointPopoverBody({ source, parsed, index, metrics, product }),
+      popoverItems: [
+        { label: "Finding", value: detail },
+        { label: "Source", value: String(source || "Evidence source") },
+        { label: "Interpretation", value: getEvidencePointInterpretation(parsed.body || point) },
+      ],
     });
+  });
+}
+
+function getEvidencePointValue(parsed = {}, index = 0) {
+  const body = String(parsed.body || parsed.label || "");
+  const money = body.match(/\$[\d,]+(?:\.\d+)?/);
+  if (money) return money[0];
+  const percent = body.match(/\b\d+(?:\.\d+)?%/);
+  if (percent) return percent[0];
+  const count = body.match(/\b\d+\b/);
+  if (count) return count[0];
+  const quoted = body.match(/"([^"]+)"/);
+  if (quoted) return quoted[1].slice(0, 32);
+  return `Finding ${index + 1}`;
+}
+
+function summarizeEvidencePoint(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "Stored source evidence";
+  return text.length > 96 ? `${text.slice(0, 93).trim()}...` : text;
+}
+
+function getEvidenceMetricPopoverBody({ source, label, value, detail, metrics = {}, textInsights = {}, product = {} }) {
+  const sourceName = String(source || "this source");
+  const metricName = String(label || "metric").toLowerCase();
+  const valueText = String(value || "no value");
+  const detailText = String(detail || "No additional detail stored.");
+
+  if (metricName.includes("return")) {
+    return `${sourceName} shows ${valueText}. ${detailText}. This matters because returns are confirmed post-purchase friction and are weighted with smoothing against the store baseline.`;
+  }
+  if (metricName.includes("refund")) {
+    return `${sourceName} shows ${valueText}. ${detailText}. Refunds are treated as a supporting product-quality signal and as financial exposure, but they do not directly inflate product risk by dollar amount.`;
+  }
+  if (metricName.includes("rating") || metricName.includes("review")) {
+    return `${sourceName} shows ${valueText}. ${detailText}. Reviews contribute through rating pressure, negative review rate and language patterns when enough product-matched rows exist.`;
+  }
+  if (metricName.includes("emotion") || metricName.includes("sentiment") || metricName.includes("language")) {
+    const total = textInsights.sentiment?.total || metrics.textInsights?.sentiment?.total || 0;
+    return `${sourceName} shows ${valueText}. ${detailText}. ProductPulse analyzed ${formatInteger(total)} customer text signal${Number(total) === 1 ? "" : "s"} to understand tone, emotion and repeated language.`;
+  }
+  if (metricName.includes("variant") || metricName.includes("scope") || metricName.includes("sku")) {
+    return `${sourceName} shows ${valueText}. ${detailText}. Scope is important because a problem concentrated in one option is handled differently from a product-wide issue.`;
+  }
+  if (metricName.includes("description") || metricName.includes("content") || metricName.includes("tag") || metricName.includes("collection")) {
+    return `${sourceName} shows ${valueText}. ${detailText}. Product content can explain whether shoppers are receiving enough information before purchase.`;
+  }
+  if (metricName.includes("margin") || metricName.includes("revenue") || metricName.includes("impact")) {
+    return `${sourceName} shows ${valueText}. ${detailText}. Financial exposure is used for action priority and is kept separate from product risk severity.`;
   }
 
-  return cards.slice(0, 7);
+  return `${sourceName} shows ${valueText}. ${detailText}. This card is a source-level summary for ${product.title || "this product"} and helps connect the raw evidence to the diagnosis.`;
+}
+
+function getEvidencePointPopoverBody({ source, parsed, index, product }) {
+  const label = parsed.label || `Finding ${index + 1}`;
+  const body = parsed.body || parsed.label || "Stored source evidence";
+  return `${label} was captured from ${source || "this evidence source"} for ${product.title || "this product"}. It is shown here because it can help explain the source-level finding before opening the full technical report. Evidence excerpt: ${summarizeEvidencePoint(body)}`;
+}
+
+function getEvidencePointInterpretation(text) {
+  const tone = getEvidencePointTone(text);
+  if (tone === "negative") return "Potential risk-supporting signal. Review alongside sample size and source agreement.";
+  if (tone === "positive") return "Positive signal. It may reduce concern or provide useful counter-evidence.";
+  if (tone === "insight") return "Language or AI-derived signal. It helps explain the human reason behind the metric.";
+  if (tone === "neutral") return "Contextual signal. Useful for auditability, but not necessarily risk-supporting by itself.";
+  return "Supporting source detail. Use it as a first-pass explanation before opening the full report.";
 }
 
 function detailLastAnalysis(product) {

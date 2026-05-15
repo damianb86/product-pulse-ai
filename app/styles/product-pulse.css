@@ -2438,7 +2438,7 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 16px;
   padding: 18px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(var(--pp-slate-700-rgb), 0.12);
   border-radius: 12px;
   background:
@@ -2847,7 +2847,7 @@ s-page[inline-size="large-500"] {
 .ppEvidenceObservabilityPanel {
   gap: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border-color: var(--pp-slate-200);
   border-radius: 10px;
   background: var(--pp-cloud-white);
@@ -2940,6 +2940,7 @@ s-page[inline-size="large-500"] {
   gap: 18px;
   margin: 14px;
   padding: 16px;
+  overflow: visible;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(var(--pp-slate-100-rgb), 0.36));
@@ -2999,6 +3000,7 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceMetricCard {
   position: relative;
+  overflow: visible;
 }
 
 .ppEvidenceMetricIcon,
@@ -3060,6 +3062,81 @@ s-page[inline-size="large-500"] {
 .ppEvidenceMetricCard .ppMiniTrend {
   grid-column: 3;
   grid-row: 1;
+}
+
+.ppEvidenceMetricPopover {
+  position: absolute;
+  z-index: 90;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  width: min(360px, calc(100vw - 36px));
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid rgba(var(--pp-slate-700-rgb), 0.16);
+  border-radius: 10px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 18px 42px rgba(var(--pp-shadow-rgb), 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 6px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.ppEvidenceMetricPopover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  background: var(--pp-midnight-ink);
+  border-right: 1px solid rgba(var(--pp-slate-700-rgb), 0.16);
+  border-bottom: 1px solid rgba(var(--pp-slate-700-rgb), 0.16);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.ppEvidenceMetricCard:hover .ppEvidenceMetricPopover,
+.ppEvidenceMetricCard:focus-visible .ppEvidenceMetricPopover,
+.ppEvidenceMetricCard:focus-within .ppEvidenceMetricPopover {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.ppEvidenceMetricPopover > strong {
+  overflow: visible;
+  color: var(--pp-cloud-white);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.ppEvidenceMetricPopover > span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.45;
+}
+
+.ppEvidenceMetricPopoverList {
+  display: grid;
+  gap: 6px;
+}
+
+.ppEvidenceMetricPopoverList small {
+  display: grid;
+  gap: 1px;
+  overflow: visible;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.ppEvidenceMetricPopoverList b {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 820;
 }
 
 .ppEvidenceMetricCard-red .ppEvidenceMetricIcon,
