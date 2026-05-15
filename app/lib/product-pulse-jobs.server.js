@@ -112,7 +112,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
     filters,
     resolvedActionsByProductGid,
   );
-  const rowsPerPage = normalizeRowsPerPage(filters.rows || settings.products?.defaultRowsPerPage);
+  const rowsPerPage = normalizeRowsPerPage(filters.rows);
   const totalPages = Math.max(1, Math.ceil(filteredSnapshots.length / rowsPerPage));
   const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);

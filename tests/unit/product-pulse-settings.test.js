@@ -16,7 +16,6 @@ describe("ProductPulse settings", () => {
       mediumThreshold: 55,
       highThreshold: 75,
     });
-    expect(settings.products.defaultRowsPerPage).toBe(25);
     expect(settings.diagnosis.maxQueuedPerSubmission).toBe(25);
   });
 

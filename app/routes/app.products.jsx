@@ -23,7 +23,7 @@ export const loader = async ({ request }) => {
     source: url.searchParams.get("source") || "all",
     vendor: url.searchParams.get("vendor") || "all",
     page: url.searchParams.get("page") || "1",
-    rows: url.searchParams.get("rows") || String(settings.products.defaultRowsPerPage),
+    rows: url.searchParams.get("rows") || "25",
     sort: url.searchParams.get("sort") || "",
     direction: url.searchParams.get("direction") || "desc",
   };

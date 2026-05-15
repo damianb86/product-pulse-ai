@@ -146,17 +146,16 @@ describe("ProductPulse screens", () => {
       ...defaultView,
       settings: {
         risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
-        products: { defaultRowsPerPage: 50 },
         diagnosis: { maxQueuedPerSubmission: 12, useOpenAiBatchForDiagnostics: true },
       },
     }} />);
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Risk score thresholds")).toBeInTheDocument();
-    expect(screen.getByLabelText("Minimum QuickScan score")).toHaveValue(50);
-    expect(screen.getByLabelText("Medium risk starts at")).toHaveValue(55);
-    expect(screen.getByLabelText("High risk starts at")).toHaveValue(75);
-    expect(screen.getByLabelText("Default rows per page")).toHaveValue("50");
+    expect(screen.getByLabelText("Minimum QuickScan score")).toHaveValue("50");
+    expect(screen.getByLabelText("Medium risk starts at")).toHaveValue("55");
+    expect(screen.getByLabelText("High risk starts at")).toHaveValue("75");
+    expect(screen.queryByText("Table defaults")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Max diagnoses queued at once")).toHaveValue(12);
     expect(screen.getByLabelText(/Use OpenAI Batch/)).toBeChecked();
     expect(screen.getByText(/current diagnosis jobs still use the existing realtime queue/)).toBeInTheDocument();

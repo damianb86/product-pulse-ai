@@ -8,9 +8,6 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
     mediumThreshold: 55,
     highThreshold: 75,
   },
-  products: {
-    defaultRowsPerPage: 25,
-  },
   diagnosis: {
     maxQueuedPerSubmission: 25,
     useOpenAiBatchForDiagnostics: false,
@@ -81,7 +78,6 @@ export async function updateProductPulseSettings(shop, formData) {
 export function normalizeProductPulseSettings(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   const risk = source.risk && typeof source.risk === "object" ? source.risk : {};
-  const products = source.products && typeof source.products === "object" ? source.products : {};
   const diagnosis = source.diagnosis && typeof source.diagnosis === "object" ? source.diagnosis : {};
 
   const minimumScore = clampInteger(risk.minimumScore, 0, 90, DEFAULT_PRODUCT_PULSE_SETTINGS.risk.minimumScore);
@@ -104,9 +100,6 @@ export function normalizeProductPulseSettings(input = {}) {
       mediumThreshold,
       highThreshold,
     },
-    products: {
-      defaultRowsPerPage: Number(products.defaultRowsPerPage) === 50 ? 50 : 25,
-    },
     diagnosis: {
       maxQueuedPerSubmission: clampInteger(
         diagnosis.maxQueuedPerSubmission,
@@ -125,9 +118,6 @@ export function parseSettingsFormData(formData) {
       minimumScore: formDataNumber(formData, "minimumScore"),
       mediumThreshold: formDataNumber(formData, "mediumThreshold"),
       highThreshold: formDataNumber(formData, "highThreshold"),
-    },
-    products: {
-      defaultRowsPerPage: formDataNumber(formData, "defaultRowsPerPage"),
     },
     diagnosis: {
       maxQueuedPerSubmission: formDataNumber(formData, "maxQueuedPerSubmission"),

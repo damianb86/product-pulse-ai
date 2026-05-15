@@ -6416,8 +6416,8 @@ s-page[inline-size="large-500"] {
 
 .ppSettingsCardHeader {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
@@ -6438,6 +6438,10 @@ s-page[inline-size="large-500"] {
 .ppSettingsGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
+}
+
+.ppSettingsGridSingle {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .ppSettingsNumberField,
@@ -6518,6 +6522,217 @@ s-page[inline-size="large-500"] {
 .ppSettingsRiskPreview span:nth-child(4) {
   background: var(--pp-red-soft);
   color: #B91C1C;
+}
+
+.ppSettingsRiskSlider {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.035), rgba(var(--pp-shadow-rgb), 0)),
+    var(--pp-cloud-white);
+}
+
+.ppSettingsRiskScale,
+.ppSettingsRiskHandleLabels,
+.ppSettingsRiskLegend {
+  display: grid;
+  align-items: center;
+}
+
+.ppSettingsRiskScale {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ppSettingsRiskScale span:nth-child(1) {
+  text-align: left;
+}
+
+.ppSettingsRiskScale span {
+  text-align: center;
+}
+
+.ppSettingsRiskScale span:nth-child(5) {
+  text-align: right;
+}
+
+.ppSettingsRiskTrack {
+  position: relative;
+  min-height: 36px;
+}
+
+.ppSettingsRiskTrackBase {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--pp-slate-100) 0 var(--pp-risk-min),
+    var(--pp-green-soft) var(--pp-risk-min) var(--pp-risk-medium),
+    var(--pp-amber-soft) var(--pp-risk-medium) var(--pp-risk-high),
+    var(--pp-red-soft) var(--pp-risk-high) 100%
+  );
+  transform: translateY(-50%);
+  box-shadow: inset 0 1px 2px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppSettingsRiskRange {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.ppSettingsRiskRange-min {
+  z-index: 3;
+}
+
+.ppSettingsRiskRange-medium {
+  z-index: 4;
+}
+
+.ppSettingsRiskRange-high {
+  z-index: 5;
+}
+
+.ppSettingsRiskRange::-webkit-slider-runnable-track {
+  height: 12px;
+  background: transparent;
+  border: 0;
+}
+
+.ppSettingsRiskRange::-moz-range-track {
+  height: 12px;
+  background: transparent;
+  border: 0;
+}
+
+.ppSettingsRiskRange::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--pp-cloud-white);
+  border-radius: 999px;
+  appearance: none;
+  background: var(--pp-pulse-blue);
+  box-shadow: 0 0 0 1px rgba(var(--pp-pulse-blue-rgb), 0.35), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.18);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.ppSettingsRiskRange::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--pp-cloud-white);
+  border-radius: 999px;
+  background: var(--pp-pulse-blue);
+  box-shadow: 0 0 0 1px rgba(var(--pp-pulse-blue-rgb), 0.35), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.18);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.ppSettingsRiskRange-min::-webkit-slider-thumb {
+  background: var(--pp-signal-teal);
+}
+
+.ppSettingsRiskRange-min::-moz-range-thumb {
+  background: var(--pp-signal-teal);
+}
+
+.ppSettingsRiskRange-medium::-webkit-slider-thumb {
+  background: var(--pp-warning-amber);
+}
+
+.ppSettingsRiskRange-medium::-moz-range-thumb {
+  background: var(--pp-warning-amber);
+}
+
+.ppSettingsRiskRange-high::-webkit-slider-thumb {
+  background: var(--pp-risk-red);
+}
+
+.ppSettingsRiskRange-high::-moz-range-thumb {
+  background: var(--pp-risk-red);
+}
+
+.ppSettingsRiskHandleLabels {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppSettingsRiskHandleLabels span {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-mist-gray);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ppSettingsRiskHandleLabels strong {
+  color: var(--pp-slate-900);
+}
+
+.ppSettingsRiskLegend {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppSettingsRiskLegend span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ppSettingsRiskLegend span:nth-child(1) {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppSettingsRiskLegend span:nth-child(2) {
+  background: var(--pp-green-soft);
+  color: #15803D;
+}
+
+.ppSettingsRiskLegend span:nth-child(3) {
+  background: var(--pp-amber-soft);
+  color: #B45309;
+}
+
+.ppSettingsRiskLegend span:nth-child(4) {
+  background: var(--pp-red-soft);
+  color: #B91C1C;
+}
+
+.ppSettingsRiskLegend strong {
+  color: inherit;
 }
 
 .ppSettingsBatchCard {

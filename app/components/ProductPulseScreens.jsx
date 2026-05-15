@@ -1027,8 +1027,14 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 export function SettingsScreen({ data = {}, actionData }) {
   const navigation = useNavigation();
   const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
+  const normalizedSettingsRisk = useMemo(() => normalizeClientRiskThresholds(settings.risk), [settings.risk]);
+  const [riskThresholds, setRiskThresholds] = useState(normalizedSettingsRisk);
   const isSaving = navigation.state === "submitting";
   const batchEnabled = Boolean(settings.diagnosis?.useOpenAiBatchForDiagnostics);
+
+  useEffect(() => {
+    setRiskThresholds(normalizedSettingsRisk);
+  }, [normalizedSettingsRisk]);
 
   return (
     <FullWidthPage heading="Settings" className="ppSettingsPage">
@@ -1042,9 +1048,9 @@ export function SettingsScreen({ data = {}, actionData }) {
             </p>
           </div>
           <div className="ppSettingsHeroSummary" aria-label="Current risk threshold summary">
-            <strong>{settings.risk.highThreshold}+</strong>
+            <strong>{riskThresholds.highThreshold}+</strong>
             <span>High risk</span>
-            <small>QuickScan keeps products from {settings.risk.minimumScore}+ risk score.</small>
+            <small>QuickScan keeps products from {riskThresholds.minimumScore}+ risk score.</small>
           </div>
         </div>
 
@@ -1066,65 +1072,16 @@ export function SettingsScreen({ data = {}, actionData }) {
             </div>
 
             <div className="ppSettingsRiskPreview">
-              <span style={{ width: `${settings.risk.minimumScore}%` }}>Ignored</span>
-              <span style={{ width: `${Math.max(8, settings.risk.mediumThreshold - settings.risk.minimumScore)}%` }}>Low</span>
-              <span style={{ width: `${Math.max(8, settings.risk.highThreshold - settings.risk.mediumThreshold)}%` }}>Medium</span>
-              <span style={{ width: `${Math.max(8, 100 - settings.risk.highThreshold)}%` }}>High</span>
+              <span style={{ width: `${riskThresholds.minimumScore}%` }}>Ignored</span>
+              <span style={{ width: `${Math.max(8, riskThresholds.mediumThreshold - riskThresholds.minimumScore)}%` }}>Low</span>
+              <span style={{ width: `${Math.max(8, riskThresholds.highThreshold - riskThresholds.mediumThreshold)}%` }}>Medium</span>
+              <span style={{ width: `${Math.max(8, 100 - riskThresholds.highThreshold)}%` }}>High</span>
             </div>
 
-            <div className="ppSettingsFieldGrid">
-              <SettingsNumberField
-                name="minimumScore"
-                label="Minimum QuickScan score"
-                detail="Products below this score are left out of ProductPulse after QuickScan."
-                defaultValue={settings.risk.minimumScore}
-                min="0"
-                max="90"
-              />
-              <SettingsNumberField
-                name="mediumThreshold"
-                label="Medium risk starts at"
-                detail="Products at or above this score are marked as Monitor."
-                defaultValue={settings.risk.mediumThreshold}
-                min="1"
-                max="95"
-              />
-              <SettingsNumberField
-                name="highThreshold"
-                label="High risk starts at"
-                detail="Products at or above this score are marked as Needs attention."
-                defaultValue={settings.risk.highThreshold}
-                min="2"
-                max="100"
-              />
-            </div>
+            <RiskThresholdSlider thresholds={riskThresholds} onChange={setRiskThresholds} />
           </section>
 
-          <section className="ppSettingsGrid">
-            <div className="ppSettingsCard" aria-labelledby="settings-products-title">
-              <div className="ppSettingsCardHeader">
-                <DashboardIcon type="product" tone="green" />
-                <div>
-                  <span>Product list</span>
-                  <h2 id="settings-products-title">Table defaults</h2>
-                  <p>Set the defaults merchants see when they open the Products workspace.</p>
-                </div>
-              </div>
-
-              <label className="ppSettingsSelectField">
-                <span>Default rows per page</span>
-                <select
-                  name="defaultRowsPerPage"
-                  aria-label="Default rows per page"
-                  defaultValue={settings.products.defaultRowsPerPage}
-                >
-                  <option value="25">25 products</option>
-                  <option value="50">50 products</option>
-                </select>
-                <small>Used when the Products page is opened without an explicit rows parameter.</small>
-              </label>
-            </div>
-
+          <section className="ppSettingsGrid ppSettingsGridSingle">
             <div className="ppSettingsCard" aria-labelledby="settings-queue-title">
               <div className="ppSettingsCardHeader">
                 <DashboardIcon type="wand" tone="purple" />
@@ -1197,6 +1154,88 @@ export function SettingsScreen({ data = {}, actionData }) {
   );
 }
 
+function RiskThresholdSlider({ thresholds, onChange }) {
+  const legend = [
+    { label: "Ignored", value: `0-${Math.max(0, thresholds.minimumScore - 1)}` },
+    { label: "Low", value: `${thresholds.minimumScore}-${Math.max(thresholds.minimumScore, thresholds.mediumThreshold - 1)}` },
+    { label: "Medium", value: `${thresholds.mediumThreshold}-${Math.max(thresholds.mediumThreshold, thresholds.highThreshold - 1)}` },
+    { label: "High", value: `${thresholds.highThreshold}-100` },
+  ];
+
+  const handleChange = (key) => (event) => {
+    onChange(getNextClientRiskThresholds(thresholds, key, event.target.value));
+  };
+
+  return (
+    <div className="ppSettingsRiskSlider" style={{
+      "--pp-risk-min": `${thresholds.minimumScore}%`,
+      "--pp-risk-medium": `${thresholds.mediumThreshold}%`,
+      "--pp-risk-high": `${thresholds.highThreshold}%`,
+    }}>
+      <input type="hidden" name="minimumScore" value={thresholds.minimumScore} />
+      <input type="hidden" name="mediumThreshold" value={thresholds.mediumThreshold} />
+      <input type="hidden" name="highThreshold" value={thresholds.highThreshold} />
+
+      <div className="ppSettingsRiskScale" aria-hidden="true">
+        <span>0</span>
+        <span>25</span>
+        <span>50</span>
+        <span>75</span>
+        <span>100</span>
+      </div>
+
+      <div className="ppSettingsRiskTrack">
+        <div className="ppSettingsRiskTrackBase" aria-hidden="true" />
+        <input
+          className="ppSettingsRiskRange ppSettingsRiskRange-min"
+          type="range"
+          aria-label="Minimum QuickScan score"
+          min="0"
+          max="90"
+          step="1"
+          value={thresholds.minimumScore}
+          onChange={handleChange("minimumScore")}
+        />
+        <input
+          className="ppSettingsRiskRange ppSettingsRiskRange-medium"
+          type="range"
+          aria-label="Medium risk starts at"
+          min="1"
+          max="95"
+          step="1"
+          value={thresholds.mediumThreshold}
+          onChange={handleChange("mediumThreshold")}
+        />
+        <input
+          className="ppSettingsRiskRange ppSettingsRiskRange-high"
+          type="range"
+          aria-label="High risk starts at"
+          min="2"
+          max="100"
+          step="1"
+          value={thresholds.highThreshold}
+          onChange={handleChange("highThreshold")}
+        />
+      </div>
+
+      <div className="ppSettingsRiskHandleLabels" aria-live="polite">
+        <span><strong>Minimum</strong> {thresholds.minimumScore}</span>
+        <span><strong>Medium starts</strong> {thresholds.mediumThreshold}</span>
+        <span><strong>High starts</strong> {thresholds.highThreshold}</span>
+      </div>
+
+      <div className="ppSettingsRiskLegend" aria-label="Risk score intervals">
+        {legend.map((item) => (
+          <span key={item.label}>
+            <strong>{item.label}</strong>
+            {item.value}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SettingsNumberField({ name, label, detail, defaultValue, min, max }) {
   return (
     <label className="ppSettingsNumberField">
@@ -1222,14 +1261,52 @@ function getDefaultProductPulseClientSettings() {
       mediumThreshold: 55,
       highThreshold: 75,
     },
-    products: {
-      defaultRowsPerPage: 25,
-    },
     diagnosis: {
       maxQueuedPerSubmission: 25,
       useOpenAiBatchForDiagnostics: false,
     },
   };
+}
+
+function normalizeClientRiskThresholds(risk = {}) {
+  const minimumScore = clampClientInteger(risk.minimumScore, 0, 90, 50);
+  const mediumThreshold = clampClientInteger(risk.mediumThreshold, minimumScore + 1, 95, Math.max(55, minimumScore + 1));
+  const highThreshold = clampClientInteger(risk.highThreshold, mediumThreshold + 1, 100, Math.max(75, mediumThreshold + 1));
+  return { minimumScore, mediumThreshold, highThreshold };
+}
+
+function getNextClientRiskThresholds(current, key, value) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) return current;
+
+  if (key === "minimumScore") {
+    return {
+      ...current,
+      minimumScore: Math.min(Math.min(90, current.mediumThreshold - 1), Math.max(0, number)),
+    };
+  }
+
+  if (key === "mediumThreshold") {
+    return {
+      ...current,
+      mediumThreshold: Math.min(current.highThreshold - 1, Math.max(current.minimumScore + 1, number)),
+    };
+  }
+
+  if (key === "highThreshold") {
+    return {
+      ...current,
+      highThreshold: Math.min(100, Math.max(current.mediumThreshold + 1, number)),
+    };
+  }
+
+  return current;
+}
+
+function clampClientInteger(value, min, max, fallback) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
 }
 
 function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
