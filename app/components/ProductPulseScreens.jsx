@@ -8351,12 +8351,24 @@ function formatMoney(value) {
 }
 
 function formatCompactMoney(value) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(Number(value || 0));
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return "$0";
+  const sign = amount < 0 ? "-" : "";
+  const absolute = Math.abs(amount);
+  if (absolute < 1000) return `${sign}$${formatCompactWholeNumber(absolute)}`;
+
+  const unit = absolute >= 1_000_000_000
+    ? { divisor: 1_000_000_000, suffix: "B" }
+    : absolute >= 1_000_000
+      ? { divisor: 1_000_000, suffix: "M" }
+      : { divisor: 1000, suffix: "K" };
+  const scaled = absolute / unit.divisor;
+  const rounded = scaled >= 100 ? Math.round(scaled) : Math.round(scaled * 10) / 10;
+  return `${sign}$${String(rounded).replace(/\.0$/, "")}${unit.suffix}`;
+}
+
+function formatCompactWholeNumber(value) {
+  return String(Math.round(Number(value || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function formatPercent(value) {

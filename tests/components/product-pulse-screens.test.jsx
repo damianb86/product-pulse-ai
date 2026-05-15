@@ -776,4 +776,33 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: /Product A: open product detail/ })).toHaveStyle({ left: "32%" });
   });
 
+  it("renders zero compact money labels without browser-dependent decimals", () => {
+    const data = {
+      ...defaultView,
+      analytics: {
+        ...defaultView.analytics,
+        riskBubbles: [
+          {
+            label: "Zero Revenue Product",
+            href: "/app/products/zero-revenue-product",
+            riskScore: 66,
+            riskLabel: "Medium",
+            impact: 0,
+            revenueAtRisk: 0,
+            issueLabel: "Review later",
+            signalCount: 1,
+            returnRate: 0,
+            refundRate: 0,
+            analysisLabel: "QuickScan only",
+            size: 18,
+            tone: "orange",
+          },
+        ],
+      },
+    };
+    renderWithRouter(<AnalyticsScreen data={data} />);
+    expect(screen.getAllByText("$0").length).toBeGreaterThan(0);
+    expect(screen.queryByText("$0.0")).not.toBeInTheDocument();
+  });
+
 });
