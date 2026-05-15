@@ -5739,6 +5739,33 @@ s-page[inline-size="large-500"] {
   max-width: 58%;
 }
 
+.ppRecommendedActionModal > .ppProductActionItem {
+  grid-area: content;
+  width: 100%;
+}
+
+.ppRecommendedActionModalFooter.ppProductActionCta {
+  grid-area: footer;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-self: end;
+  gap: 12px;
+}
+
+.ppRecommendedActionModalFooter.ppProductActionCta form,
+.ppRecommendedActionModalFooter.ppProductActionCta > .ppActionCtaButton {
+  flex: 0 1 auto;
+  max-width: none;
+}
+
+.ppRecommendedActionModalFooter .ppActionCtaButton,
+.ppRecommendedActionModalFooter .ppActionDismissButton,
+.ppRecommendedActionModalFooter .ppActionEditFooterButton {
+  width: 100%;
+  max-width: none;
+}
+
 .ppActionDismissButton:hover:not(:disabled) {
   border-color: rgba(var(--pp-risk-red-rgb), 0.26);
   color: var(--pp-risk-red);
