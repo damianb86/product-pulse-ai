@@ -3952,6 +3952,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [draftText, setDraftText] = useState("");
   const productRef = useRef(product);
   const minimizedActionStatesRef = useRef(minimizedActionStates);
+  const productIdentityKey = product?.slug || product?.handle || product?.id || product?.productGid || "";
+  const productResolvedAt = product?.resolvedAt || "";
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
   const pendingIssueKey = navigation.state === "submitting" && ["ignore-issue", "unignore-issue"].includes(String(navigation.formData?.get("_action") || ""))
@@ -3968,8 +3970,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }, [minimizedActionStates]);
 
   useEffect(() => {
+    const nextProduct = productRef.current;
     setResolvedLocally(null);
-    setIgnoredIssues(new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
+    setIgnoredIssues(new Set(getIgnoredIssueRecords(nextProduct).map((issue) => issue.issueKey)));
     setMinimizedActionStates({});
     setSelectedRecommendedAction(null);
     setSelectedEvidenceIndex(0);
@@ -3978,7 +3981,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setWatchlistConfirmation(null);
     setWatchlistLocalState(null);
     setRecommendedActionsCollapsed(false);
-  }, [product, product?.slug, product?.resolvedAt]);
+  }, [productIdentityKey, productResolvedAt]);
 
   useEffect(() => {
     announceProductPulseJobs(actionData);

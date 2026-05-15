@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -749,6 +750,55 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("dialog", { name: "All recommended actions are handled" })).toBeInTheDocument();
     expect(screen.getByText("Product actions complete")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand Review return reasons" })).toHaveTextContent("Reviewed");
+  });
+
+  it("keeps the recommended actions completion modal open across same-product revalidation", async () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "review-return-reasons",
+        label: "Review return reasons",
+        type: "Workflow",
+        effort: "Low",
+        status: "Ready",
+        payload: { returnUnits: 4 },
+      }],
+      actionHistory: [],
+    };
+    const actionData = {
+      status: "success",
+      message: "Review return reasons was marked as reviewed.",
+      action: { id: "review-return-reasons", label: "Review return reasons" },
+      actionRecordStatus: "reviewed",
+    };
+
+    function SameProductRevalidationHarness() {
+      const [currentProduct, setCurrentProduct] = useState(product);
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => setCurrentProduct({
+              ...product,
+              actionHistory: [{ actionId: "review-return-reasons", status: "reviewed" }],
+            })}
+          >
+            Revalidate product
+          </button>
+          <ProductDiagnosisScreen product={currentProduct} actionData={actionData} />
+        </>
+      );
+    }
+
+    renderWithRouter(<SameProductRevalidationHarness />);
+    const completeDialog = await screen.findByRole("dialog", { name: "All recommended actions are handled" });
+    expect(completeDialog).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revalidate product" }));
+    expect(screen.getByRole("dialog", { name: "All recommended actions are handled" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog", { name: "All recommended actions are handled" })).not.toBeInTheDocument();
   });
 
   it("renders granular sentiment and language evidence in product diagnosis", () => {
