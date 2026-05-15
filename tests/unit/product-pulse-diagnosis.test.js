@@ -797,4 +797,88 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       "metafield-json",
     ]);
   });
+
+  it("builds actionable recommendation recipes with Shopify fields and risk metadata", () => {
+    const deterministic = {
+      mainIssue: "safety_concern",
+      riskScore: 82,
+      confidence: 72,
+      evidenceSnippets: [
+        { text: "Not worth the price after the scary reaction." },
+        { text: "Too expensive for something that scared my kid." },
+      ],
+      product: {
+        title: "Product",
+        description: "",
+        status: "ACTIVE",
+        vendor: "Qorve",
+        productType: "Toy",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Blue", price: 29, compareAtPrice: 39, inventoryItemId: "gid://shopify/InventoryItem/1" },
+          { id: "gid://shopify/ProductVariant/2", title: "Red", price: 29, compareAtPrice: 39, inventoryItemId: "gid://shopify/InventoryItem/2" },
+        ],
+        media: [{ id: "gid://shopify/MediaImage/1", alt: "" }],
+      },
+      issueSignalCounts: { safety_concern: 4 },
+      metrics: {
+        customerSignalCount: 6,
+        signalCount: 6,
+        contentIssueCount: 1,
+        contentIssues: [{ code: "generic_title", label: "Product title is too generic", severity: "medium", evidence: "Generic title." }],
+        contentAnalysis: { issues: [{ code: "generic_title", label: "Product title is too generic", severity: "medium", evidence: "Generic title." }], advisories: [] },
+        titleNeedsReview: true,
+        mediaCount: 1,
+        mediaWithoutAltCount: 1,
+        variantCount: 2,
+        affectedVariants: ["Blue"],
+        affectedVariantDetails: [{ label: "Blue", count: 4 }],
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Blue", price: 29, compareAtPrice: 39, inventoryItemId: "gid://shopify/InventoryItem/1" },
+          { id: "gid://shopify/ProductVariant/2", title: "Red", price: 29, compareAtPrice: 39, inventoryItemId: "gid://shopify/InventoryItem/2" },
+        ],
+        returnUnits: 4,
+        refundUnits: 2,
+        refundRate: 22,
+        returnRate: 40,
+        negativeReviewCount: 2,
+        topReturnReasons: ["Other"],
+        topReturnReasonDetails: [{ label: "Other", count: 4 }],
+        refundInsights: { shouldSurface: true, highPressure: true },
+        textInsights: { sentiment: { negative: 4 } },
+        marginAtRisk: 1200,
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Product",
+      },
+      deterministic,
+      mainIssue: "safety_concern",
+      ai: {
+        report: {
+          recommendation_copy: {
+            product_title: "Qorve Toy with clear age guidance",
+            media_guidance: "Add alt text and visual context.",
+            qa_note: "Ask QA to inspect scary packaging feedback.",
+          },
+        },
+      },
+    });
+
+    const byId = new Map(recommendations.map((item) => [item.id, item]));
+    expect(byId.get("update-product-title")?.payload).toMatchObject({
+      shopifyField: "Product.title",
+      applicationRisk: "Medium",
+      reviewApplyFlow: "Review -> Apply",
+      draftTitle: "Qorve Toy with clear age guidance",
+    });
+    expect(byId.get("set-product-draft")?.payload.shopifyField).toBe("Product.status");
+    expect(byId.get("limit-variant-inventory")?.payload.shopifyField).toBe("InventoryLevel quantities");
+    expect(byId.get("review-product-pricing")?.payload.shopifyField).toContain("ProductVariant.price");
+    expect(byId.get("improve-product-media")?.payload.expectedImpact).toContain("visual expectation");
+    expect(byId.get("apply-risk-tags")?.payload.tags).toEqual(expect.arrayContaining(["risk-high", "sentiment-negative", "variant-issue"]));
+    expect(recommendations.every((item) => item.payload.recipe === true)).toBe(true);
+  });
 });

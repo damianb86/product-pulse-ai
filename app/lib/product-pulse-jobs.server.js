@@ -568,17 +568,47 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     return applyFaqRecommendationAction({ admin, snapshot, action, payload });
   }
 
-  if (payload.tag || normalizedType.includes("tag")) {
-    const tag = String(payload.tag || "").trim();
-    if (!tag) return { status: "validation_error", message: "This action does not include a product tag to apply." };
-    const result = await addProductTag(admin, snapshot.productGid, tag);
+  if (payload.tag || Array.isArray(payload.tags) || normalizedType.includes("tag")) {
+    const tags = uniqueActionTags([...(Array.isArray(payload.tags) ? payload.tags : []), payload.tag]);
+    if (!tags.length) return { status: "validation_error", message: "This action does not include a product tag to apply." };
+    const result = await addProductTags(admin, snapshot.productGid, tags);
     if (result.status === "validation_error") return result;
     return {
-      message: `Product tag "${tag}" was added to ${snapshot.productTitle}.`,
+      message: `${tags.length === 1 ? "Product tag" : "Product tags"} "${tags.join(", ")}" added to ${snapshot.productTitle}.`,
       change: {
         target: "Product tags",
         operation: "add",
-        value: tag,
+        value: tags,
+      },
+    };
+  }
+
+  if (payload.draftTitle || payload.field === "title" || normalizedId.includes("title")) {
+    const title = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
+    if (!title) return { status: "validation_error", message: "This title action does not include a title to apply." };
+    const result = await updateProductFields(admin, snapshot.productGid, { title });
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Product title was updated for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product title",
+        operation: "set",
+        value: title,
+      },
+    };
+  }
+
+  if (payload.productStatus || payload.field === "status" || normalizedId.includes("draft") || normalizedId.includes("archive")) {
+    const status = normalizeShopifyProductStatus(payload.draftText || payload.productStatus);
+    if (!status) return { status: "validation_error", message: "This status action does not include a valid Shopify product status." };
+    const result = await updateProductFields(admin, snapshot.productGid, { status });
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Product status was set to ${status} for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product status",
+        operation: "set",
+        value: status,
       },
     };
   }
@@ -608,6 +638,15 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
   return { status: "validation_error", message: "This recommended action is not connected to an automatic Shopify product change yet." };
 }
 
+function uniqueActionTags(values = []) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function normalizeShopifyProductStatus(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return ["ACTIVE", "DRAFT", "ARCHIVED", "UNLISTED"].includes(normalized) ? normalized : "";
+}
+
 async function getProductDescriptionForUpdate(admin, productGid) {
   try {
     const response = await admin.graphql(
@@ -632,6 +671,10 @@ async function getProductDescriptionForUpdate(admin, productGid) {
 }
 
 async function updateProductDescription(admin, productGid, descriptionHtml) {
+  return updateProductFields(admin, productGid, { descriptionHtml }, "Unable to update product description");
+}
+
+async function updateProductFields(admin, productGid, productFields, errorPrefix = "Unable to update product") {
   try {
     const response = await admin.graphql(
       `#graphql
@@ -647,18 +690,18 @@ async function updateProductDescription(admin, productGid, descriptionHtml) {
           }
         }
       }`,
-      { variables: { product: { id: productGid, descriptionHtml } } },
+      { variables: { product: { id: productGid, ...productFields } } },
     );
     const json = await response.json();
     const errors = json.errors || json.data?.productUpdate?.userErrors || [];
     if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
     return { status: "success" };
   } catch (error) {
-    return { status: "validation_error", message: `Unable to update product description: ${error.message}` };
+    return { status: "validation_error", message: `${errorPrefix}: ${error.message}` };
   }
 }
 
-async function addProductTag(admin, productGid, tag) {
+async function addProductTags(admin, productGid, tags) {
   try {
     const response = await admin.graphql(
       `#graphql
@@ -673,7 +716,7 @@ async function addProductTag(admin, productGid, tag) {
           }
         }
       }`,
-      { variables: { id: productGid, tags: [tag] } },
+      { variables: { id: productGid, tags } },
     );
     const json = await response.json();
     const errors = json.errors || json.data?.tagsAdd?.userErrors || [];

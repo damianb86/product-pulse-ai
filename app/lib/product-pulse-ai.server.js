@@ -330,6 +330,7 @@ function buildContentGapPrompt(input, classification) {
       options: product.options || [],
       variants: (product.variants || []).slice(0, 50),
       metafields: product.metafields || [],
+      media: product.media || [],
     }, null, 2),
     "AI clusters:",
     JSON.stringify(classification?.clusters || [], null, 2),
@@ -362,6 +363,9 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
       recommendation_copy: {
         pdp_copy: "merchant-ready product page copy",
         product_description: "rewritten product description draft when product content has issues",
+        product_title: "clearer Shopify product title when the current title is generic or misleading",
+        media_guidance: "short merchant instruction for missing/unclear product imagery or alt text",
+        qa_note: "short internal QA/vendor review note when physical quality, safety, durability, refund or return evidence supports it",
         faq_question: "How does this product fit?",
         faq_answer: "merchant-ready FAQ answer",
         faq_items: [

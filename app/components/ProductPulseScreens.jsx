@@ -2599,9 +2599,15 @@ function normalizeEvidenceLabel(value) {
 
 function getRecommendedActionDetail(action) {
   const payload = action.payload || {};
+  if (payload.draftTitle) return payload.draftTitle;
   if (Array.isArray(payload.faqItems) && payload.faqItems.length) return formatFaqItemsForDisplay(payload.faqItems);
   if (payload.draftText) return payload.draftText;
   if (payload.note) return payload.note;
+  if (payload.mediaGuidance) return payload.mediaGuidance;
+  if (payload.qaNote) return payload.qaNote;
+  if (payload.productStatus) return `Set Shopify product status to ${payload.productStatus}.`;
+  if (Array.isArray(payload.tags) && payload.tags.length) return payload.tags.join(", ");
+  if (payload.collectionName) return `Add or move this product to ${payload.collectionName}.`;
   if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
     return payload.reviewSections
       .map((section) => `${section.label}: ${formatInteger(section.count || section.items?.length || 0)} signal${Number(section.count || section.items?.length || 0) === 1 ? "" : "s"}`)
@@ -2628,7 +2634,7 @@ function getFaqRecommendedActionApplication(action, product = null, options = {}
   const value = formatFaqItemsForDisplay(payload.faqItems, payload.draftText);
   const isMetafield = variantId === "metafield-json";
 
-  return {
+  return withRecipeApplicationFields(action, {
     kind: "shopify_product",
     editable: true,
     target: selectedVariant.target,
@@ -2646,7 +2652,7 @@ function getFaqRecommendedActionApplication(action, product = null, options = {}
     variantId,
     defaultVariantId,
     relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
-  };
+  });
 }
 
 function getFaqApplicationVariants(payload = {}) {
@@ -2705,19 +2711,57 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     return getFaqRecommendedActionApplication(action, product, options);
   }
 
-  if (payload.tag || normalized.includes("shopify tag") || normalized.includes("product tag")) {
-    const tag = String(payload.tag || "").trim();
+  if (payload.draftTitle || payload.field === "title" || normalized.includes("product title")) {
+    const title = String(payload.draftTitle || action.detail || "").replace(/\s+/g, " ").trim();
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: true,
+      target: "Product title",
+      operation: "Update title",
+      intro: "This will update the Shopify product title after you review the proposed title. Use this only when the current title is generic, misleading, or unclear.",
+      confirmationTitle: "Confirm product title update",
+      confirmationDetail: "ProductPulse will update the Shopify product title. Existing description, variants and tags will stay untouched.",
+      applyLabel: "Update title",
+      valueLabel: "Proposed Shopify title",
+      value: title,
+      currentValueLabel: "Current Shopify title",
+      currentValue: payload.currentTitle || product?.title || "",
+    });
+  }
+
+  if (payload.productStatus || payload.field === "status" || normalized.includes("set product to draft")) {
+    const status = String(payload.productStatus || "DRAFT").toUpperCase();
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: false,
+      target: "Product status",
+      operation: "Set product status",
+      intro: "This is a high-risk operational control. ProductPulse will only change product status after explicit confirmation.",
+      confirmationTitle: "Confirm product status change",
+      confirmationDetail: `ProductPulse will set this Shopify product to ${status}. This can affect product availability and should be used only when the evidence is strong.`,
+      applyLabel: `Set ${status.toLowerCase()}`,
+      valueLabel: "New Shopify status",
+      value: status,
+      currentValueLabel: "Current Shopify status",
+      currentValue: payload.currentStatus || product?.metrics?.productStatus || "",
+    });
+  }
+
+  if (payload.tag || Array.isArray(payload.tags) || normalized.includes("shopify tag") || normalized.includes("product tag")) {
+    const tags = Array.isArray(payload.tags) ? payload.tags.map(String).filter(Boolean) : [String(payload.tag || "").trim()].filter(Boolean);
     return {
+      ...withRecipeApplicationFields(action, {
       kind: "shopify_product",
       editable: false,
       target: "Product tags",
       operation: "Add tag",
-      intro: `This will add the Shopify product tag "${tag}" so the product can be segmented, filtered, or reviewed later.`,
+      intro: `This will add internal Shopify product tags so the product can be segmented, filtered, or reviewed later.`,
       confirmationTitle: "Confirm product tag update",
-      confirmationDetail: "ProductPulse will add this tag to the Shopify product. Existing tags will stay untouched.",
-      applyLabel: "Add tag to product",
-      valueLabel: "Tag to add",
-      value: tag,
+      confirmationDetail: "ProductPulse will add these tags to the Shopify product. Existing tags will stay untouched.",
+      applyLabel: tags.length === 1 ? "Add tag to product" : "Add tags to product",
+      valueLabel: tags.length === 1 ? "Tag to add" : "Tags to add",
+      value: tags.join(", "),
+      }),
     };
   }
 
@@ -2725,7 +2769,7 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     const operation = getDescriptionOperationForAction(action);
     const currentDescription = getCurrentDescriptionForAction(product, payload);
     const value = getDescriptionActionValue({ action, product, operation, currentDescription });
-    return {
+    return withRecipeApplicationFields(action, {
       kind: "shopify_product",
       editable: true,
       target: "Product description",
@@ -2740,11 +2784,11 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       currentValue: currentDescription,
       insertionPosition: operation === "replace" ? "" : operation,
       relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
-    };
+    });
   }
 
   if (payload.note) {
-    return {
+    return withRecipeApplicationFields(action, {
       kind: "clipboard",
       editable: true,
       target: "Internal note",
@@ -2753,10 +2797,11 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       applyLabel: "Copy note",
       valueLabel: "Note text",
       value: payload.note,
-    };
+    });
   }
 
   return {
+    ...withRecipeApplicationFields(action, {
     kind: "review",
     editable: false,
     target: "Product evidence",
@@ -2767,6 +2812,22 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     applyLabel: "Review evidence",
     valueLabel: "Evidence",
     value: getRecommendedActionDetail(action),
+    }),
+  };
+}
+
+function withRecipeApplicationFields(action, application) {
+  const payload = action.payload || {};
+  return {
+    ...application,
+    trigger: payload.trigger || "",
+    proposedChange: payload.proposedChange || application.operation || "",
+    shopifyField: payload.shopifyField || application.target || "",
+    expectedImpact: payload.expectedImpact || "",
+    applicationRisk: payload.applicationRisk || "Low",
+    approval: payload.approval || "Review required before applying",
+    reviewApplyFlow: payload.reviewApplyFlow || "Review -> Apply",
+    priorityGroup: payload.priorityGroup || action.priorityGroup || "",
   };
 }
 
@@ -2876,6 +2937,10 @@ function getRecommendedActionReason(action, product) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   const contentIssueLabels = getContentIssueLabels(payload.contentIssues);
 
+  if (payload.trigger && payload.expectedImpact) {
+    return `${payload.trigger} Expected impact: ${payload.expectedImpact}`;
+  }
+
   if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
     return `ProductPulse grouped ${payload.reviewSections.length} related review area${payload.reviewSections.length === 1 ? "" : "s"} so you can inspect the evidence once instead of working through overlapping review tasks.`;
   }
@@ -2946,6 +3011,12 @@ function getRecommendedActionEvidence(action, product) {
     if (Number(payload.faqNeed?.signals || 0) > 0) evidence.push(`${formatInteger(payload.faqNeed.signals)} FAQ signal${Number(payload.faqNeed.signals) === 1 ? "" : "s"}`);
     if (Array.isArray(payload.faqNeed?.topics) && payload.faqNeed.topics[0]) evidence.push(payload.faqNeed.topics[0]);
   }
+  if (payload.draftTitle) evidence.push("Title clarity");
+  if (Array.isArray(payload.tags) && payload.tags.length) evidence.push(`${payload.tags.length} tags`);
+  if (payload.mediaWithoutAltCount) evidence.push(`${payload.mediaWithoutAltCount} media without alt text`);
+  if (payload.productStatus) evidence.push(`Status: ${payload.productStatus}`);
+  if (payload.collectionName) evidence.push(payload.collectionName);
+  if (payload.applicationRisk) evidence.push(`${payload.applicationRisk} apply risk`);
   if (!evidence.length && Number(metrics.signalCount || 0) > 0) evidence.push(`${formatInteger(metrics.signalCount)} product signals`);
   if (!evidence.length && Number(metrics.confidence || product.confidence || 0) > 0) evidence.push(`${metrics.confidence || product.confidence}% confidence`);
 
@@ -2953,6 +3024,7 @@ function getRecommendedActionEvidence(action, product) {
 }
 
 function getRecommendedActionPriority(action, product) {
+  if (action.payload?.priorityGroup) return action.payload.priorityGroup;
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("faq")) return "Buyer clarity";
   if (normalized.includes("rewrite") || normalized.includes("draft") || normalized.includes("description") || normalized.includes("fit")) return "Customer-facing fix";
@@ -2966,8 +3038,9 @@ function getRecommendedActionMeta(action) {
   return [
     { icon: getActionIcon(action.type), label: action.type },
     { icon: getActionStatusIcon(action.status), label: action.status },
+    action.payload?.applicationRisk ? { icon: "alert-circle", label: `${action.payload.applicationRisk} apply risk` } : null,
     { icon: "wand", label: `${action.effort} effort` },
-  ].filter((item) => item.label);
+  ].filter((item) => item?.label);
 }
 
 function getActionStatusIcon(status) {
@@ -3069,12 +3142,13 @@ function getRecommendedActionMode(action, index) {
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
   const payload = action.payload || {};
-  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag);
+  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag || payload.draftTitle || payload.productStatus || (Array.isArray(payload.tags) && payload.tags.length));
   if (normalizedId.includes("run-ai-diagnosis")) return "diagnose";
+  if (payload.draftTitle || payload.productStatus) return "apply-product";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
   if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
-  if (normalizedType.includes("workflow") || normalizedId.includes("review-return")) return "review";
+  if (normalizedType.includes("workflow") || normalizedType.includes("variant") || normalizedType.includes("commercial") || normalizedType.includes("inventory") || normalizedType.includes("media") || normalizedType.includes("qa") || normalizedId.includes("review-return")) return "review";
   return "submit";
 }
 
@@ -3090,6 +3164,12 @@ function getRecommendedActionButtonLabel(action, index) {
 
 function getActionIcon(type) {
   const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("price") || normalized.includes("commercial")) return "cash-dollar";
+  if (normalized.includes("inventory")) return "package";
+  if (normalized.includes("collection")) return "duplicate";
+  if (normalized.includes("media") || normalized.includes("image")) return "image";
+  if (normalized.includes("qa") || normalized.includes("supplier")) return "shield-check-mark";
+  if (normalized.includes("status") || normalized.includes("draft") || normalized.includes("high-risk")) return "alert-circle";
   if (normalized.includes("refund")) return "cash-dollar";
   if (normalized.includes("return")) return "return";
   if (normalized.includes("variant")) return "product";
@@ -3106,6 +3186,12 @@ function getActionIcon(type) {
 
 function getActionIconSymbol(type) {
   const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("price") || normalized.includes("commercial")) return "$";
+  if (normalized.includes("inventory")) return "INV";
+  if (normalized.includes("collection")) return "COL";
+  if (normalized.includes("media") || normalized.includes("image")) return "IMG";
+  if (normalized.includes("qa") || normalized.includes("supplier")) return "QA";
+  if (normalized.includes("status") || normalized.includes("draft") || normalized.includes("high-risk")) return "!";
   if (normalized.includes("refund")) return "$";
   if (normalized.includes("return")) return "RET";
   if (normalized.includes("variant")) return "SKU";
@@ -5690,6 +5776,37 @@ function getCompactActionPriorityTone(priority = "") {
   return "blue";
 }
 
+function ProductActionRecipeDetails({ application }) {
+  const rows = [
+    { label: "Trigger", value: application.trigger, icon: "chart-line" },
+    { label: "Shopify field", value: application.shopifyField, icon: "product" },
+    { label: "Expected impact", value: application.expectedImpact, icon: "target" },
+    { label: "Apply risk", value: application.applicationRisk, icon: "alert-circle", tone: getActionRiskTone(application.applicationRisk) },
+    { label: "Flow", value: application.approval || application.reviewApplyFlow, icon: "check" },
+  ].filter((item) => item.value);
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="ppActionRecipeGrid" aria-label="Recommended action recipe">
+      {rows.map((row) => (
+        <span className={`ppActionRecipeItem ppActionRecipeItem-${row.tone || "neutral"}`} key={row.label}>
+          <s-icon type={row.icon} size="small"></s-icon>
+          <small>{row.label}</small>
+          <strong>{row.value}</strong>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function getActionRiskTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return "high";
+  if (normalized.includes("medium")) return "medium";
+  return "low";
+}
+
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onCollapse }) {
   const baseApplication = getRecommendedActionApplication(action, product);
   const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
@@ -5762,6 +5879,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
           <strong>{application.operation}</strong>
           <p>{application.intro}</p>
         </div>
+        <ProductActionRecipeDetails application={application} />
         {application.variants?.length > 1 && (
           <div className="ppActionVariantChooser" role="group" aria-label={`How to apply ${action.title}`}>
             <span>Apply as</span>

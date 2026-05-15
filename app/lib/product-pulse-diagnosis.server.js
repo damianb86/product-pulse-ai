@@ -234,6 +234,14 @@ async function fetchShopifyProduct({ admin, snapshot }) {
                 legacyResourceId
                 title
                 sku
+                price
+                compareAtPrice
+                inventoryQuantity
+                inventoryPolicy
+                inventoryItem {
+                  id
+                  tracked
+                }
                 selectedOptions {
                   name
                   value
@@ -252,6 +260,30 @@ async function fetchShopifyProduct({ admin, snapshot }) {
                 key
                 type
                 value
+              }
+            }
+            media(first: 20) {
+              nodes {
+                id
+                alt
+                mediaContentType
+                status
+                preview {
+                  image {
+                    url
+                    altText
+                    width
+                    height
+                  }
+                }
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                    width
+                    height
+                  }
+                }
               }
             }
           }
@@ -288,6 +320,14 @@ async function fetchShopifyProduct({ admin, snapshot }) {
               legacyResourceId
               title
               sku
+              price
+              compareAtPrice
+              inventoryQuantity
+              inventoryPolicy
+              inventoryItem {
+                id
+                tracked
+              }
               selectedOptions {
                 name
                 value
@@ -306,6 +346,30 @@ async function fetchShopifyProduct({ admin, snapshot }) {
               key
               type
               value
+            }
+          }
+          media(first: 20) {
+            nodes {
+              id
+              alt
+              mediaContentType
+              status
+              preview {
+                image {
+                  url
+                  altText
+                  width
+                  height
+                }
+              }
+              ... on MediaImage {
+                image {
+                  url
+                  altText
+                  width
+                  height
+                }
+              }
             }
           }
         }
@@ -1294,6 +1358,10 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       descriptionLength: deterministicContent.descriptionLength,
       descriptionWordCount: deterministicContent.descriptionWordCount,
       hasDescription: deterministicContent.hasDescription,
+      titleNeedsReview: deterministicContent.titleNeedsReview,
+      variantNamingAdvisory: deterministicContent.variantNamingAdvisory,
+      mediaCount: deterministicContent.mediaCount,
+      mediaWithoutAltCount: deterministicContent.mediaWithoutAltCount,
       revenueAtRisk: estimatedImpact.revenueAtRisk,
       marginAtRisk: estimatedImpact.marginAtRisk,
       estimatedImpact: estimatedImpact.estimatedImpact,
@@ -1330,6 +1398,26 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       variantCount: product.variants?.length || Number(snapshotMetrics.variantCount || 0),
       skuCount: (product.variants || []).filter((variant) => variant.sku).length,
       optionNames: (product.options || []).map((option) => option.name).filter(Boolean),
+      variants: (product.variants || []).map((variant) => ({
+        id: variant.id,
+        title: variant.title,
+        sku: variant.sku,
+        price: variant.price,
+        compareAtPrice: variant.compareAtPrice,
+        inventoryQuantity: variant.inventoryQuantity,
+        inventoryPolicy: variant.inventoryPolicy,
+        inventoryItemId: variant.inventoryItemId,
+        inventoryTracked: variant.inventoryTracked,
+        selectedOptions: variant.selectedOptions,
+      })),
+      media: (product.media || []).map((media) => ({
+        id: media.id,
+        alt: media.alt,
+        mediaContentType: media.mediaContentType,
+        status: media.status,
+        width: media.width,
+        height: media.height,
+      })),
       topReturnReasons: topReturnReasons.map((item) => item.label),
       topReturnReasonDetails: topReturnReasons,
       topRefundReasons: topRefundReasons.map((item) => item.label),
@@ -1528,10 +1616,22 @@ function buildAiProductInput(product, snapshot) {
       id: variant.id,
       title: variant.title,
       sku: variant.sku,
+      price: variant.price,
+      compareAtPrice: variant.compareAtPrice,
+      inventoryQuantity: variant.inventoryQuantity,
+      inventoryPolicy: variant.inventoryPolicy,
       selectedOptions: variant.selectedOptions || [],
     })),
     collections: product.collections || [],
     metafields: product.metafields || [],
+    media: (product.media || []).slice(0, 20).map((media) => ({
+      id: media.id,
+      type: media.mediaContentType,
+      alt: media.alt,
+      status: media.status,
+      width: media.width,
+      height: media.height,
+    })),
   };
 }
 
@@ -1574,6 +1674,10 @@ function buildAiDeterministicInput(deterministic) {
       contentAdvisoryCount: deterministic.metrics.contentAdvisoryCount,
       contentAdvisories: deterministic.metrics.contentAdvisories,
       faqNeed: deterministic.metrics.faqNeed,
+      titleNeedsReview: deterministic.metrics.titleNeedsReview,
+      variantNamingAdvisory: deterministic.metrics.variantNamingAdvisory,
+      mediaCount: deterministic.metrics.mediaCount,
+      mediaWithoutAltCount: deterministic.metrics.mediaWithoutAltCount,
       textInsights: deterministic.metrics.textInsights,
       refundInsights: deterministic.metrics.refundInsights,
       descriptionWordCount: deterministic.metrics.descriptionWordCount,
@@ -1591,6 +1695,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   const issue = deterministic.mainIssue;
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, issue);
   const faqNeed = deterministic.metrics?.faqNeed || {};
+  const recipeSignals = getRecommendationRecipeSignals(deterministic);
   const candidates = [];
   if (issue === "fit_sizing" && hasActionableMainIssue) {
     candidates.push({ id: "draft-fit-note", type: "PDP copy", reason: "Fit or size language appears in returns/reviews." });
@@ -1622,6 +1727,14 @@ function buildRuleRecommendationCandidates(deterministic) {
     }
     candidates.push({ id: "align-product-metadata", type: "Workflow", reason: "Title, description, tags, collections and product type should tell a consistent story." });
   }
+  if (recipeSignals.title.shouldRecommend) candidates.push({ id: "update-product-title", type: "Product title", reason: recipeSignals.title.reason });
+  if (recipeSignals.variants.shouldRecommend) candidates.push({ id: "correct-variant-options", type: "Variant options", reason: recipeSignals.variants.reason });
+  if (recipeSignals.pricing.shouldRecommend) candidates.push({ id: "review-product-pricing", type: "Commercial review", reason: recipeSignals.pricing.reason });
+  if (recipeSignals.status.shouldRecommend) candidates.push({ id: "set-product-draft", type: "High-risk action", reason: recipeSignals.status.reason });
+  if (recipeSignals.inventory.shouldRecommend) candidates.push({ id: "limit-variant-inventory", type: "Inventory hold", reason: recipeSignals.inventory.reason });
+  if (recipeSignals.collection.shouldRecommend) candidates.push({ id: "move-to-review-collection", type: "Collection workflow", reason: recipeSignals.collection.reason });
+  if (recipeSignals.media.shouldRecommend) candidates.push({ id: "improve-product-media", type: "Media guidance", reason: recipeSignals.media.reason });
+  if (recipeSignals.qa.shouldRecommend) candidates.push({ id: "recommend-qa-review", type: "Operational QA", reason: recipeSignals.qa.reason });
   if (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
 }
@@ -1791,6 +1904,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const issueLabel = getHumanIssueLabel(mainIssue);
   const topReasons = deterministic.metrics.topReturnReasons || [];
   const affectedVariants = deterministic.metrics.affectedVariants || [];
+  const recipeSignals = getRecommendationRecipeSignals(deterministic);
   const pdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
@@ -1933,6 +2047,40 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  if (recipeSignals.title.shouldRecommend) {
+    recommendations.push({
+      id: "update-product-title",
+      label: "Clarify product title",
+      type: "Product title",
+      effort: "Low",
+      status: "Draft",
+      payload: {
+        field: "title",
+        draftTitle: normalizeSuggestedTitle(copy.product_title || buildSuggestedProductTitle(deterministic.product, mainIssue)),
+        currentTitle: deterministic.product?.title || snapshot.productTitle,
+        issue: "product_content",
+        trigger: recipeSignals.title.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.media.shouldRecommend) {
+    recommendations.push({
+      id: "improve-product-media",
+      label: "Improve images and alt text",
+      type: "Media guidance",
+      effort: "Medium",
+      status: "Ready",
+      payload: {
+        mediaGuidance: copy.media_guidance || buildMediaGuidance(deterministic),
+        mediaCount: deterministic.metrics.mediaCount || 0,
+        mediaWithoutAltCount: deterministic.metrics.mediaWithoutAltCount || 0,
+        issue: mainIssue,
+        trigger: recipeSignals.media.reason,
+      },
+    });
+  }
+
   if (topReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
     reviewSections.push({
       key: "returns",
@@ -2012,6 +2160,61 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  if (recipeSignals.variants.shouldRecommend) {
+    recommendations.push({
+      id: "correct-variant-options",
+      label: "Review variant and option clarity",
+      type: "Variant options",
+      effort: "Medium",
+      status: "Ready",
+      payload: {
+        affectedVariants,
+        variantCount: deterministic.metrics.variantCount || 0,
+        variantDetails: deterministic.metrics.affectedVariantDetails || [],
+        issue: mainIssue,
+        trigger: recipeSignals.variants.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.pricing.shouldRecommend) {
+    recommendations.push({
+      id: "review-product-pricing",
+      label: "Review price and value perception",
+      type: "Commercial review",
+      effort: "Medium",
+      status: "Ready",
+      payload: {
+        variants: (deterministic.metrics.variants || []).map((variant) => ({
+          id: variant.id,
+          title: variant.title,
+          price: variant.price,
+          compareAtPrice: variant.compareAtPrice,
+        })),
+        refundRate: deterministic.metrics.refundRate,
+        returnRate: deterministic.metrics.returnRate,
+        marginAtRisk: deterministic.metrics.marginAtRisk,
+        issue: mainIssue,
+        trigger: recipeSignals.pricing.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.collection.shouldRecommend) {
+    recommendations.push({
+      id: "move-to-review-collection",
+      label: "Move product to review collection",
+      type: "Collection workflow",
+      effort: "Low",
+      status: "Ready",
+      payload: {
+        collectionName: getReviewCollectionName(deterministic),
+        issue: mainIssue,
+        trigger: recipeSignals.collection.reason,
+      },
+    });
+  }
+
   if (supportNote && (hasActionableMainIssue || contentIssues.length > 0)) {
     recommendations.push({
       id: "copy-support-note",
@@ -2023,19 +2226,385 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  const tag = getIssueTag(mainIssue);
-  if (tag && deterministic.metrics.signalCount >= 2) {
+  const tags = getRecommendedRiskTags({ mainIssue, deterministic });
+  if (tags.length && deterministic.metrics.signalCount >= 2) {
     recommendations.push({
-      id: `apply-tag-${tag}`,
-      label: `Apply product tag ${tag}`,
+      id: "apply-risk-tags",
+      label: "Add internal risk tags",
       type: "Product tag",
       effort: "Low",
       status: "Ready",
-      payload: { tag, productGid: snapshot.productGid },
+      payload: { tags, productGid: snapshot.productGid, issue: mainIssue },
     });
   }
 
-  return uniqueBy(recommendations, (item) => item.id).slice(0, 7);
+  if (recipeSignals.qa.shouldRecommend) {
+    recommendations.push({
+      id: "recommend-qa-review",
+      label: "Recommend supplier or QA review",
+      type: "Operational QA",
+      effort: "Medium",
+      status: "Ready",
+      payload: {
+        qaNote: copy.qa_note || buildQaReviewNote({ snapshot, deterministic, issueLabel }),
+        issue: mainIssue,
+        refundInsights: deterministic.metrics.refundInsights,
+        topReturnReasons: deterministic.metrics.topReturnReasons,
+        trigger: recipeSignals.qa.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.inventory.shouldRecommend) {
+    recommendations.push({
+      id: "limit-variant-inventory",
+      label: "Review inventory hold for affected variant",
+      type: "Inventory hold",
+      effort: "High",
+      status: "Manual approval required",
+      payload: {
+        affectedVariants,
+        variants: deterministic.metrics.variants || [],
+        issue: mainIssue,
+        trigger: recipeSignals.inventory.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.status.shouldRecommend) {
+    recommendations.push({
+      id: "set-product-draft",
+      label: "Set product to draft while reviewing",
+      type: "High-risk action",
+      effort: "High",
+      status: "Manual approval required",
+      payload: {
+        field: "status",
+        productStatus: "DRAFT",
+        currentStatus: deterministic.product?.status || "Unknown",
+        issue: mainIssue,
+        trigger: recipeSignals.status.reason,
+      },
+    });
+  }
+
+  return uniqueBy(recommendations, (item) => item.id)
+    .map((item, index) => decorateRecommendationRecipe(item, { deterministic, mainIssue, index }));
+}
+
+function getRecommendationRecipeSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const product = deterministic.product || {};
+  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  const contentIssues = getActionableContentIssues(metrics);
+  const contentAdvisories = Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : metrics.contentAdvisories || [];
+  const hasCustomerEvidence = Number(metrics.customerSignalCount || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || Number(metrics.returnUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || Number(metrics.refundUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || Number(metrics.negativeReviewCount || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE;
+  const hasActionableEvidence = hasCustomerEvidence || contentIssues.length > 0;
+  const variantCount = Number(metrics.variantCount || product.variants?.length || 0);
+  const affectedVariantCount = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants.length : 0;
+  const valueSignals = getValuePerceptionSignals(deterministic);
+  const mediaIssue = Number(metrics.mediaWithoutAltCount || 0) > 0
+    || Number(metrics.mediaCount || 0) === 0
+    || mainIssue === "color_expectation"
+    || contentAdvisories.some((item) => ["missing_media_context", "missing_media_alt_text"].includes(normalizeContentIssueCode(item.code)));
+  const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
+  const refundInsights = metrics.refundInsights || {};
+
+  return {
+    title: {
+      shouldRecommend: Boolean(metrics.titleNeedsReview || contentIssues.some((item) => ["generic_title", "title_description_mismatch"].includes(normalizeContentIssueCode(item.code)))),
+      reason: "The product title is generic, misleading, or clearly disconnected from the product content.",
+    },
+    variants: {
+      shouldRecommend: variantCount > 1 && (
+        affectedVariantCount > 0
+        || Boolean(metrics.variantNamingAdvisory)
+        || contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "unclear_variant_names")
+      ) && (hasCustomerEvidence || Boolean(metrics.variantNamingAdvisory)),
+      reason: affectedVariantCount
+        ? "Signals are concentrated in specific variants, SKUs or options."
+        : "Variant names or option labels are unclear enough to review.",
+    },
+    pricing: {
+      shouldRecommend: valueSignals.length >= 2 || (Number(metrics.refundRate || 0) > 20 && Number(metrics.soldUnits || 0) > 10 && Number(metrics.refundUnits || 0) >= 3),
+      reason: valueSignals.length
+        ? `Customer language points to value or price perception: ${valueSignals.slice(0, 3).join(", ")}.`
+        : "Refund pressure is high enough to review price and value expectations manually.",
+    },
+    status: {
+      shouldRecommend: Boolean(hasActionableEvidence && highRiskOperationalIssue && Number(deterministic.riskScore || 0) >= 75 && Number(deterministic.confidence || 0) >= 65),
+      reason: "Risk and confidence are both high for a potentially serious product-quality issue.",
+    },
+    inventory: {
+      shouldRecommend: Boolean(variantCount > 1 && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
+      reason: "The problem appears concentrated enough to consider holding a specific affected variant.",
+    },
+    collection: {
+      shouldRecommend: Boolean(hasActionableEvidence && Number(deterministic.riskScore || 0) >= 55),
+      reason: "The product should be grouped for internal review or quality workflow tracking.",
+    },
+    media: {
+      shouldRecommend: Boolean(mediaIssue && (hasActionableEvidence || mainIssue === "color_expectation")),
+      reason: Number(metrics.mediaWithoutAltCount || 0) > 0
+        ? `${metrics.mediaWithoutAltCount} product media item${Number(metrics.mediaWithoutAltCount) === 1 ? "" : "s"} need clearer alt text.`
+        : "Customer expectations may depend on images, scale, color, material or visual context.",
+    },
+    qa: {
+      shouldRecommend: Boolean(hasActionableEvidence && (highRiskOperationalIssue || refundInsights.shouldSurface || Number(metrics.returnRate || 0) >= 15)),
+      reason: refundInsights.shouldSurface
+        ? "Refund pressure or refund notes point to an operational quality review."
+        : "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
+    },
+  };
+}
+
+function getActionableContentIssues(metrics = {}) {
+  const issues = Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : metrics.contentIssues || [];
+  return issues.filter((issue) => issue && typeof issue === "object");
+}
+
+function getValuePerceptionSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const textInsights = metrics.textInsights || {};
+  const repeated = [
+    ...(Array.isArray(textInsights.repeatedLanguage) ? textInsights.repeatedLanguage : []),
+    ...(Array.isArray(textInsights.reviews?.repeatedLanguage) ? textInsights.reviews.repeatedLanguage : []),
+    ...(Array.isArray(textInsights.returns?.repeatedLanguage) ? textInsights.returns.repeatedLanguage : []),
+  ];
+  const snippets = Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets : [];
+  const values = [
+    ...repeated.map((item) => item.term || item.label || ""),
+    ...snippets.map((item) => item.text || item.body || item.summary || ""),
+  ].map(String);
+
+  return uniqueBy(values.filter((value) => /\b(expensive|price|priced|cost|costly|cheap|not worth|worth it|value|overpriced|quality for the price)\b/i.test(value)), (value) => normalizeText(value))
+    .slice(0, 5);
+}
+
+function decorateRecommendationRecipe(action, { deterministic, mainIssue, index }) {
+  const recipe = getRecommendationRecipeMetadata(action, { deterministic, mainIssue, index });
+  return {
+    ...action,
+    priorityGroup: recipe.priorityGroup,
+    payload: {
+      ...(action.payload || {}),
+      recipe: true,
+      recipeState: "Suggested",
+      trigger: action.payload?.trigger || recipe.trigger,
+      proposedChange: recipe.proposedChange,
+      shopifyField: recipe.shopifyField,
+      expectedImpact: recipe.expectedImpact,
+      applicationRisk: recipe.applicationRisk,
+      approval: recipe.approval,
+      reviewApplyFlow: "Review -> Apply",
+      priorityGroup: recipe.priorityGroup,
+    },
+  };
+}
+
+function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, index }) {
+  const id = String(action.id || "");
+  const payload = action.payload || {};
+  const metrics = deterministic.metrics || {};
+  const primary = index === 0 ? "Primary customer-facing fix" : "Suggested action";
+  const trigger = payload.trigger || action.reason || `ProductPulse found ${getHumanIssueLabel(mainIssue)} evidence.`;
+  const common = {
+    trigger,
+    proposedChange: action.label || "Review recommended action",
+    shopifyField: "ProductPulse workflow",
+    expectedImpact: "Improve operational follow-through from the current diagnosis.",
+    applicationRisk: "Low",
+    approval: "Review required before applying",
+    priorityGroup: primary,
+  };
+
+  if (id.includes("description") || id.includes("fit-note") || id.includes("expectation") || id.includes("quality-note") || id.includes("subjective")) {
+    return {
+      ...common,
+      proposedChange: payload.operation === "replace" ? "Rewrite the Shopify product description while preserving useful existing copy." : "Insert shopper-facing expectation guidance into the product description.",
+      shopifyField: "Product.descriptionHtml",
+      expectedImpact: "Reduce avoidable buyer confusion before checkout.",
+      applicationRisk: "Low",
+      priorityGroup: "Customer-facing fix",
+    };
+  }
+  if (id === "create-product-faq") {
+    return {
+      ...common,
+      proposedChange: "Create generated FAQ content and apply it as description HTML or a product metafield.",
+      shopifyField: "Product.descriptionHtml or productpulse.faq_items metafield",
+      expectedImpact: "Answer repeated buyer uncertainty before purchase.",
+      applicationRisk: "Low",
+      priorityGroup: "Customer-facing fix",
+    };
+  }
+  if (id === "update-product-title") {
+    return {
+      ...common,
+      proposedChange: `Change the title from "${payload.currentTitle || "current title"}" to "${payload.draftTitle || "a clearer title"}".`,
+      shopifyField: "Product.title",
+      expectedImpact: "Make the product easier to identify and reduce expectation mismatch.",
+      applicationRisk: "Medium",
+      priorityGroup: "Customer-facing fix",
+    };
+  }
+  if (id === "correct-variant-options") {
+    return {
+      ...common,
+      proposedChange: "Review and correct unclear option names, variant labels, or affected SKU presentation.",
+      shopifyField: "Product options and ProductVariant option values",
+      expectedImpact: "Reduce wrong variant selection and focus remediation on the affected scope.",
+      applicationRisk: "Medium",
+      approval: "Manual approval required",
+      priorityGroup: "Catalog fix",
+    };
+  }
+  if (id === "review-product-pricing") {
+    return {
+      ...common,
+      proposedChange: "Review variant prices and compare-at prices against value-perception evidence.",
+      shopifyField: "ProductVariant.price and ProductVariant.compareAtPrice",
+      expectedImpact: `Reduce value mismatch risk while protecting ${formatMoney(metrics.marginAtRisk || 0)} margin exposure.`,
+      applicationRisk: "High",
+      approval: "Manual approval required",
+      priorityGroup: "Commercial fix",
+    };
+  }
+  if (id === "set-product-draft") {
+    return {
+      ...common,
+      proposedChange: "Set the Shopify product status to DRAFT while the team reviews the issue.",
+      shopifyField: "Product.status",
+      expectedImpact: "Temporarily stop the product from continuing to create customer-facing risk.",
+      applicationRisk: "High",
+      approval: "Manual approval required",
+      priorityGroup: "Operational control",
+    };
+  }
+  if (id === "limit-variant-inventory") {
+    return {
+      ...common,
+      proposedChange: "Review inventory availability for the affected variant before holding or reducing sellable stock.",
+      shopifyField: "InventoryLevel quantities",
+      expectedImpact: "Limit exposure while preserving unaffected variants.",
+      applicationRisk: "High",
+      approval: "Manual approval required",
+      priorityGroup: "Operational control",
+    };
+  }
+  if (id === "apply-risk-tags") {
+    return {
+      ...common,
+      proposedChange: `Add internal Shopify tags: ${(payload.tags || []).join(", ")}.`,
+      shopifyField: "Product.tags",
+      expectedImpact: "Make the product discoverable in internal workflows and automated collections.",
+      applicationRisk: "Low",
+      priorityGroup: "Catalog fix",
+    };
+  }
+  if (id === "move-to-review-collection") {
+    return {
+      ...common,
+      proposedChange: `Move or add this product to "${payload.collectionName || "ProductPulse Needs Review"}".`,
+      shopifyField: "Collection membership",
+      expectedImpact: "Group risky products for quality, merchandising or operations review.",
+      applicationRisk: "Medium",
+      approval: "Manual approval required",
+      priorityGroup: "Catalog fix",
+    };
+  }
+  if (id === "improve-product-media") {
+    return {
+      ...common,
+      proposedChange: "Add image guidance, improve alt text, or review media order for clearer shopper expectations.",
+      shopifyField: "Product media and alt text",
+      expectedImpact: "Reduce visual expectation mismatch and improve PDP clarity.",
+      applicationRisk: "Medium",
+      approval: "Manual approval required",
+      priorityGroup: "Customer-facing fix",
+    };
+  }
+  if (id === "copy-support-note") {
+    return {
+      ...common,
+      proposedChange: "Create an internal support note or macro.",
+      shopifyField: "Internal support workflow",
+      expectedImpact: "Help support answer repeated product questions consistently.",
+      applicationRisk: "Low",
+      priorityGroup: "Operational follow-up",
+    };
+  }
+  if (id === "recommend-qa-review") {
+    return {
+      ...common,
+      proposedChange: "Send this product to supplier, QA or merchandising review with the captured evidence.",
+      shopifyField: "Operational QA workflow",
+      expectedImpact: "Address potential physical, supplier or durability issues outside the PDP.",
+      applicationRisk: "Low",
+      approval: "Manual approval required",
+      priorityGroup: "Operational follow-up",
+    };
+  }
+  return common;
+}
+
+function buildSuggestedProductTitle(product = {}, mainIssue = "") {
+  const current = String(product.title || "").trim();
+  if (current && !isGenericProductTitle(current)) return current;
+  const parts = [
+    product.vendor,
+    product.productType,
+    getHumanIssueLabel(mainIssue) !== "Product quality" ? getHumanIssueLabel(mainIssue) : "",
+  ].filter(Boolean);
+  return parts.length ? uniqueBy(parts, normalizeText).join(" ") : current || "Clarified product title";
+}
+
+function normalizeSuggestedTitle(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 140);
+}
+
+function buildMediaGuidance(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  if (Number(metrics.mediaCount || 0) === 0) return "Add product media that clearly shows scale, material, color and what the shopper receives.";
+  if (Number(metrics.mediaWithoutAltCount || 0) > 0) return "Review product media and add descriptive alt text that explains the visible product, variant, color, material or scale.";
+  if (deterministic.mainIssue === "color_expectation") return "Review image order and add visual context so color, lighting and material expectations are clearer before purchase.";
+  return "Review product media for scale, material, color and format clarity.";
+}
+
+function getReviewCollectionName(deterministic = {}) {
+  if (Number(deterministic.riskScore || 0) >= 75) return "ProductPulse High Return Risk";
+  if (deterministic.mainIssue === "product_content") return "ProductPulse Content Fix Needed";
+  return "ProductPulse Needs Review";
+}
+
+function buildQaReviewNote({ snapshot, deterministic, issueLabel }) {
+  const metrics = deterministic.metrics || {};
+  const parts = [
+    `${snapshot.productTitle} should be reviewed for ${issueLabel}.`,
+    metrics.returnUnits ? `${metrics.returnUnits} return unit${metrics.returnUnits === 1 ? "" : "s"} were analyzed.` : "",
+    metrics.refundUnits ? `${metrics.refundUnits} refund unit${metrics.refundUnits === 1 ? "" : "s"} were analyzed.` : "",
+    metrics.topReturnReasons?.length ? `Top return reasons: ${metrics.topReturnReasons.slice(0, 3).join(", ")}.` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
+function getRecommendedRiskTags({ mainIssue, deterministic }) {
+  const metrics = deterministic.metrics || {};
+  const tags = [];
+  if (Number(deterministic.riskScore || 0) >= 75) tags.push("risk-high");
+  else if (Number(deterministic.riskScore || 0) >= 55) tags.push("risk-medium");
+  else tags.push("risk-low");
+  const issueTag = getIssueTag(mainIssue);
+  if (issueTag) tags.push(issueTag);
+  if (Number(metrics.contentIssueCount || 0) > 0) tags.push("needs-description-review");
+  if (Number(metrics.returnUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) tags.push("return-anomaly");
+  if (metrics.refundInsights?.shouldSurface) tags.push("refund-pressure");
+  if (Number(metrics.textInsights?.sentiment?.negative || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) tags.push("sentiment-negative");
+  if (Array.isArray(metrics.affectedVariants) && metrics.affectedVariants.length) tags.push("variant-issue");
+  return uniqueBy(tags, normalizeText).slice(0, 10);
 }
 
 function buildRecommendedFaqItems({ copy = {}, snapshot, mainIssue, pdpCopy = "", faqNeed = {} }) {
@@ -2969,8 +3538,26 @@ function normalizeShopifyProduct(product, snapshot) {
     numericId: String(variant.legacyResourceId || extractNumericShopifyId(variant.id) || ""),
     title: variant.title || "",
     sku: variant.sku || "",
+    price: normalizeMoneyValue(variant.price),
+    compareAtPrice: normalizeMoneyValue(variant.compareAtPrice),
+    inventoryQuantity: Number.isFinite(Number(variant.inventoryQuantity)) ? Number(variant.inventoryQuantity) : null,
+    inventoryPolicy: variant.inventoryPolicy || "",
+    inventoryItemId: variant.inventoryItem?.id || "",
+    inventoryTracked: Boolean(variant.inventoryItem?.tracked),
     selectedOptions: variant.selectedOptions || [],
   }));
+  const media = getNodes(product.media).map((item) => {
+    const image = item.image || item.preview?.image || {};
+    return {
+      id: item.id || "",
+      alt: item.alt || image.altText || "",
+      mediaContentType: item.mediaContentType || "",
+      status: item.status || "",
+      url: image.url || "",
+      width: Number(image.width || 0),
+      height: Number(image.height || 0),
+    };
+  });
 
   return {
     id: product.id || snapshot.productGid,
@@ -2991,6 +3578,7 @@ function normalizeShopifyProduct(product, snapshot) {
       type: metafield.type,
       value: String(metafield.value || "").slice(0, 500),
     })),
+    media,
   };
 }
 
@@ -3010,7 +3598,15 @@ function normalizeSnapshotProduct(snapshot) {
     variants: [],
     collections: Array.isArray(metrics.collections) ? metrics.collections : [],
     metafields: [],
+    media: [],
   };
+}
+
+function normalizeMoneyValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "object") return Number(value.amount || value.value || 0);
+  const amount = Number(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(amount) ? amount : null;
 }
 
 function lineItemMatchesProduct(lineItem, product, snapshot) {
@@ -4003,8 +4599,14 @@ function analyzeProductContentDeterministically(product) {
   const productType = normalizeText(product.productType);
   const tags = Array.isArray(product.tags) ? product.tags.map(String).filter(Boolean) : [];
   const collections = Array.isArray(product.collections) ? product.collections.map(String).filter(Boolean) : [];
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const media = Array.isArray(product.media) ? product.media : [];
   const issues = [];
   const advisories = [];
+
+  if (isGenericProductTitle(product.title)) {
+    issues.push(buildContentIssue("generic_title", "Product title is too generic", "medium", "The Shopify title does not clearly identify the product.", 6));
+  }
 
   if (!description) {
     issues.push(buildContentIssue("missing_description", "Missing product description", "high", "The Shopify product description is empty.", 12));
@@ -4030,17 +4632,44 @@ function analyzeProductContentDeterministically(product) {
     advisories.push(buildContentAdvisory("collection_mismatch", "Collection context could be clearer", "Collections are not clearly reflected in the product description."));
   }
 
+  if (variants.length > 1 && variants.some((variant) => isDefaultVariantTitle(variant.title))) {
+    advisories.push(buildContentAdvisory("unclear_variant_names", "Variant names could be clearer", "At least one variant uses a default or unclear option name."));
+  }
+
+  if (!media.length) {
+    advisories.push(buildContentAdvisory("missing_media_context", "Product media needs review", "No product media was available in Shopify product data."));
+  } else if (media.some((item) => !String(item.alt || "").trim())) {
+    advisories.push(buildContentAdvisory("missing_media_alt_text", "Media alt text could be improved", "One or more product media items have no alt text."));
+  }
+
   const score = clamp(100 - issues.reduce((total, issue) => total + issue.riskLift * 3, 0), 0, 100);
 
   return {
     hasDescription: Boolean(description),
     descriptionLength: description.length,
     descriptionWordCount,
+    titleNeedsReview: issues.some((issue) => issue.code === "generic_title"),
+    variantNamingAdvisory: advisories.some((issue) => issue.code === "unclear_variant_names"),
+    mediaCount: media.length,
+    mediaWithoutAltCount: media.filter((item) => !String(item.alt || "").trim()).length,
     score,
     riskLift: Math.min(18, issues.reduce((total, issue) => total + issue.riskLift, 0)),
     issues,
     advisories,
   };
+}
+
+function isGenericProductTitle(value) {
+  const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, " ").trim();
+  if (!normalized) return true;
+  if (["product", "untitled product", "sample product", "default title", "new product", "test product"].includes(normalized)) return true;
+  const tokens = meaningfulTokens(normalized);
+  return normalized.length < 8 && tokens.length <= 1;
+}
+
+function isDefaultVariantTitle(value) {
+  const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, " ").trim();
+  return !normalized || normalized === "default title" || normalized === "default";
 }
 
 function buildContentIssue(code, label, severity, evidence, riskLift) {
