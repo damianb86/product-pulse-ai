@@ -2,7 +2,6 @@ import prisma from "../db.server";
 import {
   buildConnectViewData,
   connectSourceDefinitions,
-  getConnectCategoryDefinition,
   getConnectSourceDefinition,
 } from "./product-pulse-connect";
 import { CSV_REVIEW_IMPORT_DISPLAY_NAME, CsvReviewImportError, processCsvReviewUpload } from "./product-pulse-csv.server";
@@ -159,31 +158,6 @@ export async function setSourceActive(shop, sourceKey, active) {
   };
 }
 
-export async function setCategoryIgnored(shop, categoryId, ignored) {
-  const category = getConnectCategoryDefinition(categoryId);
-  if (!category) {
-    return { status: "validation_error", message: "Unknown source category." };
-  }
-
-  await ensureSourceRows(shop);
-  const sourceKeys = connectSourceDefinitions
-    .filter((source) => source.categoryId === categoryId && !source.locked)
-    .map((source) => source.key);
-
-  await prisma.productPulseSource.updateMany({
-    where: { shop, sourceKey: { in: sourceKeys } },
-    data: { ignored },
-  });
-
-  return {
-    status: "success",
-    message: ignored
-      ? `${category.title} will be ignored in coverage scoring.`
-      : `${category.title} is back in coverage scoring.`,
-    categoryId,
-  };
-}
-
 async function ensureSourceRows(shop) {
   await prisma.$transaction(
     connectSourceDefinitions.map((definition) =>
@@ -212,6 +186,11 @@ async function ensureSourceRows(shop) {
       }),
     ),
   );
+
+  await prisma.productPulseSource.updateMany({
+    where: { shop, ignored: true },
+    data: { ignored: false },
+  });
 }
 
 async function upsertSource(shop, sourceKey, data) {
@@ -250,7 +229,7 @@ function toClientRecord(record) {
     name: record.name,
     connected: record.connected,
     active: record.active,
-    ignored: record.ignored,
+    ignored: false,
     available: record.available,
     health: record.health,
     coverageWeight: record.coverageWeight,

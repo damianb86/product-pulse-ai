@@ -5,7 +5,6 @@ import { getAppViewData } from "../lib/product-pulse-data";
 import {
   connectJudgeMeReviews,
   getConnectViewDataForShop,
-  setCategoryIgnored,
   setSourceActive,
   uploadCsvReviews,
 } from "../lib/product-pulse-connections.server";
@@ -37,14 +36,6 @@ export const action = async ({ request }) => {
       session.shop,
       String(formData.get("sourceKey") || ""),
       String(formData.get("active")) === "true",
-    );
-  }
-
-  if (actionType === "set-category-ignored") {
-    return setCategoryIgnored(
-      session.shop,
-      String(formData.get("categoryId") || ""),
-      String(formData.get("ignored")) === "true",
     );
   }
 

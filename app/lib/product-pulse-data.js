@@ -1449,7 +1449,7 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90 } = {}) {
 
   return {
     series,
-    labels: getAnalyticsTrendLabels(series),
+    labels: getAnalyticsTrendWindowLabels(length, windowDays),
   };
 }
 
@@ -1679,8 +1679,8 @@ function buildAnalyticsCatalogCoverage(productList, { totalProducts, fullDiagnos
   const analyzed = totalProducts;
   const full = fullDiagnoses.length;
   const quick = quickScanOnly.length;
-  const missingReviews = productList.filter((product) => !hasAnalyticsSource(product, "Reviews") || Number(product.metrics?.reviewCount || product.metrics?.csvReviewCount || 0) <= 0).length;
-  const missingReturns = productList.filter((product) => !hasAnalyticsSource(product, "Returns") || Number(product.metrics?.returnUnits || 0) <= 0).length;
+  const productsWithoutReviews = productList.filter((product) => Number(product.metrics?.reviewCount || product.metrics?.csvReviewCount || product.metrics?.csvReviewRatingCount || 0) <= 0).length;
+  const productsWithReturns = productList.filter((product) => Number(product.metrics?.returnUnits || 0) > 0).length;
   const catalogTotal = Math.max(Number(catalogProductCount || analyzed || 0), analyzed);
   const notAnalyzed = Math.max(catalogTotal - analyzed, 0);
   return {
@@ -1689,14 +1689,14 @@ function buildAnalyticsCatalogCoverage(productList, { totalProducts, fullDiagnos
     fullDiagnoses: full,
     quickScanOnly: quick,
     notAnalyzed,
-    missingReviews,
-    missingReturns,
+    productsWithoutReviews,
+    productsWithReturns,
     rows: [
       { label: "Full diagnoses", value: full, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(full), tone: "purple" },
       { label: "QuickScan only", value: quick, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(quick), tone: "blue" },
       { label: "Not analyzed", value: notAnalyzed, total: Math.max(analyzed + notAnalyzed, 1), valueLabel: formatDashboardNumber(notAnalyzed), tone: "slate" },
-      { label: "Missing reviews data", value: missingReviews, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(missingReviews), tone: missingReviews ? "orange" : "green" },
-      { label: "Missing returns data", value: missingReturns, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(missingReturns), tone: missingReturns ? "orange" : "green" },
+      { label: "No review signals yet", value: productsWithoutReviews, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(productsWithoutReviews), tone: productsWithoutReviews ? "slate" : "green" },
+      { label: "Products with return signals", value: productsWithReturns, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(productsWithReturns), tone: productsWithReturns ? "orange" : "slate" },
     ],
   };
 }
@@ -1784,6 +1784,7 @@ function buildAnalyticsTopProductsAtRisk(productList, actionRows = []) {
   const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
   return [...productList]
     .sort((first, second) => getDashboardPriorityScore(second, { maxMarginRisk }) - getDashboardPriorityScore(first, { maxMarginRisk }))
+    .slice(0, 5)
     .map((product) => {
       const productActions = actionRows.filter((action) => action.product === product);
       const pendingAction = productActions.find((action) => action.status === "pending");
@@ -2130,6 +2131,20 @@ function getAnalyticsTrendLabels(series) {
   return Array.from({ length }, (_, index) => {
     if (index === 0) return "Oldest";
     if (index === length - 1) return "Latest";
+    return "";
+  });
+}
+
+function getAnalyticsTrendWindowLabels(length, windowDays = 90) {
+  const count = Math.max(Number(length || 0), 1);
+  if (count === 1) return ["Today"];
+  const maxDays = Math.max(1, Number(windowDays || 90));
+  return Array.from({ length: count }, (_, index) => {
+    if (index === 0) return `${maxDays}d ago`;
+    if (index === count - 1) return "Today";
+    if (count >= 7 && index === Math.floor((count - 1) / 2)) {
+      return `${Math.round(maxDays / 2)}d ago`;
+    }
     return "";
   });
 }

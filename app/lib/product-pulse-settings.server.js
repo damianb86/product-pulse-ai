@@ -11,7 +11,6 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   },
   diagnosis: {
     maxQueuedPerSubmission: 25,
-    useOpenAiBatchForDiagnostics: false,
   },
 };
 
@@ -108,7 +107,6 @@ export function normalizeProductPulseSettings(input = {}) {
         PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES,
         DEFAULT_PRODUCT_PULSE_SETTINGS.diagnosis.maxQueuedPerSubmission,
       ),
-      useOpenAiBatchForDiagnostics: Boolean(diagnosis.useOpenAiBatchForDiagnostics),
     },
   };
 }
@@ -122,7 +120,6 @@ export function parseSettingsFormData(formData) {
     },
     diagnosis: {
       maxQueuedPerSubmission: formDataNumber(formData, "maxQueuedPerSubmission"),
-      useOpenAiBatchForDiagnostics: String(formData.get("useOpenAiBatchForDiagnostics") || "") === "on",
     },
   };
 }

@@ -179,10 +179,10 @@ export function buildConnectViewData(records = []) {
   const signalCategories = connectCategoryDefinitions.map((category) => buildCategory(category, recordMap));
   const productDataCategory = buildCategory(shopifyProductDataCategoryDefinition, recordMap, true);
   const coverage = signalCategories.reduce((total, category) => (
-    category.connected || category.ignored ? total + category.weight : total
+    category.connected ? total + category.weight : total
   ), 0);
   const activeWeight = signalCategories.reduce((total, category) => (
-    category.ignored ? total : total + category.weight
+    category.connected ? total + category.weight : total
   ), 0);
 
   return {
@@ -221,40 +221,19 @@ export function upsertLocalConnectionRecord(records, sourceKey, overrides) {
   return records.map((record) => (record.sourceKey === sourceKey ? { ...defaultRecord, ...record, ...overrides } : record));
 }
 
-export function setLocalCategoryIgnored(records, categoryId, ignored) {
-  const sourceKeys = connectSourceDefinitions
-    .filter((source) => source.categoryId === categoryId && !source.locked)
-    .map((source) => source.key);
-  let nextRecords = records;
-  sourceKeys.forEach((sourceKey) => {
-    const existing = nextRecords.find((record) => record.sourceKey === sourceKey);
-    nextRecords = upsertLocalConnectionRecord(nextRecords, sourceKey, {
-      ...(existing || {}),
-      ignored,
-    });
-  });
-  return nextRecords;
-}
-
 export function getConnectSourceDefinition(sourceKey) {
   return connectSourceDefinitions.find((source) => source.key === sourceKey);
-}
-
-export function getConnectCategoryDefinition(categoryId) {
-  return connectCategoryDefinitions.find((category) => category.id === categoryId);
 }
 
 function buildCategory(category, recordMap, lockedCategory = false) {
   const sources = category.sources.map((source) => buildSource(source, category, recordMap));
   const countedSources = sources.filter((source) => source.countForCoverage);
-  const ignoreableSources = sources.filter((source) => !source.locked);
-  const ignored = !lockedCategory && ignoreableSources.length > 0 && ignoreableSources.every((source) => source.ignored);
-  const connected = !ignored && countedSources.some((source) => source.connected && source.active);
+  const connected = countedSources.some((source) => source.connected && source.active);
 
   return {
     ...category,
     locked: lockedCategory,
-    ignored,
+    ignored: false,
     connected,
     sources,
   };
@@ -266,7 +245,7 @@ function buildSource(source, category, recordMap) {
   const available = locked || Boolean(source.available);
   const connected = locked || Boolean(record?.connected ?? source.defaultConnected);
   const active = locked || Boolean(record?.active ?? source.defaultActive ?? true);
-  const ignored = Boolean(record?.ignored);
+  const ignored = false;
   const health = record?.health || (connected ? "connected" : "not_connected");
   const detail = getSourceDetail({ source, record, available, connected, active, locked });
 

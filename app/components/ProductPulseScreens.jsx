@@ -6,7 +6,6 @@ import {
   chatMeConnectionLinks,
   CSV_REVIEW_IMPORT_DISPLAY_NAME,
   judgeMeConnectionLinks,
-  setLocalCategoryIgnored,
   upsertLocalConnectionRecord,
 } from "../lib/product-pulse-connect";
 
@@ -200,11 +199,10 @@ const coverageUnlocks = [
   { icon: "target", title: "More accurate issue detection", detail: "ProductPulse can separate product defects from expectation gaps." },
   { icon: "clock", title: "Faster root-cause analysis", detail: "Signals from reviews, returns and support are grouped into one diagnosis." },
   { icon: "wand", title: "Better recommended fixes", detail: "Actions become more specific when the system sees the full customer journey." },
-  { icon: "shield-check-mark", title: "Cleaner coverage score", detail: "Ignored categories stop creating false missing-data warnings." },
+  { icon: "shield-check-mark", title: "Cleaner coverage score", detail: "Disabled sources are excluded so inactive imports do not create noisy warnings." },
 ];
 
 export function ConnectScreen({ data, actionData }) {
-  const submit = useSubmit();
   const navigation = useNavigation();
   const [records, setRecords] = useState(() => data?.connect?.records || []);
   const [activeModal, setActiveModal] = useState(null);
@@ -235,18 +233,6 @@ export function ConnectScreen({ data, actionData }) {
       setActiveModal(null);
     }
   }, [actionData]);
-
-  const toggleIgnored = (category) => {
-    const ignored = !category.ignored;
-    setRecords((current) => setLocalCategoryIgnored(current, category.id, ignored));
-    if (persistConnectState) {
-      const formData = new FormData();
-      formData.set("_action", "set-category-ignored");
-      formData.set("categoryId", category.id);
-      formData.set("ignored", String(ignored));
-      submit(formData, { method: "post" });
-    }
-  };
 
   const handleLocalJudgeMeConnect = (event) => {
     event.preventDefault();
@@ -351,7 +337,6 @@ export function ConnectScreen({ data, actionData }) {
               <ConnectCategoryCard
                 key={category.id}
                 category={category}
-                onToggleIgnored={toggleIgnored}
                 onOpenJudgeMe={() => setActiveModal("judgeme")}
                 onOpenChatMe={() => setActiveModal("chatme")}
                 onOpenCsv={() => setActiveModal("csv")}
@@ -549,6 +534,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     filters.issue,
     filters.source,
     filters.vendor,
+    filters.collection,
     filters.rows,
     filters.sort,
     filters.direction,
@@ -703,14 +689,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               Browse products, review risk signals and run AI diagnosis.
             </p>
             <div className="ppProductsHeaderActions">
-              <button
-                className="ppSecondaryActionButton ppShopifyProductSearchButton"
-                type="button"
-                onClick={() => setShopifyProductSearchOpen(true)}
-              >
-                <s-icon type="search" size="small"></s-icon>
-                Find Shopify product
-              </button>
               <FastScanButton
                 pending={fastScanRunning}
                 onStart={handleStartFastScan}
@@ -737,8 +715,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                     options={filterOptions.risks}
                     onChange={(value) => submitProductFilters({ risk: value, page: "1" })}
                   />
-                </div>
-                <div className="ppProductsFilterPills">
                   <ProductFilterPillGroup
                     name="status"
                     label="Status"
@@ -750,7 +726,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 <div className="ppProductsSelectFilters" onChange={handleFilterChange}>
                   <ProductFilterSelect name="issue" label="Issue type" value={filters.issue || "all"} options={filterOptions.issues} />
                   <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
-                  <ProductFilterSelect name="vendor" label="Vendor or Collection" value={filters.vendor || "all"} options={filterOptions.vendors} vendor />
+                  <ProductFilterSearchInput name="vendor" label="Vendor" value={filters.vendor || ""} options={filterOptions.vendors} />
+                  <ProductFilterSearchInput name="collection" label="Collection" value={filters.collection || ""} options={filterOptions.collections} />
                 </div>
               </div>
               <div className="ppProductsSecondaryActions">
@@ -779,6 +756,14 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               )}
               <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products${totalAllProducts !== productCount ? ` (${totalAllProducts} scanned)` : ""}` : "No products in ProductPulse yet"}</span>
               <div className="ppProductsTableTools">
+                <button
+                  className="ppTableFindProductButton"
+                  type="button"
+                  onClick={() => setShopifyProductSearchOpen(true)}
+                >
+                  <s-icon type="search" size="small"></s-icon>
+                  Find Shopify product
+                </button>
                 <button
                   className="ppTableSearchButton"
                   type="button"
@@ -1037,7 +1022,6 @@ export function SettingsScreen({ data = {}, actionData }) {
   const normalizedSettingsRisk = useMemo(() => normalizeClientRiskThresholds(settings.risk), [settings.risk]);
   const [riskThresholds, setRiskThresholds] = useState(normalizedSettingsRisk);
   const isSaving = navigation.state === "submitting";
-  const batchEnabled = Boolean(settings.diagnosis?.useOpenAiBatchForDiagnostics);
 
   useEffect(() => {
     setRiskThresholds(normalizedSettingsRisk);
@@ -1107,41 +1091,6 @@ export function SettingsScreen({ data = {}, actionData }) {
                 min="1"
                 max="500"
               />
-            </div>
-          </section>
-
-          <section className={`ppSettingsCard ppSettingsBatchCard ${batchEnabled ? "isEnabled" : ""}`.trim()} aria-labelledby="settings-batch-title">
-            <div className="ppSettingsBatchLayout">
-              <div className="ppSettingsCardHeader">
-                <DashboardIcon type="clock" tone="purple" />
-                <div>
-                  <span>Cost control</span>
-                  <h2 id="settings-batch-title">OpenAI Batch diagnostics</h2>
-                  <p>
-                    Batch processing groups non-urgent diagnosis requests into asynchronous OpenAI jobs. It can reduce
-                    model cost, but product diagnostics may complete later instead of immediately.
-                  </p>
-                </div>
-              </div>
-
-              <label className="ppSettingsBatchToggle">
-                <input
-                  type="checkbox"
-                  name="useOpenAiBatchForDiagnostics"
-                  aria-label="Use OpenAI Batch for detailed diagnostics"
-                  defaultChecked={batchEnabled}
-                />
-                <span>
-                  <strong>Use OpenAI Batch for detailed diagnostics</strong>
-                  <small>Planned setting. Saved here now, but current diagnosis jobs still use the existing realtime queue.</small>
-                </span>
-              </label>
-            </div>
-
-            <div className="ppSettingsBatchFacts">
-              <span><s-icon type="cash-dollar" size="small"></s-icon> Lower cost for non-urgent AI work</span>
-              <span><s-icon type="clock" size="small"></s-icon> Asynchronous completion window</span>
-              <span><s-icon type="info" size="small"></s-icon> Best for large diagnosis backlogs</span>
             </div>
           </section>
 
@@ -1270,7 +1219,6 @@ function getDefaultProductPulseClientSettings() {
     },
     diagnosis: {
       maxQueuedPerSubmission: 25,
-      useOpenAiBatchForDiagnostics: false,
     },
   };
 }
@@ -1650,17 +1598,49 @@ function ProductFilterPillGroup({ label, value, options, onChange }) {
   );
 }
 
-function ProductFilterSelect({ name, label, value, options, vendor = false }) {
+function ProductFilterSelect({ name, label, value, options }) {
   const normalizedOptions = Array.isArray(options) && options.length ? options : [{ value: "all", label }];
 
   return (
-    <label className={`ppCompactSelect ${vendor ? "ppVendorSelect" : ""}`.trim()}>
+    <label className="ppCompactSelect">
       <span>{label}</span>
       <select name={name} value={value || "all"} onChange={() => {}}>
         {normalizedOptions.map((option) => (
           <option value={option.value} key={option.value}>{option.label}</option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function ProductFilterSearchInput({ name, label, value, options }) {
+  const normalizedOptions = Array.isArray(options) && options.length ? options.filter((option) => option.value !== "all") : [];
+  const matchingOption = normalizedOptions.find((option) => option.value === value || option.label === value);
+  const normalizedValue = !value || value === "all" ? "" : matchingOption?.label || value;
+  const [draftValue, setDraftValue] = useState(normalizedValue);
+  const listId = `pp-products-${name}-options`;
+
+  useEffect(() => {
+    setDraftValue(normalizedValue);
+  }, [normalizedValue]);
+
+  return (
+    <label className="ppCompactSelect ppCompactSearchFilter">
+      <span>{label}</span>
+      <input
+        type="search"
+        name={name}
+        value={draftValue}
+        list={listId}
+        onChange={(event) => setDraftValue(event.target.value)}
+        placeholder={`Search ${label.toLowerCase()}`}
+        autoComplete="off"
+      />
+      <datalist id={listId}>
+        {normalizedOptions.map((option) => (
+          <option value={option.label} key={option.value} />
+        ))}
+      </datalist>
     </label>
   );
 }
@@ -1683,6 +1663,7 @@ function buildProductFilterFormData(current = {}, overrides = {}) {
     issue: "all",
     source: "all",
     vendor: "all",
+    collection: "all",
     page: "1",
     rows: "25",
     sort: "",
@@ -1693,7 +1674,7 @@ function buildProductFilterFormData(current = {}, overrides = {}) {
   const formData = new FormData();
 
   if (values.query) formData.set("q", values.query);
-  ["analysis", "risk", "status", "issue", "source", "vendor"].forEach((name) => {
+  ["analysis", "risk", "status", "issue", "source", "vendor", "collection"].forEach((name) => {
     if (values[name] && values[name] !== "all") formData.set(name, values[name]);
   });
   if (String(values.page || "1") !== "1") formData.set("page", String(values.page));
@@ -4041,7 +4022,7 @@ export function AnalyticsScreen({ data }) {
         </div>
 
         <div className="ppAnalyticsBottom">
-          <AnalyticsPanel title="Top products at risk" subtitle="Complete product ranking for prioritization and drill-down" className="ppAnalyticsPanelTopProducts">
+          <AnalyticsPanel title="Top products at risk" subtitle="Top 5 products ranked by operational priority" className="ppAnalyticsPanelTopProducts">
             <TopProductsAtRiskTable rows={topProductsAtRisk} />
           </AnalyticsPanel>
 
@@ -7092,7 +7073,6 @@ function getRecommendedActionButton(action, mode, buttonText, disabled, context)
 function ConnectCategoryCard({
   category,
   locked = false,
-  onToggleIgnored,
   onOpenJudgeMe,
   onOpenChatMe,
   onOpenCsv,
@@ -7100,12 +7080,12 @@ function ConnectCategoryCard({
   persistConnectState = false,
   pendingSourceKey = "",
 }) {
-  const status = locked ? "Always on" : category.ignored ? "Ignored" : category.connected ? "Connected" : "Needs source";
-  const statusTone = locked || category.connected || category.ignored ? "success" : "warning";
+  const status = locked ? "Always on" : category.connected ? "Connected" : "Needs source";
+  const statusTone = locked || category.connected ? "success" : "warning";
 
   return (
     <s-section padding="none">
-      <article className={`ppConnectCategory ${category.ignored ? "isIgnored" : ""}`.trim()}>
+      <article className="ppConnectCategory">
         <div className="ppConnectCategoryHeader">
           <div>
             <h2>
@@ -7119,16 +7099,7 @@ function ConnectCategoryCard({
             {!locked && <s-badge tone={statusTone}>{status}</s-badge>}
             {locked ? (
               <button className="ppIgnoreCategoryButton" type="button" disabled>Always on</button>
-            ) : (
-              <button
-                className="ppIgnoreCategoryButton"
-                type="button"
-                aria-pressed={category.ignored}
-                onClick={() => onToggleIgnored(category)}
-              >
-                {category.ignored ? "Use category" : "Ignore category"}
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -7267,11 +7238,8 @@ function getConnectSourceRowClass(source) {
 }
 
 function ConnectCoverageCard({ categories, coverage, activeWeight }) {
-  const ignoredWeight = categories.reduce((total, category) => (
-    category.ignored ? total + category.weight : total
-  ), 0);
   const connectedWeight = categories.reduce((total, category) => (
-    category.connected && !category.ignored ? total + category.weight : total
+    category.connected ? total + category.weight : total
   ), 0);
   const missingWeight = Math.max(0, 100 - coverage);
 
@@ -7296,16 +7264,14 @@ function ConnectCoverageCard({ categories, coverage, activeWeight }) {
         </div>
         <div className="ppConnectPieSummary">
           <p><strong>{connectedWeight}%</strong> connected signal weight</p>
-          <p><strong>{ignoredWeight}%</strong> ignored by merchant choice</p>
           <p><strong>{missingWeight}%</strong> still missing</p>
-          <small>{activeWeight}% active source weight after ignored categories.</small>
+          <small>{activeWeight}% active source weight from available customer-signal categories.</small>
         </div>
       </div>
 
       <div className="ppConnectCoverageLegend">
         {categories.map((category) => {
-          const ignored = category.ignored;
-          const complete = category.connected || ignored;
+          const complete = category.connected;
           return (
             <div className={complete ? "isComplete" : ""} key={category.id}>
               <span>
@@ -7313,7 +7279,7 @@ function ConnectCoverageCard({ categories, coverage, activeWeight }) {
                 {category.title}
               </span>
               <strong>{category.weight}%</strong>
-              <small>{ignored ? "Ignored" : category.connected ? "Connected" : "Missing"}</small>
+              <small>{category.connected ? "Connected" : "Missing"}</small>
             </div>
           );
         })}
@@ -7510,16 +7476,13 @@ function getConnectCoverageGradient(categories) {
     reviews: "var(--pp-pulse-blue)",
     returns: "var(--pp-signal-teal)",
     support: "var(--pp-warning-amber)",
-    ignored: "var(--pp-slate-500)",
     missing: "var(--pp-slate-200)",
   };
   const stops = categories.map((category) => {
     const start = cursor;
     const end = cursor + category.weight;
     cursor = end;
-    const color = category.ignored
-      ? colors.ignored
-      : category.connected
+    const color = category.connected
         ? colors[category.id]
         : colors.missing;
     return `${color} ${start}% ${end}%`;
@@ -7800,6 +7763,7 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
   const series = chart?.series || [];
   const labels = chart?.labels || [];
   const safeSeries = series.length ? series : [{ label: "No trend data", color: "blue", values: [0, 0, 0, 0, 0, 0, 0], displayValue: "0", detail: "Run scans to build trend data." }];
+  const yTicks = getAnalyticsTrendYAxisTicks(safeSeries[0]?.values || []);
   const [activeLegend, setActiveLegend] = useState(null);
 
   return (
@@ -7838,18 +7802,23 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
         )}
       </div>
       <svg className="ppRiskSignalsSvg ppAnalyticsImpactTrendSvg" viewBox="0 0 640 245" role="img" aria-label={ariaLabel}>
-        {[28, 68, 108, 148, 188].map((y) => (
-          <line className="ppChartGridLine" key={y} x1="50" y1={y} x2="620" y2={y} />
+        {yTicks.map((tick, index) => (
+          <g key={`${tick.label}-${index}`}>
+            <line className="ppChartGridLine" x1="76" y1={tick.y} x2="620" y2={tick.y} />
+            <text className="ppChartAxisText ppChartAxisText-y" x="10" y={tick.y + 4}>{tick.label}</text>
+          </g>
         ))}
+        <line className="ppChartAxisLine" x1="76" y1="28" x2="76" y2="188" />
+        <text className="ppChartAxisTitle" x="10" y="18">Margin</text>
         {safeSeries.map((row) => (
           <polyline
             key={row.label}
             className={`ppRiskLine ppRiskLine-${row.color || "blue"}`}
-            points={getAnalyticsLinePoints(row.values)}
+            points={getAnalyticsLinePoints(row.values, { left: 76, width: 544 })}
           />
         ))}
         {labels.map((label, index) => label && (
-          <text className="ppChartAxisText" key={`${label}-${index}`} x={50 + index * (570 / Math.max(labels.length - 1, 1))} y="230">{label}</text>
+          <text className="ppChartAxisText" key={`${label}-${index}`} x={76 + index * (544 / Math.max(labels.length - 1, 1))} y="230">{label}</text>
         ))}
       </svg>
     </div>
@@ -8453,16 +8422,28 @@ function buildBusinessImpactModalFallbackCalculation(metrics = [], windowLabel =
   };
 }
 
-function getAnalyticsLinePoints(values = []) {
+function getAnalyticsTrendYAxisTicks(values = []) {
+  const cleanValues = (Array.isArray(values) && values.length ? values : [0])
+    .map((value) => Math.max(0, Number(value || 0)))
+    .filter(Number.isFinite);
+  const max = Math.max(...cleanValues, 1);
+  const ticks = [1, 0.75, 0.5, 0.25, 0];
+  return ticks.map((ratio) => ({
+    y: 28 + (1 - ratio) * 160,
+    label: formatCompactMoney(max * ratio),
+  }));
+}
+
+function getAnalyticsLinePoints(values = [], layout = {}) {
   const cleanValues = (Array.isArray(values) && values.length ? values : [0, 0, 0, 0, 0, 0, 0])
     .map((value) => Math.max(0, Number(value || 0)));
   const max = Math.max(...cleanValues, 1);
   const min = Math.min(...cleanValues);
   const range = Math.max(max - min, 1);
-  const left = 50;
-  const top = 28;
-  const width = 570;
-  const height = 160;
+  const left = Number(layout.left ?? 50);
+  const top = Number(layout.top ?? 28);
+  const width = Number(layout.width ?? 570);
+  const height = Number(layout.height ?? 160);
   return cleanValues.map((value, index) => {
     const x = left + index * (width / Math.max(cleanValues.length - 1, 1));
     const y = top + height - ((value - min) / range) * height;

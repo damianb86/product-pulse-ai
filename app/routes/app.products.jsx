@@ -23,6 +23,7 @@ export const loader = async ({ request }) => {
     issue: url.searchParams.get("issue") || "all",
     source: url.searchParams.get("source") || "all",
     vendor: url.searchParams.get("vendor") || "all",
+    collection: url.searchParams.get("collection") || "all",
     page: url.searchParams.get("page") || "1",
     rows: url.searchParams.get("rows") || "25",
     sort: url.searchParams.get("sort") || "",

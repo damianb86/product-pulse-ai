@@ -1570,8 +1570,11 @@ function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProduc
     if (filters.source && filters.source !== "all" && !sources.some((source) => slugifyFilterValue(source) === filters.source)) return false;
 
     if (filters.vendor && filters.vendor !== "all") {
-      const values = [metrics.vendor, metrics.productType, ...collections].filter(Boolean).map(slugifyFilterValue);
-      if (!values.includes(filters.vendor)) return false;
+      if (!matchesProductFilterText(metrics.vendor, filters.vendor)) return false;
+    }
+
+    if (filters.collection && filters.collection !== "all") {
+      if (!collections.some((collection) => matchesProductFilterText(collection, filters.collection))) return false;
     }
 
     return true;
@@ -1599,6 +1602,7 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
   const issues = new Map();
   const sources = new Map();
   const vendors = new Map();
+  const collections = new Map();
   const statuses = new Map();
   const analysisCounts = { all: snapshots.length, quickscan: 0, full: 0 };
 
@@ -1611,8 +1615,7 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
     addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved, settings), getStatusFilterValue(snapshot.riskScore, isResolved, settings));
     (Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : []).forEach((source) => addFilterOption(sources, source));
     addFilterOption(vendors, metrics.vendor);
-    addFilterOption(vendors, metrics.productType);
-    (Array.isArray(metrics.collections) ? metrics.collections : []).forEach((collection) => addFilterOption(vendors, collection));
+    (Array.isArray(metrics.collections) ? metrics.collections : []).forEach((collection) => addFilterOption(collections, collection));
   });
 
   return {
@@ -1630,7 +1633,8 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
     statuses: [{ value: "all", label: "All statuses" }, ...Array.from(statuses.values()).sort(compareFilterOptions)],
     issues: [{ value: "all", label: "Issue type" }, ...Array.from(issues.values()).sort(compareFilterOptions)],
     sources: [{ value: "all", label: "Source" }, ...Array.from(sources.values()).sort(compareFilterOptions)],
-    vendors: [{ value: "all", label: "Vendor or Collection" }, ...Array.from(vendors.values()).sort(compareFilterOptions)],
+    vendors: [{ value: "all", label: "Vendor" }, ...Array.from(vendors.values()).sort(compareFilterOptions)],
+    collections: [{ value: "all", label: "Collection" }, ...Array.from(collections.values()).sort(compareFilterOptions)],
   };
 }
 
@@ -1643,6 +1647,15 @@ function addFilterOption(map, label, value) {
   const key = value || slugifyFilterValue(label);
   if (!key || map.has(key)) return;
   map.set(key, { value: key, label: String(label) });
+}
+
+function matchesProductFilterText(value, filterValue) {
+  const normalizedFilter = slugifyFilterValue(filterValue);
+  if (!normalizedFilter || normalizedFilter === "all") return true;
+  const text = String(value || "");
+  if (!text.trim()) return false;
+  const normalizedValue = slugifyFilterValue(text);
+  return normalizedValue === normalizedFilter || text.toLowerCase().includes(String(filterValue || "").trim().toLowerCase());
 }
 
 function compareFilterOptions(first, second) {

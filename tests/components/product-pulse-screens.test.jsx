@@ -59,11 +59,12 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByLabelText("Connection setup progress")).not.toBeInTheDocument();
   });
 
-  it("updates connect coverage when a category is ignored", () => {
+  it("does not show category ignore controls in Connect", () => {
     renderWithRouter(<ConnectScreen data={defaultView} />);
     expect(screen.getByText("0% effective customer-signal coverage")).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: "Ignore category" })[1]);
-    expect(screen.getByText("25% effective customer-signal coverage")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ignore category" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use category" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/ignored by merchant choice/)).not.toBeInTheDocument();
   });
 
   it("shows disabled CSV uploads as inactive rows", () => {
@@ -147,12 +148,12 @@ describe("ProductPulse screens", () => {
     expect(action).toHaveBeenCalledTimes(1);
   });
 
-  it("renders settings controls for thresholds and batch diagnostics", () => {
+  it("renders settings controls for thresholds and queue limits", () => {
     renderWithRouter(<SettingsScreen data={{
       ...defaultView,
       settings: {
         risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
-        diagnosis: { maxQueuedPerSubmission: 12, useOpenAiBatchForDiagnostics: true },
+        diagnosis: { maxQueuedPerSubmission: 12 },
       },
     }} />);
 
@@ -163,8 +164,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("High risk starts at")).toHaveValue("75");
     expect(screen.queryByText("Table defaults")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Max diagnoses queued at once")).toHaveValue(12);
-    expect(screen.getByLabelText(/Use OpenAI Batch/)).toBeChecked();
-    expect(screen.getByText(/current diagnosis jobs still use the existing realtime queue/)).toBeInTheDocument();
+    expect(screen.queryByText("Cost control")).not.toBeInTheDocument();
+    expect(screen.queryByText(/OpenAI Batch/)).not.toBeInTheDocument();
   });
 
   it("shows a scan overlay when a quick scan starts", () => {
