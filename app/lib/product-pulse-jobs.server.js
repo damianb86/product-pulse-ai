@@ -266,7 +266,7 @@ async function getResolvedProductActionsMap(shop, snapshots = []) {
     where: {
       shop,
       productGid: { in: productGids },
-      actionType: "mark-resolved",
+      actionType: { in: ["mark-resolved", "mark-unresolved"] },
       status: "applied",
     },
     orderBy: [{ appliedAt: "desc" }, { createdAt: "desc" }],
@@ -274,9 +274,10 @@ async function getResolvedProductActionsMap(shop, snapshots = []) {
 
   const latestByProductGid = new Map();
   actions.forEach((action) => {
-    if (!latestByProductGid.has(action.productGid)) latestByProductGid.set(action.productGid, action);
+    if (latestByProductGid.has(action.productGid)) return;
+    latestByProductGid.set(action.productGid, action.actionType === "mark-resolved" ? action : null);
   });
-  return latestByProductGid;
+  return new Map([...latestByProductGid.entries()].filter(([, action]) => action));
 }
 
 export async function runSelectedProductDiagnosesForShop(shop, productIds = [], options = {}) {
@@ -503,12 +504,19 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
   });
   const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : [];
-  let action = actionId === "mark-resolved"
-    ? getResolvedAction(snapshot)
-    : actionId === "ignore-issue"
-      ? getIgnoredIssueAction(snapshot, payloadOverride)
-    : diagnosisRecommendations.find((item) => item.id === actionId)
+  let action = null;
+  if (actionId === "mark-resolved") {
+    action = getResolvedAction(snapshot);
+  } else if (actionId === "mark-unresolved") {
+    action = getUnresolvedAction(snapshot);
+  } else if (actionId === "ignore-issue") {
+    action = getIgnoredIssueAction(snapshot, payloadOverride);
+  } else if (actionId === "unignore-issue") {
+    action = getUnignoredIssueAction(snapshot, payloadOverride);
+  } else {
+    action = diagnosisRecommendations.find((item) => item.id === actionId)
       || getSnapshotRecommendedActions(snapshot, metrics).find((item) => item.id === actionId);
+  }
 
   if (!action && payloadOverride.draftText) {
     action = {
@@ -540,18 +548,20 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     : null;
   if (applyResult?.status === "validation_error") return applyResult;
 
-  const status = requestedStatus || (action.id === "ignore-issue" ? "ignored" : action.id === "mark-resolved" || action.applyImmediately || applyResult ? "applied" : "draft");
+  const status = requestedStatus || (action.id === "ignore-issue" ? "ignored" : action.id === "mark-resolved" || action.id === "mark-unresolved" || action.id === "unignore-issue" || action.applyImmediately || applyResult ? "applied" : "draft");
   if (action.id === "ignore-issue") {
-    const existingIgnoredActions = await prisma.productAction.findMany({
-      where: { shop, productGid: snapshot.productGid, actionType: "ignore-issue", status: "ignored" },
-      orderBy: { createdAt: "desc" },
+    const existingIssueActions = await prisma.productAction.findMany({
+      where: {
+        shop,
+        productGid: snapshot.productGid,
+        actionType: { in: ["ignore-issue", "unignore-issue"] },
+        status: { in: ["ignored", "applied"] },
+      },
+      orderBy: [{ appliedAt: "desc" }, { createdAt: "desc" }],
       take: 100,
     });
     const issueKey = String(payload.issueKey || "").trim();
-    if (issueKey && existingIgnoredActions.some((record) => {
-      const existingPayload = record.payload || {};
-      return String(existingPayload.issueKey || normalizeIgnoredIssueKey(existingPayload.issueCode || existingPayload.issue || record.label || "")) === issueKey;
-    })) {
+    if (issueKey && isIssueCurrentlyIgnoredInActionRecords(existingIssueActions, issueKey)) {
       return {
         status: "success",
         message: `${payload.issue || "Issue"} is already ignored for ${snapshot.productTitle}.`,
@@ -593,6 +603,10 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     status: "success",
     message: applyResult?.message || (status === "ignored"
       ? `${payload.issue || "Issue"} ignored. Related recommendations are hidden for this product.`
+      : action.id === "unignore-issue"
+      ? `${payload.issue || "Issue"} restored for ${snapshot.productTitle}. Related recommendations are visible again.`
+      : action.id === "mark-unresolved"
+      ? `${snapshot.productTitle} was marked as unresolved.`
       : status === "applied"
       ? `${recordLabel} was applied for ${snapshot.productTitle}.`
       : status === "dismissed"
@@ -603,6 +617,17 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     action,
     actionRecordStatus: status,
   };
+}
+
+function isIssueCurrentlyIgnoredInActionRecords(actions = [], issueKey = "") {
+  const normalizedKey = normalizeIgnoredIssueKey(issueKey);
+  if (!normalizedKey) return false;
+  const latest = actions.find((record) => {
+    const payload = record.payload || {};
+    const recordKey = normalizeIgnoredIssueKey(payload.issueKey || payload.issueCode || payload.issue || record.label || "");
+    return recordKey === normalizedKey;
+  });
+  return latest?.actionType === "ignore-issue" && ["ignored", "applied"].includes(String(latest.status || "").toLowerCase());
 }
 
 function normalizeProductActionRecordStatus(status) {
@@ -2259,7 +2284,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
   const diagnosisEvidence = Array.isArray(latestDiagnosis?.evidence) ? latestDiagnosis.evidence : null;
   const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : null;
   const storedActions = actions.map(formatStoredProductAction);
-  const resolvedAction = storedActions.find((action) => action.actionId === "mark-resolved" && action.status === "applied");
+  const resolvedAction = getActiveResolvedStoredAction(storedActions);
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
   const hasFullDiagnosis = analysisState.depth === "full";
   const riskScore = latestDiagnosis?.riskScore ?? snapshot.riskScore;
@@ -2351,6 +2376,18 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
   };
+}
+
+function getActiveResolvedStoredAction(storedActions = []) {
+  const resolutionActions = storedActions
+    .filter((action) => ["mark-resolved", "mark-unresolved"].includes(action.actionId) && action.status === "applied")
+    .sort((first, second) => {
+      const firstTime = new Date(first.appliedAt || first.createdAt || 0).getTime();
+      const secondTime = new Date(second.appliedAt || second.createdAt || 0).getTime();
+      return secondTime - firstTime;
+    });
+  const latest = resolutionActions[0];
+  return latest?.actionId === "mark-resolved" ? latest : null;
 }
 
 function formatStoredProductAction(action) {
@@ -2521,6 +2558,18 @@ function getResolvedAction(snapshot) {
   };
 }
 
+function getUnresolvedAction(snapshot) {
+  return {
+    id: "mark-unresolved",
+    label: "Mark product as unresolved",
+    type: "Workflow",
+    effort: "Low",
+    status: "Ready",
+    applyImmediately: true,
+    payload: { productGid: snapshot.productGid, unresolvedAt: new Date().toISOString() },
+  };
+}
+
 function getIgnoredIssueAction(snapshot, payloadOverride = {}) {
   const issue = String(payloadOverride.issue || "Product issue").trim() || "Product issue";
   const issueCode = String(payloadOverride.issueCode || "").trim();
@@ -2539,6 +2588,28 @@ function getIgnoredIssueAction(snapshot, payloadOverride = {}) {
       issueKey,
       suggestedAction: String(payloadOverride.suggestedAction || "").trim(),
       ignoredAt: new Date().toISOString(),
+    },
+  };
+}
+
+function getUnignoredIssueAction(snapshot, payloadOverride = {}) {
+  const issue = String(payloadOverride.issue || "Product issue").trim() || "Product issue";
+  const issueCode = String(payloadOverride.issueCode || "").trim();
+  const issueKey = String(payloadOverride.issueKey || normalizeIgnoredIssueKey(issueCode || issue)).trim();
+  return {
+    id: "unignore-issue",
+    label: `Restore issue: ${issue}`,
+    type: "Workflow",
+    effort: "Low",
+    status: "Ready",
+    applyImmediately: true,
+    payload: {
+      productGid: snapshot.productGid,
+      issue,
+      issueCode,
+      issueKey,
+      suggestedAction: String(payloadOverride.suggestedAction || "").trim(),
+      restoredAt: new Date().toISOString(),
     },
   };
 }

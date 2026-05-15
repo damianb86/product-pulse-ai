@@ -93,10 +93,33 @@ export const action = async ({ request, params }) => {
     return { status: "validation_error", message: "Run QuickScan before ignoring product issues." };
   }
 
+  if (actionType === "unignore-issue") {
+    const snapshotAction = await recordProductDetailActionForShop(
+      session.shop,
+      productId,
+      "unignore-issue",
+      {
+        issue: String(formData.get("issue") || ""),
+        issueCode: String(formData.get("issueCode") || ""),
+        issueKey: String(formData.get("issueKey") || ""),
+        suggestedAction: String(formData.get("suggestedAction") || ""),
+      },
+      admin,
+    );
+    if (snapshotAction) return snapshotAction;
+    return { status: "validation_error", message: "Run QuickScan before restoring product issues." };
+  }
+
   if (actionType === "mark-resolved") {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
     if (snapshotAction) return snapshotAction;
     return { status: "validation_error", message: "Run QuickScan before resolving a product." };
+  }
+
+  if (actionType === "mark-unresolved") {
+    const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-unresolved");
+    if (snapshotAction) return snapshotAction;
+    return { status: "validation_error", message: "Run QuickScan before restoring a product." };
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

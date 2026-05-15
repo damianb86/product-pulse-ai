@@ -1310,7 +1310,7 @@ function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
         <div className="ppAnalysisConfirmFooter">
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
           <button className="ppPrimaryButton" type="button" onClick={onConfirm} disabled={pending}>
-            <s-icon type="search" size="small"></s-icon>
+            <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
             {pending ? "Starting QuickScan..." : "Accept cost and run QuickScan"}
           </button>
         </div>
@@ -1453,7 +1453,7 @@ function getPendingAnalysisLabel(pendingIds) {
 function FastScanButton({ pending, onStart }) {
   return (
     <button className="ppQuickScanButton" type="button" disabled={pending} onClick={onStart}>
-      <s-icon type="search" size="small"></s-icon>
+      <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
       {pending ? "Scan running..." : "Run quick scan"}
     </button>
   );
@@ -2375,27 +2375,42 @@ function getProductRecommendedActions(product) {
 
 function getIgnoredIssueRecords(product = {}) {
   const actionHistory = Array.isArray(product.actionHistory) ? product.actionHistory : [];
-  return actionHistory
-    .filter((record) => isIgnoredIssueRecord(record))
-    .map((record) => {
+  const issueStates = new Map();
+  actionHistory
+    .filter((record) => isIgnoredIssueRecord(record) || isUnignoredIssueRecord(record))
+    .sort((first, second) => {
+      const firstTime = new Date(first.appliedAt || first.createdAt || 0).getTime();
+      const secondTime = new Date(second.appliedAt || second.createdAt || 0).getTime();
+      return firstTime - secondTime;
+    })
+    .forEach((record) => {
       const payload = record.payload || {};
-      const issue = String(payload.issue || record.label || "").replace(/^Ignore issue:\s*/i, "").trim();
+      const issue = String(payload.issue || record.label || "").replace(/^(Ignore|Restore) issue:\s*/i, "").trim();
       const issueCode = String(payload.issueCode || "").trim();
       const issueKey = normalizeIssueIgnoreKey(payload.issueKey || issueCode || issue);
-      return {
+      if (!issueKey) return;
+      issueStates.set(issueKey, {
         id: record.id || issueKey,
         issue,
         issueCode,
         issueKey,
         suggestedAction: payload.suggestedAction || "",
         createdAt: record.appliedAt || record.createdAt || payload.ignoredAt || "",
-      };
-    })
+        ignored: isIgnoredIssueRecord(record),
+      });
+    });
+
+  return [...issueStates.values()]
+    .filter((record) => record.ignored)
     .filter((record) => record.issueKey);
 }
 
 function isIgnoredIssueRecord(record = {}) {
   return record.actionId === "ignore-issue" && (record.status === "ignored" || record.status === "applied");
+}
+
+function isUnignoredIssueRecord(record = {}) {
+  return record.actionId === "unignore-issue" && record.status === "applied";
 }
 
 function normalizeIssueIgnoreKey(value) {
@@ -3243,7 +3258,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const evidencePanelRef = useRef(null);
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
   const [ignoredIssues, setIgnoredIssues] = useState(() => new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
-  const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
+  const [resolvedLocally, setResolvedLocally] = useState(null);
   const [minimizedActionStates, setMinimizedActionStates] = useState(() => ({}));
   const [selectedRecommendedAction, setSelectedRecommendedAction] = useState(null);
   const [toastData, setToastData] = useState(null);
@@ -3257,9 +3272,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const minimizedActionStatesRef = useRef(minimizedActionStates);
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
-  const pendingIgnoredIssueKey = navigation.state === "submitting" && navigation.formData?.get("_action") === "ignore-issue"
+  const pendingIssueKey = navigation.state === "submitting" && ["ignore-issue", "unignore-issue"].includes(String(navigation.formData?.get("_action") || ""))
     ? normalizeIssueIgnoreKey(navigation.formData?.get("issueKey"))
     : "";
+  const pendingIssueAction = pendingIssueKey ? String(navigation.formData?.get("_action") || "") : "";
 
   useEffect(() => {
     productRef.current = product;
@@ -3270,7 +3286,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }, [minimizedActionStates]);
 
   useEffect(() => {
-    setResolvedLocally(Boolean(product?.resolvedAt));
+    setResolvedLocally(null);
     setIgnoredIssues(new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
     setMinimizedActionStates({});
     setSelectedRecommendedAction(null);
@@ -3285,6 +3301,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     if (actionData?.status === "success" && actionData?.action?.id === "mark-resolved") {
       setResolvedLocally(true);
     }
+    if (actionData?.status === "success" && actionData?.action?.id === "mark-unresolved") {
+      setResolvedLocally(false);
+    }
     if (actionData?.status === "success" && actionData?.action?.id === "ignore-issue") {
       const issueKey = normalizeIssueIgnoreKey(actionData.action.payload?.issueKey || actionData.action.payload?.issueCode || actionData.action.payload?.issue);
       if (issueKey) {
@@ -3295,7 +3314,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         });
       }
     }
-    if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "ignore-issue"].includes(actionData.action.id)) {
+    if (actionData?.status === "success" && actionData?.action?.id === "unignore-issue") {
+      const issueKey = normalizeIssueIgnoreKey(actionData.action.payload?.issueKey || actionData.action.payload?.issueCode || actionData.action.payload?.issue);
+      if (issueKey) {
+        setIgnoredIssues((current) => {
+          const next = new Set(current);
+          next.delete(issueKey);
+          return next;
+        });
+      }
+    }
+    if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue"].includes(actionData.action.id)) {
       const actionKey = actionData.action.id;
       const archivedState = getArchivedActionStateFromRecordStatus(actionData.actionRecordStatus || "applied");
       if (archivedState && willCompleteProductRecommendedActions(productRef.current, actionKey, minimizedActionStatesRef.current)) {
@@ -3349,9 +3378,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const visibleRecommendedActions = activeRecommendedActions.filter((action) => !isActionArchived(action));
   const minimizedRecommendedActions = activeRecommendedActions.filter((action) => isActionArchived(action));
   const visibleRecommendedActionCount = detail.hasFullDiagnosis ? visibleRecommendedActions.length : 0;
-  const resolved = resolvedLocally || Boolean(detail.resolvedAt);
+  const resolved = resolvedLocally ?? Boolean(detail.resolvedAt);
   const diagnosisPending = pendingActionType === "diagnose";
-  const resolvingPending = pendingActionType === "mark-resolved";
+  const resolvingPending = pendingActionType === "mark-resolved" || pendingActionType === "mark-unresolved";
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       navigate(-1);
@@ -3424,13 +3453,21 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     submit(formData, { method: "post" });
   };
 
-  const handleCreateIssueAction = (issue) => {
-    setEditingAction({
-      id: `issue-${issue.issue}`,
-      title: `Draft action for ${issue.issue}`,
-      payload: { draftText: `Investigate ${issue.issue} and apply the suggested action: ${issue.action}.` },
+  const handleUnignoreIssue = (issue) => {
+    const ignorePayload = buildIssueIgnorePayload(issue);
+    setIgnoredIssues((current) => {
+      const next = new Set(current);
+      if (ignorePayload.issueKey) next.delete(ignorePayload.issueKey);
+      return next;
     });
-    setDraftText(`Investigate ${issue.issue} and apply the suggested action: ${issue.action}.`);
+    const formData = new FormData();
+    formData.set("_action", "unignore-issue");
+    formData.set("productId", product.slug || product.handle || "");
+    formData.set("issue", ignorePayload.issue);
+    formData.set("issueCode", ignorePayload.issueCode);
+    formData.set("issueKey", ignorePayload.issueKey);
+    formData.set("suggestedAction", ignorePayload.suggestedAction);
+    submit(formData, { method: "post" });
   };
 
   const handleEditAction = (action) => {
@@ -3588,11 +3625,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                     </button>
                   )}
                   <Form method="post">
-                    <input type="hidden" name="_action" value="mark-resolved" />
+                    <input type="hidden" name="_action" value={resolved ? "mark-unresolved" : "mark-resolved"} />
                     <input type="hidden" name="productId" value={product.slug} />
-                    <button className="ppSecondaryButton ppResolveButton" type="submit" disabled={!detail.canResolve || resolved || resolvingPending}>
-                      <s-icon type="check" size="small"></s-icon>
-                      {resolved ? "Resolved" : resolvingPending ? "Resolving..." : "Mark as resolved"}
+                    <button className="ppSecondaryButton ppResolveButton" type="submit" disabled={!detail.canResolve || resolvingPending}>
+                      <s-icon type={resolved ? "x" : "check"} size="small"></s-icon>
+                      {resolvingPending ? "Saving..." : resolved ? "Mark unresolved" : "Mark as resolved"}
                     </button>
                   </Form>
                 </div>
@@ -3680,7 +3717,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       {detail.detectedIssues.map((issue, index) => {
                         const ignorePayload = buildIssueIgnorePayload(issue);
                         const ignored = isIssueIgnored(issue, ignoredIssues);
-                        const ignorePending = pendingIgnoredIssueKey === ignorePayload.issueKey;
+                        const ignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "ignore-issue";
+                        const unignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "unignore-issue";
 
                         return (
                           <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
@@ -3707,10 +3745,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                               <IssueInlineActions
                                 issue={issue}
                                 onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
-                                onCreateAction={() => handleCreateIssueAction(issue)}
                                 onIgnore={() => handleIgnoreIssue(issue)}
+                                onUnignore={() => handleUnignoreIssue(issue)}
                                 ignored={ignored}
-                                pending={ignorePending}
+                                pending={ignorePending || unignorePending}
                               />
                             </td>
                           </tr>
@@ -4204,6 +4242,7 @@ function DashboardTopActiveIssues({ issues }) {
 function DashboardCoverageSummary({ summary }) {
   const sources = Array.isArray(summary?.sources) ? summary.sources : [];
   const catalog = summary?.catalogCoverage || {};
+  const quickScanCatalog = summary?.quickScanCatalogCoverage || {};
   return (
     <div className="ppDashboardPanel ppCoverageSummaryPanel">
       <div className="ppDashboardPanelHeader">
@@ -4225,6 +4264,16 @@ function DashboardCoverageSummary({ summary }) {
             <span style={{ width: `${Math.max(0, Math.min(100, Number(catalog.percent || 0)))}%` }} />
           </div>
           <p>{catalog.detail || "Products below the QuickScan threshold may not appear in the table, but can still carry hidden risk."}</p>
+        </div>
+        <div className={`ppCoverageCatalogCard ppCoverageCatalogCard-${quickScanCatalog.tone || "blue"}`}>
+          <div>
+            <span>Total catalog QuickScan only</span>
+            <strong>{quickScanCatalog.percentLabel || "0%"}</strong>
+          </div>
+          <div className="ppCoverageCatalogMeter" aria-label={quickScanCatalog.ariaLabel || "QuickScan coverage across the catalog"}>
+            <span style={{ width: `${Math.max(0, Math.min(100, Number(quickScanCatalog.percent || 0)))}%` }} />
+          </div>
+          <p>{quickScanCatalog.detail || "QuickScan-only products have lightweight deterministic signals and still need full diagnostics for final recommendations."}</p>
         </div>
       </div>
       {summary?.recommendation && (
@@ -4634,10 +4683,14 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
             {copied ? "Copied handle" : "Copy handle"}
           </button>
           {product.resolvedAt ? (
-            <button role="menuitem" type="button" disabled>
-              <s-icon type="check" size="small"></s-icon>
-              Resolved
-            </button>
+            <Form method="post" role="none">
+              <input type="hidden" name="_action" value="mark-unresolved" />
+              <input type="hidden" name="productId" value={getProductActionKey(product)} />
+              <button role="menuitem" type="submit" onClick={onClose}>
+                <s-icon type="x" size="small"></s-icon>
+                Mark unresolved
+              </button>
+            </Form>
           ) : (
             <Form method="post" role="none">
               <input type="hidden" name="_action" value="mark-resolved" />
@@ -5981,7 +6034,7 @@ function ProductDetailToast({ actionData, onDismiss }) {
   );
 }
 
-function IssueInlineActions({ issue, onReview, onCreateAction, onIgnore, ignored, pending = false }) {
+function IssueInlineActions({ issue, onReview, onIgnore, onUnignore, ignored, pending = false }) {
   return (
     <span className="ppIssueInlineActions" aria-label={`Actions for ${issue.issue}`}>
       <button
@@ -5994,20 +6047,12 @@ function IssueInlineActions({ issue, onReview, onCreateAction, onIgnore, ignored
       </button>
       <button
         type="button"
-        aria-label={`Create action draft for ${issue.issue}`}
-        onClick={onCreateAction}
+        aria-label={`${ignored ? "Unignore" : pending ? "Saving" : "Ignore"} ${issue.issue}`}
+        disabled={pending}
+        onClick={ignored ? onUnignore : onIgnore}
       >
-        <s-icon type="wand" size="small"></s-icon>
-        <span role="tooltip">Create action draft</span>
-      </button>
-      <button
-        type="button"
-        aria-label={`${ignored ? "Ignored" : pending ? "Ignoring" : "Ignore"} ${issue.issue}`}
-        disabled={ignored || pending}
-        onClick={onIgnore}
-      >
-        {pending ? <span className="ppMiniSpinner" aria-hidden="true" /> : <s-icon type={ignored ? "check" : "x"} size="small"></s-icon>}
-        <span role="tooltip">{ignored ? "Already ignored" : pending ? "Saving ignore" : "Ignore for now"}</span>
+        {pending ? <span className="ppMiniSpinner" aria-hidden="true" /> : <s-icon type={ignored ? "plus-circle" : "x"} size="small"></s-icon>}
+        <span role="tooltip">{ignored ? "Unignore issue" : pending ? "Saving issue state" : "Ignore for now"}</span>
       </button>
     </span>
   );

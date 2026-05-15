@@ -63,6 +63,13 @@ export const action = async ({ request }) => {
     return { status: "validation_error", message: "Run QuickScan before resolving a product." };
   }
 
+  if (formData.get("_action") === "mark-unresolved") {
+    const productId = String(formData.get("productId") || "");
+    const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-unresolved");
+    if (snapshotAction) return snapshotAction;
+    return { status: "validation_error", message: "Run QuickScan before restoring a product." };
+  }
+
   return { status: "validation_error", message: "Unsupported product action." };
 };
 

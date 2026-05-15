@@ -735,7 +735,7 @@ function buildDashboardActionRows(productList) {
 
 function isSystemProductActionRecord(record = {}) {
   const actionId = String(record.actionId || record.actionType || record.id || "").toLowerCase();
-  return actionId === "mark-resolved" || actionId === "ignore-issue";
+  return ["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue"].includes(actionId);
 }
 
 function normalizeDashboardActionStatus(status) {
@@ -889,8 +889,11 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
   const storedFullPercent = totalProducts ? Math.round((fullDiagnoses.length / totalProducts) * 100) : 0;
   const catalogTotal = Math.max(Number(catalogProductCount || 0), totalProducts);
   const catalogFullPercent = catalogTotal ? Math.round((fullDiagnoses.length / catalogTotal) * 100) : 0;
+  const catalogQuickScanPercent = catalogTotal ? Math.round((quickScanOnly.length / catalogTotal) * 100) : 0;
   const missingCatalogFull = Math.max(0, catalogTotal - fullDiagnoses.length);
+  const missingCatalogQuickScan = Math.max(0, catalogTotal - quickScanOnly.length);
   const catalogTone = catalogFullPercent >= 70 ? "green" : catalogFullPercent >= 30 ? "orange" : "red";
+  const quickScanCatalogTone = catalogQuickScanPercent >= 70 ? "green" : catalogQuickScanPercent >= 30 ? "orange" : "blue";
   const statusLabel = connectedCount >= 3 && storedFullPercent >= 70
     ? "Coverage quality: Good"
     : connectedCount > 1 || storedFullPercent >= 35
@@ -908,6 +911,13 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
       tone: catalogTone,
       ariaLabel: `${formatDashboardRate(catalogFullPercent)} of total catalog products have full diagnostics`,
       detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(catalogTotal)} total catalog products have full diagnostics. ${formatDashboardNumber(missingCatalogFull)} still have no full analysis.`,
+    },
+    quickScanCatalogCoverage: {
+      percent: catalogQuickScanPercent,
+      percentLabel: formatDashboardRate(catalogQuickScanPercent),
+      tone: quickScanCatalogTone,
+      ariaLabel: `${formatDashboardRate(catalogQuickScanPercent)} of total catalog products are marked QuickScan only`,
+      detail: `${formatDashboardNumber(quickScanOnly.length)} of ${formatDashboardNumber(catalogTotal)} total catalog products are marked QuickScan only. ${formatDashboardNumber(missingCatalogQuickScan)} are either fully diagnosed or not stored in the risk table.`,
     },
     recommendation: {
       tone: catalogTone,

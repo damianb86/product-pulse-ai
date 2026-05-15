@@ -39,6 +39,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Action queue")).toBeInTheDocument();
     expect(screen.getByText("Top active issue types")).toBeInTheDocument();
     expect(screen.getByText("Data coverage / scan coverage")).toBeInTheDocument();
+    expect(screen.getByText("Total catalog QuickScan only")).toBeInTheDocument();
     expect(screen.queryByText("Not scanned")).not.toBeInTheDocument();
     expect(screen.queryByText("View all recommended fixes")).not.toBeInTheDocument();
     expect(screen.queryByText("Signal source mix")).not.toBeInTheDocument();
@@ -352,7 +353,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText(/customers report this trouser runs small/).length).toBeGreaterThan(0);
   });
 
-  it("persists ignored issues and hides related recommendations", async () => {
+  it("persists ignored issues, hides related recommendations and can restore them", async () => {
     let submittedAction = null;
     let submittedIssueKey = null;
     const action = vi.fn(async ({ request }) => {
@@ -361,9 +362,9 @@ describe("ProductPulse screens", () => {
       submittedIssueKey = String(formData.get("issueKey") || "");
       return {
         status: "success",
-        message: "Issue ignored.",
+        message: submittedAction === "unignore-issue" ? "Issue restored." : "Issue ignored.",
         action: {
-          id: "ignore-issue",
+          id: submittedAction,
           payload: {
             issue: String(formData.get("issue") || ""),
             issueKey: submittedIssueKey,
@@ -383,6 +384,11 @@ describe("ProductPulse screens", () => {
     await waitFor(() => expect(screen.getByText("Ignored")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Open recommended action Add fit note" })).not.toBeInTheDocument();
     expect(screen.getByText(/hidden because related issues are ignored/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unignore Fit runs small around waist and inseam" }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
+    expect(submittedAction).toBe("unignore-issue");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument());
   });
 
   it("loads persisted ignored issues from product action history", () => {
@@ -405,8 +411,45 @@ describe("ProductPulse screens", () => {
     />);
 
     expect(screen.getByText("Ignored")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unignore Fit runs small around waist and inseam" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open recommended action Add fit note" })).not.toBeInTheDocument();
     expect(screen.getByText(/1 ignored issue/)).toBeInTheDocument();
+  });
+
+  it("does not keep an issue ignored when a newer restore action exists", () => {
+    renderWithRouter(<ProductDiagnosisScreen
+      data={defaultView}
+      product={{
+        ...defaultView.startHere,
+        actionHistory: [
+          {
+            id: "restored-fit",
+            actionId: "unignore-issue",
+            label: "Restore issue: Fit runs small around waist and inseam",
+            status: "applied",
+            payload: {
+              issue: "Fit runs small around waist and inseam",
+              issueKey: "fit-runs-small-around-waist-and-inseam",
+            },
+            appliedAt: "2026-05-14T11:00:00.000Z",
+          },
+          {
+            id: "ignored-fit",
+            actionId: "ignore-issue",
+            label: "Ignore issue: Fit runs small around waist and inseam",
+            status: "ignored",
+            payload: {
+              issue: "Fit runs small around waist and inseam",
+              issueKey: "fit-runs-small-around-waist-and-inseam",
+            },
+            appliedAt: "2026-05-14T10:00:00.000Z",
+          },
+        ],
+      }}
+    />);
+
+    expect(screen.queryByText("Ignored")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
   });
 
   it("renders content issue reasons without object placeholders", () => {
@@ -650,8 +693,8 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={snapshotProduct} />);
     expect(screen.getByText(/Last analyzed May 12, 2026/)).toBeInTheDocument();
     expect(screen.getByAltText("Snapshot product")).toHaveAttribute("src", "https://cdn.example.com/product.jpg");
-    fireEvent.click(screen.getByRole("button", { name: "Create action draft for Fit runs small around waist and inseam" }));
-    expect(screen.getByLabelText("Draft").value).toMatch(/Investigate Fit runs small/);
+    expect(screen.getByRole("button", { name: "Review evidence for Fit runs small around waist and inseam" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create action draft for Fit runs small around waist and inseam" })).not.toBeInTheDocument();
   });
 
   it("shows explicit empty product detail data instead of mock values", () => {
