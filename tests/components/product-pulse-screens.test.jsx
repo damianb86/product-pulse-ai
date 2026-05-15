@@ -165,6 +165,22 @@ describe("ProductPulse screens", () => {
             calloutDetail: "Product quality signal detected",
             href: "/app/products/nintendo-new-3ds-xl",
           },
+          settings: {
+            scanCadenceValue: "3",
+            scanCadenceLabel: "Every 3 days",
+            alertRecipientCount: 2,
+            alertRecipientsText: "ops@store.com, support@store.com",
+            triggerRule: "new_or_rising_risk",
+            triggerRuleLabel: "Notify on new issues or rising risk",
+            summarySchedule: "daily_digest_8am",
+            summaryScheduleLabel: "Daily digest at 8:00 AM",
+            alertsEnabled: true,
+            options: {
+              cadence: [{ value: "3", label: "Every 3 days" }, { value: "7", label: "Weekly" }],
+              triggerRules: [{ value: "new_or_rising_risk", label: "Notify on new issues or rising risk" }],
+              summaries: [{ value: "daily_digest_8am", label: "Daily digest at 8:00 AM" }],
+            },
+          },
           mock: {},
         },
       }}
@@ -179,6 +195,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
     expect(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove Nintendo New 3DS XL from watchlist" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Watch settings" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Save settings")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("ops@store.com, support@store.com")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Disable watch alerts" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add watched product" }));
     expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
     expect(screen.getByText(/add one product to automatic monitoring/i)).toBeInTheDocument();
@@ -376,6 +398,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Deep analysis completed/ })).toBeInTheDocument();
     expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add product to Watchlist" })).toBeInTheDocument();
     expect(screen.getByText("Explore and review the evidence behind each detected issue.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Returns" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Total returns")).toBeInTheDocument();

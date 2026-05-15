@@ -3,6 +3,34 @@ import { getProductScoreHistoryForShop } from "./product-pulse-history.server";
 import { getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 
 export const WATCHLIST_MAX_PRODUCTS = 5;
+export const WATCH_SCAN_CADENCE_OPTIONS = [
+  { value: "1", label: "Every day" },
+  { value: "2", label: "Every 2 days" },
+  { value: "3", label: "Every 3 days" },
+  { value: "7", label: "Weekly" },
+  { value: "14", label: "Every 2 weeks" },
+];
+export const WATCH_TRIGGER_RULE_OPTIONS = [
+  { value: "new_or_rising_risk", label: "Notify on new issues or rising risk" },
+  { value: "new_issue_only", label: "Only new issue detected" },
+  { value: "risk_score_increase", label: "Risk score increases" },
+  { value: "medium_or_high_risk", label: "Medium or high risk detected" },
+  { value: "any_watch_change", label: "Any watched product change" },
+];
+export const WATCH_SUMMARY_OPTIONS = [
+  { value: "daily_digest_8am", label: "Daily digest at 8:00 AM" },
+  { value: "weekly_monday_8am", label: "Weekly summary Monday at 8:00 AM" },
+  { value: "immediate_only", label: "Immediate alerts only" },
+  { value: "none", label: "No summary email" },
+];
+
+const DEFAULT_WATCH_SETTINGS = {
+  scanCadenceDays: 3,
+  alertRecipients: [],
+  triggerRule: "new_or_rising_risk",
+  summarySchedule: "daily_digest_8am",
+  alertsEnabled: true,
+};
 
 export async function getWatchlistForShop(shop) {
   const items = await prisma.productWatchlistItem.findMany({
@@ -19,10 +47,11 @@ export async function getWatchlistForShop(shop) {
   const rows = items.map((item) => formatWatchlistRow(item, snapshotByProductGid.get(item.productGid)));
   const watchedCount = rows.length;
   const firstWatchedProductGid = rows[0]?.productGid || "";
-  const [activities, trendHistory, activityStats] = await Promise.all([
+  const [activities, trendHistory, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
     firstWatchedProductGid ? getProductScoreHistoryForShop(shop, firstWatchedProductGid, { take: 40 }) : [],
     getWatchActivityStatsForShop(shop),
+    getWatchSettingsForShop(shop),
   ]);
 
   return {
@@ -32,7 +61,103 @@ export async function getWatchlistForShop(shop) {
     rows,
     activities,
     trend: buildWatchlistTrend(rows[0], trendHistory),
-    mock: getWatchlistOverviewSections({ rows, activities, activityStats }),
+    settings,
+    mock: getWatchlistOverviewSections({ rows, activities, activityStats, settings }),
+  };
+}
+
+export async function getWatchSettingsForShop(shop) {
+  const settings = await prisma.productWatchSettings.upsert({
+    where: { shop },
+    create: {
+      shop,
+      scanCadenceDays: DEFAULT_WATCH_SETTINGS.scanCadenceDays,
+      alertRecipients: DEFAULT_WATCH_SETTINGS.alertRecipients,
+      triggerRule: DEFAULT_WATCH_SETTINGS.triggerRule,
+      summarySchedule: DEFAULT_WATCH_SETTINGS.summarySchedule,
+      alertsEnabled: DEFAULT_WATCH_SETTINGS.alertsEnabled,
+    },
+    update: {},
+  });
+  return formatWatchSettings(settings);
+}
+
+export async function updateWatchSettingsForShop(shop, formData) {
+  const scanCadenceDays = normalizeCadenceDays(formData.get("scanCadenceDays"));
+  const triggerRule = normalizeOptionValue(formData.get("triggerRule"), WATCH_TRIGGER_RULE_OPTIONS, DEFAULT_WATCH_SETTINGS.triggerRule);
+  const summarySchedule = normalizeOptionValue(formData.get("summarySchedule"), WATCH_SUMMARY_OPTIONS, DEFAULT_WATCH_SETTINGS.summarySchedule);
+  const alertsEnabled = String(formData.get("alertsEnabled") || "") === "on";
+  const recipients = parseAlertRecipients(String(formData.get("alertRecipients") || ""));
+  if (recipients.invalid.length) {
+    return {
+      status: "validation_error",
+      message: `Invalid alert recipient${recipients.invalid.length === 1 ? "" : "s"}: ${recipients.invalid.join(", ")}`,
+    };
+  }
+
+  const settings = await prisma.productWatchSettings.upsert({
+    where: { shop },
+    create: {
+      shop,
+      scanCadenceDays,
+      alertRecipients: recipients.valid,
+      triggerRule,
+      summarySchedule,
+      alertsEnabled,
+    },
+    update: {
+      scanCadenceDays,
+      alertRecipients: recipients.valid,
+      triggerRule,
+      summarySchedule,
+      alertsEnabled,
+    },
+  });
+  await recordWatchActivityForShop(shop, {
+    eventType: "settings_changed",
+    title: "Watch settings updated",
+    detail: `${getCadenceLabel(scanCadenceDays)} · ${getTriggerRuleLabel(triggerRule)}`,
+    metadata: { scanCadenceDays, triggerRule, summarySchedule, alertsEnabled, recipients: recipients.valid.length },
+  });
+
+  return {
+    status: "success",
+    message: "Watch settings updated.",
+    action: { id: "update-watch-settings" },
+    settings: formatWatchSettings(settings),
+  };
+}
+
+export async function toggleWatchAlertsForShop(shop) {
+  const current = await prisma.productWatchSettings.upsert({
+    where: { shop },
+    create: {
+      shop,
+      scanCadenceDays: DEFAULT_WATCH_SETTINGS.scanCadenceDays,
+      alertRecipients: DEFAULT_WATCH_SETTINGS.alertRecipients,
+      triggerRule: DEFAULT_WATCH_SETTINGS.triggerRule,
+      summarySchedule: DEFAULT_WATCH_SETTINGS.summarySchedule,
+      alertsEnabled: DEFAULT_WATCH_SETTINGS.alertsEnabled,
+    },
+    update: {},
+  });
+  const settings = await prisma.productWatchSettings.update({
+    where: { shop },
+    data: { alertsEnabled: !current.alertsEnabled },
+  });
+  await recordWatchActivityForShop(shop, {
+    eventType: "settings_changed",
+    title: settings.alertsEnabled ? "Watch alerts enabled" : "Watch alerts disabled",
+    detail: settings.alertsEnabled ? "Email alerts are active for watched products." : "Email alerts are paused.",
+    metadata: { alertsEnabled: settings.alertsEnabled },
+  });
+
+  return {
+    status: "success",
+    message: settings.alertsEnabled ? "Watch alerts enabled." : "Watch alerts disabled.",
+    action: { id: "toggle-watch-alerts" },
+    settings: formatWatchSettings(settings),
+    suppressBanner: true,
   };
 }
 
@@ -157,6 +282,29 @@ export async function removeWatchedProductForShop(shop, productGid) {
   return { status: "success", message: `${item.productTitle} removed from the watchlist.`, action: { id: "remove-watched-product" }, suppressBanner: true };
 }
 
+export async function pauseAllWatchesForShop(shop) {
+  const activeItems = await prisma.productWatchlistItem.findMany({
+    where: { shop, status: { not: "Paused" } },
+    select: { id: true, productGid: true, productTitle: true },
+  });
+  if (!activeItems.length) {
+    return { status: "success", message: "All watched products are already paused.", action: { id: "pause-all-watches" }, suppressBanner: true };
+  }
+
+  await prisma.productWatchlistItem.updateMany({
+    where: { shop, status: { not: "Paused" } },
+    data: { status: "Paused" },
+  });
+  await recordWatchActivityForShop(shop, {
+    eventType: "all_watches_paused",
+    title: "All watches paused",
+    detail: `${activeItems.length} active product${activeItems.length === 1 ? "" : "s"} paused`,
+    metadata: { pausedProductGids: activeItems.map((item) => item.productGid), count: activeItems.length },
+  });
+
+  return { status: "success", message: `${activeItems.length} watched product${activeItems.length === 1 ? "" : "s"} paused.`, action: { id: "pause-all-watches" }, suppressBanner: true };
+}
+
 export async function getWatchlistActivityForShop(shop, { take = 100 } = {}) {
   const [watchlist, activities] = await Promise.all([
     getWatchlistForShop(shop),
@@ -261,13 +409,13 @@ function formatWatchlistRow(item, snapshot) {
   };
 }
 
-function getWatchlistOverviewSections({ rows = [], activities = [], activityStats = {} } = {}) {
+function getWatchlistOverviewSections({ rows = [], activities = [], activityStats = {}, settings = formatWatchSettings(DEFAULT_WATCH_SETTINGS) } = {}) {
   const latestScanActivity = activityStats.latestScan || activities.find((activity) => ["watch_scan_completed", "diagnosis_completed"].includes(activity.eventType));
   const newIssuesThisWeek = Number(activityStats.newIssuesThisWeek || 0);
   const activeRows = rows.filter((row) => row.status !== "Paused");
 
   return {
-    scanCadence: "Every 3 days",
+    scanCadence: settings.scanCadenceLabel || "Every 3 days",
     scanCadenceDetail: "Automatic rescans",
     lastRun: latestScanActivity?.time || "Not run yet",
     lastRunDetail: activeRows.length ? `${activeRows.length} active product${activeRows.length === 1 ? "" : "s"} watched` : "No active watches",
@@ -275,8 +423,8 @@ function getWatchlistOverviewSections({ rows = [], activities = [], activityStat
     nextRunDetail: "May 21, 9:00 AM",
     newIssues: `${newIssuesThisWeek} this week`,
     newIssuesDetail: newIssuesThisWeek ? "From stored watch activity" : "No new watched issues",
-    alertStatus: "Email alerts on",
-    alertStatusDetail: "2 recipients",
+    alertStatus: settings.alertsEnabled ? "Email alerts on" : "Email alerts off",
+    alertStatusDetail: `${settings.alertRecipientCount} recipient${settings.alertRecipientCount === 1 ? "" : "s"}`,
   };
 }
 
@@ -413,8 +561,10 @@ function getActivityIcon(eventType) {
   if (eventType === "product_removed") return "x";
   if (eventType === "product_paused") return "pause";
   if (eventType === "product_resumed") return "play";
+  if (eventType === "all_watches_paused") return "pause";
   if (eventType === "diagnosis_completed") return "wand";
   if (eventType === "watch_scan_completed") return "refresh";
+  if (eventType === "watch_scan_queued") return "play";
   if (eventType === "settings_changed") return "settings";
   if (eventType === "alert_sent") return "email";
   return "info";
@@ -424,8 +574,10 @@ function getActivityTone(eventType, metadata = {}) {
   if (eventType === "product_removed") return "slate";
   if (eventType === "product_paused") return "purple";
   if (eventType === "product_resumed") return "green";
+  if (eventType === "all_watches_paused") return "purple";
   if (eventType === "product_added") return "blue";
   if (eventType === "diagnosis_completed") return "purple";
+  if (eventType === "watch_scan_queued") return "blue";
   if (eventType === "watch_scan_completed") {
     const riskScore = Number(metadata.riskScore || 0);
     if (riskScore >= 75) return "red";
@@ -433,6 +585,76 @@ function getActivityTone(eventType, metadata = {}) {
     return "green";
   }
   return "blue";
+}
+
+function formatWatchSettings(settings = {}) {
+  const scanCadenceDays = normalizeCadenceDays(settings.scanCadenceDays);
+  const triggerRule = normalizeOptionValue(settings.triggerRule, WATCH_TRIGGER_RULE_OPTIONS, DEFAULT_WATCH_SETTINGS.triggerRule);
+  const summarySchedule = normalizeOptionValue(settings.summarySchedule, WATCH_SUMMARY_OPTIONS, DEFAULT_WATCH_SETTINGS.summarySchedule);
+  const alertRecipients = normalizeRecipientList(settings.alertRecipients);
+  return {
+    scanCadenceDays,
+    scanCadenceValue: String(scanCadenceDays),
+    scanCadenceLabel: getCadenceLabel(scanCadenceDays),
+    alertRecipients,
+    alertRecipientsText: alertRecipients.join(", "),
+    alertRecipientCount: alertRecipients.length,
+    triggerRule,
+    triggerRuleLabel: getTriggerRuleLabel(triggerRule),
+    summarySchedule,
+    summaryScheduleLabel: getSummaryLabel(summarySchedule),
+    alertsEnabled: settings.alertsEnabled !== false,
+    options: {
+      cadence: WATCH_SCAN_CADENCE_OPTIONS,
+      triggerRules: WATCH_TRIGGER_RULE_OPTIONS,
+      summaries: WATCH_SUMMARY_OPTIONS,
+    },
+  };
+}
+
+function normalizeCadenceDays(value) {
+  const number = Number(value || DEFAULT_WATCH_SETTINGS.scanCadenceDays);
+  const optionValues = new Set(WATCH_SCAN_CADENCE_OPTIONS.map((option) => Number(option.value)));
+  return optionValues.has(number) ? number : DEFAULT_WATCH_SETTINGS.scanCadenceDays;
+}
+
+function normalizeOptionValue(value, options, fallback) {
+  const normalized = String(value || "").trim();
+  return options.some((option) => option.value === normalized) ? normalized : fallback;
+}
+
+function normalizeRecipientList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return [];
+}
+
+function parseAlertRecipients(value) {
+  const parts = String(value || "")
+    .split(/[\n,;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const valid = [];
+  const invalid = [];
+  parts.forEach((email) => {
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) valid.push(email);
+    else invalid.push(email);
+  });
+  return {
+    valid: Array.from(new Set(valid)),
+    invalid,
+  };
+}
+
+function getCadenceLabel(days) {
+  return WATCH_SCAN_CADENCE_OPTIONS.find((option) => Number(option.value) === Number(days))?.label || "Every 3 days";
+}
+
+function getTriggerRuleLabel(value) {
+  return WATCH_TRIGGER_RULE_OPTIONS.find((option) => option.value === value)?.label || "Notify on new issues or rising risk";
+}
+
+function getSummaryLabel(value) {
+  return WATCH_SUMMARY_OPTIONS.find((option) => option.value === value)?.label || "Daily digest at 8:00 AM";
 }
 
 function optionalString(value) {

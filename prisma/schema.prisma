@@ -175,6 +175,20 @@ model ProductWatchlistItem {
   @@index([shop, addedAt])
 }
 
+model ProductWatchSettings {
+  id              String   @id @default(cuid())
+  shop            String   @unique
+  scanCadenceDays Int      @default(3)
+  alertRecipients Json?
+  triggerRule     String   @default("new_or_rising_risk")
+  summarySchedule String   @default("daily_digest_8am")
+  alertsEnabled   Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([shop])
+}
+
 model ProductWatchActivity {
   id              String   @id @default(cuid())
   shop            String

@@ -1027,6 +1027,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
   const activities = Array.isArray(watchlist.activities) ? watchlist.activities : [];
   const trend = watchlist.trend || {};
+  const settings = watchlist.settings || {};
   const mock = watchlist.mock || {};
   const maxProducts = Number(watchlist.maxProducts || 5);
   const watchedCount = Number(watchlist.watchedCount ?? rows.length);
@@ -1100,10 +1101,6 @@ export function WatchlistScreen({ data = {}, actionData }) {
               <s-icon type="plus" size="small"></s-icon>
               {pendingAdd ? "Adding..." : "Add watched product"}
             </button>
-            <button className="ppSecondaryButton" type="button">
-              <s-icon type="settings" size="small"></s-icon>
-              Watch settings
-            </button>
           </div>
         </div>
 
@@ -1169,7 +1166,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
         <div className="ppWatchlistBottomGrid">
           <WatchlistActivityPanel activities={activities} />
           <WatchlistTrendPanel trend={trend} />
-          <WatchlistSettingsPanel />
+          <WatchlistSettingsPanel settings={settings} watchedCount={watchedCount} actionData={actionData} />
         </div>
       </ScreenShell>
 
@@ -1409,38 +1406,133 @@ export function WatchlistActivityScreen({ data = {} }) {
   );
 }
 
-function WatchlistSettingsPanel() {
-  const rows = [
-    ["clock", "Scan cadence", "Every 3 days"],
-    ["profile", "Alert recipients", "2 emails"],
-    ["email", "Trigger rule", "Notify on new issues or rising risk"],
-    ["email", "Digest / summary", "Daily digest at 8:00 AM"],
+function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, actionData }) {
+  const navigation = useNavigation();
+  const [editing, setEditing] = useState(false);
+  const pendingAction = navigation.state === "submitting" ? String(navigation.formData?.get("_action") || "") : "";
+  const settingsOptions = settings.options || {};
+  const cadenceOptions = settingsOptions.cadence || [
+    { value: "1", label: "Every day" },
+    { value: "2", label: "Every 2 days" },
+    { value: "3", label: "Every 3 days" },
+    { value: "7", label: "Weekly" },
+    { value: "14", label: "Every 2 weeks" },
   ];
+  const triggerRuleOptions = settingsOptions.triggerRules || [
+    { value: "new_or_rising_risk", label: "Notify on new issues or rising risk" },
+    { value: "new_issue_only", label: "Only new issue detected" },
+    { value: "risk_score_increase", label: "Risk score increases" },
+    { value: "medium_or_high_risk", label: "Medium or high risk detected" },
+    { value: "any_watch_change", label: "Any watched product change" },
+  ];
+  const summaryOptions = settingsOptions.summaries || [
+    { value: "daily_digest_8am", label: "Daily digest at 8:00 AM" },
+    { value: "weekly_monday_8am", label: "Weekly summary Monday at 8:00 AM" },
+    { value: "immediate_only", label: "Immediate alerts only" },
+    { value: "none", label: "No summary email" },
+  ];
+  const rows = [
+    ["clock", "Scan cadence", settings.scanCadenceLabel || "Every 3 days"],
+    ["profile", "Alert recipients", `${settings.alertRecipientCount || 0} recipient${Number(settings.alertRecipientCount || 0) === 1 ? "" : "s"}`],
+    ["email", "Trigger rule", settings.triggerRuleLabel || "Notify on new issues or rising risk"],
+    ["email", "Digest / summary", settings.summaryScheduleLabel || "Daily digest at 8:00 AM"],
+  ];
+
+  useEffect(() => {
+    if (actionData?.status === "success" && actionData?.action?.id === "update-watch-settings") {
+      setEditing(false);
+    }
+  }, [actionData]);
 
   return (
     <section className="ppWatchlistPanel ppWatchSettingsPanel">
       <div className="ppWatchlistPanelHeader">
         <h2>Watch settings</h2>
-        <button type="button">Edit</button>
+        {!editing ? <button type="button" onClick={() => setEditing(true)}>Edit</button> : null}
       </div>
-      <div className="ppWatchSettingsRows">
-        {rows.map(([icon, label, value]) => (
-          <div key={label}>
-            <s-icon type={icon} size="small"></s-icon>
-            <span>{label}</span>
-            <strong>{value}</strong>
+      {editing ? (
+        <Form method="post" className="ppWatchSettingsForm">
+          <input type="hidden" name="_action" value="update-watch-settings" />
+          <label>
+            <span>Scan cadence</span>
+            <select name="scanCadenceDays" defaultValue={settings.scanCadenceValue || "3"}>
+              {cadenceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Alert recipients</span>
+            <textarea name="alertRecipients" rows="3" defaultValue={settings.alertRecipientsText || ""} placeholder="ops@store.com, support@store.com" />
+            <small>Use commas or one email per line.</small>
+          </label>
+          <label>
+            <span>Trigger rule</span>
+            <select name="triggerRule" defaultValue={settings.triggerRule || "new_or_rising_risk"}>
+              {triggerRuleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Summary</span>
+            <select name="summarySchedule" defaultValue={settings.summarySchedule || "daily_digest_8am"}>
+              {summaryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="ppWatchSettingsCheckbox">
+            <input type="checkbox" name="alertsEnabled" defaultChecked={settings.alertsEnabled !== false} />
+            <span>Email alerts enabled</span>
+          </label>
+          <div className="ppWatchSettingsFormActions">
+            <button className="ppSecondaryButton" type="button" onClick={() => setEditing(false)}>Cancel</button>
+            <button className="ppPrimaryButton" type="submit" disabled={pendingAction === "update-watch-settings"}>
+              <s-icon type="save" size="small"></s-icon>
+              {pendingAction === "update-watch-settings" ? "Saving..." : "Save settings"}
+            </button>
           </div>
-        ))}
-        <div>
-          <s-icon type="info" size="small"></s-icon>
-          <span>Alerts</span>
-          <strong>On <span className="ppWatchToggle" aria-hidden="true" /></strong>
-        </div>
-      </div>
-      <div className="ppWatchSettingsActions">
-        <button className="ppSecondaryButton" type="button"><s-icon type="pause" size="small"></s-icon>Pause all watches</button>
-        <button className="ppSecondaryButton ppWatchRunNowButton" type="button"><s-icon type="play" size="small"></s-icon>Run scan now</button>
-      </div>
+        </Form>
+      ) : (
+        <>
+          <div className="ppWatchSettingsRows">
+            {rows.map(([icon, label, value]) => (
+              <div key={label}>
+                <s-icon type={icon} size="small"></s-icon>
+                <span>{label}</span>
+                <strong title={value}>{value}</strong>
+              </div>
+            ))}
+            <div>
+              <s-icon type="info" size="small"></s-icon>
+              <span>Alerts</span>
+              <Form method="post" className="ppWatchInlineForm">
+                <input type="hidden" name="_action" value="toggle-watch-alerts" />
+                <button
+                  className={`ppWatchToggleButton ${settings.alertsEnabled ? "isOn" : "isOff"}`}
+                  type="submit"
+                  aria-label={settings.alertsEnabled ? "Disable watch alerts" : "Enable watch alerts"}
+                  disabled={pendingAction === "toggle-watch-alerts"}
+                >
+                  <span>{settings.alertsEnabled ? "On" : "Off"}</span>
+                  <span className="ppWatchToggle" aria-hidden="true" />
+                </button>
+              </Form>
+            </div>
+          </div>
+          <div className="ppWatchSettingsActions">
+            <Form method="post">
+              <input type="hidden" name="_action" value="pause-all-watches" />
+              <button className="ppSecondaryButton" type="submit" disabled={!watchedCount || pendingAction === "pause-all-watches"}>
+                <s-icon type="pause" size="small"></s-icon>
+                {pendingAction === "pause-all-watches" ? "Pausing..." : "Pause all watches"}
+              </button>
+            </Form>
+            <Form method="post">
+              <input type="hidden" name="_action" value="run-watch-scan" />
+              <button className="ppSecondaryButton ppWatchRunNowButton" type="submit" disabled={!watchedCount || pendingAction === "run-watch-scan"}>
+                <s-icon type="play" size="small"></s-icon>
+                {pendingAction === "run-watch-scan" ? "Queueing..." : "Run scan now"}
+              </button>
+            </Form>
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -2272,7 +2364,11 @@ function getProductDetailModel(product) {
   const mainFinding = sanitizeProductMainFinding(product.mainFinding);
 
   return {
+    productGid: product.productGid || product.id || "",
+    handle: product.handle || product.slug || "",
+    slug: product.slug || product.handle || "",
     title: product.title,
+    sku: product.sku || metrics.sku || "",
     variant: getProductArtVariant(product),
     imageUrl: product.imageUrl,
     imageAlt: product.imageAlt,
@@ -4052,6 +4148,24 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       <s-icon type="external" size="small"></s-icon>
                     </a>
                   )}
+                  <Form method="post" className="ppProductIconForm">
+                    <input type="hidden" name="_action" value="add-to-watchlist" />
+                    <input type="hidden" name="productGid" value={detail.productGid} />
+                    <input type="hidden" name="title" value={detail.title} />
+                    <input type="hidden" name="handle" value={detail.handle} />
+                    <input type="hidden" name="sku" value={detail.sku || ""} />
+                    <input type="hidden" name="imageUrl" value={detail.imageUrl || ""} />
+                    <input type="hidden" name="imageAlt" value={detail.imageAlt || detail.title || ""} />
+                    <button
+                      className="ppProductExternalButton ppProductWatchlistButton"
+                      type="submit"
+                      aria-label="Add product to Watchlist"
+                      title="Add product to Watchlist"
+                      disabled={pendingActionType === "add-to-watchlist" || !detail.productGid}
+                    >
+                      <s-icon type="view" size="small"></s-icon>
+                    </button>
+                  </Form>
                   {detail.diagnosisInProgress ? (
                     <span className="ppProductDiagnosisRunning">
                       <span className="ppMiniSpinner" aria-hidden="true" />
