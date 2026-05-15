@@ -3177,6 +3177,145 @@ s-page[inline-size="large-500"] {
   gap: 10px;
 }
 
+.ppEvidenceScoreTheoryGrid,
+.ppEvidenceScoreGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ppEvidenceScoreTheoryGrid article,
+.ppEvidenceScoreCard {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-mist-gray));
+}
+
+.ppEvidenceScoreTheoryGrid h3,
+.ppEvidenceScoreCard h3 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+}
+
+.ppEvidenceScoreTheoryGrid p,
+.ppEvidenceScoreCard p {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ppEvidenceScoreTheoryGrid code {
+  display: block;
+  padding: 9px 10px;
+  border: 1px solid rgba(58, 107, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(58, 107, 255, 0.07);
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.ppEvidenceScoreCard header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.ppEvidenceScoreCard header > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppEvidenceScoreCard header > strong {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.ppEvidenceScoreRows {
+  display: grid;
+  gap: 8px;
+}
+
+.ppEvidenceScoreRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+}
+
+.ppEvidenceScoreRow > div {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.ppEvidenceScoreRow b {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+}
+
+.ppEvidenceScoreRow small {
+  display: block;
+  margin-top: 2px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ppEvidenceScoreRow > strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ppEvidenceScoreDot {
+  width: 9px;
+  height: 9px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: var(--pp-pulse-blue);
+}
+
+.ppEvidenceScoreDot-red {
+  background: var(--pp-risk-red);
+}
+
+.ppEvidenceScoreDot-amber {
+  background: var(--pp-warning-amber);
+}
+
+.ppEvidenceScoreDot-teal {
+  background: var(--pp-signal-teal);
+}
+
+.ppEvidenceScoreDot-violet {
+  background: var(--pp-insight-violet);
+}
+
+.ppEvidenceScoreFooter {
+  padding-top: 10px;
+  border-top: 1px solid var(--pp-slate-200);
+}
+
 .ppEvidenceReportSectionHeader {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -8913,6 +9052,8 @@ s-page[inline-size="large-500"] {
   .ppEvidencePointList,
   .ppEvidenceMetricGrid,
   .ppEvidenceReportSummary,
+  .ppEvidenceScoreTheoryGrid,
+  .ppEvidenceScoreGrid,
   .ppEvidenceReportTwoColumn,
   .ppEvidenceReportIssue dl,
   .ppCheckedGrid {

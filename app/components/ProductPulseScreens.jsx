@@ -4202,6 +4202,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
   const selectedSourceName = source || "All sources";
   const metricRows = getEvidenceReportMetricRows(product.metrics || {});
   const reportGeneratedAt = product.metrics?.lastDetailedDiagnosisAt || product.lastAnalysis;
+  const scoreModel = getEvidenceReportScoreModel(product, detail);
 
   return (
     <FullWidthPage heading="Full Evidence Report">
@@ -4240,6 +4241,68 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
           <div className="ppEvidenceReportSectionHeader">
             <span>01</span>
             <div>
+              <h2>Score calculation</h2>
+              <p>Mathematical model, persisted components and theoretical rules behind the diagnosis.</p>
+            </div>
+          </div>
+          <div className="ppEvidenceScoreTheoryGrid">
+            <article>
+              <h3>Risk score formula</h3>
+              <p>
+                ProductPulse starts from a small baseline, adds normalized risk families, then clamps the
+                result to 0-100. Returns, refunds, repeated customer language, content quality, recency,
+                variant concentration and source agreement increase risk only when there is enough evidence.
+              </p>
+              <code>risk = clamp(base + signal families + agreement + recency + impact, 0, 100)</code>
+            </article>
+            <article>
+              <h3>Confidence model</h3>
+              <p>
+                Confidence is not risk. It measures how reliable the diagnosis is: sample size, source coverage,
+                product match quality, agreement between sources and recent signal availability raise confidence;
+                missing order access or sparse evidence lowers it.
+              </p>
+              <code>confidence = coverage + sample + match + agreement + recency - penalties</code>
+            </article>
+            <article>
+              <h3>Impact model</h3>
+              <p>
+                Estimated impact is the revenue at risk from observed refund value, projected return/refund loss,
+                review conversion drag and margin exposure. Margin defaults to the stored margin estimate or a
+                conservative percentage of revenue at risk.
+              </p>
+              <code>impact = max(refunds + projection, return exposure + review drag)</code>
+            </article>
+          </div>
+          <div className="ppEvidenceScoreGrid">
+            <EvidenceScoreBreakdownCard
+              title="Risk score calculation"
+              subtitle={scoreModel.riskSubtitle}
+              total={`${detail.riskScore}/100`}
+              rows={scoreModel.riskRows}
+              footer={scoreModel.riskFooter}
+            />
+            <EvidenceScoreBreakdownCard
+              title="Confidence calculation"
+              subtitle="Reliability of the diagnosis, not severity."
+              total={`${detail.confidence}%`}
+              rows={scoreModel.confidenceRows}
+              footer={scoreModel.confidenceFooter}
+            />
+            <EvidenceScoreBreakdownCard
+              title="Estimated impact calculation"
+              subtitle="Stored financial exposure from Shopify and connected evidence."
+              total={formatMoney(detail.estimatedImpact)}
+              rows={scoreModel.impactRows}
+              footer={scoreModel.impactFooter}
+            />
+          </div>
+        </section>
+
+        <section className="ppEvidenceReportSection">
+          <div className="ppEvidenceReportSectionHeader">
+            <span>02</span>
+            <div>
               <h2>Issues detected</h2>
               <p>Every issue currently stored for this product, including confidence, severity, trend and source snippets.</p>
             </div>
@@ -4276,7 +4339,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
 
         <section className="ppEvidenceReportSection">
           <div className="ppEvidenceReportSectionHeader">
-            <span>02</span>
+            <span>03</span>
             <div>
               <h2>Evidence sources</h2>
               <p>All source summaries, compact metrics and every stored evidence point used by the diagnosis.</p>
@@ -4313,7 +4376,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
 
         <section className="ppEvidenceReportSection">
           <div className="ppEvidenceReportSectionHeader">
-            <span>03</span>
+            <span>04</span>
             <div>
               <h2>Raw product metrics</h2>
               <p>Structured metrics currently stored for scoring, confidence, impact and diagnosis generation.</p>
@@ -4341,7 +4404,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
 
         <section className="ppEvidenceReportSection">
           <div className="ppEvidenceReportSectionHeader">
-            <span>04</span>
+            <span>05</span>
             <div>
               <h2>Recommendations and checks</h2>
               <p>Action context and the ProductPulse checks that were available when this report was rendered.</p>
@@ -4374,6 +4437,452 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+function EvidenceScoreBreakdownCard({ title, subtitle, total, rows = [], footer = "" }) {
+  return (
+    <article className="ppEvidenceScoreCard">
+      <header>
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <strong>{total}</strong>
+      </header>
+      <div className="ppEvidenceScoreRows">
+        {rows.map((row) => (
+          <div className="ppEvidenceScoreRow" key={row.key || row.label}>
+            <div>
+              <span className={`ppEvidenceScoreDot ppEvidenceScoreDot-${row.tone || "blue"}`} aria-hidden="true"></span>
+              <div>
+                <b>{row.label}</b>
+                <small>{row.detail}</small>
+              </div>
+            </div>
+            <strong>{row.value}</strong>
+          </div>
+        ))}
+      </div>
+      {footer ? <p className="ppEvidenceScoreFooter">{footer}</p> : null}
+    </article>
+  );
+}
+
+function getEvidenceReportScoreModel(product = {}, detail = {}) {
+  const metrics = product.metrics || {};
+  const riskRows = getEvidenceReportRiskRows(product, detail);
+  const confidenceRows = getEvidenceReportConfidenceRows(product, detail);
+  const impactRows = getEvidenceReportImpactRows(product, detail);
+  const hasPersistedRiskComponents = Boolean(metrics.riskComponents && Object.keys(metrics.riskComponents).length);
+
+  return {
+    riskRows,
+    riskSubtitle: hasPersistedRiskComponents
+      ? "Persisted risk components from the scan or deep diagnosis."
+      : "Reconstructed from stored metrics because this product predates component persistence.",
+    riskFooter: getRiskScoreFooter(metrics, detail, riskRows, hasPersistedRiskComponents),
+    confidenceRows,
+    confidenceFooter: getConfidenceFooter(metrics, detail),
+    impactRows,
+    impactFooter: getImpactFooter(metrics, detail),
+  };
+}
+
+function getEvidenceReportRiskRows(product = {}, detail = {}) {
+  const metrics = product.metrics || {};
+  const persisted = metrics.riskComponents || {};
+  const persistedRows = getPersistedRiskComponentRows(persisted);
+  if (persistedRows.length) return persistedRows;
+
+  const base = Number(detail.riskScore || 0) > 0 ? 8 : 0;
+  const factors = [
+    {
+      key: "returns",
+      label: "Returns anomaly",
+      weight: getReturnRiskWeight(metrics),
+      detail: `${formatInteger(metrics.returnUnits)} returns, ${formatPercent(metrics.returnRate)} return rate vs. ${formatPercent(metrics.storeAvgReturnRate)} store baseline.`,
+      tone: "red",
+    },
+    {
+      key: "refunds",
+      label: "Refund pressure",
+      weight: getRefundRiskWeight(metrics),
+      detail: `${formatInteger(metrics.refundUnits)} refunds, ${formatPercent(metrics.refundRate)} refund rate, ${formatMoney(metrics.refundAmount || 0)} refunded.`,
+      tone: "amber",
+    },
+    {
+      key: "reviews",
+      label: "Review anomaly",
+      weight: getReviewRiskWeight(metrics),
+      detail: `${formatInteger(metrics.negativeReviewCount)} negative reviews from ${formatInteger(metrics.reviewCount || metrics.csvReviewRatingCount)} connected reviews.`,
+      tone: "violet",
+    },
+    {
+      key: "customerLanguage",
+      label: "Customer language and sentiment",
+      weight: getLanguageRiskWeight(metrics),
+      detail: `${formatInteger(metrics.textInsights?.sentiment?.negative)} negative text signals from ${formatInteger(metrics.textInsights?.sentiment?.total)} analyzed customer texts.`,
+      tone: "violet",
+    },
+    {
+      key: "content",
+      label: "Product content quality",
+      weight: getContentRiskWeight(metrics),
+      detail: `${formatInteger(metrics.contentIssueCount)} content issues, content quality ${metrics.contentQualityScore ? `${metrics.contentQualityScore}/100` : "not scored"}.`,
+      tone: "blue",
+    },
+    {
+      key: "supportingSignals",
+      label: "Signal volume, recency and agreement",
+      weight: getSignalSupportRiskWeight(product, metrics),
+      detail: `${formatInteger(metrics.signalCount)} total signals across ${formatInteger(product.sourceCoverage?.length || detail.evidenceSources?.length)} sources.`,
+      tone: "teal",
+    },
+    {
+      key: "variants",
+      label: "Variant concentration",
+      weight: getEvidenceList(metrics.affectedVariants).length ? 5 : 0,
+      detail: `${formatInteger(getEvidenceList(metrics.affectedVariants).length)} affected variants stored.`,
+      tone: "amber",
+    },
+  ].filter((factor) => Number(factor.weight || 0) > 0);
+
+  if (!factors.length) {
+    return [{
+      key: "no-risk",
+      label: "No stored risk components",
+      value: "0 pts",
+      detail: "This product does not have enough stored risk evidence to explain a score.",
+      tone: "blue",
+    }];
+  }
+
+  const allocatable = Math.max(0, Number(detail.riskScore || 0) - base);
+  const totalWeight = factors.reduce((sum, factor) => sum + Number(factor.weight || 0), 0) || 1;
+  const rows = [];
+  if (base) {
+    rows.push({
+      key: "base",
+      label: "Model baseline",
+      value: `${base} pts`,
+      detail: "Small baseline applied when a product has stored risk evidence.",
+      tone: "blue",
+    });
+  }
+
+  let allocated = 0;
+  factors.forEach((factor, index) => {
+    const points = index === factors.length - 1
+      ? Math.max(0, allocatable - allocated)
+      : Math.max(0, Math.round((allocatable * factor.weight) / totalWeight));
+    allocated += points;
+    rows.push({ ...factor, value: `${points} pts` });
+  });
+
+  return rows;
+}
+
+function getPersistedRiskComponentRows(components = {}) {
+  const rows = [
+    riskComponentRow(components.base, "base", "Model baseline", "Small baseline applied before signal families.", "blue"),
+    riskComponentRow(components.returnAnomaly ?? components.returnRate, "returns", "Returns anomaly", "Return rate pressure versus the store or category baseline.", "red"),
+    riskComponentRow(components.refundAnomaly ?? components.refundRate, "refunds", "Refund anomaly", "Refund rate pressure versus the store baseline.", "amber"),
+    riskComponentRow(components.refundImpact ?? components.impact, "refundImpact", "Refund amount impact", "Dollar value and share of refunded revenue.", "amber"),
+    riskComponentRow(components.refundOperationalRisk ?? components.refundPressure, "refundOps", "Refund operations signal", "Refund notes, operational reasons and refund pressure.", "amber"),
+    riskComponentRow(components.reviewAnomaly ?? components.csvRatings, "reviews", "Review anomaly", "Negative review rate, rating pressure and CSV/Judge.me review signals.", "violet"),
+    riskComponentRow(components.signalVolume ?? components.repeatedReasons, "signalVolume", "Repeated signal volume", "Repeated return reasons, customer language or other supported signal clusters.", "teal"),
+    riskComponentRow(components.sourceAgreement, "sourceAgreement", "Source agreement", "Multiple independent sources point to the same product issue.", "teal"),
+    riskComponentRow(components.recency ?? components.recentSpike, "recency", "Recency pressure", "Recent evidence is stronger than older evidence.", "blue"),
+    riskComponentRow(components.variantConcentration, "variants", "Variant concentration", "Signals cluster on affected variants, options or SKUs.", "amber"),
+    riskComponentRow(components.volumeWeight ?? components.volumeSupport, "volume", "Product volume support", "Higher product volume makes the observed signal more stable.", "blue"),
+    riskComponentRow(components.contentRisk, "content", "Product content quality", "Description, title, tag, collection and PDP clarity signals.", "violet"),
+    riskComponentRow(components.textSentimentRisk, "sentiment", "AI language and sentiment", "AI-classified return notes, review text, emotions and repeated phrasing.", "violet"),
+  ].filter(Boolean);
+
+  return rows.length ? rows : Object.entries(components)
+    .filter(([key, value]) => !["rawScore", "calculated", "riskScore", "final"].includes(key) && Number(value || 0) !== 0)
+    .map(([key, value]) => riskComponentRow(value, key, startCase(key), "Persisted scoring component.", "blue"))
+    .filter(Boolean);
+}
+
+function riskComponentRow(value, key, label, detail, tone) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric === 0) return null;
+  return {
+    key,
+    label,
+    value: `${formatScorePoints(numeric)} pts`,
+    detail,
+    tone,
+  };
+}
+
+function getEvidenceReportConfidenceRows(product = {}, detail = {}) {
+  const metrics = product.metrics || {};
+  const factors = metrics.confidenceFactors || {};
+  if (Object.keys(factors).length) {
+    const rows = [
+      confidenceRow(factors.coverageScore, "coverage", "Source coverage", "Signals available from Shopify products, orders, returns, refunds and connected review sources.", "blue"),
+      confidenceRow(factors.sampleScore ?? factors.sample, "sample", "Sample size", "More sold units, customer signals and review rows make the diagnosis more reliable.", "teal"),
+      confidenceRow(factors.consistencyScore ?? factors.agreement, "agreement", "Source consistency", "Multiple sources agree on the same issue or pressure.", "violet"),
+      confidenceRow(factors.matchScore ?? factors.match, "match", "Product match quality", "Connected reviews matched this Shopify product by product ID, handle, title or SKU.", "blue"),
+      confidenceRow(factors.recencyScore ?? factors.recency, "recency", "Recent evidence", "Recent signals make the diagnosis easier to trust.", "teal"),
+      confidenceRow(factors.lowSamplePenalty ? -Number(factors.lowSamplePenalty) : factors.penalty ? -Number(factors.penalty) : 0, "penalty", "Sparse data penalty", "Applied when samples are small, sources are missing or order access is partial.", "red"),
+      confidenceRow(factors.maxConfidence, "cap", "Confidence cap", "Maximum confidence allowed for the available source coverage.", "amber"),
+    ].filter(Boolean);
+    if (rows.length) return rows;
+  }
+
+  return [
+    {
+      key: "sourceCoverage",
+      label: "Source coverage",
+      value: `${formatInteger(product.sourceCoverage?.length || detail.evidenceSources?.length)} sources`,
+      detail: `${getEvidenceList(product.sourceCoverage).join(", ") || "No source coverage stored"}.`,
+      tone: "blue",
+    },
+    {
+      key: "sampleSize",
+      label: "Sample size",
+      value: `${formatInteger(metrics.signalCount)} signals`,
+      detail: `${formatInteger(metrics.soldUnits)} sold units, ${formatInteger(metrics.returnUnits)} returns, ${formatInteger(metrics.refundUnits)} refunds, ${formatInteger(metrics.negativeReviewCount)} negative reviews.`,
+      tone: "teal",
+    },
+    {
+      key: "agreement",
+      label: "Agreement",
+      value: getConfidenceAgreementLabel(metrics),
+      detail: "Confidence rises when returns, refunds, reviews, customer language and content analysis point to the same issue.",
+      tone: "violet",
+    },
+    {
+      key: "final",
+      label: "Final persisted confidence",
+      value: `${detail.confidence}%`,
+      detail: "Stored confidence after sparse-signal caps, subjective-signal caps and source penalties.",
+      tone: "blue",
+    },
+  ];
+}
+
+function confidenceRow(value, key, label, detail, tone) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric === 0) return null;
+  return {
+    key,
+    label,
+    value: key === "cap" ? `${formatScorePoints(numeric)} max` : `${numeric > 0 ? "+" : ""}${formatScorePoints(numeric)}`,
+    detail,
+    tone,
+  };
+}
+
+function getEvidenceReportImpactRows(product = {}, detail = {}) {
+  const metrics = product.metrics || {};
+  const impact = metrics.impactFactors || metrics.estimatedImpactFactors || {};
+  const avgUnitRevenue = Number(metrics.avgUnitRevenue || 0);
+  const rows = [
+    {
+      key: "refundValue",
+      label: "Observed refunded value",
+      value: formatMoney(impact.refundValueAtRisk ?? metrics.refundAmount ?? 0),
+      detail: `${formatInteger(metrics.refundUnits)} refunded units in the available order window.`,
+      tone: "red",
+    },
+    {
+      key: "returnExposure",
+      label: "Return exposure",
+      value: formatMoney(impact.projectedFutureReturnLoss ?? getReturnExposureValue(metrics)),
+      detail: `${formatPercent(metrics.returnRate)} return rate over ${formatInteger(metrics.soldUnits)} sold units.`,
+      tone: "amber",
+    },
+    {
+      key: "projectedRefundLoss",
+      label: "Projected refund loss",
+      value: formatMoney(impact.projectedFutureRefundLoss ?? getProjectedRefundLoss(metrics)),
+      detail: `${formatInteger(metrics.windowDays || 60)} day window annualized to a short forward-looking estimate.`,
+      tone: "amber",
+    },
+    {
+      key: "reviewDrag",
+      label: "Review conversion drag",
+      value: formatMoney(impact.reviewConversionDrag ?? getReviewDragValue(metrics)),
+      detail: `${formatInteger(metrics.negativeReviewCount)} negative reviews can reduce conversion, especially when recent.`,
+      tone: "violet",
+    },
+    {
+      key: "margin",
+      label: "Estimated margin at risk",
+      value: formatMoney(detail.marginAtRisk),
+      detail: avgUnitRevenue ? `${formatMoney(avgUnitRevenue)} average unit revenue used where available.` : "Uses stored margin at risk or a conservative share of revenue at risk.",
+      tone: "teal",
+    },
+  ];
+
+  return rows.filter((row) => row.value !== formatMoney(0) || row.key === "margin");
+}
+
+function getRiskScoreFooter(metrics = {}, detail = {}, riskRows = [], hasPersistedRiskComponents = false) {
+  const components = metrics.riskComponents || {};
+  const rawScore = components.rawScore ?? components.calculated ?? components.rawRisk;
+  const componentTotal = riskRows.reduce((sum, row) => sum + Number(String(row.value || "").replace(/[^0-9.-]/g, "") || 0), 0);
+  if (hasPersistedRiskComponents && Number.isFinite(Number(rawScore))) {
+    return `Raw component sum: ${formatScorePoints(rawScore)} points. Final persisted risk score: ${detail.riskScore}/100 after caps, sample support and 0-100 clamping.`;
+  }
+  if (hasPersistedRiskComponents && componentTotal > 0) {
+    return `Persisted component total: ${formatScorePoints(componentTotal)} risk units. Final persisted risk score: ${detail.riskScore}/100 after normalization, caps and sample support.`;
+  }
+  if (componentTotal > 0) {
+    return `Reconstructed rows sum to ${formatScorePoints(componentTotal)} points, matching the persisted ${detail.riskScore}/100 risk score from stored metrics.`;
+  }
+  return "No score components are available yet. Run QuickScan or a full product diagnosis to persist scoring evidence.";
+}
+
+function getConfidenceFooter(metrics = {}, detail = {}) {
+  const factors = metrics.confidenceFactors || {};
+  if (Object.keys(factors).length) {
+    const maxConfidence = factors.maxConfidence ? ` The model capped confidence at ${formatScorePoints(factors.maxConfidence)} for the available coverage.` : "";
+    return `Final persisted confidence: ${detail.confidence}%.${maxConfidence}`;
+  }
+  return `Final persisted confidence: ${detail.confidence}%. Confidence is capped down when evidence is sparse, subjective or available from only one weak source.`;
+}
+
+function getImpactFooter(metrics = {}, detail = {}) {
+  const revenue = getEstimatedRevenueValue(metrics);
+  const margin = getEstimatedMarginValue(metrics);
+  return `Final persisted estimated impact: ${formatMoney(detail.estimatedImpact)}. Revenue at risk is ${formatMoney(revenue)} and estimated margin at risk is ${formatMoney(margin)}.`;
+}
+
+function getReturnRiskWeight(metrics = {}) {
+  const returnRate = Number(metrics.returnRate || 0);
+  const storeAvgReturnRate = Number(metrics.storeAvgReturnRate || 0);
+  const anomaly = storeAvgReturnRate > 0
+    ? Math.max(0, Math.min(25, ((returnRate / storeAvgReturnRate) - 1) * 14))
+    : Math.min(22, returnRate * 1.2);
+  return anomaly * getReportSampleSupport(metrics.returnUnits);
+}
+
+function getRefundRiskWeight(metrics = {}) {
+  const refundRate = Number(metrics.refundRate || 0);
+  const storeAvgRefundRate = Number(metrics.storeAvgRefundRate || 0);
+  const anomaly = storeAvgRefundRate > 0
+    ? Math.max(0, Math.min(20, ((refundRate / storeAvgRefundRate) - 1) * 11))
+    : Math.min(18, refundRate);
+  const impact = Math.min(15, Math.log10(Number(metrics.refundAmount || 0) + 1) * 4);
+  const pressure = Number(metrics.refundPressure?.highPressure || metrics.refundInsights?.highPressure) ? 10 : Math.min(8, refundRate * 0.3);
+  return (anomaly + impact + pressure) * getReportRefundSupport(metrics);
+}
+
+function getReviewRiskWeight(metrics = {}) {
+  const reviewCount = Number(metrics.reviewCount || metrics.csvReviewRatingCount || 0);
+  const negativeReviewCount = Number(metrics.negativeReviewCount || metrics.csvLowRatingCount || 0);
+  if (!reviewCount || !negativeReviewCount) return 0;
+  const ratePressure = Number(metrics.negativeReviewRate || metrics.csvNegativeRatingRate || 0) * 0.18;
+  const ratingPressure = Math.max(0, 4 - Number(metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating || 0)) * 2.5;
+  const sampleSupport = negativeReviewCount <= 1 ? 0.18 : negativeReviewCount === 2 ? 0.32 : negativeReviewCount <= 4 ? 0.58 : 1;
+  return Math.min(20, ratePressure + ratingPressure) * sampleSupport;
+}
+
+function getLanguageRiskWeight(metrics = {}) {
+  const sentiment = metrics.textInsights?.sentiment || {};
+  const total = Number(sentiment.total || 0);
+  if (!total) return 0;
+  const negative = Number(sentiment.negative || 0);
+  const subjective = Number(metrics.textInsights?.subjectiveNegativity?.count || 0);
+  const ratio = Number(metrics.textInsights?.subjectiveNegativity?.ratio || 0);
+  const objective = Math.max(0, negative - subjective);
+  const objectiveRisk = Math.min(8, (objective / total) * 10) * getReportSampleSupport(objective);
+  const subjectiveRisk = subjective <= 1
+    ? Math.min(1.5, ratio * 1.5)
+    : Math.min(8, 1.8 + ratio * 5 + Math.log2(subjective + 1) * 0.7);
+  return Math.min(8, objectiveRisk + subjectiveRisk);
+}
+
+function getContentRiskWeight(metrics = {}) {
+  const storedRisk = Number(metrics.contentQualityRisk || 0);
+  if (storedRisk > 0) return Math.min(16, storedRisk);
+  const issueCount = Number(metrics.contentIssueCount || 0);
+  return issueCount ? Math.min(16, issueCount * 4) : 0;
+}
+
+function getSignalSupportRiskWeight(product = {}, metrics = {}) {
+  const signalCount = Number(metrics.signalCount || 0);
+  const sourceCount = Number(product.sourceCoverage?.length || 0);
+  const recentSignals = Number(metrics.recentSignalUnits || 0);
+  const signalVolume = Math.min(12, Math.sqrt(signalCount) * 2.6);
+  const sourceAgreement = sourceCount > 1 ? Math.min(9, sourceCount * 2.25) : 0;
+  const recency = signalCount ? Math.min(9, (recentSignals / Math.max(signalCount, 1)) * 15) : 0;
+  return signalVolume + sourceAgreement + recency;
+}
+
+function getReportSampleSupport(count) {
+  const signalCount = Number(count || 0);
+  if (signalCount <= 0) return 0;
+  if (signalCount === 1) return 0.28;
+  if (signalCount === 2) return 0.58;
+  if (signalCount === 3) return 0.74;
+  if (signalCount === 4) return 0.86;
+  return 1;
+}
+
+function getReportRefundSupport(metrics = {}) {
+  const refundUnits = Number(metrics.refundUnits || 0);
+  if (!refundUnits) return 0;
+  if (Number(metrics.soldUnits || 0) > 10 && Number(metrics.refundRate || 0) > 20) return 1;
+  if (refundUnits <= 2) return getReportSampleSupport(refundUnits) * 0.45;
+  return 0.85;
+}
+
+function getConfidenceAgreementLabel(metrics = {}) {
+  const agreeingSources = [
+    Number(metrics.returnUnits || 0) > 0,
+    Number(metrics.refundUnits || 0) > 0,
+    Number(metrics.negativeReviewCount || metrics.csvLowRatingCount || 0) > 0,
+    Number(metrics.textInsights?.sentiment?.negative || 0) > 0,
+    Number(metrics.contentIssueCount || 0) > 0,
+  ].filter(Boolean).length;
+  if (agreeingSources >= 3) return "Strong";
+  if (agreeingSources === 2) return "Moderate";
+  if (agreeingSources === 1) return "Single source";
+  return "No agreement";
+}
+
+function getReturnExposureValue(metrics = {}) {
+  const salesAmount = Number(metrics.salesAmount || 0);
+  const returnRate = Number(metrics.returnRate || 0) / 100;
+  const avgUnitRevenue = Number(metrics.avgUnitRevenue || 0);
+  const returnUnits = Number(metrics.returnUnits || 0);
+  if (salesAmount > 0 && returnRate > 0) return salesAmount * returnRate;
+  if (avgUnitRevenue > 0 && returnUnits > 0) return avgUnitRevenue * returnUnits;
+  return 0;
+}
+
+function getProjectedRefundLoss(metrics = {}) {
+  const refundAmount = Number(metrics.refundAmount || 0);
+  const windowDays = Number(metrics.windowDays || 60);
+  return windowDays > 0 ? (refundAmount / windowDays) * 30 : 0;
+}
+
+function getReviewDragValue(metrics = {}) {
+  const salesAmount = Number(metrics.salesAmount || metrics.revenueAtRisk || 0);
+  const negativeRate = Number(metrics.negativeReviewRate || metrics.csvNegativeRatingRate || 0) / 100;
+  return salesAmount > 0 && negativeRate > 0 ? salesAmount * Math.min(0.18, negativeRate * 0.35) : 0;
+}
+
+function formatScorePoints(value) {
+  const numeric = Number(value || 0);
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: Math.abs(numeric) < 10 && numeric % 1 !== 0 ? 1 : 0,
+  }).format(numeric);
+}
+
+function startCase(value) {
+  return String(value || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getEvidenceSourcePanelTitle(source) {

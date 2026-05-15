@@ -1212,32 +1212,31 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     customerIssueSignalTotal,
   );
   const signalCount = customerSignalCount + deterministicContent.issues.length;
-  const riskScore = calculateRiskScore({
-    snapshot,
-    metrics: {
-      soldUnits,
-      returnUnits,
-      refundUnits,
-      refundAmount,
-      returnRate,
-      refundRate,
-      reviewCount,
-      avgRating,
-      negativeReviewCount,
-      negativeReviewRate,
-      recentNegativeReviewCount,
-      signalCount,
-      customerSignalCount,
-      contentIssueCount: deterministicContent.issues.length,
-      contentQualityRisk: deterministicContent.riskLift,
-      textInsights,
-      refundInsights,
-      sourceCoverage,
-      signalEvents,
-      affectedVariants,
-      reviewSourceStats,
-    },
-  });
+  const scoringMetrics = {
+    soldUnits,
+    returnUnits,
+    refundUnits,
+    refundAmount,
+    returnRate,
+    refundRate,
+    reviewCount,
+    avgRating,
+    negativeReviewCount,
+    negativeReviewRate,
+    recentNegativeReviewCount,
+    signalCount,
+    customerSignalCount,
+    contentIssueCount: deterministicContent.issues.length,
+    contentQualityRisk: deterministicContent.riskLift,
+    textInsights,
+    refundInsights,
+    sourceCoverage,
+    signalEvents,
+    affectedVariants,
+    reviewSourceStats,
+  };
+  const riskComponents = calculateRiskScoreBreakdown({ snapshot, metrics: scoringMetrics });
+  const riskScore = riskComponents.riskScore;
   const confidence = calculateConfidence({
     signalCount,
     sourceCoverage,
@@ -1284,6 +1283,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       contentAdvisoryCount: deterministicContent.advisories.length,
       contentQualityScore: deterministicContent.score,
       contentQualityRisk: deterministicContent.riskLift,
+      riskComponents,
       contentIssues: deterministicContent.issues,
       contentAdvisories: deterministicContent.advisories,
       faqNeed,
@@ -1294,6 +1294,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       revenueAtRisk: estimatedImpact.revenueAtRisk,
       marginAtRisk: estimatedImpact.marginAtRisk,
       estimatedImpact: estimatedImpact.revenueAtRisk,
+      impactFactors: estimatedImpact,
       signalCount,
       salesAmount,
       avgUnitRevenue: estimatedImpact.avgUnitRevenue,
@@ -4385,6 +4386,10 @@ function meaningfulTokens(value) {
 }
 
 function calculateRiskScore({ snapshot, metrics }) {
+  return calculateRiskScoreBreakdown({ snapshot, metrics }).riskScore;
+}
+
+function calculateRiskScoreBreakdown({ snapshot, metrics }) {
   const storeAvgReturnRate = Number(snapshot.metrics?.storeAvgReturnRate || 0);
   const storeAvgRefundRate = Number(snapshot.metrics?.storeAvgRefundRate || 0);
   const returnSampleSupport = getHardSignalSampleSupport(metrics.returnUnits);
@@ -4413,10 +4418,49 @@ function calculateRiskScore({ snapshot, metrics }) {
   const contentRisk = Math.min(16, Number(metrics.contentQualityRisk || 0));
   const textSentimentRisk = calculateTextSentimentRisk(metrics.textInsights);
   const refundOperationalRisk = Math.min(10, Number(metrics.refundInsights?.riskLift || 0));
-  const calculated = Math.round(8 + returnAnomaly + refundAnomaly + refundImpact + refundOperationalRisk + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk + textSentimentRisk);
+  const rawScore = 8 + returnAnomaly + refundAnomaly + refundImpact + refundOperationalRisk + reviewAnomaly + signalVolume + sourceAgreement + recency + variantConcentration + volumeWeight + contentRisk + textSentimentRisk;
+  const calculated = Math.round(rawScore);
 
-  if (!metrics.signalCount && !metrics.contentIssueCount && Number(snapshot.riskScore || 0) > 0) return Number(snapshot.riskScore);
-  return clamp(calculated, 0, 100);
+  if (!metrics.signalCount && !metrics.contentIssueCount && Number(snapshot.riskScore || 0) > 0) {
+    return {
+      base: 0,
+      returnAnomaly: 0,
+      refundAnomaly: 0,
+      refundImpact: 0,
+      refundOperationalRisk: 0,
+      reviewAnomaly: 0,
+      signalVolume: 0,
+      sourceAgreement: 0,
+      recency: 0,
+      variantConcentration: 0,
+      volumeWeight: 0,
+      contentRisk: 0,
+      textSentimentRisk: 0,
+      rawScore: Number(snapshot.riskScore),
+      calculated: Number(snapshot.riskScore),
+      riskScore: Number(snapshot.riskScore),
+      recovery: "snapshot-fallback",
+    };
+  }
+
+  return {
+    base: 8,
+    returnAnomaly: roundRate(returnAnomaly, 2),
+    refundAnomaly: roundRate(refundAnomaly, 2),
+    refundImpact: roundRate(refundImpact, 2),
+    refundOperationalRisk: roundRate(refundOperationalRisk, 2),
+    reviewAnomaly: roundRate(reviewAnomaly, 2),
+    signalVolume: roundRate(signalVolume, 2),
+    sourceAgreement: roundRate(sourceAgreement, 2),
+    recency: roundRate(recency, 2),
+    variantConcentration: roundRate(variantConcentration, 2),
+    volumeWeight: roundRate(volumeWeight, 2),
+    contentRisk: roundRate(contentRisk, 2),
+    textSentimentRisk: roundRate(textSentimentRisk, 2),
+    rawScore: roundRate(rawScore, 2),
+    calculated,
+    riskScore: clamp(calculated, 0, 100),
+  };
 }
 
 function calculateTextSentimentRisk(textInsights) {
@@ -5083,6 +5127,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildRefundOperationalInsights,
   calculateConfidence,
   calculateRiskScore,
+  calculateRiskScoreBreakdown,
   buildSignalRelevanceGuidance,
   buildFinalIssues,
   buildFinalRecommendations,

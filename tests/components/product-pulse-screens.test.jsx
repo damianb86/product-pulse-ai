@@ -447,6 +447,11 @@ describe("ProductPulse screens", () => {
 
     renderWithRouter(<ProductEvidenceReportScreen product={product} source="Customer language analysis" />);
     expect(screen.getByText("Full Evidence Report")).toBeInTheDocument();
+    expect(screen.getByText("Score calculation")).toBeInTheDocument();
+    expect(screen.getByText("Risk score formula")).toBeInTheDocument();
+    expect(screen.getByText("Risk score calculation")).toBeInTheDocument();
+    expect(screen.getByText("Confidence calculation")).toBeInTheDocument();
+    expect(screen.getByText("Estimated impact calculation")).toBeInTheDocument();
     expect(screen.getByText("Issues detected")).toBeInTheDocument();
     expect(screen.getByText("Evidence sources")).toBeInTheDocument();
     expect(screen.getByText("Raw product metrics")).toBeInTheDocument();
