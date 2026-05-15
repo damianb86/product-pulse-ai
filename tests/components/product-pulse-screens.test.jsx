@@ -323,6 +323,63 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
   });
 
+  it("persists ignored issues and hides related recommendations", async () => {
+    let submittedAction = null;
+    let submittedIssueKey = null;
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      submittedAction = String(formData.get("_action") || "");
+      submittedIssueKey = String(formData.get("issueKey") || "");
+      return {
+        status: "success",
+        message: "Issue ignored.",
+        action: {
+          id: "ignore-issue",
+          payload: {
+            issue: String(formData.get("issue") || ""),
+            issueKey: submittedIssueKey,
+          },
+        },
+      };
+    });
+
+    renderWithAction(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />, action);
+    expect(screen.getByRole("heading", { name: "Add fit note" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ignore Fit runs small around waist and inseam" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(submittedAction).toBe("ignore-issue");
+    expect(submittedIssueKey).toBe("fit-runs-small-around-waist-and-inseam");
+    await waitFor(() => expect(screen.getByText("Ignored")).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
+    expect(screen.getByText(/hidden because related issues are ignored/)).toBeInTheDocument();
+  });
+
+  it("loads persisted ignored issues from product action history", () => {
+    renderWithRouter(<ProductDiagnosisScreen
+      data={defaultView}
+      product={{
+        ...defaultView.startHere,
+        actionHistory: [{
+          id: "ignored-fit",
+          actionId: "ignore-issue",
+          label: "Ignore issue: Fit runs small around waist and inseam",
+          status: "ignored",
+          payload: {
+            issue: "Fit runs small around waist and inseam",
+            issueKey: "fit-runs-small-around-waist-and-inseam",
+          },
+          appliedAt: "2026-05-14T10:00:00.000Z",
+        }],
+      }}
+    />);
+
+    expect(screen.getByText("Ignored")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
+    expect(screen.getByText(/1 ignored issue/)).toBeInTheDocument();
+  });
+
   it("renders content issue reasons without object placeholders", () => {
     const product = {
       ...defaultView.startHere,

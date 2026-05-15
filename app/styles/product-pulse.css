@@ -3473,6 +3473,23 @@ s-page[inline-size="large-500"] {
   white-space: pre-wrap;
 }
 
+.ppEvidenceIgnoredNotice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 11px;
+  border: 1px solid rgba(var(--pp-warning-amber-rgb), 0.24);
+  border-radius: 8px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.08);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ppEvidenceIgnoredNotice s-icon {
+  color: var(--pp-warning-amber);
+}
+
 .ppIssuesTableWrap {
   position: relative;
   overflow: visible;

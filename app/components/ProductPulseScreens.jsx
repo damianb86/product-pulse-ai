@@ -1794,11 +1794,12 @@ function getProductDetailModel(product) {
   const analysisStatus = getProductAnalysisDisplay(product);
   const hasFullDiagnosis = analysisStatus.depth === "full";
   const activeDiagnosisJob = getActiveProductDiagnosisFromProduct(product);
+  const ignoredIssues = getIgnoredIssueRecords(product);
   const issueText = product.primaryIssue || "";
   const issueCategory = getProductIssueCategory(issueText);
-  const firstAction = product.recommendedActions?.[0];
   const detectedIssueRows = getProductDetectedIssues(product, issueCategory, hasRiskSnapshot);
   const recommendedActions = hasFullDiagnosis ? getProductRecommendedActions(product) : [];
+  const firstAction = recommendedActions[0];
   const evidenceSources = getProductEvidenceSources(product);
   const checkedItems = getProductCheckedItems(product);
   const mainFinding = sanitizeProductMainFinding(product.mainFinding);
@@ -1843,7 +1844,7 @@ function getProductDetailModel(product) {
     mainFindingDetail: mainFinding?.detail || (issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
       : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`),
-    recommendedFix: hasFullDiagnosis ? (firstAction?.label || "No deterministic action yet") : "Run full product diagnosis",
+    recommendedFix: hasFullDiagnosis ? (firstAction?.label || firstAction?.title || "No deterministic action yet") : "Run full product diagnosis",
     recommendedFixDetail: hasFullDiagnosis
       ? (firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.")
       : "Recommended actions are intentionally locked until this product has a completed deep diagnosis.",
@@ -1852,6 +1853,7 @@ function getProductDetailModel(product) {
     recommendedActions,
     checkedItems,
     actionHistory: product.actionHistory || [],
+    ignoredIssues,
     resolvedAt: product.resolvedAt || null,
     canDiagnose: product.canDiagnose !== false && hasRiskSnapshot && !activeDiagnosisJob,
     canResolve: product.canResolve !== false && hasRiskSnapshot && hasFullDiagnosis,
@@ -2278,7 +2280,9 @@ function getIssueIcon(issue) {
 function getProductRecommendedActions(product) {
   const actionHistory = Array.isArray(product.actionHistory) ? product.actionHistory : [];
   if (!product.recommendedActions?.length) return [];
-  const normalizedActions = consolidateReviewRecommendedActions(product.recommendedActions);
+  const ignoredIssues = getIgnoredIssueRecords(product);
+  const filteredActions = product.recommendedActions.filter((action) => !isRecommendedActionRelatedToIgnoredIssues(action, ignoredIssues, product));
+  const normalizedActions = consolidateReviewRecommendedActions(filteredActions);
 
   return normalizedActions.map((action, index) => ({
     id: action.id,
@@ -2301,6 +2305,131 @@ function getProductRecommendedActions(product) {
     appliedRecord: actionHistory.find((record) => record.actionId === action.id),
     submit: getRecommendedActionMode(action, index) === "submit",
   }));
+}
+
+function getIgnoredIssueRecords(product = {}) {
+  const actionHistory = Array.isArray(product.actionHistory) ? product.actionHistory : [];
+  return actionHistory
+    .filter((record) => isIgnoredIssueRecord(record))
+    .map((record) => {
+      const payload = record.payload || {};
+      const issue = String(payload.issue || record.label || "").replace(/^Ignore issue:\s*/i, "").trim();
+      const issueCode = String(payload.issueCode || "").trim();
+      const issueKey = normalizeIssueIgnoreKey(payload.issueKey || issueCode || issue);
+      return {
+        id: record.id || issueKey,
+        issue,
+        issueCode,
+        issueKey,
+        suggestedAction: payload.suggestedAction || "",
+        createdAt: record.appliedAt || record.createdAt || payload.ignoredAt || "",
+      };
+    })
+    .filter((record) => record.issueKey);
+}
+
+function isIgnoredIssueRecord(record = {}) {
+  return record.actionId === "ignore-issue" && (record.status === "ignored" || record.status === "applied");
+}
+
+function normalizeIssueIgnoreKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
+}
+
+function buildIssueIgnorePayload(issue = {}) {
+  const issueName = String(issue.issue || issue.label || "").trim();
+  const issueCode = String(issue.issueCode || "").trim();
+  const issueKey = normalizeIssueIgnoreKey(issueCode || issueName);
+  return {
+    issue: issueName,
+    issueCode,
+    issueKey,
+    suggestedAction: String(issue.action || "").trim(),
+  };
+}
+
+function isIssueIgnored(issue = {}, ignoredIssueKeys = new Set()) {
+  const payload = buildIssueIgnorePayload(issue);
+  return ignoredIssueKeys.has(payload.issueKey) || ignoredIssueKeys.has(normalizeIssueIgnoreKey(payload.issue));
+}
+
+function isRecommendedActionRelatedToIgnoredIssues(action = {}, ignoredIssues = [], product = {}) {
+  return ignoredIssues.some((issue) => isRecommendedActionRelatedToIssue(action, issue, product));
+}
+
+function isRecommendedActionRelatedToIssue(action = {}, issue = {}, product = {}) {
+  const actionText = normalizeActionMatchText([
+    action.id,
+    action.label,
+    action.title,
+    action.type,
+    action.status,
+    action.payload,
+  ]);
+  const issueText = normalizeActionMatchText([issue.issue, issue.issueCode, issue.suggestedAction]);
+  const issueKey = normalizeIssueIgnoreKey(issue.issueKey || issue.issueCode || issue.issue);
+  const issueFamily = getIgnoredIssueFamily(issueText);
+  const actionFamily = getRecommendedActionFamily(action, product);
+
+  if (issueKey && actionText.includes(issueKey)) return true;
+  if (issueText && actionText.includes(issueText) && issueText.length >= 8) return true;
+  if (issue.suggestedAction && normalizeActionMatchText(action.label || action.title).includes(normalizeActionMatchText(issue.suggestedAction))) return true;
+  if (issueFamily && actionFamily === issueFamily) return true;
+
+  if (issueFamily === "reviews" && ["reviews", "customer-language"].includes(actionFamily)) return true;
+  if (issueFamily === "customer-language" && ["reviews", "customer-language"].includes(actionFamily)) return true;
+  if (issueFamily === "returns" && ["returns", "customer-language"].includes(actionFamily)) return true;
+
+  const productIssueKey = normalizeIssueIgnoreKey(product.primaryIssue || "");
+  if (productIssueKey && issueKey === productIssueKey && isPrimaryIssueRecommendedAction(action)) return true;
+
+  return false;
+}
+
+function normalizeActionMatchText(value) {
+  const text = Array.isArray(value)
+    ? value.map((item) => normalizeActionMatchText(item)).join(" ")
+    : typeof value === "object" && value !== null
+      ? JSON.stringify(value)
+      : String(value || "");
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getIgnoredIssueFamily(issueText = "") {
+  const normalized = normalizeActionMatchText(issueText);
+  if (/\b(return|returns|returned|returning)\b/.test(normalized)) return "returns";
+  if (/\b(refund|refunds|refunded)\b/.test(normalized)) return "refunds";
+  if (/\b(review|reviews|judge|rating|ratings|stars?)\b/.test(normalized)) return "reviews";
+  if (/\b(sentiment|language|emotion|fear|scare|scary|safety|unsafe|customer text)\b/.test(normalized)) return "customer-language";
+  if (/\b(variant|variants|sku|size|color|option)\b/.test(normalized)) return "variants";
+  if (/\b(content|description|title|tag|tags|collection|pdp|faq)\b/.test(normalized)) return "content";
+  return "";
+}
+
+function getRecommendedActionFamily(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const normalized = normalizeActionMatchText([action.id, action.label, action.title, action.type, payload]);
+  if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) return "reviews";
+  if (Array.isArray(payload.topReturnReasons) || /\breturn/.test(normalized)) return "returns";
+  if (Number(payload.refundUnits || 0) > 0 || Number(payload.refundAmount || 0) > 0 || /\brefund/.test(normalized)) return "refunds";
+  if (Number(payload.negativeReviewCount || 0) > 0 || /\b(review|judge|rating)\b/.test(normalized)) return "reviews";
+  if (Array.isArray(payload.affectedVariants) || /\b(variant|sku)\b/.test(normalized)) return "variants";
+  if (Array.isArray(payload.contentIssues) || Array.isArray(payload.faqItems) || /\b(description|pdp|content|title|tag|collection|faq|fit note)\b/.test(normalized)) return "content";
+  if (/\b(note|support)\b/.test(normalized) && product.primaryIssue) return getIgnoredIssueFamily(product.primaryIssue) || "customer-language";
+  return "";
+}
+
+function isPrimaryIssueRecommendedAction(action = {}) {
+  const normalized = normalizeActionMatchText([action.id, action.label, action.title, action.type, action.payload]);
+  return /\b(pdp|description|copy|support|note|tag|faq|fit|quality)\b/.test(normalized);
 }
 
 function consolidateReviewRecommendedActions(actions = []) {
@@ -2960,7 +3089,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const submit = useSubmit();
   const evidencePanelRef = useRef(null);
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
-  const [ignoredIssues, setIgnoredIssues] = useState(() => new Set());
+  const [ignoredIssues, setIgnoredIssues] = useState(() => new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
   const [resolvedLocally, setResolvedLocally] = useState(Boolean(product?.resolvedAt));
   const [minimizedActionStates, setMinimizedActionStates] = useState(() => ({}));
   const [expandedArchivedActionIds, setExpandedArchivedActionIds] = useState(() => new Set());
@@ -2972,23 +3101,36 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [draftText, setDraftText] = useState("");
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
+  const pendingIgnoredIssueKey = navigation.state === "submitting" && navigation.formData?.get("_action") === "ignore-issue"
+    ? normalizeIssueIgnoreKey(navigation.formData?.get("issueKey"))
+    : "";
 
   useEffect(() => {
     setResolvedLocally(Boolean(product?.resolvedAt));
-    setIgnoredIssues(new Set());
+    setIgnoredIssues(new Set(getIgnoredIssueRecords(product).map((issue) => issue.issueKey)));
     setMinimizedActionStates({});
     setExpandedArchivedActionIds(new Set());
     setSelectedEvidenceIndex(0);
     setDiagnosisConfirmation(null);
     setRecommendedActionsCollapsed(false);
-  }, [product?.slug, product?.resolvedAt]);
+  }, [product, product?.slug, product?.resolvedAt]);
 
   useEffect(() => {
     announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && actionData?.action?.id === "mark-resolved") {
       setResolvedLocally(true);
     }
-    if (actionData?.status === "success" && actionData?.action?.id && actionData.action.id !== "mark-resolved") {
+    if (actionData?.status === "success" && actionData?.action?.id === "ignore-issue") {
+      const issueKey = normalizeIssueIgnoreKey(actionData.action.payload?.issueKey || actionData.action.payload?.issueCode || actionData.action.payload?.issue);
+      if (issueKey) {
+        setIgnoredIssues((current) => {
+          const next = new Set(current);
+          next.add(issueKey);
+          return next;
+        });
+      }
+    }
+    if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "ignore-issue"].includes(actionData.action.id)) {
       const actionKey = actionData.action.id;
       setMinimizedActionStates((current) => ({ ...current, [actionKey]: "applied" }));
       setExpandedArchivedActionIds((current) => {
@@ -3032,13 +3174,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }
 
   const detail = getProductDetailModel(product);
+  const ignoredIssueRows = detail.detectedIssues.filter((issue) => isIssueIgnored(issue, ignoredIssues));
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
   const isActionArchived = (action) => {
     const actionKey = getRecommendedActionKey(action);
     return Boolean(getArchivedActionState(action, minimizedActionStates)) && !expandedArchivedActionIds.has(actionKey);
   };
-  const visibleRecommendedActions = detail.recommendedActions.filter((action) => !isActionArchived(action));
-  const minimizedRecommendedActions = detail.recommendedActions.filter((action) => isActionArchived(action));
+  const activeRecommendedActions = detail.recommendedActions.filter((action) => !isRecommendedActionRelatedToIgnoredIssues(action, ignoredIssueRows, product));
+  const hiddenIgnoredRecommendedActionCount = Math.max(0, detail.recommendedActions.length - activeRecommendedActions.length);
+  const visibleRecommendedActions = activeRecommendedActions.filter((action) => !isActionArchived(action));
+  const minimizedRecommendedActions = activeRecommendedActions.filter((action) => isActionArchived(action));
   const visibleRecommendedActionCount = detail.hasFullDiagnosis ? visibleRecommendedActions.length : 0;
   const resolved = resolvedLocally || Boolean(detail.resolvedAt);
   const diagnosisPending = pendingActionType === "diagnose";
@@ -3094,12 +3239,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
 
   const handleIgnoreIssue = (issue) => {
+    const ignorePayload = buildIssueIgnorePayload(issue);
     setIgnoredIssues((current) => {
       const next = new Set(current);
-      next.add(issue.issue);
+      if (ignorePayload.issueKey) next.add(ignorePayload.issueKey);
       return next;
     });
-    showToast(`${issue.issue} ignored for this review session.`);
+    const formData = new FormData();
+    formData.set("_action", "ignore-issue");
+    formData.set("productId", product.slug || product.handle || "");
+    formData.set("issue", ignorePayload.issue);
+    formData.set("issueCode", ignorePayload.issueCode);
+    formData.set("issueKey", ignorePayload.issueKey);
+    formData.set("suggestedAction", ignorePayload.suggestedAction);
+    submit(formData, { method: "post" });
   };
 
   const handleCreateIssueAction = (issue) => {
@@ -3321,7 +3474,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         </tr>
                       )}
                       {detail.detectedIssues.map((issue, index) => {
-                        const ignored = ignoredIssues.has(issue.issue);
+                        const ignorePayload = buildIssueIgnorePayload(issue);
+                        const ignored = isIssueIgnored(issue, ignoredIssues);
+                        const ignorePending = pendingIgnoredIssueKey === ignorePayload.issueKey;
 
                         return (
                           <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
@@ -3351,6 +3506,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                 onCreateAction={() => handleCreateIssueAction(issue)}
                                 onIgnore={() => handleIgnoreIssue(issue)}
                                 ignored={ignored}
+                                pending={ignorePending}
                               />
                             </td>
                           </tr>
@@ -3385,7 +3541,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   <h2>Recommended actions</h2>
                   <span>
                     {detail.hasFullDiagnosis
-                      ? `${visibleRecommendedActionCount} active action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}`
+                      ? `${visibleRecommendedActionCount} active action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
                       : "Run full diagnosis to unlock actions"}
                   </span>
                 </div>
@@ -3410,7 +3566,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       />
                     ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
                       <EmptyProductDetailState
-                        message="0 deterministic recommended actions from current stored signals."
+                        message={hiddenIgnoredRecommendedActionCount
+                          ? `${hiddenIgnoredRecommendedActionCount} recommendation${hiddenIgnoredRecommendedActionCount === 1 ? "" : "s"} hidden because related issues are ignored for this product.`
+                          : "0 deterministic recommended actions from current stored signals."}
                         variant="recommendedActions"
                       />
                     )}
@@ -4413,6 +4571,15 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
           <div className="ppEvidenceReportTwoColumn">
             <div className="ppEvidenceReportBlock">
               <h3>Recommended actions</h3>
+              {detail.ignoredIssues.length > 0 && (
+                <div className="ppEvidenceIgnoredNotice">
+                  <s-icon type="info" size="small"></s-icon>
+                  <span>
+                    {detail.ignoredIssues.length} issue{detail.ignoredIssues.length === 1 ? "" : "s"} ignored for this product.
+                    Recommendations associated with ignored issues are hidden from this report.
+                  </span>
+                </div>
+              )}
               {detail.recommendedActions.length ? detail.recommendedActions.map((action) => (
                 <article key={action.id || action.title}>
                   <strong>{action.title}</strong>
@@ -5127,7 +5294,7 @@ function ProductDetailToast({ actionData, onDismiss }) {
   );
 }
 
-function IssueInlineActions({ issue, onReview, onCreateAction, onIgnore, ignored }) {
+function IssueInlineActions({ issue, onReview, onCreateAction, onIgnore, ignored, pending = false }) {
   return (
     <span className="ppIssueInlineActions" aria-label={`Actions for ${issue.issue}`}>
       <button
@@ -5148,12 +5315,12 @@ function IssueInlineActions({ issue, onReview, onCreateAction, onIgnore, ignored
       </button>
       <button
         type="button"
-        aria-label={`${ignored ? "Ignored" : "Ignore"} ${issue.issue}`}
-        disabled={ignored}
+        aria-label={`${ignored ? "Ignored" : pending ? "Ignoring" : "Ignore"} ${issue.issue}`}
+        disabled={ignored || pending}
         onClick={onIgnore}
       >
-        <s-icon type={ignored ? "check" : "x"} size="small"></s-icon>
-        <span role="tooltip">{ignored ? "Already ignored" : "Ignore for now"}</span>
+        {pending ? <span className="ppMiniSpinner" aria-hidden="true" /> : <s-icon type={ignored ? "check" : "x"} size="small"></s-icon>}
+        <span role="tooltip">{ignored ? "Already ignored" : pending ? "Saving ignore" : "Ignore for now"}</span>
       </button>
     </span>
   );

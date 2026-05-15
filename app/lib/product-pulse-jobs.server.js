@@ -480,6 +480,8 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : [];
   let action = actionId === "mark-resolved"
     ? getResolvedAction(snapshot)
+    : actionId === "ignore-issue"
+      ? getIgnoredIssueAction(snapshot, payloadOverride)
     : diagnosisRecommendations.find((item) => item.id === actionId)
       || getSnapshotRecommendedActions(snapshot, metrics).find((item) => item.id === actionId);
 
@@ -509,7 +511,27 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     : null;
   if (applyResult?.status === "validation_error") return applyResult;
 
-  const status = action.id === "mark-resolved" || action.applyImmediately || applyResult ? "applied" : "draft";
+  const status = action.id === "ignore-issue" ? "ignored" : action.id === "mark-resolved" || action.applyImmediately || applyResult ? "applied" : "draft";
+  if (action.id === "ignore-issue") {
+    const existingIgnoredActions = await prisma.productAction.findMany({
+      where: { shop, productGid: snapshot.productGid, actionType: "ignore-issue", status: "ignored" },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    const issueKey = String(payload.issueKey || "").trim();
+    if (issueKey && existingIgnoredActions.some((record) => {
+      const existingPayload = record.payload || {};
+      return String(existingPayload.issueKey || normalizeIgnoredIssueKey(existingPayload.issueCode || existingPayload.issue || record.label || "")) === issueKey;
+    })) {
+      return {
+        status: "success",
+        message: `${payload.issue || "Issue"} is already ignored for ${snapshot.productTitle}.`,
+        action,
+        suppressBanner: true,
+      };
+    }
+  }
+
   await prisma.productAction.create({
     data: {
       shop,
@@ -519,13 +541,15 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       label: action.label,
       status,
       payload: applyResult ? { ...payload, appliedChange: applyResult.change } : payload,
-      appliedAt: status === "applied" ? new Date() : null,
+      appliedAt: status === "applied" || status === "ignored" ? new Date() : null,
     },
   });
 
   return {
     status: "success",
-    message: applyResult?.message || (status === "applied"
+    message: applyResult?.message || (status === "ignored"
+      ? `${payload.issue || "Issue"} ignored. Related recommendations are hidden for this product.`
+      : status === "applied"
       ? `${action.label} was applied for ${snapshot.productTitle}.`
       : `${action.label} was saved as a draft for ${snapshot.productTitle}.`),
     action,
@@ -2313,6 +2337,36 @@ function getResolvedAction(snapshot) {
     applyImmediately: true,
     payload: { productGid: snapshot.productGid, resolvedAt: new Date().toISOString() },
   };
+}
+
+function getIgnoredIssueAction(snapshot, payloadOverride = {}) {
+  const issue = String(payloadOverride.issue || "Product issue").trim() || "Product issue";
+  const issueCode = String(payloadOverride.issueCode || "").trim();
+  const issueKey = String(payloadOverride.issueKey || normalizeIgnoredIssueKey(issueCode || issue)).trim();
+  return {
+    id: "ignore-issue",
+    label: `Ignore issue: ${issue}`,
+    type: "Workflow",
+    effort: "Low",
+    status: "Ignored",
+    applyImmediately: true,
+    payload: {
+      productGid: snapshot.productGid,
+      issue,
+      issueCode,
+      issueKey,
+      suggestedAction: String(payloadOverride.suggestedAction || "").trim(),
+      ignoredAt: new Date().toISOString(),
+    },
+  };
+}
+
+function normalizeIgnoredIssueKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
 }
 
 function getSnapshotIssueCategory(issue) {

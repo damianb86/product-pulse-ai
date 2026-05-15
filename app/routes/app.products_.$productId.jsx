@@ -45,6 +45,23 @@ export const action = async ({ request, params }) => {
     return { status: "validation_error", message: "Run QuickScan before saving product actions." };
   }
 
+  if (actionType === "ignore-issue") {
+    const snapshotAction = await recordProductDetailActionForShop(
+      session.shop,
+      productId,
+      "ignore-issue",
+      {
+        issue: String(formData.get("issue") || ""),
+        issueCode: String(formData.get("issueCode") || ""),
+        issueKey: String(formData.get("issueKey") || ""),
+        suggestedAction: String(formData.get("suggestedAction") || ""),
+      },
+      admin,
+    );
+    if (snapshotAction) return snapshotAction;
+    return { status: "validation_error", message: "Run QuickScan before ignoring product issues." };
+  }
+
   if (actionType === "mark-resolved") {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
     if (snapshotAction) return snapshotAction;
