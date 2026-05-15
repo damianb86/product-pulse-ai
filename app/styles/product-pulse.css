@@ -217,6 +217,11 @@ s-page[inline-size="large-500"] {
   background: var(--pp-amber-soft);
 }
 
+.ppDashboardIcon-slate {
+  color: var(--pp-slate-700);
+  background: var(--pp-slate-100);
+}
+
 .ppStartPanel,
 .ppDashboardPanel,
 .ppNextStepPanel {
@@ -5412,7 +5417,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsBottom {
-  grid-template-columns: minmax(430px, 0.95fr) minmax(600px, 1.55fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .ppAnalyticsPanel {
@@ -5428,14 +5433,23 @@ s-page[inline-size="large-500"] {
   grid-column: span 4;
 }
 
-.ppAnalyticsPanelIssueDistribution {
+.ppAnalyticsPanelTrend {
   grid-column: span 2;
 }
 
-.ppAnalyticsPanelLine,
-.ppAnalyticsPanelSource,
-.ppAnalyticsPanelCollection {
+.ppAnalyticsPanelIssueImpact,
+.ppAnalyticsPanelBreakdown {
+  grid-column: span 3;
+}
+
+.ppAnalyticsPanelActionPerformance,
+.ppAnalyticsPanelCatalogCoverage,
+.ppAnalyticsPanelSourceCoverage {
   grid-column: span 2;
+}
+
+.ppAnalyticsPanelTopProducts {
+  grid-column: 1 / -1;
 }
 
 .ppAnalyticsPanelRiskMargin .ppRiskRevenueWrap {
@@ -5612,6 +5626,411 @@ s-page[inline-size="large-500"] {
   font: inherit;
 }
 
+.ppAnalyticsSegmentedControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppAnalyticsSegmentedControl button {
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ppAnalyticsSegmentedControl button.isActive {
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.12);
+}
+
+.ppAnalyticsTrendChart {
+  display: grid;
+  gap: 12px;
+}
+
+.ppAnalyticsTrendSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppAnalyticsTrendSummary article {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.72));
+}
+
+.ppAnalyticsTrendSummary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ppAnalyticsTrendSummary strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.ppAnalyticsTrendSummary small {
+  display: block;
+  margin-top: 5px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.28;
+}
+
+.ppAnalyticsImpactTrendSvg {
+  height: 158px;
+}
+
+.ppAnalyticsTableWrap,
+.ppTopProductsTableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.ppAnalyticsTable,
+.ppTopProductsTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ppAnalyticsTable th,
+.ppAnalyticsTable td,
+.ppTopProductsTable th,
+.ppTopProductsTable td {
+  padding: 11px 10px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ppAnalyticsTable th,
+.ppTopProductsTable th {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ppAnalyticsTable td:first-child strong,
+.ppTopProductsTable td:first-child a {
+  color: var(--pp-slate-900);
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.ppTopProductsTable td:first-child a:hover {
+  color: var(--pp-pulse-blue);
+  text-decoration: underline;
+}
+
+.ppAnalyticsRiskPill,
+.ppAnalyticsStatusPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ppAnalyticsRiskPill-critical,
+.ppAnalyticsRiskPill-red,
+.ppAnalyticsStatusPill-red {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppAnalyticsRiskPill-warning,
+.ppAnalyticsRiskPill-orange,
+.ppAnalyticsStatusPill-orange {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppAnalyticsRiskPill-info,
+.ppAnalyticsRiskPill-blue {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppAnalyticsRiskPill-success,
+.ppAnalyticsRiskPill-green,
+.ppAnalyticsStatusPill-green {
+  background: var(--pp-green-soft);
+  color: var(--pp-signal-teal);
+}
+
+.ppAnalyticsStatusPill-blue,
+.ppAnalyticsStatusPill-purple {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppAnalyticsStatusPill-slate {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+}
+
+.ppImpactBreakdownList {
+  display: grid;
+  gap: 10px;
+}
+
+.ppImpactBreakdownList article {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(170px, 1.35fr) minmax(110px, 0.7fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppImpactBreakdownList article:last-child {
+  border-bottom: 0;
+}
+
+.ppImpactBreakdownList strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.2;
+}
+
+.ppImpactBreakdownList span {
+  display: block;
+  margin-top: 4px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.ppImpactBreakdownBar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppImpactBreakdownBar span {
+  height: 100%;
+  display: block;
+  margin: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-insight-violet));
+}
+
+.ppActionPerformance,
+.ppCatalogCoverage,
+.ppEvidenceCoverageRows {
+  display: grid;
+  gap: 12px;
+}
+
+.ppActionPerformanceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppActionPerformanceGrid article {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 11px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppActionPerformanceGrid span,
+.ppFixEffectiveness h3,
+.ppCatalogCoverageHero span,
+.ppEvidenceCoverageRows p,
+.ppEvidenceCoverageMeta {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.3;
+}
+
+.ppActionPerformanceGrid strong {
+  display: block;
+  margin: 3px 0;
+  color: var(--pp-slate-900);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.ppActionPerformanceGrid small {
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.ppFixEffectiveness {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.08), rgba(var(--pp-info-cyan-rgb), 0.08));
+}
+
+.ppFixEffectiveness h3 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.ppFixEffectiveness p {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.ppFixEffectiveness p strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+}
+
+.ppFixEffectiveness p span {
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppFixEffectiveness p small {
+  grid-column: 1 / -1;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+}
+
+.ppCatalogCoverageHero {
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.12);
+  border-radius: 12px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.055);
+}
+
+.ppCatalogCoverageHero strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 15px;
+}
+
+.ppCatalogCoverageRows {
+  display: grid;
+  gap: 9px;
+}
+
+.ppCatalogCoverageRow {
+  display: grid;
+  gap: 6px;
+}
+
+.ppCatalogCoverageRow > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.ppCatalogCoverageTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppCatalogCoverageTrack i {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--pp-pulse-blue);
+}
+
+.ppCatalogCoverageRow-purple .ppCatalogCoverageTrack i {
+  background: var(--pp-insight-violet);
+}
+
+.ppCatalogCoverageRow-green .ppCatalogCoverageTrack i {
+  background: var(--pp-signal-teal);
+}
+
+.ppCatalogCoverageRow-orange .ppCatalogCoverageTrack i {
+  background: var(--pp-warning-amber);
+}
+
+.ppCatalogCoverageRow-slate .ppCatalogCoverageTrack i {
+  background: var(--pp-slate-300);
+}
+
+.ppEvidenceCoverageRows article {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppEvidenceCoverageRows article:last-child {
+  border-bottom: 0;
+}
+
+.ppEvidenceCoverageRows article > div > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ppEvidenceCoverageRows strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+}
+
+.ppEvidenceCoverageRows p {
+  margin: 4px 0 5px;
+  color: var(--pp-slate-700);
+}
+
 .ppAnalyticsLegend {
   display: flex;
   align-items: center;
@@ -5688,6 +6107,14 @@ s-page[inline-size="large-500"] {
 
 .ppRiskLine-green {
   stroke: var(--pp-signal-teal);
+}
+
+.ppRiskLine-blue {
+  stroke: var(--pp-pulse-blue);
+}
+
+.ppRiskLine-purple {
+  stroke: var(--pp-insight-violet);
 }
 
 .ppAnalyticsBarChart {
@@ -5879,6 +6306,63 @@ s-page[inline-size="large-500"] {
   left: 0;
   right: 0;
   height: 1px;
+}
+
+.ppBubbleThreshold {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  background: rgba(var(--pp-slate-700-rgb), 0.2);
+}
+
+.ppBubbleThreshold-x {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.ppBubbleThreshold-y {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.ppBubbleQuadrant {
+  position: absolute;
+  z-index: 2;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 820;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppBubbleQuadrant-monitor {
+  top: 8px;
+  left: 9px;
+  color: var(--pp-warning-amber);
+}
+
+.ppBubbleQuadrant-fix {
+  top: 8px;
+  right: 9px;
+  color: var(--pp-risk-red);
+}
+
+.ppBubbleQuadrant-low {
+  bottom: 8px;
+  left: 9px;
+  color: var(--pp-signal-teal);
+}
+
+.ppBubbleQuadrant-review {
+  right: 9px;
+  bottom: 8px;
+  color: var(--pp-pulse-blue);
 }
 
 .ppBubbleYTicks {
@@ -9706,10 +10190,12 @@ s-page[inline-size="large-500"] {
     grid-column: span 2;
   }
 
-  .ppAnalyticsPanelIssueDistribution,
-  .ppAnalyticsPanelLine,
-  .ppAnalyticsPanelSource,
-  .ppAnalyticsPanelCollection {
+  .ppAnalyticsPanelTrend,
+  .ppAnalyticsPanelIssueImpact,
+  .ppAnalyticsPanelBreakdown,
+  .ppAnalyticsPanelActionPerformance,
+  .ppAnalyticsPanelCatalogCoverage,
+  .ppAnalyticsPanelSourceCoverage {
     grid-column: span 1;
   }
 }
@@ -9799,10 +10285,13 @@ s-page[inline-size="large-500"] {
   }
 
   .ppAnalyticsPanelRiskMargin,
-  .ppAnalyticsPanelIssueDistribution,
-  .ppAnalyticsPanelLine,
-  .ppAnalyticsPanelSource,
-  .ppAnalyticsPanelCollection {
+  .ppAnalyticsPanelTrend,
+  .ppAnalyticsPanelIssueImpact,
+  .ppAnalyticsPanelBreakdown,
+  .ppAnalyticsPanelActionPerformance,
+  .ppAnalyticsPanelCatalogCoverage,
+  .ppAnalyticsPanelSourceCoverage,
+  .ppAnalyticsPanelTopProducts {
     grid-column: 1;
   }
 
@@ -9909,6 +10398,19 @@ s-page[inline-size="large-500"] {
 
   .ppAnalyticsBarAxis {
     margin-left: 98px;
+  }
+
+  .ppAnalyticsTrendSummary,
+  .ppActionPerformanceGrid,
+  .ppImpactBreakdownList article,
+  .ppFixEffectiveness p {
+    grid-template-columns: 1fr;
+  }
+
+  .ppAnalyticsSegmentedControl {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
   }
 
   .ppBusinessImpactMetric {

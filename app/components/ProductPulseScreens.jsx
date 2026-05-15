@@ -3832,14 +3832,22 @@ function announceProductPulseJobs(actionData) {
 export function AnalyticsScreen({ data }) {
   const analyticsView = data?.analytics || {};
   const [businessImpactOpen, setBusinessImpactOpen] = useState(false);
+  const [impactBreakdownKey, setImpactBreakdownKey] = useState(analyticsView.impactBreakdown?.defaultKey || "collection");
   const kpis = analyticsView.kpis || [];
-  const issueDistribution = analyticsView.issueDistribution || { rows: [], max: 1 };
-  const sourceContribution = analyticsView.sourceContribution || { rows: [], total: 0, totalLabel: "0" };
-  const collectionMargin = analyticsView.collectionMargin || { rows: [], max: 1 };
-  const topInsights = analyticsView.topInsights || [];
   const businessImpact = analyticsView.businessImpact || { title: "Estimated business impact", subtitle: "", metrics: [] };
-  const riskSignals = analyticsView.riskSignals || { series: [], labels: [] };
   const riskBubbles = analyticsView.riskBubbles || [];
+  const impactTrend = analyticsView.impactTrend || { series: [], labels: [] };
+  const issueImpact = analyticsView.issueImpact || { rows: [] };
+  const impactBreakdown = analyticsView.impactBreakdown || { defaultKey: "collection", filters: [] };
+  const breakdownFilters = impactBreakdown.filters || [];
+  const selectedBreakdown = breakdownFilters.find((filter) => filter.key === impactBreakdownKey)
+    || breakdownFilters.find((filter) => filter.key === impactBreakdown.defaultKey)
+    || breakdownFilters[0]
+    || { key: "collection", label: "By collection", rows: [] };
+  const actionPerformance = analyticsView.actionPerformance || { rows: [], effectiveness: [] };
+  const catalogCoverage = analyticsView.catalogCoverage || { rows: [] };
+  const evidenceSourceCoverage = analyticsView.evidenceSourceCoverage || [];
+  const topProductsAtRisk = analyticsView.topProductsAtRisk || [];
 
   return (
     <FullWidthPage label="Analytics" className="ppAnalyticsPage">
@@ -3863,45 +3871,44 @@ export function AnalyticsScreen({ data }) {
         </div>
 
         <div className="ppAnalyticsChartGrid">
-          <AnalyticsPanel title="Risk vs. margin impact" subtitle="Each bubble is a product, sized by margin at risk" className="ppAnalyticsPanelRiskMargin">
+          <AnalyticsPanel title="Risk vs. margin impact" subtitle="X: product risk · Y: margin at risk · Bubble size: revenue at risk" className="ppAnalyticsPanelRiskMargin">
             <RiskRevenueBubbleChart bubbles={riskBubbles} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Issue distribution by type" subtitle="Signal count by issue cluster" className="ppAnalyticsPanelIssueDistribution">
-            <HorizontalBarChart rows={issueDistribution.rows} max={issueDistribution.max} />
+          <AnalyticsPanel title="Margin at risk over time" subtitle="Margin exposure, attention count and risk mix across the stored scan window" className="ppAnalyticsPanelTrend">
+            <AnalyticsTrendChart chart={impactTrend} ariaLabel="Margin at risk over time" />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Risk signals over time" subtitle="Stored QuickScan and full diagnosis signal trends" className="ppAnalyticsPanelLine">
-            <RiskSignalsChart chart={riskSignals} />
+          <AnalyticsPanel title="Issue impact by type" subtitle="Issue types ranked by business exposure, not just raw signal volume" className="ppAnalyticsPanelIssueImpact">
+            <IssueImpactTable rows={issueImpact.rows} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Source contribution" subtitle="Extracted signals by evidence source" className="ppAnalyticsPanelSource">
-            <SourceContributionChart contribution={sourceContribution} />
+          <AnalyticsPanel
+            title="Impact breakdown"
+            subtitle="Slice margin exposure by Shopify catalog dimensions and evidence source"
+            className="ppAnalyticsPanelBreakdown"
+            action={<AnalyticsBreakdownTabs filters={breakdownFilters} selectedKey={selectedBreakdown.key} onChange={setImpactBreakdownKey} />}
+          >
+            <ImpactBreakdownPanel breakdown={selectedBreakdown} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Margin at risk by collection" subtitle="Margin at risk" className="ppAnalyticsPanelCollection">
-            <HorizontalBarChart rows={collectionMargin.rows} max={collectionMargin.max} money />
+          <AnalyticsPanel title="Action performance" subtitle="Recommended-action workflow health and post-fix measurement readiness" className="ppAnalyticsPanelActionPerformance">
+            <ActionPerformancePanel performance={actionPerformance} />
+          </AnalyticsPanel>
+
+          <AnalyticsPanel title="Catalog coverage" subtitle="How representative the current analytics set is" className="ppAnalyticsPanelCatalogCoverage">
+            <CatalogCoveragePanel coverage={catalogCoverage} />
+          </AnalyticsPanel>
+
+          <AnalyticsPanel title="Evidence source coverage" subtitle="Evidence coverage, contribution and source state" className="ppAnalyticsPanelSourceCoverage">
+            <EvidenceSourceCoveragePanel rows={evidenceSourceCoverage} />
           </AnalyticsPanel>
         </div>
 
         <div className="ppAnalyticsBottom">
-          <s-section padding="none">
-            <div className="ppAnalyticsPanel ppTopInsightsPanel">
-              <h2>
-                <s-icon type="lightbulb" size="small"></s-icon>
-                Top insights
-                <AnalyticsInfoPopover info={getAnalyticsPanelInfo("Top insights")} />
-              </h2>
-              <div className="ppTopInsightList">
-                {topInsights.map((insight) => (
-                  <p key={insight.text}>
-                    <s-icon type={insight.icon} size="small"></s-icon>
-                    {insight.text}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </s-section>
+          <AnalyticsPanel title="Top products at risk" subtitle="Complete product ranking for prioritization and drill-down" className="ppAnalyticsPanelTopProducts">
+            <TopProductsAtRiskTable rows={topProductsAtRisk} />
+          </AnalyticsPanel>
 
           <s-section padding="none">
             <div className="ppAnalyticsPanel ppBusinessImpactPanel">
@@ -6749,6 +6756,80 @@ function AnalyticsInfoPopover({ info }) {
 
 function getAnalyticsPanelInfo(title = "") {
   const normalizedTitle = String(title).toLowerCase();
+  if (normalizedTitle.includes("margin at risk over time")) {
+    return {
+      title: "Margin at risk over time",
+      body: "Shows whether financial exposure and product-risk mix are improving or getting worse across the stored scan window.",
+      items: [
+        "Margin at risk is reconstructed from each product's stored risk trend and margin exposure.",
+        "Products needing attention count products whose trend lands in medium or high risk.",
+        "High, medium and low lines show how products move between operational risk buckets.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("issue impact")) {
+    return {
+      title: "Issue impact by type",
+      body: "Ranks issue clusters by business impact so the largest product-quality problems are not hidden behind raw signal counts.",
+      items: [
+        "Products affected counts unique products per issue type.",
+        "Margin at risk is allocated across the relevant issue clusters on each product.",
+        "Average confidence summarizes the stored diagnosis confidence behind that issue type.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("impact breakdown")) {
+    return {
+      title: "Impact breakdown",
+      body: "Slices estimated margin and revenue exposure by Shopify dimensions and evidence sources.",
+      items: [
+        "Collection and vendor views help identify where quality issues concentrate operationally.",
+        "Source view shows which evidence channels are currently driving exposure.",
+        "Average product risk helps separate high-value exposure from low-risk catalog volume.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("action performance")) {
+    return {
+      title: "Action performance",
+      body: "Tracks how recommended actions move through the product-quality workflow.",
+      items: [
+        "Suggested, pending, applied and dismissed are based on stored action records.",
+        "Fix effectiveness stays in a waiting state until enough post-fix data is available.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("catalog coverage")) {
+    return {
+      title: "Catalog coverage",
+      body: "Explains how much of the stored product set is represented by QuickScan and full diagnosis data.",
+      items: [
+        "Full diagnoses have AI-generated product-level findings.",
+        "QuickScan only products have deterministic lightweight scan data.",
+        "Missing reviews or returns rows identify data coverage gaps that affect confidence.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("evidence source coverage")) {
+    return {
+      title: "Evidence source coverage",
+      body: "Shows which evidence sources are connected, partial or missing and how much they contribute to the analytics set.",
+      items: [
+        "Percentages are based on extracted evidence units, not source importance.",
+        "Partial means the source exists for some products but not the full stored catalog.",
+      ],
+    };
+  }
+  if (normalizedTitle.includes("top products at risk")) {
+    return {
+      title: "Top products at risk",
+      body: "Ranks stored products by operational priority so teams can move from analytics into product diagnosis.",
+      items: [
+        "Priority uses product risk, diagnosis confidence and normalized financial exposure.",
+        "Each row links directly to the product diagnosis page.",
+      ],
+    };
+  }
   if (normalizedTitle.includes("risk signals over time")) {
     return {
       title: "Risk signals over time",
@@ -6782,10 +6863,12 @@ function getAnalyticsPanelInfo(title = "") {
   if (normalizedTitle.includes("risk vs") || normalizedTitle.includes("risk versus")) {
     return {
       title: "Risk vs. margin impact",
-      body: "Plots products by risk and estimated margin exposure so you can prioritize work by urgency and financial relevance.",
+      body: "Plots products by product risk and estimated margin exposure. Bubble size uses revenue at risk so high-revenue products remain visible even when margin exposure is lower.",
       items: [
-        "X-axis: deterministic product risk, starting slightly below the lowest plotted product and ending at 100.",
-        "Y-axis and bubble size: estimated margin at risk for that product.",
+        "X-axis: product risk, starting slightly below the lowest plotted product and ending at 100.",
+        "Y-axis: estimated margin at risk for that product.",
+        "Bubble size: estimated revenue at risk.",
+        "Quadrants: Fix now, Monitor, Review later and Low priority.",
         "Hover a bubble for product details; click it to open the product diagnosis page.",
       ],
     };
@@ -6837,28 +6920,30 @@ function getAnalyticsPanelInfo(title = "") {
   };
 }
 
-function RiskSignalsChart({ chart }) {
+function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
   const series = chart?.series || [];
   const labels = chart?.labels || [];
+  const safeSeries = series.length ? series : [{ label: "No trend data", color: "blue", values: [0, 0, 0, 0, 0, 0, 0], displayValue: "0", detail: "Run scans to build trend data." }];
 
   return (
-    <div className="ppAnalyticsLineWrap">
-      <div className="ppAnalyticsLegend">
-        {series.map((row) => (
-          <span key={row.label}><i className={`ppDot-${row.color}`} />{row.label}</span>
+    <div className="ppAnalyticsTrendChart">
+      <div className="ppAnalyticsTrendSummary">
+        {safeSeries.slice(0, 5).map((row) => (
+          <article key={row.label}>
+            <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
+            <strong>{row.displayValue || formatInteger((row.values || []).at(-1) || 0)}</strong>
+            {row.detail && <small>{row.detail}</small>}
+          </article>
         ))}
       </div>
-      <svg className="ppRiskSignalsSvg" viewBox="0 0 640 245" role="img" aria-label="Risk signals over time">
+      <svg className="ppRiskSignalsSvg ppAnalyticsImpactTrendSvg" viewBox="0 0 640 245" role="img" aria-label={ariaLabel}>
         {[28, 68, 108, 148, 188].map((y) => (
           <line className="ppChartGridLine" key={y} x1="50" y1={y} x2="620" y2={y} />
         ))}
-        {[100, 80, 60, 40, 20, 0].map((label, index) => (
-          <text className="ppChartAxisText" key={label} x="12" y={32 + index * 32}>{label}</text>
-        ))}
-        {series.map((row) => (
+        {safeSeries.map((row) => (
           <polyline
             key={row.label}
-            className={`ppRiskLine ppRiskLine-${row.color}`}
+            className={`ppRiskLine ppRiskLine-${row.color || "blue"}`}
             points={getAnalyticsLinePoints(row.values)}
           />
         ))}
@@ -6870,52 +6955,203 @@ function RiskSignalsChart({ chart }) {
   );
 }
 
-function HorizontalBarChart({ rows, max, money = false }) {
-  const safeRows = rows?.length ? rows : [{ label: "No data", value: 0, displayValue: money ? "$0" : "0" }];
-  const safeMax = Math.max(Number(max || 0), ...safeRows.map((row) => Number(row.value || 0)), 1);
-  const axisLabels = buildBarAxisLabels(safeMax, money);
-
+function IssueImpactTable({ rows }) {
+  const safeRows = rows?.length ? rows : [];
   return (
-    <div className="ppAnalyticsBarChart" role="img" aria-label="Horizontal bar chart">
-      {safeRows.map((row) => (
-        <div className="ppAnalyticsBarRow" key={row.label}>
-          <span>{row.label}</span>
-          <div>
-            <span className={`ppAnalyticsBar ppAnalyticsBar-${row.color || "blue"}`} style={{ width: `${Math.max(0, Math.min(100, (Number(row.value || 0) / safeMax) * 100))}%` }} />
-          </div>
-          <strong>{row.displayValue || (money ? formatMoney(row.value) : formatInteger(row.value))}</strong>
-        </div>
+    <div className="ppAnalyticsTableWrap">
+      <table className="ppAnalyticsTable">
+        <thead>
+          <tr>
+            <th>Issue type</th>
+            <th>Products affected</th>
+            <th>Margin at risk</th>
+            <th>Signals</th>
+            <th>Avg confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {safeRows.map((row) => (
+            <tr key={row.label}>
+              <td>
+                <strong>{row.label}</strong>
+              </td>
+              <td>{row.productsAffectedLabel || formatInteger(row.productsAffected || 0)}</td>
+              <td>{row.marginAtRiskLabel || formatMoney(row.marginAtRisk || 0)}</td>
+              <td>{row.signalCountLabel || formatInteger(row.signalCount || 0)}</td>
+              <td>{row.avgConfidenceLabel || formatPercent(row.avgConfidence || 0)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AnalyticsBreakdownTabs({ filters, selectedKey, onChange }) {
+  if (!filters?.length) return null;
+  return (
+    <div className="ppAnalyticsSegmentedControl" role="tablist" aria-label="Impact breakdown dimension">
+      {filters.map((filter) => (
+        <button
+          key={filter.key}
+          type="button"
+          role="tab"
+          aria-selected={filter.key === selectedKey}
+          className={filter.key === selectedKey ? "isActive" : ""}
+          onClick={() => onChange(filter.key)}
+        >
+          {filter.label}
+        </button>
       ))}
-      <div className="ppAnalyticsBarAxis">
-        {axisLabels.map((label) => (
-          <span key={label}>{label}</span>
+    </div>
+  );
+}
+
+function ImpactBreakdownPanel({ breakdown }) {
+  const rows = breakdown?.rows?.length ? breakdown.rows : [];
+  const max = Math.max(...rows.map((row) => Number(row.marginAtRisk || row.value || 0)), 1);
+  return (
+    <div className="ppImpactBreakdownList">
+      {rows.map((row) => {
+        const pct = Math.max(5, Math.round((Number(row.marginAtRisk || row.value || 0) / max) * 100));
+        return (
+          <article key={`${breakdown?.key || "breakdown"}-${row.label}`}>
+            <div>
+              <strong>{row.label}</strong>
+              <span>{row.productsLabel || `${formatInteger(row.productsAffected || 0)} products`} · Avg risk {formatInteger(row.avgRisk || 0)}/100</span>
+            </div>
+            <div className="ppImpactBreakdownBar" aria-hidden="true">
+              <span style={{ width: `${pct}%` }} />
+            </div>
+            <div>
+              <strong>{row.marginAtRiskLabel || formatMoney(row.marginAtRisk || 0)}</strong>
+              <span>{row.revenueAtRiskLabel || formatMoney(row.revenueAtRisk || 0)} revenue</span>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function ActionPerformancePanel({ performance }) {
+  const rows = performance?.rows || [];
+  const effectiveness = performance?.effectiveness || [];
+  return (
+    <div className="ppActionPerformance">
+      <div className="ppActionPerformanceGrid">
+        {rows.map((row) => (
+          <article key={row.label}>
+            <DashboardIcon type={row.icon || "wand"} tone={row.tone || "blue"} size="small" />
+            <div>
+              <span>{row.label}</span>
+              <strong>{row.valueLabel || formatInteger(row.value || 0)}</strong>
+              <small>{row.detail}</small>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="ppFixEffectiveness">
+        <h3>Fix effectiveness</h3>
+        {effectiveness.map((metric) => (
+          <p key={metric.label}>
+            <strong>{metric.label}</strong>
+            <span>{metric.value}</span>
+            <small>{metric.detail}</small>
+          </p>
         ))}
       </div>
     </div>
   );
 }
 
-function SourceContributionChart({ contribution }) {
-  const rows = contribution?.rows || [];
-  const totalLabel = contribution?.totalLabel || "0";
-  const donutGradient = buildDonutGradient(rows);
-
+function CatalogCoveragePanel({ coverage }) {
+  const rows = coverage?.rows || [];
   return (
-    <div className="ppSourceContribution">
-      <div className="ppDonutChart" aria-label="Source contribution donut chart" style={{ "--pp-donut-gradient": donutGradient }}>
-        <div>
-          <strong>{totalLabel}</strong>
-          <span>Total signals</span>
-        </div>
+    <div className="ppCatalogCoverage">
+      <div className="ppCatalogCoverageHero">
+        <strong>{coverage?.analyzedLabel || "0 stored products analyzed"}</strong>
+        <span>Analytics only reflects products stored by QuickScan or manual diagnosis.</span>
       </div>
-      <div className="ppDonutLegend">
-        {(rows.length ? rows : [{ label: "No source signals", color: "blue", percent: 0, displayValue: "0 signals" }]).map((row) => (
-          <div key={row.label}>
-            <span><i className={`ppDot-${row.color}`} />{row.label}</span>
-            <strong>{row.percent}%</strong>
+      <div className="ppCatalogCoverageRows">
+        {rows.map((row) => {
+          const pct = Math.max(0, Math.min(100, Math.round((Number(row.value || 0) / Math.max(Number(row.total || 1), 1)) * 100)));
+          return (
+            <div key={row.label} className={`ppCatalogCoverageRow ppCatalogCoverageRow-${row.tone || "blue"}`}>
+              <div>
+                <span>{row.label}</span>
+                <strong>{row.valueLabel || formatInteger(row.value || 0)}</strong>
+              </div>
+              <span className="ppCatalogCoverageTrack" aria-hidden="true">
+                <i style={{ width: `${pct}%` }} />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceSourceCoveragePanel({ rows }) {
+  const safeRows = rows?.length ? rows : [];
+  return (
+    <div className="ppEvidenceCoverageRows">
+      {safeRows.map((row) => (
+        <article key={row.label}>
+          <DashboardIcon type={row.icon || "info"} tone={row.stateTone === "green" ? "green" : row.stateTone === "orange" ? "orange" : "blue"} size="small" />
+          <div>
+            <div>
+              <strong>{row.label}</strong>
+              <span className={`ppAnalyticsStatusPill ppAnalyticsStatusPill-${row.stateTone || "blue"}`}>{row.state}</span>
+            </div>
+            <p>{row.detail}</p>
+            <span className="ppEvidenceCoverageMeta">{row.percentLabel} contribution · {row.countLabel} evidence units · {row.productsLabel}</span>
           </div>
-        ))}
-      </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function TopProductsAtRiskTable({ rows }) {
+  const safeRows = rows?.length ? rows : [];
+  return (
+    <div className="ppTopProductsTableWrap">
+      <table className="ppTopProductsTable">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Risk</th>
+            <th>Margin at risk</th>
+            <th>Revenue at risk</th>
+            <th>Main issue</th>
+            <th>Confidence</th>
+            <th>Recommended action</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {safeRows.map((row) => (
+            <tr key={row.id}>
+              <td>
+                <Link to={row.href}>{row.title}</Link>
+              </td>
+              <td>
+                <span className={`ppAnalyticsRiskPill ppAnalyticsRiskPill-${row.riskTone || "green"}`}>{row.riskLabel} {formatInteger(row.riskScore)}</span>
+              </td>
+              <td>{row.marginAtRiskLabel || formatMoney(row.marginAtRisk || 0)}</td>
+              <td>{row.revenueAtRiskLabel || formatMoney(row.revenueAtRisk || 0)}</td>
+              <td>{row.mainIssue}</td>
+              <td>{row.confidenceLabel || formatPercent(row.confidence || 0)}</td>
+              <td>{row.recommendedAction}</td>
+              <td>
+                <span className={`ppAnalyticsStatusPill ppAnalyticsStatusPill-${row.statusTone || "blue"}`}>{row.status}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -6923,9 +7159,11 @@ function SourceContributionChart({ contribution }) {
 function RiskRevenueBubbleChart({ bubbles }) {
   const safeBubbles = bubbles?.length ? bubbles : [];
   const maxImpact = Math.max(...safeBubbles.map((bubble) => Number(bubble.impact || 0)), 0);
+  const maxRevenueAtRisk = Math.max(...safeBubbles.map((bubble) => Number(bubble.revenueAtRisk || 0)), 0);
   const yAxisMax = getRiskBubbleAxisMax(maxImpact);
   const xAxis = getRiskBubbleXAxis(safeBubbles);
   const yTicks = getRiskBubbleYAxisTicks(yAxisMax);
+  const quadrantRiskPosition = getRiskBubbleXPosition(75, xAxis);
   const [activeBubble, setActiveBubble] = useState(null);
   const showBubble = (event, bubble) => {
     setActiveBubble({
@@ -6943,6 +7181,12 @@ function RiskRevenueBubbleChart({ bubbles }) {
           ))}
         </div>
         <div className="ppBubblePlot">
+          <span className="ppBubbleQuadrant ppBubbleQuadrant-monitor">Monitor</span>
+          <span className="ppBubbleQuadrant ppBubbleQuadrant-fix">Fix now</span>
+          <span className="ppBubbleQuadrant ppBubbleQuadrant-low">Low priority</span>
+          <span className="ppBubbleQuadrant ppBubbleQuadrant-review">Review later</span>
+          <span className="ppBubbleThreshold ppBubbleThreshold-x" style={{ left: `${quadrantRiskPosition}%` }} />
+          <span className="ppBubbleThreshold ppBubbleThreshold-y" style={{ bottom: "50%" }} />
           {xAxis.ticks.slice(1).map((tick) => (
             <span key={`x-${tick}`} className="ppBubbleGridLine ppBubbleGridLine-x" style={{ left: `${getRiskBubbleXPosition(tick, xAxis)}%` }} />
           ))}
@@ -6957,7 +7201,7 @@ function RiskRevenueBubbleChart({ bubbles }) {
                 className={`ppRiskBubble ppRiskBubble-${bubble.tone}`}
                 to={bubble.href || "/app/products"}
                 style={{ left: `${position.x}%`, bottom: `${position.y}%`, width: `${bubble.size}px`, height: `${bubble.size}px` }}
-                aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, margin impact ${formatMoney(bubble.impact || 0)}`}
+                aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, margin at risk ${formatMoney(bubble.impact || 0)}, revenue at risk ${formatMoney(bubble.revenueAtRisk || 0)}`}
                 onMouseEnter={(event) => showBubble(event, bubble)}
                 onFocus={(event) => showBubble(event, bubble)}
                 onMouseLeave={() => setActiveBubble(null)}
@@ -6978,10 +7222,10 @@ function RiskRevenueBubbleChart({ bubbles }) {
         <RiskBubbleFloatingPopover bubble={activeBubble.bubble} position={activeBubble.position} />
       )}
       <div className="ppBubbleLegend">
-        <span>Est. margin at risk</span>
-        <div><i className="ppBubbleSize ppBubbleSize-large" />{formatCompactMoney(maxImpact)}</div>
-        <div><i className="ppBubbleSize ppBubbleSize-medium" />{formatCompactMoney(maxImpact * 0.5)}</div>
-        <div><i className="ppBubbleSize ppBubbleSize-small" />{formatCompactMoney(maxImpact * 0.2)}</div>
+        <span>Bubble size: revenue at risk</span>
+        <div><i className="ppBubbleSize ppBubbleSize-large" />{formatCompactMoney(maxRevenueAtRisk)}</div>
+        <div><i className="ppBubbleSize ppBubbleSize-medium" />{formatCompactMoney(maxRevenueAtRisk * 0.5)}</div>
+        <div><i className="ppBubbleSize ppBubbleSize-small" />{formatCompactMoney(maxRevenueAtRisk * 0.2)}</div>
       </div>
     </div>
   );
@@ -7071,7 +7315,9 @@ function RiskBubbleFloatingPopover({ bubble, position }) {
     >
       <strong>{bubble.label}</strong>
       <span><b>{bubble.riskLabel || "Risk"}</b> product risk: {bubble.riskScore}/100</span>
-      <span><b>Margin impact:</b> {formatMoney(bubble.impact || 0)}</span>
+      <span><b>Margin at risk:</b> {formatMoney(bubble.impact || 0)}</span>
+      <span><b>Revenue at risk:</b> {formatMoney(bubble.revenueAtRisk || 0)}</span>
+      <span><b>Quadrant:</b> {bubble.quadrant || "Priority review"}</span>
       <span><b>Main issue:</b> {bubble.issueLabel || "Product quality"}</span>
       <span><b>Signals:</b> {formatInteger(bubble.signalCount || 0)} stored signals</span>
       <span><b>Rates:</b> {formatPercent(bubble.returnRate || 0)} returns / {formatPercent(bubble.refundRate || 0)} refunds</span>
@@ -7205,41 +7451,6 @@ function getAnalyticsLinePoints(values = []) {
     const y = top + height - ((value - min) / range) * height;
     return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`;
   }).join(" ");
-}
-
-function buildBarAxisLabels(max, money) {
-  return Array.from({ length: 5 }, (_, index) => {
-    const value = (Number(max || 0) / 4) * index;
-    return money ? formatCompactMoney(value) : formatInteger(value);
-  });
-}
-
-function buildDonutGradient(rows) {
-  if (!rows?.length) {
-    return "conic-gradient(var(--pp-slate-200) 0 100%)";
-  }
-  let cursor = 0;
-  const stops = rows.map((row) => {
-    const start = cursor;
-    const width = Math.max(0, Number(row.percent || 0));
-    cursor += width;
-    return `${getAnalyticsColorVar(row.color)} ${start}% ${cursor}%`;
-  });
-  if (cursor < 100) stops.push(`var(--pp-slate-200) ${cursor}% 100%`);
-  return `conic-gradient(${stops.join(", ")})`;
-}
-
-function getAnalyticsColorVar(color) {
-  const colors = {
-    red: "var(--pp-risk-red)",
-    orange: "var(--pp-warning-amber)",
-    yellow: "var(--pp-warning-amber)",
-    green: "var(--pp-signal-teal)",
-    blue: "var(--pp-pulse-blue)",
-    purple: "var(--pp-insight-violet)",
-    pink: "var(--pp-risk-red)",
-  };
-  return colors[color] || colors.blue;
 }
 
 function formatMoney(value) {
