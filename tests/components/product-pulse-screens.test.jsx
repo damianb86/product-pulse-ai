@@ -268,8 +268,32 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Apply to product" })[0]);
     expect(screen.getByRole("heading", { name: "Confirm product description update" })).toBeInTheDocument();
     expect(screen.getAllByText("Updated fit guidance for shoppers.").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
     expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
+    expect(screen.getByText("Completed and dismissed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand Add fit note" })).toHaveTextContent("Dismissed");
+    expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Expand Add fit note" }));
+    expect(screen.getByRole("heading", { name: "Add fit note" })).toBeInTheDocument();
+  });
+
+  it("compacts applied recommended actions after successful Shopify changes", async () => {
+    renderWithRouter(<ProductDiagnosisScreen
+      data={defaultView}
+      product={defaultView.startHere}
+      actionData={{
+        status: "success",
+        message: "Add fit note was applied.",
+        action: { id: "fit-note", label: "Add fit note" },
+      }}
+    />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Expand Add fit note" })).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand Add fit note" })).toHaveTextContent("Applied");
+    fireEvent.click(screen.getByRole("button", { name: "Expand Add fit note" }));
+    expect(screen.getByRole("heading", { name: "Add fit note" })).toBeInTheDocument();
   });
 
   it("lets FAQ recommendations choose the Shopify application format", async () => {
@@ -293,7 +317,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Minimize" }));
     expect(screen.getByRole("button", { name: "Expand" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/customers report this trouser runs small/)).not.toBeInTheDocument();
-    expect(screen.getByText("3 actions available")).toBeInTheDocument();
+    expect(screen.getByText("3 active actions")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand" }));
     expect(screen.getByRole("button", { name: "Minimize" })).toHaveAttribute("aria-expanded", "true");

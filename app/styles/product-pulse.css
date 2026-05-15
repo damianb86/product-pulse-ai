@@ -3288,6 +3288,87 @@ s-page[inline-size="large-500"] {
   align-items: start;
 }
 
+.ppMinimizedActionsTray {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ppMinimizedActionsTray > span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.ppMinimizedActionsTray > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.ppMinimizedActionChip {
+  min-width: 0;
+  max-width: 280px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppMinimizedActionChip s-icon {
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.ppMinimizedActionChip span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppMinimizedActionChip em {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.ppMinimizedActionChip-applied {
+  border-color: rgba(var(--pp-success-green-rgb), 0.26);
+  background: rgba(var(--pp-success-green-rgb), 0.08);
+  color: var(--pp-success-green);
+}
+
+.ppMinimizedActionChip-dismissed {
+  opacity: 0.82;
+}
+
+.ppMinimizedActionChip:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.32);
+  background: var(--pp-cloud-white);
+}
+
 .ppProductActionItem {
   display: grid;
   grid-template-columns: 1fr;
@@ -8341,6 +8422,14 @@ s-page[inline-size="large-500"] {
 
   .ppRecommendedActionList {
     grid-template-columns: 1fr;
+  }
+
+  .ppMinimizedActionsTray {
+    justify-items: start;
+  }
+
+  .ppMinimizedActionsTray > div {
+    justify-content: flex-start;
   }
 
   .ppProductActionCta {
