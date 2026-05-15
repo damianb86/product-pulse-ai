@@ -470,18 +470,26 @@ export async function searchShopifyProductsForDiagnosis(shop, admin, rawQuery) {
       },
     );
     const products = Array.isArray(data?.products?.nodes) ? data.products.nodes.filter(Boolean) : [];
+    const productGids = products.map((product) => product.id).filter(Boolean);
     const existingSnapshots = products.length
       ? await prisma.productRiskSnapshot.findMany({
-        where: { shop, productGid: { in: products.map((product) => product.id).filter(Boolean) } },
-        select: { productGid: true },
+        where: { shop, productGid: { in: productGids } },
+        select: { productGid: true, metrics: true },
       })
       : [];
-    const existingProductGids = new Set(existingSnapshots.map((snapshot) => snapshot.productGid));
+    const completedDiagnoses = productGids.length
+      ? await prisma.productDiagnosis.findMany({
+        where: { shop, productGid: { in: productGids }, status: "Completed" },
+        select: { productGid: true },
+        distinct: ["productGid"],
+      })
+      : [];
+    const searchStatusByProductGid = getSearchProductPulseStatusMap(existingSnapshots, completedDiagnoses);
 
     return {
       status: "success",
       query,
-      products: products.map((product) => formatShopifyProductSearchResult(product, existingProductGids)),
+      products: products.map((product) => formatShopifyProductSearchResult(product, searchStatusByProductGid)),
       message: products.length ? `${products.length} Shopify product${products.length === 1 ? "" : "s"} found.` : "No Shopify products matched that search.",
     };
   } catch (error) {
@@ -2139,13 +2147,27 @@ function buildManualProductRiskSnapshotPayload(shop, product) {
   };
 }
 
-function formatShopifyProductSearchResult(product, existingProductGids = new Set()) {
+function getSearchProductPulseStatusMap(snapshots = [], diagnoses = []) {
+  const statusByProductGid = new Map();
+  snapshots.forEach((snapshot) => {
+    const metrics = snapshot.metrics || {};
+    const hasFullDiagnosis = Boolean(metrics.latestDiagnosisId || metrics.lastDetailedDiagnosisAt);
+    statusByProductGid.set(snapshot.productGid, hasFullDiagnosis ? "full" : "quickscan");
+  });
+  diagnoses.forEach((diagnosis) => {
+    if (diagnosis.productGid) statusByProductGid.set(diagnosis.productGid, "full");
+  });
+  return statusByProductGid;
+}
+
+function formatShopifyProductSearchResult(product, statusByProductGid = new Map()) {
   const mediaNode = product.media?.nodes?.[0] || {};
   const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
   const collections = getConnectionNodes(product.collections);
   const variants = getConnectionNodes(product.variants);
   const vendorAndType = [product.vendor, product.productType].filter(Boolean).join(" / ");
   const firstCollection = collections[0]?.title;
+  const productPulseStatus = statusByProductGid.get(product.id) || "catalog";
 
   return {
     id: product.id,
@@ -2160,9 +2182,24 @@ function formatShopifyProductSearchResult(product, existingProductGids = new Set
     imageUrl: image.url || null,
     imageAlt: image.altText || null,
     variant: getProductArtVariant(product.handle),
-    existingSnapshot: existingProductGids.has(product.id),
+    existingSnapshot: productPulseStatus !== "catalog",
+    productPulseStatus,
+    productPulseStatusLabel: getProductPulseSearchStatusLabel(productPulseStatus),
+    productPulseStatusDetail: getProductPulseSearchStatusDetail(productPulseStatus),
     href: product.handle ? `/app/products/${product.handle}` : `/app/products/${encodeURIComponent(product.id)}`,
   };
+}
+
+function getProductPulseSearchStatusLabel(status) {
+  if (status === "full") return "Deep analysis completed";
+  if (status === "quickscan") return "QuickScan stored";
+  return "Not in ProductPulse";
+}
+
+function getProductPulseSearchStatusDetail(status) {
+  if (status === "full") return "This product already has a completed deep product diagnosis in ProductPulse.";
+  if (status === "quickscan") return "This product is stored in ProductPulse with lightweight QuickScan signals only.";
+  return "This Shopify product is not stored in ProductPulse yet. Run a diagnosis or add it to a workflow to start tracking it.";
 }
 
 function buildShopifyProductSearchQuery(query) {

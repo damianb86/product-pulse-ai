@@ -183,6 +183,19 @@ s-page[inline-size="large-500"] {
   transform: scale(1.45);
 }
 
+.ppBinocularsIcon {
+  width: 1.45em;
+  height: 1.45em;
+  display: block;
+  flex: 0 0 auto;
+  color: currentColor;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
 .ppDashboardIcon-small {
   width: 24px;
   height: 24px;
@@ -210,6 +223,14 @@ s-page[inline-size="large-500"] {
 .ppDashboardIcon-purple {
   color: var(--pp-insight-violet);
   background: var(--pp-violet-soft);
+}
+
+.ppDashboardIcon-watch {
+  color: var(--pp-insight-violet);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.96), transparent 22%),
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.18), rgba(var(--pp-pulse-blue-rgb), 0.12));
+  box-shadow: inset 0 0 0 1px rgba(var(--pp-insight-violet-rgb), 0.18);
 }
 
 .ppDashboardIcon-orange {
@@ -2210,6 +2231,21 @@ s-page[inline-size="large-500"] {
 
 .ppProductWatchlistButton {
   color: var(--pp-insight-violet);
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.28);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.94), transparent 22%),
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.14), rgba(var(--pp-pulse-blue-rgb), 0.08));
+}
+
+.ppProductWatchlistButton:hover {
+  border-color: var(--pp-insight-violet);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.96), transparent 22%),
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.2), rgba(var(--pp-pulse-blue-rgb), 0.12));
+}
+
+.ppProductWatchlistButton .ppBinocularsIcon {
+  font-size: 15px;
 }
 
 .ppAnalysisStatusWrap {
@@ -9023,17 +9059,6 @@ s-page[inline-size="large-500"] {
   font-size: 14px;
 }
 
-.ppShopifyProductResultText > div > span {
-  flex: 0 0 auto;
-  padding: 3px 7px;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
-  border-radius: 999px;
-  background: var(--pp-blue-soft);
-  color: var(--pp-pulse-blue);
-  font-size: 11px;
-  font-weight: 750;
-}
-
 .ppShopifyProductResultText p {
   margin: 3px 0 0;
   color: var(--pp-slate-700);
@@ -9072,6 +9097,65 @@ s-page[inline-size="large-500"] {
   background: var(--pp-slate-100);
   color: var(--pp-slate-500);
   cursor: not-allowed;
+}
+
+.ppProductPulseSearchStatus {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-600);
+  cursor: help;
+  padding: 0;
+}
+
+.ppProductPulseSearchStatus s-icon {
+  transform: scale(0.94);
+}
+
+.ppProductPulseSearchStatus .ppBinocularsIcon {
+  font-size: 13px;
+}
+
+.ppProductPulseSearchStatus-full {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.24);
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductPulseSearchStatus-quickscan {
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.25);
+  background: var(--pp-cyan-soft);
+  color: var(--pp-info-cyan);
+}
+
+.ppProductPulseSearchStatus-catalog {
+  border-color: var(--pp-slate-300);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppProductPulseSearchStatus-watch {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.24);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.96), transparent 22%),
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.18), rgba(var(--pp-pulse-blue-rgb), 0.1));
+  color: var(--pp-insight-violet);
+}
+
+.ppProductPulseSearchStatusPopover strong,
+.ppProductPulseSearchStatusPopover small {
+  display: block;
+}
+
+.ppProductPulseSearchStatusPopover small {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.35;
 }
 
 .ppShopifyProductSearchEmpty {
@@ -9291,15 +9375,25 @@ s-page[inline-size="large-500"] {
 .ppWatchlistStatCard {
   min-height: 88px;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
   padding: 14px;
 }
 
 .ppWatchlistStatCard .ppDashboardIcon {
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.ppWatchlistStatCard .ppDashboardIcon s-icon {
+  transform: scale(1.55);
+}
+
+.ppWatchlistStatCard .ppDashboardIcon .ppBinocularsIcon {
+  font-size: 21px;
 }
 
 .ppWatchlistStatCard > div {

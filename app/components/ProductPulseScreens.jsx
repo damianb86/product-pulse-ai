@@ -1107,7 +1107,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
         <ActionBanner actionData={actionData} />
 
         <div className="ppWatchlistStats" aria-label="Watchlist overview">
-          <WatchlistStatCard icon="view" tone="purple" label="Watched products" value={`${watchedCount} / ${maxProducts}`} detail={`${slotsAvailable} slot${slotsAvailable === 1 ? "" : "s"} available`} />
+          <WatchlistStatCard icon="binoculars" tone="watch" label="Watched products" value={`${watchedCount} / ${maxProducts}`} detail={`${slotsAvailable} slot${slotsAvailable === 1 ? "" : "s"} available`} />
           <WatchlistStatCard icon="calendar" tone="blue" label="Scan cadence" value={mock.scanCadence || "Every 3 days"} detail={mock.scanCadenceDetail || "Automatic rescans"} />
           <WatchlistStatCard icon="refresh" tone="green" label="Last watch run" value={mock.lastRun || "6h ago"} detail={mock.lastRunDetail || "All active products scanned"} />
           <WatchlistStatCard icon="clock" tone="blue" label="Next watch run" value={mock.nextRun || "In 2d 18h"} detail={mock.nextRunDetail || "May 21, 9:00 AM"} />
@@ -1139,7 +1139,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
                   <tr>
                     <td colSpan="6">
                       <div className="ppWatchlistEmptyState">
-                        <DashboardIcon type="view" tone="purple" />
+                        <DashboardIcon type="binoculars" tone="watch" />
                         <div>
                           <h2>No watched products yet</h2>
                           <p>Add up to five Shopify products to monitor on the watch cadence.</p>
@@ -1365,7 +1365,7 @@ export function WatchlistActivityScreen({ data = {} }) {
           </div>
         </div>
         <div className="ppWatchlistStats" aria-label="Watch activity overview">
-          <WatchlistStatCard icon="view" tone="purple" label="Watched products" value={`${watchlist.watchedCount || 0} / ${watchlist.maxProducts || 5}`} detail={`${watchlist.slotsAvailable || 0} slots available`} />
+          <WatchlistStatCard icon="binoculars" tone="watch" label="Watched products" value={`${watchlist.watchedCount || 0} / ${watchlist.maxProducts || 5}`} detail={`${watchlist.slotsAvailable || 0} slots available`} />
           <WatchlistStatCard icon="refresh" tone="blue" label="Stored events" value={activities.length} detail="Latest watchlist activity" />
           <WatchlistStatCard icon="pause" tone="purple" label="Paused products" value={(watchlist.rows || []).filter((row) => row.status === "Paused").length} detail="Not included in automatic watches" />
           <WatchlistStatCard icon="wand" tone="orange" label="Risk updates" value={activities.filter((activity) => ["watch_scan_completed", "diagnosis_completed"].includes(activity.eventType)).length} detail="Scan or diagnosis events" />
@@ -2071,7 +2071,7 @@ function ShopifyProductSearchModal({
                     <div className="ppShopifyProductResultText">
                       <div>
                         <strong>{product.title}</strong>
-                        <span>{alreadyAdded ? addedActionLabel : product.existingSnapshot ? "In ProductPulse" : "Not in QuickScan"}</span>
+                        <ProductSearchStatusIcon product={product} alreadyAdded={alreadyAdded} addedActionLabel={addedActionLabel} />
                       </div>
                       <p>{product.handle ? `/${product.handle}` : "Shopify product"}</p>
                       <small>
@@ -2100,6 +2100,69 @@ function ShopifyProductSearchModal({
       </section>
     </div>
   );
+}
+
+function ProductSearchStatusIcon({ product, alreadyAdded = false, addedActionLabel = "Added" }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const status = getProductSearchStatus(product, alreadyAdded);
+  const label = alreadyAdded ? addedActionLabel : status.label;
+  const detail = alreadyAdded ? "This product is already in the current workflow." : status.detail;
+
+  return (
+    <>
+      <button
+        className={`ppProductPulseSearchStatus ppProductPulseSearchStatus-${status.tone}`}
+        type="button"
+        ref={triggerRef}
+        aria-label={`${label}. ${detail}`}
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        {status.icon === "binoculars" ? <ProductPulseGlyph type="binoculars" /> : <s-icon type={status.icon} size="small"></s-icon>}
+      </button>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppProductPulseSearchStatusPopover" width={252} placement="top-center">
+        <strong>{label}</strong>
+        <small>{detail}</small>
+      </FloatingTablePopover>
+    </>
+  );
+}
+
+function getProductSearchStatus(product = {}, alreadyAdded = false) {
+  if (alreadyAdded) {
+    return {
+      icon: "binoculars",
+      tone: "watch",
+      label: "Already added",
+      detail: "This product is already selected for this workflow.",
+    };
+  }
+  const status = product.productPulseStatus || (product.existingSnapshot ? product.analysisDepth === "full" ? "full" : "quickscan" : "catalog");
+  if (status === "full") {
+    return {
+      icon: "wand",
+      tone: "full",
+      label: product.productPulseStatusLabel || "Deep analysis completed",
+      detail: product.productPulseStatusDetail || "This product already has a completed deep product diagnosis in ProductPulse.",
+    };
+  }
+  if (status === "quickscan") {
+    return {
+      icon: "search",
+      tone: "quickscan",
+      label: product.productPulseStatusLabel || "QuickScan stored",
+      detail: product.productPulseStatusDetail || "This product is stored in ProductPulse with lightweight QuickScan signals only.",
+    };
+  }
+  return {
+    icon: "product",
+    tone: "catalog",
+    label: product.productPulseStatusLabel || "Not in ProductPulse",
+    detail: product.productPulseStatusDetail || "This Shopify product is not stored in ProductPulse yet.",
+  };
 }
 
 function ProductFilterPillGroup({ label, value, options, onChange }) {
@@ -4163,7 +4226,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       title="Add product to Watchlist"
                       disabled={pendingActionType === "add-to-watchlist" || !detail.productGid}
                     >
-                      <s-icon type="view" size="small"></s-icon>
+                      <ProductPulseGlyph type="binoculars" />
                     </button>
                   </Form>
                   {detail.diagnosisInProgress ? (
@@ -4726,10 +4789,26 @@ function DashboardKpiCard({ kpi }) {
   );
 }
 
+function ProductPulseGlyph({ type }) {
+  if (type === "binoculars") {
+    return (
+      <svg className="ppBinocularsIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M8.4 5.5H10l1.3 7.1" />
+        <path d="M15.6 5.5H14l-1.3 7.1" />
+        <path d="M9.2 5.5V4.1h5.6v1.4" />
+        <path d="M11.1 13.2h1.8" />
+        <circle cx="7.7" cy="16" r="4.2" />
+        <circle cx="16.3" cy="16" r="4.2" />
+      </svg>
+    );
+  }
+  return <s-icon type={type}></s-icon>;
+}
+
 function DashboardIcon({ type, tone = "blue", size = "base" }) {
   return (
     <span className={`ppDashboardIcon ppDashboardIcon-${tone} ppDashboardIcon-${size}`} aria-hidden="true">
-      <s-icon type={type}></s-icon>
+      <ProductPulseGlyph type={type} />
     </span>
   );
 }
