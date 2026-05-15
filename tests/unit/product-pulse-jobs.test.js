@@ -44,7 +44,7 @@ describe("ProductPulse product job helpers", () => {
     expect(parsed).toEqual([{ question: "Edited question?", answer: "Edited answer." }]);
   });
 
-  it("builds product-list signal bars in lifecycle order with real metric detail", () => {
+  it("builds product-list evidence bars in fixed source-family order with real metric detail", () => {
     const bars = productPulseJobsTestHooks.getSignalLifecycleBars({
       productType: "Toys",
       vendor: "Qorve",
@@ -79,19 +79,18 @@ describe("ProductPulse product job helpers", () => {
     });
 
     expect(bars.map((bar) => bar.label)).toEqual([
-      "Product setup",
-      "PDP content",
+      "Product / PDP content",
       "Reviews",
-      "Repeated reasons",
-      "Refund pressure",
-      "Return pressure",
-      "Recent trend",
+      "Customer language",
+      "Returns",
+      "Refunds / financial",
     ]);
     expect(bars.some((bar) => bar.label === "Baseline")).toBe(false);
-    expect(bars.find((bar) => bar.label === "Product setup").detail).toContain("catalog checks");
-    expect(bars.find((bar) => bar.label === "Refund pressure").detail).toContain("refund rate");
-    expect(bars.find((bar) => bar.label === "Return pressure").detail).toContain("return rate");
-    expect(new Set(bars.map((bar) => bar.value)).size).toBeGreaterThan(4);
+    expect(bars.find((bar) => bar.label === "Product / PDP content").detail).toContain("content issue");
+    expect(bars.find((bar) => bar.label === "Reviews").detail).toContain("negative or low-rated");
+    expect(bars.find((bar) => bar.label === "Returns").detail).toContain("return rate");
+    expect(bars.find((bar) => bar.label === "Refunds / financial").detail).toContain("refund rate");
+    expect(new Set(bars.map((bar) => bar.value)).size).toBeGreaterThan(3);
   });
 
   it("builds a minimal snapshot for manually selected Shopify products", () => {

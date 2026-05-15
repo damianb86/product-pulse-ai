@@ -810,6 +810,10 @@ s-page[inline-size="large-500"] {
   background: var(--pp-signal-teal);
 }
 
+.ppSignalBars-gray span {
+  background: var(--pp-slate-300);
+}
+
 .ppSignalPopoverWrap,
 .ppSourceTokenWrap,
 .ppActionMenuWrap {
@@ -819,19 +823,42 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSignalTrigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: inline-grid;
+  gap: 3px;
+  align-items: start;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--pp-slate-700);
   font: inherit;
-  cursor: help;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
 }
 
-.ppSignalTrigger > span:last-child {
+.ppSignalTrigger:hover,
+.ppSignalTrigger:focus-visible {
+  color: var(--pp-pulse-blue);
+  outline: none;
+}
+
+.ppSignalTriggerMain {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pp-slate-900);
+}
+
+.ppSignalTriggerMain > span:last-child {
   font-weight: 650;
+}
+
+.ppSignalStrengthLine {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .ppSignalPopover,
@@ -861,6 +888,31 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
 }
 
+.ppSignalPopoverMeta {
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+}
+
+.ppSignalPopoverMeta span {
+  display: grid;
+  gap: 2px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.28;
+}
+
+.ppSignalPopoverMeta b,
+.ppSignalPopoverList > b {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 820;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .ppSignalPopoverList {
   display: grid;
   gap: 8px;
@@ -868,9 +920,13 @@ s-page[inline-size="large-500"] {
 
 .ppSignalPopoverItem {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
   gap: 9px;
+}
+
+.ppSignalPopoverItem s-icon {
+  color: var(--pp-pulse-blue);
 }
 
 .ppSignalPopoverItem b {
@@ -900,6 +956,13 @@ s-page[inline-size="large-500"] {
   height: 100%;
   border-radius: inherit;
   background: var(--pp-pulse-blue);
+}
+
+.ppSignalPopoverFooter {
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.25;
 }
 
 .ppSignalPopoverWrap:hover .ppSignalPopover,

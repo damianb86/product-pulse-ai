@@ -1389,9 +1389,9 @@ function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = nul
     analysisIcon: analysisState.icon,
     analysisCompletedAt: analysisState.completedAt,
     signals: metrics.signalCount || 0,
-    signalTone: riskLabel === "High" ? "red" : riskLabel === "Medium" ? "orange" : "green",
+    signalTone: getEvidenceToneForProduct(snapshot.riskScore, metrics, settings),
     signalBars: getSignalBars(metrics),
-    signalDetails: getSignalDetails(snapshot, metrics),
+    signalDetails: getSignalDetails(snapshot, metrics, settings),
     issue: snapshot.primaryIssue,
     sources: sources.map(getSourceToken),
     sourceOverflow: Math.max(0, sources.length - 3),
@@ -2636,75 +2636,187 @@ function getSourceToken(source) {
 }
 
 function getSignalBars(metrics) {
-  return getSignalLifecycleBars(metrics).map((bar) => bar.value);
+  return getEvidenceFamilyBars(metrics).map((bar) => bar.value);
 }
 
-function getSignalDetails(snapshot, metrics) {
+function getSignalDetails(snapshot, metrics, settings = undefined) {
   const signalCount = Number(metrics.signalCount || 0);
-  const bars = getSignalLifecycleBars(metrics);
-  const strongestBars = bars
-    .filter((bar) => bar.value > 12)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 2);
-  const strongestSummary = strongestBars.length
-    ? ` Strongest lifecycle signal${strongestBars.length === 1 ? "" : "s"}: ${strongestBars.map((bar) => `${bar.label} ${bar.value}/100`).join(", ")}.`
-    : "";
+  const bars = getEvidenceFamilyBars(metrics);
+  const sourceCount = bars.filter((bar) => Number(bar.signalUnits || 0) > 0).length;
+  const conflicting = hasConflictingEvidence(metrics);
+  const strengthLabel = getEvidenceStrengthLabel({ signalCount, sourceCount, conflicting });
+  const topEvidence = bars
+    .filter((bar) => Number(bar.signalUnits || 0) > 0)
+    .sort((first, second) => Number(second.signalUnits || second.value || 0) - Number(first.signalUnits || first.value || 0))
+    .slice(0, 4)
+    .map((bar) => ({
+      label: bar.label,
+      detail: bar.detail,
+      icon: bar.icon,
+    }));
+  const recommendedAction = getPrimaryRecommendedActionLabel(snapshot, metrics);
 
   return {
-    summary: `${snapshot.primaryIssue || "Product quality"} product risk ${snapshot.riskScore}/100 from ${signalCount} signal${signalCount === 1 ? "" : "s"}. Bars run left to right from product setup to post-purchase pressure.${strongestSummary}`,
+    signalCount,
+    sourceCount,
+    strengthLabel,
+    conflicting,
+    tone: getEvidenceToneForProduct(snapshot.riskScore, metrics, settings),
+    mainIssue: snapshot.primaryIssue || "Product quality",
+    recommendedAction,
+    topEvidence,
+    summary: `${strengthLabel} evidence · ${signalCount} signal${signalCount === 1 ? "" : "s"} · ${sourceCount} source${sourceCount === 1 ? "" : "s"}`,
     bars,
   };
 }
 
-function getSignalLifecycleBars(metrics = {}) {
+function getEvidenceFamilyBars(metrics = {}) {
   const normalizedMetrics = metrics || {};
   return [
     {
-      key: "product_setup",
-      label: "Product setup",
-      value: getProductSetupSignalValue(normalizedMetrics),
-      detail: getProductSetupSignalDetail(normalizedMetrics),
-    },
-    {
-      key: "pdp_content",
-      label: "PDP content",
-      value: getPdpContentSignalValue(normalizedMetrics),
-      detail: getPdpContentSignalDetail(normalizedMetrics),
+      key: "product_content",
+      label: "Product / PDP content",
+      value: getProductContentEvidenceValue(normalizedMetrics),
+      signalUnits: getProductContentEvidenceUnits(normalizedMetrics),
+      detail: getProductContentEvidenceDetail(normalizedMetrics),
+      icon: "product",
     },
     {
       key: "reviews",
       label: "Reviews",
       value: getReviewSignalValue(normalizedMetrics),
+      signalUnits: getReviewEvidenceUnits(normalizedMetrics),
       detail: getReviewSignalDetail(normalizedMetrics),
+      icon: "star",
     },
     {
-      key: "repeated_reasons",
-      label: "Repeated reasons",
-      value: getRepeatedReasonSignalValue(normalizedMetrics),
-      detail: getRepeatedReasonSignalDetail(normalizedMetrics),
+      key: "customer_language",
+      label: "Customer language",
+      value: getCustomerLanguageSignalValue(normalizedMetrics),
+      signalUnits: getCustomerLanguageEvidenceUnits(normalizedMetrics),
+      detail: getCustomerLanguageSignalDetail(normalizedMetrics),
+      icon: "note",
     },
     {
-      key: "refund_pressure",
-      label: "Refund pressure",
-      value: getRefundSignalValue(normalizedMetrics),
-      detail: getRefundSignalDetail(normalizedMetrics),
-    },
-    {
-      key: "return_pressure",
-      label: "Return pressure",
+      key: "returns",
+      label: "Returns",
       value: getReturnSignalValue(normalizedMetrics),
+      signalUnits: getReturnEvidenceUnits(normalizedMetrics),
       detail: getReturnSignalDetail(normalizedMetrics),
+      icon: "return",
     },
     {
-      key: "recent_trend",
-      label: "Recent trend",
-      value: getRecentTrendSignalValue(normalizedMetrics),
-      detail: getRecentTrendSignalDetail(normalizedMetrics),
+      key: "refunds_financial",
+      label: "Refunds / financial",
+      value: getRefundSignalValue(normalizedMetrics),
+      signalUnits: getRefundEvidenceUnits(normalizedMetrics),
+      detail: getRefundSignalDetail(normalizedMetrics),
+      icon: "cash-dollar",
     },
   ].map((bar) => ({
     ...bar,
     value: clampSignalBar(bar.value),
   }));
+}
+
+const getSignalLifecycleBars = getEvidenceFamilyBars;
+
+function getEvidenceStrengthLabel({ signalCount, sourceCount, conflicting = false }) {
+  if (conflicting) return "Conflicting";
+  if (signalCount >= 10 && sourceCount >= 3) return "Strong";
+  if (signalCount >= 5 || sourceCount >= 2) return "Moderate";
+  if (signalCount >= 1) return sourceCount <= 1 ? "Sparse" : "Weak";
+  return "Sparse";
+}
+
+function getEvidenceToneForProduct(riskScore, metrics = {}, settings = undefined) {
+  if (Number(metrics.signalCount || 0) <= 0) return "gray";
+  const label = getRiskLabel(riskScore, settings);
+  if (label === "High") return "red";
+  if (label === "Medium") return "orange";
+  return "green";
+}
+
+function hasConflictingEvidence(metrics = {}) {
+  if (metrics.evidenceConflict || metrics.conflictingEvidence) return true;
+  const positive = Number(metrics.textInsights?.sentiment?.positive || metrics.positiveReviewCount || 0);
+  const negative = Number(metrics.textInsights?.sentiment?.negative || metrics.negativeReviewCount || 0);
+  return positive >= 3 && negative >= 3 && Math.abs(positive - negative) <= Math.max(2, Math.round(Math.max(positive, negative) * 0.35));
+}
+
+function getPrimaryRecommendedActionLabel(snapshot, metrics) {
+  const recommendations = Array.isArray(metrics.recommendations) ? metrics.recommendations : [];
+  const firstRecommendation = recommendations.find((item) => item?.label || item?.title);
+  if (firstRecommendation) return firstRecommendation.label || firstRecommendation.title;
+  return getSnapshotRecommendedActions(snapshot, metrics)[0]?.label || "Review product diagnosis";
+}
+
+function getProductContentEvidenceValue(metrics) {
+  return Math.max(getProductSetupSignalValue(metrics), getPdpContentSignalValue(metrics));
+}
+
+function getProductContentEvidenceUnits(metrics) {
+  const contentIssues = Number(metrics.contentIssueCount || 0);
+  const contentIssueLabels = getContentIssueLabels(metrics).length;
+  const descriptionMissing = Object.prototype.hasOwnProperty.call(metrics, "hasDescription") && !metrics.hasDescription ? 1 : 0;
+  const shortDescription = Number(metrics.descriptionWordCount || 0) > 0 && Number(metrics.descriptionWordCount || 0) < 25 ? 1 : 0;
+  return contentIssues || contentIssueLabels || descriptionMissing + shortDescription;
+}
+
+function getProductContentEvidenceDetail(metrics) {
+  const setupDetail = getProductSetupSignalDetail(metrics);
+  const pdpDetail = getPdpContentSignalDetail(metrics);
+  const units = getProductContentEvidenceUnits(metrics);
+  if (units > 0) return pdpDetail;
+  return setupDetail === "No catalog setup gaps detected." ? "No relevant product-content gaps detected." : setupDetail;
+}
+
+function getReviewEvidenceUnits(metrics) {
+  return Number(metrics.negativeReviewCount || metrics.csvLowRatingCount || metrics.csvNegativeReviewCount || 0);
+}
+
+function getCustomerLanguageEvidenceUnits(metrics) {
+  const sentiment = metrics.textInsights?.sentiment || {};
+  return Number(metrics.customerTextSignals || 0)
+    || Number(sentiment.negative || 0)
+    + getRepeatedLanguageUnits(metrics)
+    + Number(metrics.textInsights?.subjectiveNegativity?.count || 0)
+    + getList(metrics.textInsights?.aiEmergentSentiments).reduce((sum, item) => sum + Math.max(1, Number(item.signals || item.count || 1)), 0);
+}
+
+function getCustomerLanguageSignalValue(metrics) {
+  const sentiment = metrics.textInsights?.sentiment || {};
+  const total = Number(sentiment.total || metrics.customerTextSignals || 0);
+  const negative = Number(sentiment.negative || 0);
+  const repeatedLanguageUnits = getRepeatedLanguageUnits(metrics);
+  const subjective = Number(metrics.textInsights?.subjectiveNegativity?.count || 0);
+  const emergent = getList(metrics.textInsights?.aiEmergentSentiments).reduce((sum, item) => sum + Math.max(1, Number(item.signals || item.count || 1)), 0);
+  if (!total && !repeatedLanguageUnits && !subjective && !emergent) return 4;
+  const negativeRate = total ? (negative / total) * 100 : 0;
+  return negativeRate * 0.45 + repeatedLanguageUnits * 8 + subjective * 7 + emergent * 7;
+}
+
+function getCustomerLanguageSignalDetail(metrics) {
+  const sentiment = metrics.textInsights?.sentiment || {};
+  const repeatedLanguage = getRepeatedLanguageLabels(metrics);
+  const subjective = metrics.textInsights?.subjectiveNegativity || {};
+  const emergent = getList(metrics.textInsights?.aiEmergentSentiments).map((item) => item.label || item.normalizedLabel || item.value).filter(Boolean);
+  const pieces = [];
+  if (Number(sentiment.total || 0) > 0) pieces.push(`${sentiment.total} customer text signal${Number(sentiment.total) === 1 ? "" : "s"}, ${Number(sentiment.negative || 0)} negative`);
+  if (repeatedLanguage.length) pieces.push(`Repeated language: ${repeatedLanguage.slice(0, 3).join(", ")}`);
+  if (Number(subjective.count || 0) > 0) pieces.push(`${subjective.count} subjective negative reaction${Number(subjective.count) === 1 ? "" : "s"}`);
+  if (emergent.length) pieces.push(`Detected emotions: ${emergent.slice(0, 3).join(", ")}`);
+  return pieces.length
+    ? `${pieces.join(". ")}.`
+    : "No repeated customer language or sentiment evidence has been captured yet.";
+}
+
+function getReturnEvidenceUnits(metrics) {
+  return Number(metrics.returnUnits || 0) + getReasonSignalUnits(metrics.topReturnReasonDetails || metrics.topReturnReasons);
+}
+
+function getRefundEvidenceUnits(metrics) {
+  return Number(metrics.refundUnits || 0) + getReasonSignalUnits(metrics.topRefundReasonDetails || metrics.topRefundReasons);
 }
 
 function getProductSetupSignalValue(metrics) {
@@ -2839,39 +2951,6 @@ function getReviewSignalDetail(metrics) {
   return `${reviewCount} review rating${reviewCount === 1 ? "" : "s"}, ${negativeReviewCount} negative or low-rated (${formatPercent(negativeReviewRate)}), average rating ${averageRating ? averageRating.toFixed(1) : "n/a"}.${sourceText}`;
 }
 
-function getRepeatedReasonSignalValue(metrics) {
-  const repeatedReasonUnits = getReasonSignalUnits(metrics.topReturnReasonDetails || metrics.topReturnReasons)
-    + getReasonSignalUnits(metrics.topRefundReasonDetails || metrics.topRefundReasons);
-  const repeatedLanguageUnits = getRepeatedLanguageUnits(metrics);
-  const affectedVariantUnits = getList(metrics.affectedVariants).length;
-  const repeatedReasonRisk = Number(metrics.riskComponents?.repeatedReasonRisk || 0);
-  const variantRisk = Number(metrics.riskComponents?.variantConcentration || 0);
-
-  return repeatedReasonRisk
-    + variantRisk
-    + repeatedReasonUnits * 8
-    + repeatedLanguageUnits * 6
-    + affectedVariantUnits * 5;
-}
-
-function getRepeatedReasonSignalDetail(metrics) {
-  const reasons = [
-    ...getReasonLabels(metrics.topReturnReasonDetails || metrics.topReturnReasons, "return"),
-    ...getReasonLabels(metrics.topRefundReasonDetails || metrics.topRefundReasons, "refund"),
-  ];
-  const repeatedLanguage = getRepeatedLanguageLabels(metrics);
-  const affectedVariants = getList(metrics.affectedVariants);
-  const pieces = [];
-
-  if (reasons.length) pieces.push(`Repeated reasons: ${reasons.slice(0, 4).join(", ")}`);
-  if (repeatedLanguage.length) pieces.push(`Repeated language: ${repeatedLanguage.slice(0, 4).join(", ")}`);
-  if (affectedVariants.length) pieces.push(`Affected variants: ${affectedVariants.slice(0, 4).join(", ")}`);
-
-  return pieces.length
-    ? `${pieces.join(". ")}.`
-    : "No repeated reason, language cluster, or variant concentration has been captured yet.";
-}
-
 function getRefundSignalValue(metrics) {
   const refundRate = Number(metrics.refundRate || 0);
   const refundUnits = Number(metrics.refundUnits || 0);
@@ -2936,39 +3015,6 @@ function getReturnSignalDetail(metrics) {
   return `${pieces.join(". ")}.`;
 }
 
-function getRecentTrendSignalValue(metrics) {
-  const recentSpike = Number(metrics.riskComponents?.recentSpike || 0);
-  const recentSignalUnits = Number(metrics.recentSignalUnits || 0);
-  const trendValues = getNumericList(metrics.signalTrend);
-  if (!trendValues.length) return recentSpike + recentSignalUnits * 11;
-
-  const maxTrend = Math.max(...trendValues, 1);
-  const lastTrend = trendValues[trendValues.length - 1] || 0;
-  const firstTrend = trendValues[0] || 0;
-  const directionPressure = Math.max(0, lastTrend - firstTrend) * 0.45;
-  return recentSpike + recentSignalUnits * 8 + (lastTrend / maxTrend) * 42 + directionPressure;
-}
-
-function getRecentTrendSignalDetail(metrics) {
-  const recentSignalUnits = Number(metrics.recentSignalUnits || 0);
-  const lastSignalAt = metrics.lastSignalAt ? formatJobDate(metrics.lastSignalAt) : "No recent signal date";
-  const trendValues = getNumericList(metrics.signalTrend);
-  const movement = getTrendMovementLabel(trendValues);
-  return `${recentSignalUnits} recent signal unit${recentSignalUnits === 1 ? "" : "s"}. Last signal: ${lastSignalAt}. Trend movement: ${movement}.`;
-}
-
-function getTrendMovementLabel(values) {
-  if (!values.length) return "not enough dated signal data yet";
-  const first = values[0] || 0;
-  const last = values[values.length - 1] || 0;
-  const peak = Math.max(...values);
-  const peakIndex = values.indexOf(peak);
-  if (peak > Math.max(first, last) * 1.35 && peakIndex > 0 && peakIndex < values.length - 1) return "past spike";
-  if (last > first * 1.2) return "rising";
-  if (last < first * 0.8) return "falling";
-  return "stable";
-}
-
 function getReviewCount(metrics) {
   return Number(metrics.reviewCount || 0)
     || Number(metrics.csvReviewRatingCount || 0)
@@ -3024,10 +3070,6 @@ function getRepeatedLanguageLabels(metrics) {
     const count = Number(item.count || 0);
     return label ? `${label}${count > 1 ? ` (${count})` : ""}` : "";
   }).filter(Boolean);
-}
-
-function getNumericList(value) {
-  return getList(value).map(Number).filter((item) => Number.isFinite(item));
 }
 
 function getList(value) {

@@ -795,7 +795,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   </th>
                   <th>Status</th>
                   <th>Analysis</th>
-                  <th>Signals</th>
+                  <th>Evidence</th>
                   <th>Main suspected issue</th>
                   <th>Sources</th>
                   <th>
@@ -4133,7 +4133,8 @@ function ProductArt({ variant, label, size = "small", imageUrl, imageAlt }) {
 function ProductSignalCell({ product }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
-  const details = product.signalDetails || buildFallbackSignalDetails(product);
+  const details = normalizeProductEvidenceDetails(product);
+  const evidenceHref = details.fullEvidenceHref || `${product.href || `/app/products/${product.handle || product.slug || product.id}`}/evidence`;
 
   return (
     <span
@@ -4144,48 +4145,126 @@ function ProductSignalCell({ product }) {
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
-      <button className="ppSignalTrigger" type="button" aria-label={`Explain signals for ${product.title}`}>
-        <SignalBars tone={product.signalTone} values={product.signalBars || []} />
-        <span>{product.signals}</span>
-      </button>
-      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppSignalPopover" width={380} estimatedHeight={260}>
-        <strong>{details.summary}</strong>
-        <span className="ppSignalPopoverList">
-          {(details.bars || []).map((bar, index) => (
-            <span className="ppSignalPopoverItem" key={`${bar.label}-${index}`}>
-              <span className="ppSignalPopoverBar" aria-hidden="true">
-                <span style={{ width: `${Math.max(5, Math.min(100, Number(bar.value || 0)))}%` }} />
-              </span>
-              <span>
-                <b>{bar.label}</b>
-                <small>{bar.detail}</small>
-              </span>
-            </span>
-          ))}
+      <Link className="ppSignalTrigger" to={evidenceHref} aria-label={`Open evidence for ${product.title}`}>
+        <span className="ppSignalTriggerMain">
+          <SignalBars tone={details.tone || product.signalTone} values={details.values || product.signalBars || []} />
+          <span>{details.signalCount}</span>
         </span>
+        <span className="ppSignalStrengthLine">{details.strengthLabel} · {details.sourceCount} source{details.sourceCount === 1 ? "" : "s"}</span>
+      </Link>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppSignalPopover" width={340} estimatedHeight={280}>
+        <strong>{details.summary}</strong>
+        <span className="ppSignalPopoverMeta">
+          <span><b>Main issue</b>{details.mainIssue}</span>
+          <span><b>Recommended action</b>{details.recommendedAction}</span>
+        </span>
+        {details.topEvidence.length > 0 && (
+          <span className="ppSignalPopoverList">
+            <b>Top evidence</b>
+            {details.topEvidence.map((item) => (
+              <span className="ppSignalPopoverItem" key={item.label}>
+                <s-icon type={item.icon || "target"} size="small"></s-icon>
+                <span>
+                  <b>{item.label}</b>
+                  <small>{item.detail}</small>
+                </span>
+              </span>
+            ))}
+          </span>
+        )}
+        <span className="ppSignalPopoverFooter">Click the Evidence cell to view full evidence.</span>
       </FloatingTablePopover>
     </span>
   );
 }
 
+function normalizeProductEvidenceDetails(product) {
+  const rawDetails = product.signalDetails || buildFallbackSignalDetails(product);
+  const bars = Array.isArray(rawDetails.bars) ? rawDetails.bars : [];
+  const signalCount = Number(rawDetails.signalCount ?? product.signals ?? 0);
+  const sourceCount = Number(rawDetails.sourceCount ?? getEvidenceSourceCount(product, bars));
+  const strengthLabel = rawDetails.strengthLabel || getEvidenceStrengthLabel({ signalCount, sourceCount, conflicting: rawDetails.conflicting });
+  const tone = rawDetails.tone || getEvidenceTone(product, signalCount);
+  const values = bars.length ? bars.map((bar) => Number(bar.value || 0)) : product.signalBars || [];
+  const mainIssue = rawDetails.mainIssue || product.issue || "Product quality";
+  const recommendedAction = rawDetails.recommendedAction || product.recommendedAction || "Review product diagnosis";
+  const topEvidence = rawDetails.topEvidence?.length
+    ? rawDetails.topEvidence
+    : bars
+      .filter((bar) => Number(bar.signalUnits || bar.value || 0) > 0)
+      .sort((first, second) => Number(second.signalUnits || second.value || 0) - Number(first.signalUnits || first.value || 0))
+      .slice(0, 4)
+      .map((bar) => ({
+        label: bar.label,
+        detail: bar.detail,
+        icon: bar.icon,
+      }));
+
+  return {
+    ...rawDetails,
+    bars,
+    values,
+    signalCount,
+    sourceCount,
+    strengthLabel,
+    tone,
+    mainIssue,
+    recommendedAction,
+    topEvidence,
+    summary: rawDetails.summary || `${strengthLabel} evidence · ${signalCount} signal${signalCount === 1 ? "" : "s"} · ${sourceCount} source${sourceCount === 1 ? "" : "s"}`,
+  };
+}
+
+function getEvidenceSourceCount(product, bars = []) {
+  const activeFamilies = bars.filter((bar) => Number(bar.signalUnits || 0) > 0).length;
+  if (activeFamilies > 0) return activeFamilies;
+  const sourceCount = Number(product.sourceCount || 0);
+  if (sourceCount > 0) return sourceCount;
+  const sourceTokens = Array.isArray(product.sources) ? product.sources.length : 0;
+  return Math.max(sourceTokens + Number(product.sourceOverflow || 0), 0);
+}
+
+function getEvidenceStrengthLabel({ signalCount, sourceCount, conflicting = false }) {
+  if (conflicting) return "Conflicting";
+  if (signalCount >= 10 && sourceCount >= 3) return "Strong";
+  if (signalCount >= 5 || sourceCount >= 2) return "Moderate";
+  if (signalCount >= 1) return sourceCount <= 1 ? "Sparse" : "Weak";
+  return "Sparse";
+}
+
+function getEvidenceTone(product, signalCount) {
+  if (signalCount <= 0) return "gray";
+  const normalized = String(product.risk || product.riskLabel || product.signalTone || "").toLowerCase();
+  if (normalized.includes("high") || normalized.includes("red") || normalized.includes("critical")) return "red";
+  if (normalized.includes("medium") || normalized.includes("watch") || normalized.includes("orange") || normalized.includes("warning")) return "orange";
+  return "green";
+}
+
 function buildFallbackSignalDetails(product) {
   const values = product.signalBars || [];
   const fallbackBars = [
-    ["Product setup", "Catalog setup, type, vendor, tags, collections, variants and SKUs."],
-    ["PDP content", "Product page description and content-quality signals."],
+    ["Product / PDP content", "Product setup, product page copy and content-quality evidence."],
     ["Reviews", "Connected review rating and negative-review pressure."],
-    ["Repeated reasons", "Repeated return reasons, refund reasons, customer language or affected variants."],
-    ["Refund pressure", "Refund units, refund rate, refund amount and refund notes."],
-    ["Return pressure", "Return units, return rate and return reasons."],
-    ["Recent trend", "Recent dated signal momentum in the latest scan window."],
+    ["Customer language", "Repeated customer phrases, return notes, review text or sentiment evidence."],
+    ["Returns", "Return units, return rate and return reasons."],
+    ["Refunds / financial", "Refund units, refund amount and financial pressure."],
   ];
+  const signalCount = Number(product.signals || 0);
+  const sourceCount = getEvidenceSourceCount(product, fallbackBars.map((bar, index) => ({ label: bar[0], value: values[index] || 0, signalUnits: values[index] ? 1 : 0 })));
+  const strengthLabel = getEvidenceStrengthLabel({ signalCount, sourceCount });
 
   return {
-    summary: `${product.issue || "Product quality"} product risk ${product.riskScore || 0}/100 from ${product.signals || 0} signals. Bars run left to right from product setup to post-purchase pressure.`,
+    signalCount,
+    sourceCount,
+    strengthLabel,
+    mainIssue: product.issue || "Product quality",
+    recommendedAction: product.recommendedAction || "Review product diagnosis",
+    summary: `${strengthLabel} evidence · ${signalCount} signal${signalCount === 1 ? "" : "s"} · ${sourceCount} source${sourceCount === 1 ? "" : "s"}`,
     bars: fallbackBars.map(([label, detail], index) => ({
       label,
       value: values[index] || 0,
       detail,
+      signalUnits: values[index] ? 1 : 0,
     })),
   };
 }

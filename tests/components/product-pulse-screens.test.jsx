@@ -229,7 +229,7 @@ describe("ProductPulse screens", () => {
     };
     renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
     expect(screen.getByRole("button", { name: /Run quick scan/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Linen Shirt/ })).toHaveAttribute("href", "/app/products/linen-shirt");
+    expect(screen.getByText("Linen Shirt").closest("a")).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
     expect(screen.getByText("Diagnosis running")).toBeInTheDocument();
     const analysisButton = screen.getByRole("button", { name: /Fast Analysis completed/ });
@@ -240,7 +240,13 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
     fireEvent.click(screen.getByRole("button", { name: "Product risk" }));
     expect(screen.getByText("↓")).toBeInTheDocument();
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "Explain signals for Linen Shirt" }));
+    expect(screen.getByText("Evidence")).toBeInTheDocument();
+    expect(screen.getByText("Strong · 3 sources")).toBeInTheDocument();
+    const evidenceLink = screen.getByRole("link", { name: "Open evidence for Linen Shirt" });
+    expect(evidenceLink).toHaveAttribute("href", "/app/products/linen-shirt/evidence");
+    fireEvent.mouseEnter(evidenceLink);
+    expect(await screen.findByText("Main issue")).toBeInTheDocument();
+    expect(screen.getByText("Recommended action")).toBeInTheDocument();
     expect(await screen.findByText("Return rate contribution.")).toBeInTheDocument();
     expect(screen.getByLabelText("3 sources used for this product")).toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByLabelText("3 sources used for this product"));
