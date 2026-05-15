@@ -1026,10 +1026,43 @@ function getDescriptionOperationLabel(operation) {
 }
 
 function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action }) {
+  if (operation === "replace" && action?.payload?.preserveHtml && action?.payload?.descriptionReplacements?.length && currentHtml) {
+    const patchedHtml = applyDescriptionHtmlReplacements(currentHtml, action.payload.descriptionReplacements);
+    if (patchedHtml.changed) return patchedHtml.html;
+  }
   if (operation === "replace") return buildProductPulseDescriptionReplacement(draftText, action);
   const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action);
   if (operation === "append") return [currentHtml, suggestionHtml].filter(Boolean).join("\n");
   return [suggestionHtml, currentHtml].filter(Boolean).join("\n");
+}
+
+function applyDescriptionHtmlReplacements(currentHtml, replacements = []) {
+  const parts = String(currentHtml || "").split(/(<[^>]+>)/g);
+  let changed = false;
+  const html = parts.map((part) => {
+    if (!part || part.startsWith("<")) return part;
+    const next = applyTextReplacements(part, replacements);
+    if (next !== part) changed = true;
+    return next;
+  }).join("");
+  return { html, changed };
+}
+
+function applyTextReplacements(value, replacements = []) {
+  return (Array.isArray(replacements) ? replacements : []).reduce((text, replacement) => {
+    if (!replacement?.from || !replacement?.to) return text;
+    return replaceTextCaseInsensitive(text, replacement.from, replacement.to);
+  }, String(value || ""));
+}
+
+function replaceTextCaseInsensitive(value, from, to) {
+  const escaped = escapeRegExp(String(from || "").trim());
+  if (!escaped) return value;
+  return String(value || "").replace(new RegExp(`\\b${escaped}\\b`, "gi"), to);
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildProductPulseDescriptionBlock(text, action) {
@@ -3330,6 +3363,7 @@ function clampSignalBar(value) {
 export const __productPulseJobsTestHooks = {
   buildManualProductRiskSnapshotPayload,
   buildProductPulseFaqHtml,
+  buildUpdatedProductDescriptionHtml,
   getSignalLifecycleBars,
   normalizeFaqItemsForApply,
   getFaqApplyVariant,

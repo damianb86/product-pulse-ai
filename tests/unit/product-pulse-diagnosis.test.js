@@ -745,6 +745,33 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       contentIssues: [{ code: "title_description_mismatch", severity: "high", evidence: "Clearly disconnected from the title." }],
       currentDescription: goodDescription,
     })).toBe(true);
+    expect(__productPulseDiagnosisTestHooks.shouldRecommendFullDescriptionRewrite({
+      contentIssues: [{ code: "title_description_mismatch", severity: "high", evidence: "The title and description may be slightly mismatched." }],
+      currentDescription: goodDescription,
+    })).toBe(false);
+  });
+
+  it("flags variant color contradictions as targeted content corrections, not full rewrites", () => {
+    const analysis = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
+      title: "Vans SK8-Hi",
+      description: "The Vans SK8-Hi in True White delivers a classic high-top look for everyday wear with a padded collar, durable canvas and suede upper, lace-up closure, reinforced toe cap, and signature waffle outsole.",
+      productType: "Shoes",
+      options: [{ name: "Color", values: ["Black"] }],
+      variants: [{
+        title: "Black",
+        selectedOptions: [{ name: "Color", value: "Black" }],
+      }],
+    });
+    const mismatch = analysis.issues.find((issue) => issue.code === "description_variant_mismatch");
+
+    expect(mismatch).toBeTruthy();
+    expect(mismatch.evidence).toContain("True White");
+    expect(mismatch.evidence).toContain("Black");
+    expect(mismatch.replacements).toEqual([expect.objectContaining({ from: "True White", to: "Black" })]);
+    expect(__productPulseDiagnosisTestHooks.shouldRecommendFullDescriptionRewrite({
+      contentIssues: analysis.issues,
+      currentDescription: "The Vans SK8-Hi in True White delivers a classic high-top look for everyday wear with a padded collar, durable canvas and suede upper, lace-up closure, reinforced toe cap, and signature waffle outsole.",
+    })).toBe(false);
   });
 
   it("only flags title and description mismatch when product categories are clearly disconnected", () => {

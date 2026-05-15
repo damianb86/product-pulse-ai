@@ -44,6 +44,25 @@ describe("ProductPulse product job helpers", () => {
     expect(parsed).toEqual([{ question: "Edited question?", answer: "Edited answer." }]);
   });
 
+  it("preserves description HTML when applying targeted description replacements", () => {
+    const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
+      currentHtml: "<div><p>The Vans SK8-Hi in <strong>True White</strong> is a classic high-top.</p></div>",
+      draftText: "The Vans SK8-Hi in Black is a classic high-top.",
+      operation: "replace",
+      action: {
+        id: "correct-product-description",
+        payload: {
+          preserveHtml: true,
+          descriptionReplacements: [{ from: "True White", to: "Black" }],
+        },
+      },
+    });
+
+    expect(html).toContain("<strong>Black</strong>");
+    expect(html).toContain("<div><p>");
+    expect(html).not.toContain("True White");
+  });
+
   it("builds product-list evidence bars in fixed source-family order with real metric detail", () => {
     const bars = productPulseJobsTestHooks.getSignalLifecycleBars({
       productType: "Toys",

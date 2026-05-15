@@ -1977,6 +1977,8 @@ function buildRuleRecommendationCandidates(deterministic) {
     const currentDescription = deterministic.product?.description || "";
     if (shouldRecommendFullDescriptionRewrite({ contentIssues, currentDescription })) {
       candidates.push({ id: "rewrite-product-description", type: "PDP copy", reason: "Product content analysis found missing, short or incoherent product copy." });
+    } else if (getDescriptionReplacementsFromContentIssues(contentIssues).length) {
+      candidates.push({ id: "correct-product-description", type: "PDP copy", reason: "Product content analysis found a specific contradiction that can be corrected without rewriting the full description." });
     } else {
       candidates.push({ id: "add-product-description-guidance", type: "PDP copy", reason: "Product content analysis found a specific shopper guidance gap that can be added without rewriting the full description." });
     }
@@ -2164,10 +2166,18 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
   const currentDescriptionText = deterministic.product?.description || "";
+  const descriptionReplacements = getDescriptionReplacementsFromContentIssues(contentIssues);
+  const correctedDescriptionDraft = buildCorrectedDescriptionDraft({
+    currentDescription: currentDescriptionText,
+    replacements: descriptionReplacements,
+  });
   const shouldRewriteDescription = shouldRecommendFullDescriptionRewrite({
     contentIssues,
     currentDescription: currentDescriptionText,
   });
+  const shouldCorrectDescription = !shouldRewriteDescription
+    && descriptionReplacements.length > 0
+    && isMeaningfullyDifferentDescription(currentDescriptionText, correctedDescriptionDraft);
   const reviewSections = [];
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
   const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
@@ -2195,8 +2205,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         draftText: pdpCopy,
         issue: mainIssue,
         placement: getPdpCopyPlacement(mainIssue),
-        relatedActionIds: contentIssues.length ? ["rewrite-product-description"] : [],
-        relatedActionLabels: contentIssues.length ? ["Rewrite product description"] : [],
+        relatedActionIds: shouldRewriteDescription ? ["rewrite-product-description"] : shouldCorrectDescription ? ["correct-product-description"] : [],
+        relatedActionLabels: shouldRewriteDescription ? ["Rewrite product description"] : shouldCorrectDescription ? ["Correct product description"] : [],
       },
     });
   }
@@ -2229,6 +2239,31 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           })),
           changeStrategy: currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
           operation: "replace",
+          relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
+          relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
+        },
+      });
+    } else if (shouldCorrectDescription) {
+      recommendations.push({
+        id: "correct-product-description",
+        label: "Correct product description",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: correctedDescriptionDraft,
+          issue: "product_content",
+          currentDescriptionText,
+          contentIssues: contentIssues.map((issue) => ({
+            label: issue.label,
+            evidence: issue.evidence,
+            severity: issue.severity,
+            code: issue.code,
+          })),
+          descriptionReplacements,
+          changeStrategy: "targeted-correction",
+          operation: "replace",
+          preserveHtml: true,
           relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
           relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
         },
@@ -2676,6 +2711,16 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
     priorityGroup: primary,
   };
 
+  if (id === "correct-product-description") {
+    return {
+      ...common,
+      proposedChange: "Correct specific contradictory text in the Shopify product description while preserving the existing description structure.",
+      shopifyField: "Product.descriptionHtml",
+      expectedImpact: "Remove a buyer-facing content contradiction without rewriting the full PDP copy.",
+      applicationRisk: "Low",
+      priorityGroup: "Customer-facing fix",
+    };
+  }
   if (id.includes("description") || id.includes("fit-note") || id.includes("expectation") || id.includes("quality-note") || id.includes("subjective")) {
     return {
       ...common,
@@ -3820,6 +3865,7 @@ function normalizeShopifyProduct(product, snapshot) {
     title: product.title || snapshot.productTitle,
     handle: product.handle || snapshot.handle,
     description: cleanProductDescription(product),
+    descriptionHtml: String(product.descriptionHtml || ""),
     vendor: product.vendor || "",
     productType: product.productType || "",
     status: product.status || "Unknown",
@@ -3845,6 +3891,7 @@ function normalizeSnapshotProduct(snapshot) {
     title: snapshot.productTitle,
     handle: snapshot.handle,
     description: "",
+    descriptionHtml: "",
     vendor: metrics.vendor || "",
     productType: metrics.productType || "",
     status: "Unknown",
@@ -4879,6 +4926,9 @@ function analyzeProductContentDeterministically(product) {
     issues.push(buildContentIssue("title_description_mismatch", "Title and description are clearly disconnected", "high", "The title and description appear to describe different product categories.", 10));
   }
 
+  const variantMismatchIssue = buildDescriptionVariantMismatchIssue(product, description);
+  if (variantMismatchIssue) issues.push(variantMismatchIssue);
+
   if (description && productType && !normalizedDescription.includes(productType) && productType.length > 3) {
     advisories.push(buildContentAdvisory("missing_product_type_context", "Product type could be clearer", `Product type "${product.productType}" is not reflected in the description.`));
   }
@@ -4956,6 +5006,96 @@ function buildContentAdvisory(code, label, evidence) {
     findingType: "advisory",
   };
 }
+
+function buildDescriptionVariantMismatchIssue(product = {}, description = "") {
+  const expectedColor = getSingleExpectedProductColor(product);
+  if (!expectedColor) return null;
+
+  const conflictingColor = findColorTermInText(description, new Set([expectedColor.canonical]));
+  if (!conflictingColor) return null;
+
+  return {
+    ...buildContentIssue(
+      "description_variant_mismatch",
+      "Description and variant color conflict",
+      "high",
+      `The description mentions "${conflictingColor.label}", but the only color option found in Shopify is "${expectedColor.label}".`,
+      8,
+    ),
+    replacements: [{
+      from: conflictingColor.label,
+      to: expectedColor.label,
+      reason: "Align product description color copy with the only available Shopify variant.",
+    }],
+  };
+}
+
+function getSingleExpectedProductColor(product = {}) {
+  const colors = [];
+  const options = Array.isArray(product.options) ? product.options : [];
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const colorOptionPattern = /\b(colou?r|shade)\b/i;
+
+  options.forEach((option) => {
+    if (!colorOptionPattern.test(String(option.name || ""))) return;
+    (Array.isArray(option.values) ? option.values : []).forEach((value) => {
+      const color = findColorTermInText(value);
+      if (color) colors.push(color);
+    });
+  });
+
+  variants.forEach((variant) => {
+    (Array.isArray(variant.selectedOptions) ? variant.selectedOptions : []).forEach((option) => {
+      if (!colorOptionPattern.test(String(option.name || ""))) return;
+      const color = findColorTermInText(option.value);
+      if (color) colors.push(color);
+    });
+  });
+
+  if (!colors.length && variants.length === 1) {
+    const color = findColorTermInText(variants[0]?.title);
+    if (color) colors.push(color);
+  }
+
+  const uniqueByCanonical = uniqueBy(colors, (color) => color.canonical);
+  return uniqueByCanonical.length === 1 ? uniqueByCanonical[0] : null;
+}
+
+function findColorTermInText(value, excludedCanonicals = new Set()) {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  const terms = PRODUCT_COLOR_TERMS
+    .flatMap((color) => color.terms.map((term) => ({ canonical: color.canonical, label: term.label, normalized: normalizeText(term.label) })))
+    .sort((first, second) => second.normalized.length - first.normalized.length);
+  return terms.find((term) => (
+    term.normalized
+    && !excludedCanonicals.has(term.canonical)
+    && containsNormalizedPhrase(normalized, term.normalized)
+  )) || null;
+}
+
+function containsNormalizedPhrase(normalizedText, normalizedPhrase) {
+  return new RegExp(`(^|\\s)${escapeRegExp(normalizedPhrase)}(\\s|$)`).test(normalizedText);
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const PRODUCT_COLOR_TERMS = [
+  { canonical: "black", terms: [{ label: "Jet Black" }, { label: "Black" }] },
+  { canonical: "white", terms: [{ label: "True White" }, { label: "Off White" }, { label: "White" }, { label: "Ivory" }, { label: "Cream" }] },
+  { canonical: "gray", terms: [{ label: "Charcoal" }, { label: "Grey" }, { label: "Gray" }, { label: "Silver" }] },
+  { canonical: "blue", terms: [{ label: "Navy" }, { label: "Blue" }] },
+  { canonical: "red", terms: [{ label: "Burgundy" }, { label: "Red" }] },
+  { canonical: "green", terms: [{ label: "Olive" }, { label: "Green" }] },
+  { canonical: "yellow", terms: [{ label: "Yellow" }] },
+  { canonical: "orange", terms: [{ label: "Orange" }] },
+  { canonical: "purple", terms: [{ label: "Purple" }, { label: "Violet" }] },
+  { canonical: "pink", terms: [{ label: "Pink" }] },
+  { canonical: "brown", terms: [{ label: "Brown" }, { label: "Tan" }, { label: "Beige" }] },
+  { canonical: "gold", terms: [{ label: "Gold" }] },
+];
 
 function buildContentAnalysis(deterministic, contentGaps) {
   const deterministicIssues = Array.isArray(deterministic.metrics.contentIssues) ? deterministic.metrics.contentIssues : [];
@@ -5035,7 +5175,7 @@ function isAdvisoryContentIssue(code, severity, evidence) {
   if (CONTENT_ADVISORY_CODES.has(code)) return true;
   if (code === "title_description_mismatch") {
     const normalizedEvidence = normalizeText(evidence);
-    return severity !== "high" || !/(wrong product|different product|unrelated|contradict|clearly disconnect|does not match|mismatch)/.test(normalizedEvidence);
+    return severity !== "high" || !/(wrong product|different product|unrelated product|about another product|contradict|clearly disconnect|clearly different)/.test(normalizedEvidence);
   }
   return false;
 }
@@ -5068,6 +5208,7 @@ function getContentIssueLabel(code) {
   if (normalized === "missing_description") return "Missing product description";
   if (normalized === "short_description") return "Short product description";
   if (normalized === "title_description_mismatch") return "Title and description mismatch";
+  if (normalized === "description_variant_mismatch") return "Description and variant mismatch";
   if (normalized === "missing_product_type_context") return "Product type could be clearer";
   if (normalized === "tag_description_mismatch") return "Tags and description mismatch";
   if (normalized === "collection_mismatch") return "Collection context mismatch";
@@ -5651,25 +5792,71 @@ function shouldRecommendFullDescriptionRewrite({ contentIssues = [], currentDesc
   const description = normalizeDraftParagraph(currentDescription);
   const wordCount = description ? description.split(/\s+/).filter(Boolean).length : 0;
   if (!description || wordCount < 25) return true;
+  const hasTargetedCorrection = getDescriptionReplacementsFromContentIssues(contentIssues).length > 0;
 
   return (Array.isArray(contentIssues) ? contentIssues : []).some((issue) => {
     const code = normalizeContentIssueCode(issue.code);
     const label = normalizeText(`${issue.label || ""} ${issue.evidence || ""}`);
     const severity = normalizeSeverity(issue.severity);
+    if (hasTargetedCorrection && TARGETED_DESCRIPTION_CORRECTION_CODES.has(code)) return false;
     if (FULL_DESCRIPTION_REWRITE_CODES.has(code)) return true;
     if (severity !== "high") return false;
-    return /(wrong product|different product|unrelated product|clearly disconnected|contradict|incoherent|mismatch)/.test(label);
+    if (code === "title_description_mismatch") {
+      return /(wrong product|different product|unrelated product|about another product|clearly disconnected|clearly different)/.test(label);
+    }
+    return /(wrong product|different product|unrelated product|about another product|clearly disconnected|clearly different|incoherent)/.test(label);
   });
 }
 
 const FULL_DESCRIPTION_REWRITE_CODES = new Set([
   "missing_description",
   "short_description",
-  "title_description_mismatch",
-  "contradiction",
   "incoherent_description",
   "wrong_product_description",
 ]);
+
+const TARGETED_DESCRIPTION_CORRECTION_CODES = new Set([
+  "description_variant_mismatch",
+  "title_description_mismatch",
+  "contradiction",
+]);
+
+function getDescriptionReplacementsFromContentIssues(contentIssues = []) {
+  return (Array.isArray(contentIssues) ? contentIssues : [])
+    .flatMap((issue) => {
+      let replacements = [];
+      if (Array.isArray(issue.replacements)) replacements = issue.replacements;
+      else if (issue.replacement) replacements = [issue.replacement];
+      return replacements.map((replacement) => ({
+        from: String(replacement.from || "").trim(),
+        to: String(replacement.to || "").trim(),
+        reason: replacement.reason || issue.evidence || "",
+      }));
+    })
+    .filter((replacement) => replacement.from && replacement.to && normalizeText(replacement.from) !== normalizeText(replacement.to));
+}
+
+function buildCorrectedDescriptionDraft({ currentDescription = "", replacements = [] } = {}) {
+  return applyTextReplacements(normalizeDraftParagraph(currentDescription), replacements);
+}
+
+function applyTextReplacements(value, replacements = []) {
+  return (Array.isArray(replacements) ? replacements : []).reduce((text, replacement) => {
+    if (!replacement?.from || !replacement?.to) return text;
+    return replaceTextCaseInsensitive(text, replacement.from, replacement.to);
+  }, String(value || ""));
+}
+
+function replaceTextCaseInsensitive(value, from, to) {
+  const escaped = escapeRegExp(String(from || "").trim());
+  if (!escaped) return value;
+  return String(value || "").replace(new RegExp(`\\b${escaped}\\b`, "gi"), to);
+}
+
+function isMeaningfullyDifferentDescription(currentDescription = "", nextDescription = "") {
+  return Boolean(normalizeDraftParagraph(nextDescription))
+    && normalizeText(currentDescription) !== normalizeText(nextDescription);
+}
 
 function buildDescriptionGuidanceAddendum({ title, contentIssues = [], suggestedDescription = "", shopperGuidance = "" }) {
   const focusedGuidance = normalizeDraftParagraph(shopperGuidance);
@@ -5713,7 +5900,8 @@ function buildEnhancedDescriptionDraft({ title, currentDescription, suggestedDes
   const suggested = normalizeDraftParagraph(suggestedDescription);
   const guidance = normalizeDraftParagraph(shopperGuidance);
   const fallback = normalizeDraftParagraph(buildDefaultDescriptionRewrite(title, contentAnalysis));
-  const additions = [guidance, suggested || fallback].filter(Boolean);
+  const usableSuggested = suggested && (!current || !hasSubstantialOverlap(current, suggested)) ? suggested : "";
+  const additions = [guidance, usableSuggested || fallback].filter(Boolean);
   const uniqueAdditions = [];
 
   additions.forEach((addition) => {
