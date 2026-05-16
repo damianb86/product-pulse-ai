@@ -4147,10 +4147,10 @@ function getRecommendedActionReason(action, product) {
     return `ProductPulse found content issues that can reduce buyer confidence: ${contentIssueLabels.slice(0, 3).join(", ")}.`;
   }
   if (Array.isArray(payload.topReturnReasons) && payload.topReturnReasons.length) {
-    return `Return evidence shows repeated reasons: ${payload.topReturnReasons.slice(0, 3).join(", ")}. Reviewing them helps separate product issues from operational noise.`;
+    return `Return evidence shows repeated reasons: ${formatQuotedInlineList(payload.topReturnReasons.slice(0, 3))}. Reviewing them helps separate product issues from operational noise.`;
   }
   if (Array.isArray(payload.affectedVariants) && payload.affectedVariants.length) {
-    return `Signals are concentrated in specific variants: ${payload.affectedVariants.slice(0, 4).join(", ")}. This action focuses the review where risk is most likely.`;
+    return `Signals are concentrated in specific variants: ${formatQuotedInlineList(payload.affectedVariants.slice(0, 4))}. This action focuses the review where risk is most likely.`;
   }
   if (Number(payload.refundAmount || 0) > 0) {
     return `Refund impact is measurable: ${formatMoney(payload.refundAmount)} across ${formatInteger(payload.refundUnits || 0)} units. This action checks whether the loss is preventable.`;
@@ -4160,7 +4160,7 @@ function getRecommendedActionReason(action, product) {
   }
   if (Array.isArray(payload.faqItems) && payload.faqItems.length) {
     const reasons = Array.isArray(payload.faqNeed?.reasons) ? payload.faqNeed.reasons : [];
-    if (reasons.length) return `ProductPulse found FAQ-worthy buyer uncertainty: ${reasons.slice(0, 2).join(" ")}`;
+    if (reasons.length) return `ProductPulse found FAQ-worthy buyer uncertainty: ${formatQuotedInlineList(reasons.slice(0, 2))}.`;
     return `ProductPulse generated ${payload.faqItems.length} FAQ item${payload.faqItems.length === 1 ? "" : "s"} from repeated diagnosis signals and product-content gaps.`;
   }
   if (payload.note) {
@@ -4194,7 +4194,7 @@ function getMediaActionWhyNarrative(action = {}, product = {}) {
   if (missingAlt > 0) pieces.push(`${formatInteger(missingAlt)} media item${missingAlt === 1 ? "" : "s"} missing alt text`);
   if (mediaCount === 0) pieces.push("no product media was found in Shopify product data");
   if (negativeReviews > 0) pieces.push(`${formatInteger(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`);
-  if (returnReasons.length) pieces.push(`return language tied to ${formatInlineList(returnReasons.slice(0, 2))}`);
+  if (returnReasons.length) pieces.push(`return language tied to ${formatQuotedInlineList(returnReasons.slice(0, 2))}`);
 
   const evidence = pieces.length ? pieces.join(", ") : "the diagnosis found media or visual-context risk";
   const outcome = imageBrief
@@ -4223,7 +4223,7 @@ function getDescriptionActionWhyNarrative(action = {}, product = {}) {
   const evidenceParts = [];
 
   if (returnUnits > 0) {
-    evidenceParts.push(`${formatInteger(returnUnits)} return${returnUnits === 1 ? "" : "s"}${reasons.length ? ` tied to ${formatInlineList(reasons.slice(0, 2))}` : ""}`);
+    evidenceParts.push(`${formatInteger(returnUnits)} return${returnUnits === 1 ? "" : "s"}${reasons.length ? ` tied to ${formatQuotedInlineList(reasons.slice(0, 2))}` : ""}`);
   }
   if (negativeReviews > 0) {
     evidenceParts.push(`${formatInteger(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`);
@@ -4967,7 +4967,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       <h2>{detail.mainFindingTitle}</h2>
                       <div className="ppMainFindingText">
                         {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
-                          <p key={`${detail.slug}-main-finding-${index}`}>{paragraph}</p>
+                          <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
                         ))}
                       </div>
                     </div>
@@ -6256,7 +6256,7 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
         </button>
       </span>
       <strong>{value}</strong>
-      <small>{detail}</small>
+      <small>{renderAnalysisText(detail)}</small>
       {trendValues.length > 0 && <MiniTrend tone={getTrendTone(trendValues)} size="large" values={trendValues} />}
       {icon && <DashboardIcon type={icon} tone="blue" size="small" />}
       {typeof progress === "number" && (
@@ -6267,7 +6267,7 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
       {footnote && (
         <em>
           {footnote.includes("18%") && <span className="ppTrendArrow" aria-hidden="true" />}
-          {footnote}
+          {renderAnalysisText(footnote)}
         </em>
       )}
     </div>
@@ -6399,19 +6399,19 @@ function EvidenceMetricCard({ card }) {
       <div>
         <span>{card.label}</span>
         <strong>{card.value}</strong>
-        <small>{card.detail}</small>
+        <small>{renderAnalysisText(card.detail)}</small>
       </div>
       {card.badge && <em>{card.badge}</em>}
       {Array.isArray(card.trend) && card.trend.length > 0 && <MiniTrend tone={getTrendTone(card.trend)} values={card.trend} />}
       <span className="ppEvidenceMetricPopover" role="tooltip">
-        <strong>{popover.title}</strong>
-        <span>{popover.body}</span>
+        <strong>{renderAnalysisText(popover.title)}</strong>
+        <span>{renderAnalysisText(popover.body)}</span>
         {popover.items.length > 0 && (
           <span className="ppEvidenceMetricPopoverList">
             {popover.items.map((item) => (
               <small key={`${card.label}-${item.label}`}>
                 <b>{item.label}</b>
-                {item.value}
+                {renderAnalysisText(item.value)}
               </small>
             ))}
           </span>
@@ -6603,7 +6603,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
                   </span>
                   <div>
                     <h3>{issue.issue}</h3>
-                    <p>{issue.action}</p>
+                    <p>{renderAnalysisText(issue.action)}</p>
                   </div>
                 </div>
                 <dl>
@@ -6641,7 +6641,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
                   </span>
                   <div>
                     <h3>{sourceItem.title}</h3>
-                    <p>{sourceItem.summary}</p>
+                    <p>{renderAnalysisText(sourceItem.summary)}</p>
                   </div>
                   <strong>{sourceItem.points.length} signals</strong>
                 </div>
@@ -7494,6 +7494,16 @@ function formatSentimentSummary(sentiment = {}) {
   return `${formatInteger(sentiment.negative)} negative`;
 }
 
+function quoteSourceText(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return /^["“].*["”]$/.test(text) ? text : `"${text.replace(/^["“]+|["”]+$/g, "")}"`;
+}
+
+function formatQuotedInlineList(items = []) {
+  return formatInlineList(items.map(quoteSourceText).filter(Boolean));
+}
+
 function getTopEmotionLabel(items = []) {
   const list = getEvidenceList(items)
     .map((item) => ({
@@ -7531,7 +7541,7 @@ function renderEvidenceText(text) {
   const tokens = String(text || "").split(/(\bnegative\b|\bpositive\b|\bneutral\b|\breturns?\b|\brefunds?\b|\breviews?\b|\bemotions?\b|\bsentiment\b|\bsubjective\b|\bAI\b|\d+(?:\.\d+)?%?|\$[\d,]+(?:\.\d+)?|"[^"]+")/gi);
   return tokens.filter(Boolean).map((token, index) => {
     const normalized = token.toLowerCase();
-    if (/^"/.test(token)) return <em className="ppEvidenceQuote" key={`${token}-${index}`}>{token}</em>;
+    if (/^"/.test(token)) return <q className="ppEvidenceQuote" key={`${token}-${index}`}>{token.replace(/^"|"$/g, "")}</q>;
     if (normalized === "negative") return <span className="ppEvidenceTextNegative" key={`${token}-${index}`}>{token}</span>;
     if (normalized === "positive") return <span className="ppEvidenceTextPositive" key={`${token}-${index}`}>{token}</span>;
     if (normalized === "neutral") return <span className="ppEvidenceTextNeutral" key={`${token}-${index}`}>{token}</span>;
@@ -7541,6 +7551,28 @@ function renderEvidenceText(text) {
     }
     return token;
   });
+}
+
+function renderAnalysisText(value = "") {
+  const text = String(value || "");
+  if (!text) return "";
+  const parts = [];
+  const pattern = /"([^"]+)"|“([^”]+)”/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    parts.push(
+      <q className="ppInlineQuote" key={`quote-${match.index}`}>
+        {match[1] || match[2] || ""}
+      </q>,
+    );
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
 }
 
 function EmptyProductDetailState({ message, variant = "default" }) {
@@ -7775,7 +7807,7 @@ function ProductActionRecipeDetails({ application }) {
         <span className={`ppActionRecipeItem ppActionRecipeItem-${row.tone || "neutral"}`} key={row.label}>
           <s-icon type={row.icon} size="small"></s-icon>
           <small>{row.label}</small>
-          <strong>{row.value}</strong>
+          <strong>{renderAnalysisText(row.value)}</strong>
         </span>
       ))}
     </div>
@@ -8067,7 +8099,7 @@ function RecommendedActionDescriptionChangeGroup({
               </button>
             </label>
             <p className={`ppDescriptionChangeText ${expanded ? "" : "isClamped"}`.trim()}>{change.text}</p>
-            {expanded && change.reason && <small className="ppDescriptionChangeReason">{change.reason}</small>}
+            {expanded && change.reason && <small className="ppDescriptionChangeReason">{renderAnalysisText(change.reason)}</small>}
           </article>
         );
       })}
@@ -8208,7 +8240,7 @@ function RecommendedActionWhyItems({ action, product }) {
   const narrative = getRecommendedActionWhyNarrative(action, product);
   return (
     <>
-      {narrative && <p className="ppActionWhyNarrative">{narrative}</p>}
+      {narrative && <p className="ppActionWhyNarrative">{renderAnalysisText(narrative)}</p>}
       <div className="ppActionWhyGrid">
         {items.map((item) => (
           <span className={`ppActionWhyItem ppActionWhyItem-${item.tone || "neutral"}`} key={`${item.label}-${item.value}`}>
@@ -8347,16 +8379,16 @@ function RecommendedActionAdvancedDetails({ action, application }) {
       <div>
         <ProductActionRecipeDetails application={application} />
         {application.trigger && (
-          <p><strong>Reason detected:</strong> {application.trigger}</p>
+          <p><strong>Reason detected:</strong> {renderAnalysisText(application.trigger)}</p>
         )}
         {application.expectedImpact && (
-          <p><strong>Expected benefit:</strong> {application.expectedImpact}</p>
+          <p><strong>Expected benefit:</strong> {renderAnalysisText(application.expectedImpact)}</p>
         )}
         {action.reason && (
-          <p><strong>Diagnosis rationale:</strong> {action.reason}</p>
+          <p><strong>Diagnosis rationale:</strong> {renderAnalysisText(action.reason)}</p>
         )}
         {application.relatedActions?.length > 0 && (
-          <p><strong>Related suggestion:</strong> {application.relatedActions.join(", ")}</p>
+          <p><strong>Related suggestion:</strong> {renderAnalysisText(application.relatedActions.join(", "))}</p>
         )}
         {(meta.length > 0 || evidence.length > 0) && (
           <div className="ppActionMetaRow">
@@ -8369,7 +8401,7 @@ function RecommendedActionAdvancedDetails({ action, application }) {
             {evidence.map((item) => (
               <span className="ppActionEvidencePill" key={`advanced-${item}`}>
                 <s-icon type="chart-line" size="small"></s-icon>
-                {item}
+                {renderAnalysisText(item)}
               </span>
             ))}
           </div>

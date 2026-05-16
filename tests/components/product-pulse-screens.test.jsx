@@ -666,7 +666,9 @@ describe("ProductPulse screens", () => {
     const proposedChange = dialog.querySelector(".ppActionProposedChangeBox");
     expect(proposedChange).toHaveTextContent(textToAdd);
     expect(proposedChange).not.toHaveTextContent(currentDescription);
-    expect(within(dialog).getByText(/ProductPulse recommends adding this text at the end of the description because 4 returns tied to Too small/)).toBeInTheDocument();
+    const quotedReason = dialog.querySelector(".ppActionWhyNarrative q.ppInlineQuote");
+    expect(dialog.querySelector(".ppActionWhyNarrative")).toHaveTextContent(/ProductPulse recommends adding this text at the end of the description because 4 returns tied to Too small/);
+    expect(quotedReason).toHaveTextContent("Too small");
   });
 
   it("groups overlapping product description changes into one selectable action", () => {
@@ -1180,7 +1182,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText((_, element) => element?.textContent === "3 negative, 1 neutral, 0 positive").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Deterministic emotion taxonomy").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
-    expect(screen.getAllByText((_, element) => element?.textContent === "\"Other\" return notes classified as Fit & sizing 2 times").length).toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent === "Other return notes classified as Fit & sizing 2 times").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Other").some((element) => element.tagName.toLowerCase() === "q")).toBe(true);
     expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
   });
 

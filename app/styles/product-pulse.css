@@ -3340,7 +3340,8 @@ s-page[inline-size="large-500"] {
 .ppEvidenceTextNeutral,
 .ppEvidenceKeyword,
 .ppEvidenceNumber,
-.ppEvidenceQuote {
+.ppEvidenceQuote,
+.ppInlineQuote {
   display: inline-flex;
   align-items: center;
   min-height: 18px;
@@ -3349,6 +3350,7 @@ s-page[inline-size="large-500"] {
   border-radius: 999px;
   font-weight: 760;
   line-height: 1.15;
+  quotes: "“" "”";
 }
 
 .ppEvidenceTextNegative {
@@ -3380,6 +3382,13 @@ s-page[inline-size="large-500"] {
   max-width: 100%;
   border-radius: 6px;
   background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+  font-style: normal;
+}
+
+.ppInlineQuote {
+  border-radius: 6px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.09);
   color: var(--pp-insight-violet);
   font-style: normal;
 }
