@@ -459,6 +459,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const [quickScanConfirmation, setQuickScanConfirmation] = useState(false);
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
+  const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const productCount = data.productTable?.total ?? productRows.length;
@@ -477,6 +478,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
   const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
+  const pendingWatchlistAction = navigation.state === "submitting" && ["add-to-watchlist", "remove-from-watchlist"].includes(String(navigation.formData?.get("_action") || ""));
   const pendingAnalyzeIds = pendingBulkAnalyze ? Array.from(navigation.formData?.getAll("productId") || []).map(String) : [];
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
   const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
@@ -572,6 +574,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
       setAnalysisConfirmation(null);
       setShopifyProductSearchOpen(false);
     }
+    if (["add-watched-product", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
+      setWatchlistConfirmation(null);
+      setOpenActionProduct(null);
+    }
   }, [actionData]);
 
   const handleLocalFastScan = () => {
@@ -659,6 +665,15 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
       productTitles: [product.title],
       count: 1,
       credits: product.credits || 1,
+    });
+  };
+
+  const handleRequestWatchlistToggle = (product) => {
+    if (!product?.productGid || pendingWatchlistAction) return;
+    setOpenActionProduct(null);
+    setWatchlistConfirmation({
+      mode: product.isWatched ? "remove" : "add",
+      product,
     });
   };
 
@@ -923,6 +938,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                             open={openActionProduct === actionKey}
                             onToggle={() => setOpenActionProduct((current) => (current === actionKey ? null : actionKey))}
                             onClose={() => setOpenActionProduct(null)}
+                            onWatchlistToggle={handleRequestWatchlistToggle}
                           />
                         </div>
                       </td>
@@ -1006,6 +1022,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           pendingIds={pendingAnalyzeIds}
           onCancel={() => setAnalysisConfirmation(null)}
           onConfirm={handleConfirmAnalysis}
+        />
+      )}
+      {watchlistConfirmation && (
+        <WatchlistConfirmModal
+          confirmation={watchlistConfirmation}
+          pending={pendingWatchlistAction}
+          onCancel={() => setWatchlistConfirmation(null)}
         />
       )}
       {quickScanConfirmation && (
@@ -5990,7 +6013,7 @@ function getSourceGlyph(key) {
   return glyphs[key] || "S";
 }
 
-function ProductActionMenu({ product, open, onToggle, onClose }) {
+function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle }) {
   const triggerRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const handle = product.handle || product.href?.split("/").filter(Boolean).pop() || product.title;
@@ -6027,30 +6050,15 @@ function ProductActionMenu({ product, open, onToggle, onClose }) {
             <s-icon type="duplicate" size="small"></s-icon>
             {copied ? "Copied handle" : "Copy handle"}
           </button>
-          {product.isWatched ? (
-            <Form method="post" role="none">
-              <input type="hidden" name="_action" value="remove-from-watchlist" />
-              <input type="hidden" name="productGid" value={product.productGid || ""} />
-              <button role="menuitem" type="submit" onClick={onClose}>
-                <s-icon type="x" size="small"></s-icon>
-                Remove from Watchlist
-              </button>
-            </Form>
-          ) : (
-            <Form method="post" role="none">
-              <input type="hidden" name="_action" value="add-to-watchlist" />
-              <input type="hidden" name="productGid" value={product.productGid || ""} />
-              <input type="hidden" name="title" value={product.title || ""} />
-              <input type="hidden" name="handle" value={product.handle || ""} />
-              <input type="hidden" name="sku" value={product.sku || ""} />
-              <input type="hidden" name="imageUrl" value={product.imageUrl || ""} />
-              <input type="hidden" name="imageAlt" value={product.imageAlt || product.title || ""} />
-              <button role="menuitem" type="submit" onClick={onClose}>
-                <ProductPulseGlyph type="binoculars" />
-                Add to Watchlist
-              </button>
-            </Form>
-          )}
+          <button
+            role="menuitem"
+            type="button"
+            disabled={!product.productGid}
+            onClick={() => onWatchlistToggle?.(product)}
+          >
+            {product.isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+            {product.isWatched ? "Remove from Watchlist" : "Add to Watchlist"}
+          </button>
           {product.resolvedAt ? (
             <Form method="post" role="none">
               <input type="hidden" name="_action" value="mark-unresolved" />
