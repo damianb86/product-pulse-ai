@@ -585,19 +585,31 @@ async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
         await rememberGeminiFailure(model, error);
       }
 
+      const retryingWithGemini = Boolean(nextModel && lastRetryReason);
+      const recoveringWithOpenAI = Boolean(!nextModel && shouldFallbackToOpenAINano(lastRetryReason));
+      const recoverableFailure = retryingWithGemini || recoveringWithOpenAI;
+
       await recordJobLog({
         shop,
         jobId,
-        level: "warn",
-        event: "product_diagnosis.gemini_model_failed",
-        message: buildGeminiFailureLogMessage({ model, nextModel, retryReason: lastRetryReason }),
+        level: recoverableFailure ? "warn" : "error",
+        event: recoverableFailure ? "product_diagnosis.gemini_model_recovery" : "product_diagnosis.gemini_model_failed",
+        message: buildGeminiFailureLogMessage({
+          model,
+          nextModel,
+          retryReason: lastRetryReason,
+          openAiFallbackModel: recoveringWithOpenAI ? resolveOpenAINanoModel() : null,
+        }),
         data: {
           provider: GEMINI_PROVIDER,
           model,
           nextModel: nextModel || null,
           retryReason: lastRetryReason,
+          recovery: nextModel ? "next_gemini_model" : recoveringWithOpenAI ? "openai_nano" : null,
           task,
-          error: serializeError(error),
+          ...(recoverableFailure
+            ? { providerError: serializeError(error) }
+            : { error: serializeError(error) }),
         },
       });
 
@@ -932,10 +944,11 @@ async function rememberGeminiPoolExhausted(nextModel, { failedModel, error, reas
   }).catch(() => {});
 }
 
-function buildGeminiFailureLogMessage({ model, nextModel, retryReason }) {
+function buildGeminiFailureLogMessage({ model, nextModel, retryReason, openAiFallbackModel = null }) {
   if (!retryReason) return `Gemini model ${model} failed.`;
   const reasonLabel = getGeminiRetryReasonLabel(retryReason);
   if (nextModel) return `Gemini model ${model} failed due to ${reasonLabel}; retrying with ${nextModel}.`;
+  if (openAiFallbackModel) return `Gemini model ${model} failed due to ${reasonLabel}; Gemini pool exhausted, retrying with ${openAiFallbackModel}.`;
   return `Gemini model ${model} failed due to ${reasonLabel}; all configured Gemini models were attempted.`;
 }
 

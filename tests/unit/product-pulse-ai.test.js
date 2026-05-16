@@ -83,6 +83,20 @@ describe("ProductPulse AI provider fallback", () => {
     expect(mocks.recordJobLog).toHaveBeenCalledWith(expect.objectContaining({
       event: "product_diagnosis.gemini_pool_exhausted_openai_fallback",
     }));
+    const recoveryLogs = mocks.recordJobLog.mock.calls
+      .map(([payload]) => payload)
+      .filter((payload) => payload.event === "product_diagnosis.gemini_model_recovery");
+    expect(recoveryLogs).toHaveLength(2);
+    expect(recoveryLogs[0].data).toMatchObject({
+      recovery: "next_gemini_model",
+      providerError: expect.objectContaining({ status: 429 }),
+    });
+    expect(recoveryLogs[0].data.error).toBeUndefined();
+    expect(recoveryLogs[1].data).toMatchObject({
+      recovery: "openai_nano",
+      providerError: expect.objectContaining({ status: 429 }),
+    });
+    expect(recoveryLogs[1].data.error).toBeUndefined();
   });
 
   it("uses OpenAI when production AI is enabled by environment", async () => {
@@ -196,6 +210,20 @@ describe("ProductPulse AI provider fallback", () => {
       text: "Gemini fallback model response.",
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const recoveryLog = mocks.recordJobLog.mock.calls
+      .map(([payload]) => payload)
+      .find((payload) => payload.event === "product_diagnosis.gemini_model_recovery");
+    expect(recoveryLog).toMatchObject({
+      level: "warn",
+      data: expect.objectContaining({
+        model: "gemini-a",
+        nextModel: "gemini-b",
+        retryReason: "transient",
+        recovery: "next_gemini_model",
+        providerError: expect.objectContaining({ status: 500 }),
+      }),
+    });
+    expect(recoveryLog.data.error).toBeUndefined();
   });
 
   it("uses OpenAI nano when all Gemini models hit transient fetch failures", async () => {
