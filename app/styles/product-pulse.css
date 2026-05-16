@@ -3360,32 +3360,103 @@ s-page[inline-size="large-500"] {
     linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
 }
 
-.ppOrderActivityPlot {
+.ppOrderActivityCombo {
   display: grid;
-  grid-template-columns: repeat(12, minmax(34px, 1fr));
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 188px auto;
+  column-gap: 10px;
+  row-gap: 8px;
+  min-width: 0;
+}
+
+.ppOrderActivityYAxis {
+  position: relative;
+  height: 188px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppOrderActivityYAxis span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.ppOrderActivityPlotFrame {
+  position: relative;
+  min-width: 0;
+  height: 188px;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0 8px;
+}
+
+.ppOrderActivityGridLines {
+  position: absolute;
+  inset: 0 8px;
+  pointer-events: none;
+}
+
+.ppOrderActivityGridLines span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(var(--pp-slate-500-rgb), 0.16);
+}
+
+.ppOrderActivityBars {
+  position: absolute;
+  inset: 0 8px;
+  display: grid;
   align-items: end;
   gap: 9px;
-  min-height: 188px;
-  overflow-x: auto;
-  padding: 8px 2px 2px;
+  min-width: 520px;
+}
+
+.ppOrderActivityLineOverlay {
+  position: absolute;
+  inset: 0 8px;
+  z-index: 3;
+  width: calc(100% - 16px);
+  height: 100%;
+  min-width: 520px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.ppOrderActivityLine {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppOrderActivityLineReturns {
+  stroke: var(--pp-warning-amber);
+}
+
+.ppOrderActivityLineRefunds {
+  stroke: var(--pp-risk-red);
 }
 
 .ppOrderActivityMonth {
-  display: grid;
-  align-items: end;
-  justify-items: center;
-  gap: 5px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   min-width: 34px;
+  height: 100%;
 }
 
 .ppOrderActivityBarShell {
   position: relative;
-  width: 100%;
-  max-width: 38px;
-  height: 142px;
-  border-radius: 999px 999px 8px 8px;
-  background: rgba(203, 213, 225, 0.28);
-  overflow: hidden;
+  width: 22px;
+  height: 100%;
+  background: rgba(203, 213, 225, 0.22);
+  overflow: visible;
 }
 
 .ppOrderActivityBar {
@@ -3398,33 +3469,36 @@ s-page[inline-size="large-500"] {
 .ppOrderActivityBarTotal {
   left: 0;
   width: 100%;
-  border-radius: 999px 999px 8px 8px;
+  border-radius: 0;
   background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.9), rgba(var(--pp-pulse-blue-rgb), 0.42));
 }
 
-.ppOrderActivityBarReturns {
-  left: 9%;
-  width: 38%;
-  border-radius: 999px 999px 7px 7px;
-  background: linear-gradient(180deg, rgba(var(--pp-warning-amber-rgb), 0.95), rgba(var(--pp-warning-amber-rgb), 0.58));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.54);
+.ppOrderActivityXAxis {
+  grid-column: 2;
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 0 8px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+  overflow-x: auto;
 }
 
-.ppOrderActivityBarRefunds {
-  right: 9%;
-  width: 38%;
-  border-radius: 999px 999px 7px 7px;
-  background: linear-gradient(180deg, rgba(var(--pp-risk-red-rgb), 0.95), rgba(var(--pp-risk-red-rgb), 0.58));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.54);
+.ppOrderActivityXAxis span {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 34px;
 }
 
-.ppOrderActivityMonth strong {
+.ppOrderActivityXAxis b {
   color: var(--pp-slate-800);
   font-size: 12px;
   font-weight: 900;
 }
 
-.ppOrderActivityMonth small {
+.ppOrderActivityXAxis small {
   color: var(--pp-slate-500);
   font-size: 11px;
   font-weight: 750;
@@ -3606,6 +3680,98 @@ s-page[inline-size="large-500"] {
 
 .ppReturnPredictionLegendForecast {
   background: repeating-linear-gradient(90deg, var(--pp-insight-violet) 0 7px, transparent 7px 12px);
+}
+
+.ppReturnPredictionActionImpact {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 12px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
+  color: var(--pp-slate-700);
+}
+
+.ppReturnPredictionActionImpactHeader,
+.ppReturnPredictionActionCounts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ppReturnPredictionActionImpactHeader span,
+.ppReturnPredictionActionCounts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ppReturnPredictionActionImpactHeader strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppReturnPredictionActionImpactHeader b {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 950;
+  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.16);
+}
+
+.ppReturnPredictionActionProgress {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.ppReturnPredictionActionProgress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-signal-teal));
+  transition: width 180ms ease;
+}
+
+.ppReturnPredictionActionCounts {
+  justify-content: flex-start;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppReturnPredictionActionCounts b {
+  color: var(--pp-slate-900);
+  font-weight: 950;
+}
+
+.ppReturnPredictionActionImpact p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.ppReturnPredictionActionImpact-improving {
+  border-color: rgba(var(--pp-signal-teal-rgb), 0.24);
+  background: linear-gradient(135deg, rgba(var(--pp-signal-teal-rgb), 0.11), rgba(var(--pp-pulse-blue-rgb), 0.05));
+}
+
+.ppReturnPredictionActionImpact-worsening {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.28);
+  background: linear-gradient(135deg, rgba(var(--pp-warning-amber-rgb), 0.12), rgba(var(--pp-risk-red-rgb), 0.05));
+}
+
+.ppReturnPredictionActionImpact-neutral {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.16);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
 }
 
 .ppReturnPredictionActionNote {

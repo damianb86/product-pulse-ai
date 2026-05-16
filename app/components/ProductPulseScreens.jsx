@@ -4715,6 +4715,7 @@ function getActionIconSymbol(type) {
 export function ProductDiagnosisScreen({ product, actionData }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const submit = useSubmit();
   const dismissFetcher = useFetcher();
   const evidencePanelRef = useRef(null);
@@ -4734,6 +4735,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [draftText, setDraftText] = useState("");
   const productRef = useRef(product);
   const minimizedActionStatesRef = useRef(minimizedActionStates);
+  const lastDismissFetcherDataKeyRef = useRef("");
   const productIdentityKey = product?.slug || product?.handle || product?.id || product?.productGid || "";
   const productResolvedAt = product?.resolvedAt || "";
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
@@ -4831,6 +4833,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   useEffect(() => {
     if (navigation.state === "submitting") setToastData(null);
   }, [navigation.state]);
+
+  useEffect(() => {
+    const data = dismissFetcher.data;
+    const dataKey = data?.status === "success"
+      ? `${data.action?.id || ""}:${data.actionRecordStatus || ""}:${data.message || ""}`
+      : "";
+    if (dismissFetcher.state !== "idle" || !dataKey || lastDismissFetcherDataKeyRef.current === dataKey) return;
+    lastDismissFetcherDataKeyRef.current = dataKey;
+    revalidator.revalidate();
+  }, [dismissFetcher.data, dismissFetcher.state, revalidator]);
 
   if (!product) {
     return (
@@ -5462,11 +5474,7 @@ function ProductOrderActivityPanel({ detail }) {
 
       {hasActivity ? (
         <div className="ppOrderActivityChart" role="img" aria-label={`Monthly Shopify orders chart for ${detail.title}`}>
-          <div className="ppOrderActivityPlot" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(34px, 1fr))` }}>
-            {months.map((month) => (
-              <OrderActivityMonthBar key={month.key || month.label} month={month} maxOrders={maxOrders} />
-            ))}
-          </div>
+          <OrderActivityComboChart months={months} maxOrders={maxOrders} />
           <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
             <span><i className="ppOrderActivityLegendTotal" />Total orders</span>
             <span><i className="ppOrderActivityLegendReturns" />Returned orders</span>
@@ -5526,6 +5534,7 @@ function ProductReturnRatePredictionPanel({ detail }) {
             <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
             <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
           </div>
+          <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
         </div>
       ) : (
         <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
@@ -5708,21 +5717,54 @@ function OrderActivityStat({ label, value, detail, tone }) {
   );
 }
 
+function OrderActivityComboChart({ months = [], maxOrders = 1 }) {
+  const axisMax = getOrderActivityAxisMax(maxOrders);
+  const ticks = getOrderActivityAxisTicks(axisMax);
+  const returnPath = getOrderActivityLinePath(months, "returnedOrders", axisMax);
+  const refundPath = getOrderActivityLinePath(months, "refundedOrders", axisMax);
+
+  return (
+    <div className="ppOrderActivityCombo">
+      <div className="ppOrderActivityYAxis" aria-hidden="true">
+        {ticks.map((tick) => (
+          <span key={tick.value} style={{ top: `${tick.y}%` }}>{formatInteger(tick.value)}</span>
+        ))}
+      </div>
+      <div className="ppOrderActivityPlotFrame">
+        <div className="ppOrderActivityGridLines" aria-hidden="true">
+          {ticks.map((tick) => <span key={tick.value} style={{ top: `${tick.y}%` }} />)}
+        </div>
+        <div className="ppOrderActivityBars" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(34px, 1fr))` }}>
+          {months.map((month) => (
+            <OrderActivityMonthBar key={month.key || month.label} month={month} maxOrders={axisMax} />
+          ))}
+        </div>
+        <svg className="ppOrderActivityLineOverlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {returnPath && <path className="ppOrderActivityLine ppOrderActivityLineReturns" d={returnPath} />}
+          {refundPath && <path className="ppOrderActivityLine ppOrderActivityLineRefunds" d={refundPath} />}
+        </svg>
+      </div>
+      <div className="ppOrderActivityXAxis" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(34px, 1fr))` }}>
+        {months.map((month) => (
+          <span key={month.key || month.label} title={`${month.label}: ${formatInteger(month.orders)} orders`}>
+            <b>{formatInteger(month.orders)}</b>
+            <small>{month.shortLabel || month.label}</small>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OrderActivityMonthBar({ month, maxOrders }) {
   const orderHeight = getOrderActivityBarHeight(month.orders, maxOrders);
-  const returnHeight = getOrderActivityBarHeight(month.returnedOrders, maxOrders);
-  const refundHeight = getOrderActivityBarHeight(month.refundedOrders, maxOrders);
   const title = `${month.label}: ${formatInteger(month.orders)} orders, ${formatInteger(month.returnedOrders)} returned, ${formatInteger(month.refundedOrders)} refunded`;
 
   return (
     <div className="ppOrderActivityMonth" title={title}>
       <div className="ppOrderActivityBarShell" aria-hidden="true">
         <span className="ppOrderActivityBar ppOrderActivityBarTotal" style={{ height: `${orderHeight}%` }} />
-        <span className="ppOrderActivityBar ppOrderActivityBarReturns" style={{ height: `${returnHeight}%` }} />
-        <span className="ppOrderActivityBar ppOrderActivityBarRefunds" style={{ height: `${refundHeight}%` }} />
       </div>
-      <strong>{formatInteger(month.orders)}</strong>
-      <small>{month.shortLabel || month.label}</small>
     </div>
   );
 }
@@ -5731,6 +5773,88 @@ function getOrderActivityBarHeight(value, maxValue) {
   const count = Number(value || 0);
   if (!count) return 0;
   return Math.max(8, Math.min(100, (count / Math.max(Number(maxValue || 1), 1)) * 100));
+}
+
+function getOrderActivityAxisMax(value) {
+  const max = Math.max(Number(value || 0), 1);
+  const magnitude = max <= 10 ? 5 : max <= 50 ? 10 : max <= 100 ? 25 : 50;
+  return Math.ceil(max / magnitude) * magnitude;
+}
+
+function getOrderActivityAxisTicks(axisMax) {
+  const max = Math.max(Number(axisMax || 0), 1);
+  return [1, 0.75, 0.5, 0.25, 0].map((ratio) => {
+    const value = Math.round(max * ratio);
+    return {
+      value,
+      y: Math.round((100 - (value / max) * 100) * 10) / 10,
+    };
+  });
+}
+
+function getOrderActivityLinePath(months = [], key, axisMax) {
+  const count = months.length;
+  if (!count) return "";
+  const max = Math.max(Number(axisMax || 0), 1);
+  const points = months.map((month, index) => {
+    const value = Math.max(0, Number(month[key] || 0));
+    return {
+      x: Math.round((((index + 0.5) / count) * 100) * 10) / 10,
+      y: Math.round((100 - (value / max) * 100) * 10) / 10,
+    };
+  });
+  return buildSmoothSvgPath(points);
+}
+
+function ReturnPredictionActionImpact({ adjustment = null }) {
+  if (!adjustment) {
+    return (
+      <div className="ppReturnPredictionActionImpact ppReturnPredictionActionImpact-neutral">
+        <div>
+          <s-icon type="info" size="small"></s-icon>
+          <strong>No action impact yet</strong>
+          <span>Complete recommended actions to let ProductPulse lower or raise the forecast path on refresh.</span>
+        </div>
+      </div>
+    );
+  }
+  const pending = Number(adjustment.pending || 0);
+  const applied = Number(adjustment.applied || 0);
+  const reviewed = Number(adjustment.reviewed || 0);
+  const dismissed = Number(adjustment.dismissed || 0);
+  const total = Number(adjustment.total || pending + applied + reviewed + dismissed || 0);
+  const handled = Number(adjustment.handled || applied + reviewed + dismissed);
+  const beneficialHandled = Number(adjustment.beneficialHandled || applied + reviewed);
+  const handledPercent = total ? Math.round((handled / total) * 100) : 0;
+  const shift = Number(adjustment.adjustmentPoints || 0);
+  const direction = shift < 0 ? "improving" : shift > 0 ? "worsening" : "neutral";
+  const shiftLabel = `${shift > 0 ? "+" : ""}${Math.round(shift * 10) / 10} pts`;
+
+  return (
+    <div className={`ppReturnPredictionActionImpact ppReturnPredictionActionImpact-${direction}`}>
+      <div className="ppReturnPredictionActionImpactHeader">
+        <span>
+          <s-icon type={direction === "improving" ? "check" : direction === "worsening" ? "alert-circle" : "info"} size="small"></s-icon>
+          <strong>Recommendation impact</strong>
+        </span>
+        <b>{shiftLabel}</b>
+      </div>
+      <div className="ppReturnPredictionActionProgress" aria-label={`${handled} of ${total} recommendations handled`}>
+        <span style={{ width: `${Math.max(0, Math.min(100, handledPercent))}%` }} />
+      </div>
+      <div className="ppReturnPredictionActionCounts">
+        <span><b>{applied}</b> applied</span>
+        <span><b>{reviewed}</b> reviewed</span>
+        <span><b>{dismissed}</b> dismissed</span>
+        <span><b>{pending}</b> open</span>
+      </div>
+      <p>
+        {beneficialHandled > 0
+          ? `${beneficialHandled} completed recommendation${beneficialHandled === 1 ? "" : "s"} pull the forecast downward after refresh.`
+          : "Open recommendations keep extra return-rate pressure in the forecast until they are applied or reviewed."}
+      </p>
+    </div>
+  );
 }
 
 function getMonthlyOrderActivityRangeLabel(months = []) {

@@ -2595,24 +2595,24 @@ function formatStoredProductAction(action) {
 
 function adjustReturnRatePredictionForActions(prediction = null, recommendations = [], storedActions = []) {
   if (!prediction || !Array.isArray(prediction.forecastPoints) || !prediction.forecastPoints.length) return prediction || null;
-  const actionKeys = new Set((Array.isArray(recommendations) ? recommendations : [])
-    .map((action) => String(action?.id || action?.actionId || action?.label || "").trim())
-    .filter(Boolean));
-  if (!actionKeys.size) return prediction;
+  const actionDescriptors = buildReturnPredictionActionDescriptors(recommendations);
+  if (!actionDescriptors.length) return prediction;
 
   const latestActionStatus = new Map();
   (Array.isArray(storedActions) ? storedActions : []).forEach((action) => {
-    const actionKey = String(action.actionId || "").trim();
-    if (!actionKeys.has(actionKey)) return;
+    const matchedKeys = getReturnPredictionMatchedActionKeys(action, actionDescriptors);
+    if (!matchedKeys.length) return;
     const currentTime = new Date(action.appliedAt || action.createdAt || 0).getTime();
-    const existing = latestActionStatus.get(actionKey);
-    if (!existing || currentTime >= existing.time) {
-      latestActionStatus.set(actionKey, { status: String(action.status || "").toLowerCase(), time: currentTime });
-    }
+    matchedKeys.forEach((actionKey) => {
+      const existing = latestActionStatus.get(actionKey);
+      if (!existing || currentTime >= existing.time) {
+        latestActionStatus.set(actionKey, { status: String(action.status || "").toLowerCase(), time: currentTime });
+      }
+    });
   });
 
-  const counts = [...actionKeys].reduce((totals, actionKey) => {
-    const status = latestActionStatus.get(actionKey)?.status || "pending";
+  const counts = actionDescriptors.reduce((totals, descriptor) => {
+    const status = latestActionStatus.get(descriptor.key)?.status || "pending";
     if (status.includes("applied")) totals.applied += 1;
     else if (status.includes("review")) totals.reviewed += 1;
     else if (status.includes("dismiss")) totals.dismissed += 1;
@@ -2620,10 +2620,11 @@ function adjustReturnRatePredictionForActions(prediction = null, recommendations
     return totals;
   }, { pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
   const adjustmentPoints = clampNumber(
-    counts.pending * 1.15 - counts.applied * 1.65 - counts.reviewed * 0.8,
+    counts.pending * 1.15 + counts.dismissed * 0.2 - counts.applied * 1.65 - counts.reviewed * 1.1,
     -9,
     9,
   );
+  const baseForecastNext90ReturnRate = roundTo(averageNumbers(prediction.forecastPoints.map((point) => Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0))), 2);
   const forecastPoints = prediction.forecastPoints.map((point, index) => {
     const horizonWeight = (index + 1) / prediction.forecastPoints.length;
     const basePredictedReturnRate = Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0);
@@ -2644,10 +2645,48 @@ function adjustReturnRatePredictionForActions(prediction = null, recommendations
     },
     actionAdjustment: {
       ...counts,
+      total: actionDescriptors.length,
+      handled: counts.applied + counts.reviewed + counts.dismissed,
+      beneficialHandled: counts.applied + counts.reviewed,
       adjustmentPoints: roundTo(adjustmentPoints, 2),
+      baseForecastNext90ReturnRate,
+      forecastNext90ReturnRate,
       direction: adjustmentPoints < 0 ? "improving" : adjustmentPoints > 0 ? "worsening" : "neutral",
     },
   };
+}
+
+function buildReturnPredictionActionDescriptors(recommendations = []) {
+  return (Array.isArray(recommendations) ? recommendations : [])
+    .map((action, index) => {
+      const key = String(action?.id || action?.actionId || action?.label || `action-${index}`).trim();
+      if (!key) return null;
+      return {
+        key,
+        aliases: getReturnPredictionActionAliases(action, key),
+      };
+    })
+    .filter(Boolean);
+}
+
+function getReturnPredictionActionAliases(action = {}, key = "") {
+  const aliases = new Set([key, action.id, action.actionId, action.label, action.title]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean));
+  const normalized = `${action.id || ""} ${action.actionId || ""} ${action.label || ""} ${action.title || ""} ${action.type || ""} ${JSON.stringify(action.payload || {})}`.toLowerCase();
+  if (/\b(description|pdp|copy|faq|fit note|expectation note|content)\b/.test(normalized)) aliases.add("product-description-changes");
+  if (/\b(review|evidence|investigation|workflow|return pattern)\b/.test(normalized)) aliases.add("review-product-evidence");
+  return aliases;
+}
+
+function getReturnPredictionMatchedActionKeys(action = {}, descriptors = []) {
+  const rawActionId = String(action.actionId || "").trim();
+  const rawLabel = String(action.label || "").trim();
+  if (!rawActionId && !rawLabel) return [];
+  const actionNeedles = new Set([rawActionId, rawLabel].filter(Boolean));
+  return descriptors
+    .filter((descriptor) => [...actionNeedles].some((needle) => descriptor.aliases.has(needle)))
+    .map((descriptor) => descriptor.key);
 }
 
 function averageNumbers(values = []) {
