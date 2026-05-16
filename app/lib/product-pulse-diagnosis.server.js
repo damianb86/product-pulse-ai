@@ -3,6 +3,7 @@ import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
 import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
 import { recordProductScoreHistory } from "./product-pulse-history.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
+import { getAnalysisLookbackDays, getProductPulseSettings } from "./product-pulse-settings.server";
 import {
   buildDatedSignalTrend,
   buildIssueTrendMap,
@@ -11,7 +12,7 @@ import {
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 
-const DIAGNOSIS_WINDOW_DAYS = 90;
+const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const MAX_ORDER_PAGES = 5;
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
@@ -34,10 +35,12 @@ const DIAGNOSIS_RETURN_QUERY_PLANS = [
 ];
 
 export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
-  const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot });
-  const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product });
-  const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product });
-  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData });
+  const settings = await getProductPulseSettings(shop);
+  const windowDays = getAnalysisLookbackDays(settings);
+  const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays });
+  const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
+  const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
+  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, windowDays });
   const recommendationCandidates = buildRuleRecommendationCandidates(deterministic);
   const aiInput = {
     product: buildAiProductInput(shopifyData.product, snapshot),
@@ -121,7 +124,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   };
 }
 
-async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot }) {
+async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   const product = await fetchShopifyProduct({ admin, snapshot }).catch(async (error) => {
     await recordJobLog({
       shop,
@@ -140,7 +143,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot }) {
   let orderAccessDenied = false;
 
   try {
-    sales = await fetchShopifySalesEvents({ admin, product, snapshot });
+    sales = await fetchShopifySalesEvents({ admin, product, snapshot, windowDays });
   } catch (error) {
     const denied = isShopifyOrderAccessDenied(error);
     orderAccessDenied = orderAccessDenied || denied;
@@ -157,7 +160,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot }) {
   }
 
   try {
-    refunds = await fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot });
+    refunds = await fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays });
   } catch (error) {
     const denied = isShopifyOrderAccessDenied(error);
     orderAccessDenied = orderAccessDenied || denied;
@@ -174,7 +177,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot }) {
   }
 
   try {
-    returns = await fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot });
+    returns = await fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays });
   } catch (error) {
     const denied = isShopifyOrderAccessDenied(error);
     orderAccessDenied = orderAccessDenied || denied;
@@ -200,6 +203,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot }) {
       salesEvents: sales.length,
       refundEvents: refunds.length,
       returnEvents: returns.length,
+      windowDays,
       orderAccessDenied,
     },
   });
@@ -384,7 +388,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
   return normalizeShopifyProduct(data?.products?.nodes?.[0], snapshot);
 }
 
-async function fetchShopifySalesEvents({ admin, product, snapshot }) {
+async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   if (!admin?.graphql) return [];
   const events = [];
   let cursor = null;
@@ -434,7 +438,7 @@ async function fetchShopifySalesEvents({ admin, product, snapshot }) {
       }`,
       {
         after: cursor,
-        query: `created_at:>=${getSinceDate(DIAGNOSIS_WINDOW_DAYS)}`,
+        query: `created_at:>=${getSinceDate(windowDays)}`,
         ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
         lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
       },
@@ -465,10 +469,10 @@ async function fetchShopifySalesEvents({ admin, product, snapshot }) {
   return events;
 }
 
-async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot }) {
+async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   for (const [index, queryPlan] of DIAGNOSIS_REFUND_QUERY_PLANS.entries()) {
     try {
-      return await fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan });
+      return await fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan, windowDays });
     } catch (error) {
       const nextPlan = DIAGNOSIS_REFUND_QUERY_PLANS[index + 1];
       if (!isShopifyQueryCostLimitError(error) || !nextPlan) throw error;
@@ -491,7 +495,7 @@ async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot 
   return [];
 }
 
-async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan }) {
+async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   if (!admin?.graphql) return [];
   const events = [];
   const seenRefundLineItemIds = new Set();
@@ -519,7 +523,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
       includeAdjustments: queryPlan.includeAdjustments,
     },
   };
-  const orderQueries = buildRefundOrderQueries(DIAGNOSIS_WINDOW_DAYS);
+  const orderQueries = buildRefundOrderQueries(windowDays);
 
   for (const orderQuery of orderQueries) {
     cursor = null;
@@ -667,6 +671,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
     message: "Shopify refund line items were extracted for product diagnosis.",
     data: {
       productGid: snapshot.productGid,
+      windowDays,
       ...stats,
       refundEvents: events.length,
     },
@@ -983,9 +988,9 @@ function buildRefundOrderQueries(windowDays) {
   ];
 }
 
-async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot }) {
+async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   try {
-    return await fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: true });
+    return await fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: true, windowDays });
   } catch (error) {
     if (!isMissingReturnReasonDefinitionError(error)) throw error;
     await recordJobLog({
@@ -996,14 +1001,14 @@ async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot 
       message: "Shopify API version did not expose returnReasonDefinition; retrying return extraction with legacy returnReason fields.",
       data: { error: serializeError(error), productGid: snapshot.productGid },
     });
-    return fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: false });
+    return fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: false, windowDays });
   }
 }
 
-async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition }) {
+async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   for (const [index, queryPlan] of DIAGNOSIS_RETURN_QUERY_PLANS.entries()) {
     try {
-      return await fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan });
+      return await fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan, windowDays });
     } catch (error) {
       const nextPlan = DIAGNOSIS_RETURN_QUERY_PLANS[index + 1];
       if (!isShopifyQueryCostLimitError(error) || !nextPlan) throw error;
@@ -1026,7 +1031,7 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
   return [];
 }
 
-async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan }) {
+async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   if (!admin?.graphql) return [];
   const events = [];
   let cursor = null;
@@ -1047,7 +1052,7 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
     },
   };
   const seenReturnLineItemIds = new Set();
-  const orderQueries = buildReturnOrderQueries(DIAGNOSIS_WINDOW_DAYS);
+  const orderQueries = buildReturnOrderQueries(windowDays);
 
   for (const orderQuery of orderQueries) {
     cursor = null;
@@ -1142,6 +1147,7 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
     message: "Shopify return line items were extracted for product diagnosis.",
     data: {
       productGid: snapshot.productGid,
+      windowDays,
       ...stats,
       returnEvents: events.length,
     },
@@ -1228,16 +1234,17 @@ function buildDiagnosisReturnsQuery({ includeReasonDefinition = true, includeVar
 }
 
 function buildReturnOrderQueries(windowDays) {
+  const since = getSinceDate(windowDays);
   return [
-    { mode: "updated_at", query: `updated_at:>=${getSinceDate(windowDays)}` },
-    { mode: "return_requested", query: "return_status:return_requested" },
-    { mode: "in_progress", query: "return_status:in_progress" },
-    { mode: "inspection_complete", query: "return_status:inspection_complete" },
-    { mode: "returned", query: "return_status:returned" },
+    { mode: "updated_at", query: `updated_at:>=${since}` },
+    { mode: "return_requested", query: `return_status:return_requested updated_at:>=${since}` },
+    { mode: "in_progress", query: `return_status:in_progress updated_at:>=${since}` },
+    { mode: "inspection_complete", query: `return_status:inspection_complete updated_at:>=${since}` },
+    { mode: "returned", query: `return_status:returned updated_at:>=${since}` },
   ];
 }
 
-async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct }) {
+async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   const source = await prisma.productPulseSource.findUnique({
     where: { shop_sourceKey: { shop, sourceKey: "judgemeReviews" } },
   }).catch(() => null);
@@ -1278,7 +1285,10 @@ async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct
     matchConfidence = Math.max(matchConfidence, fallback.matchConfidence);
   }
 
-  const normalizedReviews = reviews.map((review) => normalizeJudgeMeReview(review, snapshot, shopifyProduct)).filter(Boolean);
+  const normalizedReviews = filterReviewsByLookbackWindow(
+    reviews.map((review) => normalizeJudgeMeReview(review, snapshot, shopifyProduct)).filter(Boolean),
+    windowDays,
+  );
   if (normalizedReviews.length) {
     await prisma.productPulseSource.update({
       where: { shop_sourceKey: { shop, sourceKey: "judgemeReviews" } },
@@ -1300,6 +1310,8 @@ async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct
     data: {
       internalProductId: internalProduct?.id || null,
       reviews: normalizedReviews.length,
+      ignoredOutsideWindow: Math.max(0, reviews.length - normalizedReviews.length),
+      windowDays,
       matchConfidence,
       errors,
     },
@@ -1314,7 +1326,7 @@ async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct
   };
 }
 
-async function fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct }) {
+async function fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   const source = await prisma.productPulseSource.findUnique({
     where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
   }).catch(() => null);
@@ -1341,9 +1353,10 @@ async function fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProdu
       confidence: getCsvReviewMatchConfidence(row, snapshot, shopifyProduct),
     }))
     .filter((item) => item.confidence >= 0.75);
-  const reviews = matched
+  const allMatchedReviews = matched
     .map((item) => normalizeCsvDiagnosisReview(item.row, snapshot, shopifyProduct, item.confidence))
     .filter(Boolean);
+  const reviews = filterReviewsByLookbackWindow(allMatchedReviews, windowDays);
   const matchConfidence = matched.length ? Math.max(...matched.map((item) => item.confidence)) : 0;
 
   if (reviews.length) {
@@ -1367,6 +1380,8 @@ async function fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProdu
     data: {
       rows: rows.length,
       matchedReviews: reviews.length,
+      ignoredOutsideWindow: Math.max(0, allMatchedReviews.length - reviews.length),
+      windowDays,
       matchConfidence,
       usage: "ratings, text and dates are included as imported review evidence",
       errors,
@@ -1459,7 +1474,7 @@ async function fetchAndMatchJudgeMeReviews({ shop, token, snapshot, shopifyProdu
   };
 }
 
-function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 } }) {
+function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 }, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   const snapshotMetrics = snapshot.metrics || {};
   const product = shopifyData.product;
   const sales = shopifyData.sales || [];
@@ -1496,7 +1511,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const trendOptions = {
-    startAt: getSinceDate(DIAGNOSIS_WINDOW_DAYS),
+    startAt: getSinceDate(windowDays),
     endAt: new Date().toISOString(),
   };
   const signalTrendResult = buildDatedSignalTrend(signalEvents, trendOptions);
@@ -1578,7 +1593,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     dataQualityIncomplete: shopifyData.orderAccessDenied,
     subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
     calculationState: "calculated_from_persisted_components",
-    windowDays: DIAGNOSIS_WINDOW_DAYS,
+    windowDays,
   }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
   const riskComponents = scoreModel.riskComponents;
   const riskScore = scoreModel.riskScore;
@@ -1634,7 +1649,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundUnits,
       soldUnits,
       recentSignalUnits: countRecentSignalEvents(signalEvents, 30),
-      windowDays: DIAGNOSIS_WINDOW_DAYS,
+      windowDays,
       storeAvgReturnRate: Number(snapshotMetrics.storeAvgReturnRate || 0),
       storeAvgRefundRate: Number(snapshotMetrics.storeAvgRefundRate || 0),
       lastSignalAt: getLatestEventDate(signalEvents),
@@ -3593,7 +3608,7 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, sho
     evidence.push({
       source: "Shopify orders",
       quote: `${deterministic.metrics.soldUnits} units sold in the scan window`,
-      weight: `${DIAGNOSIS_WINDOW_DAYS}-day order window`,
+      weight: `${deterministic.metrics.windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS}-day order window`,
     });
   }
 
@@ -3797,7 +3812,7 @@ function buildCheckedSources(deterministic) {
     source,
     checked: true,
     windowDays: source.toLowerCase().includes("order") || source.toLowerCase().includes("return") || source.toLowerCase().includes("refund")
-      ? DIAGNOSIS_WINDOW_DAYS
+      ? deterministic.metrics.windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS
       : null,
   }));
 }
@@ -4083,6 +4098,15 @@ function normalizeReviewSource(review, sourceType, sourceLabel) {
     sourceType: review.sourceType || sourceType,
     sourceLabel: review.sourceLabel || sourceLabel,
   };
+}
+
+function filterReviewsByLookbackWindow(reviews = [], windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS) {
+  const cutoff = Date.now() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000;
+  return reviews.filter((review) => {
+    if (!review?.createdAt) return true;
+    const time = new Date(review.createdAt).getTime();
+    return !Number.isFinite(time) || time >= cutoff;
+  });
 }
 
 function getReturnCustomerLanguageText(item) {

@@ -313,6 +313,7 @@ describe("ProductPulse screens", () => {
       settings: {
         risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
         diagnosis: { maxQueuedPerSubmission: 12 },
+        analysis: { lookbackDays: 120 },
       },
     }} />);
 
@@ -323,6 +324,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("High risk starts at")).toHaveValue("75");
     expect(screen.queryByText("Table defaults")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Max diagnoses queued at once")).toHaveValue(12);
+    expect(screen.getByText("Evidence lookback")).toBeInTheDocument();
+    expect(screen.getByLabelText("Analysis lookback days")).toHaveValue("120");
+    expect(screen.queryByRole("link", { name: "Back to Products" })).not.toBeInTheDocument();
     expect(screen.queryByText("Cost control")).not.toBeInTheDocument();
     expect(screen.queryByText(/OpenAI Batch/)).not.toBeInTheDocument();
   });

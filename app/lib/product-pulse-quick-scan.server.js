@@ -3,6 +3,7 @@ import { getNormalizedCsvReviewRatingsForShop } from "./product-pulse-csv.server
 import { recordJobLog } from "./product-pulse-job-logs.server";
 import { recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import {
+  getAnalysisLookbackDays,
   getProductPulseSettings,
   getQuickScanMinimumRiskScore,
 } from "./product-pulse-settings.server";
@@ -31,8 +32,8 @@ const PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = 5;
 const PAGINATED_RETURNS_PAGE_SIZE = 3;
 const PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE = 15;
 
-export function getQuickScanWindowDays() {
-  return QUICK_SCAN_DEFAULT_WINDOW_DAYS;
+export function getQuickScanWindowDays(settings = undefined) {
+  return getAnalysisLookbackDays(settings);
 }
 
 export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
@@ -41,7 +42,8 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   }
 
   const startedAt = Date.now();
-  const windowDays = getQuickScanWindowDays(scopes);
+  const settings = await getProductPulseSettings(shop);
+  const windowDays = getQuickScanWindowDays(settings, scopes);
   await recordJobLog({
     shop,
     jobId,
@@ -75,8 +77,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     },
   });
 
-  const csvReviewRatings = await loadCsvReviewRatingsForQuickScan({ shop, jobId });
-  const settings = await getProductPulseSettings(shop);
+  const csvReviewRatings = await loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays });
 
   await updateQuickScanJob(jobId, {
     progress: 72,
@@ -155,9 +156,10 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   return { candidates, extraction };
 }
 
-async function loadCsvReviewRatingsForQuickScan({ shop, jobId }) {
+async function loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS }) {
   try {
-    const ratings = await getNormalizedCsvReviewRatingsForShop(shop);
+    const allRatings = await getNormalizedCsvReviewRatingsForShop(shop);
+    const ratings = filterRowsByLookbackWindow(allRatings, "reviewDate", windowDays);
     if (ratings.length) {
       await recordJobLog({
         shop,
@@ -166,6 +168,8 @@ async function loadCsvReviewRatingsForQuickScan({ shop, jobId }) {
         message: "Loaded normalized CSV review ratings for deterministic QuickScan scoring.",
         data: {
           ratingRows: ratings.length,
+          ignoredOutsideWindow: Math.max(0, allRatings.length - ratings.length),
+          windowDays,
           productsWithRatings: countCsvRatingProductKeys(ratings),
           usage: "rating-only; review text is not read during QuickScan",
         },
@@ -1982,6 +1986,16 @@ function isRecentSignal(value) {
 function getSinceDate(windowDays) {
   const date = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
   return date.toISOString().slice(0, 10);
+}
+
+function filterRowsByLookbackWindow(rows = [], dateKey = "createdAt", windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS) {
+  const cutoff = Date.now() - Math.max(1, Number(windowDays || QUICK_SCAN_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000;
+  return rows.filter((row) => {
+    const value = row?.[dateKey];
+    if (!value) return true;
+    const time = new Date(value).getTime();
+    return !Number.isFinite(time) || time >= cutoff;
+  });
 }
 
 function parseOptionalDate(value) {

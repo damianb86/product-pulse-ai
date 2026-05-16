@@ -11,6 +11,9 @@ import {
 
 const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 4_000;
 const RISK_THRESHOLD_HANDLE_GAP = 5;
+const PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID = "product-pulse-settings-save-bar";
+const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
+const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 
 export function DashboardScreen({ data, actionData }) {
   const submit = useSubmit();
@@ -1554,18 +1557,71 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
 
 export function SettingsScreen({ data = {}, actionData }) {
   const navigation = useNavigation();
+  const submit = useSubmit();
+  const formRef = useRef(null);
   const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
   const normalizedSettingsRisk = useMemo(() => normalizeClientRiskThresholds(settings.risk), [settings.risk]);
+  const normalizedQueueLimit = normalizeClientQueueLimit(settings.diagnosis?.maxQueuedPerSubmission);
+  const normalizedLookbackDays = normalizeClientLookbackDays(settings.analysis?.lookbackDays);
   const [riskThresholds, setRiskThresholds] = useState(normalizedSettingsRisk);
+  const [queueLimit, setQueueLimit] = useState(normalizedQueueLimit);
+  const [lookbackDays, setLookbackDays] = useState(normalizedLookbackDays);
   const isSaving = navigation.state === "submitting";
+  const settingsDirty = riskThresholds.minimumScore !== normalizedSettingsRisk.minimumScore
+    || riskThresholds.mediumThreshold !== normalizedSettingsRisk.mediumThreshold
+    || riskThresholds.highThreshold !== normalizedSettingsRisk.highThreshold
+    || Number(queueLimit) !== Number(normalizedQueueLimit)
+    || Number(lookbackDays) !== Number(normalizedLookbackDays);
 
   useEffect(() => {
     setRiskThresholds(normalizedSettingsRisk);
-  }, [normalizedSettingsRisk]);
+    setQueueLimit(normalizedQueueLimit);
+    setLookbackDays(normalizedLookbackDays);
+  }, [normalizedSettingsRisk, normalizedQueueLimit, normalizedLookbackDays]);
+
+  useEffect(() => {
+    const saveBar = getShopifySaveBarApi();
+    if (!saveBar) return undefined;
+    const operation = settingsDirty ? saveBar.show : saveBar.hide;
+    operation.call(saveBar, PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
+    return undefined;
+  }, [settingsDirty]);
+
+  useEffect(() => () => {
+    getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
+  }, []);
+
+  const handleSaveSettings = () => {
+    if (!formRef.current || isSaving) return;
+    const formData = new FormData(formRef.current);
+    formData.set("_action", "save-settings");
+    formData.set("minimumScore", String(riskThresholds.minimumScore));
+    formData.set("mediumThreshold", String(riskThresholds.mediumThreshold));
+    formData.set("highThreshold", String(riskThresholds.highThreshold));
+    formData.set("maxQueuedPerSubmission", String(queueLimit));
+    formData.set("analysisLookbackDays", String(lookbackDays));
+    submit(formData, { method: "post" });
+  };
+
+  const handleDiscardSettings = () => {
+    setRiskThresholds(normalizedSettingsRisk);
+    setQueueLimit(normalizedQueueLimit);
+    setLookbackDays(normalizedLookbackDays);
+    getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
+  };
 
   return (
     <FullWidthPage heading="Settings" className="ppSettingsPage">
       <ScreenShell className="ppDashboard ppSettingsScreen">
+        <ui-save-bar id={PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID}>
+          <button variant="primary" type="button" disabled={isSaving ? true : undefined} onClick={handleSaveSettings}>
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button type="button" disabled={isSaving ? true : undefined} onClick={handleDiscardSettings}>
+            Discard
+          </button>
+        </ui-save-bar>
+
         <div className="ppSettingsHero">
           <div>
             <span>ProductPulse controls</span>
@@ -1583,7 +1639,7 @@ export function SettingsScreen({ data = {}, actionData }) {
 
         <ActionBanner actionData={actionData} />
 
-        <Form method="post" className="ppSettingsForm">
+        <Form ref={formRef} method="post" className="ppSettingsForm">
           <input type="hidden" name="_action" value="save-settings" />
 
           <section className="ppSettingsCard ppSettingsRiskCard" aria-labelledby="settings-risk-title">
@@ -1623,23 +1679,28 @@ export function SettingsScreen({ data = {}, actionData }) {
                 name="maxQueuedPerSubmission"
                 label="Max diagnoses queued at once"
                 detail="Bulk analysis submissions above this limit are rejected before jobs are created. Use a finite cap to prevent accidental credit-heavy batches."
-                defaultValue={settings.diagnosis.maxQueuedPerSubmission}
+                value={queueLimit}
+                onChange={(event) => setQueueLimit(clampClientInteger(event.target.value, 1, 500, normalizedQueueLimit))}
                 min="1"
                 max="500"
               />
             </div>
-          </section>
 
-          <div className="ppSettingsFooter">
-            <Link className="ppSecondaryActionButton" to="/app/products">
-              <s-icon type="product" size="small"></s-icon>
-              Back to Products
-            </Link>
-            <button className="ppPrimaryButton" type="submit" disabled={isSaving}>
-              <s-icon type="check" size="small"></s-icon>
-              {isSaving ? "Saving..." : "Save settings"}
-            </button>
-          </div>
+            <section className="ppSettingsCard ppSettingsWindowCard" aria-labelledby="settings-window-title">
+              <div className="ppSettingsCardHeader">
+                <DashboardIcon type="clock" tone="cyan" />
+                <div>
+                  <span>Analysis window</span>
+                  <h2 id="settings-window-title">Evidence lookback</h2>
+                  <p>
+                    Choose how far back ProductPulse reads orders, returns, refunds and connected reviews during QuickScan and full product diagnostics.
+                  </p>
+                </div>
+              </div>
+
+              <AnalysisLookbackSlider value={lookbackDays} onChange={setLookbackDays} />
+            </section>
+          </section>
         </Form>
       </ScreenShell>
     </FullWidthPage>
@@ -1728,7 +1789,8 @@ function RiskThresholdSlider({ thresholds, onChange }) {
   );
 }
 
-function SettingsNumberField({ name, label, detail, defaultValue, min, max }) {
+function SettingsNumberField({ name, label, detail, defaultValue, value, onChange, min, max }) {
+  const controlledProps = value == null ? { defaultValue } : { value, onChange };
   return (
     <label className="ppSettingsNumberField">
       <span>{label}</span>
@@ -1736,7 +1798,7 @@ function SettingsNumberField({ name, label, detail, defaultValue, min, max }) {
         type="number"
         name={name}
         aria-label={label}
-        defaultValue={defaultValue}
+        {...controlledProps}
         min={min}
         max={max}
         step="1"
@@ -1744,6 +1806,58 @@ function SettingsNumberField({ name, label, detail, defaultValue, min, max }) {
       <small>{detail}</small>
     </label>
   );
+}
+
+function AnalysisLookbackSlider({ value, onChange }) {
+  const normalizedValue = normalizeClientLookbackDays(value);
+  const percentage = ((normalizedValue - PRODUCT_PULSE_MIN_LOOKBACK_DAYS) / (PRODUCT_PULSE_MAX_LOOKBACK_DAYS - PRODUCT_PULSE_MIN_LOOKBACK_DAYS)) * 100;
+  const handleChange = (event) => {
+    onChange(normalizeClientLookbackDays(event.target.value));
+  };
+
+  return (
+    <div className="ppSettingsLookbackControl" style={{ "--pp-lookback-progress": `${percentage}%` }}>
+      <input type="hidden" name="analysisLookbackDays" value={normalizedValue} />
+      <div className="ppSettingsLookbackValue">
+        <strong>{normalizedValue}</strong>
+        <span>days back</span>
+      </div>
+      <div className="ppSettingsLookbackSliderRow">
+        <input
+          type="range"
+          aria-label="Analysis lookback days"
+          min={PRODUCT_PULSE_MIN_LOOKBACK_DAYS}
+          max={PRODUCT_PULSE_MAX_LOOKBACK_DAYS}
+          step="1"
+          value={normalizedValue}
+          onChange={handleChange}
+        />
+        <input
+          type="number"
+          aria-label="Analysis lookback days exact value"
+          min={PRODUCT_PULSE_MIN_LOOKBACK_DAYS}
+          max={PRODUCT_PULSE_MAX_LOOKBACK_DAYS}
+          step="1"
+          value={normalizedValue}
+          onChange={handleChange}
+        />
+      </div>
+      <div className="ppSettingsLookbackTicks" aria-hidden="true">
+        <span>10d</span>
+        <span>60d default</span>
+        <span>180d</span>
+        <span>365d</span>
+      </div>
+      <p>
+        Older orders, returns, refunds and reviews are ignored for scoring. Use a shorter window for fresh risk, or a longer one when volume is low.
+      </p>
+    </div>
+  );
+}
+
+function getShopifySaveBarApi() {
+  if (typeof window === "undefined") return null;
+  return window.shopify?.saveBar || null;
 }
 
 function getDefaultProductPulseClientSettings() {
@@ -1756,7 +1870,18 @@ function getDefaultProductPulseClientSettings() {
     diagnosis: {
       maxQueuedPerSubmission: 25,
     },
+    analysis: {
+      lookbackDays: 60,
+    },
   };
+}
+
+function normalizeClientQueueLimit(value) {
+  return clampClientInteger(value, 1, 500, 25);
+}
+
+function normalizeClientLookbackDays(value) {
+  return clampClientInteger(value, PRODUCT_PULSE_MIN_LOOKBACK_DAYS, PRODUCT_PULSE_MAX_LOOKBACK_DAYS, 60);
 }
 
 function normalizeClientRiskThresholds(risk = {}) {

@@ -2,6 +2,8 @@ import prisma from "../db.server";
 
 export const PRODUCT_PULSE_SETTINGS_SOURCE_KEY = "__productpulse_settings";
 export const PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES = 500;
+export const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
+export const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 
 export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   risk: {
@@ -11,6 +13,9 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   },
   diagnosis: {
     maxQueuedPerSubmission: 25,
+  },
+  analysis: {
+    lookbackDays: 60,
   },
 };
 
@@ -79,6 +84,7 @@ export function normalizeProductPulseSettings(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   const risk = source.risk && typeof source.risk === "object" ? source.risk : {};
   const diagnosis = source.diagnosis && typeof source.diagnosis === "object" ? source.diagnosis : {};
+  const analysis = source.analysis && typeof source.analysis === "object" ? source.analysis : {};
 
   const minimumScore = clampInteger(risk.minimumScore, 0, 90, DEFAULT_PRODUCT_PULSE_SETTINGS.risk.minimumScore);
   const mediumThreshold = clampInteger(
@@ -108,6 +114,14 @@ export function normalizeProductPulseSettings(input = {}) {
         DEFAULT_PRODUCT_PULSE_SETTINGS.diagnosis.maxQueuedPerSubmission,
       ),
     },
+    analysis: {
+      lookbackDays: clampInteger(
+        analysis.lookbackDays,
+        PRODUCT_PULSE_MIN_LOOKBACK_DAYS,
+        PRODUCT_PULSE_MAX_LOOKBACK_DAYS,
+        DEFAULT_PRODUCT_PULSE_SETTINGS.analysis.lookbackDays,
+      ),
+    },
   };
 }
 
@@ -121,16 +135,21 @@ export function parseSettingsFormData(formData) {
     diagnosis: {
       maxQueuedPerSubmission: formDataNumber(formData, "maxQueuedPerSubmission"),
     },
+    analysis: {
+      lookbackDays: formDataNumber(formData, "analysisLookbackDays"),
+    },
   };
 }
 
 export function validateProductPulseSettings(input = {}) {
   const risk = input.risk || {};
   const diagnosis = input.diagnosis || {};
+  const analysis = input.analysis || {};
   const minimumScore = Number(risk.minimumScore);
   const mediumThreshold = Number(risk.mediumThreshold);
   const highThreshold = Number(risk.highThreshold);
   const maxQueuedPerSubmission = Number(diagnosis.maxQueuedPerSubmission);
+  const lookbackDays = Number(analysis.lookbackDays ?? DEFAULT_PRODUCT_PULSE_SETTINGS.analysis.lookbackDays);
 
   if (![minimumScore, mediumThreshold, highThreshold].every(Number.isFinite)) {
     return "Risk thresholds must be valid numbers.";
@@ -149,6 +168,9 @@ export function validateProductPulseSettings(input = {}) {
   }
   if (!Number.isFinite(maxQueuedPerSubmission) || maxQueuedPerSubmission < 1 || maxQueuedPerSubmission > PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES) {
     return `Max queued diagnoses must be between 1 and ${PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES}.`;
+  }
+  if (!Number.isFinite(lookbackDays) || lookbackDays < PRODUCT_PULSE_MIN_LOOKBACK_DAYS || lookbackDays > PRODUCT_PULSE_MAX_LOOKBACK_DAYS) {
+    return `Analysis lookback must be between ${PRODUCT_PULSE_MIN_LOOKBACK_DAYS} and ${PRODUCT_PULSE_MAX_LOOKBACK_DAYS} days.`;
   }
 
   return "";
@@ -190,6 +212,10 @@ export function getStatusFilterValueForScore(score, resolved = false, settings) 
 
 export function getQuickScanMinimumRiskScore(settings) {
   return normalizeProductPulseSettings(settings).risk.minimumScore;
+}
+
+export function getAnalysisLookbackDays(settings) {
+  return normalizeProductPulseSettings(settings).analysis.lookbackDays;
 }
 
 function formDataNumber(formData, key) {

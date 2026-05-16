@@ -58,7 +58,8 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     };
   }
 
-  const windowDays = getQuickScanWindowDays(scopes);
+  const settings = await getProductPulseSettings(shop);
+  const windowDays = getQuickScanWindowDays(settings, scopes);
   const job = await prisma.catalogSignalJob.create({
     data: {
       shop,
@@ -77,7 +78,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     message: "QuickScan queued as a persistent background job.",
     data: {
       windowDays,
-      scopeMode: "default_orders_window",
+      scopeMode: "configured_analysis_lookback",
     },
   });
 

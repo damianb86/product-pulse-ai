@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getQuickScanMinimumRiskScore,
+  getAnalysisLookbackDays,
   getRiskLabelForScore,
   getStatusLabelForScore,
   normalizeProductPulseSettings,
@@ -17,6 +18,7 @@ describe("ProductPulse settings", () => {
       highThreshold: 75,
     });
     expect(settings.diagnosis.maxQueuedPerSubmission).toBe(25);
+    expect(settings.analysis.lookbackDays).toBe(60);
   });
 
   it("uses custom risk thresholds for labels and status", () => {
@@ -29,6 +31,7 @@ describe("ProductPulse settings", () => {
     });
 
     expect(getQuickScanMinimumRiskScore(settings)).toBe(40);
+    expect(getAnalysisLookbackDays(settings)).toBe(60);
     expect(getRiskLabelForScore(59, settings)).toBe("Low");
     expect(getRiskLabelForScore(60, settings)).toBe("Medium");
     expect(getRiskLabelForScore(82, settings)).toBe("High");
@@ -57,5 +60,26 @@ describe("ProductPulse settings", () => {
         maxQueuedPerSubmission: 10,
       },
     })).toMatch(/High risk/);
+  });
+
+  it("normalizes and validates the analysis lookback window", () => {
+    const settings = normalizeProductPulseSettings({
+      analysis: { lookbackDays: 500 },
+    });
+
+    expect(settings.analysis.lookbackDays).toBe(365);
+    expect(validateProductPulseSettings({
+      risk: {
+        minimumScore: 40,
+        mediumThreshold: 60,
+        highThreshold: 80,
+      },
+      diagnosis: {
+        maxQueuedPerSubmission: 10,
+      },
+      analysis: {
+        lookbackDays: 4,
+      },
+    })).toMatch(/Analysis lookback/);
   });
 });
