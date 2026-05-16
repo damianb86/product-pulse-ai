@@ -3393,6 +3393,20 @@ s-page[inline-size="large-500"] {
   font-style: normal;
 }
 
+.ppEditablePlaceholder {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  margin: 0 2px;
+  padding: 1px 6px;
+  border: 1px dashed rgba(var(--pp-warning-amber-rgb), 0.62);
+  border-radius: 6px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: #92400e;
+  font-weight: 850;
+  line-height: 1.15;
+}
+
 .ppEvidenceObservabilityPanel {
   display: grid;
   gap: 16px;
@@ -5726,6 +5740,40 @@ s-page[inline-size="large-500"] {
 
 .ppActionProposedChangeBox .ppActionDetailToggle {
   margin-top: 8px;
+}
+
+.ppPlaceholderNotice {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--pp-warning-amber-rgb), 0.38);
+  border-radius: 8px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.11);
+  color: #92400e;
+}
+
+.ppPlaceholderNotice s-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.16);
+  color: var(--pp-warning-amber);
+}
+
+.ppPlaceholderNotice p {
+  margin: 0;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.42;
+}
+
+.ppPlaceholderNotice strong {
+  font-weight: 880;
 }
 
 .ppActionProposedValueLabel {

@@ -2130,6 +2130,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
   const isTagChange = String(application.target || "").toLowerCase().includes("tag");
   const tagOverride = String(confirmation.tagOverride || "");
   const valuePreview = editedText || "No value supplied.";
+  const unresolvedPlaceholders = getEditableTextPlaceholders(editedText);
   const submitLabel = pending ? "Applying change..." : "Accept and apply change";
 
   return (
@@ -2166,8 +2167,12 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
 
         <div className="ppActionConfirmChange">
           <span>{application.valueLabel || "New value"}</span>
-          <pre>{valuePreview}</pre>
+          <pre>{renderAnalysisText(valuePreview)}</pre>
         </div>
+
+        {unresolvedPlaceholders.length > 0 && (
+          <PlaceholderReviewNotice placeholders={unresolvedPlaceholders} />
+        )}
 
         <div className="ppActionConfirmNotice">
           <s-icon type="info" size="small"></s-icon>
@@ -2185,7 +2190,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           <input type="hidden" name="actionVariant" value={application.variantId || ""} />
           <input type="hidden" name="descriptionOperation" value={application.descriptionOperation || ""} />
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim()}>
+          <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim() || unresolvedPlaceholders.length > 0}>
             <s-icon type={isTagChange ? "tag" : "wand"} size="small"></s-icon>
             {submitLabel}
           </button>
@@ -7504,6 +7509,45 @@ function formatQuotedInlineList(items = []) {
   return formatInlineList(items.map(quoteSourceText).filter(Boolean));
 }
 
+function getEditableTextPlaceholders(value = "") {
+  const text = String(value || "");
+  const pattern = /\{([A-Za-z][^{}\n]{0,80})\}/g;
+  const placeholders = [];
+  let match;
+  while ((match = pattern.exec(text))) {
+    const placeholder = `{${String(match[1] || "").trim()}}`;
+    if (placeholder.length > 2 && !placeholders.includes(placeholder)) placeholders.push(placeholder);
+  }
+  return placeholders;
+}
+
+function getActionApplicationPlaceholders(application = {}, text = "") {
+  const values = [text];
+  if (Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
+    const selectedIds = new Set(Array.isArray(application.selectedChangeIds) ? application.selectedChangeIds : []);
+    application.descriptionChanges.forEach((change) => {
+      if (!selectedIds.size || selectedIds.has(change.id)) values.push(change.text);
+    });
+  }
+  return uniqueStrings(values.flatMap(getEditableTextPlaceholders));
+}
+
+function PlaceholderReviewNotice({ placeholders = [] }) {
+  if (!placeholders.length) return null;
+  return (
+    <div className="ppPlaceholderNotice" role="alert">
+      <s-icon type="alert-circle" size="small"></s-icon>
+      <p>
+        This generated text still contains placeholders that must be replaced before applying:
+        {" "}
+        <strong>{placeholders.join(", ")}</strong>.
+        {" "}
+        Edit the text and replace each placeholder with the correct product details.
+      </p>
+    </div>
+  );
+}
+
 function getTopEmotionLabel(items = []) {
   const list = getEvidenceList(items)
     .map((item) => ({
@@ -7557,17 +7601,25 @@ function renderAnalysisText(value = "") {
   const text = String(value || "");
   if (!text) return "";
   const parts = [];
-  const pattern = /"([^"]+)"|“([^”]+)”/g;
+  const pattern = /"([^"]+)"|“([^”]+)”|(\{[A-Za-z][^{}\n]{0,80}\})/g;
   let lastIndex = 0;
   let match;
 
   while ((match = pattern.exec(text))) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
-    parts.push(
-      <q className="ppInlineQuote" key={`quote-${match.index}`}>
-        {match[1] || match[2] || ""}
-      </q>,
-    );
+    if (match[3]) {
+      parts.push(
+        <span className="ppEditablePlaceholder" key={`placeholder-${match.index}`}>
+          {match[3]}
+        </span>,
+      );
+    } else {
+      parts.push(
+        <q className="ppInlineQuote" key={`quote-${match.index}`}>
+          {match[1] || match[2] || ""}
+        </q>,
+      );
+    }
     lastIndex = pattern.lastIndex;
   }
 
@@ -7823,6 +7875,7 @@ function RecommendedActionReviewBody({
   detailExpanded,
   hasLongDetail,
   isEditingInline,
+  unresolvedPlaceholders = [],
   onDetailExpandedChange,
   onDescriptionChangeExpandedToggle,
   onDescriptionChangeSelectedChange,
@@ -7846,7 +7899,10 @@ function RecommendedActionReviewBody({
     <div className="ppProductActionBody ppActionReviewBody">
       <RecommendedActionReviewSection icon="edit" title="Proposed change">
         <p className="ppActionSectionLead">{application.intro}</p>
-        {application.descriptionChanges?.length ? (
+        {unresolvedPlaceholders.length > 0 && (
+          <PlaceholderReviewNotice placeholders={unresolvedPlaceholders} />
+        )}
+        {application.descriptionChanges?.length && !isEditingInline ? (
           <RecommendedActionDescriptionChangeGroup
             changes={application.descriptionChanges}
             expandedIds={application.expandedDescriptionChangeIds}
@@ -8098,7 +8154,7 @@ function RecommendedActionDescriptionChangeGroup({
                 <s-icon type={expanded ? "chevron-up" : "chevron-right"} size="small"></s-icon>
               </button>
             </label>
-            <p className={`ppDescriptionChangeText ${expanded ? "" : "isClamped"}`.trim()}>{change.text}</p>
+            <p className={`ppDescriptionChangeText ${expanded ? "" : "isClamped"}`.trim()}>{renderAnalysisText(change.text)}</p>
             {expanded && change.reason && <small className="ppDescriptionChangeReason">{renderAnalysisText(change.reason)}</small>}
           </article>
         );
@@ -8134,7 +8190,7 @@ function RecommendedActionProposedChange({
         <>
           {application.valueLabel && <span className="ppActionProposedValueLabel">{application.valueLabel}</span>}
           <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>
-            {detailText || "No proposed value supplied."}
+            {renderAnalysisText(detailText || "No proposed value supplied.")}
           </p>
           {application.editable && (
             <button className="ppActionEditSuggestionButton ppActionEditSuggestionButton-review" type="button" onClick={onEditText} aria-label={`Edit suggested text for ${action.title}`}>
@@ -8160,7 +8216,7 @@ function RecommendedActionPreview({ application, editedText }) {
       <div className="ppActionPreviewColumn">
         <strong>{preview.beforeLabel}</strong>
         <div className="ppActionPreviewBox">
-          <p>{preview.beforeText}</p>
+          <p>{renderAnalysisText(preview.beforeText)}</p>
         </div>
       </div>
       <span className="ppActionPreviewArrow" aria-hidden="true">
@@ -8172,14 +8228,14 @@ function RecommendedActionPreview({ application, editedText }) {
           {preview.highlightText && preview.highlightPosition !== "after" && (
             <div className="ppActionPreviewInsertedText">
               <s-icon type="wand" size="small"></s-icon>
-              <p>{preview.highlightText}</p>
+              <p>{renderAnalysisText(preview.highlightText)}</p>
             </div>
           )}
-          {preview.afterText && <p>{preview.afterText}</p>}
+          {preview.afterText && <p>{renderAnalysisText(preview.afterText)}</p>}
           {preview.highlightText && preview.highlightPosition === "after" && (
             <div className="ppActionPreviewInsertedText">
               <s-icon type="wand" size="small"></s-icon>
-              <p>{preview.highlightText}</p>
+              <p>{renderAnalysisText(preview.highlightText)}</p>
             </div>
           )}
         </div>
@@ -8569,7 +8625,9 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     : application;
   const detailText = String(effectiveApplication.editable ? editedText : action.detail || "");
   const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
-  const disabled = pending || applied || !hasSelectedDescriptionChanges;
+  const placeholderApplication = isEditingInline ? { ...effectiveApplication, descriptionChanges: [] } : effectiveApplication;
+  const unresolvedPlaceholders = getActionApplicationPlaceholders(placeholderApplication, detailText);
+  const disabled = pending || applied || !hasSelectedDescriptionChanges || (actionKind === "applyable" && unresolvedPlaceholders.length > 0);
   const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
     actionId,
     application: effectiveApplication,
@@ -8605,6 +8663,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       detailExpanded={detailExpanded}
       hasLongDetail={hasLongDetail}
       isEditingInline={isEditingInline}
+      unresolvedPlaceholders={unresolvedPlaceholders}
       onDetailExpandedChange={setDetailExpanded}
       onDescriptionChangeExpandedToggle={(changeId) => setExpandedDescriptionChangeIds((current) => ({ ...current, [changeId]: !current[changeId] }))}
       onDescriptionChangeSelectedChange={(changeId, selected) => setSelectedDescriptionChangeIds((current) => updateSelectedDescriptionChangeIds(current, changeId, selected, baseApplication))}

@@ -1211,6 +1211,39 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Description text to apply")).toHaveAttribute("rows", "6");
   });
 
+  it("blocks recommended action application until generated placeholders are replaced", () => {
+    const placeholderText = "Add care guidance for {insert material details} before purchase.";
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "placeholder-copy",
+        label: "Add care guidance",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: placeholderText,
+          currentDescriptionText: "Existing product description.",
+          operation: "append",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add care guidance" }));
+    const dialog = screen.getByRole("dialog", { name: "Add care guidance" });
+    expect(within(dialog).getAllByText("{insert material details}").some((element) => element.classList.contains("ppEditablePlaceholder"))).toBe(true);
+    expect(within(dialog).getByText(/must be replaced before applying/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Apply change" })).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit suggested text for Add care guidance" }));
+    fireEvent.change(within(dialog).getByLabelText("Description text to apply"), {
+      target: { value: "Add care guidance for brushed cotton before purchase." },
+    });
+    expect(within(dialog).queryByText(/must be replaced before applying/)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Apply change" })).not.toBeDisabled();
+  });
+
   it("renders product diagnosis from snapshot dates and supports issue actions", () => {
     const snapshotProduct = {
       ...defaultView.startHere,
