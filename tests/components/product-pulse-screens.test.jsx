@@ -545,6 +545,30 @@ describe("ProductPulse screens", () => {
     expect(within(historyPanel).getByText("Fit runs small around waist and inseam")).toBeInTheDocument();
   });
 
+  it("labels product risk as improving when saved risk history trends downward", () => {
+    const product = {
+      ...defaultView.startHere,
+      riskScore: 50,
+      riskTone: "info",
+      metrics: {
+        ...defaultView.startHere.metrics,
+        riskTrend: [90, 40, 80, 50],
+        riskHistory: [
+          { riskScore: 90, source: "quickscan", recordedAt: "2026-04-20T10:00:00.000Z" },
+          { riskScore: 40, source: "full-diagnosis", recordedAt: "2026-04-27T10:00:00.000Z" },
+          { riskScore: 80, source: "watchlist", recordedAt: "2026-05-05T10:00:00.000Z" },
+          { riskScore: 50, source: "full-diagnosis", recordedAt: "2026-05-16T10:00:00.000Z" },
+        ],
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const riskSnapshot = container.querySelector(".ppRiskSnapshot");
+
+    expect(riskSnapshot).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Improving")).toBeInTheDocument();
+    expect(within(riskSnapshot).queryByText("Emerging")).not.toBeInTheDocument();
+  });
+
   it("lets product detail remove an already watched product", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={{ ...defaultView.startHere, isWatched: true }} />);
     const watchButton = screen.getByRole("button", { name: "Remove product from Watchlist" });
@@ -836,7 +860,9 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("button", { name: "Open recommended action Add fit note" })).not.toBeInTheDocument();
     expect(screen.getByText(/hidden because related issues are ignored/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Unignore Fit runs small around waist and inseam" }));
+    const unignoreButton = screen.getByRole("button", { name: "Unignore Fit runs small around waist and inseam" });
+    await waitFor(() => expect(unignoreButton).not.toBeDisabled());
+    fireEvent.click(unignoreButton);
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     expect(submittedAction).toBe("unignore-issue");
     await waitFor(() => expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument());

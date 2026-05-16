@@ -2654,6 +2654,8 @@ function getProductDetailModel(product) {
   const evidenceSources = getProductEvidenceSources(product);
   const checkedItems = getProductCheckedItems(product);
   const mainFinding = sanitizeProductMainFinding(product.mainFinding);
+  const riskTrendValues = getProductRiskTrendValues(product);
+  const riskDisplay = getProductRiskDisplay(product.riskScore, riskTrendValues, product.riskTone, hasRiskSnapshot);
 
   return {
     productGid: product.productGid || product.id || "",
@@ -2676,9 +2678,9 @@ function getProductDetailModel(product) {
     diagnosisButtonLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
-    riskScoreLabel: hasRiskSnapshot ? getProductRiskScoreLabel(product.riskScore) : "Not scanned",
+    riskScoreLabel: riskDisplay.label,
     riskScore: product.riskScore || 0,
-    riskTone: getProductInsightTone(product.riskTone),
+    riskTone: riskDisplay.tone,
     confidence: product.confidence || 0,
     confidenceLabel: getConfidenceLabel(product.confidence || 0, hasRiskSnapshot),
     signalCount: metrics.signalCount || 0,
@@ -2694,7 +2696,7 @@ function getProductDetailModel(product) {
     priorityScore: Number(metrics.priorityScore || 0),
     evidenceStrengthScore: Number(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore || 0),
     scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
-    riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
+    riskTrend: riskTrendValues,
     riskHistory: Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [],
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
@@ -2811,6 +2813,12 @@ function getBadgeToneFromRiskTone(tone) {
   return "warning";
 }
 
+function getBadgeToneFromTrendTone(tone) {
+  if (tone === "red") return "critical";
+  if (tone === "green") return "success";
+  return "warning";
+}
+
 function getBadgeToneFromSeverity(severity, fallbackTone = "warning") {
   const normalized = String(severity || "").toLowerCase();
   if (normalized.includes("high") || normalized.includes("critical")) return "critical";
@@ -2837,6 +2845,37 @@ function getProductRiskScoreLabel(score) {
   if (score >= 55) return "Medium";
   if (score >= 35) return "Emerging";
   return "Low";
+}
+
+function getProductRiskTrendValues(product = {}) {
+  const historyValues = (Array.isArray(product.metrics?.riskHistory) ? product.metrics.riskHistory : [])
+    .map((entry) => Number(entry?.riskScore))
+    .filter((value) => Number.isFinite(value));
+  if (historyValues.length >= 2) return historyValues;
+  return (Array.isArray(product.metrics?.riskTrend) ? product.metrics.riskTrend : [])
+    .map(Number)
+    .filter((value) => Number.isFinite(value));
+}
+
+function getProductRiskTrendState(values = []) {
+  const trendValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
+  if (trendValues.length < 2) return "level";
+  const first = trendValues[0];
+  const last = trendValues[trendValues.length - 1];
+  const change = last - first;
+  if (change <= -5) return "improving";
+  if (change >= 5) return "rising";
+  return "stable";
+}
+
+function getProductRiskDisplay(score, trendValues = [], riskTone = "info", hasRiskSnapshot = true) {
+  if (!hasRiskSnapshot) return { label: "Not scanned", tone: "blue" };
+  const trendState = getProductRiskTrendState(trendValues);
+  if (trendState === "improving") return { label: "Improving", tone: "green" };
+  if (trendState === "rising") return { label: "Rising", tone: score >= 75 ? "red" : "orange" };
+  if (trendState === "stable") return { label: "Stable", tone: getProductInsightTone(riskTone) };
+  if (score >= 35 && score < 55) return { label: "Watch", tone: getProductInsightTone(riskTone) };
+  return { label: getProductRiskScoreLabel(score), tone: getProductInsightTone(riskTone) };
 }
 
 function getEvidenceLabel(evidenceSources, sourceCoverage) {
@@ -5245,7 +5284,7 @@ function ProductRiskHistoryPanel({ detail }) {
           <span>Product risk over time</span>
           <strong>{formatInteger(currentRisk)} / 100</strong>
         </div>
-        <s-badge tone={getBadgeToneFromRiskTone(detail.riskBadgeTone)}>{detail.riskScoreLabel}</s-badge>
+        <s-badge tone={getBadgeToneFromTrendTone(trendTone)}>{detail.riskScoreLabel}</s-badge>
       </div>
       <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={changeLabel}>
