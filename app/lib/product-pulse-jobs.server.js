@@ -388,7 +388,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
       where: { shop_productGid: { shop, productGid: snapshot.productGid } },
       select: { status: true },
     }),
-    getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 24 }),
+    getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 80 }),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);

@@ -386,6 +386,72 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(repeatedConfidence).toBeGreaterThan(oneConfidence);
   });
 
+  it("reconstructs cumulative product risk history during deterministic diagnosis", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/123",
+      productTitle: "Nintendo Switch",
+      handle: "nintendo-switch",
+      riskScore: 0,
+      metrics: {
+        storeAvgReturnRate: 4,
+        storeAvgRefundRate: 2,
+        storeAvgNegativeReviewRate: 12,
+      },
+    };
+    const product = {
+      id: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      description: "Nintendo Switch console with Joy-Con controllers, dock, power adapter, and setup guidance included.",
+      descriptionHtml: "<p>Nintendo Switch console with Joy-Con controllers, dock, power adapter, and setup guidance included.</p>",
+      variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "SWITCH", selectedOptions: [] }],
+      options: [],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: [
+          { id: "sale-1", orderId: "order-1", quantity: 8, amount: 2400, createdAt: daysAgo(42) },
+          { id: "sale-2", orderId: "order-2", quantity: 8, amount: 2400, createdAt: daysAgo(28) },
+          { id: "sale-3", orderId: "order-3", quantity: 8, amount: 2400, createdAt: daysAgo(14) },
+        ],
+        returns: [
+          { id: "return-1", orderId: "order-1", quantity: 1, reason: "OTHER", reasonNote: "Arrived broken.", createdAt: daysAgo(24), variantTitle: "Default Title" },
+          { id: "return-2", orderId: "order-2", quantity: 1, reason: "OTHER", reasonNote: "Poor quality and broken.", createdAt: daysAgo(13), variantTitle: "Default Title" },
+          { id: "return-3", orderId: "order-3", quantity: 1, reason: "OTHER", reasonNote: "Defective and disappointed.", createdAt: daysAgo(5), variantTitle: "Default Title" },
+        ],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: {
+        connected: true,
+        matchConfidence: 1,
+        internalProductId: "jm-123",
+        reviews: [
+          { id: "review-1", rating: 1, title: "Broken", body: "Poor quality and broken.", createdAt: daysAgo(11) },
+          { id: "review-2", rating: 2, title: "Disappointed", body: "Defect out of the box.", createdAt: daysAgo(4) },
+        ],
+      },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    const history = deterministic.metrics.riskHistory;
+
+    expect(history.length).toBeGreaterThanOrEqual(5);
+    expect(history[0].granularity).toBe("weekly");
+    expect(history.at(-1).isCurrent).toBe(true);
+    expect(history.at(-1).riskScore).toBe(deterministic.riskScore);
+    expect(Math.max(...history.map((point) => point.metrics.returnUnits))).toBe(3);
+    expect(history.find((point) => point.metrics.returnUnits === 0).riskScore).toBeLessThan(history.at(-1).riskScore);
+  });
+
   it("keeps one isolated customer text as evidence instead of merchant-facing issues", () => {
     const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
       returns: [{
@@ -711,7 +777,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       orderUnits: 2,
       returnedOrders: 1,
       returnedUnits: 1,
-      returnRate: 100,
+      returnRate: 50,
     });
     expect(february).toMatchObject({
       orders: 1,
@@ -725,8 +791,8 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       totalReturnedOrders: 1,
       totalRefundedOrders: 1,
       totalRefundAmount: 120,
-      returnRate: 50,
-      refundRate: 50,
+      returnRate: 33.33,
+      refundRate: 33.33,
     });
   });
 

@@ -50,7 +50,7 @@ export async function getWatchlistForShop(shop) {
   const watchedCount = rows.length;
   const [activities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
-    productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 40 }) : new Map(),
+    productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 80 }) : new Map(),
     getWatchActivityStatsForShop(shop, productPulseSettings),
     getWatchSettingsForShop(shop),
   ]);

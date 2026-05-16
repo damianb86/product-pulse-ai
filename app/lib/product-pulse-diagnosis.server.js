@@ -1,7 +1,7 @@
 import prisma from "../db.server";
 import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
 import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
-import { recordProductScoreHistory } from "./product-pulse-history.server";
+import { recordProductScoreHistory, recordReconstructedProductScoreHistory } from "./product-pulse-history.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 import { getAnalysisLookbackDays, getProductPulseSettings } from "./product-pulse-settings.server";
 import {
@@ -19,6 +19,9 @@ const MAX_JUDGEME_SYNC_PAGES = 5;
 const MONTHLY_ORDER_ACTIVITY_MAX_MONTHS = 12;
 const RETURN_RATE_PREDICTION_MAX_WEEKS = 52;
 const RETURN_RATE_PREDICTION_FORECAST_WEEKS = 13;
+const RECONSTRUCTED_RISK_HISTORY_MAX_WEEKLY_POINTS = 58;
+const RECONSTRUCTED_RISK_HISTORY_MAX_MONTHLY_POINTS = 24;
+const RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS = 370;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
@@ -1670,6 +1673,23 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const confidence = scoreModel.confidenceScore;
   const estimatedImpact = scoreModel.impactFactors;
   const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore, snapshotMetrics.riskTrend);
+  const reconstructedRiskHistory = buildReconstructedRiskHistory({
+    snapshot,
+    shopifyData,
+    judgeMeData,
+    csvReviewData,
+    product,
+    sales,
+    returns,
+    refunds,
+    reviews,
+    deterministicContent,
+    windowDays,
+    currentRiskScore: riskScore,
+    currentConfidence: confidence,
+    currentImpactFactors: estimatedImpact,
+    currentMainIssue: mainIssue,
+  });
   const evidenceSnippets = buildEvidenceSnippets({ returns, refunds, reviews: negativeReviews, product });
 
   return {
@@ -1733,6 +1753,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       lastSignalAt: getLatestEventDate(signalEvents),
       signalTrend,
       riskTrend,
+      riskHistory: reconstructedRiskHistory,
+      reconstructedRiskHistory,
       trendMeta: signalTrendResult.meta,
       issueSignalTrends,
       productType: product.productType || snapshotMetrics.productType || "",
@@ -1797,12 +1819,360 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   };
 }
 
+function buildReconstructedRiskHistory({
+  snapshot,
+  shopifyData,
+  judgeMeData,
+  csvReviewData,
+  product,
+  sales = [],
+  returns = [],
+  refunds = [],
+  reviews = [],
+  deterministicContent,
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  currentRiskScore,
+  currentConfidence,
+  currentImpactFactors,
+  currentMainIssue,
+} = {}) {
+  const now = new Date();
+  const datedEvents = [...sales, ...returns, ...refunds, ...reviews]
+    .map((event) => getRiskHistoryEventDate(event))
+    .filter(Boolean)
+    .sort((first, second) => first.getTime() - second.getTime());
+  if (!datedEvents.length) {
+    return [buildCurrentRiskHistoryFallbackPoint({
+      snapshot,
+      product,
+      currentRiskScore,
+      currentConfidence,
+      currentImpactFactors,
+      currentMainIssue,
+      windowDays,
+      now,
+    })];
+  }
+  const earliest = datedEvents[0] || new Date(now.getTime() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000);
+  const granularity = chooseReconstructedRiskHistoryGranularity(earliest, now);
+  const periodEnds = buildReconstructedRiskHistoryPeriodEnds({ earliest, now, granularity });
+  const history = periodEnds
+    .map((periodEnd, index) => buildReconstructedRiskHistoryPoint({
+      snapshot,
+      shopifyData,
+      judgeMeData,
+      csvReviewData,
+      product,
+      sales: filterEventsUpTo(sales, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      returns: filterEventsUpTo(returns, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      refunds: filterEventsUpTo(refunds, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      reviews: filterEventsUpTo(reviews, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      deterministicContent,
+      periodEnd,
+      granularity,
+      sequence: index + 1,
+      windowDays,
+      now,
+    }))
+    .filter(Boolean);
+
+  const currentPoint = history[history.length - 1] || buildCurrentRiskHistoryFallbackPoint({
+    snapshot,
+    product,
+    currentRiskScore,
+    currentConfidence,
+    currentImpactFactors,
+    currentMainIssue,
+    windowDays,
+    now,
+  });
+
+  if (currentPoint) {
+    currentPoint.isCurrent = true;
+    currentPoint.recordedAt = toIso(now);
+    currentPoint.periodEnd = toIso(now);
+    currentPoint.riskScore = Math.round(Number(currentRiskScore ?? currentPoint.riskScore ?? 0));
+    currentPoint.confidence = Math.round(Number(currentConfidence ?? currentPoint.confidence ?? 0));
+    currentPoint.primaryIssue = getHumanIssueLabel(currentMainIssue || currentPoint.primaryIssue || "product_content");
+    currentPoint.metrics = {
+      ...(currentPoint.metrics || {}),
+      calculationState: "current_deep_diagnosis",
+      reconstructedHistory: true,
+    };
+    if (currentImpactFactors) {
+      currentPoint.impactScore = calculateHistoryImpactScore(currentImpactFactors);
+      currentPoint.metrics.marginAtRisk = currentImpactFactors.marginAtRisk || currentPoint.metrics.marginAtRisk || 0;
+      currentPoint.metrics.revenueAtRisk = currentImpactFactors.revenueAtRisk || currentPoint.metrics.revenueAtRisk || 0;
+      currentPoint.metrics.estimatedImpact = currentImpactFactors.estimatedImpact || currentPoint.metrics.estimatedImpact || 0;
+    }
+  }
+
+  return dedupeRiskHistoryPointsByRecordedAt(history.length ? history : [currentPoint].filter(Boolean));
+}
+
+function buildReconstructedRiskHistoryPoint({
+  snapshot,
+  shopifyData,
+  judgeMeData,
+  csvReviewData,
+  product,
+  sales,
+  returns,
+  refunds,
+  reviews,
+  deterministicContent,
+  periodEnd,
+  granularity,
+  sequence,
+  windowDays,
+  now,
+}) {
+  const snapshotMetrics = snapshot.metrics || {};
+  const soldUnits = sumBy(sales, "quantity");
+  const salesAmount = roundCurrency(sumBy(sales, "amount"));
+  const returnUnits = sumBy(returns, "quantity");
+  const refundUnits = sumBy(refunds, "quantity");
+  const refundAmount = roundCurrency(sumBy(refunds, "amount"));
+  const returnRate = calculateUnitRatePercent(returnUnits, soldUnits);
+  const refundRate = calculateUnitRatePercent(refundUnits, soldUnits);
+  const negativeReviews = reviews.filter((review) => Number(review.rating || 0) <= 2 || containsIssueLanguage(review.body));
+  const reviewCount = reviews.length;
+  const avgRating = roundRate(reviewCount ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviewCount : 0, 1);
+  const negativeReviewCount = negativeReviews.length;
+  const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
+  const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDateFrom(review.createdAt, 30, periodEnd)).length;
+  const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
+  const textInsights = buildCustomerTextInsights({ returns, reviews });
+  const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
+  const reviewSourceStats = buildReviewSourceStats(reviews);
+  const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
+  const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
+  const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
+  applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights);
+  const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + count, 0);
+
+  (deterministicContent?.issues || []).forEach((issue) => {
+    issueSignalCounts[issue.issueCode] = (issueSignalCounts[issue.issueCode] || 0) + 1;
+  });
+
+  const mainIssue = getMainIssueFromCounts(issueSignalCounts, snapshot.primaryIssue);
+  const customerSignalCount = Math.max(returnUnits + refundUnits + negativeReviewCount, customerIssueSignalTotal);
+  const contentIssueCount = deterministicContent?.issues?.length || 0;
+  const signalCount = customerSignalCount + contentIssueCount;
+  const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
+  const recentSignalUnits = countRecentSignalEventsFrom(signalEvents, 30, periodEnd);
+  const scoreModel = calculateProductScoreModel({
+    soldUnits,
+    salesAmount,
+    returnUnits,
+    refundUnits,
+    refundAmount,
+    returnRate,
+    refundRate,
+    reviewCount,
+    avgRating,
+    negativeReviewCount,
+    negativeReviewRate,
+    recentNegativeReviewCount,
+    signalCount,
+    customerSignalCount,
+    contentIssueCount,
+    contentQualityRisk: deterministicContent?.riskLift || 0,
+    textInsights,
+    refundInsights,
+    sourceCoverage,
+    signalEvents,
+    affectedVariants,
+    reviewSourceStats,
+    storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
+    storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
+    storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate || snapshotMetrics.csvNegativeRatingRate,
+    sentimentTotal: textInsights?.sentiment?.total || 0,
+    sentimentNegativeCount: textInsights?.sentiment?.negative || 0,
+    subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
+    subjectiveNegativeRatio: textInsights?.subjectiveNegativity?.ratio || 0,
+    variantCount: product?.variants?.length || Number(snapshotMetrics.variantCount || 0),
+    affectedVariantCount: affectedVariants.length,
+    affectedVariantSignalCount: affectedVariants.reduce((sum, variant) => sum + Number(variant.count || 0), 0),
+    strongestVariantSignalCount: affectedVariants[0]?.count || 0,
+    recentSignalUnits,
+    signalEventCount: customerSignalCount,
+    effectiveSampleSize: returnUnits + refundUnits + reviewCount + contentIssueCount,
+    sourceAgreement,
+    productMatchConfidence: Math.max(judgeMeData?.matchConfidence || 0, csvReviewData?.matchConfidence || 0, reviews.length ? 0 : 1),
+    orderAccessDenied: shopifyData?.orderAccessDenied,
+    missingOrders: shopifyData?.orderAccessDenied,
+    dataQualityIncomplete: shopifyData?.orderAccessDenied,
+    subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
+    scoreBreakdownReconstructed: !isCurrentRiskHistoryPoint(periodEnd, now),
+    calculationState: isCurrentRiskHistoryPoint(periodEnd, now) ? "current_deep_diagnosis" : "reconstructed_from_deep_diagnosis_events",
+    windowDays,
+  }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
+
+  return {
+    source: "full-diagnosis-reconstructed",
+    granularity,
+    sequence,
+    periodEnd: toIso(periodEnd),
+    recordedAt: toIso(periodEnd),
+    isCurrent: isCurrentRiskHistoryPoint(periodEnd, now),
+    riskScore: scoreModel.riskScore,
+    confidence: scoreModel.confidenceScore,
+    impactScore: calculateHistoryImpactScore(scoreModel.impactFactors),
+    primaryIssue: getHumanIssueLabel(mainIssue),
+    metrics: {
+      reconstructedHistory: true,
+      calculationState: scoreModel.riskComponents.calculationState,
+      granularity,
+      windowDays,
+      soldUnits,
+      salesAmount,
+      returnUnits,
+      refundUnits,
+      refundAmount,
+      returnRate,
+      refundRate,
+      reviewCount,
+      avgRating,
+      negativeReviewCount,
+      negativeReviewRate,
+      recentNegativeReviewCount,
+      signalCount,
+      customerSignalCount,
+      contentIssueCount,
+      recentSignalUnits,
+      marginAtRisk: scoreModel.impactFactors.marginAtRisk,
+      revenueAtRisk: scoreModel.impactFactors.revenueAtRisk,
+      estimatedImpact: scoreModel.impactFactors.estimatedImpact,
+      sourceCoverage,
+      sourceAgreement,
+      riskComponents: scoreModel.riskComponents,
+      confidenceFactors: scoreModel.confidenceFactors,
+    },
+  };
+}
+
+function buildCurrentRiskHistoryFallbackPoint({
+  snapshot,
+  product,
+  currentRiskScore,
+  currentConfidence,
+  currentImpactFactors,
+  currentMainIssue,
+  windowDays,
+  now,
+}) {
+  const snapshotMetrics = snapshot?.metrics || {};
+  const riskScore = Math.round(Number(currentRiskScore ?? snapshot?.riskScore ?? 0));
+  return {
+    source: "full-diagnosis-reconstructed",
+    granularity: "current",
+    sequence: 1,
+    periodEnd: toIso(now),
+    recordedAt: toIso(now),
+    isCurrent: true,
+    riskScore,
+    confidence: Math.round(Number(currentConfidence ?? snapshot?.confidence ?? 0)),
+    impactScore: calculateHistoryImpactScore(currentImpactFactors || { revenueAtRisk: snapshotMetrics.revenueAtRisk }),
+    primaryIssue: getHumanIssueLabel(currentMainIssue || snapshot?.primaryIssue || "product_content"),
+    metrics: {
+      reconstructedHistory: true,
+      calculationState: "current_deep_diagnosis",
+      granularity: "current",
+      windowDays,
+      soldUnits: Number(snapshotMetrics.soldUnits || 0),
+      salesAmount: Number(snapshotMetrics.salesAmount || 0),
+      returnUnits: Number(snapshotMetrics.returnUnits || 0),
+      refundUnits: Number(snapshotMetrics.refundUnits || 0),
+      refundAmount: Number(snapshotMetrics.refundAmount || 0),
+      returnRate: Number(snapshotMetrics.returnRate || 0),
+      refundRate: Number(snapshotMetrics.refundRate || 0),
+      reviewCount: Number(snapshotMetrics.reviewCount || 0),
+      negativeReviewCount: Number(snapshotMetrics.negativeReviewCount || 0),
+      negativeReviewRate: Number(snapshotMetrics.negativeReviewRate || 0),
+      marginAtRisk: Number(currentImpactFactors?.marginAtRisk || snapshotMetrics.marginAtRisk || 0),
+      revenueAtRisk: Number(currentImpactFactors?.revenueAtRisk || snapshotMetrics.revenueAtRisk || 0),
+      estimatedImpact: Number(currentImpactFactors?.estimatedImpact || snapshotMetrics.estimatedImpact || 0),
+      productTitle: product?.title || snapshot?.productTitle || "",
+    },
+  };
+}
+
+function chooseReconstructedRiskHistoryGranularity(earliest, now) {
+  const spanDays = Math.max(1, Math.ceil((now.getTime() - earliest.getTime()) / (24 * 60 * 60 * 1000)));
+  return spanDays > RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS ? "monthly" : "weekly";
+}
+
+function buildReconstructedRiskHistoryPeriodEnds({ earliest, now, granularity }) {
+  const starts = granularity === "monthly"
+    ? getMonthStartsBetween(startOfUtcMonth(earliest), startOfUtcMonth(now)).slice(-RECONSTRUCTED_RISK_HISTORY_MAX_MONTHLY_POINTS)
+    : getWeekStartsBetween(startOfUtcWeek(earliest), startOfUtcWeek(now)).slice(-RECONSTRUCTED_RISK_HISTORY_MAX_WEEKLY_POINTS);
+  const periodEnds = starts.map((start) => {
+    const nextStart = granularity === "monthly" ? addUtcMonths(start, 1) : addUtcDays(start, 7);
+    return new Date(Math.min(nextStart.getTime() - 1, now.getTime()));
+  });
+  const last = periodEnds[periodEnds.length - 1];
+  if (!last || Math.abs(last.getTime() - now.getTime()) > 1000) {
+    periodEnds.push(now);
+  }
+  return periodEnds;
+}
+
+function filterEventsUpTo(events = [], periodEnd, { includeUndated = false } = {}) {
+  const endTime = periodEnd.getTime();
+  return events.filter((event) => {
+    const date = getRiskHistoryEventDate(event);
+    if (!date) return includeUndated;
+    return date.getTime() <= endTime;
+  });
+}
+
+function getRiskHistoryEventDate(event = {}) {
+  return parseValidDate(event.createdAt || event.processedAt || event.updatedAt || event.reviewDate || event.date);
+}
+
+function isCurrentRiskHistoryPoint(periodEnd, now) {
+  return Math.abs(periodEnd.getTime() - now.getTime()) <= 1000;
+}
+
+function countRecentSignalEventsFrom(events, days, now) {
+  return events
+    .filter((event) => isRecentDateFrom(event.createdAt, days, now))
+    .reduce((total, event) => total + Number(event.value || 1), 0);
+}
+
+function isRecentDateFrom(value, days, now) {
+  const date = parseValidDate(value);
+  const currentDate = parseValidDate(now);
+  if (!date || !currentDate) return false;
+  return currentDate.getTime() - date.getTime() <= days * 24 * 60 * 60 * 1000;
+}
+
+function calculateHistoryImpactScore(impactFactors = {}) {
+  return Math.min(100, Math.round(Number(impactFactors.revenueAtRisk || impactFactors.estimatedImpact || 0) / 100));
+}
+
+function dedupeRiskHistoryPointsByRecordedAt(history = []) {
+  const byTimestamp = new Map();
+  history.filter(Boolean).forEach((point) => {
+    const key = point.recordedAt || point.periodEnd;
+    if (!key) return;
+    byTimestamp.set(key, point);
+  });
+  return [...byTimestamp.values()].sort((first, second) => new Date(first.recordedAt).getTime() - new Date(second.recordedAt).getTime());
+}
+
 function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
   const knownEmotions = normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights);
   const adjustedRiskComponents = adjustRiskComponentsForContentAnalysis(deterministic.metrics.riskComponents, contentAnalysis);
   const adjustedRiskScore = adjustedRiskComponents.riskScore;
+  const adjustedRiskHistory = adjustReconstructedRiskHistoryForContentAnalysis(
+    deterministic.metrics.reconstructedRiskHistory || deterministic.metrics.riskHistory,
+    contentAnalysis,
+    adjustedRiskScore,
+  );
   const scoredDeterministic = {
     ...deterministic,
     riskScore: adjustedRiskScore,
@@ -1824,6 +2194,8 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
       issueCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
       riskComponents: adjustedRiskComponents,
       riskTrend: buildRiskTrendFromSignalTrend(deterministic.metrics.signalTrend, adjustedRiskScore, deterministic.metrics.riskTrend),
+      riskHistory: adjustedRiskHistory,
+      reconstructedRiskHistory: adjustedRiskHistory,
     },
   };
   contentAnalysis.issues.forEach((issue) => {
@@ -1923,6 +2295,13 @@ async function persistDetailedDiagnosis({ shop, snapshot, payload }) {
     },
   });
   await Promise.all([
+    recordReconstructedProductScoreHistory({
+      shop,
+      snapshot: updatedSnapshot,
+      history: payload.metrics.reconstructedRiskHistory || payload.metrics.riskHistory,
+      source: "full-diagnosis-reconstructed",
+      diagnosisId: diagnosis.id,
+    }),
     recordProductScoreHistory({ shop, snapshot: updatedSnapshot, source: "full-diagnosis", diagnosisId: diagnosis.id }),
     recordWatchlistScanActivities(shop, [updatedSnapshot], { source: "full-diagnosis" }),
   ]);
@@ -5356,6 +5735,37 @@ function adjustRiskComponentsForContentAnalysis(riskComponents = {}, contentAnal
     riskScore,
     calculationState: next.calculationState || "calculated_from_persisted_components",
   };
+}
+
+function adjustReconstructedRiskHistoryForContentAnalysis(history = [], contentAnalysis = {}, currentRiskScore = null) {
+  const points = (Array.isArray(history) ? history : []).filter(Boolean);
+  if (!points.length) return [];
+
+  return points.map((point, index) => {
+    const isLast = index === points.length - 1 || point.isCurrent;
+    const currentComponents = point.metrics?.riskComponents || {};
+    const adjustedComponents = adjustRiskComponentsForContentAnalysis(currentComponents, contentAnalysis);
+    const riskScore = isLast && Number.isFinite(Number(currentRiskScore))
+      ? Math.round(Number(currentRiskScore))
+      : adjustedComponents.riskScore;
+
+    return {
+      ...point,
+      riskScore,
+      metrics: {
+        ...(point.metrics || {}),
+        contentQualityScore: contentAnalysis.score ?? point.metrics?.contentQualityScore ?? null,
+        contentQualityRisk: contentAnalysis.riskLift ?? point.metrics?.contentQualityRisk ?? 0,
+        contentIssueCount: Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues.length : point.metrics?.contentIssueCount || 0,
+        contentAdvisoryCount: Array.isArray(contentAnalysis.advisories) ? contentAnalysis.advisories.length : point.metrics?.contentAdvisoryCount || 0,
+        riskComponents: {
+          ...adjustedComponents,
+          riskScore,
+          calculated: riskScore,
+        },
+      },
+    };
+  });
 }
 
 function normalizeAiContentFindings(contentGaps) {

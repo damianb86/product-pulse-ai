@@ -45,6 +45,50 @@ export async function recordProductScoreHistoryBatch(shop, snapshots = [], optio
   return prisma.productScoreHistory.createMany({ data: rows });
 }
 
+export async function recordReconstructedProductScoreHistory({
+  shop,
+  snapshot,
+  history = [],
+  source = "full-diagnosis-reconstructed",
+  diagnosisId = null,
+} = {}) {
+  if (!shop || !snapshot?.productGid) return { count: 0 };
+
+  const rows = (Array.isArray(history) ? history : [])
+    .filter((point) => point && !point.isCurrent)
+    .map((point) => {
+      const recordedAt = parseDate(point.recordedAt || point.periodEnd);
+      if (!recordedAt) return null;
+      return {
+        shop,
+        productGid: snapshot.productGid,
+        productTitle: String(snapshot.productTitle || point.productTitle || "Shopify product"),
+        handle: optionalString(snapshot.handle),
+        source,
+        riskScore: toInteger(point.riskScore),
+        impactScore: nullableInteger(point.impactScore),
+        confidence: nullableInteger(point.confidence),
+        primaryIssue: optionalString(point.primaryIssue || snapshot.primaryIssue),
+        metrics: jsonCompatible(buildReconstructedHistoryMetrics(point, snapshot)),
+        snapshotId: optionalString(snapshot.id),
+        diagnosisId: optionalString(diagnosisId),
+        recordedAt,
+      };
+    })
+    .filter(Boolean);
+
+  await prisma.productScoreHistory.deleteMany({
+    where: {
+      shop,
+      productGid: snapshot.productGid,
+      source,
+    },
+  });
+
+  if (!rows.length) return { count: 0 };
+  return prisma.productScoreHistory.createMany({ data: rows });
+}
+
 export async function getProductScoreHistoryForShop(shop, productGid, { take = 40 } = {}) {
   if (!shop || !productGid) return [];
   const rows = await prisma.productScoreHistory.findMany({
@@ -89,6 +133,57 @@ function buildHistoryMetrics(snapshot = {}) {
     returnRatePrediction: metrics.returnRatePrediction?.summary || null,
     sourceCoverage: snapshot.sourceCoverage || null,
   };
+}
+
+function buildReconstructedHistoryMetrics(point = {}, snapshot = {}) {
+  const pointMetrics = point.metrics || {};
+  return {
+    ...buildHistoryMetrics({
+      ...snapshot,
+      metrics: {
+        ...(snapshot.metrics || {}),
+        ...pointMetrics,
+      },
+      sourceCoverage: pointMetrics.sourceCoverage || snapshot.sourceCoverage,
+    }),
+    reconstructedHistory: true,
+    calculationState: pointMetrics.calculationState || "reconstructed_from_deep_diagnosis_events",
+    granularity: point.granularity || pointMetrics.granularity || null,
+    sequence: nullableInteger(point.sequence),
+    periodEnd: point.periodEnd || point.recordedAt || null,
+    windowDays: nullableInteger(pointMetrics.windowDays),
+    soldUnits: nullableNumber(pointMetrics.soldUnits),
+    salesAmount: nullableNumber(pointMetrics.salesAmount),
+    returnUnits: nullableNumber(pointMetrics.returnUnits),
+    refundUnits: nullableNumber(pointMetrics.refundUnits),
+    refundAmount: nullableNumber(pointMetrics.refundAmount),
+    reviewCount: nullableInteger(pointMetrics.reviewCount),
+    negativeReviewCount: nullableInteger(pointMetrics.negativeReviewCount),
+    customerSignalCount: nullableInteger(pointMetrics.customerSignalCount),
+    contentIssueCount: nullableInteger(pointMetrics.contentIssueCount),
+    recentSignalUnits: nullableInteger(pointMetrics.recentSignalUnits),
+    riskComponents: pointMetrics.riskComponents || null,
+    confidenceFactors: pointMetrics.confidenceFactors || null,
+  };
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function jsonCompatible(value) {
+  if (value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(jsonCompatible);
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, jsonCompatible(entryValue)]),
+  );
 }
 
 function optionalString(value) {
