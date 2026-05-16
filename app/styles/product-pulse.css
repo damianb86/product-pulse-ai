@@ -6966,12 +6966,14 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendChart {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(390px, 460px);
+  grid-template-columns: minmax(0, 1fr) minmax(370px, 440px);
   align-items: stretch;
   gap: 14px;
 }
 
 .ppAnalyticsTrendMain {
+  display: flex;
+  align-items: center;
   min-width: 0;
 }
 
@@ -7136,7 +7138,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsImpactTrendSvg {
-  height: 264px;
+  width: 100%;
+  height: auto;
+  flex: 1 1 auto;
+  aspect-ratio: 640 / 245;
 }
 
 .ppAnalyticsTableWrap,
