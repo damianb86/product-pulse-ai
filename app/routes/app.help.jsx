@@ -333,7 +333,7 @@ export default function Help() {
   };
 
   return (
-    <s-page heading="Help & contact" inline-size="large-500">
+    <main className={styles.helpShell} aria-label="Help & contact">
       <div className={styles.helpPage}>
         <section className={styles.hero} aria-labelledby="help-hero-title">
           <div className={styles.heroCopy}>
@@ -667,7 +667,7 @@ export default function Help() {
           </div>
         </div>
       )}
-    </s-page>
+    </main>
   );
 }
 

@@ -75,4 +75,83 @@ describe("ProductPulse actions", () => {
       dismissed: 1,
     });
   });
+
+  it("excludes equivalent handled actions from dashboard priority and queue links", () => {
+    const handledProduct = {
+      id: "gid://shopify/Product/handled",
+      handle: "handled-product",
+      title: "Handled Product",
+      riskScore: 88,
+      confidence: 75,
+      analysisDepth: "full",
+      primaryIssue: "Product quality",
+      metrics: {
+        latestDiagnosisId: "diagnosis-handled",
+        marginAtRisk: 900,
+        revenueAtRisk: 2200,
+        signalCount: 8,
+      },
+      recommendedActions: [
+        { id: "draft-pdp-copy", label: "Draft product quality note", type: "PDP copy", status: "Ready" },
+      ],
+      actionHistory: [
+        { id: "action-handled", actionId: "rewrite-product-description", label: "Rewrite product description", status: "applied" },
+      ],
+    };
+    const minorOnlyProduct = {
+      id: "gid://shopify/Product/minor",
+      handle: "minor-product",
+      title: "Minor Product",
+      riskScore: 92,
+      confidence: 80,
+      analysisDepth: "full",
+      primaryIssue: "Product quality",
+      metrics: {
+        latestDiagnosisId: "diagnosis-minor",
+        marginAtRisk: 1200,
+        revenueAtRisk: 2600,
+        signalCount: 9,
+      },
+      recommendedActions: [
+        { id: "copy-support-note", label: "Share internal note with support team", type: "Internal note", status: "Ready" },
+      ],
+      actionHistory: [],
+    };
+    const actionableProduct = {
+      id: "gid://shopify/Product/actionable",
+      handle: "actionable-product",
+      title: "Actionable Product",
+      riskScore: 74,
+      confidence: 70,
+      analysisDepth: "full",
+      primaryIssue: "Expectation mismatch",
+      metrics: {
+        latestDiagnosisId: "diagnosis-actionable",
+        marginAtRisk: 500,
+        revenueAtRisk: 1300,
+        signalCount: 6,
+      },
+      recommendedActions: [
+        { id: "create-product-faq", label: "Create product FAQ", type: "PDP copy", status: "Ready" },
+      ],
+      actionHistory: [],
+    };
+
+    const dashboard = buildDashboardViewData([handledProduct, minorOnlyProduct, actionableProduct]);
+
+    expect(dashboard.totals.pendingActions).toBe(2);
+    expect(dashboard.actionQueue.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Product FAQs", href: "/app/products/actionable-product" }),
+      expect.objectContaining({ label: "Product quality notes", href: "/app/products/minor-product" }),
+    ]));
+    expect(dashboard.priorityProducts).toHaveLength(1);
+    expect(dashboard.priorityProducts[0]).toMatchObject({
+      title: "Actionable Product",
+      actionLabel: "Create product FAQ",
+    });
+    expect(dashboard.startProduct).toMatchObject({
+      title: "Actionable Product",
+      actionTitle: "Create product FAQ",
+    });
+  });
 });

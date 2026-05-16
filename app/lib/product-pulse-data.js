@@ -375,13 +375,14 @@ export function buildDashboardViewData(productItems = products, options = {}) {
   const totalNegativeReviews = sumDashboardMetric(productList, "negativeReviewCount");
   const actionRows = buildDashboardActionRows(productList);
   const pendingActions = actionRows.filter((action) => action.status === "pending");
+  const importantPendingActions = pendingActions.filter(isDashboardImportantAction);
   const appliedActionIds = new Set(actionRows.filter((action) => action.status === "applied").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
   const reviewedActionIds = new Set(actionRows.filter((action) => action.status === "reviewed").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
   const appliedActionCount = appliedActionIds.size;
   const reviewedActionCount = reviewedActionIds.size;
   const resolvedProducts = productList.filter((product) => product.resolvedAt).length;
-  const startProduct = getDashboardStartProduct(productList, { pendingActions });
-  const priorityProducts = buildDashboardPriorityProducts(productList);
+  const startProduct = getDashboardStartProduct(productList, { pendingActions: importantPendingActions });
+  const priorityProducts = buildDashboardPriorityProducts(productList, importantPendingActions);
   const actionQueue = buildDashboardActionQueue(pendingActions);
   const topActiveIssues = buildDashboardTopActiveIssues(productList);
   const coverageSummary = buildDashboardCoverageSummary(productList, {
@@ -444,6 +445,7 @@ export function buildDashboardViewData(productItems = products, options = {}) {
       pendingActions: pendingActions.length,
       appliedActions: appliedActionCount,
       reviewedActions: reviewedActionCount,
+      importantPendingActions: importantPendingActions.length,
       resolvedProducts,
       creditsAvailable: options.billing?.creditsAvailable ?? billing.creditsAvailable,
     },
@@ -681,7 +683,7 @@ function buildDashboardActionRows(productList) {
     const history = Array.isArray(product.actionHistory) ? product.actionHistory : [];
     const rows = actions.map((action) => {
       const actionId = action.id || action.label || "";
-      const record = history.find((item) => item.actionId === actionId || item.id === actionId);
+      const record = getDashboardActionHistoryRecord(action, history);
       const status = normalizeDashboardActionStatus(record?.status || action.status);
       const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
       return {
@@ -695,15 +697,22 @@ function buildDashboardActionRows(productList) {
         icon: getDashboardActionIcon(action),
         tone: getDashboardActionTone(action),
         category: getDashboardActionCategory(action),
+        family: getDashboardActionFamily(action),
+        important: isDashboardImportantAction(action),
         priorityScore,
         marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
       };
     });
 
     const rowIds = new Set(rows.map((row) => row.id));
+    const rowFamilies = new Set(rows.map((row) => row.family).filter((family) => family && family !== "other"));
     const historicalRows = history
       .filter((record) => !isSystemProductActionRecord(record))
       .filter((record) => !rowIds.has(record.actionId || record.id))
+      .filter((record) => {
+        const family = getDashboardActionFamily(record);
+        return !family || family === "other" || !rowFamilies.has(family);
+      })
       .map((record) => {
         const status = normalizeDashboardActionStatus(record.status);
         if (!["pending", "applied", "reviewed", "dismissed"].includes(status)) return null;
@@ -726,6 +735,8 @@ function buildDashboardActionRows(productList) {
           icon: getDashboardActionIcon(action),
           tone: getDashboardActionTone(action),
           category: getDashboardActionCategory(action),
+          family: getDashboardActionFamily(action),
+          important: isDashboardImportantAction(action),
           priorityScore,
           marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
         };
@@ -741,7 +752,36 @@ function buildDashboardActionRows(productList) {
 
 function isSystemProductActionRecord(record = {}) {
   const actionId = String(record.actionId || record.actionType || record.id || "").toLowerCase();
-  return ["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue"].includes(actionId);
+  return ["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue", "run-ai-diagnosis"].includes(actionId);
+}
+
+function getDashboardActionHistoryRecord(action = {}, history = []) {
+  const currentRecords = (Array.isArray(history) ? history : [])
+    .filter((record) => !isSystemProductActionRecord(record));
+  const actionId = normalizeDashboardActionToken(action.id || action.actionId || action.actionType);
+  const actionLabel = normalizeDashboardActionLabel(action.label || action.title);
+  const exactRecord = currentRecords.find((record) => {
+    const recordId = normalizeDashboardActionToken(record.actionId || record.actionType || record.id);
+    const recordLabel = normalizeDashboardActionLabel(record.label);
+    return (actionId && recordId === actionId) || (actionLabel && recordLabel === actionLabel);
+  });
+  if (exactRecord) return exactRecord;
+
+  const family = getDashboardActionFamily(action);
+  if (!family || family === "other") return null;
+
+  return currentRecords.find((record) => (
+    getDashboardActionFamily(record) === family
+      && normalizeDashboardActionStatus(record.status) !== "pending"
+  )) || null;
+}
+
+function normalizeDashboardActionToken(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function normalizeDashboardActionLabel(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ");
 }
 
 function normalizeDashboardActionStatus(status) {
@@ -750,6 +790,35 @@ function normalizeDashboardActionStatus(status) {
   if (normalized.includes("review")) return "reviewed";
   if (normalized.includes("dismiss") || normalized.includes("ignored")) return "dismissed";
   return "pending";
+}
+
+function getDashboardActionFamily(action = {}) {
+  const payload = action.payload || {};
+  const value = `${action.id || ""} ${action.actionId || ""} ${action.actionType || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payload.actionType || ""} ${payload.type || ""} ${payload.operation || ""} ${payload.shopifyField || ""} ${payload.proposedChange || ""}`.toLowerCase();
+  if (value.includes("faq")) return "faq";
+  if (value.includes("title") || value.includes("seo") || value.includes("metadata")) return "title-metadata";
+  if (value.includes("variant") || value.includes("option") || value.includes("sku")) return "variant";
+  if (value.includes("image") || value.includes("media") || value.includes("alt text")) return "media";
+  if (value.includes("qa") || value.includes("supplier") || value.includes("quality review")) return "qa-review";
+  if (value.includes("tag") || value.includes("collection")) return "workflow-tag";
+  if (value.includes("evidence") || value.includes("inspect") || value.includes("verify") || value.includes("review return") || value.includes("review product")) return "evidence-review";
+  if (value.includes("support") || value.includes("internal note")) return "support-note";
+  if (value.includes("description") || value.includes("pdp") || value.includes("copy") || value.includes("expectation") || value.includes("quality note")) return "product-copy";
+  if (value.includes("price") || value.includes("inventory") || value.includes("archive") || value.includes("product status") || value.includes("unlisted")) return "commercial-control";
+  return "other";
+}
+
+function isDashboardImportantAction(action = {}) {
+  const family = getDashboardActionFamily(action);
+  return [
+    "product-copy",
+    "faq",
+    "title-metadata",
+    "variant",
+    "media",
+    "commercial-control",
+    "qa-review",
+  ].includes(family);
 }
 
 function getDashboardActionCategory(action = {}) {
@@ -773,26 +842,38 @@ function getDashboardActionTone(action = {}) {
   return "blue";
 }
 
-function buildDashboardPriorityProducts(productList) {
+function buildDashboardPriorityProducts(productList, importantPendingActions = []) {
   const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
-  return [...productList]
-    .sort((first, second) => getDashboardPriorityScore(second, { maxMarginRisk }) - getDashboardPriorityScore(first, { maxMarginRisk }))
+  const productRows = new Map();
+
+  importantPendingActions.forEach((action) => {
+    const product = action.product;
+    if (!product) return;
+    const key = product.id || product.productGid || product.handle || product.slug || product.title;
+    const existing = productRows.get(key);
+    if (!existing || action.priorityScore > existing.action.priorityScore) {
+      productRows.set(key, { product, action });
+    }
+  });
+
+  return Array.from(productRows.values())
+    .sort((first, second) => (
+      second.action.priorityScore - first.action.priorityScore
+        || getDashboardPriorityScore(second.product, { maxMarginRisk }) - getDashboardPriorityScore(first.product, { maxMarginRisk })
+        || getDashboardMetric(second.product, "marginAtRisk") - getDashboardMetric(first.product, "marginAtRisk")
+    ))
     .slice(0, 3)
-    .map((product, index) => {
-      const pendingAction = buildDashboardActionRows([product]).find((action) => action.status === "pending");
-      const hasFullDiagnosis = hasDashboardFullDiagnosis(product);
-      return {
-        id: product.id || product.handle || product.slug || product.title,
-        rank: index + 1,
-        title: product.title || product.productTitle || "Product",
-        href: `/app/products/${product.handle || product.slug || product.id}`,
-        riskLabel: getRiskLabel(Number(product.riskScore || 0)),
-        riskTone: getRiskTone(Number(product.riskScore || 0)),
-        marginAtRiskLabel: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")),
-        issueLabel: getDashboardIssueLabel(product.primaryIssue || product.metrics?.mainIssue || "Product quality"),
-        actionLabel: pendingAction?.label || (hasFullDiagnosis ? "Review diagnosis" : "Run full diagnosis"),
-      };
-    });
+    .map(({ product, action }, index) => ({
+      id: product.id || product.handle || product.slug || product.title,
+      rank: index + 1,
+      title: product.title || product.productTitle || "Product",
+      href: action.href || `/app/products/${product.handle || product.slug || product.id}`,
+      riskLabel: getRiskLabel(Number(product.riskScore || 0)),
+      riskTone: getRiskTone(Number(product.riskScore || 0)),
+      marginAtRiskLabel: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")),
+      issueLabel: getDashboardIssueLabel(product.primaryIssue || product.metrics?.mainIssue || "Product quality"),
+      actionLabel: action.label || "Review recommended action",
+    }));
 }
 
 function buildDashboardActionQueue(pendingActions) {

@@ -1295,6 +1295,24 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
 }
 
+.ppPriorityProductEmpty {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--pp-slate-300);
+  border-radius: 9px;
+  background: rgba(var(--pp-slate-100-rgb), 0.62);
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.ppPriorityProductEmpty s-icon {
+  color: var(--pp-signal-teal);
+}
+
 .ppPriorityProductRank {
   width: 30px;
   height: 30px;

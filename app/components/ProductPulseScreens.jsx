@@ -5494,10 +5494,10 @@ function DashboardPriorityProducts({ products }) {
     <div className="ppDashboardPanel ppPriorityProductsPanel">
       <div className="ppDashboardPanelHeader">
         <h2>Priority products</h2>
-        <span>Products ranked by action priority, exposure and evidence strength.</span>
+        <span>Products with important open actions, ranked by priority and exposure.</span>
       </div>
       <div className="ppPriorityProductList">
-        {rows.map((product) => (
+        {rows.length ? rows.map((product) => (
           <Link className="ppPriorityProductItem" to={product.href || "/app/products"} key={product.id || product.title}>
             <span className={`ppPriorityProductRank ppPriorityProductRank-${product.riskTone || "neutral"}`}>{product.rank}</span>
             <span>
@@ -5507,7 +5507,12 @@ function DashboardPriorityProducts({ products }) {
             <em>{product.actionLabel}</em>
             <s-icon type="chevron-right" size="small"></s-icon>
           </Link>
-        ))}
+        )) : (
+          <div className="ppPriorityProductEmpty">
+            <s-icon type="check" size="small"></s-icon>
+            <span>No priority products with important pending actions.</span>
+          </div>
+        )}
       </div>
     </div>
   );

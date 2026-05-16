@@ -1,3 +1,9 @@
+.helpShell {
+  display: block;
+  width: 100%;
+  max-width: none;
+}
+
 .helpPage {
   display: grid;
   gap: 16px;
@@ -563,7 +569,8 @@
 }
 
 .modal {
-  width: min(100%, 590px);
+  width: min(calc(100vw - 32px), 760px);
+  max-height: calc(100vh - 36px);
   display: grid;
   gap: 16px;
   padding: 18px;
@@ -571,6 +578,7 @@
   border-radius: 8px;
   background: var(--pp-cloud-white);
   box-shadow: 0 28px 80px rgba(var(--pp-shadow-rgb), 0.28);
+  overflow: auto;
 }
 
 .modalHeader {
@@ -587,11 +595,13 @@
 .formGrid {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .formGrid label {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .formGrid label > span {
