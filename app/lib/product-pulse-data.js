@@ -701,6 +701,8 @@ function buildDashboardActionRows(productList) {
         important: isDashboardImportantAction(action),
         priorityScore,
         marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+        createdAt: record?.createdAt || action.createdAt || null,
+        appliedAt: record?.appliedAt || action.appliedAt || null,
       };
     });
 
@@ -739,6 +741,8 @@ function buildDashboardActionRows(productList) {
           important: isDashboardImportantAction(action),
           priorityScore,
           marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+          createdAt: record.createdAt || null,
+          appliedAt: record.appliedAt || null,
         };
       })
       .filter(Boolean);
@@ -1267,7 +1271,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       rows: buildAnalyticsIssueImpact(productList),
     },
     impactBreakdown: buildAnalyticsImpactBreakdown(productList),
-    actionPerformance: buildAnalyticsActionPerformance(actionRows),
+    actionPerformance: buildAnalyticsActionPerformance(actionRows, productList),
     catalogCoverage: buildAnalyticsCatalogCoverage(productList, {
       totalProducts,
       fullDiagnoses,
@@ -1793,16 +1797,175 @@ function buildAnalyticsActionPerformance(actionRows = []) {
   return {
     ...counts,
     rows: rows.map((row) => ({ ...row, valueLabel: formatDashboardNumber(row.value) })),
-    effectiveness: counts.applied > 0
-      ? [
-        { label: "Post-fix return rate", value: "Waiting", detail: "Needs enough orders after applied fixes." },
-        { label: "Negative reviews", value: "Waiting", detail: "Needs new connected review data after fixes." },
-        { label: "Margin at risk reduced", value: "Waiting", detail: "Will compare before/after diagnosis windows." },
-      ]
-      : [
-        { label: "Fix effectiveness", value: "Waiting for applied actions", detail: "Apply at least one recommended action to start measuring before/after outcomes." },
-      ],
+    effectiveness: buildAnalyticsFixEffectiveness(actionRows),
   };
+}
+
+function buildAnalyticsFixEffectiveness(actionRows = []) {
+  const appliedRows = actionRows.filter((action) => action.status === "applied");
+  if (!appliedRows.length) {
+    return [
+      { label: "Fix effectiveness", value: "Waiting for applied actions", detail: "Apply at least one recommended action to start measuring before/after outcomes." },
+    ];
+  }
+
+  const rowsByProduct = new Map();
+  appliedRows.forEach((row) => {
+    const product = row.product;
+    if (!product) return;
+    const key = product.id || product.productGid || product.handle || product.title;
+    const current = rowsByProduct.get(key) || { product, rows: [] };
+    current.rows.push(row);
+    rowsByProduct.set(key, current);
+  });
+
+  const effects = Array.from(rowsByProduct.values())
+    .map(({ product, rows }) => getAnalyticsProductFixEffect(product, rows))
+    .filter(Boolean);
+
+  if (!effects.length) {
+    return [
+      {
+        label: "Fix effectiveness",
+        value: "Waiting for historical baseline",
+        detail: `${formatDashboardNumber(appliedRows.length)} applied action${appliedRows.length === 1 ? "" : "s"} found, but no before/after risk history is available yet.`,
+      },
+    ];
+  }
+
+  return [
+    summarizeAnalyticsFixEffect(effects, {
+      label: "Product risk change",
+      key: "riskScore",
+      formatter: formatDashboardPointChange,
+      detail: (summary) => `${formatDashboardNumber(summary.count)} product${summary.count === 1 ? "" : "s"} compared against pre-action risk.`,
+      mode: "average",
+    }),
+    summarizeAnalyticsFixEffect(effects, {
+      label: "Post-fix return rate",
+      key: "returnRate",
+      formatter: formatDashboardPercentPointChange,
+      detail: (summary) => `${formatDashboardRate(summary.before)} before vs. ${formatDashboardRate(summary.after)} current across products with return-rate history.`,
+      mode: "average",
+      fallback: {
+        value: "No return baseline",
+        detail: "Applied actions exist, but historical return-rate values are not available for those products yet.",
+      },
+    }),
+    summarizeAnalyticsFixEffect(effects, {
+      label: "Margin at risk reduced",
+      key: "marginAtRisk",
+      formatter: formatDashboardMoneyChange,
+      detail: (summary) => `${formatDashboardMoney(summary.before)} before vs. ${formatDashboardMoney(summary.after)} current margin exposure.`,
+      mode: "sum",
+    }),
+  ];
+}
+
+function getAnalyticsProductFixEffect(product = {}, appliedRows = []) {
+  const metrics = product.metrics || {};
+  const history = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((point) => ({
+      ...point,
+      time: new Date(point.recordedAt || 0).getTime(),
+    }))
+    .filter((point) => Number.isFinite(point.time) && point.time > 0)
+    .sort((first, second) => first.time - second.time);
+
+  if (!history.length) return null;
+
+  const actionTimes = appliedRows
+    .map((row) => new Date(row.appliedAt || row.createdAt || 0).getTime())
+    .filter((time) => Number.isFinite(time) && time > 0);
+  const firstActionTime = actionTimes.length ? Math.min(...actionTimes) : history[history.length - 1].time;
+  const baseline = findAnalyticsEffectBaselinePoint(history, firstActionTime);
+  if (!baseline) return null;
+
+  const current = {
+    riskScore: toFiniteAnalyticsNumber(product.riskScore),
+    returnRate: toFiniteAnalyticsNumber(metrics.returnRate),
+    marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+  };
+
+  const before = {
+    riskScore: toFiniteAnalyticsNumber(baseline.riskScore),
+    returnRate: toFiniteAnalyticsNumber(baseline.returnRate),
+    marginAtRisk: toFiniteAnalyticsNumber(baseline.marginAtRisk),
+  };
+
+  return {
+    product,
+    actionCount: appliedRows.length,
+    actionTime: firstActionTime,
+    before,
+    after: current,
+  };
+}
+
+function findAnalyticsEffectBaselinePoint(history = [], actionTime = 0) {
+  const beforeAction = history.filter((point) => point.time <= actionTime);
+  if (beforeAction.length) return beforeAction[beforeAction.length - 1];
+  if (history.length > 1) return history[Math.max(0, history.length - 2)];
+  return history[0] || null;
+}
+
+function summarizeAnalyticsFixEffect(effects = [], options = {}) {
+  const rows = effects
+    .map((effect) => ({
+      before: toFiniteAnalyticsNumber(effect.before?.[options.key]),
+      after: toFiniteAnalyticsNumber(effect.after?.[options.key]),
+    }))
+    .filter((row) => row.before !== null && row.after !== null);
+
+  if (!rows.length) {
+    return {
+      label: options.label,
+      value: options.fallback?.value || "Waiting",
+      detail: options.fallback?.detail || "Not enough before/after data is available yet.",
+    };
+  }
+
+  const before = options.mode === "sum"
+    ? rows.reduce((total, row) => total + row.before, 0)
+    : rows.reduce((total, row) => total + row.before, 0) / rows.length;
+  const after = options.mode === "sum"
+    ? rows.reduce((total, row) => total + row.after, 0)
+    : rows.reduce((total, row) => total + row.after, 0) / rows.length;
+  const delta = before - after;
+
+  return {
+    label: options.label,
+    value: options.formatter ? options.formatter(delta) : formatDashboardNumber(delta),
+    detail: typeof options.detail === "function"
+      ? options.detail({ before, after, delta, count: rows.length })
+      : options.detail,
+  };
+}
+
+function toFiniteAnalyticsNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatDashboardPointChange(value) {
+  const rounded = Math.round(Number(value || 0));
+  if (rounded > 0) return `Down ${formatDashboardNumber(rounded)} pts`;
+  if (rounded < 0) return `Up ${formatDashboardNumber(Math.abs(rounded))} pts`;
+  return "No change";
+}
+
+function formatDashboardPercentPointChange(value) {
+  const rounded = Math.round(Number(value || 0) * 10) / 10;
+  if (rounded > 0) return `Down ${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(rounded)} pts`;
+  if (rounded < 0) return `Up ${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(Math.abs(rounded))} pts`;
+  return "No change";
+}
+
+function formatDashboardMoneyChange(value) {
+  const amount = Number(value || 0);
+  if (amount > 0) return `${formatDashboardMoney(amount)} lower`;
+  if (amount < 0) return `${formatDashboardMoney(Math.abs(amount))} higher`;
+  return "No change";
 }
 
 function buildAnalyticsCatalogCoverage(productList, { totalProducts, fullDiagnoses, quickScanOnly, catalogProductCount }) {

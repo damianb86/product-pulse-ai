@@ -76,6 +76,53 @@ describe("ProductPulse actions", () => {
     });
   });
 
+  it("calculates action effectiveness from stored product risk history", () => {
+    const product = {
+      id: "gid://shopify/Product/effectiveness",
+      handle: "effectiveness-product",
+      title: "Effectiveness Product",
+      riskScore: 58,
+      confidence: 80,
+      analysisDepth: "full",
+      primaryIssue: "Product quality",
+      metrics: {
+        latestDiagnosisId: "diagnosis-effectiveness",
+        returnRate: 7,
+        marginAtRisk: 240,
+        revenueAtRisk: 600,
+        signalCount: 6,
+        riskHistory: [
+          {
+            riskScore: 82,
+            returnRate: 14,
+            marginAtRisk: 520,
+            recordedAt: "2026-04-01T00:00:00.000Z",
+          },
+        ],
+      },
+      recommendedActions: [
+        { id: "rewrite-description", label: "Rewrite product description", type: "PDP copy", status: "Ready" },
+      ],
+      actionHistory: [
+        {
+          id: "action-effectiveness-1",
+          actionId: "rewrite-description",
+          label: "Rewrite product description",
+          status: "applied",
+          appliedAt: "2026-04-15T00:00:00.000Z",
+        },
+      ],
+    };
+
+    const analytics = buildAnalyticsViewData([product]);
+
+    expect(analytics.actionPerformance.effectiveness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Product risk change", value: "Down 24 pts" }),
+      expect.objectContaining({ label: "Post-fix return rate", value: "Down 7 pts" }),
+      expect.objectContaining({ label: "Margin at risk reduced", value: "$280 lower" }),
+    ]));
+  });
+
   it("excludes equivalent handled actions from dashboard priority and queue links", () => {
     const handledProduct = {
       id: "gid://shopify/Product/handled",

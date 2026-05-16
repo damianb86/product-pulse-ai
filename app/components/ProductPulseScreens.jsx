@@ -10474,7 +10474,7 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
         )}
         <div className="ppAnalyticsTrendSummary">
           {safeSeries.slice(0, 5).map((row) => (
-            <article key={row.label}>
+            <article key={row.label} className={`ppAnalyticsTrendSummaryCard ppAnalyticsTrendSummaryCard-${row.color || "blue"}`}>
               <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
               <strong>{row.displayValue || formatInteger((row.values || []).at(-1) || 0)}</strong>
               {row.detail && <small>{row.detail}</small>}

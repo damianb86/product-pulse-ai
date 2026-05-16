@@ -8020,9 +8020,9 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendChart {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
   align-items: stretch;
-  gap: 12px;
+  gap: 16px;
 }
 
 .ppAnalyticsTrendMain {
@@ -8033,14 +8033,12 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendSide {
   min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
+  display: grid;
+  align-content: start;
   gap: 8px;
 }
 
 .ppAnalyticsTrendContext {
-  flex: 1 1 360px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -8079,19 +8077,22 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsTrendSummary {
-  flex: 999 1 720px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(118px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
 }
 
-.ppAnalyticsTrendSummary article {
+.ppAnalyticsTrendSummaryCard {
   min-width: 0;
   min-height: 78px;
   padding: 8px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
   background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.72));
+}
+
+.ppAnalyticsTrendSummaryCard-green {
+  grid-column: 1 / -1;
 }
 
 .ppAnalyticsTrendSummary span {
@@ -8121,7 +8122,6 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendLegend {
   position: relative;
-  flex: 1 1 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;

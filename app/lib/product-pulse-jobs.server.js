@@ -20,7 +20,10 @@ import {
   getStatusFilterValueForScore,
   getStatusLabelForScore,
 } from "./product-pulse-settings.server";
-import { getProductScoreHistoryForShop } from "./product-pulse-history.server";
+import {
+  getProductScoreHistoryForProductsForShop,
+  getProductScoreHistoryForShop,
+} from "./product-pulse-history.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -232,11 +235,18 @@ export async function getAnalyticsDataForShop(shop) {
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
 
   const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
+  const scoreHistoryByProductGid = await getProductScoreHistoryForProductsForShop(
+    shop,
+    snapshots.map((snapshot) => snapshot.productGid),
+    { take: 80 },
+  );
   const analyticsProducts = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
     snapshot,
     actions.filter((action) => action.productGid === snapshot.productGid).map(formatStoredProductAction),
     latestDiagnosisByProductGid.get(snapshot.productGid),
     settings,
+    null,
+    scoreHistoryByProductGid.get(snapshot.productGid) || [],
   ));
 
   return buildAnalyticsViewData(analyticsProducts, {
@@ -2556,6 +2566,9 @@ function formatProductRiskHistory(scoreHistory = []) {
         source: row.source || "unknown",
         recordedAt: toIso(row.recordedAt),
         primaryIssue: row.primaryIssue || "",
+        returnRate: toNullableNumber(metrics.returnRate),
+        refundRate: toNullableNumber(metrics.refundRate),
+        negativeReviewRate: toNullableNumber(metrics.negativeReviewRate),
         marginAtRisk: toNullableNumber(metrics.marginAtRisk),
         revenueAtRisk: toNullableNumber(metrics.revenueAtRisk),
         signalCount: toNullableNumber(metrics.signalsCount || metrics.signalCount || metrics.issueCount),
