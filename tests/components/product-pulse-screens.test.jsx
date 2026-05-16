@@ -554,7 +554,10 @@ describe("ProductPulse screens", () => {
   });
 
   it("minimizes and expands the recommended actions panel", () => {
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
+    const sidebarLabels = Array.from(container.querySelectorAll(".ppProductDetailSidebar .ppProductDetailSectionLabel")).map((element) => element.textContent);
+    expect(sidebarLabels[0]).toContain("2Recommended actions");
+    expect(sidebarLabels[1]).toContain("4Evidence summary");
     expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
     expect(screen.queryByText(/customers report this trouser runs small/)).not.toBeInTheDocument();
 
@@ -567,6 +570,45 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Minimize" })).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     expect(screen.getAllByText(/customers report this trouser runs small/).length).toBeGreaterThan(0);
+  });
+
+  it("renames description rewrites that only append copy and explains why", () => {
+    const currentDescription = "The Trail Jacket is a lightweight shell with a water-resistant finish and adjustable cuffs.";
+    const textToAdd = "Add a clear sizing note: customers should size up if they plan to wear thick layers under this jacket.";
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "rewrite-product-description",
+        label: "Rewrite product description",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: `${currentDescription}\n\n${textToAdd}`,
+          currentDescriptionText: currentDescription,
+          operation: "replace",
+          returnUnits: 4,
+          negativeReviewCount: 2,
+          topReturnReasons: ["Too small"],
+          contentIssues: [{ label: "Sizing guidance missing", evidence: "Description does not explain layering fit.", code: "short_description" }],
+        },
+      }],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        returnUnits: 4,
+        negativeReviewCount: 2,
+        topReturnReasons: ["Too small"],
+      },
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByRole("button", { name: "Open recommended action Add text to end of description" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add text to end of description" }));
+    const dialog = screen.getByRole("dialog", { name: "Add text to end of description" });
+    const proposedChange = dialog.querySelector(".ppActionProposedChangeBox");
+    expect(proposedChange).toHaveTextContent(textToAdd);
+    expect(proposedChange).not.toHaveTextContent(currentDescription);
+    expect(within(dialog).getByText(/ProductPulse recommends adding this text at the end of the description because 4 returns tied to Too small/)).toBeInTheDocument();
   });
 
   it("persists ignored issues, hides related recommendations and can restore them", async () => {

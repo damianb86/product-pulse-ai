@@ -4589,7 +4589,7 @@ s-page[inline-size="large-500"] {
   width: 100%;
   min-height: 68px;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto 18px;
+  grid-template-columns: 42px minmax(0, 1fr) 18px;
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
@@ -4612,7 +4612,13 @@ s-page[inline-size="large-500"] {
   outline: none;
 }
 
-.ppCompactRecommendedAction > strong {
+.ppCompactRecommendedContent {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ppCompactRecommendedContent > strong {
   min-width: 0;
   overflow: hidden;
   color: var(--pp-slate-900);
@@ -4640,7 +4646,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCompactRecommendedBadge {
-  justify-self: end;
+  justify-self: start;
   max-width: 150px;
   overflow: hidden;
   padding: 5px 9px;
@@ -4736,6 +4742,14 @@ s-page[inline-size="large-500"] {
   font-style: normal;
   font-weight: 850;
   line-height: 1;
+}
+
+.ppActionWhyNarrative {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.48;
 }
 
 .ppMinimizedActionChip-applied {

@@ -2200,6 +2200,17 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
+  const shopperGuidanceForDescription = hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "";
+  const descriptionDraftForRewrite = shouldRewriteDescription ? buildEnhancedDescriptionDraft({
+    title: snapshot.productTitle,
+    currentDescription: currentDescriptionText,
+    suggestedDescription: copy.product_description || "",
+    shopperGuidance: shopperGuidanceForDescription,
+    contentAnalysis,
+  }) : "";
+  const appendedDescriptionGuidance = getAppendedDescriptionText(currentDescriptionText, descriptionDraftForRewrite);
+  const rewriteDescriptionOperation = shouldRewriteDescription && appendedDescriptionGuidance ? "append" : "replace";
+  const rewriteDescriptionLabel = rewriteDescriptionOperation === "append" ? "Add text to end of description" : "Rewrite product description";
   const faqNeed = deterministic.metrics.faqNeed || {};
   const faqItems = buildRecommendedFaqItems({
     copy,
@@ -2221,7 +2232,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         issue: mainIssue,
         placement: getPdpCopyPlacement(mainIssue),
         relatedActionIds: shouldRewriteDescription ? ["rewrite-product-description"] : shouldCorrectDescription ? ["correct-product-description"] : [],
-        relatedActionLabels: shouldRewriteDescription ? ["Rewrite product description"] : shouldCorrectDescription ? ["Correct product description"] : [],
+        relatedActionLabels: shouldRewriteDescription ? [rewriteDescriptionLabel] : shouldCorrectDescription ? ["Correct product description"] : [],
       },
     });
   }
@@ -2238,12 +2249,12 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
 
       recommendations.push({
         id: "rewrite-product-description",
-        label: "Rewrite product description",
+        label: rewriteDescriptionOperation === "append" ? "Add text to end of description" : "Rewrite product description",
         type: "PDP copy",
         effort: "Low",
         status: "Draft",
         payload: {
-          draftText: descriptionDraft,
+          draftText: rewriteDescriptionOperation === "append" ? (getAppendedDescriptionText(currentDescriptionText, descriptionDraft) || appendedDescriptionGuidance || descriptionDraft) : descriptionDraft,
           issue: "product_content",
           currentDescriptionText,
           contentIssues: contentIssues.map((issue) => ({
@@ -2252,8 +2263,9 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
             severity: issue.severity,
             code: issue.code,
           })),
-          changeStrategy: currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
-          operation: "replace",
+          changeStrategy: rewriteDescriptionOperation === "append" ? "add-guidance" : currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
+          operation: rewriteDescriptionOperation,
+          placement: rewriteDescriptionOperation === "append" ? "append" : undefined,
           relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
           relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
         },
@@ -5938,6 +5950,17 @@ function buildEnhancedDescriptionDraft({ title, currentDescription, suggestedDes
   if (!current) return uniqueAdditions.join("\n\n") || fallback;
   if (!uniqueAdditions.length) return current;
   return [current, ...uniqueAdditions].join("\n\n");
+}
+
+function getAppendedDescriptionText(currentDescription = "", proposedDescription = "") {
+  const current = normalizeDraftParagraph(currentDescription);
+  const proposed = normalizeDraftParagraph(proposedDescription);
+  if (!current || !proposed || proposed.length <= current.length) return "";
+  if (!proposed.toLowerCase().startsWith(current.toLowerCase())) return "";
+  return proposed
+    .slice(current.length)
+    .replace(/^[\s:;,.-]+/, "")
+    .trim();
 }
 
 function normalizeDraftParagraph(value) {

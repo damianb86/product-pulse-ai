@@ -2683,7 +2683,7 @@ function getProductDetailModel(product) {
     mainFindingDetail: mainFinding?.detail || (issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
       : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`),
-    recommendedFix: hasFullDiagnosis ? (firstAction?.label || firstAction?.title || "No deterministic action yet") : "Run full product diagnosis",
+    recommendedFix: hasFullDiagnosis ? (firstAction?.title || firstAction?.label || "No deterministic action yet") : "Run full product diagnosis",
     recommendedFixDetail: hasFullDiagnosis
       ? (firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.")
       : "Recommended actions are intentionally locked until this product has a completed deep diagnosis.",
@@ -3163,7 +3163,7 @@ function getProductRecommendedActions(product) {
     effort: action.effort,
     icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
     iconSymbol: getActionIconSymbol(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
-    title: action.label,
+    title: getRecommendedActionTitle(action, product),
     detail: getRecommendedActionDetail(action),
     reason: getRecommendedActionReason(action, product),
     evidence: getRecommendedActionEvidence(action, product),
@@ -3467,6 +3467,11 @@ function getRecommendedActionDetail(action) {
   return "Ready from current stored product signals.";
 }
 
+function getRecommendedActionTitle(action = {}, product = {}) {
+  if (shouldTreatDescriptionRewriteAsAppend(action, product)) return "Add text to end of description";
+  return action.label || action.title || "Recommended action";
+}
+
 function isFaqRecommendedAction(action = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
   return normalized.includes("faq") || Array.isArray(action.payload?.faqItems);
@@ -3614,8 +3619,8 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
   }
 
   if (payload.draftText && (normalized.includes("pdp") || normalized.includes("description") || normalized.includes("faq") || normalized.includes("fit"))) {
-    const operation = getDescriptionOperationForAction(action);
     const currentDescription = getCurrentDescriptionForAction(product, payload);
+    const operation = getResolvedDescriptionOperationForAction(action, product, currentDescription);
     const value = getDescriptionActionValue({ action, product, operation, currentDescription });
     return withRecipeApplicationFields(action, {
       kind: "shopify_product",
@@ -3689,6 +3694,20 @@ function getDescriptionOperationForAction(action) {
   return "prepend";
 }
 
+function getResolvedDescriptionOperationForAction(action, product = null, currentDescription = "") {
+  const operation = getDescriptionOperationForAction(action);
+  if (operation !== "replace") return operation;
+  return shouldTreatDescriptionRewriteAsAppend(action, product, currentDescription) ? "append" : operation;
+}
+
+function shouldTreatDescriptionRewriteAsAppend(action = {}, product = null, currentDescriptionOverride = "") {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (!normalized.includes("rewrite") && payload.operation !== "replace") return false;
+  const currentDescription = currentDescriptionOverride || getCurrentDescriptionForAction(product, payload);
+  return Boolean(getAppendedDescriptionText(currentDescription, payload.draftText));
+}
+
 function getDescriptionOperationText(operation) {
   if (operation === "replace") return "Improve description";
   if (operation === "append") return "Append to description";
@@ -3725,12 +3744,24 @@ function getCurrentDescriptionForAction(product, payload = {}) {
 function getDescriptionActionValue({ action, product, operation, currentDescription }) {
   const payload = action.payload || {};
   const draftText = String(payload.draftText || "").trim();
+  if (operation === "append") return getAppendedDescriptionText(currentDescription, draftText) || draftText;
   if (operation !== "replace") return draftText;
   return buildEnhancedDescriptionPreview({
     currentDescription,
     suggestedText: draftText,
     relatedText: getRelatedDescriptionText(product, payload),
   });
+}
+
+function getAppendedDescriptionText(currentDescription = "", proposedDescription = "") {
+  const current = normalizeActionText(currentDescription);
+  const proposed = normalizeActionText(proposedDescription);
+  if (!current || !proposed || proposed.length <= current.length) return "";
+  if (!proposed.toLowerCase().startsWith(current.toLowerCase())) return "";
+  return proposed
+    .slice(current.length)
+    .replace(/^[\s:;,.-]+/, "")
+    .trim();
 }
 
 function getRelatedDescriptionText(product, payload = {}) {
@@ -3817,6 +3848,8 @@ function getRecommendedActionReason(action, product) {
     return "This creates a concise internal note so support can respond consistently while the product issue is being reviewed.";
   }
   if (payload.draftText || normalized.includes("pdp") || normalized.includes("description") || normalized.includes("faq")) {
+    const narrative = getDescriptionActionWhyNarrative(action, product);
+    if (narrative) return narrative;
     const issue = product.primaryIssue || "current product signals";
     return `This is suggested because ProductPulse detected ${issue}. Clearer shopper-facing copy can reduce avoidable confusion before purchase.`;
   }
@@ -3824,6 +3857,66 @@ function getRecommendedActionReason(action, product) {
     return `This action is based on ${formatInteger(metrics.signalCount)} stored product signal${metrics.signalCount === 1 ? "" : "s"} across the available sources.`;
   }
   return "This action is available from the current diagnosis and can be reviewed before anything is applied.";
+}
+
+function getDescriptionActionWhyNarrative(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (!payload.draftText && !normalized.includes("description") && !normalized.includes("pdp") && !normalized.includes("faq")) return "";
+  const metrics = product.metrics || {};
+  const reasons = normalizeActionReasonList(payload.topReturnReasons || metrics.topReturnReasonDetails || metrics.topReturnReasons, "return reason");
+  const contentIssues = getContentIssueLabels(payload.contentIssues || metrics.contentIssues || metrics.contentAnalysis?.issues);
+  const returnUnits = Number(payload.returnUnits ?? metrics.returnUnits ?? 0);
+  const negativeReviews = Number(payload.negativeReviewCount ?? metrics.negativeReviewCount ?? 0);
+  const issue = getHumanReadableActionIssue(payload.issue || product.primaryIssue || contentIssues[0] || "buyer clarity");
+  const evidenceParts = [];
+
+  if (returnUnits > 0) {
+    evidenceParts.push(`${formatInteger(returnUnits)} return${returnUnits === 1 ? "" : "s"}${reasons.length ? ` tied to ${formatInlineList(reasons.slice(0, 2))}` : ""}`);
+  }
+  if (negativeReviews > 0) {
+    evidenceParts.push(`${formatInteger(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`);
+  }
+  if (contentIssues.length) {
+    evidenceParts.push(`content analysis found ${formatInlineList(contentIssues.slice(0, 2)).toLowerCase()}`);
+  }
+
+  if (!evidenceParts.length) return "";
+
+  const operation = getResolvedDescriptionOperationForAction(action, product);
+  const actionText = operation === "append"
+    ? "adding this text at the end of the description"
+    : operation === "prepend"
+      ? "adding this text before the current description"
+      : "updating the product description";
+
+  return `ProductPulse recommends ${actionText} because ${evidenceParts.join(", ")} point to ${issue}. This gives shoppers clearer expectations before purchase, reducing avoidable confusion before they buy.`;
+}
+
+function normalizeActionReasonList(value, fallback = "signal") {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object") return "";
+      const label = String(item.label || item.reason || item.name || "").trim();
+      const count = Number(item.count || item.units || item.quantity || 0);
+      return label ? `${label}${count ? ` (${formatInteger(count)})` : ""}` : "";
+    })
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((item) => item || fallback);
+}
+
+function getHumanReadableActionIssue(value = "") {
+  const label = getProductIssueCategory(String(value || ""));
+  return label && label !== "No issue" ? label.toLowerCase() : String(value || "buyer clarity").replace(/[_-]+/g, " ").toLowerCase();
+}
+
+function formatInlineList(items = []) {
+  const list = items.map((item) => String(item || "").trim()).filter(Boolean);
+  if (list.length <= 1) return list[0] || "";
+  return `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
 }
 
 function getContentIssueLabels(contentIssues) {
@@ -4614,10 +4707,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </main>
 
           <aside className="ppProductDetailSidebar">
-            <ProductDetailSectionLabel number="2" title="Evidence summary" subtitle="Quick summary by category" />
-            <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
-
-            <ProductDetailSectionLabel number="4" title="Recommended actions" subtitle="Clear, actionable next steps" />
+            <ProductDetailSectionLabel number="2" title="Recommended actions" subtitle="Clear, actionable next steps" />
             <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
               <div className="ppRecommendedActionsHeader">
                 <div>
@@ -4695,6 +4785,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 </div>
               )}
             </div>
+
+            <ProductDetailSectionLabel number="4" title="Evidence summary" subtitle="Quick summary by category" />
+            <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
           </aside>
         </div>
         {diagnosisConfirmation && (
@@ -7166,9 +7259,11 @@ function ProductRecommendedActionCompact({ action, index, onOpen }) {
       onClick={() => onOpen(action)}
     >
       <span className="ppCompactRecommendedIndex">{index + 1}</span>
-      <strong>{action.title}</strong>
-      <span className={`ppCompactRecommendedBadge ppCompactRecommendedBadge-${getCompactActionPriorityTone(badgeLabel)}`}>
-        {badgeLabel}
+      <span className="ppCompactRecommendedContent">
+        <strong>{action.title}</strong>
+        <span className={`ppCompactRecommendedBadge ppCompactRecommendedBadge-${getCompactActionPriorityTone(badgeLabel)}`}>
+          {badgeLabel}
+        </span>
       </span>
       <s-icon type="chevron-right" size="small"></s-icon>
     </button>
@@ -7507,13 +7602,19 @@ function RecommendedActionPreview({ application, editedText }) {
       <div className="ppActionPreviewColumn">
         <strong>{preview.afterLabel}</strong>
         <div className="ppActionPreviewBox ppActionPreviewBox-after">
-          {preview.highlightText && (
+          {preview.highlightText && preview.highlightPosition !== "after" && (
             <div className="ppActionPreviewInsertedText">
               <s-icon type="wand" size="small"></s-icon>
               <p>{preview.highlightText}</p>
             </div>
           )}
           {preview.afterText && <p>{preview.afterText}</p>}
+          {preview.highlightText && preview.highlightPosition === "after" && (
+            <div className="ppActionPreviewInsertedText">
+              <s-icon type="wand" size="small"></s-icon>
+              <p>{preview.highlightText}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -7546,8 +7647,9 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
       beforeLabel,
       afterLabel,
       beforeText: toActionPreviewExcerpt(current || emptyCurrent),
-      highlightText: "",
-      afterText: toActionPreviewExcerpt(`${current}\n\n${proposed}`),
+      highlightText: toActionPreviewExcerpt(proposed),
+      highlightPosition: "after",
+      afterText: toActionPreviewExcerpt(current),
     };
   }
 
@@ -7568,16 +7670,20 @@ function toActionPreviewExcerpt(value = "", maxLength = 460) {
 
 function RecommendedActionWhyItems({ action, product }) {
   const items = getRecommendedActionWhyItems(action, product);
+  const narrative = getDescriptionActionWhyNarrative(action, product);
   return (
-    <div className="ppActionWhyGrid">
-      {items.map((item) => (
-        <span className={`ppActionWhyItem ppActionWhyItem-${item.tone || "neutral"}`} key={`${item.label}-${item.value}`}>
-          <s-icon type={item.icon} size="small"></s-icon>
-          <strong>{item.value}</strong>
-          <small>{item.label}</small>
-        </span>
-      ))}
-    </div>
+    <>
+      {narrative && <p className="ppActionWhyNarrative">{narrative}</p>}
+      <div className="ppActionWhyGrid">
+        {items.map((item) => (
+          <span className={`ppActionWhyItem ppActionWhyItem-${item.tone || "neutral"}`} key={`${item.label}-${item.value}`}>
+            <s-icon type={item.icon} size="small"></s-icon>
+            <strong>{item.value}</strong>
+            <small>{item.label}</small>
+          </span>
+        ))}
+      </div>
+    </>
   );
 }
 
