@@ -1172,7 +1172,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       rows: analysisCoverage,
       max: getAnalyticsMax(analysisCoverage),
     },
-    impactTrend: buildAnalyticsImpactTrend(productList, { windowDays }),
+    impactTrend: buildAnalyticsImpactTrend(productList, { windowDays, totalMarginAtRisk: totals.marginAtRisk }),
     issueImpact: {
       rows: buildAnalyticsIssueImpact(productList),
     },
@@ -1416,7 +1416,7 @@ function buildAnalyticsAnalysisCoverage({ totalProducts, fullDiagnoses, quickSca
   return withAnalyticsColors(buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts }));
 }
 
-function buildAnalyticsImpactTrend(productList, { windowDays = 90 } = {}) {
+function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAtRisk = 0 } = {}) {
   const trends = productList.map((product) => ({
     product,
     values: getAnalyticsProductTrendValues(product),
@@ -1438,11 +1438,11 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90 } = {}) {
 
   const series = [
     {
-      label: "Margin at risk",
+      label: "Trend-weighted margin",
       color: "purple",
       values: marginValues,
       displayValue: formatDashboardMoney(marginValues[marginValues.length - 1] || 0),
-      detail: `Estimated margin exposure across the ${windowDays}-day scan window.`,
+      detail: `Reconstructed timeline: current product margin exposure is weighted by each product's stored risk trend. The top KPI remains the current total margin at risk.`,
     },
     {
       label: "Products needing attention",
@@ -1477,6 +1477,11 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90 } = {}) {
   return {
     series,
     labels: getAnalyticsTrendWindowLabels(length, windowDays),
+    summary: {
+      currentTotalLabel: formatDashboardMoney(totalMarginAtRisk),
+      trendWeightedLabel: formatDashboardMoney(marginValues[marginValues.length - 1] || 0),
+      detail: "Top KPI = current total exposure. Trend line = reconstructed exposure shape over time.",
+    },
   };
 }
 

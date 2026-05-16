@@ -4877,7 +4877,7 @@ export function AnalyticsScreen({ data }) {
             <RiskRevenueBubbleChart bubbles={riskBubbles} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Margin at risk over time" subtitle="Margin exposure, attention count and risk mix across the stored scan window" className="ppAnalyticsPanelTrend">
+          <AnalyticsPanel title="Margin at risk over time" subtitle="Current total vs. reconstructed trend-weighted exposure" className="ppAnalyticsPanelTrend">
             <AnalyticsTrendChart chart={impactTrend} ariaLabel="Margin at risk over time" />
           </AnalyticsPanel>
 
@@ -8606,9 +8606,9 @@ function getAnalyticsPanelInfo(title = "") {
   if (normalizedTitle.includes("margin at risk over time")) {
     return {
       title: "Margin at risk over time",
-      body: "Shows whether financial exposure and product-risk mix are improving or getting worse across the stored scan window.",
+      body: "The top KPI is current total margin at risk. This chart reconstructs the shape over time, so the trend-weighted margin can be different.",
       items: [
-        "Margin at risk is reconstructed from each product's stored risk trend and margin exposure.",
+        "Trend-weighted margin multiplies each product's margin exposure by its stored risk trend at each point.",
         "Products needing attention count products whose trend lands in medium or high risk.",
         "High, medium and low lines show how products move between operational risk buckets.",
       ],
@@ -8770,12 +8770,20 @@ function getAnalyticsPanelInfo(title = "") {
 function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
   const series = chart?.series || [];
   const labels = chart?.labels || [];
+  const summary = chart?.summary || null;
   const safeSeries = series.length ? series : [{ label: "No trend data", color: "blue", values: [0, 0, 0, 0, 0, 0, 0], displayValue: "0", detail: "Run scans to build trend data." }];
   const yTicks = getAnalyticsTrendYAxisTicks(safeSeries[0]?.values || []);
   const [activeLegend, setActiveLegend] = useState(null);
 
   return (
     <div className="ppAnalyticsTrendChart">
+      {summary && (
+        <div className="ppAnalyticsTrendContext" aria-label="Margin at risk comparison">
+          <span><b>Current total</b>{summary.currentTotalLabel || "$0"}</span>
+          <span><b>Trend-weighted now</b>{summary.trendWeightedLabel || "$0"}</span>
+          <small>{summary.detail}</small>
+        </div>
+      )}
       <div className="ppAnalyticsTrendSummary">
         {safeSeries.slice(0, 5).map((row) => (
           <article key={row.label}>

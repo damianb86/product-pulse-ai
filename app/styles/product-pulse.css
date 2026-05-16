@@ -6606,6 +6606,44 @@ s-page[inline-size="large-500"] {
   gap: 12px;
 }
 
+.ppAnalyticsTrendContext {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.06), rgba(var(--pp-slate-100-rgb), 0.68));
+}
+
+.ppAnalyticsTrendContext span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppAnalyticsTrendContext b {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.ppAnalyticsTrendContext small {
+  flex: 1 1 220px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .ppAnalyticsTrendSummary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

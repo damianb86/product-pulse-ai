@@ -1050,6 +1050,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
     expect(screen.getAllByText("Margin at risk").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Margin at risk over time").length).toBeGreaterThan(0);
+    expect(screen.getByText("Current total")).toBeInTheDocument();
+    expect(screen.getByText("Trend-weighted now")).toBeInTheDocument();
+    expect(screen.getAllByText("Trend-weighted margin").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Products needing attention/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /High risk/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Evidence source coverage").length).toBeGreaterThan(0);
