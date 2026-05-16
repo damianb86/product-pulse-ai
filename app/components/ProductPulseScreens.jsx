@@ -5555,18 +5555,30 @@ function ProductReturnRatePredictionPanel({ detail }) {
 
       {hasPrediction ? (
         <div className="ppReturnPredictionChartWrap">
-          <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
-            <path className="ppReturnPredictionGridLine ppReturnPredictionGridLine-top" d="M 0 20 L 100 20" />
-            <path className="ppReturnPredictionGridLine" d="M 0 50 L 100 50" />
-            <path className="ppReturnPredictionGridLine ppReturnPredictionGridLine-bottom" d="M 0 80 L 100 80" />
-            {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
-            {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
-            {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
-          </svg>
-          <div className="ppReturnPredictionAxis">
-            <span>{chart.startLabel}</span>
-            <span>Today</span>
-            <span>{chart.endLabel}</span>
+          <div className="ppReturnPredictionPlot">
+            <div className="ppReturnPredictionYAxis" aria-hidden="true">
+              <span className="ppReturnPredictionYAxisTitle">Return rate</span>
+              {chart.yTicks.map((tick) => (
+                <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
+              ))}
+            </div>
+            <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
+              {chart.yTicks.map((tick) => (
+                <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
+              ))}
+              {chart.monthTicks.map((tick) => (
+                <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
+              ))}
+              {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
+              {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
+              {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
+            </svg>
+            <div className="ppReturnPredictionXAxis">
+              {chart.monthTicks.map((tick) => (
+                <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
+              ))}
+              {chart.boundaryX > 0 && <strong style={{ left: `${chart.boundaryX}%` }}>Today</strong>}
+            </div>
           </div>
           <div className="ppReturnPredictionLegend">
             <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
@@ -5668,14 +5680,16 @@ function getReturnRatePredictionChart(prediction = {}) {
   const observed = (prediction.observedPoints || []).map((point) => ({
     ...point,
     value: Number(point.smoothedReturnRate || 0),
+    date: getReturnPredictionPointDate(point),
   }));
   const forecast = (prediction.forecastPoints || []).map((point) => ({
     ...point,
     value: Number(point.predictedReturnRate || 0),
+    date: getReturnPredictionPointDate(point),
   }));
   const allValues = [...observed, ...forecast].map((point) => point.value).filter((value) => Number.isFinite(value));
   if (!allValues.length) {
-    return { observedPath: "", forecastPath: "", boundaryX: 0, startLabel: "", endLabel: "" };
+    return { observedPath: "", forecastPath: "", boundaryX: 0, startLabel: "", endLabel: "", monthTicks: [], yTicks: [] };
   }
   const min = Math.max(0, Math.min(...allValues) - 4);
   const max = Math.min(100, Math.max(...allValues) + 4);
@@ -5684,6 +5698,8 @@ function getReturnRatePredictionChart(prediction = {}) {
   const mapPoint = (point, index) => ({
     x: Math.round((index / totalCount) * 1000) / 10,
     y: Math.round((92 - ((point.value - min) / range) * 84) * 10) / 10,
+    date: point.date,
+    label: point.label || point.key || "",
   });
   const observedChartPoints = observed.map((point, index) => mapPoint(point, index));
   const forecastOffset = Math.max(observed.length - 1, 0);
@@ -5691,13 +5707,51 @@ function getReturnRatePredictionChart(prediction = {}) {
   const boundaryX = observedChartPoints.length ? observedChartPoints[observedChartPoints.length - 1].x : 0;
   const startLabel = observed[0]?.label || observed[0]?.key || "";
   const endLabel = forecast[forecast.length - 1]?.label || forecast[forecast.length - 1]?.key || "";
+  const allChartPoints = [...observedChartPoints, ...forecastChartPoints];
   return {
     observedPath: buildSmoothSvgPath(observedChartPoints),
     forecastPath: buildSmoothSvgPath(boundaryX && forecastChartPoints.length ? [observedChartPoints[observedChartPoints.length - 1], ...forecastChartPoints] : forecastChartPoints),
     boundaryX,
     startLabel,
     endLabel,
+    monthTicks: buildReturnPredictionMonthTicks(allChartPoints),
+    yTicks: buildReturnPredictionYAxisTicks(min, max, range),
   };
+}
+
+function getReturnPredictionPointDate(point = {}) {
+  const raw = point.startAt || point.key || point.label;
+  if (!raw) return null;
+  const value = String(raw);
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function buildReturnPredictionMonthTicks(chartPoints = []) {
+  const ticks = [];
+  const seen = new Set();
+  chartPoints.forEach((point) => {
+    if (!point.date) return;
+    const key = `${point.date.getUTCFullYear()}-${String(point.date.getUTCMonth() + 1).padStart(2, "0")}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    ticks.push({
+      key,
+      x: clampNumber(point.x, 0, 100),
+      label: new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(point.date),
+    });
+  });
+  return ticks;
+}
+
+function buildReturnPredictionYAxisTicks(min, max, range) {
+  const values = [max, min + range / 2, min]
+    .map((value) => Math.round(clampNumber(value, 0, 100) * 10) / 10);
+  return [...new Set(values)].map((value) => ({
+    value,
+    label: formatPercent(value),
+    y: Math.round((92 - ((value - min) / Math.max(range, 1)) * 84) * 10) / 10,
+  }));
 }
 
 function getReturnRatePredictionActionCopy(adjustment = null) {
@@ -5795,15 +5849,40 @@ function OrderActivityComboChart({ months = [], maxOrders = 1 }) {
 }
 
 function OrderActivityMonthBar({ month, maxOrders }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
   const orderHeight = getOrderActivityBarHeight(month.orders, maxOrders);
   const title = `${month.label}: ${formatInteger(month.orders)} orders, ${formatInteger(month.returnedOrders)} returned, ${formatInteger(month.refundedOrders)} refunded`;
 
   return (
-    <div className="ppOrderActivityMonth" title={title}>
+    <button
+      type="button"
+      className="ppOrderActivityMonth"
+      ref={triggerRef}
+      aria-label={title}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <div className="ppOrderActivityBarShell" aria-hidden="true">
         <span className="ppOrderActivityBar ppOrderActivityBarTotal" style={{ height: `${orderHeight}%` }} />
       </div>
-    </div>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppOrderActivityPopover" width={268} estimatedHeight={178} placement="top-center">
+        <span className="ppOrderActivityPopoverHeader">
+          <strong>{month.label || month.shortLabel}</strong>
+          <small>{formatMoney(month.revenue || 0)} revenue</small>
+        </span>
+        <span className="ppOrderActivityPopoverRows">
+          <span><b>Total orders</b><strong>{formatInteger(month.orders)}</strong><small>{formatInteger(month.orderUnits)} units</small></span>
+          <span><b>Returns</b><strong>{formatInteger(month.returnedOrders)}</strong><small>{formatPercent(month.returnRate)}</small></span>
+          <span><b>Refunds</b><strong>{formatInteger(month.refundedOrders)}</strong><small>{formatPercent(month.refundRate)}</small></span>
+        </span>
+        <span className="ppOrderActivityPopoverFooter">
+          Refund value: <strong>{formatMoney(month.refundAmount || 0)}</strong>
+        </span>
+      </FloatingTablePopover>
+    </button>
   );
 }
 

@@ -3449,6 +3449,11 @@ s-page[inline-size="large-500"] {
   justify-content: center;
   min-width: 34px;
   height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: help;
+  outline: none;
 }
 
 .ppOrderActivityBarShell {
@@ -3471,6 +3476,85 @@ s-page[inline-size="large-500"] {
   width: 100%;
   border-radius: 0;
   background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.9), rgba(var(--pp-pulse-blue-rgb), 0.42));
+}
+
+.ppOrderActivityMonth:hover .ppOrderActivityBarShell,
+.ppOrderActivityMonth:focus-visible .ppOrderActivityBarShell {
+  box-shadow: 0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.12);
+}
+
+.ppOrderActivityPopover {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 18px 42px rgba(var(--pp-shadow-rgb), 0.2);
+  color: var(--pp-slate-700);
+}
+
+.ppOrderActivityPopoverHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ppOrderActivityPopoverHeader strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppOrderActivityPopoverHeader small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ppOrderActivityPopoverRows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppOrderActivityPopoverRows > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-slate-100);
+}
+
+.ppOrderActivityPopoverRows b {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ppOrderActivityPopoverRows strong {
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.ppOrderActivityPopoverRows small,
+.ppOrderActivityPopoverFooter {
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppOrderActivityPopoverFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
 }
 
 .ppOrderActivityXAxis {
@@ -3601,7 +3685,46 @@ s-page[inline-size="large-500"] {
     linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
 }
 
+.ppReturnPredictionPlot {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: 230px 34px;
+  column-gap: 10px;
+  row-gap: 6px;
+  min-width: 0;
+}
+
+.ppReturnPredictionYAxis {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.ppReturnPredictionYAxis span:not(.ppReturnPredictionYAxisTitle) {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.ppReturnPredictionYAxisTitle {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  transform: translateY(-100%);
+  color: var(--pp-slate-600);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .ppReturnPredictionChart {
+  grid-column: 2;
+  grid-row: 1;
   width: 100%;
   height: 230px;
   overflow: visible;
@@ -3610,6 +3733,13 @@ s-page[inline-size="large-500"] {
 .ppReturnPredictionGridLine {
   fill: none;
   stroke: rgba(100, 116, 139, 0.18);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppReturnPredictionMonthLine {
+  fill: none;
+  stroke: rgba(100, 116, 139, 0.13);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
@@ -3645,18 +3775,52 @@ s-page[inline-size="large-500"] {
   stroke-dasharray: 6 6;
 }
 
-.ppReturnPredictionAxis,
+.ppReturnPredictionXAxis,
 .ppReturnPredictionLegend {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   color: var(--pp-slate-500);
   font-size: 12px;
   font-weight: 800;
 }
 
+.ppReturnPredictionXAxis {
+  position: relative;
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  height: 34px;
+}
+
+.ppReturnPredictionXAxis span,
+.ppReturnPredictionXAxis strong {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.ppReturnPredictionXAxis span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppReturnPredictionXAxis strong {
+  top: 16px;
+  z-index: 2;
+  padding: 2px 7px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 950;
+  box-shadow: 0 5px 14px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
 .ppReturnPredictionLegend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: flex-end;
   flex-wrap: wrap;
 }
