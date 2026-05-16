@@ -695,6 +695,27 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
+  if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) {
+    const altText = String(payload.draftText || payload.mediaUpdates[0]?.suggestedAltText || "").replace(/\s+/g, " ").trim();
+    const mediaUpdates = payload.mediaUpdates
+      .map((item) => ({
+        id: String(item.id || "").trim(),
+        alt: altText,
+      }))
+      .filter((item) => item.id && item.alt);
+    if (!mediaUpdates.length) return { status: "validation_error", message: "This media action does not include a media ID and alt text to apply." };
+    const result = await updateProductMediaAltText(admin, snapshot.productGid, mediaUpdates);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `${mediaUpdates.length === 1 ? "Product media alt text was updated" : "Product media alt text was updated"} for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product media alt text",
+        operation: "set",
+        value: mediaUpdates,
+      },
+    };
+  }
+
   if (payload.draftTitle || payload.field === "title" || normalizedId.includes("title")) {
     const title = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
     if (!title) return { status: "validation_error", message: "This title action does not include a title to apply." };
@@ -794,6 +815,35 @@ async function getProductDescriptionForUpdate(admin, productGid) {
 
 async function updateProductDescription(admin, productGid, descriptionHtml) {
   return updateProductFields(admin, productGid, { descriptionHtml }, "Unable to update product description");
+}
+
+async function updateProductMediaAltText(admin, productGid, mediaUpdates) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseUpdateProductMedia($productId: ID!, $media: [UpdateMediaInput!]!) {
+        productUpdateMedia(productId: $productId, media: $media) {
+          media {
+            id
+            alt
+            status
+          }
+          mediaUserErrors {
+            field
+            message
+            code
+          }
+        }
+      }`,
+      { variables: { productId: productGid, media: mediaUpdates } },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.productUpdateMedia?.mediaUserErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return { status: "success" };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to update product media alt text: ${error.message}` };
+  }
 }
 
 async function updateProductFields(admin, productGid, productFields, errorPrefix = "Unable to update product") {

@@ -711,6 +711,99 @@ describe("ProductPulse screens", () => {
     expect(confirmDialog).not.toHaveTextContent(bottomNote);
   });
 
+  it("deduplicates equivalent grouped description changes from the same cause", () => {
+    const currentDescription = "Completed in 1642, this famous artwork reproduction depicts a city guard moving out.";
+    const duplicatedNote = "Please note: This reproduction uses dramatic lighting and a dark visual tone that can feel intense in a room.";
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [
+        {
+          id: "draft-subjective-expectation-note",
+          label: "Draft expectation-setting note",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: duplicatedNote,
+            currentDescriptionText: currentDescription,
+            operation: "prepend",
+            causeKey: "subjective-reaction-night-watch",
+            returnUnits: 3,
+            negativeReviewCount: 2,
+          },
+        },
+        {
+          id: "add-product-description-guidance",
+          label: "Add product description guidance",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: duplicatedNote,
+            currentDescriptionText: currentDescription,
+            operation: "append",
+            causeKey: "subjective-reaction-night-watch",
+            returnUnits: 3,
+            negativeReviewCount: 2,
+          },
+        },
+      ],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Update product description" }));
+    const dialog = screen.getByRole("dialog", { name: "Update product description" });
+    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(1);
+    expect(within(dialog).getByRole("checkbox", { name: /Draft expectation-setting note/ })).toBeChecked();
+    expect(within(dialog).queryByRole("checkbox", { name: /Add product description guidance/ })).not.toBeInTheDocument();
+  });
+
+  it("lets media recommendations apply generated alt text instead of only opening evidence", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "improve-product-media",
+        label: "Improve images and alt text",
+        type: "Media alt text",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: "Core Linen Trouser product image highlighting material, color and fit.",
+          mediaGuidance: "Add descriptive alt text that explains the visible product, material and scale.",
+          imageBrief: "Keep the current image order, but add descriptive alt text to media without alt text.",
+          mediaCount: 1,
+          mediaWithoutAltCount: 1,
+          mediaUpdates: [{
+            id: "gid://shopify/MediaImage/1",
+            targetLabel: "Primary product media",
+            currentAltText: "",
+            suggestedAltText: "Core Linen Trouser product image highlighting material, color and fit.",
+          }],
+          issue: "color_expectation",
+          proposedChange: "Update alt text for Primary product media.",
+          shopifyField: "Product media alt text",
+          expectedImpact: "Reduce visual expectation mismatch and improve PDP clarity.",
+          applicationRisk: "Low",
+        },
+      }],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        mediaCount: 1,
+        mediaWithoutAltCount: 1,
+      },
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Improve images and alt text" }));
+    const dialog = screen.getByRole("dialog", { name: "Improve images and alt text" });
+    expect(within(dialog).getByText("Suggested alt text")).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/ProductPulse recommends improving product media because 1 media item missing alt text/).length).toBeGreaterThan(0);
+    expect(within(dialog).getByRole("button", { name: "Apply change" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
+    expect(screen.getByRole("dialog", { name: "Confirm product media alt text update" })).toBeInTheDocument();
+  });
+
   it("persists ignored issues, hides related recommendations and can restore them", async () => {
     let submittedAction = null;
     let submittedIssueKey = null;

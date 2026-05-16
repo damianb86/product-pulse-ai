@@ -2200,7 +2200,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
-  const shopperGuidanceForDescription = hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "";
+  const primaryPdpDescriptionAction = Boolean(hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction && pdpCopy);
+  const shopperGuidanceForDescription = primaryPdpDescriptionAction ? pdpCopy : "";
   const descriptionDraftForRewrite = shouldRewriteDescription ? buildEnhancedDescriptionDraft({
     title: snapshot.productTitle,
     currentDescription: currentDescriptionText,
@@ -2220,7 +2221,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     faqNeed,
   });
 
-  if (hasActionableMainIssue && pdpCopy && mainIssue !== "product_content" && shouldRecommendSubjectiveAction) {
+  if (primaryPdpDescriptionAction) {
     recommendations.push({
       id: pdpActionId,
       label: pdpActionLabel,
@@ -2231,6 +2232,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         draftText: pdpCopy,
         issue: mainIssue,
         placement: getPdpCopyPlacement(mainIssue),
+        causeKey: getRecommendationCauseKey({ issue: mainIssue, text: pdpCopy, deterministic }),
         relatedActionIds: shouldRewriteDescription ? ["rewrite-product-description"] : shouldCorrectDescription ? ["correct-product-description"] : [],
         relatedActionLabels: shouldRewriteDescription ? [rewriteDescriptionLabel] : shouldCorrectDescription ? ["Correct product description"] : [],
       },
@@ -2243,7 +2245,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         title: snapshot.productTitle,
         currentDescription: currentDescriptionText,
         suggestedDescription: copy.product_description || "",
-        shopperGuidance: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "",
+        shopperGuidance: primaryPdpDescriptionAction ? pdpCopy : "",
         contentAnalysis,
       });
 
@@ -2266,8 +2268,9 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           changeStrategy: rewriteDescriptionOperation === "append" ? "add-guidance" : currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
           operation: rewriteDescriptionOperation,
           placement: rewriteDescriptionOperation === "append" ? "append" : undefined,
-          relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
-          relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
+          causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionDraft, deterministic }),
+          relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
+          relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
         },
       });
     } else if (shouldCorrectDescription) {
@@ -2291,39 +2294,45 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           changeStrategy: "targeted-correction",
           operation: "replace",
           preserveHtml: true,
-          relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
-          relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
+          causeKey: getRecommendationCauseKey({ issue: "product_content", text: correctedDescriptionDraft, deterministic }),
+          relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
+          relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
         },
       });
     } else {
-      recommendations.push({
-        id: "add-product-description-guidance",
-        label: "Add product description guidance",
-        type: "PDP copy",
-        effort: "Low",
-        status: "Draft",
-        payload: {
-          draftText: buildDescriptionGuidanceAddendum({
-            title: snapshot.productTitle,
-            contentIssues,
-            suggestedDescription: copy.product_description || "",
-            shopperGuidance: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? pdpCopy : "",
-          }),
-          issue: "product_content",
-          currentDescriptionText,
-          contentIssues: contentIssues.map((issue) => ({
-            label: issue.label,
-            evidence: issue.evidence,
-            severity: issue.severity,
-            code: issue.code,
-          })),
-          changeStrategy: "add-guidance",
-          operation: "append",
-          placement: "append",
-          relatedActionIds: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionId] : [],
-          relatedActionLabels: hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction ? [pdpActionLabel] : [],
-        },
+      const descriptionGuidanceDraft = buildDescriptionGuidanceAddendum({
+        title: snapshot.productTitle,
+        contentIssues,
+        suggestedDescription: copy.product_description || "",
+        shopperGuidance: primaryPdpDescriptionAction ? "" : pdpCopy,
       });
+      const duplicatesPrimaryPdpAction = primaryPdpDescriptionAction && hasSubstantialOverlap(descriptionGuidanceDraft, pdpCopy);
+      if (descriptionGuidanceDraft && !duplicatesPrimaryPdpAction) {
+        recommendations.push({
+          id: "add-product-description-guidance",
+          label: "Add product description guidance",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: descriptionGuidanceDraft,
+            issue: "product_content",
+            currentDescriptionText,
+            contentIssues: contentIssues.map((issue) => ({
+              label: issue.label,
+              evidence: issue.evidence,
+              severity: issue.severity,
+              code: issue.code,
+            })),
+            changeStrategy: "add-guidance",
+            operation: "append",
+            placement: "append",
+            causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionGuidanceDraft, deterministic }),
+            relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
+            relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
+          },
+        });
+      }
     }
 
     reviewSections.push({
@@ -2382,18 +2391,29 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.media.shouldRecommend) {
+    const mediaUpdates = buildMediaAltTextUpdates({
+      deterministic,
+      snapshot,
+      mediaGuidance: copy.media_guidance,
+      suggestedTitle: copy.product_title,
+    });
+    const mediaGuidance = copy.media_guidance || buildMediaGuidance(deterministic);
     recommendations.push({
       id: "improve-product-media",
       label: "Improve images and alt text",
-      type: "Media guidance",
-      effort: "Medium",
-      status: "Ready",
+      type: mediaUpdates.length ? "Media alt text" : "Media guidance",
+      effort: mediaUpdates.length ? "Low" : "Medium",
+      status: mediaUpdates.length ? "Draft" : "Ready",
       payload: {
-        mediaGuidance: copy.media_guidance || buildMediaGuidance(deterministic),
+        draftText: mediaUpdates[0]?.suggestedAltText || "",
+        mediaGuidance,
+        mediaUpdates,
+        imageBrief: buildRecommendedImageBrief(deterministic),
         mediaCount: deterministic.metrics.mediaCount || 0,
         mediaWithoutAltCount: deterministic.metrics.mediaWithoutAltCount || 0,
         issue: mainIssue,
         trigger: recipeSignals.media.reason,
+        causeKey: getRecommendationCauseKey({ issue: "media", text: recipeSignals.media.reason, deterministic }),
       },
     });
   }
@@ -2844,13 +2864,17 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
     };
   }
   if (id === "improve-product-media") {
+    const updates = Array.isArray(payload.mediaUpdates) ? payload.mediaUpdates : [];
+    const proposedChange = updates.length
+      ? `Update alt text for ${updates.length === 1 ? updates[0]?.targetLabel || "one product media item" : `${updates.length} product media items`}. Recommended image brief: ${payload.imageBrief || "make scale, material, color and format clear."}`
+      : "Add image guidance, improve alt text, or review media order for clearer shopper expectations.";
     return {
       ...common,
-      proposedChange: "Add image guidance, improve alt text, or review media order for clearer shopper expectations.",
-      shopifyField: "Product media and alt text",
+      proposedChange,
+      shopifyField: updates.length ? "Product media alt text" : "Product media and alt text",
       expectedImpact: "Reduce visual expectation mismatch and improve PDP clarity.",
-      applicationRisk: "Medium",
-      approval: "Manual approval required",
+      applicationRisk: updates.length ? "Low" : "Medium",
+      approval: updates.length ? "Review required before applying" : "Manual approval required",
       priorityGroup: "Customer-facing fix",
     };
   }
@@ -2891,6 +2915,79 @@ function buildSuggestedProductTitle(product = {}, mainIssue = "") {
 
 function normalizeSuggestedTitle(value) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 140);
+}
+
+function getRecommendationCauseKey({ issue = "", text = "", deterministic = {} }) {
+  const metrics = deterministic.metrics || {};
+  const reasons = [
+    ...(Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : []),
+    ...(Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails.map((item) => item.label || item.reason || "") : []),
+    ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues.map((item) => item.code || item.label || "") : []),
+  ];
+  const base = [
+    issue,
+    reasons.slice(0, 3).join(" "),
+    text,
+  ].join(" ");
+  return normalizeText(base).split(/\s+/).slice(0, 18).join("-");
+}
+
+function buildMediaAltTextUpdates({ deterministic = {}, snapshot = {}, mediaGuidance = "", suggestedTitle = "" }) {
+  const media = Array.isArray(deterministic.product?.media) ? deterministic.product.media : [];
+  const missingAltMedia = media
+    .filter((item) => item?.id && !String(item.alt || "").trim())
+    .slice(0, 4);
+  if (!missingAltMedia.length) return [];
+
+  return missingAltMedia.map((item, index) => ({
+    id: item.id,
+    targetLabel: index === 0 ? "Primary product media" : `Product media ${index + 1}`,
+    currentAltText: String(item.alt || ""),
+    suggestedAltText: buildSuggestedMediaAltText({
+      title: getBestMediaAltTitle({ deterministic, snapshot, suggestedTitle }),
+      issue: deterministic.mainIssue,
+      guidance: mediaGuidance || buildMediaGuidance(deterministic),
+      media: item,
+    }),
+    mediaContentType: item.mediaContentType || item.type || "IMAGE",
+    width: item.width || null,
+    height: item.height || null,
+  }));
+}
+
+function getBestMediaAltTitle({ deterministic = {}, snapshot = {}, suggestedTitle = "" }) {
+  const currentTitle = String(deterministic.product?.title || snapshot.productTitle || snapshot.title || "").replace(/\s+/g, " ").trim();
+  const aiTitle = String(suggestedTitle || "").replace(/\s+/g, " ").trim();
+  if (aiTitle && (!currentTitle || isGenericProductTitle(currentTitle))) return aiTitle;
+  return currentTitle || aiTitle || "Product";
+}
+
+function buildSuggestedMediaAltText({ title = "", issue = "", guidance = "", media = {} }) {
+  const productTitle = String(title || "Product").replace(/\s+/g, " ").trim();
+  const issueLabel = getHumanIssueLabel(issue).toLowerCase();
+  const dimensions = media.width && media.height ? ` (${media.width}x${media.height})` : "";
+  const focus = normalizeDraftParagraph(guidance)
+    .replace(/^review product media and\s*/i, "")
+    .replace(/^add product media that\s*/i, "")
+    .replace(/\.$/, "");
+  const suffix = focus && focus.length < 120
+    ? `, highlighting ${focus.toLowerCase()}`
+    : `, with visual context for ${issueLabel || "buyer expectations"}`;
+  return `${productTitle} product image${dimensions}${suffix}.`.replace(/\s+/g, " ").slice(0, 250);
+}
+
+function buildRecommendedImageBrief(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  if (Number(metrics.mediaCount || 0) === 0) {
+    return "Add at least one clear product image that shows the product, scale, material, color and what is included in the purchase.";
+  }
+  if (deterministic.mainIssue === "color_expectation") {
+    return "Add or move forward an image that shows the product color in neutral lighting, including a close-up material or finish view if available.";
+  }
+  if (Number(metrics.mediaWithoutAltCount || 0) > 0) {
+    return "Keep the current image order, but add descriptive alt text to media without alt text so product context is explicit.";
+  }
+  return "Review whether the first product image clearly shows scale, format, material and what the shopper receives.";
 }
 
 function buildMediaGuidance(deterministic = {}) {

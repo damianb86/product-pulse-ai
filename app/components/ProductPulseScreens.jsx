@@ -3377,8 +3377,10 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
   const descriptionChanges = descriptionActions
     .map((action) => buildDescriptionChangeDescriptor(action, product))
     .filter(Boolean)
+    .reduce((changes, change) => mergeEquivalentDescriptionChange(changes, change), [])
     .sort((first, second) => getDescriptionChangeOrder(first.operation) - getDescriptionChangeOrder(second.operation));
-  if (descriptionChanges.length <= 1) return actions;
+  if (!descriptionChanges.length) return actions.filter((action) => !isDescriptionChangeAction(action, product));
+  if (descriptionActions.length <= 1 && descriptionChanges.length <= 1) return actions;
 
   const payloads = descriptionActions.map((action) => action.payload || {});
   const groupedAction = {
@@ -3413,6 +3415,53 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
   ];
 }
 
+function mergeEquivalentDescriptionChange(changes = [], change = {}) {
+  const duplicateIndex = changes.findIndex((existing) => areEquivalentDescriptionChanges(existing, change));
+  if (duplicateIndex < 0) return [...changes, change];
+  const merged = {
+    ...changes[duplicateIndex],
+    title: chooseDescriptionChangeTitle(changes[duplicateIndex], change),
+    reason: mergeDescriptionChangeReasons(changes[duplicateIndex].reason, change.reason),
+    relatedTitles: uniqueStrings([
+      ...(Array.isArray(changes[duplicateIndex].relatedTitles) ? changes[duplicateIndex].relatedTitles : [changes[duplicateIndex].title]),
+      change.title,
+    ]),
+  };
+  return changes.map((item, index) => (index === duplicateIndex ? merged : item));
+}
+
+function areEquivalentDescriptionChanges(first = {}, second = {}) {
+  if (!first.text || !second.text) return false;
+  if (textIncludesMeaning(first.text, second.text)) return true;
+  const firstCause = normalizeDescriptionCause(first);
+  const secondCause = normalizeDescriptionCause(second);
+  return Boolean(firstCause && secondCause && firstCause === secondCause && first.operation === second.operation);
+}
+
+function normalizeDescriptionCause(change = {}) {
+  return normalizeActionMatchText([
+    change.causeKey,
+    change.reason,
+    change.title,
+  ]).split(/\s+/).filter((token) => token.length > 3).slice(0, 18).join(" ");
+}
+
+function chooseDescriptionChangeTitle(first = {}, second = {}) {
+  const titles = [first.title, second.title].map((value) => String(value || "").trim()).filter(Boolean);
+  const preferred = titles.find((title) => /expectation|fit|quality note/i.test(title))
+    || titles.find((title) => !/guidance/i.test(title))
+    || titles[0];
+  return preferred || "Update product description";
+}
+
+function mergeDescriptionChangeReasons(first = "", second = "") {
+  const reasons = uniqueStrings([first, second]);
+  if (reasons.length <= 1) return reasons[0] || "";
+  const [primary, secondary] = reasons;
+  if (textIncludesMeaning(primary, secondary)) return primary.length >= secondary.length ? primary : secondary;
+  return `${primary} Related signal: ${secondary}`;
+}
+
 function isDescriptionChangeAction(action = {}) {
   const payload = action.payload || {};
   if (!payload.draftText) return false;
@@ -3443,6 +3492,7 @@ function buildDescriptionChangeDescriptor(action = {}, product = {}) {
     text,
     intro: getDescriptionActionIntro(operation, action),
     reason: getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
+    causeKey: payload.causeKey || "",
   };
 }
 
@@ -3757,6 +3807,27 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     return getFaqRecommendedActionApplication(action, product, options);
   }
 
+  if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) {
+    const primaryUpdate = payload.mediaUpdates[0] || {};
+    const suggestedAltText = String(payload.draftText || primaryUpdate.suggestedAltText || "").trim();
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: true,
+      target: "Product media alt text",
+      operation: payload.mediaUpdates.length === 1 ? "Update media alt text" : `Update ${payload.mediaUpdates.length} media alt texts`,
+      intro: getMediaActionIntro(payload),
+      confirmationTitle: "Confirm product media alt text update",
+      confirmationDetail: payload.mediaUpdates.length === 1
+        ? "ProductPulse will update the selected Shopify product media alt text."
+        : "ProductPulse will apply the reviewed alt text to the selected Shopify product media items.",
+      applyLabel: "Update alt text",
+      valueLabel: "Suggested alt text",
+      value: suggestedAltText,
+      currentValueLabel: primaryUpdate.targetLabel || "Current media alt text",
+      currentValue: primaryUpdate.currentAltText || "No alt text is currently set for this media.",
+    });
+  }
+
   if (payload.draftTitle || payload.field === "title" || normalized.includes("product title")) {
     const title = String(payload.draftTitle || action.detail || "").replace(/\s+/g, " ").trim();
     return withRecipeApplicationFields(action, {
@@ -3918,6 +3989,16 @@ function getDescriptionActionIntro(operation, action = {}) {
   return `ProductPulse suggests adding this note to the ${placement} of the Shopify product description so shoppers see it before buying. You can edit the text before applying it.`;
 }
 
+function getMediaActionIntro(payload = {}) {
+  const updates = Array.isArray(payload.mediaUpdates) ? payload.mediaUpdates : [];
+  const target = updates.length === 1 ? (updates[0]?.targetLabel || "the selected product media") : `${updates.length} product media items`;
+  const imageBrief = String(payload.imageBrief || "").trim();
+  return [
+    `ProductPulse suggests updating alt text for ${target} so the PDP media explains the product more clearly.`,
+    imageBrief ? `Recommended visual direction: ${imageBrief}` : "",
+  ].filter(Boolean).join(" ");
+}
+
 function getDescriptionConfirmationDetail(operation) {
   if (operation === "replace") return "This will update the Shopify product description with the suggested text below. Existing useful copy is included in the draft when available.";
   if (operation === "append") return "This will append the text below to the existing Shopify product description.";
@@ -4010,6 +4091,11 @@ function getRecommendedActionReason(action, product) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   const contentIssueLabels = getContentIssueLabels(payload.contentIssues);
 
+  if (payload.mediaGuidance || Array.isArray(payload.mediaUpdates) || normalized.includes("media") || normalized.includes("image")) {
+    const narrative = getMediaActionWhyNarrative(action, product);
+    if (narrative) return narrative;
+  }
+
   if (payload.trigger && payload.expectedImpact) {
     return `${payload.trigger} Expected impact: ${payload.expectedImpact}`;
   }
@@ -4053,10 +4139,42 @@ function getRecommendedActionReason(action, product) {
   return "This action is available from the current diagnosis and can be reviewed before anything is applied.";
 }
 
+function getMediaActionWhyNarrative(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (!normalized.includes("media") && !normalized.includes("image") && !payload.mediaGuidance && !Array.isArray(payload.mediaUpdates)) return "";
+  const metrics = product.metrics || {};
+  const pieces = [];
+  const missingAlt = Number(payload.mediaWithoutAltCount ?? metrics.mediaWithoutAltCount ?? 0);
+  const mediaCount = Number(payload.mediaCount ?? metrics.mediaCount ?? 0);
+  const negativeReviews = Number(payload.negativeReviewCount ?? metrics.negativeReviewCount ?? 0);
+  const returnReasons = normalizeActionReasonList(payload.topReturnReasons || metrics.topReturnReasonDetails || metrics.topReturnReasons, "return reason");
+  const issue = getHumanReadableActionIssue(payload.issue || product.primaryIssue || "visual expectation mismatch");
+  const imageBrief = String(payload.imageBrief || "").trim();
+
+  if (missingAlt > 0) pieces.push(`${formatInteger(missingAlt)} media item${missingAlt === 1 ? "" : "s"} missing alt text`);
+  if (mediaCount === 0) pieces.push("no product media was found in Shopify product data");
+  if (negativeReviews > 0) pieces.push(`${formatInteger(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"}`);
+  if (returnReasons.length) pieces.push(`return language tied to ${formatInlineList(returnReasons.slice(0, 2))}`);
+
+  const evidence = pieces.length ? pieces.join(", ") : "the diagnosis found media or visual-context risk";
+  const outcome = imageBrief
+    ? ` ProductPulse recommends: ${imageBrief}`
+    : " The proposed alt text should describe the visible product, color, format, material or scale instead of only repeating the title.";
+  return `ProductPulse recommends improving product media because ${evidence} point to ${issue}. Better image context and alt text help shoppers understand what they are buying before purchase.${outcome}`;
+}
+
 function getDescriptionActionWhyNarrative(action = {}, product = {}) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
-  if (!payload.draftText && !normalized.includes("description") && !normalized.includes("pdp") && !normalized.includes("faq")) return "";
+  const isDescriptionLike = normalized.includes("description")
+    || normalized.includes("pdp")
+    || normalized.includes("faq")
+    || payload.descriptionChangeGroup
+    || ["replace", "prepend", "append"].includes(payload.operation)
+    || ["prepend", "append"].includes(payload.placement);
+  if (!isDescriptionLike) return "";
+  if (!payload.draftText && !payload.descriptionChangeGroup && !normalized.includes("description") && !normalized.includes("pdp") && !normalized.includes("faq")) return "";
   const metrics = product.metrics || {};
   const reasons = normalizeActionReasonList(payload.topReturnReasons || metrics.topReturnReasonDetails || metrics.topReturnReasons, "return reason");
   const contentIssues = getContentIssueLabels(payload.contentIssues || metrics.contentIssues || metrics.contentAnalysis?.issues);
@@ -4277,8 +4395,9 @@ function getRecommendedActionMode(action, index) {
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
   const payload = action.payload || {};
-  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag || payload.draftTitle || payload.productStatus || (Array.isArray(payload.tags) && payload.tags.length) || (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length));
+  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag || payload.draftTitle || payload.productStatus || (Array.isArray(payload.tags) && payload.tags.length) || (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length) || (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length));
   if (normalizedId.includes("run-ai-diagnosis")) return "diagnose";
+  if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) return "apply-product";
   if (payload.draftTitle || payload.productStatus) return "apply-product";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
@@ -7951,6 +8070,7 @@ function RecommendedActionProposedChange({
         </label>
       ) : (
         <>
+          {application.valueLabel && <span className="ppActionProposedValueLabel">{application.valueLabel}</span>}
           <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>
             {detailText || "No proposed value supplied."}
           </p>
@@ -8055,7 +8175,7 @@ function toActionPreviewExcerpt(value = "", maxLength = 460) {
 
 function RecommendedActionWhyItems({ action, product }) {
   const items = getRecommendedActionWhyItems(action, product);
-  const narrative = getDescriptionActionWhyNarrative(action, product);
+  const narrative = getRecommendedActionWhyNarrative(action, product);
   return (
     <>
       {narrative && <p className="ppActionWhyNarrative">{narrative}</p>}
@@ -8072,6 +8192,10 @@ function RecommendedActionWhyItems({ action, product }) {
   );
 }
 
+function getRecommendedActionWhyNarrative(action = {}, product = {}) {
+  return getDescriptionActionWhyNarrative(action, product) || getMediaActionWhyNarrative(action, product);
+}
+
 function getRecommendedActionWhyItems(action = {}, product = {}) {
   const payload = action.payload || {};
   const metrics = product.metrics || {};
@@ -8083,6 +8207,8 @@ function getRecommendedActionWhyItems(action = {}, product = {}) {
   const contentIssues = Array.isArray(payload.contentIssues) ? payload.contentIssues.length : Number(metrics.contentIssueCount || 0);
   const signalCount = Number(payload.signalsCount ?? metrics.signalCount ?? product.signalsCount ?? 0);
   const affectedVariants = Array.isArray(payload.affectedVariants) ? payload.affectedVariants.length : 0;
+  const mediaWithoutAlt = Number(payload.mediaWithoutAltCount ?? metrics.mediaWithoutAltCount ?? 0);
+  const mediaUpdates = Array.isArray(payload.mediaUpdates) ? payload.mediaUpdates.length : 0;
 
   if (returnUnits > 0 || returnRate > 0) {
     items.push({
@@ -8117,6 +8243,15 @@ function getRecommendedActionWhyItems(action = {}, product = {}) {
       tone: "blue",
       value: `${formatInteger(affectedVariants)} affected variant${affectedVariants === 1 ? "" : "s"}`,
       label: "concentrates the diagnosis",
+    });
+  }
+
+  if (mediaWithoutAlt > 0 || mediaUpdates > 0) {
+    items.push({
+      icon: "image",
+      tone: "blue",
+      value: `${formatInteger(mediaUpdates || mediaWithoutAlt)} media update${(mediaUpdates || mediaWithoutAlt) === 1 ? "" : "s"}`,
+      label: "recommended for visual clarity",
     });
   }
 
@@ -8224,7 +8359,7 @@ function getActionRiskTone(value = "") {
 function getRecommendedActionKind(mode = "", application = {}) {
   if (mode === "apply-product") return "applyable";
   const target = String(application.target || "").toLowerCase();
-  if (target.includes("product description") || target.includes("product title") || target.includes("product tags") || target.includes("product status")) return "applyable";
+  if (target.includes("product description") || target.includes("product title") || target.includes("product tags") || target.includes("product status") || target.includes("media alt text")) return "applyable";
   return "investigation";
 }
 

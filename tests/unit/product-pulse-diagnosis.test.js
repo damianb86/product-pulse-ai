@@ -890,6 +890,55 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     ]);
   });
 
+  it("does not create duplicate description actions from the same cause and copy", () => {
+    const repeatedNote = "Please note: This reproduction uses dramatic lighting and a dark visual tone that can feel intense in a room.";
+    const deterministic = {
+      mainIssue: "subjective_negative_reaction",
+      issueSignalCounts: { subjective_negative_reaction: 4 },
+      product: {
+        title: "The Night Watch",
+        description: "Completed in 1642, this famous artwork reproduction depicts a city guard moving out.",
+      },
+      metrics: {
+        customerSignalCount: 4,
+        signalCount: 4,
+        returnUnits: 3,
+        negativeReviewCount: 2,
+        topReturnReasons: ["Other"],
+        textInsights: {
+          subjectiveNegativity: { count: 4, ratio: 0.5 },
+        },
+        contentIssueCount: 2,
+        contentAnalysis: {
+          issues: [
+            { code: "missing_physical_specs", label: "Missing physical specifications", severity: "medium", evidence: "Dimensions are not clear." },
+            { code: "unclear_product_format", label: "Unclear product format", severity: "medium", evidence: "The description does not clarify format." },
+          ],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "The Night Watch",
+      },
+      deterministic,
+      mainIssue: "subjective_negative_reaction",
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: repeatedNote,
+            product_description: repeatedNote,
+          },
+        },
+      },
+    });
+
+    expect(recommendations.map((item) => item.id)).toContain("draft-subjective-expectation-note");
+    expect(recommendations.map((item) => item.id)).not.toContain("add-product-description-guidance");
+  });
+
   it("builds actionable recommendation recipes with Shopify fields and risk metadata", () => {
     const deterministic = {
       mainIssue: "safety_concern",
@@ -970,6 +1019,12 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(byId.get("limit-variant-inventory")?.payload.shopifyField).toBe("InventoryLevel quantities");
     expect(byId.get("review-product-pricing")?.payload.shopifyField).toContain("ProductVariant.price");
     expect(byId.get("improve-product-media")?.payload.expectedImpact).toContain("visual expectation");
+    expect(byId.get("improve-product-media")?.payload.mediaUpdates?.[0]).toMatchObject({
+      id: "gid://shopify/MediaImage/1",
+      currentAltText: "",
+    });
+    expect(byId.get("improve-product-media")?.payload.draftText).toContain("Qorve Toy");
+    expect(byId.get("improve-product-media")?.payload.shopifyField).toBe("Product media alt text");
     expect(byId.get("apply-risk-tags")?.payload.tags).toEqual(expect.arrayContaining(["risk-high", "sentiment-negative", "variant-issue"]));
     expect(recommendations.every((item) => item.payload.recipe === true)).toBe(true);
   });
