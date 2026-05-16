@@ -1472,52 +1472,101 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCoverageSummaryStatus {
-  min-height: 82px;
+  min-height: 116px;
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 4px 10px;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px 14px;
   align-items: center;
-  padding: 13px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 10px;
-  background: var(--pp-slate-100);
+  padding: 16px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(var(--pp-info-cyan-rgb), 0.04)),
+    var(--pp-cloud-white);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 12px 32px rgba(var(--pp-shadow-rgb), 0.07);
 }
 
 .ppCoverageSummaryGrid {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) repeat(2, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
   gap: 12px;
   align-items: stretch;
 }
 
-.ppCoverageSummaryStatus s-icon {
-  grid-row: span 2;
+.ppCoverageStatusIcon {
+  width: 54px;
+  height: 54px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.12);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 0 0 6px rgba(var(--pp-pulse-blue-rgb), 0.06), 0 14px 32px rgba(var(--pp-pulse-blue-rgb), 0.18);
+}
+
+.ppCoverageStatusIcon s-icon {
+  transform: scale(1.8);
+}
+
+.ppCoverageStatusCopy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
 }
 
 .ppCoverageSummaryStatus strong {
   color: var(--pp-slate-900);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 850;
 }
 
 .ppCoverageSummaryStatus small {
-  color: var(--pp-slate-500);
-  font-size: 12px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
   line-height: 1.35;
 }
 
 .ppCoverageSummaryStatus-green {
-  border-color: rgba(var(--pp-signal-teal-rgb), 0.22);
+  border-color: rgba(var(--pp-success-green-rgb), 0.32);
   background:
-    radial-gradient(circle at 22px 22px, rgba(var(--pp-signal-teal-rgb), 0.18), transparent 42px),
+    radial-gradient(circle at 32px 32px, rgba(var(--pp-success-green-rgb), 0.26), transparent 70px),
+    linear-gradient(135deg, rgba(var(--pp-success-green-rgb), 0.16), rgba(var(--pp-signal-teal-rgb), 0.06)),
     var(--pp-cloud-white);
-  color: var(--pp-signal-teal);
+}
+
+.ppCoverageSummaryStatus-green .ppCoverageStatusIcon {
+  background: rgba(var(--pp-success-green-rgb), 0.16);
+  color: var(--pp-success-green);
+  box-shadow: 0 0 0 7px rgba(var(--pp-success-green-rgb), 0.08), 0 14px 34px rgba(var(--pp-success-green-rgb), 0.2);
 }
 
 .ppCoverageSummaryStatus-orange {
-  border-color: rgba(var(--pp-warning-amber-rgb), 0.22);
-  background: var(--pp-amber-soft);
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.36);
+  background:
+    radial-gradient(circle at 32px 32px, rgba(var(--pp-warning-amber-rgb), 0.28), transparent 72px),
+    linear-gradient(135deg, rgba(var(--pp-warning-amber-rgb), 0.17), rgba(var(--pp-warning-amber-rgb), 0.055)),
+    var(--pp-cloud-white);
+}
+
+.ppCoverageSummaryStatus-orange .ppCoverageStatusIcon {
+  background: rgba(var(--pp-warning-amber-rgb), 0.16);
   color: var(--pp-warning-amber);
+  box-shadow: 0 0 0 7px rgba(var(--pp-warning-amber-rgb), 0.08), 0 14px 34px rgba(var(--pp-warning-amber-rgb), 0.2);
+}
+
+.ppCoverageSummaryStatus-red {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.34);
+  background:
+    radial-gradient(circle at 32px 32px, rgba(var(--pp-risk-red-rgb), 0.26), transparent 72px),
+    linear-gradient(135deg, rgba(var(--pp-risk-red-rgb), 0.16), rgba(var(--pp-warning-amber-rgb), 0.045)),
+    var(--pp-cloud-white);
+}
+
+.ppCoverageSummaryStatus-red .ppCoverageStatusIcon {
+  background: rgba(var(--pp-risk-red-rgb), 0.14);
+  color: var(--pp-risk-red);
+  box-shadow: 0 0 0 7px rgba(var(--pp-risk-red-rgb), 0.08), 0 14px 34px rgba(var(--pp-risk-red-rgb), 0.2);
 }
 
 .ppCoverageCatalogCard {
@@ -1668,20 +1717,22 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCoverageSourcePills {
+  grid-column: 2;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
 
 .ppCoverageSourcePill {
-  min-height: 28px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 6px 11px 6px 6px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 999px;
-  background: var(--pp-cloud-white);
+  background: rgba(255, 255, 255, 0.78);
   color: var(--pp-slate-500);
   font: inherit;
   font-size: 12px;
@@ -1705,13 +1756,17 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCoverageSourceIcon {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
   background: var(--pp-slate-100);
   color: var(--pp-slate-500);
+}
+
+.ppCoverageSourceIcon s-icon {
+  transform: scale(1.18);
 }
 
 .ppCoverageSourcePill-success .ppCoverageSourceIcon {
@@ -13388,5 +13443,15 @@ s-page[inline-size="large-500"] {
   .ppGlobalJobStatus {
     grid-column: 1 / -1;
     width: max-content;
+  }
+}
+
+@media (max-width: 640px) {
+  .ppCoverageSummaryStatus {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppCoverageStatusSources {
+    grid-column: 1;
   }
 }

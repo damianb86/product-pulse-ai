@@ -981,15 +981,20 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
   const minimumRiskScore = Number(settings?.risk?.minimumScore ?? 18);
   const catalogTone = catalogStoredPercent >= 50 ? "green" : catalogStoredPercent >= 15 ? "orange" : "blue";
   const storedAnalysisTone = storedFullPercent >= 70 ? "green" : storedFullPercent >= 30 ? "orange" : "blue";
-  const statusLabel = connectedCount >= 3 && storedFullPercent >= 70
-    ? "Coverage quality: Good"
+  const statusTone = connectedCount >= 3 && storedFullPercent >= 70
+    ? "green"
     : connectedCount > 1 || storedFullPercent >= 35
-      ? "Coverage quality: Partial"
-      : "Coverage quality: Needs attention";
+      ? "orange"
+      : "red";
+  const statusLabel = statusTone === "green"
+    ? "Coverage quality: Good"
+    : statusTone === "orange"
+      ? "Coverage quality: Medium"
+      : "Coverage quality: Bad";
   return {
     statusLabel,
-    tone: connectedCount >= 3 && storedFullPercent >= 70 ? "green" : connectedCount > 1 || storedFullPercent >= 35 ? "orange" : "blue",
-    icon: connectedCount >= 3 ? "check" : "info",
+    tone: statusTone,
+    icon: statusTone === "green" ? "check" : statusTone === "orange" ? "alert-triangle" : "x",
     detail: `${formatDashboardNumber(totalProducts)} / ${formatDashboardNumber(catalogTotal)} Shopify catalog products are currently inside ProductPulse.`,
     coverageLine: `${formatDashboardNumber(fullDiagnoses.length)} full diagnostics · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only in ProductPulse`,
     catalogCoverage: {

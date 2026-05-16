@@ -5586,9 +5586,18 @@ function DashboardCoverageSummary({ summary }) {
       </div>
       <div className="ppCoverageSummaryGrid">
         <div className={`ppCoverageSummaryStatus ppCoverageSummaryStatus-${summary?.tone || "blue"}`}>
-          <s-icon type={summary?.icon || "check"} size="small"></s-icon>
-          <strong>{summary?.statusLabel || "No scan data"}</strong>
-          <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
+          <span className="ppCoverageStatusIcon" aria-hidden="true">
+            <s-icon type={summary?.icon || "check"} size="small"></s-icon>
+          </span>
+          <span className="ppCoverageStatusCopy">
+            <strong>{summary?.statusLabel || "No scan data"}</strong>
+            <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
+          </span>
+          <div className="ppCoverageStatusSources ppCoverageSourcePills">
+            {sources.map((source) => (
+              <DashboardCoverageSourcePill source={source} key={source.label} />
+            ))}
+          </div>
         </div>
         <DashboardCoverageMetricCard
           metric={catalog}
@@ -5609,11 +5618,6 @@ function DashboardCoverageSummary({ summary }) {
           <p>{summary.recommendation.text}</p>
         </div>
       )}
-      <div className="ppCoverageSourcePills">
-        {sources.map((source) => (
-          <DashboardCoverageSourcePill source={source} key={source.label} />
-        ))}
-      </div>
     </div>
   );
 }
