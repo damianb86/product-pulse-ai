@@ -524,8 +524,8 @@ function sampleSufficiency(sampleSize, targetSampleSize) {
 
 function normalizeRate(value, events, population) {
   const numeric = number(value);
-  if (numeric > 0) return numeric > 1 ? numeric / 100 : numeric;
-  return population > 0 ? events / population : 0;
+  if (numeric > 0) return clamp(numeric > 1 ? numeric / 100 : numeric, 0, 1);
+  return population > 0 ? clamp(events / population, 0, 1) : 0;
 }
 
 function normalizeBaseline(value, fallback) {

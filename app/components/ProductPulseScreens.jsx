@@ -2649,7 +2649,9 @@ function getAnalysisPopoverTitle(analysis) {
 }
 
 function getProductDetailModel(product) {
-  const metrics = product.metrics || {};
+  const metrics = { ...(product.metrics || {}) };
+  metrics.returnRate = clampPercentValue(metrics.returnRate || 0);
+  metrics.refundRate = clampPercentValue(metrics.refundRate || 0);
   const sourceCoverage = product.sourceCoverage || [];
   const hasRiskSnapshot = product.hasRiskSnapshot !== false;
   const analysisStatus = getProductAnalysisDisplay(product);
@@ -2773,6 +2775,19 @@ function getScoreCalculationStatus(metrics = {}) {
   return "Score components unavailable";
 }
 
+function clampPercentValue(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return clampNumber(number, 0, 100);
+}
+
+function calculateClientUnitRatePercent(numeratorUnits, denominatorUnits, fallbackPercent = 0) {
+  const numerator = Number(numeratorUnits || 0);
+  const denominator = Number(denominatorUnits || 0);
+  const rawRate = denominator > 0 ? (numerator / denominator) * 100 : fallbackPercent;
+  return clampPercentValue(rawRate);
+}
+
 function normalizeProductMonthlyOrderActivity(activity = null) {
   const months = (Array.isArray(activity?.months) ? activity.months : [])
     .map((month) => ({
@@ -2788,8 +2803,8 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
       refundedOrders: Number(month.refundedOrders || 0),
       refundedUnits: Number(month.refundedUnits || 0),
       refundAmount: Number(month.refundAmount || 0),
-      returnRate: Number(month.returnRate || 0),
-      refundRate: Number(month.refundRate || 0),
+      returnRate: calculateClientUnitRatePercent(month.returnedUnits, month.orderUnits, month.returnRate ?? 0),
+      refundRate: calculateClientUnitRatePercent(month.refundedUnits, month.orderUnits, month.refundRate ?? 0),
     }))
     .filter((month) => month.key || month.label);
 
@@ -2819,6 +2834,9 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
   const totalOrders = Number(summary.totalOrders ?? computed.totalOrders);
   const totalReturnedOrders = Number(summary.totalReturnedOrders ?? computed.totalReturnedOrders);
   const totalRefundedOrders = Number(summary.totalRefundedOrders ?? computed.totalRefundedOrders);
+  const totalOrderUnits = Number(summary.totalOrderUnits ?? computed.totalOrderUnits);
+  const totalReturnedUnits = Number(summary.totalReturnedUnits ?? computed.totalReturnedUnits);
+  const totalRefundedUnits = Number(summary.totalRefundedUnits ?? computed.totalRefundedUnits);
 
   return {
     source: activity?.source || "",
@@ -2829,11 +2847,22 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
       ...computed,
       ...summary,
       totalOrders,
+      totalOrderUnits,
       totalReturnedOrders,
+      totalReturnedUnits,
       totalRefundedOrders,
+      totalRefundedUnits,
       maxOrders: Math.max(Number(summary.maxOrders || computed.maxOrders || 0), 1),
-      returnRate: Number(summary.returnRate ?? (totalOrders ? (totalReturnedOrders / totalOrders) * 100 : 0)),
-      refundRate: Number(summary.refundRate ?? (totalOrders ? (totalRefundedOrders / totalOrders) * 100 : 0)),
+      returnRate: calculateClientUnitRatePercent(
+        totalReturnedUnits,
+        totalOrderUnits,
+        summary.returnRate ?? (totalOrders ? (totalReturnedOrders / totalOrders) * 100 : 0),
+      ),
+      refundRate: calculateClientUnitRatePercent(
+        totalRefundedUnits,
+        totalOrderUnits,
+        summary.refundRate ?? (totalOrders ? (totalRefundedOrders / totalOrders) * 100 : 0),
+      ),
     },
   };
 }
@@ -2846,9 +2875,11 @@ function normalizeProductReturnRatePrediction(prediction = null) {
       label: String(point.label || point.key || ""),
       startAt: point.startAt || null,
       orders: Number(point.orders || 0),
+      orderUnits: Number(point.orderUnits || 0),
       returnedOrders: Number(point.returnedOrders || 0),
-      rawReturnRate: point.rawReturnRate == null ? null : Number(point.rawReturnRate),
-      smoothedReturnRate: Number(point.smoothedReturnRate ?? point.rawReturnRate ?? 0),
+      returnedUnits: Number(point.returnedUnits || 0),
+      rawReturnRate: point.rawReturnRate == null ? null : clampPercentValue(point.rawReturnRate),
+      smoothedReturnRate: clampPercentValue(point.smoothedReturnRate ?? point.rawReturnRate ?? 0),
     }))
     .filter((point) => point.key || point.label);
   const forecastPoints = (Array.isArray(prediction?.forecastPoints) ? prediction.forecastPoints : [])
@@ -2857,10 +2888,10 @@ function normalizeProductReturnRatePrediction(prediction = null) {
       key: String(point.key || point.startAt || point.label || ""),
       label: String(point.label || point.key || ""),
       startAt: point.startAt || null,
-      predictedReturnRate: Number(point.predictedReturnRate || 0),
-      basePredictedReturnRate: Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0),
-      baselineReturnRate: Number(point.baselineReturnRate || 0),
-      seasonalReturnRate: Number(point.seasonalReturnRate || 0),
+      predictedReturnRate: clampPercentValue(point.predictedReturnRate || 0),
+      basePredictedReturnRate: clampPercentValue(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0),
+      baselineReturnRate: clampPercentValue(point.baselineReturnRate || 0),
+      seasonalReturnRate: clampPercentValue(point.seasonalReturnRate || 0),
     }))
     .filter((point) => point.key || point.label);
   const summary = prediction?.summary || {};
@@ -2875,10 +2906,12 @@ function normalizeProductReturnRatePrediction(prediction = null) {
     summary: {
       totalOrders: Number(summary.totalOrders || 0),
       totalReturnedOrders: Number(summary.totalReturnedOrders || 0),
-      totalReturnRate: Number(summary.totalReturnRate || 0),
-      last30DayReturnRate: Number(summary.last30DayReturnRate || 0),
-      last60DayReturnRate: Number(summary.last60DayReturnRate || 0),
-      forecastNext90ReturnRate: Number(summary.forecastNext90ReturnRate || 0),
+      totalOrderUnits: Number(summary.totalOrderUnits || 0),
+      totalReturnedUnits: Number(summary.totalReturnedUnits || 0),
+      totalReturnRate: clampPercentValue(summary.totalReturnRate || 0),
+      last30DayReturnRate: clampPercentValue(summary.last30DayReturnRate || 0),
+      last60DayReturnRate: clampPercentValue(summary.last60DayReturnRate || 0),
+      forecastNext90ReturnRate: clampPercentValue(summary.forecastNext90ReturnRate || 0),
       confidence: summary.confidence || "Unavailable",
     },
     actionAdjustment: prediction?.actionAdjustment || null,
@@ -5509,7 +5542,12 @@ function ProductReturnRatePredictionPanel({ detail }) {
       </div>
 
       <div className="ppReturnPredictionStats">
-        <OrderActivityStat label="Total return rate" value={formatPercent(summary.totalReturnRate)} detail={`${formatInteger(summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrders)} orders`} tone="blue" />
+        <OrderActivityStat
+          label="Total return rate"
+          value={formatPercent(summary.totalReturnRate)}
+          detail={`${formatInteger(summary.totalReturnedUnits || summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrderUnits || summary.totalOrders)} units`}
+          tone="blue"
+        />
         <OrderActivityStat label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
         <OrderActivityStat label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
         <OrderActivityStat label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />

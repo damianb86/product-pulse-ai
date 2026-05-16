@@ -1948,8 +1948,9 @@ function moneyAmount(moneyBag) {
 }
 
 function safeRate(numerator, denominator) {
-  if (!denominator) return 0;
-  return numerator / denominator;
+  const denominatorNumber = toNumber(denominator);
+  if (!denominatorNumber) return 0;
+  return Math.max(0, Math.min(1, toNumber(numerator) / denominatorNumber));
 }
 
 function roundPercent(value) {

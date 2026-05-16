@@ -475,8 +475,8 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
   const metrics = product.metrics || {};
   const hasFullDiagnosis = hasDashboardFullDiagnosis(product);
   const activeDiagnosis = getDashboardActiveDiagnosis(product);
-  const returnRate = Number(metrics.returnRate || 0);
-  const refundRate = Number(metrics.refundRate || 0);
+  const returnRate = clampDashboardRate(metrics.returnRate);
+  const refundRate = clampDashboardRate(metrics.refundRate);
   const negativeReviews = Number(metrics.negativeReviewCount || 0);
   const mainIssue = getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality");
   const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
@@ -1164,7 +1164,11 @@ function formatDashboardMoney(value) {
 }
 
 function formatDashboardRate(value) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(Number(value || 0))}%`;
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(clampDashboardRate(value))}%`;
+}
+
+function clampDashboardRate(value) {
+  return Math.min(100, Math.max(0, Number(value || 0)));
 }
 
 export function buildAnalyticsViewData(productItems = products, options = {}) {
@@ -1485,8 +1489,8 @@ function buildAnalyticsRiskBubbles(productList) {
       revenueAtRisk,
       issueLabel: getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality"),
       signalCount: Number(metrics.signalCount || metrics.issueCount || 0),
-      returnRate: Number(metrics.returnRate || 0),
-      refundRate: Number(metrics.refundRate || 0),
+      returnRate: clampDashboardRate(metrics.returnRate),
+      refundRate: clampDashboardRate(metrics.refundRate),
       analysisLabel: hasDashboardFullDiagnosis(product) ? "Full diagnosis" : "QuickScan only",
       quadrant: getAnalyticsRiskQuadrant(riskScore, impact, maxImpact),
       x: clampAnalyticsValue(riskScore, 3, 97),

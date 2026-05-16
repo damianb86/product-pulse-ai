@@ -1555,8 +1555,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const returnUnits = preferFreshNumber(sumBy(returns, "quantity"), snapshotMetrics.returnUnits);
   const refundUnits = preferFreshNumber(sumBy(refunds, "quantity"), snapshotMetrics.refundUnits);
   const refundAmount = roundCurrency(preferFreshNumber(sumBy(refunds, "amount"), snapshotMetrics.refundAmount));
-  const returnRate = roundRate(soldUnits > 0 ? (returnUnits / soldUnits) * 100 : snapshotMetrics.returnRate);
-  const refundRate = roundRate(soldUnits > 0 ? (refundUnits / soldUnits) * 100 : snapshotMetrics.refundRate);
+  const returnRate = calculateUnitRatePercent(returnUnits, soldUnits, snapshotMetrics.returnRate);
+  const refundRate = calculateUnitRatePercent(refundUnits, soldUnits, snapshotMetrics.refundRate);
   const reviewCount = reviews.length;
   const avgRating = roundRate(reviewCount ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviewCount : 0, 1);
   const negativeReviews = reviews.filter((review) => Number(review.rating || 0) <= 2 || containsIssueLanguage(review.body));
@@ -5973,8 +5973,16 @@ function buildMonthlyOrderActivity({
       ...summary,
       totalRevenue: roundCurrency(summary.totalRevenue),
       totalRefundAmount: roundCurrency(summary.totalRefundAmount),
-      returnRate: roundRate(summary.totalOrders ? (summary.totalReturnedOrders / summary.totalOrders) * 100 : 0),
-      refundRate: roundRate(summary.totalOrders ? (summary.totalRefundedOrders / summary.totalOrders) * 100 : 0),
+      returnRate: calculateUnitRatePercent(
+        summary.totalReturnedUnits,
+        summary.totalOrderUnits,
+        summary.totalOrders ? (summary.totalReturnedOrders / summary.totalOrders) * 100 : 0,
+      ),
+      refundRate: calculateUnitRatePercent(
+        summary.totalRefundedUnits,
+        summary.totalOrderUnits,
+        summary.totalOrders ? (summary.totalRefundedOrders / summary.totalOrders) * 100 : 0,
+      ),
     maxOrders: Math.max(summary.maxOrders, 1),
     },
   };
@@ -6018,7 +6026,11 @@ function buildReturnRatePrediction({
   const totalReturnedOrders = rawPoints.reduce((total, point) => total + point.returnedOrders, 0);
   const totalOrderUnits = rawPoints.reduce((total, point) => total + point.orderUnits, 0);
   const totalReturnedUnits = rawPoints.reduce((total, point) => total + point.returnedUnits, 0);
-  const totalReturnRate = roundRate(totalOrders ? (totalReturnedOrders / totalOrders) * 100 : 0);
+  const totalReturnRate = calculateUnitRatePercent(
+    totalReturnedUnits,
+    totalOrderUnits,
+    totalOrders ? (totalReturnedOrders / totalOrders) * 100 : 0,
+  );
   const observedPoints = buildSmoothedReturnRatePoints(rawPoints, totalReturnRate);
   const forecastPoints = totalOrders ? buildReturnRateForecastPoints({
     observedPoints,
@@ -6423,7 +6435,9 @@ function normalizeReturnRateWeekBucket(bucket) {
     orderUnits: bucket.orderUnits,
     returnedOrders,
     returnedUnits: bucket.returnedUnits,
-    rawReturnRate: orders ? roundRate((returnedOrders / orders) * 100) : null,
+    rawReturnRate: orders || bucket.orderUnits
+      ? calculateUnitRatePercent(bucket.returnedUnits, bucket.orderUnits, orders ? (returnedOrders / orders) * 100 : 0)
+      : null,
   };
 }
 
@@ -6436,8 +6450,14 @@ function buildSmoothedReturnRatePoints(rawPoints = [], totalReturnRate = 0) {
     const rolling = rawPoints.slice(Math.max(0, index - 2), index + 1);
     const rollingOrders = rolling.reduce((total, item) => total + item.orders, 0);
     const rollingReturns = rolling.reduce((total, item) => total + item.returnedOrders, 0);
-    const smoothedRate = rollingOrders
-      ? roundRate(((rollingReturns + priorStrength * priorRate) / (rollingOrders + priorStrength)) * 100)
+    const rollingOrderUnits = rolling.reduce((total, item) => total + Number(item.orderUnits || 0), 0);
+    const rollingReturnedUnits = rolling.reduce((total, item) => total + Number(item.returnedUnits || 0), 0);
+    const smoothedRate = rollingOrders || rollingOrderUnits
+      ? calculateUnitRatePercent(
+        rollingReturnedUnits + priorStrength * priorRate,
+        rollingOrderUnits + priorStrength,
+        rollingOrders ? ((rollingReturns + priorStrength * priorRate) / (rollingOrders + priorStrength)) * 100 : previousRate,
+      )
       : roundRate(previousRate);
     previousRate = smoothedRate;
     return {
@@ -6445,6 +6465,8 @@ function buildSmoothedReturnRatePoints(rawPoints = [], totalReturnRate = 0) {
       kind: "observed",
       rollingOrders,
       rollingReturnedOrders: rollingReturns,
+      rollingOrderUnits,
+      rollingReturnedUnits,
       smoothedReturnRate: smoothedRate,
     };
   });
@@ -6496,17 +6518,24 @@ function buildReturnRateSeasonalityRates(observedPoints = []) {
   observedPoints.forEach((point) => {
     const date = parseValidDate(point.startAt);
     const orders = Number(point.orders || 0);
-    if (!date || !orders) return;
+    const orderUnits = Number(point.orderUnits || 0);
+    if (!date || (!orders && !orderUnits)) return;
     const month = date.getUTCMonth();
-    const current = byMonth.get(month) || { orders: 0, returns: 0 };
+    const current = byMonth.get(month) || { orders: 0, orderUnits: 0, returns: 0, returnedUnits: 0 };
     current.orders += orders;
+    current.orderUnits += orderUnits;
     current.returns += Number(point.returnedOrders || 0);
+    current.returnedUnits += Number(point.returnedUnits || 0);
     byMonth.set(month, current);
   });
 
   return new Map([...byMonth.entries()]
-    .filter(([, value]) => value.orders > 0)
-    .map(([month, value]) => [month, roundRate((value.returns / value.orders) * 100)]));
+    .filter(([, value]) => value.orders > 0 || value.orderUnits > 0)
+    .map(([month, value]) => [month, calculateUnitRatePercent(
+      value.returnedUnits,
+      value.orderUnits,
+      value.orders ? (value.returns / value.orders) * 100 : 0,
+    )]));
 }
 
 function hasReturnRateSeasonalitySignal(observedPoints = []) {
@@ -6525,7 +6554,9 @@ function calculateReturnRateForRecentDays(points = [], currentDate = new Date(),
   });
   const orders = recent.reduce((total, point) => total + Number(point.orders || 0), 0);
   const returns = recent.reduce((total, point) => total + Number(point.returnedOrders || 0), 0);
-  return roundRate(orders ? (returns / orders) * 100 : 0);
+  const orderUnits = recent.reduce((total, point) => total + Number(point.orderUnits || 0), 0);
+  const returnedUnits = recent.reduce((total, point) => total + Number(point.returnedUnits || 0), 0);
+  return calculateUnitRatePercent(returnedUnits, orderUnits, orders ? (returns / orders) * 100 : 0);
 }
 
 function getReturnRatePredictionConfidence({ totalOrders = 0, observedPoints = [] } = {}) {
@@ -6570,8 +6601,8 @@ function normalizeMonthlyOrderActivityBucket(bucket) {
     refundedOrders,
     refundedUnits: bucket.refundedUnits,
     refundAmount: roundCurrency(bucket.refundAmount),
-    returnRate: roundRate(orders ? (returnedOrders / orders) * 100 : 0),
-    refundRate: roundRate(orders ? (refundedOrders / orders) * 100 : 0),
+    returnRate: calculateUnitRatePercent(bucket.returnedUnits, bucket.orderUnits, orders ? (returnedOrders / orders) * 100 : 0),
+    refundRate: calculateUnitRatePercent(bucket.refundedUnits, bucket.orderUnits, orders ? (refundedOrders / orders) * 100 : 0),
   };
 }
 
@@ -6695,6 +6726,17 @@ function roundRate(value, decimals = 2) {
   const number = Number(value || 0);
   const factor = 10 ** decimals;
   return Math.round(number * factor) / factor;
+}
+
+function clampPercentRate(value) {
+  return clamp(Number(value || 0), 0, 100);
+}
+
+function calculateUnitRatePercent(numeratorUnits, denominatorUnits, fallbackPercent = 0, decimals = 2) {
+  const numerator = Number(numeratorUnits || 0);
+  const denominator = Number(denominatorUnits || 0);
+  const rawRate = denominator > 0 ? (numerator / denominator) * 100 : fallbackPercent;
+  return roundRate(clampPercentRate(rawRate), decimals);
 }
 
 function roundCurrency(value) {
