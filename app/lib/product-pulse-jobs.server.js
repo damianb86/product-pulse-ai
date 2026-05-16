@@ -20,6 +20,7 @@ import {
   getStatusFilterValueForScore,
   getStatusLabelForScore,
 } from "./product-pulse-settings.server";
+import { getProductScoreHistoryForShop } from "./product-pulse-history.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -369,7 +370,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem] = await Promise.all([
+  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -385,11 +386,12 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
       where: { shop_productGid: { shop, productGid: snapshot.productGid } },
       select: { status: true },
     }),
+    getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 24 }),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
   const product = {
-    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings, watchedItem),
+    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
   return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
@@ -2369,7 +2371,7 @@ function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
   };
 }
 
-function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined, watchedItem = null) {
+function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined, watchedItem = null, scoreHistory = []) {
   const metrics = snapshot.metrics || {};
   const diagnosisReport = metrics.diagnosisReport || {};
   const diagnosisIssues = Array.isArray(latestDiagnosis?.issues) ? latestDiagnosis.issues : null;
@@ -2440,6 +2442,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       lastSignalAt: metrics.lastSignalAt || null,
       signalTrend: Array.isArray(metrics.signalTrend) ? metrics.signalTrend : [],
       riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
+      riskHistory: formatProductRiskHistory(scoreHistory),
       productType: metrics.productType || "",
       vendor: metrics.vendor || "",
       tags: Array.isArray(metrics.tags) ? metrics.tags : [],
@@ -2470,6 +2473,33 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
   };
+}
+
+function formatProductRiskHistory(scoreHistory = []) {
+  return (Array.isArray(scoreHistory) ? scoreHistory : [])
+    .map((row) => {
+      const riskScore = Number(row.riskScore);
+      if (!Number.isFinite(riskScore)) return null;
+      const metrics = row.metrics || {};
+      return {
+        id: row.id || null,
+        riskScore: Math.round(riskScore),
+        confidence: toNullableNumber(row.confidence),
+        impactScore: toNullableNumber(row.impactScore),
+        source: row.source || "unknown",
+        recordedAt: toIso(row.recordedAt),
+        primaryIssue: row.primaryIssue || "",
+        marginAtRisk: toNullableNumber(metrics.marginAtRisk),
+        revenueAtRisk: toNullableNumber(metrics.revenueAtRisk),
+        signalCount: toNullableNumber(metrics.signalsCount || metrics.signalCount || metrics.issueCount),
+      };
+    })
+    .filter(Boolean);
+}
+
+function toNullableNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function getActiveResolvedStoredAction(storedActions = []) {

@@ -2671,6 +2671,7 @@ function getProductDetailModel(product) {
     evidenceStrengthScore: Number(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore || 0),
     scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
     riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
+    riskHistory: Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [],
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
     issueCategory,
@@ -4788,6 +4789,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
             <ProductDetailSectionLabel number="4" title="Evidence summary" subtitle="Quick summary by category" />
             <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
+            <ProductRiskHistoryPanel detail={detail} />
           </aside>
         </div>
         {diagnosisConfirmation && (
@@ -4912,6 +4914,149 @@ function ProductEvidenceSummaryPanel({ detail, onSelectEvidence }) {
       </div>
     </div>
   );
+}
+
+function ProductRiskHistoryPanel({ detail }) {
+  const historyPoints = getProductRiskHistoryPoints(detail);
+  const chart = getProductRiskHistoryChart(historyPoints);
+  const latest = historyPoints[historyPoints.length - 1] || null;
+  const previous = historyPoints.length > 1 ? historyPoints[historyPoints.length - 2] : null;
+  const currentRisk = latest ? latest.riskScore : Number(detail.riskScore || 0);
+  const trendTone = getTrendTone(historyPoints.map((point) => point.riskScore), currentRisk);
+  const change = latest && previous ? latest.riskScore - previous.riskScore : 0;
+  const hasSavedHistory = historyPoints.some((point) => point.kind === "history");
+  const changeLabel = getProductRiskHistoryChangeLabel(change, hasSavedHistory);
+  const windowLabel = getProductRiskHistoryWindowLabel(historyPoints, hasSavedHistory);
+
+  return (
+    <div className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}`}>
+      <div className="ppProductRiskHistoryHeader">
+        <div>
+          <span>Product risk over time</span>
+          <strong>{formatInteger(currentRisk)} / 100</strong>
+        </div>
+        <s-badge tone={getBadgeToneFromRiskTone(detail.riskBadgeTone)}>{detail.riskScoreLabel}</s-badge>
+      </div>
+      <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={changeLabel}>
+          <polyline className="ppProductRiskHistoryLine" points={chart.path} />
+          {chart.points.map((point, index) => (
+            <circle
+              key={`${point.x}-${point.y}-${index}`}
+              className="ppProductRiskHistoryPoint"
+              cx={point.x}
+              cy={point.y}
+              r={index === chart.points.length - 1 ? 2.8 : 1.9}
+            />
+          ))}
+        </svg>
+      </div>
+      <div className="ppProductRiskHistoryMeta">
+        <span>
+          <s-icon type="chart-line" size="small"></s-icon>
+          {changeLabel}
+        </span>
+        <small>{windowLabel}</small>
+      </div>
+      {latest?.primaryIssue && (
+        <p className="ppProductRiskHistoryIssue">{latest.primaryIssue}</p>
+      )}
+    </div>
+  );
+}
+
+function getProductRiskHistoryPoints(detail = {}) {
+  const savedHistory = (Array.isArray(detail.riskHistory) ? detail.riskHistory : [])
+    .map((entry, index) => {
+      const riskScore = Number(entry.riskScore);
+      if (!Number.isFinite(riskScore)) return null;
+      return {
+        kind: "history",
+        riskScore: Math.max(0, Math.min(100, Math.round(riskScore))),
+        label: entry.recordedAt ? formatProductAnalysisDate(entry.recordedAt) : `Analysis ${index + 1}`,
+        source: getProductRiskHistorySourceLabel(entry.source),
+        recordedAt: entry.recordedAt || null,
+        primaryIssue: entry.primaryIssue || "",
+      };
+    })
+    .filter(Boolean);
+
+  if (savedHistory.length) return savedHistory;
+
+  const trendValues = (Array.isArray(detail.riskTrend) ? detail.riskTrend : [])
+    .map(Number)
+    .filter((value) => Number.isFinite(value));
+  if (trendValues.length) {
+    return trendValues.map((value, index) => ({
+      kind: "trend",
+      riskScore: Math.max(0, Math.min(100, Math.round(value))),
+      label: index === trendValues.length - 1 ? "Current" : `Point ${index + 1}`,
+      source: "Stored risk trend",
+      recordedAt: null,
+      primaryIssue: "",
+    }));
+  }
+
+  if (Number.isFinite(Number(detail.riskScore))) {
+    return [{
+      kind: "current",
+      riskScore: Math.max(0, Math.min(100, Math.round(Number(detail.riskScore)))),
+      label: "Current",
+      source: "Current snapshot",
+      recordedAt: null,
+      primaryIssue: "",
+    }];
+  }
+
+  return [];
+}
+
+function getProductRiskHistoryChart(historyPoints = []) {
+  const values = historyPoints.map((point) => point.riskScore);
+  if (!values.length) return { path: "", points: [] };
+  if (values.length === 1) {
+    const y = Math.round((100 - values[0]) * 10) / 10;
+    return {
+      path: `0,${y} 100,${y}`,
+      points: [{ x: 0, y }, { x: 100, y }],
+    };
+  }
+  const min = Math.max(0, Math.min(...values) - 6);
+  const max = Math.min(100, Math.max(...values) + 6);
+  const range = Math.max(1, max - min);
+  const points = values.map((value, index) => ({
+    x: Math.round((index / (values.length - 1)) * 1000) / 10,
+    y: Math.round((100 - ((value - min) / range) * 100) * 10) / 10,
+  }));
+  return {
+    path: points.map((point) => `${point.x},${point.y}`).join(" "),
+    points,
+  };
+}
+
+function getProductRiskHistoryChangeLabel(change, hasSavedHistory) {
+  if (!hasSavedHistory) return "Waiting for another saved analysis";
+  if (change > 0) return `Up ${Math.abs(change)} pts since last analysis`;
+  if (change < 0) return `Down ${Math.abs(change)} pts since last analysis`;
+  return "Stable since last analysis";
+}
+
+function getProductRiskHistoryWindowLabel(points = [], hasSavedHistory = false) {
+  if (!hasSavedHistory) return "Saved history appears after QuickScan or deep diagnostics run again.";
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (first?.recordedAt && last?.recordedAt && first.recordedAt !== last.recordedAt) {
+    return `${points.length} saved scores · ${first.label} to ${last.label}`;
+  }
+  return `${points.length} saved score${points.length === 1 ? "" : "s"}`;
+}
+
+function getProductRiskHistorySourceLabel(source) {
+  const normalized = String(source || "").toLowerCase();
+  if (normalized.includes("full")) return "Deep diagnosis";
+  if (normalized.includes("quick")) return "QuickScan";
+  if (normalized.includes("watch")) return "Watchlist scan";
+  return source ? String(source) : "ProductPulse";
 }
 
 function announceProductPulseJobs(actionData) {

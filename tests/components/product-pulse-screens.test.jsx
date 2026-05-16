@@ -511,6 +511,40 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Add fit note" })).toBeInTheDocument();
   });
 
+  it("shows saved product risk history in the detail sidebar", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        riskHistory: [
+          {
+            id: "history-1",
+            riskScore: 72,
+            source: "quickscan",
+            recordedAt: "2026-05-01T12:00:00.000Z",
+            primaryIssue: "Initial return anomaly",
+          },
+          {
+            id: "history-2",
+            riskScore: 88,
+            source: "full-diagnosis",
+            recordedAt: "2026-05-10T18:10:00.000Z",
+            primaryIssue: "Fit runs small around waist and inseam",
+          },
+        ],
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const historyPanel = container.querySelector(".ppProductRiskHistoryPanel");
+
+    expect(historyPanel).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Product risk over time")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("88 / 100")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Up 16 pts since last analysis")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("2 saved scores · May 1, 2026 to May 10, 2026")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("Fit runs small around waist and inseam")).toBeInTheDocument();
+  });
+
   it("lets product detail remove an already watched product", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={{ ...defaultView.startHere, isWatched: true }} />);
     const watchButton = screen.getByRole("button", { name: "Remove product from Watchlist" });

@@ -2022,7 +2022,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailOverviewCard,
-.ppProductEvidenceSummaryPanel {
+.ppProductEvidenceSummaryPanel,
+.ppProductRiskHistoryPanel {
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
   background: var(--pp-cloud-white);
@@ -2928,6 +2929,119 @@ s-page[inline-size="large-500"] {
   font-size: 13px;
   font-weight: 850;
   cursor: pointer;
+}
+
+.ppProductRiskHistoryPanel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.ppProductRiskHistoryHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ppProductRiskHistoryHeader div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ppProductRiskHistoryHeader span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.ppProductRiskHistoryHeader strong {
+  color: var(--pp-slate-900);
+  font-size: 24px;
+  font-weight: 950;
+}
+
+.ppProductRiskHistoryChart {
+  height: 116px;
+  padding: 10px 8px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 11px;
+  background:
+    linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 0 / 100% 25%,
+    linear-gradient(90deg, var(--pp-slate-200) 1px, transparent 1px) 0 0 / 25% 100%,
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
+}
+
+.ppProductRiskHistoryChart svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ppProductRiskHistoryLine {
+  fill: none;
+  stroke: var(--pp-pulse-blue);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppProductRiskHistoryPoint {
+  fill: var(--pp-cloud-white);
+  stroke: var(--pp-pulse-blue);
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppProductRiskHistoryPanel-red .ppProductRiskHistoryLine,
+.ppProductRiskHistoryPanel-red .ppProductRiskHistoryPoint {
+  stroke: var(--pp-risk-red);
+}
+
+.ppProductRiskHistoryPanel-orange .ppProductRiskHistoryLine,
+.ppProductRiskHistoryPanel-orange .ppProductRiskHistoryPoint {
+  stroke: var(--pp-warning-amber);
+}
+
+.ppProductRiskHistoryPanel-green .ppProductRiskHistoryLine,
+.ppProductRiskHistoryPanel-green .ppProductRiskHistoryPoint {
+  stroke: var(--pp-signal-teal);
+}
+
+.ppProductRiskHistoryMeta {
+  display: grid;
+  gap: 4px;
+}
+
+.ppProductRiskHistoryMeta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ppProductRiskHistoryMeta small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.ppProductRiskHistoryIssue {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
 }
 
 .ppEvidenceSourceGrid {
