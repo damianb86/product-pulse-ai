@@ -6883,9 +6883,9 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendChart {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(250px, 340px);
+  grid-template-columns: minmax(520px, 1fr) minmax(390px, 460px);
   align-items: stretch;
-  gap: 12px;
+  gap: 14px;
 }
 
 .ppAnalyticsTrendMain {
@@ -6896,15 +6896,15 @@ s-page[inline-size="large-500"] {
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 9px;
 }
 
 .ppAnalyticsTrendContext {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
+  gap: 6px;
+  padding: 8px 9px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
   border-radius: 10px;
   background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.06), rgba(var(--pp-slate-100-rgb), 0.68));
@@ -6914,7 +6914,7 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 8px;
+  padding: 5px 7px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 999px;
   background: var(--pp-cloud-white);
@@ -6931,7 +6931,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsTrendContext small {
-  flex: 1 1 220px;
+  flex: 1 1 100%;
   color: var(--pp-slate-500);
   font-size: 11px;
   line-height: 1.35;
@@ -6939,13 +6939,14 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendSummary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
 }
 
 .ppAnalyticsTrendSummary article {
   min-width: 0;
-  padding: 10px;
+  min-height: 78px;
+  padding: 8px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
   background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.72));
@@ -6954,35 +6955,35 @@ s-page[inline-size="large-500"] {
 .ppAnalyticsTrendSummary span {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   color: var(--pp-slate-700);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 760;
 }
 
 .ppAnalyticsTrendSummary strong {
   display: block;
-  margin-top: 5px;
+  margin-top: 4px;
   color: var(--pp-slate-900);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
 }
 
 .ppAnalyticsTrendSummary small {
   display: block;
-  margin-top: 5px;
+  margin-top: 4px;
   color: var(--pp-slate-500);
-  font-size: 11px;
-  line-height: 1.28;
+  font-size: 10.5px;
+  line-height: 1.22;
 }
 
 .ppAnalyticsTrendLegend {
   position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  padding: 8px 10px;
+  padding: 7px 8px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
   background: rgba(var(--pp-slate-100-rgb), 0.62);
@@ -6991,15 +6992,15 @@ s-page[inline-size="large-500"] {
 .ppAnalyticsTrendLegendItem {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 28px;
-  padding: 5px 9px;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 8px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 760;
   cursor: help;
   box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
@@ -13016,6 +13017,14 @@ s-page[inline-size="large-500"] {
   .ppAnalyticsPanelCatalogCoverage,
   .ppAnalyticsPanelSourceCoverage {
     grid-column: span 1;
+  }
+
+  .ppAnalyticsTrendChart {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppAnalyticsTrendSummary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
