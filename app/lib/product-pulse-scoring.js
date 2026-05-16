@@ -212,7 +212,7 @@ function calculateRiskComponents(metrics, options = {}) {
     maxScore: 25,
     priorStrength: number(options.returnPriorStrength) || 20,
     targetSampleSize: number(options.targetReturnSampleSize) || 60,
-    severityScale: number(options.returnSeverityScale) || 0.075,
+    severityScale: number(options.returnSeverityScale) || 0.065,
   });
   const refundRateScore = calculateSmoothedRateRisk({
     events: metrics.refundUnits,
@@ -222,7 +222,7 @@ function calculateRiskComponents(metrics, options = {}) {
     maxScore: 15,
     priorStrength: number(options.refundPriorStrength) || 20,
     targetSampleSize: number(options.targetRefundSampleSize) || 60,
-    severityScale: number(options.refundSeverityScale) || 0.055,
+    severityScale: number(options.refundSeverityScale) || 0.045,
   });
   const highRefundPressure = metrics.soldUnits > 10 && metrics.refundRate > 0.2 && metrics.refundUnits >= 3
     ? clamp(5 + (metrics.refundRate - 0.2) * 28, 0, 15)
@@ -232,7 +232,7 @@ function calculateRiskComponents(metrics, options = {}) {
   const sentiment_score = calculateSentimentRisk(metrics, options);
   const content_gap_score = clamp(Math.max(
     number(metrics.contentQualityRisk),
-    metrics.contentIssueCount ? 3 + Math.log1p(metrics.contentIssueCount) * 4 : 0,
+    metrics.contentIssueCount ? 4 + Math.log1p(metrics.contentIssueCount) * 4.5 : 0,
   ), 0, 15);
   const variant_score = calculateVariantRisk(metrics);
   const familyRisks = [
@@ -278,7 +278,14 @@ function calculateRiskComponents(metrics, options = {}) {
 }
 
 function calculateReviewRisk(metrics, options = {}) {
-  if (!metrics.reviewCount || !metrics.negativeReviewCount) return 0;
+  const ratingDeficitSeverity = metrics.avgRating > 0
+    ? clamp((4.15 - metrics.avgRating) * 9, 0, 22)
+    : 0;
+
+  if (!metrics.reviewCount) {
+    return calculateRatingOnlyReviewRisk(metrics, ratingDeficitSeverity);
+  }
+
   const smoothedNegativeRate = smoothRate({
     events: metrics.negativeReviewCount,
     population: metrics.reviewCount,
@@ -287,17 +294,42 @@ function calculateReviewRisk(metrics, options = {}) {
   });
   const excessNegativeRate = Math.max(smoothedNegativeRate - metrics.storeNegativeReviewBaseline, 0);
   const reviewSampleSufficiency = sampleSufficiency(metrics.reviewCount, number(options.targetReviewSampleSize) || 25);
-  const negativeRateSeverity = 25 * (1 - Math.exp(-excessNegativeRate / (number(options.reviewSeverityScale) || 0.12)));
-  const ratingDeficitSeverity = metrics.avgRating > 0
-    ? clamp((4.15 - metrics.avgRating) * 9, 0, 22)
+  const negativeRateSeverity = metrics.negativeReviewCount
+    ? 25 * (1 - Math.exp(-excessNegativeRate / (number(options.reviewSeverityScale) || 0.1)))
     : 0;
   const negativeCountSupport = metrics.negativeReviewCount <= 1
     ? 0.25
     : metrics.negativeReviewCount === 2
       ? 0.45
       : 1;
+  const ratingSampleSupport = metrics.reviewCount >= 6
+    ? 1
+    : metrics.reviewCount >= 3
+      ? 0.75
+      : 0.45;
+  const negativeRateRisk = negativeRateSeverity * negativeCountSupport;
+  const ratingRisk = ratingDeficitSeverity * ratingSampleSupport;
 
-  return clamp(Math.max(negativeRateSeverity, ratingDeficitSeverity) * reviewSampleSufficiency * negativeCountSupport, 0, 25);
+  return clamp(Math.max(negativeRateRisk, ratingRisk) * reviewSampleSufficiency, 0, 25);
+}
+
+function calculateRatingOnlyReviewRisk(metrics, ratingDeficitSeverity) {
+  if (!ratingDeficitSeverity) return 0;
+  const supportingFamilyCount = [
+    metrics.returnUnits >= 2 || metrics.returnRate >= 0.12,
+    metrics.refundUnits >= 2 || metrics.refundRate >= 0.07,
+    metrics.contentIssueCount >= 2 || metrics.contentQualityRisk >= 6,
+    metrics.sentimentNegativeCount >= 2,
+  ].filter(Boolean).length;
+  const support = supportingFamilyCount >= 3
+    ? 0.68
+    : supportingFamilyCount === 2
+      ? 0.52
+      : supportingFamilyCount === 1
+        ? 0.32
+        : 0.18;
+
+  return clamp(ratingDeficitSeverity * support, 0, 12);
 }
 
 function calculateSentimentRisk(metrics, options = {}) {

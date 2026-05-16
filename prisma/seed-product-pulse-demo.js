@@ -344,6 +344,96 @@ const PRODUCT_FIXTURES = [
     collections: ["Art prints", "Museum collection"],
     tags: ["art-print", "fulfillment-review", "demo-seed"],
   },
+  {
+    productGid: "gid://shopify/Product/9000000001011",
+    productTitle: "Vans SK8-Hi True White Listing With Black Variant",
+    handle: "vans-sk8-hi-true-white-black-mismatch",
+    riskScore: 94,
+    impactScore: 72,
+    confidence: 88,
+    primaryIssue: "Sizing and fit with product content mismatch",
+    price: 79.95,
+    vendor: "Vans",
+    productType: "Boots",
+    collections: ["Footwear", "Sneakers", "High-risk demo"],
+    tags: ["shoe", "size-expectation", "title-description-mismatch", "high-return-risk", "demo-seed"],
+    forcedRiskCurve: [48, 52, 56, 61, 67, 72, 78, 84, 88, 91, 93, 94, 95, 94, 93, 92, 91, 93, 94, 95, 94, 93, 94, 94],
+  },
+  {
+    productGid: "gid://shopify/Product/9000000001028",
+    productTitle: "UltraSoft Plush Blanket - Thin Fill Batch",
+    handle: "ultrasoft-plush-blanket-thin-fill-batch",
+    riskScore: 91,
+    impactScore: 67,
+    confidence: 86,
+    primaryIssue: "Product quality and defect reports",
+    price: 64.5,
+    vendor: "UltraSoft",
+    productType: "Home textile",
+    collections: ["Home", "Bedding", "High-risk demo"],
+    tags: ["softness", "quality-review", "thin-material", "high-refund-risk", "demo-seed"],
+    forcedRiskCurve: [35, 39, 44, 51, 59, 68, 76, 83, 87, 90, 92, 91, 89, 88, 90, 91, 92, 91, 90, 89, 91, 92, 91, 91],
+  },
+  {
+    productGid: "gid://shopify/Product/9000000001042",
+    productTitle: "Hydrogen Pro Snowboard Binding Compatibility Kit",
+    handle: "hydrogen-pro-snowboard-binding-compatibility-kit",
+    riskScore: 89,
+    impactScore: 76,
+    confidence: 84,
+    primaryIssue: "Sizing and fit compatibility returns",
+    price: 159.95,
+    vendor: "Hydrogen",
+    productType: "Snowboard",
+    collections: ["Snowboards", "Winter sports", "High-risk demo"],
+    tags: ["snowboard", "compatibility", "wrong-size", "variant-review", "demo-seed"],
+    forcedRiskCurve: [42, 49, 57, 64, 70, 77, 85, 91, 93, 90, 86, 82, 79, 83, 88, 91, 92, 90, 88, 87, 88, 90, 89, 89],
+  },
+  {
+    productGid: "gid://shopify/Product/9000000001059",
+    productTitle: "Gallery Canvas Oversized Frame - Color Not As Pictured",
+    handle: "gallery-canvas-oversized-frame-color-not-as-pictured",
+    riskScore: 86,
+    impactScore: 81,
+    confidence: 82,
+    primaryIssue: "Color expectations and missing image context",
+    price: 699,
+    vendor: "Gallery Editions",
+    productType: "Art print",
+    collections: ["Art prints", "Museum collection", "High-risk demo"],
+    tags: ["art-print", "color-expectation", "media-context", "high-margin-risk", "demo-seed"],
+    forcedRiskCurve: [24, 28, 34, 45, 59, 73, 84, 90, 88, 83, 78, 72, 69, 74, 80, 84, 86, 88, 87, 85, 84, 85, 86, 86],
+  },
+  {
+    productGid: "gid://shopify/Product/9000000001073",
+    productTitle: "Nerf Elite Motorized Blaster Missing Darts Bundle",
+    handle: "nerf-elite-motorized-blaster-missing-darts-bundle",
+    riskScore: 88,
+    impactScore: 58,
+    confidence: 85,
+    primaryIssue: "Product quality and missing included items",
+    price: 52,
+    vendor: "Nerf",
+    productType: "Blaster toy",
+    collections: ["Toys", "Outdoor play", "High-risk demo"],
+    tags: ["nerf", "missing-accessories", "quality-review", "refund-review", "demo-seed"],
+    forcedRiskCurve: [31, 35, 38, 44, 49, 55, 62, 71, 79, 84, 87, 90, 91, 89, 87, 85, 83, 84, 86, 87, 88, 89, 88, 88],
+  },
+  {
+    productGid: "gid://shopify/Product/9000000001080",
+    productTitle: "Kids USB-C Learning Tablet Charger 65W",
+    handle: "kids-usb-c-learning-tablet-charger-65w",
+    riskScore: 93,
+    impactScore: 63,
+    confidence: 90,
+    primaryIssue: "Product quality and defect safety concerns",
+    price: 34.99,
+    vendor: "LearningTech",
+    productType: "Electronics accessory",
+    collections: ["Electronics", "Accessories", "High-risk demo"],
+    tags: ["charger", "quality-review", "defect", "safety-review", "high-risk-demo", "demo-seed"],
+    forcedRiskCurve: [44, 46, 52, 60, 69, 76, 82, 88, 91, 94, 95, 94, 92, 90, 89, 91, 93, 95, 94, 92, 91, 92, 93, 93],
+  },
 ];
 
 const ISSUE_PROFILES = [
@@ -774,10 +864,25 @@ function buildMetrics({
   const marginAtRisk = round(summary.totalRevenue * (0.025 + product.riskScore / 2900), 2);
   const revenueAtRisk = round(marginAtRisk * (2.4 + (index % 3) * 0.4), 2);
   const estimatedImpact = round(marginAtRisk + summary.totalRefundAmount * 0.35, 2);
-  const contentIssueCount = 1 + (index % 3);
-  const descriptionWordCount = 58 + deterministicInt(product.handle, 20, 130);
+  const contentIssueCount = product.riskScore >= 90
+    ? 5
+    : product.riskScore >= 80
+      ? 4
+      : 1 + (index % 3);
+  const descriptionWordCount = product.riskScore >= 90
+    ? 18 + deterministicInt(product.handle, 0, 26)
+    : product.riskScore >= 80
+      ? 32 + deterministicInt(product.handle, 0, 44)
+      : 58 + deterministicInt(product.handle, 20, 130);
   const mediaCount = 2 + (index % 5);
-  const mediaWithoutAltCount = profile.issueCode === "color_expectation" ? 2 : index % 2;
+  const mediaWithoutAltCount = product.riskScore >= 85 ? Math.min(mediaCount, 2 + (index % 3)) : profile.issueCode === "color_expectation" ? 2 : index % 2;
+  const riskComponents = buildSeedRiskComponents({
+    product,
+    profile,
+    summary,
+    negativeReviewRate,
+    contentIssueCount,
+  });
 
   return {
     seedSource: DEMO_SEED_SOURCE,
@@ -797,7 +902,7 @@ function buildMetrics({
     hasDescription: true,
     descriptionWordCount,
     descriptionLength: descriptionWordCount * 6,
-    contentQualityScore: clamp(92 - product.riskScore + deterministicInt(product.handle, 0, 10), 42, 92),
+    contentQualityScore: clamp(92 - product.riskScore + deterministicInt(product.handle, 0, 10), 18, 92),
     contentQualityRisk: clamp(product.riskScore * 0.35 + contentIssueCount * 4, 0, 45),
     contentIssueCount,
     contentIssues: buildContentIssues(product, profile, contentIssueCount),
@@ -805,7 +910,7 @@ function buildMetrics({
     contentAdvisories: buildContentAdvisories(product, profile),
     mediaCount,
     mediaWithoutAltCount,
-    titleNeedsReview: profile.issueCode === "fit_sizing" || product.primaryIssue.toLowerCase().includes("other"),
+    titleNeedsReview: product.riskScore >= 80 || profile.issueCode === "fit_sizing" || product.primaryIssue.toLowerCase().includes("other"),
     variantNamingAdvisory: product.productTitle.toLowerCase().includes("snowboard") || profile.issueCode === "fit_sizing",
     soldUnits: summary.totalOrderUnits,
     salesAmount: summary.totalRevenue,
@@ -886,19 +991,66 @@ function buildMetrics({
     productChangeLog: buildProductChangeLog(product, profile, index),
     priceHistory: buildPriceHistory(product, monthlyOrderActivity.months, index),
     scoreCalculationStatus: "Score calculated from persisted components",
-    riskComponents: {
-      calculationState: "score_calculated_from_seeded_components",
-      base: 6,
-      returnsScore: round(summary.returnRate * 1.4, 1),
-      reviewsScore: round(negativeReviewRate * 0.28, 1),
-      sentimentScore: round(profile.issueCode === "subjective_negative_reaction" ? 8 : 4, 1),
-      contentGapScore: round(contentIssueCount * 2.8, 1),
-      refundScore: round(summary.refundRate * 1.2, 1),
-      variantScore: product.productType === "Snowboard" || product.productType === "Boots" ? 5 : 0,
-      agreementBonus: 5,
-      recencyBonus: 3,
-    },
+    riskComponents,
     evidence,
+  };
+}
+
+function buildSeedRiskComponents({ product, profile, summary, negativeReviewRate, contentIssueCount }) {
+  const base = product.riskScore > 0 ? 6 : 0;
+  const agreementBonus = product.riskScore >= 80 ? 8 : product.riskScore >= 55 ? 6 : 5;
+  const recencyBonus = product.riskScore >= 80 ? 5 : 3;
+  const maxes = {
+    returnsScore: 25,
+    reviewsScore: 25,
+    sentimentScore: 15,
+    contentGapScore: 15,
+    refundScore: 15,
+    variantScore: 10,
+  };
+  const rawWeights = {
+    returnsScore: clamp(summary.returnRate / 38, 0, 1) * maxes.returnsScore,
+    reviewsScore: clamp(negativeReviewRate / 72, 0, 1) * maxes.reviewsScore,
+    sentimentScore: clamp(product.riskScore / 100, 0, 1) * (profile.issueCode === "subjective_negative_reaction" ? 15 : 10),
+    contentGapScore: clamp(contentIssueCount / 5, 0, 1) * maxes.contentGapScore,
+    refundScore: clamp(summary.refundRate / 18, 0, 1) * maxes.refundScore,
+    variantScore: product.productType === "Snowboard" || product.productType === "Boots" ? maxes.variantScore * 0.72 : maxes.variantScore * 0.28,
+  };
+  const componentKeys = Object.keys(maxes);
+  const targetVariableScore = clamp(product.riskScore - base - agreementBonus - recencyBonus, 0, Object.values(maxes).reduce((sum, value) => sum + value, 0));
+  const rawVariableScore = componentKeys.reduce((sum, key) => sum + rawWeights[key], 0) || 1;
+  const scaledComponents = Object.fromEntries(componentKeys.map((key) => [
+    key,
+    clamp(rawWeights[key] * (targetVariableScore / rawVariableScore), 0, maxes[key]),
+  ]));
+
+  let remaining = targetVariableScore - componentKeys.reduce((sum, key) => sum + scaledComponents[key], 0);
+  for (const key of componentKeys.sort((left, right) => (maxes[right] - scaledComponents[right]) - (maxes[left] - scaledComponents[left]))) {
+    if (remaining <= 0) break;
+    const addition = Math.min(maxes[key] - scaledComponents[key], remaining);
+    scaledComponents[key] += addition;
+    remaining -= addition;
+  }
+
+  const rawScore = base
+    + agreementBonus
+    + recencyBonus
+    + componentKeys.reduce((sum, key) => sum + scaledComponents[key], 0);
+
+  return {
+    calculationState: "score_calculated_from_seeded_components",
+    base: round(base, 1),
+    returnsScore: round(scaledComponents.returnsScore, 1),
+    reviewsScore: round(scaledComponents.reviewsScore, 1),
+    sentimentScore: round(scaledComponents.sentimentScore, 1),
+    contentGapScore: round(scaledComponents.contentGapScore, 1),
+    refundScore: round(scaledComponents.refundScore, 1),
+    variantScore: round(scaledComponents.variantScore, 1),
+    agreementBonus: round(agreementBonus, 1),
+    recencyBonus: round(recencyBonus, 1),
+    rawScore: round(rawScore, 1),
+    calculated: Math.round(rawScore),
+    riskScore: product.riskScore,
   };
 }
 
@@ -910,8 +1062,8 @@ function buildMonthlyOrderActivity(product, riskCurve, index) {
     const orders = Math.max(2, Math.round(orderDemand + deterministicWave(product.handle, monthIndex) * 5));
     const averageQuantity = product.price < 20 ? 1.22 : product.price < 80 ? 1.12 : 1.05;
     const orderUnits = Math.max(orders, Math.round(orders * averageQuantity));
-    const returnRate = clamp(2.2 + risk * 0.22 + getIssueReturnLift(product.primaryIssue) + deterministicWave(product.productGid, monthIndex) * 1.8, 0, 58);
-    const refundRate = clamp(0.6 + risk * 0.045 + getIssueRefundLift(product.primaryIssue) + deterministicWave(product.handle, monthIndex + 7) * 0.7, 0, 26);
+    const returnRate = clamp(2.2 + risk * 0.22 + getIssueReturnLift(product.primaryIssue) + getHighRiskReturnLift(product) + deterministicWave(product.productGid, monthIndex) * 1.8, 0, 72);
+    const refundRate = clamp(0.6 + risk * 0.045 + getIssueRefundLift(product.primaryIssue) + getHighRiskRefundLift(product) + deterministicWave(product.handle, monthIndex + 7) * 0.7, 0, 34);
     const returnedUnits = Math.min(orderUnits, Math.round(orderUnits * (returnRate / 100)));
     const refundedUnits = Math.min(orderUnits, Math.round(orderUnits * (refundRate / 100)));
     const returnedOrders = Math.min(orders, Math.max(0, Math.round(returnedUnits * 0.78)));
@@ -1458,6 +1610,16 @@ function buildContentIssues(product, profile, count) {
       label: "Metadata and tags should support the diagnosis",
       detail: `Tags should help the team find products related to ${profile.issueCode}.`,
     },
+    {
+      issueCode: "seo_clarity_gap",
+      label: "SEO and PDP language do not explain the risk clearly",
+      detail: "Search and product copy should make the expected use, format and included items obvious.",
+    },
+    {
+      issueCode: "missing_specifications",
+      label: "Important product specifications are missing",
+      detail: "The PDP should include the practical details customers need before deciding to buy.",
+    },
   ];
   return issues.slice(0, count).map((issue) => ({ ...issue, productTitle: product.productTitle }));
 }
@@ -1624,12 +1786,26 @@ function getIssueReturnLift(issue) {
   return 1.6;
 }
 
+function getHighRiskReturnLift(product) {
+  if (product.riskScore >= 90) return 10.5;
+  if (product.riskScore >= 85) return 7.5;
+  if (product.riskScore >= 80) return 5;
+  return 0;
+}
+
 function getIssueRefundLift(issue) {
   const normalized = issue.toLowerCase();
   if (normalized.includes("refund") || normalized.includes("operational")) return 2.8;
   if (normalized.includes("fulfillment")) return 1.8;
   if (normalized.includes("quality") || normalized.includes("defect")) return 1.4;
   return 0.7;
+}
+
+function getHighRiskRefundLift(product) {
+  if (product.riskScore >= 90) return 7.2;
+  if (product.riskScore >= 85) return 5;
+  if (product.riskScore >= 80) return 3.2;
+  return 0;
 }
 
 function getMonthPrice(price, monthIndex, index) {

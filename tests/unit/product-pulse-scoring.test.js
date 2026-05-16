@@ -23,7 +23,31 @@ describe("ProductPulse scoring", () => {
       issueCount: 5,
     });
 
-    expect(risk).toBe(52);
+    expect(risk).toBe(64);
+  });
+
+  it("classifies products with several bad signal families as high risk", () => {
+    const model = calculateProductScoreModel({
+      soldUnits: 80,
+      returnUnits: 14,
+      refundUnits: 6,
+      reviewCount: 18,
+      negativeReviewCount: 7,
+      avgRating: 3.1,
+      contentIssueCount: 4,
+      contentQualityRisk: 11,
+      sentimentTotal: 14,
+      sentimentNegativeCount: 8,
+      recentSignalUnits: 8,
+      signalEventCount: 35,
+      sourceCoverage: ["Shopify product", "Shopify returns", "Shopify refunds", "CSV reviews"],
+      sourceAgreement: true,
+    });
+
+    expect(model.riskScore).toBeGreaterThanOrEqual(80);
+    expect(model.riskComponents.returnsScore).toBeGreaterThan(15);
+    expect(model.riskComponents.reviewsScore).toBeGreaterThan(15);
+    expect(model.riskComponents.contentGapScore).toBeGreaterThan(10);
   });
 
   it("keeps financial impact as money outside product risk", () => {
