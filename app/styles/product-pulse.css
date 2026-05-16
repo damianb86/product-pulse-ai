@@ -2252,11 +2252,35 @@ s-page[inline-size="large-500"] {
 
 .ppProductHeaderActions .ppResolveButton {
   min-height: 36px;
-  color: var(--pp-slate-700);
+  border-width: 1px;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.08);
 }
 
 .ppProductHeaderActions .ppResolveButton s-icon {
-  color: var(--pp-slate-700);
+  color: currentColor;
+}
+
+.ppProductHeaderActions .ppResolveButton.isUnresolved {
+  border-color: rgba(var(--pp-success-green-rgb), 0.34);
+  background: linear-gradient(180deg, rgba(var(--pp-success-green-rgb), 0.13), rgba(var(--pp-success-green-rgb), 0.07));
+  color: #15803d;
+}
+
+.ppProductHeaderActions .ppResolveButton.isUnresolved:hover:not(:disabled) {
+  border-color: rgba(var(--pp-success-green-rgb), 0.56);
+  background: rgba(var(--pp-success-green-rgb), 0.16);
+}
+
+.ppProductHeaderActions .ppResolveButton.isResolved {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.32);
+  background: linear-gradient(180deg, rgba(var(--pp-risk-red-rgb), 0.12), rgba(var(--pp-risk-red-rgb), 0.06));
+  color: var(--pp-risk-red);
+}
+
+.ppProductHeaderActions .ppResolveButton.isResolved:hover:not(:disabled) {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.52);
+  background: rgba(var(--pp-risk-red-rgb), 0.13);
 }
 
 .ppProductExternalButton {
@@ -2381,8 +2405,18 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductHeroImageWrap {
+  position: relative;
   display: inline-flex;
   flex: 0 0 auto;
+  overflow: visible;
+}
+
+.ppProductHeroImageWrap .ppAnalysisStatusWrap-titleIcon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  transform: translate(50%, -50%);
 }
 
 
@@ -2444,7 +2478,17 @@ s-page[inline-size="large-500"] {
 .ppAnalysisStatus-titleIcon .ppAnalysisStatusIcon {
   width: 32px;
   height: 32px;
+  border: 2px solid var(--pp-cloud-white);
+  background: var(--pp-cloud-white);
   box-shadow: 0 8px 20px rgba(var(--pp-insight-violet-rgb), 0.16);
+}
+
+.ppAnalysisStatus-titleIcon.ppAnalysisStatus-full .ppAnalysisStatusIcon {
+  background: linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.16), rgba(var(--pp-pulse-blue-rgb), 0.1)), var(--pp-cloud-white);
+}
+
+.ppAnalysisStatus-titleIcon.ppAnalysisStatus-quickscan .ppAnalysisStatusIcon {
+  background: linear-gradient(135deg, rgba(var(--pp-info-cyan-rgb), 0.16), rgba(var(--pp-pulse-blue-rgb), 0.08)), var(--pp-cloud-white);
 }
 
 .ppProductSummaryGrid {

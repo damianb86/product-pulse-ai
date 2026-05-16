@@ -4674,13 +4674,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       imageUrl={detail.imageUrl}
                       imageAlt={detail.imageAlt}
                     />
+                    <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly={detail.hasFullDiagnosis} />
                   </span>
                   <div>
                     <div className="ppProductTitleHeading">
                       <h1>{detail.title}</h1>
-                      {detail.hasFullDiagnosis && (
-                        <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly />
-                      )}
                     </div>
                     <p>
                       {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
@@ -4732,8 +4730,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   <Form method="post">
                     <input type="hidden" name="_action" value={resolved ? "mark-unresolved" : "mark-resolved"} />
                     <input type="hidden" name="productId" value={product.slug} />
-                    <button className="ppSecondaryButton ppResolveButton" type="submit" disabled={!detail.canResolve || resolvingPending}>
-                      <s-icon type={resolved ? "x" : "check"} size="small"></s-icon>
+                    <button className={`ppSecondaryButton ppResolveButton ${resolved ? "isResolved" : "isUnresolved"}`.trim()} type="submit" disabled={!detail.canResolve || resolvingPending}>
+                      <s-icon type={resolved ? "check-circle" : "check"} size="small"></s-icon>
                       {resolvingPending ? "Saving..." : resolved ? "Mark unresolved" : "Mark as resolved"}
                     </button>
                   </Form>
