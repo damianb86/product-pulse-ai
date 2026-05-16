@@ -827,6 +827,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       onSort={() => handleSort("riskScore")}
                     />
                   </th>
+                  <th>Momentum</th>
                   <th>Status</th>
                   <th>Analysis</th>
                   <th>Evidence</th>
@@ -846,7 +847,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               <tbody>
                 {productRows.length === 0 && (
                   <tr className="ppProductsEmptyRow">
-                    <td colSpan="10">
+                    <td colSpan="11">
                       <div className="ppProductsEmptyState">
                         <DashboardIcon type="search" tone="blue" />
                         <div>
@@ -914,6 +915,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                           <span>{product.riskScore}</span>
                         </div>
                       </td>
+                      <td><ProductMomentumCell product={product} /></td>
                       <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
                       <td><ProductAnalysisStatusBadge product={product} showLabel={false} /></td>
                       <td>
@@ -2708,6 +2710,7 @@ function getProductDetailModel(product) {
     riskHistory: Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [],
     monthlyOrderActivity: normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity),
     returnRatePrediction: normalizeProductReturnRatePrediction(metrics.returnRatePrediction),
+    productMomentum: normalizeProductMomentum(metrics.productMomentum),
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
     issueCategory,
@@ -2881,6 +2884,92 @@ function normalizeProductReturnRatePrediction(prediction = null) {
     actionAdjustment: prediction?.actionAdjustment || null,
     model: prediction?.model || null,
   };
+}
+
+function normalizeProductMomentum(momentum = null) {
+  if (!momentum || typeof momentum !== "object") return null;
+  const components = momentum.components || {};
+  const inputs = momentum.inputs || {};
+  const catalog = momentum.catalog || {};
+  const display = momentum.display || {};
+  const score = Number(momentum.score ?? 0);
+
+  return {
+    source: momentum.source || "",
+    score: Number.isFinite(score) ? Math.round(score) : 0,
+    tier: momentum.tier || getMomentumTierFromScore(score),
+    direction: momentum.direction || "Steady",
+    confidence: Number(momentum.confidence || 0),
+    confidenceLabel: momentum.confidenceLabel || getMomentumConfidenceLabel(Number(momentum.confidence || 0)),
+    calculatedAt: momentum.calculatedAt || null,
+    windowDays: Number(momentum.windowDays || 0),
+    baselineDays: Number(momentum.baselineDays || 0),
+    components: {
+      currentVelocityScore: Number(components.currentVelocityScore || 0),
+      growthScore: Number(components.growthScore || 0),
+      catalogShareScore: Number(components.catalogShareScore || 0),
+      trendConsistencyScore: Number(components.trendConsistencyScore || 0),
+      recencyScore: Number(components.recencyScore || 0),
+    },
+    inputs: {
+      unitsLast7Days: Number(inputs.unitsLast7Days || 0),
+      unitsLast14Days: Number(inputs.unitsLast14Days || 0),
+      unitsLast30Days: Number(inputs.unitsLast30Days || 0),
+      unitsPrevious30Days: Number(inputs.unitsPrevious30Days || 0),
+      unitsPrevious90Days: Number(inputs.unitsPrevious90Days || 0),
+      revenueLast30Days: Number(inputs.revenueLast30Days || 0),
+      revenuePrevious30Days: Number(inputs.revenuePrevious30Days || 0),
+      revenuePrevious90Days: Number(inputs.revenuePrevious90Days || 0),
+      ordersLast30Days: Number(inputs.ordersLast30Days || 0),
+      weeklyUnitsLast4Weeks: Array.isArray(inputs.weeklyUnitsLast4Weeks) ? inputs.weeklyUnitsLast4Weeks.map((value) => Number(value || 0)) : [],
+      weeklyRevenueLast4Weeks: Array.isArray(inputs.weeklyRevenueLast4Weeks) ? inputs.weeklyRevenueLast4Weeks.map((value) => Number(value || 0)) : [],
+      lastSaleAt: inputs.lastSaleAt || null,
+    },
+    catalog: {
+      unitsVelocityScore: Number(catalog.unitsVelocityScore || 0),
+      revenueVelocityScore: Number(catalog.revenueVelocityScore || 0),
+      productShareLast30: Number(catalog.productShareLast30 || 0),
+      productShareBaseline: Number(catalog.productShareBaseline || 0),
+      shareLiftRatio: Number(catalog.shareLiftRatio || 0),
+      topCatalogPercent: catalog.topCatalogPercent == null ? null : Number(catalog.topCatalogPercent),
+      catalogProductCount: Number(catalog.catalogProductCount || 0),
+      hasCatalogBaseline: Boolean(catalog.hasCatalogBaseline),
+    },
+    display: {
+      growthPercent: Number(display.growthPercent || 0),
+      growthLabel: display.growthLabel || formatSignedPercent(Number(display.growthPercent || 0)),
+      catalogPositionLabel: display.catalogPositionLabel || (catalog.topCatalogPercent ? `Top ${catalog.topCatalogPercent}%` : "Catalog baseline pending"),
+      trendLabel: display.trendLabel || "Sales trend unavailable",
+      recommendedUse: display.recommendedUse || "Run deep diagnosis again after new sales.",
+    },
+    flags: momentum.flags || {},
+  };
+}
+
+function getMomentumTierFromScore(score) {
+  const value = Number(score || 0);
+  if (value >= 80) return "Hot";
+  if (value >= 60) return "Rising";
+  if (value >= 40) return "Stable";
+  if (value >= 20) return "Cooling";
+  return "Low activity";
+}
+
+function getProductMomentumTone(momentum = {}) {
+  const tier = String(momentum.tier || "").toLowerCase();
+  if (tier.includes("hot")) return "blue";
+  if (tier.includes("rising")) return "green";
+  if (tier.includes("cooling")) return "orange";
+  if (tier.includes("low")) return "neutral";
+  return "blue";
+}
+
+function getMomentumConfidenceLabel(confidence) {
+  const value = Number(confidence || 0);
+  if (value >= 80) return "High confidence";
+  if (value >= 60) return "Medium confidence";
+  if (value >= 40) return "Low confidence";
+  return "Very low confidence";
 }
 
 function getFinancialExposureFootnote(detail = {}) {
@@ -5053,6 +5142,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       sparkline={detail.riskTrend}
                     />
                     <ProductInsightMetric
+                      title="Product Momentum"
+                      value={detail.productMomentum ? detail.productMomentum.tier : "Needs deep diagnosis"}
+                      detail={detail.productMomentum ? `${detail.productMomentum.score} / 100` : "Commercial momentum unavailable"}
+                      footnote={detail.productMomentum
+                        ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
+                        : "Run product diagnosis to calculate recent sales strength."}
+                      tone={detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral"}
+                      sparkline={detail.productMomentum?.inputs.weeklyUnitsLast4Weeks || []}
+                    />
+                    <ProductInsightMetric
                       title="Diagnosis confidence"
                       value={detail.confidenceLabel}
                       detail={`${detail.confidence}%`}
@@ -5169,6 +5268,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
             <ProductOrderActivityPanel detail={detail} />
             <ProductReturnRatePredictionPanel detail={detail} />
+            <ProductMomentumPanel detail={detail} />
 
             <ProductDetailSectionLabel number="3" title="Evidence by source" subtitle="Explore the evidence clearly" />
             <div ref={evidencePanelRef}>
@@ -5437,6 +5537,84 @@ function ProductReturnRatePredictionPanel({ detail }) {
       </div>
     </section>
   );
+}
+
+function ProductMomentumPanel({ detail }) {
+  const momentum = detail.productMomentum;
+  if (!momentum) {
+    return (
+      <section className="ppProductMomentumPanel" aria-label="Product Momentum">
+        <div className="ppProductMomentumHeader">
+          <div>
+            <span>Commercial signal</span>
+            <h2>Product Momentum</h2>
+            <p>Commercial strength is calculated from recent Shopify order velocity, growth and catalog position.</p>
+          </div>
+          <s-badge tone="warning">Deep diagnosis needed</s-badge>
+        </div>
+        <EmptyProductDetailState message="Run product diagnosis to calculate Product Momentum for this product." />
+      </section>
+    );
+  }
+
+  const componentRows = [
+    ["Current velocity", momentum.components.currentVelocityScore],
+    ["Growth", momentum.components.growthScore],
+    ["Catalog share", momentum.components.catalogShareScore],
+    ["Trend consistency", momentum.components.trendConsistencyScore],
+    ["Recency", momentum.components.recencyScore],
+  ];
+
+  return (
+    <section className="ppProductMomentumPanel" aria-label="Product Momentum">
+      <div className="ppProductMomentumHeader">
+        <div>
+          <span>Commercial signal</span>
+          <h2>Product Momentum</h2>
+          <p>This score answers whether the product matters commercially right now. It is separate from Product Risk.</p>
+        </div>
+        <s-badge tone={getMomentumBadgeTone(momentum)}>{momentum.tier}</s-badge>
+      </div>
+      <div className="ppProductMomentumBody">
+        <div className="ppProductMomentumScore">
+          <strong>{momentum.score}<small>/100</small></strong>
+          <span>{momentum.direction}</span>
+          <p>{momentum.display.growthLabel} vs previous 30 days · {momentum.display.catalogPositionLabel}</p>
+        </div>
+        <div className="ppProductMomentumBars" aria-label="Sales units over the last 4 weeks">
+          <SignalBars tone={getProductMomentumBarsTone(momentum)} values={momentum.inputs.weeklyUnitsLast4Weeks} />
+          <small>{momentum.display.trendLabel}</small>
+        </div>
+      </div>
+      <div className="ppProductMomentumBreakdown">
+        {componentRows.map(([label, value]) => (
+          <div className="ppProductMomentumComponent" key={label}>
+            <span>{label}</span>
+            <strong>{formatInteger(value)}</strong>
+            <div aria-hidden="true"><span style={{ width: `${clampNumber(value, 0, 100)}%` }} /></div>
+          </div>
+        ))}
+      </div>
+      <div className="ppProductMomentumMeta">
+        <span><b>{momentum.confidenceLabel}</b> · {formatInteger(momentum.confidence)}/100</span>
+        <span>{formatInteger(momentum.inputs.unitsLast30Days)} units · {formatMoney(momentum.inputs.revenueLast30Days)} revenue in the last 30 days</span>
+      </div>
+    </section>
+  );
+}
+
+function getMomentumBadgeTone(momentum = {}) {
+  const tier = String(momentum.tier || "").toLowerCase();
+  if (tier.includes("hot") || tier.includes("rising")) return "success";
+  if (tier.includes("cooling")) return "warning";
+  return "info";
+}
+
+function getProductMomentumBarsTone(momentum = {}) {
+  const tier = String(momentum.tier || "").toLowerCase();
+  if (tier.includes("hot") || tier.includes("rising")) return "green";
+  if (tier.includes("cooling")) return "orange";
+  return "gray";
 }
 
 function getReturnRatePredictionChart(prediction = {}) {
@@ -6264,6 +6442,65 @@ function ProductArt({ variant, label, size = "small", imageUrl, imageAlt }) {
   );
 }
 
+function ProductMomentumCell({ product }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const momentum = normalizeProductMomentum(product.productMomentum || product.metrics?.productMomentum);
+  const href = product.href || `/app/products/${product.handle || product.slug || product.id}`;
+
+  if (!momentum) {
+    return (
+      <span
+        className="ppMomentumPopoverWrap"
+        ref={triggerRef}
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <Link className="ppMomentumMissingTrigger" to={href} aria-label={`Product Momentum unavailable for ${product.title}`}>
+          <s-icon type="info" size="small"></s-icon>
+          <span>Missing</span>
+        </Link>
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppMomentumPopover" width={300} estimatedHeight={140}>
+          <strong>Product Momentum unavailable</strong>
+          <span>Run a deep product diagnosis to calculate current commercial strength from sales velocity, growth, catalog share and recent activity.</span>
+        </FloatingTablePopover>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="ppMomentumPopoverWrap"
+      ref={triggerRef}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <Link className={`ppMomentumTrigger ppMomentumTrigger-${getProductMomentumBarsTone(momentum)}`} to={href} aria-label={`Open Product Momentum for ${product.title}`}>
+        <span className="ppMomentumTriggerMain">
+          <SignalBars tone={getProductMomentumBarsTone(momentum)} values={momentum.inputs.weeklyUnitsLast4Weeks} />
+          <span>{momentum.tier} {momentum.score}</span>
+        </span>
+        <span className="ppMomentumSubline">{momentum.display.growthLabel} 30d · {momentum.display.catalogPositionLabel}</span>
+      </Link>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppMomentumPopover" width={340} estimatedHeight={250}>
+        <strong>Product Momentum: {momentum.tier} · {momentum.score}/100</strong>
+        <span className="ppSignalPopoverMeta">
+          <span><b>Confidence</b>{momentum.confidenceLabel}</span>
+          <span><b>Last 30 days</b>{formatInteger(momentum.inputs.unitsLast30Days)} units sold · {formatMoney(momentum.inputs.revenueLast30Days)} revenue</span>
+          <span><b>Growth</b>{momentum.display.growthLabel} vs previous 30 days</span>
+          <span><b>Catalog position</b>{momentum.display.catalogPositionLabel}</span>
+          <span><b>Trend</b>{momentum.display.trendLabel}</span>
+        </span>
+        <span className="ppSignalPopoverFooter">{momentum.display.recommendedUse}</span>
+      </FloatingTablePopover>
+    </span>
+  );
+}
+
 function ProductSignalCell({ product }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
@@ -6675,6 +6912,8 @@ function getInsightMetricHelp(title) {
   switch (title) {
     case "Product risk":
       return "Severity of the product problem only. Financial impact is not included in this score.";
+    case "Product Momentum":
+      return "Current commercial strength from recent sales velocity, growth, catalog share, trend consistency and sales recency. It does not measure product risk.";
     case "Diagnosis confidence":
       return "Reliability of the diagnosis based on source coverage, effective sample size, product match quality, source agreement, freshness and confidence caps.";
     case "Financial exposure":
@@ -10698,6 +10937,14 @@ function formatCompactWholeNumber(value) {
 
 function formatPercent(value) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(Number(value || 0))}%`;
+}
+
+function formatSignedPercent(value) {
+  const number = Number(value || 0);
+  const formatted = formatPercent(Math.abs(number));
+  if (number > 0) return `+${formatted}`;
+  if (number < 0) return `-${formatted}`;
+  return formatted;
 }
 
 function formatInteger(value) {

@@ -381,6 +381,33 @@ describe("ProductPulse screens", () => {
           },
           imageUrl: "https://cdn.example.com/linen-shirt.jpg",
           imageAlt: "Linen product",
+          productMomentum: {
+            score: 86,
+            tier: "Hot",
+            direction: "Accelerating",
+            confidence: 88,
+            confidenceLabel: "High confidence",
+            inputs: {
+              unitsLast30Days: 42,
+              revenueLast30Days: 3240,
+              weeklyUnitsLast4Weeks: [4, 8, 12, 18],
+            },
+            components: {
+              currentVelocityScore: 91,
+              growthScore: 78,
+              catalogShareScore: 82,
+              trendConsistencyScore: 88,
+              recencyScore: 100,
+            },
+            catalog: { topCatalogPercent: 12 },
+            display: {
+              growthLabel: "+68%",
+              growthPercent: 68,
+              catalogPositionLabel: "Top 12%",
+              trendLabel: "Sales increasing over the last 4 weeks",
+              recommendedUse: "Add to Watchlist",
+            },
+          },
           signalDetails: {
             summary: "Fit & sizing risk score 84/100 from 184 signals.",
             bars: [
@@ -406,7 +433,13 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Product risk" }));
     expect(screen.getByText("↓")).toBeInTheDocument();
     expect(screen.getByText("Evidence")).toBeInTheDocument();
+    expect(screen.getByText("Momentum")).toBeInTheDocument();
+    expect(screen.getByText("Hot 86")).toBeInTheDocument();
+    expect(screen.getByText("+68% 30d · Top 12%")).toBeInTheDocument();
     expect(screen.getByText("Strong · 3 sources")).toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "Open Product Momentum for Linen Shirt" }));
+    expect(await screen.findByText("Product Momentum: Hot · 86/100")).toBeInTheDocument();
+    expect(screen.getByText("42 units sold · $3,240 revenue")).toBeInTheDocument();
     const evidenceLink = screen.getByRole("link", { name: "Open evidence for Linen Shirt" });
     expect(evidenceLink).toHaveAttribute("href", "/app/products/linen-shirt/evidence");
     fireEvent.mouseEnter(evidenceLink);
@@ -543,6 +576,53 @@ describe("ProductPulse screens", () => {
     expect(within(historyPanel).getByText("Up 16 pts since last analysis")).toBeInTheDocument();
     expect(within(historyPanel).getByText("2 saved scores · May 1, 2026 to May 10, 2026")).toBeInTheDocument();
     expect(within(historyPanel).getByText("Fit runs small around waist and inseam")).toBeInTheDocument();
+  });
+
+  it("renders Product Momentum in the product detail view", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productMomentum: {
+          score: 86,
+          tier: "Hot",
+          direction: "Accelerating",
+          confidence: 88,
+          confidenceLabel: "High confidence",
+          components: {
+            currentVelocityScore: 91,
+            growthScore: 78,
+            catalogShareScore: 82,
+            trendConsistencyScore: 88,
+            recencyScore: 100,
+          },
+          inputs: {
+            unitsLast30Days: 42,
+            revenueLast30Days: 3240,
+            weeklyUnitsLast4Weeks: [4, 8, 12, 18],
+          },
+          catalog: {
+            topCatalogPercent: 12,
+          },
+          display: {
+            growthPercent: 68,
+            growthLabel: "+68%",
+            catalogPositionLabel: "Top 12%",
+            trendLabel: "Sales increasing over the last 4 weeks",
+          },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const panel = container.querySelector(".ppProductMomentumPanel");
+
+    expect(screen.getAllByText("Product Momentum").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("86")).toBeInTheDocument();
+    expect(within(panel).getByText("/100")).toBeInTheDocument();
+    expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
+    expect(within(panel).getByText("Current velocity")).toBeInTheDocument();
+    expect(within(panel).getByText("High confidence")).toBeInTheDocument();
+    expect(within(panel).getByText("42 units · $3,240 revenue in the last 30 days")).toBeInTheDocument();
   });
 
   it("renders monthly order activity for product diagnosis", () => {

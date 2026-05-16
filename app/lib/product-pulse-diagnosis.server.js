@@ -19,6 +19,7 @@ const MAX_JUDGEME_SYNC_PAGES = 5;
 const MONTHLY_ORDER_ACTIVITY_MAX_MONTHS = 12;
 const RETURN_RATE_PREDICTION_MAX_WEEKS = 52;
 const RETURN_RATE_PREDICTION_FORECAST_WEEKS = 13;
+const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
@@ -43,7 +44,8 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays });
   const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
-  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, windowDays });
+  const momentumCatalogBaseline = await fetchProductMomentumCatalogBaseline({ shop, currentProductGid: snapshot.productGid });
+  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, windowDays, momentumCatalogBaseline });
   const recommendationCandidates = buildRuleRecommendationCandidates(deterministic);
   const aiInput = {
     product: buildAiProductInput(shopifyData.product, snapshot),
@@ -65,6 +67,12 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       refundAmount: deterministic.metrics.refundAmount,
       monthlyOrderActivity: deterministic.metrics.monthlyOrderActivity?.summary || null,
       returnRatePrediction: deterministic.metrics.returnRatePrediction?.summary || null,
+      productMomentum: deterministic.metrics.productMomentum ? {
+        score: deterministic.metrics.productMomentum.score,
+        tier: deterministic.metrics.productMomentum.tier,
+        direction: deterministic.metrics.productMomentum.direction,
+        confidence: deterministic.metrics.productMomentum.confidence,
+      } : null,
       reviewCount: deterministic.metrics.reviewCount,
       negativeReviewCount: deterministic.metrics.negativeReviewCount,
       customerTextSignals: deterministic.metrics.textInsights?.sentiment?.total || 0,
@@ -216,6 +224,58 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   return { product, sales, refunds, returns, orderAccessDenied };
 }
 
+async function fetchProductMomentumCatalogBaseline({ shop, currentProductGid }) {
+  if (!shop) return null;
+  const snapshots = await prisma.productRiskSnapshot.findMany({
+    where: { shop },
+    select: { productGid: true, metrics: true },
+    orderBy: [{ updatedAt: "desc" }],
+    take: 1000,
+  });
+
+  return buildProductMomentumCatalogBaseline(snapshots, currentProductGid);
+}
+
+function buildProductMomentumCatalogBaseline(snapshots = [], currentProductGid = "") {
+  const rows = (Array.isArray(snapshots) ? snapshots : [])
+    .map((snapshot) => {
+      const metrics = snapshot?.metrics || {};
+      const momentum = metrics.productMomentum || {};
+      const inputs = momentum.inputs || {};
+      return {
+        productGid: snapshot?.productGid || "",
+        unitsLast30: Number(inputs.unitsLast30Days ?? metrics.soldUnits ?? 0),
+        unitsPrevious90: Number(inputs.unitsPrevious90Days ?? 0),
+        revenueLast30: Number(inputs.revenueLast30Days ?? metrics.salesAmount ?? 0),
+        revenuePrevious90: Number(inputs.revenuePrevious90Days ?? 0),
+      };
+    })
+    .filter((row) => Number.isFinite(row.unitsLast30) || Number.isFinite(row.revenueLast30));
+
+  const comparableRows = rows.filter((row) => row.productGid !== currentProductGid);
+  const distributionRows = comparableRows.length >= 3 ? comparableRows : rows;
+  const unitsLast30Distribution = distributionRows.map((row) => Math.max(0, Number(row.unitsLast30 || 0)));
+  const revenueLast30Distribution = distributionRows.map((row) => Math.max(0, Number(row.revenueLast30 || 0)));
+  const storeUnitsLast30 = rows.reduce((total, row) => total + Math.max(0, Number(row.unitsLast30 || 0)), 0);
+  const storeUnitsPrevious90 = rows.reduce((total, row) => total + Math.max(0, Number(row.unitsPrevious90 || 0)), 0);
+  const storeRevenueLast30 = rows.reduce((total, row) => total + Math.max(0, Number(row.revenueLast30 || 0)), 0);
+  const storeRevenuePrevious90 = rows.reduce((total, row) => total + Math.max(0, Number(row.revenuePrevious90 || 0)), 0);
+
+  return {
+    productCount: rows.length,
+    comparableProductCount: distributionRows.length,
+    unitsLast30Distribution,
+    revenueLast30Distribution,
+    medianUnitsLast30: median(unitsLast30Distribution),
+    medianRevenueLast30: median(revenueLast30Distribution),
+    storeUnitsLast30,
+    storeUnitsPrevious90,
+    storeRevenueLast30,
+    storeRevenuePrevious90,
+    hasCatalogBaseline: distributionRows.length >= 3,
+  };
+}
+
 async function fetchShopifyProduct({ admin, snapshot }) {
   if (!admin?.graphql) return normalizeSnapshotProduct(snapshot);
 
@@ -230,6 +290,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
             legacyResourceId
             title
             handle
+            createdAt
             description
             descriptionHtml
             vendor
@@ -316,6 +377,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
           legacyResourceId
           title
           handle
+          createdAt
           description
           descriptionHtml
           vendor
@@ -1479,7 +1541,7 @@ async function fetchAndMatchJudgeMeReviews({ shop, token, snapshot, shopifyProdu
   };
 }
 
-function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 }, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
+function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 }, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, momentumCatalogBaseline = null }) {
   const snapshotMetrics = snapshot.metrics || {};
   const product = shopifyData.product;
   const sales = shopifyData.sales || [];
@@ -1514,6 +1576,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
   const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
   const returnRatePrediction = buildReturnRatePrediction({ sales, returns, windowDays });
+  const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
@@ -1654,6 +1717,12 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundInsights,
       monthlyOrderActivity,
       returnRatePrediction,
+      productMomentum,
+      productMomentumScore: productMomentum.score,
+      productMomentumTier: productMomentum.tier,
+      momentumDirection: productMomentum.direction,
+      momentumConfidence: productMomentum.confidence,
+      momentumConfidenceLabel: productMomentum.confidenceLabel,
       returnUnits,
       refundUnits,
       soldUnits,
@@ -3997,6 +4066,7 @@ function normalizeShopifyProduct(product, snapshot) {
     numericId: String(product.legacyResourceId || extractNumericShopifyId(product.id) || ""),
     title: product.title || snapshot.productTitle,
     handle: product.handle || snapshot.handle,
+    createdAt: toIso(product.createdAt),
     description: cleanProductDescription(product),
     descriptionHtml: String(product.descriptionHtml || ""),
     vendor: product.vendor || "",
@@ -4023,6 +4093,7 @@ function normalizeSnapshotProduct(snapshot) {
     numericId: extractNumericShopifyId(snapshot.productGid),
     title: snapshot.productTitle,
     handle: snapshot.handle,
+    createdAt: null,
     description: "",
     descriptionHtml: "",
     vendor: metrics.vendor || "",
@@ -5991,6 +6062,344 @@ function buildReturnRatePrediction({
   };
 }
 
+function buildProductMomentum({
+  product = {},
+  sales = [],
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  catalogBaseline = null,
+  now = new Date(),
+} = {}) {
+  const currentDate = parseValidDate(now) || new Date();
+  const productCreatedAt = parseValidDate(product.createdAt);
+  const productAgeDays = productCreatedAt
+    ? Math.max(0, Math.floor((currentDate.getTime() - productCreatedAt.getTime()) / (24 * 60 * 60 * 1000)))
+    : null;
+  const safeSales = (Array.isArray(sales) ? sales : [])
+    .map((event, index) => ({
+      id: event.id || event.orderId || `sale:${index}`,
+      orderId: event.orderId || event.id || `sale:${index}`,
+      createdAt: parseValidDate(event.createdAt),
+      quantity: Math.max(0, Number(event.quantity || 0)),
+      amount: Math.max(0, Number(event.amount || 0)),
+    }))
+    .filter((event) => event.createdAt);
+
+  const last7 = sumSalesInWindow(safeSales, currentDate, 7);
+  const last14 = sumSalesInWindow(safeSales, currentDate, 14);
+  const last30 = sumSalesInWindow(safeSales, currentDate, 30);
+  const previous30 = sumSalesBetween(safeSales, addUtcDays(currentDate, -60), addUtcDays(currentDate, -30));
+  const previous90 = sumSalesBetween(safeSales, addUtcDays(currentDate, -120), addUtcDays(currentDate, -30));
+  const weeklyBuckets = buildProductMomentumWeeklyBuckets(safeSales, currentDate);
+  const weeklyUnits = weeklyBuckets.map((bucket) => bucket.units);
+  const weeklyRevenue = weeklyBuckets.map((bucket) => roundCurrency(bucket.revenue));
+  const catalog = catalogBaseline || {};
+  const unitsDistribution = Array.isArray(catalog.unitsLast30Distribution) ? catalog.unitsLast30Distribution : [];
+  const revenueDistribution = Array.isArray(catalog.revenueLast30Distribution) ? catalog.revenueLast30Distribution : [];
+  const unitsVelocityScore = percentileRank(last30.units, unitsDistribution);
+  const revenueVelocityScore = percentileRank(last30.revenue, revenueDistribution);
+  const currentVelocityScore = clamp((0.65 * unitsVelocityScore) + (0.35 * revenueVelocityScore), 0, 100);
+  const smoothingUnits = Math.max(3, Number(catalog.medianUnitsLast30 || 0) * 0.10);
+  const smoothingRevenue = Math.max(10, Number(catalog.medianRevenueLast30 || 0) * 0.10);
+  const unitsGrowthRatio = (last30.units + smoothingUnits) / (previous30.units + smoothingUnits);
+  const revenueGrowthRatio = (last30.revenue + smoothingRevenue) / (previous30.revenue + smoothingRevenue);
+  const combinedGrowthRatio = (0.65 * unitsGrowthRatio) + (0.35 * revenueGrowthRatio);
+  const growthScore = clamp(50 + (35 * safeLog2(combinedGrowthRatio)), 0, 100);
+  const storeUnitsLast30 = Math.max(0, Number(catalog.storeUnitsLast30 || 0)) || last30.units;
+  const storeUnitsPrevious90 = Math.max(0, Number(catalog.storeUnitsPrevious90 || 0)) || previous90.units;
+  const productShareLast30 = last30.units / Math.max(storeUnitsLast30, 1);
+  const productShareBaseline = previous90.units / Math.max(storeUnitsPrevious90, 1);
+  const shareLiftRatio = (productShareLast30 + 0.0001) / (productShareBaseline + 0.0001);
+  const catalogShareScore = clamp(50 + (35 * safeLog2(shareLiftRatio)), 0, 100);
+  const activeWeekRatio = weeklyUnits.filter((value) => Number(value || 0) > 0).length / 4;
+  const weeklySlope = linearRegressionSlope(weeklyUnits);
+  const averageWeeklyUnits = average(weeklyUnits);
+  const normalizedSlope = weeklySlope / Math.max(averageWeeklyUnits, 1);
+  const trendDirectionScore = clamp(50 + (100 * normalizedSlope), 0, 100);
+  const trendConsistencyScore = clamp((0.60 * trendDirectionScore) + (0.40 * activeWeekRatio * 100), 0, 100);
+  const recencyScore = last7.units > 0 ? 100 : last14.units > 0 ? 70 : last30.units > 0 ? 40 : 0;
+  const rawScore = (0.35 * currentVelocityScore)
+    + (0.25 * growthScore)
+    + (0.20 * catalogShareScore)
+    + (0.15 * trendConsistencyScore)
+    + (0.05 * recencyScore);
+  let score = Math.round(clamp(rawScore, 0, 100));
+
+  if (last30.units === 0 && last30.revenue === 0) score = 0;
+  if (last30.units < 2 && revenueVelocityScore < 80) score = Math.min(score, 40);
+  if (last30.units < 5 && currentVelocityScore < 80) score = Math.min(score, 65);
+  if (productAgeDays !== null && productAgeDays < 30) score = Math.min(score, 85);
+
+  const historyConfidence = previous90.units > 0 || previous90.revenue > 0
+    ? 100
+    : previous30.units > 0 || previous30.revenue > 0
+      ? 70
+      : last30.units > 0 || last30.revenue > 0
+        ? 40
+        : 0;
+  const coverageConfidence = getProductMomentumCoverageConfidence({ sales: safeSales, catalogBaseline: catalog, last30 });
+  const sampleConfidence = clamp(100 * Math.log1p(last30.units + last30.orders) / Math.log1p(30), 0, 100);
+  const trendConfidence = clamp(activeWeekRatio * 100, 0, 100);
+  let confidence = Math.round(clamp(
+    (0.35 * sampleConfidence)
+      + (0.25 * historyConfidence)
+      + (0.25 * coverageConfidence)
+      + (0.15 * trendConfidence),
+    0,
+    100,
+  ));
+  const inventoryState = getProductMomentumInventoryState(product);
+  if (inventoryState.inventoryConstraint) confidence = Math.min(confidence, 70);
+
+  const tier = getProductMomentumTier(score);
+  const direction = getProductMomentumDirection({
+    score,
+    productAgeDays,
+    growthScore,
+    trendConsistencyScore,
+    currentVelocityScore,
+    recencyScore,
+    unitsPrevious30Days: previous30.units,
+    unitsLast30Days: last30.units,
+    smoothingUnits,
+    inventoryConstraint: inventoryState.inventoryConstraint,
+  });
+  const topCatalogPercent = unitsDistribution.length
+    ? Math.max(1, Math.round(100 - unitsVelocityScore))
+    : null;
+  const growthPercent = previous30.units || previous30.revenue
+    ? roundRate((combinedGrowthRatio - 1) * 100, 1)
+    : last30.units > 0
+      ? 100
+      : 0;
+
+  return {
+    source: "shopify_orders_deep_diagnosis",
+    score,
+    tier,
+    direction,
+    confidence,
+    confidenceLabel: getProductMomentumConfidenceLabel(confidence),
+    calculatedAt: toIso(currentDate),
+    windowDays: Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS),
+    baselineDays: PRODUCT_MOMENTUM_BASELINE_DAYS,
+    components: {
+      currentVelocityScore: Math.round(currentVelocityScore),
+      growthScore: Math.round(growthScore),
+      catalogShareScore: Math.round(catalogShareScore),
+      trendConsistencyScore: Math.round(trendConsistencyScore),
+      recencyScore: Math.round(recencyScore),
+    },
+    inputs: {
+      productCreatedAt: product.createdAt || null,
+      productAgeDays,
+      unitsLast7Days: last7.units,
+      unitsLast14Days: last14.units,
+      unitsLast30Days: last30.units,
+      unitsPrevious30Days: previous30.units,
+      unitsPrevious90Days: previous90.units,
+      revenueLast30Days: roundCurrency(last30.revenue),
+      revenuePrevious30Days: roundCurrency(previous30.revenue),
+      revenuePrevious90Days: roundCurrency(previous90.revenue),
+      ordersLast30Days: last30.orders,
+      uniqueCustomersLast30Days: null,
+      weeklyUnitsLast4Weeks: weeklyUnits,
+      weeklyRevenueLast4Weeks: weeklyRevenue,
+      lastSaleAt: getLatestEventDate(safeSales),
+    },
+    catalog: {
+      unitsVelocityScore: Math.round(unitsVelocityScore),
+      revenueVelocityScore: Math.round(revenueVelocityScore),
+      storeUnitsLast30Days: Math.round(storeUnitsLast30),
+      storeUnitsPrevious90Days: Math.round(storeUnitsPrevious90),
+      storeRevenueLast30Days: roundCurrency(Number(catalog.storeRevenueLast30 || 0) || last30.revenue),
+      storeRevenuePrevious90Days: roundCurrency(Number(catalog.storeRevenuePrevious90 || 0) || previous90.revenue),
+      medianUnitsLast30Days: roundRate(Number(catalog.medianUnitsLast30 || 0), 1),
+      medianRevenueLast30Days: roundCurrency(Number(catalog.medianRevenueLast30 || 0)),
+      productShareLast30: roundRate(productShareLast30 * 100, 3),
+      productShareBaseline: roundRate(productShareBaseline * 100, 3),
+      shareLiftRatio: roundRate(shareLiftRatio, 3),
+      topCatalogPercent,
+      catalogProductCount: Number(catalog.productCount || 0),
+      hasCatalogBaseline: Boolean(catalog.hasCatalogBaseline),
+    },
+    display: {
+      growthPercent,
+      growthLabel: formatSignedPercent(growthPercent),
+      catalogPositionLabel: topCatalogPercent ? `Top ${topCatalogPercent}%` : "Catalog baseline pending",
+      trendLabel: getProductMomentumTrendLabel(weeklyUnits),
+      recommendedUse: score >= 70 ? "Add to Watchlist" : score >= 50 ? "Monitor if risk rises" : "No commercial follow-up needed",
+    },
+    flags: {
+      inventoryConstraint: inventoryState.inventoryConstraint,
+      availableDaysLast30Days: inventoryState.availableDaysLast30Days,
+      missingCatalogBaseline: !catalog.hasCatalogBaseline,
+      missingCustomerData: true,
+      missingInventoryHistory: inventoryState.availableDaysLast30Days === null,
+    },
+  };
+}
+
+function sumSalesInWindow(sales, currentDate, days) {
+  return sumSalesBetween(sales, addUtcDays(currentDate, -days), currentDate);
+}
+
+function sumSalesBetween(sales = [], startDate, endDate) {
+  const orderIds = new Set();
+  let units = 0;
+  let revenue = 0;
+  sales.forEach((event) => {
+    if (!event.createdAt || event.createdAt.getTime() < startDate.getTime() || event.createdAt.getTime() >= endDate.getTime()) return;
+    units += Number(event.quantity || 0);
+    revenue += Number(event.amount || 0);
+    orderIds.add(event.orderId || event.id);
+  });
+
+  return {
+    units: Math.round(units),
+    revenue: roundCurrency(revenue),
+    orders: orderIds.size,
+  };
+}
+
+function buildProductMomentumWeeklyBuckets(sales = [], currentDate = new Date()) {
+  const startDate = addUtcDays(startOfUtcWeek(currentDate), -21);
+  const buckets = new Map(Array.from({ length: 4 }, (_, index) => {
+    const date = addUtcDays(startDate, index * 7);
+    return [formatUtcDateKey(date), { key: formatUtcDateKey(date), units: 0, revenue: 0 }];
+  }));
+
+  sales.forEach((event) => {
+    const weekKey = getEventWeekKey(event.createdAt);
+    const bucket = buckets.get(weekKey);
+    if (!bucket) return;
+    bucket.units += Number(event.quantity || 0);
+    bucket.revenue += Number(event.amount || 0);
+  });
+
+  return [...buckets.values()].map((bucket) => ({
+    ...bucket,
+    units: Math.round(bucket.units),
+    revenue: roundCurrency(bucket.revenue),
+  }));
+}
+
+function percentileRank(value, distribution = []) {
+  const number = Math.max(0, Number(value || 0));
+  const values = (Array.isArray(distribution) ? distribution : [])
+    .map((item) => Math.max(0, Number(item || 0)))
+    .filter((item) => Number.isFinite(item));
+  if (!values.length) {
+    if (number <= 0) return 0;
+    return clamp(25 + (Math.log1p(number) / Math.log1p(Math.max(number, 30))) * 55, 0, 80);
+  }
+
+  const less = values.filter((item) => item < number).length;
+  const equal = values.filter((item) => item === number).length;
+  return clamp(((less + equal * 0.5) / values.length) * 100, 0, 100);
+}
+
+function linearRegressionSlope(values = []) {
+  const points = (Array.isArray(values) ? values : []).map((value, index) => ({ x: index + 1, y: Number(value || 0) }));
+  if (points.length < 2) return 0;
+  const meanX = average(points.map((point) => point.x));
+  const meanY = average(points.map((point) => point.y));
+  const denominator = points.reduce((total, point) => total + ((point.x - meanX) ** 2), 0);
+  if (!denominator) return 0;
+  return points.reduce((total, point) => total + ((point.x - meanX) * (point.y - meanY)), 0) / denominator;
+}
+
+function safeLog2(value) {
+  return Math.log2(Math.max(Number(value || 0), 0.0001));
+}
+
+function getProductMomentumCoverageConfidence({ sales = [], catalogBaseline = {}, last30 = {} }) {
+  if (!sales.length) return 30;
+  const hasRevenue = Number(last30.revenue || 0) > 0 || sales.some((event) => Number(event.amount || 0) > 0);
+  const hasCatalogBaseline = Boolean(catalogBaseline?.hasCatalogBaseline);
+  if (hasRevenue && hasCatalogBaseline) return 100;
+  if (hasRevenue) return 70;
+  if (hasCatalogBaseline) return 60;
+  return 50;
+}
+
+function getProductMomentumInventoryState(product = {}) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  if (!variants.length) {
+    return { inventoryConstraint: false, availableDaysLast30Days: null };
+  }
+  const trackedVariants = variants.filter((variant) => variant.inventoryTracked);
+  if (!trackedVariants.length) {
+    return { inventoryConstraint: false, availableDaysLast30Days: null };
+  }
+  const currentlyAvailable = trackedVariants.some((variant) => Number(variant.inventoryQuantity || 0) > 0 || variant.inventoryPolicy === "CONTINUE");
+  return {
+    inventoryConstraint: !currentlyAvailable,
+    availableDaysLast30Days: currentlyAvailable ? 30 : 0,
+  };
+}
+
+function getProductMomentumTier(score) {
+  const value = Number(score || 0);
+  if (value >= 80) return "Hot";
+  if (value >= 60) return "Rising";
+  if (value >= 40) return "Stable";
+  if (value >= 20) return "Cooling";
+  return "Low activity";
+}
+
+function getProductMomentumConfidenceLabel(confidence) {
+  const value = Number(confidence || 0);
+  if (value >= 80) return "High confidence";
+  if (value >= 60) return "Medium confidence";
+  if (value >= 40) return "Low confidence";
+  return "Very low confidence";
+}
+
+function getProductMomentumDirection({
+  growthScore = 0,
+  trendConsistencyScore = 0,
+  currentVelocityScore = 0,
+  recencyScore = 0,
+  unitsPrevious30Days = 0,
+  unitsLast30Days = 0,
+  smoothingUnits = 3,
+  productAgeDays = null,
+  inventoryConstraint = false,
+} = {}) {
+  if (inventoryConstraint) return "Inventory constrained";
+  if (unitsLast30Days === 0) return "Dormant";
+  if (productAgeDays !== null && productAgeDays < 30) return "New activity";
+  if (unitsPrevious30Days <= smoothingUnits && unitsLast30Days >= 5 && growthScore >= 75) return "New spike";
+  if (growthScore >= 70 && trendConsistencyScore >= 65) return "Accelerating";
+  if (currentVelocityScore >= 80 && growthScore >= 40 && growthScore <= 65) return "High-volume stable";
+  if (growthScore >= 75 && currentVelocityScore >= 45 && (productAgeDays === null || productAgeDays >= 14)) return "Emerging";
+  if (growthScore < 40 && recencyScore < 70) return "Cooling";
+  return getProductMomentumTrendLabelFromScores({ growthScore, trendConsistencyScore });
+}
+
+function getProductMomentumTrendLabelFromScores({ growthScore = 0, trendConsistencyScore = 0 } = {}) {
+  if (growthScore >= 60 && trendConsistencyScore >= 55) return "Gaining traction";
+  if (growthScore < 45) return "Softening";
+  return "Steady";
+}
+
+function getProductMomentumTrendLabel(weeklyUnits = []) {
+  const first = Number(weeklyUnits[0] || 0);
+  const last = Number(weeklyUnits[weeklyUnits.length - 1] || 0);
+  if (weeklyUnits.every((value) => Number(value || 0) === 0)) return "No recent sales activity";
+  if (last > first) return "Sales increasing over the last 4 weeks";
+  if (last < first) return "Sales decreasing over the last 4 weeks";
+  return "Sales activity is stable over the last 4 weeks";
+}
+
+function formatSignedPercent(value) {
+  const number = Number(value || 0);
+  const rounded = roundRate(Math.abs(number), 1);
+  if (number > 0) return `+${rounded}%`;
+  if (number < 0) return `-${rounded}%`;
+  return "0%";
+}
+
 function createReturnRateWeekBucket(date) {
   return {
     key: formatUtcDateKey(date),
@@ -6272,6 +6681,14 @@ function average(values) {
   const numbers = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
   if (!numbers.length) return 0;
   return numbers.reduce((total, value) => total + value, 0) / numbers.length;
+}
+
+function median(values) {
+  const numbers = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value)).sort((first, second) => first - second);
+  if (!numbers.length) return 0;
+  const middle = Math.floor(numbers.length / 2);
+  if (numbers.length % 2) return numbers[middle];
+  return (numbers[middle - 1] + numbers[middle]) / 2;
 }
 
 function roundRate(value, decimals = 2) {
@@ -6672,6 +7089,8 @@ export const __productPulseDiagnosisTestHooks = {
   calculateDeterministicDiagnosis,
   buildMonthlyOrderActivity,
   buildReturnRatePrediction,
+  buildProductMomentum,
+  buildProductMomentumCatalogBaseline,
   buildRefundOperationalInsights,
   calculateConfidence,
   calculateRiskScore,

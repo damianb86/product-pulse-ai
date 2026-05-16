@@ -82,6 +82,10 @@ function buildHistoryMetrics(snapshot = {}) {
     revenueAtRisk: nullableNumber(metrics.revenueAtRisk),
     financialExposure: nullableNumber(metrics.financialExposure || metrics.estimatedImpact),
     priorityScore: nullableInteger(metrics.priorityScore),
+    productMomentumScore: nullableInteger(metrics.productMomentumScore || metrics.productMomentum?.score),
+    productMomentumTier: metrics.productMomentumTier || metrics.productMomentum?.tier || null,
+    momentumDirection: metrics.momentumDirection || metrics.productMomentum?.direction || null,
+    momentumConfidence: nullableInteger(metrics.momentumConfidence || metrics.productMomentum?.confidence),
     returnRatePrediction: metrics.returnRatePrediction?.summary || null,
     sourceCoverage: snapshot.sourceCoverage || null,
   };

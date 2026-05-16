@@ -859,6 +859,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSignalPopoverWrap,
+.ppMomentumPopoverWrap,
 .ppSourceTokenWrap,
 .ppActionMenuWrap {
   position: relative;
@@ -878,6 +879,61 @@ s-page[inline-size="large-500"] {
   cursor: pointer;
   text-align: left;
   text-decoration: none;
+}
+
+.ppMomentumTrigger,
+.ppMomentumMissingTrigger {
+  display: inline-grid;
+  gap: 3px;
+  align-items: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-slate-700);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+}
+
+.ppMomentumTrigger:hover,
+.ppMomentumTrigger:focus-visible,
+.ppMomentumMissingTrigger:hover,
+.ppMomentumMissingTrigger:focus-visible {
+  color: var(--pp-pulse-blue);
+  outline: none;
+}
+
+.ppMomentumTriggerMain,
+.ppMomentumMissingTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pp-slate-900);
+}
+
+.ppMomentumTriggerMain > span:last-child {
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.ppMomentumSubline {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ppMomentumMissingTrigger {
+  width: max-content;
+  padding: 6px 8px;
+  border: 1px dashed var(--pp-slate-300);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 720;
 }
 
 .ppSignalTrigger:hover,
@@ -906,6 +962,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSignalPopover,
+.ppMomentumPopover,
 .ppSourcePopover {
   position: absolute;
   z-index: 30;
@@ -926,6 +983,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSignalPopover strong,
+.ppMomentumPopover strong,
 .ppSourcePopover strong {
   color: var(--pp-slate-900);
   font-size: 13px;
@@ -1011,6 +1069,8 @@ s-page[inline-size="large-500"] {
 
 .ppSignalPopoverWrap:hover .ppSignalPopover,
 .ppSignalPopoverWrap:focus-within .ppSignalPopover,
+.ppMomentumPopoverWrap:hover .ppMomentumPopover,
+.ppMomentumPopoverWrap:focus-within .ppMomentumPopover,
 .ppSourceTokenWrap:hover .ppSourcePopover,
 .ppSourceTokenWrap:focus-within .ppSourcePopover {
   opacity: 1;
@@ -2098,6 +2158,7 @@ s-page[inline-size="large-500"] {
 .ppProductEvidenceSummaryPanel,
 .ppProductOrderActivityPanel,
 .ppProductReturnPredictionPanel,
+.ppProductMomentumPanel,
 .ppProductRiskHistoryPanel {
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
@@ -2666,7 +2727,7 @@ s-page[inline-size="large-500"] {
 
 .ppRiskSnapshot {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: start;
   overflow: hidden;
 }
@@ -3577,17 +3638,185 @@ s-page[inline-size="large-500"] {
   background: rgba(var(--pp-pulse-blue-rgb), 0.06);
 }
 
+.ppProductMomentumPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.ppProductMomentumHeader,
+.ppProductMomentumBody,
+.ppProductMomentumMeta {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ppProductMomentumHeader > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppProductMomentumHeader span {
+  color: var(--pp-signal-teal);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppProductMomentumHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.ppProductMomentumHeader p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppProductMomentumBody {
+  align-items: stretch;
+  padding: 14px;
+  border: 1px solid rgba(var(--pp-signal-teal-rgb), 0.18);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(var(--pp-signal-teal-rgb), 0.12), transparent 35%),
+    linear-gradient(135deg, var(--pp-cloud-white), rgba(var(--pp-pulse-blue-rgb), 0.045));
+}
+
+.ppProductMomentumScore {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ppProductMomentumScore strong {
+  color: var(--pp-slate-900);
+  font-size: 34px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppProductMomentumScore strong small {
+  color: var(--pp-slate-500);
+  font-size: 18px;
+}
+
+.ppProductMomentumScore > span {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.ppProductMomentumScore p,
+.ppProductMomentumBars small,
+.ppProductMomentumMeta span {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.ppProductMomentumBars {
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  justify-items: end;
+  min-width: 220px;
+}
+
+.ppProductMomentumBars .ppSignalBars {
+  width: 96px;
+  height: 44px;
+  gap: 5px;
+}
+
+.ppProductMomentumBars .ppSignalBars span {
+  width: 11px;
+  border-radius: 3px 3px 0 0;
+}
+
+.ppProductMomentumBreakdown {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppProductMomentumComponent {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-mist-gray);
+}
+
+.ppProductMomentumComponent span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppProductMomentumComponent strong {
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.ppProductMomentumComponent div {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppProductMomentumComponent div span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pp-signal-teal), var(--pp-pulse-blue));
+}
+
+.ppProductMomentumMeta {
+  align-items: center;
+  padding-top: 2px;
+}
+
+.ppProductMomentumMeta b {
+  color: var(--pp-slate-900);
+}
+
 @media (max-width: 1180px) {
   .ppOrderActivitySummary,
-  .ppReturnPredictionStats {
+  .ppReturnPredictionStats,
+  .ppProductMomentumBreakdown {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 760px) {
   .ppOrderActivityHeader,
-  .ppReturnPredictionHeader {
+  .ppReturnPredictionHeader,
+  .ppProductMomentumHeader,
+  .ppProductMomentumBody,
+  .ppProductMomentumMeta {
     display: grid;
+  }
+
+  .ppProductMomentumBars {
+    justify-items: start;
   }
 
   .ppOrderActivityWindow {
@@ -12091,7 +12320,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductsTable {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1320px;
   border-collapse: collapse;
 }
 

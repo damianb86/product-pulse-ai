@@ -1121,4 +1121,41 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(byId.get("apply-risk-tags")?.payload.tags).toEqual(expect.arrayContaining(["risk-high", "sentiment-negative", "variant-issue"]));
     expect(recommendations.every((item) => item.payload.recipe === true)).toBe(true);
   });
+
+  it("calculates Product Momentum from recent sales velocity, growth and catalog baseline", () => {
+    const now = new Date("2026-05-16T12:00:00.000Z");
+    const sales = [
+      { orderId: "ord-1", createdAt: "2026-05-15T10:00:00.000Z", quantity: 8, amount: 800 },
+      { orderId: "ord-2", createdAt: "2026-05-09T10:00:00.000Z", quantity: 7, amount: 700 },
+      { orderId: "ord-3", createdAt: "2026-05-01T10:00:00.000Z", quantity: 6, amount: 600 },
+      { orderId: "ord-4", createdAt: "2026-04-22T10:00:00.000Z", quantity: 5, amount: 500 },
+      { orderId: "ord-5", createdAt: "2026-04-10T10:00:00.000Z", quantity: 3, amount: 300 },
+      { orderId: "ord-6", createdAt: "2026-03-20T10:00:00.000Z", quantity: 4, amount: 400 },
+      { orderId: "ord-7", createdAt: "2026-02-20T10:00:00.000Z", quantity: 4, amount: 400 },
+    ];
+    const catalogBaseline = __productPulseDiagnosisTestHooks.buildProductMomentumCatalogBaseline([
+      { productGid: "gid://shopify/Product/a", metrics: { productMomentum: { inputs: { unitsLast30Days: 4, revenueLast30Days: 400, unitsPrevious90Days: 12, revenuePrevious90Days: 1200 } } } },
+      { productGid: "gid://shopify/Product/b", metrics: { productMomentum: { inputs: { unitsLast30Days: 12, revenueLast30Days: 1200, unitsPrevious90Days: 24, revenuePrevious90Days: 2400 } } } },
+      { productGid: "gid://shopify/Product/c", metrics: { productMomentum: { inputs: { unitsLast30Days: 22, revenueLast30Days: 2200, unitsPrevious90Days: 33, revenuePrevious90Days: 3300 } } } },
+      { productGid: "gid://shopify/Product/d", metrics: { productMomentum: { inputs: { unitsLast30Days: 32, revenueLast30Days: 3200, unitsPrevious90Days: 40, revenuePrevious90Days: 4000 } } } },
+    ]);
+
+    const momentum = __productPulseDiagnosisTestHooks.buildProductMomentum({
+      product: { createdAt: "2026-01-01T00:00:00.000Z", variants: [] },
+      sales,
+      catalogBaseline,
+      now,
+      windowDays: 120,
+    });
+
+    expect(momentum.score).toBeGreaterThanOrEqual(60);
+    expect(["Hot", "Rising", "Stable"]).toContain(momentum.tier);
+    expect(momentum.components.currentVelocityScore).toBeGreaterThan(50);
+    expect(momentum.components.growthScore).toBeGreaterThan(50);
+    expect(momentum.inputs.unitsLast30Days).toBe(26);
+    expect(momentum.inputs.ordersLast30Days).toBe(4);
+    expect(momentum.inputs.weeklyUnitsLast4Weeks).toHaveLength(4);
+    expect(momentum.display.catalogPositionLabel).toMatch(/Top|baseline/);
+    expect(momentum.confidence).toBeGreaterThan(50);
+  });
 });
