@@ -2160,6 +2160,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           {tagOverride && <input type="hidden" name="tag" value={tagOverride} />}
           <input type="hidden" name="applyMode" value="apply" />
           <input type="hidden" name="actionVariant" value={application.variantId || ""} />
+          <input type="hidden" name="descriptionOperation" value={application.descriptionOperation || ""} />
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
           <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim()}>
             <s-icon type={isTagChange ? "tag" : "wand"} size="small"></s-icon>
@@ -3154,7 +3155,7 @@ function getProductRecommendedActions(product) {
   if (!product.recommendedActions?.length) return [];
   const ignoredIssues = getIgnoredIssueRecords(product);
   const filteredActions = product.recommendedActions.filter((action) => !isRecommendedActionRelatedToIgnoredIssues(action, ignoredIssues, product));
-  const normalizedActions = consolidateReviewRecommendedActions(filteredActions);
+  const normalizedActions = consolidateDescriptionRecommendedActions(consolidateReviewRecommendedActions(filteredActions), product);
 
   return normalizedActions.map((action, index) => ({
     id: action.id,
@@ -3343,6 +3344,99 @@ function consolidateReviewRecommendedActions(actions = []) {
     mergedReviewAction,
     ...withoutReviews.slice(firstReviewIndex),
   ];
+}
+
+function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
+  const descriptionActions = actions.filter((action) => isDescriptionChangeAction(action, product));
+  if (descriptionActions.length <= 1) return actions;
+
+  const firstDescriptionIndex = actions.findIndex((action) => isDescriptionChangeAction(action, product));
+  const descriptionChanges = descriptionActions
+    .map((action) => buildDescriptionChangeDescriptor(action, product))
+    .filter(Boolean)
+    .sort((first, second) => getDescriptionChangeOrder(first.operation) - getDescriptionChangeOrder(second.operation));
+  if (descriptionChanges.length <= 1) return actions;
+
+  const payloads = descriptionActions.map((action) => action.payload || {});
+  const groupedAction = {
+    id: "product-description-changes",
+    label: "Update product description",
+    type: "PDP copy",
+    effort: getHighestActionEffort(descriptionActions),
+    status: "Ready",
+    payload: {
+      descriptionChangeGroup: true,
+      descriptionChanges,
+      operation: "replace",
+      trigger: "ProductPulse found multiple product-description improvements that should be reviewed together.",
+      proposedChange: "Apply selected description changes in one Shopify update.",
+      shopifyField: "Product description",
+      expectedImpact: "Reduce overlapping shopper-facing copy changes and keep the final PDP description consistent.",
+      applicationRisk: "Low",
+      approval: "Review required before applying",
+      contentIssues: payloads.flatMap((payload) => Array.isArray(payload.contentIssues) ? payload.contentIssues : []),
+      topReturnReasons: uniqueStrings(payloads.flatMap((payload) => payload.topReturnReasons || [])),
+      returnUnits: payloads.reduce((max, payload) => Math.max(max, Number(payload.returnUnits || 0)), 0),
+      returnRate: payloads.reduce((max, payload) => Math.max(max, Number(payload.returnRate || 0)), 0),
+      negativeReviewCount: payloads.reduce((max, payload) => Math.max(max, Number(payload.negativeReviewCount || 0)), 0),
+      relatedActionLabels: descriptionActions.map((action) => getRecommendedActionTitle(action, product)),
+    },
+  };
+  const withoutDescriptionActions = actions.filter((action) => !isDescriptionChangeAction(action, product));
+  return [
+    ...withoutDescriptionActions.slice(0, firstDescriptionIndex),
+    groupedAction,
+    ...withoutDescriptionActions.slice(firstDescriptionIndex),
+  ];
+}
+
+function isDescriptionChangeAction(action = {}) {
+  const payload = action.payload || {};
+  if (!payload.draftText) return false;
+  if (payload.note || payload.draftTitle || payload.productStatus || payload.tag || Array.isArray(payload.tags)) return false;
+  if (isFaqRecommendedAction(action)) return false;
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payload.field || ""}`.toLowerCase();
+  return normalized.includes("pdp")
+    || normalized.includes("description")
+    || normalized.includes("fit")
+    || normalized.includes("rewrite")
+    || ["replace", "prepend", "append"].includes(payload.operation)
+    || ["prepend", "append"].includes(payload.placement);
+}
+
+function buildDescriptionChangeDescriptor(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const currentDescription = getCurrentDescriptionForAction(product, payload);
+  const operation = getResolvedDescriptionOperationForAction(action, product, currentDescription);
+  const text = getDescriptionActionValue({ action, product, operation, currentDescription });
+  if (!normalizeActionText(text)) return null;
+
+  return {
+    id: action.id || normalizeIssueIgnoreKey(action.label || action.title || operation),
+    actionId: action.id || "",
+    title: getRecommendedActionTitle(action, product),
+    operation,
+    operationLabel: getDescriptionOperationText(operation),
+    text,
+    intro: getDescriptionActionIntro(operation, action),
+    reason: getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
+  };
+}
+
+function getDescriptionChangeOrder(operation = "") {
+  if (operation === "replace") return 1;
+  if (operation === "prepend") return 2;
+  if (operation === "append") return 3;
+  return 4;
+}
+
+function getHighestActionEffort(actions = []) {
+  const order = { high: 3, medium: 2, low: 1 };
+  const highest = actions.reduce((current, action) => {
+    const normalized = String(action.effort || "Low").toLowerCase();
+    return order[normalized] > order[current] ? normalized : current;
+  }, "low");
+  return highest.charAt(0).toUpperCase() + highest.slice(1);
 }
 
 function isLegacyReviewAction(action) {
@@ -3557,9 +3651,84 @@ function formatFaqItemsForDisplay(faqItems = [], fallback = "") {
     .join("\n\n");
 }
 
+function getGroupedDescriptionActionApplication(action, product = null, options = {}) {
+  const payload = action.payload || {};
+  const currentDescription = getCurrentDescriptionForAction(product, payload);
+  const descriptionChanges = normalizeDescriptionChangesForApplication(payload.descriptionChanges);
+  const selectedChangeIds = Array.isArray(options.selectedChangeIds)
+    ? options.selectedChangeIds
+    : descriptionChanges.map((change) => change.id);
+  const selectedChanges = descriptionChanges.filter((change) => selectedChangeIds.includes(change.id));
+  const value = buildGroupedDescriptionValue(currentDescription, selectedChanges);
+
+  return withRecipeApplicationFields(action, {
+    kind: "shopify_product",
+    editable: true,
+    target: "Product description",
+    operation: "Apply selected description changes",
+    descriptionOperation: "replace",
+    intro: "ProductPulse found multiple description changes for this product. Review them together, select the changes you want, and ProductPulse will apply them as one consistent description update.",
+    confirmationTitle: "Confirm product description update",
+    confirmationDetail: "ProductPulse will apply the selected description changes together so separate recommendations do not overwrite each other.",
+    applyLabel: "Apply selected changes",
+    valueLabel: "Final updated description",
+    value,
+    currentValueLabel: "Current Shopify description",
+    currentValue: currentDescription,
+    insertionPosition: "",
+    descriptionChanges,
+    selectedChangeIds,
+    relatedActions: descriptionChanges.map((change) => change.title),
+  });
+}
+
+function normalizeDescriptionChangesForApplication(changes = []) {
+  return (Array.isArray(changes) ? changes : [])
+    .map((change, index) => {
+      const id = String(change.id || change.actionId || `description-change-${index + 1}`).trim();
+      const operation = ["replace", "prepend", "append"].includes(change.operation) ? change.operation : "append";
+      const text = normalizeActionText(change.text || change.draftText || "");
+      if (!id || !text) return null;
+      return {
+        id,
+        actionId: change.actionId || id,
+        title: change.title || getDescriptionOperationText(operation),
+        operation,
+        operationLabel: change.operationLabel || getDescriptionOperationText(operation),
+        text,
+        intro: change.intro || getDescriptionActionIntro(operation),
+        reason: change.reason || "",
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => getDescriptionChangeOrder(first.operation) - getDescriptionChangeOrder(second.operation));
+}
+
+function buildGroupedDescriptionValue(currentDescription = "", selectedChanges = []) {
+  const current = normalizeActionText(currentDescription);
+  const replacement = selectedChanges.find((change) => change.operation === "replace");
+  const base = replacement?.text || current;
+  const prependTexts = selectedChanges.filter((change) => change.operation === "prepend").map((change) => change.text);
+  const appendTexts = selectedChanges.filter((change) => change.operation === "append").map((change) => change.text);
+  const blocks = [];
+
+  [...prependTexts, base, ...appendTexts].forEach((block) => {
+    const normalized = normalizeActionText(block);
+    if (!normalized) return;
+    if (blocks.some((existing) => textIncludesMeaning(existing, normalized))) return;
+    blocks.push(normalized);
+  });
+
+  return blocks.join("\n\n");
+}
+
 function getRecommendedActionApplication(action, product = null, options = {}) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+
+  if (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length) {
+    return getGroupedDescriptionActionApplication(action, product, options);
+  }
 
   if (isFaqRecommendedAction(action)) {
     return getFaqRecommendedActionApplication(action, product, options);
@@ -3776,18 +3945,19 @@ function buildEnhancedDescriptionPreview({ currentDescription, suggestedText, re
   const current = normalizeActionText(currentDescription);
   const suggested = normalizeActionText(suggestedText);
   const related = normalizeActionText(relatedText);
-  const additions = [related, suggested].filter(Boolean);
+  const base = suggested || current;
+  const additions = [related].filter(Boolean);
   const uniqueAdditions = [];
 
   additions.forEach((addition) => {
-    if (current && textIncludesMeaning(current, addition)) return;
+    if (base && textIncludesMeaning(base, addition)) return;
     if (uniqueAdditions.some((existing) => textIncludesMeaning(existing, addition))) return;
     uniqueAdditions.push(addition);
   });
 
-  if (!current) return uniqueAdditions.join("\n\n") || suggested;
-  if (!uniqueAdditions.length) return current;
-  return [current, ...uniqueAdditions].join("\n\n");
+  if (!base) return uniqueAdditions.join("\n\n");
+  if (!uniqueAdditions.length) return base;
+  return [base, ...uniqueAdditions].join("\n\n");
 }
 
 function normalizeActionText(value) {
@@ -4084,7 +4254,7 @@ function getRecommendedActionMode(action, index) {
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
   const payload = action.payload || {};
-  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag || payload.draftTitle || payload.productStatus || (Array.isArray(payload.tags) && payload.tags.length));
+  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag || payload.draftTitle || payload.productStatus || (Array.isArray(payload.tags) && payload.tags.length) || (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length));
   if (normalizedId.includes("run-ai-diagnosis")) return "diagnose";
   if (payload.draftTitle || payload.productStatus) return "apply-product";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
@@ -7458,6 +7628,8 @@ function RecommendedActionReviewBody({
   hasLongDetail,
   isEditingInline,
   onDetailExpandedChange,
+  onDescriptionChangeExpandedToggle,
+  onDescriptionChangeSelectedChange,
   onEditedTextChange,
   onEditText,
   onSelectedVariantChange,
@@ -7478,17 +7650,27 @@ function RecommendedActionReviewBody({
     <div className="ppProductActionBody ppActionReviewBody">
       <RecommendedActionReviewSection icon="edit" title="Proposed change">
         <p className="ppActionSectionLead">{application.intro}</p>
-        <RecommendedActionProposedChange
-          action={action}
-          application={application}
-          detailExpanded={detailExpanded}
-          detailText={detailText}
-          hasLongDetail={hasLongDetail}
-          isEditingInline={isEditingInline}
-          onDetailExpandedChange={onDetailExpandedChange}
-          onEditedTextChange={onEditedTextChange}
-          onEditText={onEditText}
-        />
+        {application.descriptionChanges?.length ? (
+          <RecommendedActionDescriptionChangeGroup
+            changes={application.descriptionChanges}
+            expandedIds={application.expandedDescriptionChangeIds}
+            selectedIds={application.selectedChangeIds}
+            onExpandedToggle={onDescriptionChangeExpandedToggle}
+            onSelectedChange={onDescriptionChangeSelectedChange}
+          />
+        ) : (
+          <RecommendedActionProposedChange
+            action={action}
+            application={application}
+            detailExpanded={detailExpanded}
+            detailText={detailText}
+            hasLongDetail={hasLongDetail}
+            isEditingInline={isEditingInline}
+            onDetailExpandedChange={onDetailExpandedChange}
+            onEditedTextChange={onEditedTextChange}
+            onEditText={onEditText}
+          />
+        )}
         {application.variants?.length > 1 && (
           <div className="ppActionVariantChooser ppActionVariantChooser-review" role="group" aria-label={`How to apply ${action.title}`}>
             <span>Apply as</span>
@@ -7683,6 +7865,49 @@ function RecommendedActionReviewSection({ icon, title, children }) {
         {children}
       </div>
     </section>
+  );
+}
+
+function RecommendedActionDescriptionChangeGroup({
+  changes = [],
+  expandedIds = {},
+  selectedIds = [],
+  onExpandedToggle,
+  onSelectedChange,
+}) {
+  const selectedSet = new Set(selectedIds);
+
+  return (
+    <div className="ppDescriptionChangeGroup">
+      {changes.map((change) => {
+        const selected = selectedSet.has(change.id);
+        const expanded = Boolean(expandedIds?.[change.id]);
+        return (
+          <article className={`ppDescriptionChangeItem ${selected ? "isSelected" : "isUnselected"}`.trim()} key={change.id}>
+            <label className="ppDescriptionChangeItemHeader">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={(event) => onSelectedChange?.(change.id, event.target instanceof HTMLInputElement ? event.target.checked : false)}
+              />
+              <span>
+                <strong>{change.title}</strong>
+                <small>{change.operationLabel}</small>
+              </span>
+              <button type="button" onClick={(event) => {
+                event.preventDefault();
+                onExpandedToggle?.(change.id);
+              }}>
+                {expanded ? "Collapse" : "Expand"}
+                <s-icon type={expanded ? "chevron-up" : "chevron-right"} size="small"></s-icon>
+              </button>
+            </label>
+            <p className={`ppDescriptionChangeText ${expanded ? "" : "isClamped"}`.trim()}>{change.text}</p>
+            {expanded && change.reason && <small className="ppDescriptionChangeReason">{change.reason}</small>}
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -8093,7 +8318,14 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onMarkReviewed, onAddInvestigationTag, onCollapse, showHeader = true, actionKind: forcedActionKind = "" }) {
   const baseApplication = getRecommendedActionApplication(action, product);
   const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
-  const application = getRecommendedActionApplication(action, product, { variantId: selectedVariantId || baseApplication.defaultVariantId });
+  const defaultDescriptionChangeIds = getDefaultDescriptionChangeIds(baseApplication);
+  const defaultDescriptionChangeKey = defaultDescriptionChangeIds.join("|");
+  const [selectedDescriptionChangeIds, setSelectedDescriptionChangeIds] = useState(defaultDescriptionChangeIds);
+  const [expandedDescriptionChangeIds, setExpandedDescriptionChangeIds] = useState({});
+  const application = getRecommendedActionApplication(action, product, {
+    variantId: selectedVariantId || baseApplication.defaultVariantId,
+    selectedChangeIds: selectedDescriptionChangeIds,
+  });
   const actionStateKey = action.id || action.title || "";
   const productStateKey = product?.slug || product?.id || "";
   const [detailExpanded, setDetailExpanded] = useState(false);
@@ -8105,6 +8337,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const actionKind = forcedActionKind || getRecommendedActionKind(mode, application);
   const investigationTag = actionKind === "investigation" ? getInvestigationTagForAction(action) : "";
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const hasSelectedDescriptionChanges = !application.descriptionChanges?.length || application.selectedChangeIds?.length > 0;
   const defaultButtonText = applied
     ? "Applied"
     : drafted
@@ -8119,12 +8352,15 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     : !showHeader && actionKind === "investigation" && !applied && !drafted && !pending
       ? getInvestigationPrimaryActionLabel(action, mode)
       : defaultButtonText;
-  const detailText = String(application.editable ? editedText : action.detail || "");
+  const effectiveApplication = application.descriptionChanges?.length
+    ? { ...application, expandedDescriptionChangeIds }
+    : application;
+  const detailText = String(effectiveApplication.editable ? editedText : action.detail || "");
   const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
-  const disabled = pending || applied;
+  const disabled = pending || applied || !hasSelectedDescriptionChanges;
   const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
     actionId,
-    application,
+    application: effectiveApplication,
     editedText,
     product,
     onCopy,
@@ -8136,9 +8372,11 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
 
   useEffect(() => {
     setSelectedVariantId(baseApplication.defaultVariantId || baseApplication.variantId || "");
+    setSelectedDescriptionChangeIds(defaultDescriptionChangeKey ? defaultDescriptionChangeKey.split("|") : []);
+    setExpandedDescriptionChangeIds({});
     setIsEditingInline(false);
     setDetailExpanded(false);
-  }, [actionStateKey, productStateKey, baseApplication.defaultVariantId, baseApplication.variantId]);
+  }, [actionStateKey, productStateKey, baseApplication.defaultVariantId, baseApplication.variantId, defaultDescriptionChangeKey]);
 
   useEffect(() => {
     setEditedText(application.value || action.detail || "");
@@ -8149,13 +8387,15 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     <RecommendedActionReviewBody
       action={action}
       actionKind={actionKind}
-      application={application}
+      application={effectiveApplication}
       product={product}
       editedText={editedText}
       detailExpanded={detailExpanded}
       hasLongDetail={hasLongDetail}
       isEditingInline={isEditingInline}
       onDetailExpandedChange={setDetailExpanded}
+      onDescriptionChangeExpandedToggle={(changeId) => setExpandedDescriptionChangeIds((current) => ({ ...current, [changeId]: !current[changeId] }))}
+      onDescriptionChangeSelectedChange={(changeId, selected) => setSelectedDescriptionChangeIds((current) => updateSelectedDescriptionChangeIds(current, changeId, selected, baseApplication))}
       onEditedTextChange={setEditedText}
       onEditText={() => setIsEditingInline(true)}
       onSelectedVariantChange={setSelectedVariantId}
@@ -8224,6 +8464,25 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       {actionCta}
     </article>
   );
+}
+
+function getDefaultDescriptionChangeIds(application = {}) {
+  return Array.isArray(application.descriptionChanges)
+    ? application.descriptionChanges.map((change) => change.id).filter(Boolean)
+    : [];
+}
+
+function updateSelectedDescriptionChangeIds(current = [], changeId = "", selected = false, application = {}) {
+  const availableIds = getDefaultDescriptionChangeIds(application);
+  const availableIdSet = new Set(availableIds);
+  if (!availableIdSet.has(changeId)) return current;
+  const selectedSet = new Set(current.filter((id) => availableIdSet.has(id)));
+  if (selected) {
+    selectedSet.add(changeId);
+  } else {
+    selectedSet.delete(changeId);
+  }
+  return availableIds.filter((id) => selectedSet.has(id));
 }
 
 function CurrentDescriptionInsertionPreview({ application, asPre = false }) {
@@ -9028,66 +9287,70 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
 
   return (
     <div className="ppAnalyticsTrendChart">
-      {summary && (
-        <div className="ppAnalyticsTrendContext" aria-label="Margin at risk comparison">
-          <span><b>Current total</b>{summary.currentTotalLabel || "$0"}</span>
-          <span><b>Trend-weighted now</b>{summary.trendWeightedLabel || "$0"}</span>
-          <small>{summary.detail}</small>
-        </div>
-      )}
-      <div className="ppAnalyticsTrendSummary">
-        {safeSeries.slice(0, 5).map((row) => (
-          <article key={row.label}>
-            <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
-            <strong>{row.displayValue || formatInteger((row.values || []).at(-1) || 0)}</strong>
-            {row.detail && <small>{row.detail}</small>}
-          </article>
-        ))}
+      <div className="ppAnalyticsTrendMain">
+        <svg className="ppRiskSignalsSvg ppAnalyticsImpactTrendSvg" viewBox="0 0 640 245" role="img" aria-label={ariaLabel}>
+          {yTicks.map((tick, index) => (
+            <g key={`${tick.label}-${index}`}>
+              <line className="ppChartGridLine" x1="76" y1={tick.y} x2="620" y2={tick.y} />
+              <text className="ppChartAxisText ppChartAxisText-y" x="10" y={tick.y + 4}>{tick.label}</text>
+            </g>
+          ))}
+          <line className="ppChartAxisLine" x1="76" y1="28" x2="76" y2="188" />
+          <text className="ppChartAxisTitle" x="10" y="18">Margin</text>
+          {safeSeries.map((row) => (
+            <polyline
+              key={row.label}
+              className={`ppRiskLine ppRiskLine-${row.color || "blue"}`}
+              points={getAnalyticsLinePoints(row.values, { left: 76, width: 544 })}
+            />
+          ))}
+          {labels.map((label, index) => label && (
+            <text className="ppChartAxisText" key={`${label}-${index}`} x={76 + index * (544 / Math.max(labels.length - 1, 1))} y="230">{label}</text>
+          ))}
+        </svg>
       </div>
-      <div className="ppAnalyticsTrendLegend" aria-label="Trend line legend">
-        {safeSeries.map((row) => (
-          <button
-            key={`legend-${row.label}`}
-            type="button"
-            className="ppAnalyticsTrendLegendItem"
-            onMouseEnter={() => setActiveLegend(row)}
-            onFocus={() => setActiveLegend(row)}
-            onMouseLeave={() => setActiveLegend(null)}
-            onBlur={() => setActiveLegend(null)}
-          >
-            <i className={`ppDot-${row.color || "blue"}`} aria-hidden="true" />
-            <span>{row.label}</span>
-            <s-icon type="info" size="small"></s-icon>
-          </button>
-        ))}
-        {activeLegend && (
-          <div className="ppAnalyticsTrendLegendPopover" role="tooltip">
-            <strong>{activeLegend.label}</strong>
-            <span>{activeLegend.detail || "This line is calculated from stored ProductPulse analytics values."}</span>
-            <small>Current value: {activeLegend.displayValue || formatInteger((activeLegend.values || []).at(-1) || 0)}</small>
+      <div className="ppAnalyticsTrendSide">
+        {summary && (
+          <div className="ppAnalyticsTrendContext" aria-label="Margin at risk comparison">
+            <span><b>Current total</b>{summary.currentTotalLabel || "$0"}</span>
+            <span><b>Trend-weighted now</b>{summary.trendWeightedLabel || "$0"}</span>
+            <small>{summary.detail}</small>
           </div>
         )}
+        <div className="ppAnalyticsTrendSummary">
+          {safeSeries.slice(0, 5).map((row) => (
+            <article key={row.label}>
+              <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
+              <strong>{row.displayValue || formatInteger((row.values || []).at(-1) || 0)}</strong>
+              {row.detail && <small>{row.detail}</small>}
+            </article>
+          ))}
+        </div>
+        <div className="ppAnalyticsTrendLegend" aria-label="Trend line legend">
+          {safeSeries.map((row) => (
+            <button
+              key={`legend-${row.label}`}
+              type="button"
+              className="ppAnalyticsTrendLegendItem"
+              onMouseEnter={() => setActiveLegend(row)}
+              onFocus={() => setActiveLegend(row)}
+              onMouseLeave={() => setActiveLegend(null)}
+              onBlur={() => setActiveLegend(null)}
+            >
+              <i className={`ppDot-${row.color || "blue"}`} aria-hidden="true" />
+              <span>{row.label}</span>
+              <s-icon type="info" size="small"></s-icon>
+            </button>
+          ))}
+          {activeLegend && (
+            <div className="ppAnalyticsTrendLegendPopover" role="tooltip">
+              <strong>{activeLegend.label}</strong>
+              <span>{activeLegend.detail || "This line is calculated from stored ProductPulse analytics values."}</span>
+              <small>Current value: {activeLegend.displayValue || formatInteger((activeLegend.values || []).at(-1) || 0)}</small>
+            </div>
+          )}
+        </div>
       </div>
-      <svg className="ppRiskSignalsSvg ppAnalyticsImpactTrendSvg" viewBox="0 0 640 245" role="img" aria-label={ariaLabel}>
-        {yTicks.map((tick, index) => (
-          <g key={`${tick.label}-${index}`}>
-            <line className="ppChartGridLine" x1="76" y1={tick.y} x2="620" y2={tick.y} />
-            <text className="ppChartAxisText ppChartAxisText-y" x="10" y={tick.y + 4}>{tick.label}</text>
-          </g>
-        ))}
-        <line className="ppChartAxisLine" x1="76" y1="28" x2="76" y2="188" />
-        <text className="ppChartAxisTitle" x="10" y="18">Margin</text>
-        {safeSeries.map((row) => (
-          <polyline
-            key={row.label}
-            className={`ppRiskLine ppRiskLine-${row.color || "blue"}`}
-            points={getAnalyticsLinePoints(row.values, { left: 76, width: 544 })}
-          />
-        ))}
-        {labels.map((label, index) => label && (
-          <text className="ppChartAxisText" key={`${label}-${index}`} x={76 + index * (544 / Math.max(labels.length - 1, 1))} y="230">{label}</text>
-        ))}
-      </svg>
     </div>
   );
 }

@@ -5602,6 +5602,116 @@ s-page[inline-size="large-500"] {
   margin-top: 8px;
 }
 
+.ppDescriptionChangeGroup {
+  display: grid;
+  gap: 10px;
+}
+
+.ppDescriptionChangeItem {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.54));
+  transition: border-color 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+}
+
+.ppDescriptionChangeItem.isSelected {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.34);
+  background: linear-gradient(180deg, rgba(var(--pp-insight-violet-rgb), 0.055), var(--pp-cloud-white));
+}
+
+.ppDescriptionChangeItem.isUnselected {
+  opacity: 0.54;
+}
+
+.ppDescriptionChangeItemHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.ppDescriptionChangeItemHeader input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--pp-pulse-blue);
+}
+
+.ppDescriptionChangeItemHeader span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ppDescriptionChangeItemHeader strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 820;
+  line-height: 1.25;
+}
+
+.ppDescriptionChangeItemHeader small {
+  width: max-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.ppDescriptionChangeItemHeader button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-pulse-blue);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ppDescriptionChangeItemHeader button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ppDescriptionChangeText {
+  margin: 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.44;
+  white-space: pre-wrap;
+}
+
+.ppDescriptionChangeText.isClamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.ppDescriptionChangeReason {
+  display: block;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.38;
+}
+
 .ppActionEditSuggestionButton-review {
   right: 11px;
   bottom: 11px;
@@ -6500,12 +6610,9 @@ s-page[inline-size="large-500"] {
   min-width: 0;
 }
 
-.ppAnalyticsPanelRiskMargin {
-  grid-column: span 4;
-}
-
+.ppAnalyticsPanelRiskMargin,
 .ppAnalyticsPanelTrend {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .ppAnalyticsPanelIssueImpact {
@@ -6527,12 +6634,13 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsPanelRiskMargin .ppRiskRevenueWrap {
-  grid-template-columns: minmax(0, 1fr) minmax(118px, 136px);
-  min-height: 314px;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 260px);
+  align-items: stretch;
+  min-height: 356px;
 }
 
 .ppAnalyticsPanelRiskMargin .ppBubbleChart {
-  min-height: 314px;
+  min-height: 356px;
 }
 
 .ppAnalyticsPanelRiskMargin .ppBubblePlot {
@@ -6731,6 +6839,19 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendChart {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 340px);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.ppAnalyticsTrendMain {
+  min-width: 0;
+}
+
+.ppAnalyticsTrendSide {
+  min-width: 0;
+  display: grid;
+  align-content: start;
   gap: 12px;
 }
 
@@ -6887,7 +7008,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsImpactTrendSvg {
-  height: 158px;
+  height: 264px;
 }
 
 .ppAnalyticsTableWrap,
@@ -12837,7 +12958,8 @@ s-page[inline-size="large-500"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .ppAnalyticsPanelRiskMargin {
+  .ppAnalyticsPanelRiskMargin,
+  .ppAnalyticsPanelTrend {
     grid-column: span 2;
   }
 
@@ -12845,7 +12967,6 @@ s-page[inline-size="large-500"] {
     grid-column: span 2;
   }
 
-  .ppAnalyticsPanelTrend,
   .ppAnalyticsPanelBreakdown,
   .ppAnalyticsPanelActionPerformance,
   .ppAnalyticsPanelCatalogCoverage,
@@ -12878,6 +12999,7 @@ s-page[inline-size="large-500"] {
   .ppImpactFlow,
   .ppImpactExplainGrid,
   .ppRiskRevenueWrap,
+  .ppAnalyticsTrendChart,
   .ppBusinessImpactGrid,
   .ppConnectHeader,
   .ppConnectLayout,

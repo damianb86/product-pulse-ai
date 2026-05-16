@@ -541,13 +541,17 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   }
 
   if (!action && payloadOverride.draftText) {
+    const isDescriptionFallback = actionId === "product-description-changes" || payloadOverride.descriptionOperation;
     action = {
       id: actionId || "custom-draft",
       label: payloadOverride.label || "Custom product action draft",
-      type: "ProductPulse draft",
+      type: isDescriptionFallback ? "PDP copy" : "ProductPulse draft",
       effort: "Low",
       status: "Draft",
-      payload: { draftText: payloadOverride.draftText },
+      payload: {
+        draftText: payloadOverride.draftText,
+        ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
+      },
     };
   }
 
@@ -560,6 +564,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     ...(payloadOverride.draftText ? { draftText: payloadOverride.draftText } : {}),
     ...(payloadOverride.tag ? { tag: payloadOverride.tag } : {}),
     ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
+    ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
   };
   const recordActionId = action.id || actionId || payloadOverride.label || "product-action";
   const recordLabel = action.label || payloadOverride.label || actionId || "Product action";
@@ -731,7 +736,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
   }
 
   if (payload.draftText && (normalizedType.includes("pdp") || normalizedType.includes("faq") || normalizedId.includes("description") || normalizedId.includes("fit"))) {
-    const operation = getDescriptionOperationForAction(action);
+    const operation = getDescriptionOperationForAction({ ...action, payload });
     const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
     if (currentProduct.status === "validation_error") return currentProduct;
     const descriptionHtml = buildUpdatedProductDescriptionHtml({

@@ -40,6 +40,7 @@ export const action = async ({ request, params }) => {
         tag: String(formData.get("tag") || ""),
         applyMode: String(formData.get("applyMode") || ""),
         actionVariant: String(formData.get("actionVariant") || ""),
+        descriptionOperation: String(formData.get("descriptionOperation") || ""),
       },
       admin,
     );

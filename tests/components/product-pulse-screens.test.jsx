@@ -645,6 +645,72 @@ describe("ProductPulse screens", () => {
     expect(within(dialog).getByText(/ProductPulse recommends adding this text at the end of the description because 4 returns tied to Too small/)).toBeInTheDocument();
   });
 
+  it("groups overlapping product description changes into one selectable action", () => {
+    const currentDescription = "The Trail Jacket is a lightweight shell with a water-resistant finish and adjustable cuffs.";
+    const replacement = "The Trail Jacket is a lightweight, water-resistant shell with adjustable cuffs and a relaxed outdoor fit.";
+    const topNote = "Fit note: size up if you plan to wear thick layers under this jacket.";
+    const bottomNote = "Care note: wipe clean after heavy rain and hang dry before storing.";
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [
+        {
+          id: "rewrite-product-description",
+          label: "Rewrite product description",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: replacement,
+            currentDescriptionText: currentDescription,
+            operation: "replace",
+          },
+        },
+        {
+          id: "add-fit-note",
+          label: "Add fit note",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: topNote,
+            currentDescriptionText: currentDescription,
+            operation: "prepend",
+            topReturnReasons: ["Too small"],
+          },
+        },
+        {
+          id: "add-care-note",
+          label: "Add care note",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: bottomNote,
+            currentDescriptionText: currentDescription,
+            operation: "append",
+          },
+        },
+      ],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByRole("button", { name: "Open recommended action Update product description" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open recommended action Rewrite product description" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Update product description" }));
+    const dialog = screen.getByRole("dialog", { name: "Update product description" });
+    expect(within(dialog).getByText(/ProductPulse found multiple description changes for this product/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("checkbox", { name: /Rewrite product description/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: /Add fit note/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: /Add care note/ })).toBeChecked();
+
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /Add care note/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
+    const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
+    expect(confirmDialog).toHaveTextContent(topNote);
+    expect(confirmDialog).not.toHaveTextContent(bottomNote);
+  });
+
   it("persists ignored issues, hides related recommendations and can restore them", async () => {
     let submittedAction = null;
     let submittedIssueKey = null;
