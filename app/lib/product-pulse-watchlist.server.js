@@ -1,6 +1,6 @@
 import prisma from "../db.server";
 import { getProductScoreHistoryForProductsForShop } from "./product-pulse-history.server";
-import { getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
+import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 
 export const WATCHLIST_MAX_PRODUCTS = 5;
 export const WATCH_SCAN_CADENCE_OPTIONS = [
@@ -45,12 +45,13 @@ export async function getWatchlistForShop(shop) {
     })
     : [];
   const snapshotByProductGid = new Map(snapshots.map((snapshot) => [snapshot.productGid, snapshot]));
-  const rows = items.map((item) => formatWatchlistRow(item, snapshotByProductGid.get(item.productGid)));
+  const productPulseSettings = await getProductPulseSettings(shop);
+  const rows = items.map((item) => formatWatchlistRow(item, snapshotByProductGid.get(item.productGid), productPulseSettings));
   const watchedCount = rows.length;
   const [activities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
     productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 40 }) : new Map(),
-    getWatchActivityStatsForShop(shop),
+    getWatchActivityStatsForShop(shop, productPulseSettings),
     getWatchSettingsForShop(shop),
   ]);
 
@@ -60,7 +61,7 @@ export async function getWatchlistForShop(shop) {
     slotsAvailable: Math.max(0, WATCHLIST_MAX_PRODUCTS - watchedCount),
     rows,
     activities,
-    trend: buildWatchlistTrend(rows, trendHistoryByProductGid),
+    trend: buildWatchlistTrend(rows, trendHistoryByProductGid, productPulseSettings),
     settings,
     mock: getWatchlistOverviewSections({ rows, activities, activityStats, settings }),
   };
@@ -352,16 +353,19 @@ export async function recordWatchActivityForShop(shop, activity = {}) {
 export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan" } = {}) {
   const productGids = Array.from(new Set(snapshots.map((snapshot) => snapshot?.productGid).filter(Boolean)));
   if (!shop || !productGids.length) return { count: 0 };
-  const watchedItems = await prisma.productWatchlistItem.findMany({
-    where: { shop, productGid: { in: productGids }, status: { not: "Paused" } },
-  });
+  const [watchedItems, productPulseSettings] = await Promise.all([
+    prisma.productWatchlistItem.findMany({
+      where: { shop, productGid: { in: productGids }, status: { not: "Paused" } },
+    }),
+    getProductPulseSettings(shop),
+  ]);
   const itemByProductGid = new Map(watchedItems.map((item) => [item.productGid, item]));
   const rows = snapshots
     .filter((snapshot) => itemByProductGid.has(snapshot.productGid))
     .map((snapshot) => {
       const item = itemByProductGid.get(snapshot.productGid);
       const riskScore = Number(snapshot.riskScore || 0);
-      const riskLabel = getRiskLabelForScore(riskScore);
+      const riskLabel = getRiskLabelForScore(riskScore, productPulseSettings);
       return {
         shop,
         productGid: snapshot.productGid,
@@ -392,11 +396,11 @@ async function findWatchedProduct(shop, productGid) {
   });
 }
 
-function formatWatchlistRow(item, snapshot) {
+function formatWatchlistRow(item, snapshot, productPulseSettings = undefined) {
   const riskScore = snapshot ? Number(snapshot.riskScore || 0) : null;
   const metrics = snapshot?.metrics || {};
-  const riskTone = snapshot ? getRiskToneForScore(riskScore) : "subdued";
-  const riskLabel = snapshot ? getRiskLabelForScore(riskScore) : "Pending";
+  const riskTone = snapshot ? getRiskToneForScore(riskScore, productPulseSettings) : "subdued";
+  const riskLabel = snapshot ? getRiskLabelForScore(riskScore, productPulseSettings) : "Pending";
   const status = item.status || "Watching";
   const hasSnapshot = Boolean(snapshot);
   const updatedAt = snapshot?.updatedAt || item.updatedAt || item.addedAt;
@@ -452,7 +456,7 @@ async function getWatchActivityRowsForShop(shop, { take = 5 } = {}) {
   return activities.map(formatWatchActivity);
 }
 
-async function getWatchActivityStatsForShop(shop) {
+async function getWatchActivityStatsForShop(shop, productPulseSettings = undefined) {
   const weekAgo = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
   const [latestScan, recentRiskActivities] = await Promise.all([
     prisma.productWatchActivity.findFirst({
@@ -471,7 +475,7 @@ async function getWatchActivityStatsForShop(shop) {
   ]);
   return {
     latestScan: latestScan ? formatWatchActivity(latestScan) : null,
-    newIssuesThisWeek: recentRiskActivities.filter((activity) => Number(activity.metadata?.riskScore || 0) >= 55).length,
+    newIssuesThisWeek: recentRiskActivities.filter((activity) => getRiskLabelForScore(Number(activity.metadata?.riskScore || 0), productPulseSettings) !== "Low").length,
   };
 }
 
@@ -495,7 +499,7 @@ function formatWatchActivity(activity) {
   };
 }
 
-function buildWatchlistTrend(products = [], historyByProductGid = new Map()) {
+function buildWatchlistTrend(products = [], historyByProductGid = new Map(), productPulseSettings = undefined) {
   const watchedProducts = Array.isArray(products) ? products : [products].filter(Boolean);
   if (!watchedProducts.length) {
     return {
@@ -539,7 +543,7 @@ function buildWatchlistTrend(products = [], historyByProductGid = new Map()) {
       href: product.href,
       color: WATCH_TREND_COLORS[index % WATCH_TREND_COLORS.length],
       riskScore: Number.isFinite(Number(score)) ? Math.round(Number(score)) : null,
-      riskLabel: Number.isFinite(Number(score)) ? getRiskLabelForScore(score) : "Pending",
+      riskLabel: Number.isFinite(Number(score)) ? getRiskLabelForScore(score, productPulseSettings) : "Pending",
       values,
       points,
       path: points.map((point) => `${point.x},${point.y}`).join(" "),
@@ -560,7 +564,7 @@ function buildWatchlistTrend(products = [], historyByProductGid = new Map()) {
   return {
     productTitle: `${watchedProducts.length} watched product${watchedProducts.length === 1 ? "" : "s"}`,
     riskScore: averageScore,
-    riskLabel: Number.isFinite(Number(averageScore)) ? getRiskLabelForScore(averageScore) : "No data",
+    riskLabel: Number.isFinite(Number(averageScore)) ? getRiskLabelForScore(averageScore, productPulseSettings) : "No data",
     series,
     calloutTitle: highestSeries
       ? `${highestSeries.productTitle} is currently highest at ${highestSeries.riskScore}/100`
@@ -722,3 +726,8 @@ function formatWatchTimestamp(value) {
   if (Number.isNaN(date.getTime())) return "Recently";
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
+
+export const __productPulseWatchlistTestHooks = {
+  buildWatchlistTrend,
+  formatWatchlistRow,
+};

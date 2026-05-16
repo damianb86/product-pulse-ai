@@ -1358,14 +1358,17 @@ function WatchlistTrendPanel({ trend = {} }) {
       </div>
       <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-          {series.map((item) => (
-            <polyline
-              key={item.productGid || item.productTitle}
-              className="ppWatchTrendLine"
-              points={item.path}
-              stroke={item.color || "#3A6BFF"}
-            />
-          ))}
+          {series.map((item) => {
+            const linePoints = Array.isArray(item.points) && item.points.length ? item.points : parseSvgPointString(item.path);
+            return (
+              <path
+                key={item.productGid || item.productTitle}
+                className="ppWatchTrendLine"
+                d={buildSmoothSvgPath(linePoints)}
+                stroke={item.color || "#3A6BFF"}
+              />
+            );
+          })}
         </svg>
       </div>
       <div className="ppWatchTrendLegend" aria-label="Watched product trend legend">
@@ -5293,7 +5296,7 @@ function ProductRiskHistoryPanel({ detail }) {
       </div>
       <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={changeLabel}>
-          <polyline className="ppProductRiskHistoryLine" points={chart.path} />
+          <path className="ppProductRiskHistoryLine" d={buildSmoothSvgPath(chart.points)} />
         </svg>
       </div>
       <div className="ppProductRiskHistoryMeta">
@@ -5377,6 +5380,41 @@ function getProductRiskHistoryChart(historyPoints = []) {
     path: points.map((point) => `${point.x},${point.y}`).join(" "),
     points,
   };
+}
+
+function parseSvgPointString(value = "") {
+  return String(value || "")
+    .trim()
+    .split(/\s+/)
+    .map((pair) => {
+      const [x, y] = pair.split(",").map(Number);
+      return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+    })
+    .filter(Boolean);
+}
+
+function buildSmoothSvgPath(points = []) {
+  const source = (Array.isArray(points) ? points : [])
+    .map((point) => ({
+      x: Number(point.x),
+      y: Number(point.y),
+    }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (!source.length) return "";
+  if (source.length === 1) return `M ${source[0].x},${source[0].y}`;
+  if (source.length === 2) return `M ${source[0].x},${source[0].y} L ${source[1].x},${source[1].y}`;
+
+  const commands = [`M ${source[0].x},${source[0].y}`];
+  for (let index = 1; index < source.length - 1; index += 1) {
+    const current = source[index];
+    const next = source[index + 1];
+    const midX = Math.round(((current.x + next.x) / 2) * 10) / 10;
+    const midY = Math.round(((current.y + next.y) / 2) * 10) / 10;
+    commands.push(`Q ${current.x},${current.y} ${midX},${midY}`);
+  }
+  const last = source[source.length - 1];
+  commands.push(`L ${last.x},${last.y}`);
+  return commands.join(" ");
 }
 
 function getProductRiskHistoryChangeLabel(change, hasSavedHistory) {
