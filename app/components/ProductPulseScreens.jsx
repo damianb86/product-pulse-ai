@@ -5250,15 +5250,6 @@ function ProductRiskHistoryPanel({ detail }) {
       <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={changeLabel}>
           <polyline className="ppProductRiskHistoryLine" points={chart.path} />
-          {chart.points.map((point, index) => (
-            <circle
-              key={`${point.x}-${point.y}-${index}`}
-              className="ppProductRiskHistoryPoint"
-              cx={point.x}
-              cy={point.y}
-              r={index === chart.points.length - 1 ? 2.8 : 1.9}
-            />
-          ))}
         </svg>
       </div>
       <div className="ppProductRiskHistoryMeta">
