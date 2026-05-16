@@ -242,6 +242,8 @@ export async function getAnalyticsDataForShop(shop) {
   return buildAnalyticsViewData(analyticsProducts, {
     sources,
     actions,
+    settings,
+    windowDays: settings.analysis?.lookbackDays,
   });
 }
 

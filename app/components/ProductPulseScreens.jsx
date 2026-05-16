@@ -9591,30 +9591,42 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
   const labels = chart?.labels || [];
   const summary = chart?.summary || null;
   const safeSeries = series.length ? series : [{ label: "No trend data", color: "blue", values: [0, 0, 0, 0, 0, 0, 0], displayValue: "0", detail: "Run scans to build trend data." }];
-  const yTicks = getAnalyticsTrendYAxisTicks(safeSeries[0]?.values || []);
+  const layout = {
+    left: 62,
+    top: 24,
+    width: 812,
+    height: 236,
+    labelY: 316,
+    viewBoxWidth: 900,
+    viewBoxHeight: 340,
+  };
+  const yTicks = getAnalyticsTrendYAxisTicks(safeSeries[0]?.values || [], layout);
   const [activeLegend, setActiveLegend] = useState(null);
 
   return (
     <div className="ppAnalyticsTrendChart">
       <div className="ppAnalyticsTrendMain">
-        <svg className="ppRiskSignalsSvg ppAnalyticsImpactTrendSvg" viewBox="0 0 640 245" role="img" aria-label={ariaLabel}>
+        <svg className="ppRiskSignalsSvg ppAnalyticsImpactTrendSvg" viewBox={`0 0 ${layout.viewBoxWidth} ${layout.viewBoxHeight}`} role="img" aria-label={ariaLabel}>
           {yTicks.map((tick, index) => (
             <g key={`${tick.label}-${index}`}>
-              <line className="ppChartGridLine" x1="76" y1={tick.y} x2="620" y2={tick.y} />
+              <line className="ppChartGridLine" x1={layout.left} y1={tick.y} x2={layout.left + layout.width} y2={tick.y} />
               <text className="ppChartAxisText ppChartAxisText-y" x="10" y={tick.y + 4}>{tick.label}</text>
             </g>
           ))}
-          <line className="ppChartAxisLine" x1="76" y1="28" x2="76" y2="188" />
+          <line className="ppChartAxisLine" x1={layout.left} y1={layout.top} x2={layout.left} y2={layout.top + layout.height} />
           <text className="ppChartAxisTitle" x="10" y="18">Margin</text>
-          {safeSeries.map((row) => (
-            <polyline
-              key={row.label}
-              className={`ppRiskLine ppRiskLine-${row.color || "blue"}`}
-              points={getAnalyticsLinePoints(row.values, { left: 76, width: 544 })}
-            />
-          ))}
+          {safeSeries.map((row) => {
+            const points = getAnalyticsLinePointList(row.values, layout);
+            return (
+              <path
+                key={row.label}
+                className={`ppRiskLine ppRiskLine-${row.color || "blue"}`}
+                d={buildSmoothSvgPath(points)}
+              />
+            );
+          })}
           {labels.map((label, index) => label && (
-            <text className="ppChartAxisText" key={`${label}-${index}`} x={76 + index * (544 / Math.max(labels.length - 1, 1))} y="230">{label}</text>
+            <text className="ppChartAxisText" key={`${label}-${index}`} x={layout.left + index * (layout.width / Math.max(labels.length - 1, 1))} y={layout.labelY}>{label}</text>
           ))}
         </svg>
       </div>
@@ -9881,7 +9893,6 @@ function TopProductsAtRiskTable({ rows }) {
 function RiskRevenueBubbleChart({ bubbles }) {
   const safeBubbles = bubbles?.length ? bubbles : [];
   const maxImpact = Math.max(...safeBubbles.map((bubble) => Number(bubble.impact || 0)), 0);
-  const maxRevenueAtRisk = Math.max(...safeBubbles.map((bubble) => Number(bubble.revenueAtRisk || 0)), 0);
   const yAxisMax = getRiskBubbleAxisMax(maxImpact);
   const xAxis = getRiskBubbleXAxis(safeBubbles);
   const yTicks = getRiskBubbleYAxisTicks(yAxisMax);
@@ -9943,12 +9954,6 @@ function RiskRevenueBubbleChart({ bubbles }) {
       {activeBubble && (
         <RiskBubbleFloatingPopover bubble={activeBubble.bubble} position={activeBubble.position} />
       )}
-      <div className="ppBubbleLegend">
-        <span>Bubble size: revenue at risk</span>
-        <div><i className="ppBubbleSize ppBubbleSize-large" />{formatCompactMoney(maxRevenueAtRisk)}</div>
-        <div><i className="ppBubbleSize ppBubbleSize-medium" />{formatCompactMoney(maxRevenueAtRisk * 0.5)}</div>
-        <div><i className="ppBubbleSize ppBubbleSize-small" />{formatCompactMoney(maxRevenueAtRisk * 0.2)}</div>
-      </div>
     </div>
   );
 }
@@ -10274,19 +10279,21 @@ function buildBusinessImpactModalFallbackCalculation(metrics = [], windowLabel =
   };
 }
 
-function getAnalyticsTrendYAxisTicks(values = []) {
+function getAnalyticsTrendYAxisTicks(values = [], layout = {}) {
   const cleanValues = (Array.isArray(values) && values.length ? values : [0])
     .map((value) => Math.max(0, Number(value || 0)))
     .filter(Number.isFinite);
   const max = Math.max(...cleanValues, 1);
   const ticks = [1, 0.75, 0.5, 0.25, 0];
+  const top = Number(layout.top ?? 28);
+  const height = Number(layout.height ?? 160);
   return ticks.map((ratio) => ({
-    y: 28 + (1 - ratio) * 160,
+    y: top + (1 - ratio) * height,
     label: formatCompactMoney(max * ratio),
   }));
 }
 
-function getAnalyticsLinePoints(values = [], layout = {}) {
+function getAnalyticsLinePointList(values = [], layout = {}) {
   const cleanValues = (Array.isArray(values) && values.length ? values : [0, 0, 0, 0, 0, 0, 0])
     .map((value) => Math.max(0, Number(value || 0)));
   const max = Math.max(...cleanValues, 1);
@@ -10299,8 +10306,11 @@ function getAnalyticsLinePoints(values = [], layout = {}) {
   return cleanValues.map((value, index) => {
     const x = left + index * (width / Math.max(cleanValues.length - 1, 1));
     const y = top + height - ((value - min) / range) * height;
-    return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`;
-  }).join(" ");
+    return {
+      x: Math.round(x * 10) / 10,
+      y: Math.round(y * 10) / 10,
+    };
+  });
 }
 
 function formatMoney(value) {

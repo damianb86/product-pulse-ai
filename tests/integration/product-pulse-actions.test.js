@@ -154,4 +154,28 @@ describe("ProductPulse actions", () => {
       actionTitle: "Create product FAQ",
     });
   });
+
+  it("uses configured analysis lookback for analytics trend windows", () => {
+    const product = {
+      id: "gid://shopify/Product/window",
+      handle: "windowed-product",
+      title: "Windowed Product",
+      riskScore: 64,
+      analysisDepth: "full",
+      metrics: {
+        marginAtRisk: 900,
+        revenueAtRisk: 1800,
+        riskTrend: [40, 55, 64],
+        windowDays: 180,
+      },
+    };
+
+    const analytics = buildAnalyticsViewData([product], {
+      settings: { analysis: { lookbackDays: 45 } },
+    });
+
+    expect(analytics.windowDays).toBe(45);
+    expect(analytics.windowLabel).toBe("Last 45 days");
+    expect(analytics.impactTrend.labels[0]).toBe("45d ago");
+  });
 });

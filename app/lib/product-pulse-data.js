@@ -1174,7 +1174,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
   const quickScanOnly = productList.filter((product) => product.analysisDepth === "quickscan" && !product.metrics?.latestDiagnosisId);
   const highRiskProducts = productList.filter((product) => Number(product.riskScore || 0) >= 75);
   const mediumRiskProducts = productList.filter((product) => Number(product.riskScore || 0) >= 55 && Number(product.riskScore || 0) < 75);
-  const windowDays = getAnalyticsWindowDays(productList);
+  const windowDays = getAnalyticsConfiguredWindowDays(productList, options);
   const actionRows = buildDashboardActionRows(productList);
   const totals = getAnalyticsTotals(productList, { ...options, actionRows });
   const pendingActions = actionRows.filter((action) => action.status === "pending");
@@ -1349,6 +1349,14 @@ function getAnalyticsWindowDays(productList) {
     .map((product) => Number(product.metrics?.windowDays || 0))
     .filter((value) => value > 0);
   return windows.length ? Math.max(...windows) : 90;
+}
+
+function getAnalyticsConfiguredWindowDays(productList, options = {}) {
+  const configuredWindow = Number(options.windowDays ?? options.settings?.analysis?.lookbackDays);
+  if (Number.isFinite(configuredWindow) && configuredWindow > 0) {
+    return Math.min(365, Math.max(1, Math.round(configuredWindow)));
+  }
+  return getAnalyticsWindowDays(productList);
 }
 
 function getAnalyticsLastUpdatedLabel(productList) {

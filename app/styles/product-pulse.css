@@ -6818,7 +6818,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsPanelRiskMargin .ppRiskRevenueWrap {
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 260px);
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   min-height: 356px;
 }
@@ -6828,7 +6828,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsPanelRiskMargin .ppBubblePlot {
-  inset: 10px 16px 38px 62px;
+  inset: 10px 12px 38px 62px;
 }
 
 .ppAnalyticsPanelRiskMargin .ppBubbleYTicks {
@@ -6839,7 +6839,7 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsPanelRiskMargin .ppBubbleXTicks {
   left: 62px;
-  right: 16px;
+  right: 12px;
   bottom: 13px;
 }
 
@@ -7023,25 +7023,27 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendChart {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(370px, 440px);
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
-  gap: 14px;
+  gap: 12px;
 }
 
 .ppAnalyticsTrendMain {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   min-width: 0;
 }
 
 .ppAnalyticsTrendSide {
   min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
 }
 
 .ppAnalyticsTrendContext {
+  flex: 1 1 360px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -7080,8 +7082,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsTrendSummary {
+  flex: 999 1 720px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(118px, 1fr));
   gap: 7px;
 }
 
@@ -7121,6 +7124,7 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsTrendLegend {
   position: relative;
+  flex: 1 1 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -7196,9 +7200,10 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsImpactTrendSvg {
   width: 100%;
+  min-height: 320px;
   height: auto;
   flex: 1 1 auto;
-  aspect-ratio: 640 / 245;
+  aspect-ratio: 900 / 340;
 }
 
 .ppAnalyticsTableWrap,
@@ -7806,7 +7811,7 @@ s-page[inline-size="large-500"] {
 
 .ppRiskRevenueWrap {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(104px, 116px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: stretch;
   min-height: 224px;
