@@ -185,6 +185,7 @@ export async function getDashboardDataForShop(shop, admin) {
   return buildDashboardViewData(dashboardProductsWithJobs, {
     billing: latestLedgerEntry ? { creditsAvailable: latestLedgerEntry.balanceAfter } : null,
     catalogProductCount,
+    settings,
   });
 }
 

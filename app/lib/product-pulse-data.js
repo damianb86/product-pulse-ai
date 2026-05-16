@@ -384,7 +384,13 @@ export function buildDashboardViewData(productItems = products, options = {}) {
   const priorityProducts = buildDashboardPriorityProducts(productList);
   const actionQueue = buildDashboardActionQueue(pendingActions);
   const topActiveIssues = buildDashboardTopActiveIssues(productList);
-  const coverageSummary = buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts, catalogProductCount });
+  const coverageSummary = buildDashboardCoverageSummary(productList, {
+    fullDiagnoses,
+    quickScanOnly,
+    totalProducts,
+    catalogProductCount,
+    settings: options.settings,
+  });
   const suggestedFixes = buildDashboardSuggestedFixes(productList);
   const watchlistProducts = highRiskProducts.length ? highRiskProducts : mediumRiskProducts;
 
@@ -865,7 +871,7 @@ function buildDashboardTopActiveIssues(productList) {
     }));
 }
 
-function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts, catalogProductCount }) {
+function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOnly, totalProducts, catalogProductCount, settings = {} }) {
   const connectedLabels = new Set();
   productList.forEach((product) => {
     (Array.isArray(product.sourceCoverage) ? product.sourceCoverage : []).forEach((source) => {
@@ -888,12 +894,12 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
   const connectedCount = sources.filter((source) => source.tone === "success").length;
   const storedFullPercent = totalProducts ? Math.round((fullDiagnoses.length / totalProducts) * 100) : 0;
   const catalogTotal = Math.max(Number(catalogProductCount || 0), totalProducts);
-  const catalogFullPercent = catalogTotal ? Math.round((fullDiagnoses.length / catalogTotal) * 100) : 0;
-  const catalogQuickScanPercent = catalogTotal ? Math.round((quickScanOnly.length / catalogTotal) * 100) : 0;
-  const missingCatalogFull = Math.max(0, catalogTotal - fullDiagnoses.length);
-  const missingCatalogQuickScan = Math.max(0, catalogTotal - quickScanOnly.length);
-  const catalogTone = catalogFullPercent >= 70 ? "green" : catalogFullPercent >= 30 ? "orange" : "red";
-  const quickScanCatalogTone = catalogQuickScanPercent >= 70 ? "green" : catalogQuickScanPercent >= 30 ? "orange" : "blue";
+  const catalogStoredPercent = catalogTotal ? Math.round((totalProducts / catalogTotal) * 100) : 0;
+  const quickScanStoredPercent = totalProducts ? Math.round((quickScanOnly.length / totalProducts) * 100) : 0;
+  const missingCatalogStored = Math.max(0, catalogTotal - totalProducts);
+  const minimumRiskScore = Number(settings?.risk?.minimumScore ?? 18);
+  const catalogTone = catalogStoredPercent >= 50 ? "green" : catalogStoredPercent >= 15 ? "orange" : "blue";
+  const storedAnalysisTone = storedFullPercent >= 70 ? "green" : storedFullPercent >= 30 ? "orange" : "blue";
   const statusLabel = connectedCount >= 3 && storedFullPercent >= 70
     ? "Coverage quality: Good"
     : connectedCount > 1 || storedFullPercent >= 35
@@ -903,21 +909,32 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
     statusLabel,
     tone: connectedCount >= 3 && storedFullPercent >= 70 ? "green" : connectedCount > 1 || storedFullPercent >= 35 ? "orange" : "blue",
     icon: connectedCount >= 3 ? "check" : "info",
-    detail: `${formatDashboardNumber(fullDiagnoses.length)} / ${formatDashboardNumber(totalProducts)} products in the risk table have full diagnostics.`,
-    coverageLine: `Risk table: ${formatDashboardNumber(fullDiagnoses.length)} full diagnosis · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only`,
+    detail: `${formatDashboardNumber(totalProducts)} / ${formatDashboardNumber(catalogTotal)} Shopify catalog products are currently inside ProductPulse.`,
+    coverageLine: `${formatDashboardNumber(fullDiagnoses.length)} full diagnostics · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only in ProductPulse`,
     catalogCoverage: {
-      percent: catalogFullPercent,
-      percentLabel: formatDashboardRate(catalogFullPercent),
+      label: "Total catalog",
+      percent: catalogStoredPercent,
+      percentLabel: formatDashboardRate(catalogStoredPercent),
       tone: catalogTone,
-      ariaLabel: `${formatDashboardRate(catalogFullPercent)} of total catalog products have full diagnostics`,
-      detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(catalogTotal)} total catalog products have full diagnostics. ${formatDashboardNumber(missingCatalogFull)} still have no full analysis.`,
+      ariaLabel: `${formatDashboardRate(catalogStoredPercent)} of Shopify catalog products are currently analyzed in ProductPulse`,
+      detail: `${formatDashboardNumber(totalProducts)} of ${formatDashboardNumber(catalogTotal)} Shopify catalog products are in ProductPulse because QuickScan found evidence above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+).`,
+      subline: `${formatDashboardNumber(missingCatalogStored)} catalog products are below threshold or not stored here.`,
+      infoTitle: "What total catalog means",
+      infoDetail: `This compares the full Shopify catalog with the products stored in ProductPulse. A product enters ProductPulse when QuickScan detects evidence at or above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+). Products below that threshold do not appear in this dashboard and are not included in these analytics.`,
+      infoFootnote: "To analyze a product that is not listed, open Products, use Find Shopify product, search the live Shopify catalog, and run a full diagnosis.",
     },
-    quickScanCatalogCoverage: {
-      percent: catalogQuickScanPercent,
-      percentLabel: formatDashboardRate(catalogQuickScanPercent),
-      tone: quickScanCatalogTone,
-      ariaLabel: `${formatDashboardRate(catalogQuickScanPercent)} of total catalog products are marked QuickScan only`,
-      detail: `${formatDashboardNumber(quickScanOnly.length)} of ${formatDashboardNumber(catalogTotal)} total catalog products are marked QuickScan only. ${formatDashboardNumber(missingCatalogQuickScan)} are either fully diagnosed or not stored in the risk table.`,
+    productPulseCoverage: {
+      label: "Products in ProductPulse",
+      percent: storedFullPercent,
+      percentLabel: `${formatDashboardRate(storedFullPercent)} full`,
+      secondaryLabel: `${formatDashboardNumber(quickScanOnly.length)} QuickScan only · ${formatDashboardRate(quickScanStoredPercent)}`,
+      tone: storedAnalysisTone,
+      ariaLabel: `${formatDashboardRate(storedFullPercent)} of ProductPulse products have full diagnostics`,
+      detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(totalProducts)} ProductPulse products have full diagnostics. ${formatDashboardNumber(quickScanOnly.length)} remain QuickScan only.`,
+      subline: "QuickScan-only products have lightweight deterministic evidence and still need full diagnostics for final recommendations.",
+      infoTitle: "Full diagnostics vs QuickScan",
+      infoDetail: "This only measures products that are already inside ProductPulse. Full diagnostics combine Shopify product data, orders, returns/refunds, connected reviews and AI-generated recommendations. QuickScan-only products are candidates found by the lightweight scan but have not received the deep diagnosis yet.",
+      infoFootnote: "Run a full diagnosis from Products or from the product detail page to promote a QuickScan-only product.",
     },
     recommendation: {
       tone: catalogTone,

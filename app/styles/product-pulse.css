@@ -1503,6 +1503,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCoverageCatalogCard {
+  position: relative;
   min-height: 82px;
   display: grid;
   gap: 8px;
@@ -1512,18 +1513,44 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
-.ppCoverageCatalogCard > div:first-child {
+.ppCoverageMetricHeader {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
 }
 
-.ppCoverageCatalogCard span {
+.ppCoverageMetricTitleWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ppCoverageMetricTitle {
   color: var(--pp-slate-500);
   font-size: 11px;
   font-weight: 820;
   text-transform: uppercase;
+}
+
+.ppCoverageInfoButton {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
+  cursor: help;
+}
+
+.ppCoverageInfoButton:hover,
+.ppCoverageInfoButton:focus-visible {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.14);
+  outline: none;
 }
 
 .ppCoverageCatalogCard strong {
@@ -1533,12 +1560,24 @@ s-page[inline-size="large-500"] {
   line-height: 1;
 }
 
+.ppCoverageMetricSubline {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 780;
+}
+
 .ppCoverageCatalogCard p,
 .ppCoverageRecommendation p {
   margin: 0;
   color: var(--pp-slate-600);
   font-size: 12px;
   line-height: 1.42;
+}
+
+.ppCoverageMetricFootnote {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .ppCoverageCatalogMeter {
@@ -1562,6 +1601,19 @@ s-page[inline-size="large-500"] {
 
 .ppCoverageCatalogCard-red .ppCoverageCatalogMeter span {
   background: linear-gradient(90deg, var(--pp-risk-red), var(--pp-warning-amber));
+}
+
+.ppCoverageMetricPopover {
+  display: grid;
+  gap: 8px;
+}
+
+.ppCoverageMetricPopover span {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.42;
+  text-transform: none;
 }
 
 .ppCoverageRecommendation {

@@ -42,7 +42,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Action queue")).toBeInTheDocument();
     expect(screen.getByText("Top active issue types")).toBeInTheDocument();
     expect(screen.getByText("Data coverage / scan coverage")).toBeInTheDocument();
-    expect(screen.getByText("Total catalog QuickScan only")).toBeInTheDocument();
+    expect(screen.getByText("Total catalog")).toBeInTheDocument();
+    expect(screen.getByText("Products in ProductPulse")).toBeInTheDocument();
     expect(screen.queryByText("Not scanned")).not.toBeInTheDocument();
     expect(screen.queryByText("View all recommended fixes")).not.toBeInTheDocument();
     expect(screen.queryByText("Signal source mix")).not.toBeInTheDocument();

@@ -5143,7 +5143,7 @@ function DashboardTopActiveIssues({ issues }) {
 function DashboardCoverageSummary({ summary }) {
   const sources = Array.isArray(summary?.sources) ? summary.sources : [];
   const catalog = summary?.catalogCoverage || {};
-  const quickScanCatalog = summary?.quickScanCatalogCoverage || {};
+  const productPulseCoverage = summary?.productPulseCoverage || summary?.quickScanCatalogCoverage || {};
   return (
     <div className="ppDashboardPanel ppCoverageSummaryPanel">
       <div className="ppDashboardPanelHeader">
@@ -5156,26 +5156,18 @@ function DashboardCoverageSummary({ summary }) {
           <strong>{summary?.statusLabel || "No scan data"}</strong>
           <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
         </div>
-        <div className={`ppCoverageCatalogCard ppCoverageCatalogCard-${catalog.tone || "blue"}`}>
-          <div>
-            <span>Total catalog full diagnostics</span>
-            <strong>{catalog.percentLabel || "0%"}</strong>
-          </div>
-          <div className="ppCoverageCatalogMeter" aria-label={catalog.ariaLabel || "Full diagnostics coverage across the catalog"}>
-            <span style={{ width: `${Math.max(0, Math.min(100, Number(catalog.percent || 0)))}%` }} />
-          </div>
-          <p>{catalog.detail || "Products below the QuickScan threshold may not appear in the table, but can still carry hidden risk."}</p>
-        </div>
-        <div className={`ppCoverageCatalogCard ppCoverageCatalogCard-${quickScanCatalog.tone || "blue"}`}>
-          <div>
-            <span>Total catalog QuickScan only</span>
-            <strong>{quickScanCatalog.percentLabel || "0%"}</strong>
-          </div>
-          <div className="ppCoverageCatalogMeter" aria-label={quickScanCatalog.ariaLabel || "QuickScan coverage across the catalog"}>
-            <span style={{ width: `${Math.max(0, Math.min(100, Number(quickScanCatalog.percent || 0)))}%` }} />
-          </div>
-          <p>{quickScanCatalog.detail || "QuickScan-only products have lightweight deterministic signals and still need full diagnostics for final recommendations."}</p>
-        </div>
+        <DashboardCoverageMetricCard
+          metric={catalog}
+          fallbackLabel="Total catalog"
+          fallbackAriaLabel="ProductPulse coverage across the Shopify catalog"
+          fallbackDetail="Products below the QuickScan threshold may not appear in ProductPulse, but can still carry hidden risk."
+        />
+        <DashboardCoverageMetricCard
+          metric={productPulseCoverage}
+          fallbackLabel="Products in ProductPulse"
+          fallbackAriaLabel="Full diagnostics coverage inside ProductPulse"
+          fallbackDetail="QuickScan-only products have lightweight deterministic signals and still need full diagnostics for final recommendations."
+        />
       </div>
       {summary?.recommendation && (
         <div className={`ppCoverageRecommendation ppCoverageRecommendation-${summary.recommendation.tone || "blue"}`}>
@@ -5188,6 +5180,52 @@ function DashboardCoverageSummary({ summary }) {
           <DashboardCoverageSourcePill source={source} key={source.label} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function DashboardCoverageMetricCard({ metric = {}, fallbackLabel, fallbackAriaLabel, fallbackDetail }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const label = metric.label || fallbackLabel;
+  const hasInfo = Boolean(metric.infoTitle || metric.infoDetail || metric.infoFootnote);
+  const percent = Math.max(0, Math.min(100, Number(metric.percent || 0)));
+
+  return (
+    <div className={`ppCoverageCatalogCard ppCoverageCatalogCard-${metric.tone || "blue"}`}>
+      <div className="ppCoverageMetricHeader">
+        <div className="ppCoverageMetricTitleWrap">
+          <span className="ppCoverageMetricTitle">{label}</span>
+          {hasInfo && (
+            <button
+              aria-label={`Explain ${label}`}
+              className="ppCoverageInfoButton"
+              onBlur={() => setOpen(false)}
+              onFocus={() => setOpen(true)}
+              onMouseEnter={() => setOpen(true)}
+              onMouseLeave={() => setOpen(false)}
+              ref={triggerRef}
+              type="button"
+            >
+              <s-icon type="info" size="small"></s-icon>
+            </button>
+          )}
+        </div>
+        <strong>{metric.percentLabel || "0%"}</strong>
+      </div>
+      {metric.secondaryLabel && <div className="ppCoverageMetricSubline">{metric.secondaryLabel}</div>}
+      <div className="ppCoverageCatalogMeter" aria-label={metric.ariaLabel || fallbackAriaLabel}>
+        <span style={{ width: `${percent}%` }} />
+      </div>
+      <p>{metric.detail || fallbackDetail}</p>
+      {metric.subline && <small className="ppCoverageMetricFootnote">{metric.subline}</small>}
+      {hasInfo && (
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppCoverageSourcePopover ppCoverageMetricPopover" width={360} estimatedHeight={190}>
+          <strong>{metric.infoTitle || label}</strong>
+          <span>{metric.infoDetail || metric.detail}</span>
+          {metric.infoFootnote && <span>{metric.infoFootnote}</span>}
+        </FloatingTablePopover>
+      )}
     </div>
   );
 }
