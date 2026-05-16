@@ -2096,6 +2096,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailOverviewCard,
 .ppProductEvidenceSummaryPanel,
+.ppProductOrderActivityPanel,
 .ppProductRiskHistoryPanel {
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
@@ -3159,6 +3160,268 @@ s-page[inline-size="large-500"] {
   font-size: 12px;
   font-weight: 750;
   line-height: 1.45;
+}
+
+.ppProductOrderActivityPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.ppOrderActivityHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ppOrderActivityHeader > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppOrderActivityHeader span {
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppOrderActivityHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppOrderActivityHeader p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppOrderActivityWindow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 190px;
+  padding: 9px 11px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(var(--pp-insight-violet-rgb), 0.06));
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppOrderActivityWindow small {
+  width: 100%;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+  text-align: right;
+}
+
+.ppOrderActivitySummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppOrderActivityStat {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-mist-gray);
+}
+
+.ppOrderActivityStat span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.ppOrderActivityStat strong {
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  font-weight: 950;
+}
+
+.ppOrderActivityStat small {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppOrderActivityStat-blue {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+}
+
+.ppOrderActivityStat-amber {
+  background: rgba(var(--pp-warning-amber-rgb), 0.08);
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.22);
+}
+
+.ppOrderActivityStat-red {
+  background: rgba(var(--pp-risk-red-rgb), 0.07);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.2);
+}
+
+.ppOrderActivityStat-teal {
+  background: rgba(var(--pp-signal-teal-rgb), 0.07);
+  border-color: rgba(var(--pp-signal-teal-rgb), 0.2);
+}
+
+.ppOrderActivityChart {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background:
+    linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 20px / 100% 25%,
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
+}
+
+.ppOrderActivityPlot {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(34px, 1fr));
+  align-items: end;
+  gap: 9px;
+  min-height: 188px;
+  overflow-x: auto;
+  padding: 8px 2px 2px;
+}
+
+.ppOrderActivityMonth {
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  gap: 5px;
+  min-width: 34px;
+}
+
+.ppOrderActivityBarShell {
+  position: relative;
+  width: 100%;
+  max-width: 38px;
+  height: 142px;
+  border-radius: 999px 999px 8px 8px;
+  background: rgba(203, 213, 225, 0.28);
+  overflow: hidden;
+}
+
+.ppOrderActivityBar {
+  position: absolute;
+  bottom: 0;
+  display: block;
+  transition: height 180ms ease;
+}
+
+.ppOrderActivityBarTotal {
+  left: 0;
+  width: 100%;
+  border-radius: 999px 999px 8px 8px;
+  background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.9), rgba(var(--pp-pulse-blue-rgb), 0.42));
+}
+
+.ppOrderActivityBarReturns {
+  left: 9%;
+  width: 38%;
+  border-radius: 999px 999px 7px 7px;
+  background: linear-gradient(180deg, rgba(var(--pp-warning-amber-rgb), 0.95), rgba(var(--pp-warning-amber-rgb), 0.58));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.54);
+}
+
+.ppOrderActivityBarRefunds {
+  right: 9%;
+  width: 38%;
+  border-radius: 999px 999px 7px 7px;
+  background: linear-gradient(180deg, rgba(var(--pp-risk-red-rgb), 0.95), rgba(var(--pp-risk-red-rgb), 0.58));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.54);
+}
+
+.ppOrderActivityMonth strong {
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ppOrderActivityMonth small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppOrderActivityLegend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppOrderActivityLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ppOrderActivityLegend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.ppOrderActivityLegendTotal {
+  background: var(--pp-pulse-blue);
+}
+
+.ppOrderActivityLegendReturns {
+  background: var(--pp-warning-amber);
+}
+
+.ppOrderActivityLegendRefunds {
+  background: var(--pp-risk-red);
+}
+
+@media (max-width: 1180px) {
+  .ppOrderActivitySummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .ppOrderActivityHeader {
+    display: grid;
+  }
+
+  .ppOrderActivityWindow {
+    justify-content: flex-start;
+  }
+
+  .ppOrderActivityWindow small {
+    text-align: left;
+  }
 }
 
 .ppEvidenceSourceGrid {

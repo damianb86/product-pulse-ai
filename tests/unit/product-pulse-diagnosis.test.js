@@ -664,6 +664,72 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("builds monthly Shopify order activity by original order month", () => {
+    const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 120,
+      sales: [
+        {
+          id: "line-1",
+          orderId: "order-jan",
+          createdAt: "2026-01-20T10:00:00.000Z",
+          quantity: 2,
+          amount: 200,
+        },
+        {
+          id: "line-2",
+          orderId: "order-feb",
+          createdAt: "2026-02-15T10:00:00.000Z",
+          quantity: 1,
+          amount: 120,
+        },
+      ],
+      returns: [
+        {
+          id: "return-1",
+          orderId: "order-jan",
+          createdAt: "2026-03-05T10:00:00.000Z",
+          quantity: 1,
+        },
+      ],
+      refunds: [
+        {
+          id: "refund-1",
+          orderId: "order-feb",
+          createdAt: "2026-04-05T10:00:00.000Z",
+          quantity: 1,
+          amount: 120,
+        },
+      ],
+    });
+
+    const january = activity.months.find((month) => month.key === "2026-01");
+    const february = activity.months.find((month) => month.key === "2026-02");
+
+    expect(january).toMatchObject({
+      orders: 1,
+      orderUnits: 2,
+      returnedOrders: 1,
+      returnedUnits: 1,
+      returnRate: 100,
+    });
+    expect(february).toMatchObject({
+      orders: 1,
+      refundedOrders: 1,
+      refundedUnits: 1,
+      refundAmount: 120,
+      refundRate: 100,
+    });
+    expect(activity.summary).toMatchObject({
+      totalOrders: 2,
+      totalReturnedOrders: 1,
+      totalRefundedOrders: 1,
+      totalRefundAmount: 120,
+      returnRate: 50,
+      refundRate: 50,
+    });
+  });
+
   it("matches CSV reviews by Shopify numeric ID or product handle", () => {
     const snapshot = {
       productGid: "gid://shopify/Product/98765",

@@ -2489,6 +2489,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       salesAmount: metrics.salesAmount || 0,
       avgUnitRevenue: metrics.avgUnitRevenue || 0,
       refundAmount: metrics.refundAmount || 0,
+      monthlyOrderActivity: metrics.monthlyOrderActivity || null,
       returnUnits: metrics.returnUnits || 0,
       refundUnits: metrics.refundUnits || 0,
       recentSignalUnits: metrics.recentSignalUnits || 0,

@@ -13,9 +13,10 @@ import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server"
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
-const MAX_ORDER_PAGES = 5;
+const MAX_ORDER_PAGES = 12;
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
+const MONTHLY_ORDER_ACTIVITY_MAX_MONTHS = 12;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
@@ -60,6 +61,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       returnUnits: deterministic.metrics.returnUnits,
       refundUnits: deterministic.metrics.refundUnits,
       refundAmount: deterministic.metrics.refundAmount,
+      monthlyOrderActivity: deterministic.metrics.monthlyOrderActivity?.summary || null,
       reviewCount: deterministic.metrics.reviewCount,
       negativeReviewCount: deterministic.metrics.negativeReviewCount,
       customerTextSignals: deterministic.metrics.textInsights?.sentiment?.total || 0,
@@ -1507,6 +1509,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const deterministicContent = analyzeProductContentDeterministically(product);
   const textInsights = buildCustomerTextInsights({ returns, reviews });
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
+  const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
@@ -1645,6 +1648,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       avgUnitRevenue: estimatedImpact.avgUnitRevenue,
       refundAmount,
       refundInsights,
+      monthlyOrderActivity,
       returnUnits,
       refundUnits,
       soldUnits,
@@ -5816,6 +5820,177 @@ function countTopValues(values, limit) {
     .map(([label, count]) => ({ label, count }));
 }
 
+function buildMonthlyOrderActivity({
+  sales = [],
+  returns = [],
+  refunds = [],
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  now = new Date(),
+} = {}) {
+  const currentDate = parseValidDate(now) || new Date();
+  const safeWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const sinceDate = new Date(currentDate.getTime() - safeWindowDays * 24 * 60 * 60 * 1000);
+  const monthStarts = getMonthStartsBetween(startOfUtcMonth(sinceDate), startOfUtcMonth(currentDate))
+    .slice(-MONTHLY_ORDER_ACTIVITY_MAX_MONTHS);
+  const buckets = new Map(monthStarts.map((date) => [formatUtcMonthKey(date), createMonthlyOrderActivityBucket(date)]));
+  const orderMonthById = new Map();
+
+  sales.forEach((event, index) => {
+    const monthKey = getEventMonthKey(event.createdAt);
+    if (!buckets.has(monthKey)) return;
+    if (event.orderId) orderMonthById.set(event.orderId, monthKey);
+    const bucket = buckets.get(monthKey);
+    const orderKey = event.orderId || event.id || `sale:${index}:${monthKey}`;
+    bucket.orderIds.add(orderKey);
+    bucket.orderUnits += Number(event.quantity || 0);
+    bucket.revenue += Number(event.amount || 0);
+  });
+
+  returns.forEach((event, index) => {
+    const monthKey = getOperationalEventMonthKey(event, orderMonthById);
+    const bucket = buckets.get(monthKey);
+    if (!bucket) return;
+    const orderKey = event.orderId || event.id || `return:${index}:${monthKey}`;
+    bucket.returnOrderIds.add(orderKey);
+    bucket.returnedUnits += Number(event.quantity || event.processedQuantity || event.refundedQuantity || 0);
+  });
+
+  refunds.forEach((event, index) => {
+    const monthKey = getOperationalEventMonthKey(event, orderMonthById);
+    const bucket = buckets.get(monthKey);
+    if (!bucket) return;
+    const orderKey = event.orderId || event.id || `refund:${index}:${monthKey}`;
+    bucket.refundOrderIds.add(orderKey);
+    bucket.refundedUnits += Number(event.quantity || 0);
+    bucket.refundAmount += Number(event.amount || event.totalRefundedAmount || 0);
+  });
+
+  const months = [...buckets.values()].map(normalizeMonthlyOrderActivityBucket);
+  const summary = months.reduce((totals, month) => ({
+    totalOrders: totals.totalOrders + month.orders,
+    totalOrderUnits: totals.totalOrderUnits + month.orderUnits,
+    totalRevenue: totals.totalRevenue + month.revenue,
+    totalReturnedOrders: totals.totalReturnedOrders + month.returnedOrders,
+    totalReturnedUnits: totals.totalReturnedUnits + month.returnedUnits,
+    totalRefundedOrders: totals.totalRefundedOrders + month.refundedOrders,
+    totalRefundedUnits: totals.totalRefundedUnits + month.refundedUnits,
+    totalRefundAmount: totals.totalRefundAmount + month.refundAmount,
+    maxOrders: Math.max(totals.maxOrders, month.orders, month.returnedOrders, month.refundedOrders),
+  }), {
+    totalOrders: 0,
+    totalOrderUnits: 0,
+    totalRevenue: 0,
+    totalReturnedOrders: 0,
+    totalReturnedUnits: 0,
+    totalRefundedOrders: 0,
+    totalRefundedUnits: 0,
+    totalRefundAmount: 0,
+    maxOrders: 0,
+  });
+
+  return {
+    source: "shopify_orders_deep_diagnosis",
+    windowDays: safeWindowDays,
+    generatedAt: toIso(currentDate),
+    months,
+    summary: {
+      ...summary,
+      totalRevenue: roundCurrency(summary.totalRevenue),
+      totalRefundAmount: roundCurrency(summary.totalRefundAmount),
+      returnRate: roundRate(summary.totalOrders ? (summary.totalReturnedOrders / summary.totalOrders) * 100 : 0),
+      refundRate: roundRate(summary.totalOrders ? (summary.totalRefundedOrders / summary.totalOrders) * 100 : 0),
+      maxOrders: Math.max(summary.maxOrders, 1),
+    },
+  };
+}
+
+function createMonthlyOrderActivityBucket(date) {
+  return {
+    key: formatUtcMonthKey(date),
+    label: formatUtcMonthLabel(date),
+    shortLabel: formatUtcMonthShortLabel(date),
+    startAt: toIso(date),
+    orderIds: new Set(),
+    returnOrderIds: new Set(),
+    refundOrderIds: new Set(),
+    orderUnits: 0,
+    revenue: 0,
+    returnedUnits: 0,
+    refundedUnits: 0,
+    refundAmount: 0,
+  };
+}
+
+function normalizeMonthlyOrderActivityBucket(bucket) {
+  const orders = bucket.orderIds.size;
+  const returnedOrders = bucket.returnOrderIds.size;
+  const refundedOrders = bucket.refundOrderIds.size;
+  return {
+    key: bucket.key,
+    label: bucket.label,
+    shortLabel: bucket.shortLabel,
+    startAt: bucket.startAt,
+    orders,
+    orderUnits: bucket.orderUnits,
+    revenue: roundCurrency(bucket.revenue),
+    returnedOrders,
+    returnedUnits: bucket.returnedUnits,
+    refundedOrders,
+    refundedUnits: bucket.refundedUnits,
+    refundAmount: roundCurrency(bucket.refundAmount),
+    returnRate: roundRate(orders ? (returnedOrders / orders) * 100 : 0),
+    refundRate: roundRate(orders ? (refundedOrders / orders) * 100 : 0),
+  };
+}
+
+function getOperationalEventMonthKey(event, orderMonthById) {
+  if (event?.orderId && orderMonthById.has(event.orderId)) return orderMonthById.get(event.orderId);
+  return getEventMonthKey(event?.createdAt || event?.processedAt || event?.updatedAt);
+}
+
+function getEventMonthKey(value) {
+  const date = parseValidDate(value);
+  return date ? formatUtcMonthKey(date) : "";
+}
+
+function getMonthStartsBetween(startDate, endDate) {
+  const months = [];
+  let cursor = startOfUtcMonth(startDate);
+  const end = startOfUtcMonth(endDate);
+  while (cursor.getTime() <= end.getTime()) {
+    months.push(cursor);
+    cursor = addUtcMonths(cursor, 1);
+  }
+  return months;
+}
+
+function startOfUtcMonth(value) {
+  const date = parseValidDate(value) || new Date();
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+function addUtcMonths(date, count) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + count, 1));
+}
+
+function formatUtcMonthKey(date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatUtcMonthLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).format(date);
+}
+
+function formatUtcMonthShortLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(date);
+}
+
+function parseValidDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function preferFreshNumber(fresh, fallback) {
   const number = Number(fresh || 0);
   if (number > 0) return number;
@@ -6222,6 +6397,7 @@ export const __productPulseDiagnosisTestHooks = {
   getNodes,
   buildCustomerTextInsights,
   calculateDeterministicDiagnosis,
+  buildMonthlyOrderActivity,
   buildRefundOperationalInsights,
   calculateConfidence,
   calculateRiskScore,

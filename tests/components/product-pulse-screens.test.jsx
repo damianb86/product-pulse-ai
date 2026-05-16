@@ -545,6 +545,75 @@ describe("ProductPulse screens", () => {
     expect(within(historyPanel).getByText("Fit runs small around waist and inseam")).toBeInTheDocument();
   });
 
+  it("renders monthly order activity for product diagnosis", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        monthlyOrderActivity: {
+          windowDays: 365,
+          months: [
+            {
+              key: "2026-04",
+              label: "Apr 2026",
+              shortLabel: "Apr",
+              orders: 8,
+              orderUnits: 10,
+              revenue: 1200,
+              returnedOrders: 2,
+              returnedUnits: 2,
+              refundedOrders: 1,
+              refundedUnits: 1,
+              refundAmount: 150,
+              returnRate: 25,
+              refundRate: 12.5,
+            },
+            {
+              key: "2026-05",
+              label: "May 2026",
+              shortLabel: "May",
+              orders: 4,
+              orderUnits: 5,
+              revenue: 650,
+              returnedOrders: 1,
+              returnedUnits: 1,
+              refundedOrders: 0,
+              refundedUnits: 0,
+              refundAmount: 0,
+              returnRate: 25,
+              refundRate: 0,
+            },
+          ],
+          summary: {
+            totalOrders: 12,
+            totalOrderUnits: 15,
+            totalRevenue: 1850,
+            totalReturnedOrders: 3,
+            totalReturnedUnits: 3,
+            totalRefundedOrders: 1,
+            totalRefundedUnits: 1,
+            totalRefundAmount: 150,
+            returnRate: 25,
+            refundRate: 8.33,
+            maxOrders: 8,
+          },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const orderPanel = container.querySelector(".ppProductOrderActivityPanel");
+
+    expect(orderPanel).toBeInTheDocument();
+    expect(within(orderPanel).getByText("Monthly order activity")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("365-day Shopify order window")).toBeInTheDocument();
+    expect(within(orderPanel).getAllByText("Total orders").length).toBeGreaterThan(0);
+    expect(within(orderPanel).getAllByText("Returned orders").length).toBeGreaterThan(0);
+    expect(within(orderPanel).getAllByText("Refunded orders").length).toBeGreaterThan(0);
+    expect(within(orderPanel).getByText("$150")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("Apr")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("May")).toBeInTheDocument();
+  });
+
   it("labels product risk as improving when saved risk history trends downward", () => {
     const product = {
       ...defaultView.startHere,

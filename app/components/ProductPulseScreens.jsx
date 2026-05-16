@@ -2706,6 +2706,7 @@ function getProductDetailModel(product) {
     scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
     riskTrend: riskTrendValues,
     riskHistory: Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [],
+    monthlyOrderActivity: normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity),
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
     issueCategory,
@@ -2766,6 +2767,71 @@ function getScoreCalculationStatus(metrics = {}) {
     return "Score calculated from persisted components";
   }
   return "Score components unavailable";
+}
+
+function normalizeProductMonthlyOrderActivity(activity = null) {
+  const months = (Array.isArray(activity?.months) ? activity.months : [])
+    .map((month) => ({
+      key: String(month.key || month.label || ""),
+      label: String(month.label || month.key || ""),
+      shortLabel: String(month.shortLabel || month.label || month.key || ""),
+      startAt: month.startAt || null,
+      orders: Number(month.orders || 0),
+      orderUnits: Number(month.orderUnits || 0),
+      revenue: Number(month.revenue || 0),
+      returnedOrders: Number(month.returnedOrders || 0),
+      returnedUnits: Number(month.returnedUnits || 0),
+      refundedOrders: Number(month.refundedOrders || 0),
+      refundedUnits: Number(month.refundedUnits || 0),
+      refundAmount: Number(month.refundAmount || 0),
+      returnRate: Number(month.returnRate || 0),
+      refundRate: Number(month.refundRate || 0),
+    }))
+    .filter((month) => month.key || month.label);
+
+  const summary = activity?.summary || {};
+  const computed = months.reduce((totals, month) => ({
+    totalOrders: totals.totalOrders + month.orders,
+    totalOrderUnits: totals.totalOrderUnits + month.orderUnits,
+    totalRevenue: totals.totalRevenue + month.revenue,
+    totalReturnedOrders: totals.totalReturnedOrders + month.returnedOrders,
+    totalReturnedUnits: totals.totalReturnedUnits + month.returnedUnits,
+    totalRefundedOrders: totals.totalRefundedOrders + month.refundedOrders,
+    totalRefundedUnits: totals.totalRefundedUnits + month.refundedUnits,
+    totalRefundAmount: totals.totalRefundAmount + month.refundAmount,
+    maxOrders: Math.max(totals.maxOrders, month.orders, month.returnedOrders, month.refundedOrders),
+  }), {
+    totalOrders: 0,
+    totalOrderUnits: 0,
+    totalRevenue: 0,
+    totalReturnedOrders: 0,
+    totalReturnedUnits: 0,
+    totalRefundedOrders: 0,
+    totalRefundedUnits: 0,
+    totalRefundAmount: 0,
+    maxOrders: 0,
+  });
+
+  const totalOrders = Number(summary.totalOrders ?? computed.totalOrders);
+  const totalReturnedOrders = Number(summary.totalReturnedOrders ?? computed.totalReturnedOrders);
+  const totalRefundedOrders = Number(summary.totalRefundedOrders ?? computed.totalRefundedOrders);
+
+  return {
+    source: activity?.source || "",
+    windowDays: Number(activity?.windowDays || 0),
+    generatedAt: activity?.generatedAt || null,
+    months,
+    summary: {
+      ...computed,
+      ...summary,
+      totalOrders,
+      totalReturnedOrders,
+      totalRefundedOrders,
+      maxOrders: Math.max(Number(summary.maxOrders || computed.maxOrders || 0), 1),
+      returnRate: Number(summary.returnRate ?? (totalOrders ? (totalReturnedOrders / totalOrders) * 100 : 0)),
+      refundRate: Number(summary.refundRate ?? (totalOrders ? (totalRefundedOrders / totalOrders) * 100 : 0)),
+    },
+  };
 }
 
 function getFinancialExposureFootnote(detail = {}) {
@@ -5052,6 +5118,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               </div>
             </section>
 
+            <ProductOrderActivityPanel detail={detail} />
+
             <ProductDetailSectionLabel number="3" title="Evidence by source" subtitle="Explore the evidence clearly" />
             <div ref={evidencePanelRef}>
               <EvidenceObservabilityPanel
@@ -5209,6 +5277,102 @@ function ProductDetailSectionLabel({ number, title, subtitle }) {
       </div>
     </div>
   );
+}
+
+function ProductOrderActivityPanel({ detail }) {
+  const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
+  const months = activity.months || [];
+  const summary = activity.summary || {};
+  const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders);
+  const maxOrders = Math.max(Number(summary.maxOrders || 0), ...months.map((month) => Math.max(month.orders, month.returnedOrders, month.refundedOrders)), 1);
+  const windowLabel = activity.windowDays ? `${activity.windowDays}-day Shopify order window` : "Stored Shopify order window";
+  const rangeLabel = getMonthlyOrderActivityRangeLabel(months);
+
+  return (
+    <section className="ppProductOrderActivityPanel" aria-label="Monthly order activity">
+      <div className="ppOrderActivityHeader">
+        <div>
+          <span>Deep research</span>
+          <h2>Monthly order activity</h2>
+          <p>Orders, returns and refunds for this product, grouped by the order month inside the configured analysis window.</p>
+        </div>
+        <div className="ppOrderActivityWindow">
+          <s-icon type="calendar" size="small"></s-icon>
+          <span>{windowLabel}</span>
+          {rangeLabel && <small>{rangeLabel}</small>}
+        </div>
+      </div>
+
+      <div className="ppOrderActivitySummary">
+        <OrderActivityStat label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
+        <OrderActivityStat label="Returned orders" value={formatInteger(summary.totalReturnedOrders)} detail={`${formatPercent(summary.returnRate)} of orders`} tone="amber" />
+        <OrderActivityStat label="Refunded orders" value={formatInteger(summary.totalRefundedOrders)} detail={`${formatPercent(summary.refundRate)} of orders`} tone="red" />
+        <OrderActivityStat label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
+      </div>
+
+      {hasActivity ? (
+        <div className="ppOrderActivityChart" role="img" aria-label={`Monthly Shopify orders chart for ${detail.title}`}>
+          <div className="ppOrderActivityPlot" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(34px, 1fr))` }}>
+            {months.map((month) => (
+              <OrderActivityMonthBar key={month.key || month.label} month={month} maxOrders={maxOrders} />
+            ))}
+          </div>
+          <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
+            <span><i className="ppOrderActivityLegendTotal" />Total orders</span>
+            <span><i className="ppOrderActivityLegendReturns" />Returned orders</span>
+            <span><i className="ppOrderActivityLegendRefunds" />Refunded orders</span>
+          </div>
+        </div>
+      ) : (
+        <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
+      )}
+    </section>
+  );
+}
+
+function OrderActivityStat({ label, value, detail, tone }) {
+  return (
+    <div className={`ppOrderActivityStat ppOrderActivityStat-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function OrderActivityMonthBar({ month, maxOrders }) {
+  const orderHeight = getOrderActivityBarHeight(month.orders, maxOrders);
+  const returnHeight = getOrderActivityBarHeight(month.returnedOrders, maxOrders);
+  const refundHeight = getOrderActivityBarHeight(month.refundedOrders, maxOrders);
+  const title = `${month.label}: ${formatInteger(month.orders)} orders, ${formatInteger(month.returnedOrders)} returned, ${formatInteger(month.refundedOrders)} refunded`;
+
+  return (
+    <div className="ppOrderActivityMonth" title={title}>
+      <div className="ppOrderActivityBarShell" aria-hidden="true">
+        <span className="ppOrderActivityBar ppOrderActivityBarTotal" style={{ height: `${orderHeight}%` }} />
+        <span className="ppOrderActivityBar ppOrderActivityBarReturns" style={{ height: `${returnHeight}%` }} />
+        <span className="ppOrderActivityBar ppOrderActivityBarRefunds" style={{ height: `${refundHeight}%` }} />
+      </div>
+      <strong>{formatInteger(month.orders)}</strong>
+      <small>{month.shortLabel || month.label}</small>
+    </div>
+  );
+}
+
+function getOrderActivityBarHeight(value, maxValue) {
+  const count = Number(value || 0);
+  if (!count) return 0;
+  return Math.max(8, Math.min(100, (count / Math.max(Number(maxValue || 1), 1)) * 100));
+}
+
+function getMonthlyOrderActivityRangeLabel(months = []) {
+  const activeMonths = months.filter((month) => month.orders || month.returnedOrders || month.refundedOrders);
+  const range = activeMonths.length ? activeMonths : months;
+  const first = range[0];
+  const last = range[range.length - 1];
+  if (!first || !last) return "";
+  if ((first.label || first.key) === (last.label || last.key)) return first.label || first.key;
+  return `${first.label || first.key} to ${last.label || last.key}`;
 }
 
 function ProductEvidenceSummaryPanel({ detail, onSelectEvidence }) {
