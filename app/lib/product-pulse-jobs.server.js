@@ -2435,6 +2435,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
   const diagnosisEvidence = Array.isArray(latestDiagnosis?.evidence) ? latestDiagnosis.evidence : null;
   const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : null;
   const storedActions = actions.map(formatStoredProductAction);
+  const returnRatePrediction = adjustReturnRatePredictionForActions(metrics.returnRatePrediction, diagnosisRecommendations, storedActions);
   const resolvedAction = getActiveResolvedStoredAction(storedActions);
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
   const hasFullDiagnosis = analysisState.depth === "full";
@@ -2490,6 +2491,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       avgUnitRevenue: metrics.avgUnitRevenue || 0,
       refundAmount: metrics.refundAmount || 0,
       monthlyOrderActivity: metrics.monthlyOrderActivity || null,
+      returnRatePrediction,
       returnUnits: metrics.returnUnits || 0,
       refundUnits: metrics.refundUnits || 0,
       recentSignalUnits: metrics.recentSignalUnits || 0,
@@ -2582,6 +2584,78 @@ function formatStoredProductAction(action) {
     createdAt: toIso(action.createdAt),
     appliedAt: toIso(action.appliedAt),
   };
+}
+
+function adjustReturnRatePredictionForActions(prediction = null, recommendations = [], storedActions = []) {
+  if (!prediction || !Array.isArray(prediction.forecastPoints) || !prediction.forecastPoints.length) return prediction || null;
+  const actionKeys = new Set((Array.isArray(recommendations) ? recommendations : [])
+    .map((action) => String(action?.id || action?.actionId || action?.label || "").trim())
+    .filter(Boolean));
+  if (!actionKeys.size) return prediction;
+
+  const latestActionStatus = new Map();
+  (Array.isArray(storedActions) ? storedActions : []).forEach((action) => {
+    const actionKey = String(action.actionId || "").trim();
+    if (!actionKeys.has(actionKey)) return;
+    const currentTime = new Date(action.appliedAt || action.createdAt || 0).getTime();
+    const existing = latestActionStatus.get(actionKey);
+    if (!existing || currentTime >= existing.time) {
+      latestActionStatus.set(actionKey, { status: String(action.status || "").toLowerCase(), time: currentTime });
+    }
+  });
+
+  const counts = [...actionKeys].reduce((totals, actionKey) => {
+    const status = latestActionStatus.get(actionKey)?.status || "pending";
+    if (status.includes("applied")) totals.applied += 1;
+    else if (status.includes("review")) totals.reviewed += 1;
+    else if (status.includes("dismiss")) totals.dismissed += 1;
+    else totals.pending += 1;
+    return totals;
+  }, { pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
+  const adjustmentPoints = clampNumber(
+    counts.pending * 1.15 - counts.applied * 1.65 - counts.reviewed * 0.8,
+    -9,
+    9,
+  );
+  const forecastPoints = prediction.forecastPoints.map((point, index) => {
+    const horizonWeight = (index + 1) / prediction.forecastPoints.length;
+    const basePredictedReturnRate = Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0);
+    return {
+      ...point,
+      basePredictedReturnRate,
+      predictedReturnRate: roundTo(clampNumber(basePredictedReturnRate + adjustmentPoints * horizonWeight, 0, 100), 2),
+    };
+  });
+  const forecastNext90ReturnRate = roundTo(averageNumbers(forecastPoints.map((point) => point.predictedReturnRate)), 2);
+
+  return {
+    ...prediction,
+    forecastPoints,
+    summary: {
+      ...(prediction.summary || {}),
+      forecastNext90ReturnRate,
+    },
+    actionAdjustment: {
+      ...counts,
+      adjustmentPoints: roundTo(adjustmentPoints, 2),
+      direction: adjustmentPoints < 0 ? "improving" : adjustmentPoints > 0 ? "worsening" : "neutral",
+    },
+  };
+}
+
+function averageNumbers(values = []) {
+  const numbers = values.map(Number).filter((value) => Number.isFinite(value));
+  if (!numbers.length) return 0;
+  return numbers.reduce((total, value) => total + value, 0) / numbers.length;
+}
+
+function roundTo(value, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round(Number(value || 0) * factor) / factor;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, Number(value || 0)));
 }
 
 function escapeShopifyQueryValue(value) {

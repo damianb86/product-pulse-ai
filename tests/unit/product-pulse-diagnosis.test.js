@@ -730,6 +730,33 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("builds weekly return-rate prediction with a three-month forecast", () => {
+    const prediction = __productPulseDiagnosisTestHooks.buildReturnRatePrediction({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 90,
+      sales: [
+        { id: "line-1", orderId: "order-1", createdAt: "2026-03-03T10:00:00.000Z", quantity: 1, amount: 100 },
+        { id: "line-2", orderId: "order-2", createdAt: "2026-03-10T10:00:00.000Z", quantity: 1, amount: 100 },
+        { id: "line-3", orderId: "order-3", createdAt: "2026-04-07T10:00:00.000Z", quantity: 1, amount: 100 },
+        { id: "line-4", orderId: "order-4", createdAt: "2026-04-14T10:00:00.000Z", quantity: 1, amount: 100 },
+        { id: "line-5", orderId: "order-5", createdAt: "2026-05-05T10:00:00.000Z", quantity: 1, amount: 100 },
+      ],
+      returns: [
+        { id: "return-1", orderId: "order-1", createdAt: "2026-04-01T10:00:00.000Z", quantity: 1 },
+        { id: "return-2", orderId: "order-4", createdAt: "2026-05-01T10:00:00.000Z", quantity: 1 },
+      ],
+    });
+
+    expect(prediction.granularity).toBe("weekly");
+    expect(prediction.summary.totalOrders).toBe(5);
+    expect(prediction.summary.totalReturnedOrders).toBe(2);
+    expect(prediction.summary.totalReturnRate).toBe(40);
+    expect(prediction.summary.last60DayReturnRate).toBeGreaterThan(0);
+    expect(prediction.forecastPoints).toHaveLength(13);
+    expect(prediction.forecastPoints[0]).toMatchObject({ kind: "forecast" });
+    expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
+  });
+
   it("matches CSV reviews by Shopify numeric ID or product handle", () => {
     const snapshot = {
       productGid: "gid://shopify/Product/98765",

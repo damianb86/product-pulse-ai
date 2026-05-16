@@ -2707,6 +2707,7 @@ function getProductDetailModel(product) {
     riskTrend: riskTrendValues,
     riskHistory: Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [],
     monthlyOrderActivity: normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity),
+    returnRatePrediction: normalizeProductReturnRatePrediction(metrics.returnRatePrediction),
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
     issueCategory,
@@ -2831,6 +2832,54 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
       returnRate: Number(summary.returnRate ?? (totalOrders ? (totalReturnedOrders / totalOrders) * 100 : 0)),
       refundRate: Number(summary.refundRate ?? (totalOrders ? (totalRefundedOrders / totalOrders) * 100 : 0)),
     },
+  };
+}
+
+function normalizeProductReturnRatePrediction(prediction = null) {
+  const observedPoints = (Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [])
+    .map((point) => ({
+      kind: "observed",
+      key: String(point.key || point.startAt || point.label || ""),
+      label: String(point.label || point.key || ""),
+      startAt: point.startAt || null,
+      orders: Number(point.orders || 0),
+      returnedOrders: Number(point.returnedOrders || 0),
+      rawReturnRate: point.rawReturnRate == null ? null : Number(point.rawReturnRate),
+      smoothedReturnRate: Number(point.smoothedReturnRate ?? point.rawReturnRate ?? 0),
+    }))
+    .filter((point) => point.key || point.label);
+  const forecastPoints = (Array.isArray(prediction?.forecastPoints) ? prediction.forecastPoints : [])
+    .map((point) => ({
+      kind: "forecast",
+      key: String(point.key || point.startAt || point.label || ""),
+      label: String(point.label || point.key || ""),
+      startAt: point.startAt || null,
+      predictedReturnRate: Number(point.predictedReturnRate || 0),
+      basePredictedReturnRate: Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0),
+      baselineReturnRate: Number(point.baselineReturnRate || 0),
+      seasonalReturnRate: Number(point.seasonalReturnRate || 0),
+    }))
+    .filter((point) => point.key || point.label);
+  const summary = prediction?.summary || {};
+
+  return {
+    source: prediction?.source || "",
+    granularity: prediction?.granularity || "weekly",
+    windowDays: Number(prediction?.windowDays || 0),
+    generatedAt: prediction?.generatedAt || null,
+    observedPoints,
+    forecastPoints,
+    summary: {
+      totalOrders: Number(summary.totalOrders || 0),
+      totalReturnedOrders: Number(summary.totalReturnedOrders || 0),
+      totalReturnRate: Number(summary.totalReturnRate || 0),
+      last30DayReturnRate: Number(summary.last30DayReturnRate || 0),
+      last60DayReturnRate: Number(summary.last60DayReturnRate || 0),
+      forecastNext90ReturnRate: Number(summary.forecastNext90ReturnRate || 0),
+      confidence: summary.confidence || "Unavailable",
+    },
+    actionAdjustment: prediction?.actionAdjustment || null,
+    model: prediction?.model || null,
   };
 }
 
@@ -5119,6 +5168,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             </section>
 
             <ProductOrderActivityPanel detail={detail} />
+            <ProductReturnRatePredictionPanel detail={detail} />
 
             <ProductDetailSectionLabel number="3" title="Evidence by source" subtitle="Explore the evidence clearly" />
             <div ref={evidencePanelRef}>
@@ -5328,6 +5378,146 @@ function ProductOrderActivityPanel({ detail }) {
       )}
     </section>
   );
+}
+
+function ProductReturnRatePredictionPanel({ detail }) {
+  const prediction = detail.returnRatePrediction || normalizeProductReturnRatePrediction(null);
+  const observedPoints = prediction.observedPoints || [];
+  const forecastPoints = prediction.forecastPoints || [];
+  const summary = prediction.summary || {};
+  const hasPrediction = observedPoints.some((point) => point.orders || point.returnedOrders) || forecastPoints.length > 0;
+  const chart = getReturnRatePredictionChart(prediction);
+  const actionCopy = getReturnRatePredictionActionCopy(prediction.actionAdjustment);
+
+  return (
+    <section className="ppProductReturnPredictionPanel" aria-label="Return rate prediction">
+      <div className="ppReturnPredictionHeader">
+        <div>
+          <span>Prediction model</span>
+          <h2>Return rate prediction</h2>
+          <p>Weekly Shopify order cohorts, smoothed from observed return behavior and projected three months forward.</p>
+        </div>
+        <s-badge tone={getReturnRatePredictionConfidenceTone(summary.confidence)}>{summary.confidence || "Unavailable"} confidence</s-badge>
+      </div>
+
+      <div className="ppReturnPredictionStats">
+        <OrderActivityStat label="Total return rate" value={formatPercent(summary.totalReturnRate)} detail={`${formatInteger(summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrders)} orders`} tone="blue" />
+        <OrderActivityStat label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
+        <OrderActivityStat label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
+        <OrderActivityStat label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />
+      </div>
+
+      {hasPrediction ? (
+        <div className="ppReturnPredictionChartWrap">
+          <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
+            <path className="ppReturnPredictionGridLine ppReturnPredictionGridLine-top" d="M 0 20 L 100 20" />
+            <path className="ppReturnPredictionGridLine" d="M 0 50 L 100 50" />
+            <path className="ppReturnPredictionGridLine ppReturnPredictionGridLine-bottom" d="M 0 80 L 100 80" />
+            {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
+            {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
+            {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
+          </svg>
+          <div className="ppReturnPredictionAxis">
+            <span>{chart.startLabel}</span>
+            <span>Today</span>
+            <span>{chart.endLabel}</span>
+          </div>
+          <div className="ppReturnPredictionLegend">
+            <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
+            <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
+          </div>
+        </div>
+      ) : (
+        <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
+      )}
+
+      <div className={`ppReturnPredictionActionNote ppReturnPredictionActionNote-${actionCopy.tone}`}>
+        <s-icon type={actionCopy.icon} size="small"></s-icon>
+        <span>{actionCopy.detail}</span>
+      </div>
+    </section>
+  );
+}
+
+function getReturnRatePredictionChart(prediction = {}) {
+  const observed = (prediction.observedPoints || []).map((point) => ({
+    ...point,
+    value: Number(point.smoothedReturnRate || 0),
+  }));
+  const forecast = (prediction.forecastPoints || []).map((point) => ({
+    ...point,
+    value: Number(point.predictedReturnRate || 0),
+  }));
+  const allValues = [...observed, ...forecast].map((point) => point.value).filter((value) => Number.isFinite(value));
+  if (!allValues.length) {
+    return { observedPath: "", forecastPath: "", boundaryX: 0, startLabel: "", endLabel: "" };
+  }
+  const min = Math.max(0, Math.min(...allValues) - 4);
+  const max = Math.min(100, Math.max(...allValues) + 4);
+  const range = Math.max(max - min, 1);
+  const totalCount = Math.max(observed.length + forecast.length - 1, 1);
+  const mapPoint = (point, index) => ({
+    x: Math.round((index / totalCount) * 1000) / 10,
+    y: Math.round((92 - ((point.value - min) / range) * 84) * 10) / 10,
+  });
+  const observedChartPoints = observed.map((point, index) => mapPoint(point, index));
+  const forecastOffset = Math.max(observed.length - 1, 0);
+  const forecastChartPoints = forecast.map((point, index) => mapPoint(point, forecastOffset + index + 1));
+  const boundaryX = observedChartPoints.length ? observedChartPoints[observedChartPoints.length - 1].x : 0;
+  const startLabel = observed[0]?.label || observed[0]?.key || "";
+  const endLabel = forecast[forecast.length - 1]?.label || forecast[forecast.length - 1]?.key || "";
+  return {
+    observedPath: buildSmoothSvgPath(observedChartPoints),
+    forecastPath: buildSmoothSvgPath(boundaryX && forecastChartPoints.length ? [observedChartPoints[observedChartPoints.length - 1], ...forecastChartPoints] : forecastChartPoints),
+    boundaryX,
+    startLabel,
+    endLabel,
+  };
+}
+
+function getReturnRatePredictionActionCopy(adjustment = null) {
+  if (!adjustment) {
+    return {
+      tone: "neutral",
+      icon: "info",
+      short: "No action adjustment",
+      detail: "Prediction uses return history only because no recommendation status was available for this product.",
+    };
+  }
+  const pending = Number(adjustment.pending || 0);
+  const applied = Number(adjustment.applied || 0);
+  const reviewed = Number(adjustment.reviewed || 0);
+  const dismissed = Number(adjustment.dismissed || 0);
+  if (adjustment.direction === "improving") {
+    return {
+      tone: "improving",
+      icon: "check",
+      short: "Improved by handled actions",
+      detail: `${applied} applied and ${reviewed} reviewed recommendations reduce the projected return-rate path.`,
+    };
+  }
+  if (adjustment.direction === "worsening") {
+    return {
+      tone: "worsening",
+      icon: "alert-circle",
+      short: "Worse with open actions",
+      detail: `${pending} open recommendation${pending === 1 ? "" : "s"} remain unresolved, so the forecast keeps more return-rate pressure. ${dismissed ? `${dismissed} dismissed action${dismissed === 1 ? "" : "s"} treated as neutral.` : ""}`.trim(),
+    };
+  }
+  return {
+    tone: "neutral",
+    icon: "info",
+    short: "Neutral action impact",
+    detail: "Recommendation status does not materially change the projected return-rate path.",
+  };
+}
+
+function getReturnRatePredictionConfidenceTone(confidence) {
+  const normalized = String(confidence || "").toLowerCase();
+  if (normalized.includes("high")) return "success";
+  if (normalized.includes("medium")) return "warning";
+  if (normalized.includes("low")) return "info";
+  return "neutral";
 }
 
 function OrderActivityStat({ label, value, detail, tone }) {

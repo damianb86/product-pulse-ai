@@ -82,6 +82,7 @@ function buildHistoryMetrics(snapshot = {}) {
     revenueAtRisk: nullableNumber(metrics.revenueAtRisk),
     financialExposure: nullableNumber(metrics.financialExposure || metrics.estimatedImpact),
     priorityScore: nullableInteger(metrics.priorityScore),
+    returnRatePrediction: metrics.returnRatePrediction?.summary || null,
     sourceCoverage: snapshot.sourceCoverage || null,
   };
 }

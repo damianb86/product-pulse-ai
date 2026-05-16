@@ -614,6 +614,55 @@ describe("ProductPulse screens", () => {
     expect(within(orderPanel).getByText("May")).toBeInTheDocument();
   });
 
+  it("renders return-rate prediction for product diagnosis", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        returnRatePrediction: {
+          granularity: "weekly",
+          windowDays: 90,
+          observedPoints: [
+            { key: "2026-04-06", label: "Apr 6", orders: 8, returnedOrders: 1, smoothedReturnRate: 12.5 },
+            { key: "2026-04-13", label: "Apr 13", orders: 9, returnedOrders: 2, smoothedReturnRate: 18.2 },
+            { key: "2026-04-20", label: "Apr 20", orders: 7, returnedOrders: 2, smoothedReturnRate: 21.4 },
+          ],
+          forecastPoints: [
+            { key: "2026-05-18", label: "May 18", predictedReturnRate: 19.8, basePredictedReturnRate: 20 },
+            { key: "2026-05-25", label: "May 25", predictedReturnRate: 18.9, basePredictedReturnRate: 19.4 },
+          ],
+          summary: {
+            totalOrders: 24,
+            totalReturnedOrders: 5,
+            totalReturnRate: 20.83,
+            last60DayReturnRate: 19.5,
+            last30DayReturnRate: 22.2,
+            forecastNext90ReturnRate: 19.35,
+            confidence: "Medium",
+          },
+          actionAdjustment: {
+            pending: 0,
+            applied: 1,
+            reviewed: 1,
+            dismissed: 0,
+            direction: "improving",
+          },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const predictionPanel = container.querySelector(".ppProductReturnPredictionPanel");
+
+    expect(predictionPanel).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("Return rate prediction")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("Total return rate")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("Last 60 days")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("Last 30 days")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("Next 3 months")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("Medium confidence")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText(/reduce the projected return-rate path/)).toBeInTheDocument();
+  });
+
   it("labels product risk as improving when saved risk history trends downward", () => {
     const product = {
       ...defaultView.startHere,

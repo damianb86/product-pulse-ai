@@ -2097,6 +2097,7 @@ s-page[inline-size="large-500"] {
 .ppProductDetailOverviewCard,
 .ppProductEvidenceSummaryPanel,
 .ppProductOrderActivityPanel,
+.ppProductReturnPredictionPanel,
 .ppProductRiskHistoryPanel {
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
@@ -3404,14 +3405,188 @@ s-page[inline-size="large-500"] {
   background: var(--pp-risk-red);
 }
 
+.ppProductReturnPredictionPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.ppReturnPredictionHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ppReturnPredictionHeader > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppReturnPredictionHeader span {
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppReturnPredictionHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.ppReturnPredictionHeader p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppReturnPredictionStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppReturnPredictionChartWrap {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 10% 8%, rgba(var(--pp-pulse-blue-rgb), 0.1), transparent 34%),
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
+}
+
+.ppReturnPredictionChart {
+  width: 100%;
+  height: 230px;
+  overflow: visible;
+}
+
+.ppReturnPredictionGridLine {
+  fill: none;
+  stroke: rgba(100, 116, 139, 0.18);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppReturnPredictionGridLine-top,
+.ppReturnPredictionGridLine-bottom {
+  stroke: rgba(100, 116, 139, 0.12);
+}
+
+.ppReturnPredictionBoundary {
+  fill: none;
+  stroke: rgba(var(--pp-slate-500-rgb), 0.38);
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppReturnPredictionObserved,
+.ppReturnPredictionForecast {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppReturnPredictionObserved {
+  stroke: var(--pp-pulse-blue);
+}
+
+.ppReturnPredictionForecast {
+  stroke: var(--pp-insight-violet);
+  stroke-dasharray: 6 6;
+}
+
+.ppReturnPredictionAxis,
+.ppReturnPredictionLegend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppReturnPredictionLegend {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.ppReturnPredictionLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ppReturnPredictionLegend i {
+  width: 22px;
+  height: 3px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.ppReturnPredictionLegendObserved {
+  background: var(--pp-pulse-blue);
+}
+
+.ppReturnPredictionLegendForecast {
+  background: repeating-linear-gradient(90deg, var(--pp-insight-violet) 0 7px, transparent 7px 12px);
+}
+
+.ppReturnPredictionActionNote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.ppReturnPredictionActionNote-improving {
+  border-color: rgba(var(--pp-signal-teal-rgb), 0.24);
+  background: rgba(var(--pp-signal-teal-rgb), 0.08);
+  color: #0f766e;
+}
+
+.ppReturnPredictionActionNote-worsening {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.26);
+  background: rgba(var(--pp-warning-amber-rgb), 0.1);
+  color: #92400e;
+}
+
+.ppReturnPredictionActionNote-neutral {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
+}
+
 @media (max-width: 1180px) {
-  .ppOrderActivitySummary {
+  .ppOrderActivitySummary,
+  .ppReturnPredictionStats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 760px) {
-  .ppOrderActivityHeader {
+  .ppOrderActivityHeader,
+  .ppReturnPredictionHeader {
     display: grid;
   }
 

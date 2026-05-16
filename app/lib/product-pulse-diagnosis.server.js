@@ -17,6 +17,8 @@ const MAX_ORDER_PAGES = 12;
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
 const MONTHLY_ORDER_ACTIVITY_MAX_MONTHS = 12;
+const RETURN_RATE_PREDICTION_MAX_WEEKS = 52;
+const RETURN_RATE_PREDICTION_FORECAST_WEEKS = 13;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
@@ -62,6 +64,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       refundUnits: deterministic.metrics.refundUnits,
       refundAmount: deterministic.metrics.refundAmount,
       monthlyOrderActivity: deterministic.metrics.monthlyOrderActivity?.summary || null,
+      returnRatePrediction: deterministic.metrics.returnRatePrediction?.summary || null,
       reviewCount: deterministic.metrics.reviewCount,
       negativeReviewCount: deterministic.metrics.negativeReviewCount,
       customerTextSignals: deterministic.metrics.textInsights?.sentiment?.total || 0,
@@ -1510,6 +1513,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const textInsights = buildCustomerTextInsights({ returns, reviews });
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
   const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
+  const returnRatePrediction = buildReturnRatePrediction({ sales, returns, windowDays });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
@@ -1649,6 +1653,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundAmount,
       refundInsights,
       monthlyOrderActivity,
+      returnRatePrediction,
       returnUnits,
       refundUnits,
       soldUnits,
@@ -5899,9 +5904,227 @@ function buildMonthlyOrderActivity({
       totalRefundAmount: roundCurrency(summary.totalRefundAmount),
       returnRate: roundRate(summary.totalOrders ? (summary.totalReturnedOrders / summary.totalOrders) * 100 : 0),
       refundRate: roundRate(summary.totalOrders ? (summary.totalRefundedOrders / summary.totalOrders) * 100 : 0),
-      maxOrders: Math.max(summary.maxOrders, 1),
+    maxOrders: Math.max(summary.maxOrders, 1),
     },
   };
+}
+
+function buildReturnRatePrediction({
+  sales = [],
+  returns = [],
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  now = new Date(),
+} = {}) {
+  const currentDate = parseValidDate(now) || new Date();
+  const safeWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const sinceDate = new Date(currentDate.getTime() - safeWindowDays * 24 * 60 * 60 * 1000);
+  const weekStarts = getWeekStartsBetween(startOfUtcWeek(sinceDate), startOfUtcWeek(currentDate))
+    .slice(-RETURN_RATE_PREDICTION_MAX_WEEKS);
+  const buckets = new Map(weekStarts.map((date) => [formatUtcDateKey(date), createReturnRateWeekBucket(date)]));
+  const orderWeekById = new Map();
+
+  sales.forEach((event, index) => {
+    const weekKey = getEventWeekKey(event.createdAt);
+    if (!buckets.has(weekKey)) return;
+    if (event.orderId) orderWeekById.set(event.orderId, weekKey);
+    const bucket = buckets.get(weekKey);
+    const orderKey = event.orderId || event.id || `sale:${index}:${weekKey}`;
+    bucket.orderIds.add(orderKey);
+    bucket.orderUnits += Number(event.quantity || 0);
+  });
+
+  returns.forEach((event, index) => {
+    const weekKey = getOperationalEventWeekKey(event, orderWeekById);
+    const bucket = buckets.get(weekKey);
+    if (!bucket) return;
+    const orderKey = event.orderId || event.id || `return:${index}:${weekKey}`;
+    bucket.returnOrderIds.add(orderKey);
+    bucket.returnedUnits += Number(event.quantity || event.processedQuantity || event.refundedQuantity || 0);
+  });
+
+  const rawPoints = [...buckets.values()].map(normalizeReturnRateWeekBucket);
+  const totalOrders = rawPoints.reduce((total, point) => total + point.orders, 0);
+  const totalReturnedOrders = rawPoints.reduce((total, point) => total + point.returnedOrders, 0);
+  const totalOrderUnits = rawPoints.reduce((total, point) => total + point.orderUnits, 0);
+  const totalReturnedUnits = rawPoints.reduce((total, point) => total + point.returnedUnits, 0);
+  const totalReturnRate = roundRate(totalOrders ? (totalReturnedOrders / totalOrders) * 100 : 0);
+  const observedPoints = buildSmoothedReturnRatePoints(rawPoints, totalReturnRate);
+  const forecastPoints = totalOrders ? buildReturnRateForecastPoints({
+    observedPoints,
+    totalReturnRate,
+    currentDate,
+  }) : [];
+  const forecastNext90ReturnRate = roundRate(average(forecastPoints.map((point) => point.predictedReturnRate)));
+  const last30DayReturnRate = calculateReturnRateForRecentDays(rawPoints, currentDate, 30);
+  const last60DayReturnRate = calculateReturnRateForRecentDays(rawPoints, currentDate, 60);
+
+  return {
+    source: "shopify_returns_deep_diagnosis",
+    granularity: "weekly",
+    windowDays: safeWindowDays,
+    generatedAt: toIso(currentDate),
+    observedPoints,
+    forecastPoints,
+    summary: {
+      totalOrders,
+      totalReturnedOrders,
+      totalOrderUnits,
+      totalReturnedUnits,
+      totalReturnRate,
+      last30DayReturnRate,
+      last60DayReturnRate,
+      forecastNext90ReturnRate,
+      forecastWeeks: forecastPoints.length,
+      predictionHorizonDays: 91,
+      confidence: getReturnRatePredictionConfidence({ totalOrders, observedPoints }),
+    },
+    model: {
+      method: "weekly_bayesian_rolling_trend_with_seasonality",
+      forecastWeeks: RETURN_RATE_PREDICTION_FORECAST_WEEKS,
+      usesSeasonality: hasReturnRateSeasonalitySignal(observedPoints),
+      notes: [
+        "Observed points are weekly order cohorts smoothed with a Bayesian prior.",
+        "Returns are assigned to the original order week when the Shopify order ID is present.",
+        "Future points blend recent trend, full-window baseline and same-month historical behavior when available.",
+      ],
+    },
+  };
+}
+
+function createReturnRateWeekBucket(date) {
+  return {
+    key: formatUtcDateKey(date),
+    label: formatWeekLabel(date),
+    startAt: toIso(date),
+    orderIds: new Set(),
+    returnOrderIds: new Set(),
+    orderUnits: 0,
+    returnedUnits: 0,
+  };
+}
+
+function normalizeReturnRateWeekBucket(bucket) {
+  const orders = bucket.orderIds.size;
+  const returnedOrders = bucket.returnOrderIds.size;
+  return {
+    key: bucket.key,
+    label: bucket.label,
+    startAt: bucket.startAt,
+    orders,
+    orderUnits: bucket.orderUnits,
+    returnedOrders,
+    returnedUnits: bucket.returnedUnits,
+    rawReturnRate: orders ? roundRate((returnedOrders / orders) * 100) : null,
+  };
+}
+
+function buildSmoothedReturnRatePoints(rawPoints = [], totalReturnRate = 0) {
+  const priorRate = clamp(totalReturnRate / 100, 0, 1);
+  const priorStrength = 4;
+  let previousRate = totalReturnRate;
+
+  return rawPoints.map((point, index) => {
+    const rolling = rawPoints.slice(Math.max(0, index - 2), index + 1);
+    const rollingOrders = rolling.reduce((total, item) => total + item.orders, 0);
+    const rollingReturns = rolling.reduce((total, item) => total + item.returnedOrders, 0);
+    const smoothedRate = rollingOrders
+      ? roundRate(((rollingReturns + priorStrength * priorRate) / (rollingOrders + priorStrength)) * 100)
+      : roundRate(previousRate);
+    previousRate = smoothedRate;
+    return {
+      ...point,
+      kind: "observed",
+      rollingOrders,
+      rollingReturnedOrders: rollingReturns,
+      smoothedReturnRate: smoothedRate,
+    };
+  });
+}
+
+function buildReturnRateForecastPoints({ observedPoints = [], totalReturnRate = 0, currentDate = new Date() } = {}) {
+  const values = observedPoints.map((point) => Number(point.smoothedReturnRate)).filter((value) => Number.isFinite(value));
+  if (values.length < 2) return [];
+
+  const currentRate = values[values.length - 1];
+  const recentValues = values.slice(-4);
+  const previousValues = values.slice(-8, -4);
+  const recentAvg = average(recentValues);
+  const previousAvg = previousValues.length ? average(previousValues) : values[0];
+  const recentOrderAvg = average(observedPoints.slice(-4).map((point) => point.orders));
+  const sampleWeight = clamp(recentOrderAvg / 8, 0.25, 1);
+  const weeklySlope = clamp(((recentAvg - previousAvg) / Math.max(recentValues.length, 1)) * sampleWeight, -3, 3);
+  const seasonalRates = buildReturnRateSeasonalityRates(observedPoints);
+  const startDate = addUtcDays(startOfUtcWeek(currentDate), 7);
+  const forecastPoints = [];
+  let previousPrediction = currentRate;
+
+  for (let index = 0; index < RETURN_RATE_PREDICTION_FORECAST_WEEKS; index += 1) {
+    const date = addUtcDays(startDate, index * 7);
+    const horizon = (index + 1) / RETURN_RATE_PREDICTION_FORECAST_WEEKS;
+    const dampedTrend = currentRate + weeklySlope * (index + 1) * (1 - horizon * 0.48);
+    const seasonalRate = seasonalRates.get(date.getUTCMonth()) ?? totalReturnRate;
+    const target = (dampedTrend * 0.58) + (seasonalRate * 0.18) + (totalReturnRate * 0.24);
+    const easing = 0.34 + horizon * 0.18;
+    const predictedReturnRate = clamp(previousPrediction + (target - previousPrediction) * easing, 0, 100);
+    previousPrediction = predictedReturnRate;
+    forecastPoints.push({
+      kind: "forecast",
+      key: formatUtcDateKey(date),
+      label: formatWeekLabel(date),
+      startAt: toIso(date),
+      predictedReturnRate: roundRate(predictedReturnRate),
+      baselineReturnRate: roundRate(totalReturnRate),
+      seasonalReturnRate: roundRate(seasonalRate),
+      trendSlope: roundRate(weeklySlope, 3),
+    });
+  }
+
+  return forecastPoints;
+}
+
+function buildReturnRateSeasonalityRates(observedPoints = []) {
+  const byMonth = new Map();
+  observedPoints.forEach((point) => {
+    const date = parseValidDate(point.startAt);
+    const orders = Number(point.orders || 0);
+    if (!date || !orders) return;
+    const month = date.getUTCMonth();
+    const current = byMonth.get(month) || { orders: 0, returns: 0 };
+    current.orders += orders;
+    current.returns += Number(point.returnedOrders || 0);
+    byMonth.set(month, current);
+  });
+
+  return new Map([...byMonth.entries()]
+    .filter(([, value]) => value.orders > 0)
+    .map(([month, value]) => [month, roundRate((value.returns / value.orders) * 100)]));
+}
+
+function hasReturnRateSeasonalitySignal(observedPoints = []) {
+  const monthSet = new Set(observedPoints
+    .map((point) => parseValidDate(point.startAt))
+    .filter(Boolean)
+    .map((date) => date.getUTCMonth()));
+  return monthSet.size >= 6;
+}
+
+function calculateReturnRateForRecentDays(points = [], currentDate = new Date(), days = 30) {
+  const since = new Date(currentDate.getTime() - days * 24 * 60 * 60 * 1000);
+  const recent = points.filter((point) => {
+    const date = parseValidDate(point.startAt);
+    return date && date.getTime() >= since.getTime() && date.getTime() <= currentDate.getTime();
+  });
+  const orders = recent.reduce((total, point) => total + Number(point.orders || 0), 0);
+  const returns = recent.reduce((total, point) => total + Number(point.returnedOrders || 0), 0);
+  return roundRate(orders ? (returns / orders) * 100 : 0);
+}
+
+function getReturnRatePredictionConfidence({ totalOrders = 0, observedPoints = [] } = {}) {
+  const activeWeeks = observedPoints.filter((point) => point.orders > 0).length;
+  if (totalOrders >= 80 && activeWeeks >= 12) return "High";
+  if (totalOrders >= 25 && activeWeeks >= 6) return "Medium";
+  if (totalOrders > 0) return "Low";
+  return "Unavailable";
 }
 
 function createMonthlyOrderActivityBucket(date) {
@@ -5948,9 +6171,19 @@ function getOperationalEventMonthKey(event, orderMonthById) {
   return getEventMonthKey(event?.createdAt || event?.processedAt || event?.updatedAt);
 }
 
+function getOperationalEventWeekKey(event, orderWeekById) {
+  if (event?.orderId && orderWeekById.has(event.orderId)) return orderWeekById.get(event.orderId);
+  return getEventWeekKey(event?.createdAt || event?.processedAt || event?.updatedAt);
+}
+
 function getEventMonthKey(value) {
   const date = parseValidDate(value);
   return date ? formatUtcMonthKey(date) : "";
+}
+
+function getEventWeekKey(value) {
+  const date = parseValidDate(value);
+  return date ? formatUtcDateKey(startOfUtcWeek(date)) : "";
 }
 
 function getMonthStartsBetween(startDate, endDate) {
@@ -5964,17 +6197,47 @@ function getMonthStartsBetween(startDate, endDate) {
   return months;
 }
 
+function getWeekStartsBetween(startDate, endDate) {
+  const weeks = [];
+  let cursor = startOfUtcWeek(startDate);
+  const end = startOfUtcWeek(endDate);
+  while (cursor.getTime() <= end.getTime()) {
+    weeks.push(cursor);
+    cursor = addUtcDays(cursor, 7);
+  }
+  return weeks;
+}
+
 function startOfUtcMonth(value) {
   const date = parseValidDate(value) || new Date();
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+function startOfUtcWeek(value) {
+  const date = parseValidDate(value) || new Date();
+  const day = date.getUTCDay();
+  const mondayOffset = (day + 6) % 7;
+  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  start.setUTCDate(start.getUTCDate() - mondayOffset);
+  return start;
 }
 
 function addUtcMonths(date, count) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + count, 1));
 }
 
+function addUtcDays(date, count) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + count);
+  return next;
+}
+
 function formatUtcMonthKey(date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatUtcDateKey(date) {
+  return date.toISOString().slice(0, 10);
 }
 
 function formatUtcMonthLabel(date) {
@@ -5983,6 +6246,10 @@ function formatUtcMonthLabel(date) {
 
 function formatUtcMonthShortLabel(date) {
   return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(date);
+}
+
+function formatWeekLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
 }
 
 function parseValidDate(value) {
@@ -5999,6 +6266,12 @@ function preferFreshNumber(fresh, fallback) {
 
 function sumBy(items, field) {
   return items.reduce((total, item) => total + Number(item[field] || 0), 0);
+}
+
+function average(values) {
+  const numbers = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
+  if (!numbers.length) return 0;
+  return numbers.reduce((total, value) => total + value, 0) / numbers.length;
 }
 
 function roundRate(value, decimals = 2) {
@@ -6398,6 +6671,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildCustomerTextInsights,
   calculateDeterministicDiagnosis,
   buildMonthlyOrderActivity,
+  buildReturnRatePrediction,
   buildRefundOperationalInsights,
   calculateConfidence,
   calculateRiskScore,
