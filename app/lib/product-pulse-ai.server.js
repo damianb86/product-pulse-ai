@@ -93,18 +93,43 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     summary: "No emergent customer sentiments were detected.",
   });
 
-  const gapPrompt = buildContentGapPrompt(input, classification);
-  const gapResponse = await generateAiText({
-    shop,
-    jobId,
-    task: "content_gap",
-    prompt: gapPrompt,
-  });
-  const contentGaps = parseAiJson(gapResponse.text, {
-    missing: [],
-    present: [],
-    notes: "AI PDP content-gap analysis was unavailable.",
-  });
+  const cachedContentGaps = input?.incremental?.productContent?.cachedContentGaps || null;
+  let gapResponse = null;
+  let contentGaps = null;
+  if (cachedContentGaps) {
+    contentGaps = cachedContentGaps;
+    gapResponse = {
+      provider: "cache",
+      model: "previous-product-content-analysis",
+      task: "content_gap",
+      text: JSON.stringify(cachedContentGaps),
+    };
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "product_diagnosis.content_gap_reused",
+      message: "Reused previous product content-gap analysis because Shopify product content has not changed since the last deep diagnosis.",
+      data: {
+        provider: "cache",
+        task: "content_gap",
+        previousCompletedAt: input?.incremental?.previousCompletedAt || null,
+        productUpdatedAt: input?.incremental?.productContent?.productUpdatedAt || null,
+      },
+    });
+  } else {
+    const gapPrompt = buildContentGapPrompt(input, classification);
+    gapResponse = await generateAiText({
+      shop,
+      jobId,
+      task: "content_gap",
+      prompt: gapPrompt,
+    });
+    contentGaps = parseAiJson(gapResponse.text, {
+      missing: [],
+      present: [],
+      notes: "AI PDP content-gap analysis was unavailable.",
+    });
+  }
 
   const reportPrompt = buildFinalReportPrompt(input, classification, contentGaps, emergentSentiments);
   const reportResponse = await generateAiText({
@@ -164,6 +189,7 @@ function buildSignalClassificationPrompt(input) {
   const snippets = JSON.stringify(input?.evidenceSnippets || [], null, 2);
   const metrics = JSON.stringify(input?.deterministic || {}, null, 2);
   const product = JSON.stringify(input?.product || {}, null, 2);
+  const incremental = JSON.stringify(input?.incremental || null, null, 2);
   const sentimentTaxonomy = JSON.stringify(PREDEFINED_CUSTOMER_SENTIMENTS, null, 2);
 
   return [
@@ -247,6 +273,9 @@ function buildSignalClassificationPrompt(input) {
     }, null, 2),
     "Product:",
     product,
+    "Incremental diagnosis context:",
+    incremental,
+    "If this is an incremental diagnosis, evidence snippets contain only newly changed evidence since the previous deep diagnosis. Use deterministic aggregate metrics for full-window totals, and do not invent old snippets that are not supplied.",
     "Deterministic metrics, already calculated by the system:",
     metrics,
     "Evidence snippets:",

@@ -730,6 +730,160 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("reuses cached customer text analysis and only analyzes new text on incremental deep diagnosis", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const product = {
+      id: "gid://shopify/Product/123",
+      numericId: "123",
+      title: "Night Watch Print",
+      handle: "night-watch-print",
+      updatedAt: daysAgo(10),
+      description: "Museum-inspired wall art printed on canvas with a dark palette and framed finish for home decor.",
+      variants: [],
+      tags: ["art", "canvas"],
+      collections: ["Art prints"],
+    };
+    const snapshot = {
+      productGid: "gid://shopify/Product/123",
+      productTitle: "Night Watch Print",
+      handle: "night-watch-print",
+      primaryIssue: "Product quality",
+      metrics: {},
+    };
+    const oldReturn = {
+      id: "return-old",
+      reason: "OTHER",
+      reasonNote: "Scary and unsettling on the wall.",
+      quantity: 1,
+      createdAt: daysAgo(9),
+    };
+    const oldReview = {
+      id: "review-old",
+      title: "Too creepy",
+      body: "It feels scary in the room.",
+      rating: 1,
+      createdAt: daysAgo(8),
+    };
+    const first = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: { product, sales: [], refunds: [], returns: [oldReturn], orderAccessDenied: false },
+      judgeMeData: { connected: true, reviews: [oldReview], matchConfidence: 1 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+    const cutoff = daysAgo(3);
+    const newReturn = {
+      id: "return-new",
+      reason: "OTHER",
+      reasonNote: "The print arrived darker than expected.",
+      quantity: 1,
+      createdAt: daysAgo(1),
+    };
+    const newReview = {
+      id: "review-new",
+      title: "Too dark",
+      body: "The image is much darker than expected.",
+      rating: 2,
+      createdAt: daysAgo(1),
+    };
+
+    const second = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        ...snapshot,
+        metrics: {
+          ...first.metrics,
+          lastDetailedDiagnosisAt: cutoff,
+        },
+      },
+      shopifyData: { product, sales: [], refunds: [], returns: [oldReturn, newReturn], orderAccessDenied: false },
+      judgeMeData: { connected: true, reviews: [oldReview, newReview], matchConfidence: 1 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+
+    expect(second.metrics.incrementalDiagnosis.mode).toBe("incremental");
+    expect(second.metrics.incrementalDiagnosis.productContent.reused).toBe(true);
+    expect(second.metrics.incrementalDiagnosis.customerText.mode).toBe("incremental");
+    expect(second.metrics.incrementalDiagnosis.customerText.reusedItems).toBe(2);
+    expect(second.metrics.incrementalDiagnosis.customerText.analyzedItems).toBe(2);
+    expect(second.metrics.textInsights.sentiment.total).toBe(4);
+    expect(second.metrics.textInsights.returns.total).toBe(2);
+    expect(second.metrics.textInsights.reviews.total).toBe(2);
+    expect(second.evidenceSnippets.map((snippet) => snippet.text).join(" ")).toContain("darker than expected");
+    expect(second.evidenceSnippets.map((snippet) => snippet.text).join(" ")).not.toContain("scary in the room");
+  });
+
+  it("reuses product content analysis until Shopify product content changes", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/321",
+      productTitle: "Compact Desk Lamp",
+      handle: "compact-desk-lamp",
+      primaryIssue: "Product content",
+      metrics: {},
+    };
+    const product = {
+      id: snapshot.productGid,
+      numericId: "321",
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      updatedAt: daysAgo(12),
+      description: "Small lamp.",
+      variants: [],
+      tags: ["lamp"],
+      collections: ["Lighting"],
+    };
+    const first = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: { product, sales: [], refunds: [], returns: [], orderAccessDenied: false },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+    const cutoff = daysAgo(3);
+    const unchanged = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        ...snapshot,
+        metrics: {
+          ...first.metrics,
+          lastDetailedDiagnosisAt: cutoff,
+        },
+      },
+      shopifyData: { product, sales: [], refunds: [], returns: [], orderAccessDenied: false },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+    const changed = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        ...snapshot,
+        metrics: {
+          ...first.metrics,
+          lastDetailedDiagnosisAt: cutoff,
+        },
+      },
+      shopifyData: {
+        product: {
+          ...product,
+          updatedAt: daysAgo(1),
+          description: "Compact desk lamp with adjustable brightness, USB power, warm light mode, included cable, and clear dimensions for bedside or office use.",
+        },
+        sales: [],
+        refunds: [],
+        returns: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+
+    expect(unchanged.metrics.incrementalDiagnosis.productContent.reused).toBe(true);
+    expect(unchanged.metrics.descriptionWordCount).toBe(first.metrics.descriptionWordCount);
+    expect(changed.metrics.incrementalDiagnosis.productContent.reused).toBe(false);
+    expect(changed.metrics.descriptionWordCount).toBeGreaterThan(first.metrics.descriptionWordCount);
+  });
+
   it("builds monthly Shopify order activity by original order month", () => {
     const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
       now: "2026-05-16T12:00:00.000Z",

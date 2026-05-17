@@ -55,6 +55,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     deterministic: buildAiDeterministicInput(deterministic),
     evidenceSnippets: deterministic.evidenceSnippets,
     recommendationCandidates,
+    incremental: buildAiIncrementalDiagnosisInput(deterministic),
   };
 
   await recordJobLog({
@@ -88,6 +89,14 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       estimatedImpact: deterministic.estimatedImpact,
       mainIssue: deterministic.mainIssue,
       sourceCoverage: deterministic.sourceCoverage,
+      incrementalDiagnosis: {
+        mode: deterministic.metrics.incrementalDiagnosis?.mode || "full",
+        previousCompletedAt: deterministic.metrics.incrementalDiagnosis?.previousCompletedAt || null,
+        productContent: deterministic.metrics.incrementalDiagnosis?.productContent || null,
+        customerText: deterministic.metrics.incrementalDiagnosis?.customerText || null,
+        refunds: deterministic.metrics.incrementalDiagnosis?.refunds || null,
+        aiEvidenceSnippetCount: deterministic.metrics.incrementalDiagnosis?.aiEvidenceSnippetCount || deterministic.evidenceSnippets.length,
+      },
     },
   });
 
@@ -294,6 +303,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
             title
             handle
             createdAt
+            updatedAt
             description
             descriptionHtml
             vendor
@@ -386,6 +396,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
           title
           handle
           createdAt
+          updatedAt
           description
           descriptionHtml
           vendor
@@ -1556,6 +1567,8 @@ async function fetchAndMatchJudgeMeReviews({ shop, token, snapshot, shopifyProdu
 
 function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 }, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, momentumCatalogBaseline = null }) {
   const snapshotMetrics = snapshot.metrics || {};
+  const previousIncrementalCache = snapshotMetrics.incrementalDiagnosis?.cache || {};
+  const previousDetailedDiagnosisAt = snapshotMetrics.lastDetailedDiagnosisAt || snapshotMetrics.latestDiagnosisAt || null;
   const product = shopifyData.product;
   const sales = shopifyData.sales || [];
   const refunds = shopifyData.refunds || [];
@@ -1584,9 +1597,31 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     normalizeRefundReasonLabel(item.restockType),
   ]).filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 4);
   const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
-  const deterministicContent = analyzeProductContentDeterministically(product);
-  const textInsights = buildCustomerTextInsights({ returns, reviews });
-  const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
+  const productContentState = resolveProductContentAnalysisState({
+    product,
+    previousCache: previousIncrementalCache.productContent,
+    cutoffAt: previousDetailedDiagnosisAt,
+  });
+  const deterministicContent = productContentState.deterministicContent;
+  const customerTextState = buildIncrementalCustomerTextInsights({
+    returns,
+    reviews,
+    previousCache: previousIncrementalCache.customerText,
+    cutoffAt: previousDetailedDiagnosisAt,
+    windowDays,
+  });
+  const textInsights = customerTextState.textInsights;
+  const refundTextState = buildIncrementalRefundOperationalInsights({
+    refunds,
+    refundRate,
+    soldUnits,
+    refundUnits,
+    refundAmount,
+    previousCache: previousIncrementalCache.refunds,
+    cutoffAt: previousDetailedDiagnosisAt,
+    windowDays,
+  });
+  const refundInsights = refundTextState.refundInsights;
   const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
   const returnRatePrediction = buildReturnRatePrediction({ sales, returns, windowDays });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
@@ -1600,7 +1635,11 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const signalTrendResult = buildDatedSignalTrend(signalEvents, trendOptions);
   const signalTrend = signalTrendResult.values;
   const issueSignalTrends = buildIssueTrendMap(signalEvents, trendOptions);
-  const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
+  const issueSignalCounts = buildIssueSignalCountsFromAnalysis({
+    customerTextCache: customerTextState.cache,
+    refundTextCache: refundTextState.cache,
+    fallback: { returns, refunds, reviews: negativeReviews },
+  });
   applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights);
   const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + count, 0);
   deterministicContent.issues.forEach((issue) => {
@@ -1700,7 +1739,20 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     currentImpactFactors: estimatedImpact,
     currentMainIssue: mainIssue,
   });
-  const evidenceSnippets = buildEvidenceSnippets({ returns, refunds, reviews: negativeReviews, product });
+  const evidenceSnippetInputs = buildIncrementalEvidenceSnippetInputs({
+    returns,
+    refunds,
+    negativeReviews,
+    productContentState,
+    customerTextState,
+    refundTextState,
+  });
+  const evidenceSnippets = buildEvidenceSnippets({
+    returns: evidenceSnippetInputs.returns,
+    refunds: evidenceSnippetInputs.refunds,
+    reviews: evidenceSnippetInputs.reviews,
+    product,
+  });
 
   return {
     product,
@@ -1826,6 +1878,46 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       csvReviewMatchConfidence: csvReviewData.matchConfidence,
       orderAccessDenied: shopifyData.orderAccessDenied,
       sourceCoverage,
+      incrementalDiagnosis: {
+        schemaVersion: 1,
+        mode: getOverallIncrementalMode({ productContentState, customerTextState, refundTextState, previousDetailedDiagnosisAt }),
+        previousCompletedAt: toIso(previousDetailedDiagnosisAt),
+        cutoffAt: toIso(previousDetailedDiagnosisAt),
+        productContent: {
+          mode: productContentState.reused ? "reused" : "analyzed",
+          reused: productContentState.reused,
+          changed: productContentState.changed,
+          signature: productContentState.signature,
+          productUpdatedAt: productContentState.productUpdatedAt,
+          reason: productContentState.reason,
+          canReuseContentGaps: productContentState.reused && Boolean(productContentState.cachedContentGaps),
+        },
+        customerText: {
+          mode: customerTextState.mode,
+          analyzedItems: customerTextState.analyzedItems,
+          reusedItems: customerTextState.reusedItems,
+          totalItems: (customerTextState.cache.returnItems || []).length + (customerTextState.cache.reviewItems || []).length,
+          reason: customerTextState.reason,
+        },
+        refunds: {
+          mode: refundTextState.mode,
+          analyzedItems: refundTextState.analyzedItems,
+          reusedItems: refundTextState.reusedItems,
+          totalItems: (refundTextState.cache.items || []).length,
+          reason: refundTextState.reason,
+        },
+        aiEvidenceSnippetCount: evidenceSnippets.length,
+        cache: {
+          productContent: {
+            signature: productContentState.signature,
+            productUpdatedAt: productContentState.productUpdatedAt,
+            deterministicContent: productContentState.deterministicContent,
+            contentGaps: productContentState.cachedContentGaps || null,
+          },
+          customerText: customerTextState.cache,
+          refunds: refundTextState.cache,
+        },
+      },
     },
     issueSignalCounts,
     evidenceSnippets,
@@ -2250,8 +2342,13 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const recommendations = buildFinalRecommendations({ snapshot, deterministic: scoredDeterministic, ai, mainIssue });
   const issues = buildFinalIssues({ deterministic: scoredDeterministic, ai, mainIssue, recommendations });
   const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, judgeMeData, csvReviewData, shopifyData });
+  const incrementalDiagnosis = buildPersistedIncrementalDiagnosisState({
+    runtimeState: scoredDeterministic.metrics.incrementalDiagnosis,
+    aiContentGaps: ai.contentGaps,
+  });
   const metrics = {
     ...scoredDeterministic.metrics,
+    incrementalDiagnosis,
     diagnosisReport: {
       mainFinding: adjustedMainFinding,
       evidenceSummary: adjustedMainFinding.summary,
@@ -2443,6 +2540,53 @@ function buildAiDeterministicInput(deterministic) {
       affectedVariants: deterministic.metrics.affectedVariants,
       windowDays: deterministic.metrics.windowDays,
       orderAccessDenied: deterministic.metrics.orderAccessDenied,
+      incrementalDiagnosis: sanitizeIncrementalDiagnosisForAi(deterministic.metrics.incrementalDiagnosis),
+    },
+  };
+}
+
+function buildAiIncrementalDiagnosisInput(deterministic = {}) {
+  const incremental = deterministic.metrics?.incrementalDiagnosis || null;
+  if (!incremental) return null;
+  return {
+    ...sanitizeIncrementalDiagnosisForAi(incremental),
+    productContent: {
+      ...(incremental.productContent || {}),
+      cachedContentGaps: incremental.productContent?.canReuseContentGaps
+        ? incremental.cache?.productContent?.contentGaps || null
+        : null,
+    },
+  };
+}
+
+function sanitizeIncrementalDiagnosisForAi(incremental = null) {
+  if (!incremental) return null;
+  return {
+    schemaVersion: incremental.schemaVersion || 1,
+    mode: incremental.mode || "full",
+    previousCompletedAt: incremental.previousCompletedAt || null,
+    cutoffAt: incremental.cutoffAt || null,
+    productContent: incremental.productContent || null,
+    customerText: incremental.customerText || null,
+    refunds: incremental.refunds || null,
+    aiEvidenceSnippetCount: incremental.aiEvidenceSnippetCount || 0,
+    note: incremental.mode === "incremental"
+      ? "Evidence snippets contain only newly changed evidence since the previous deep diagnosis. Aggregated deterministic metrics include reused prior analysis plus new analysis."
+      : "This diagnosis analyzed the available product data for the configured window.",
+  };
+}
+
+function buildPersistedIncrementalDiagnosisState({ runtimeState = {}, aiContentGaps = null } = {}) {
+  const cache = runtimeState.cache || {};
+  const productContentCache = cache.productContent || {};
+  return {
+    ...runtimeState,
+    cache: {
+      ...cache,
+      productContent: {
+        ...productContentCache,
+        contentGaps: aiContentGaps || productContentCache.contentGaps || null,
+      },
     },
   };
 }
@@ -5414,6 +5558,7 @@ function normalizeShopifyProduct(product, snapshot) {
     title: product.title || snapshot.productTitle,
     handle: product.handle || snapshot.handle,
     createdAt: toIso(product.createdAt),
+    updatedAt: toIso(product.updatedAt || product.createdAt),
     description: cleanProductDescription(product),
     descriptionHtml: String(product.descriptionHtml || ""),
     seoTitle: String(product.seo?.title || ""),
@@ -5444,6 +5589,7 @@ function normalizeSnapshotProduct(snapshot) {
     title: snapshot.productTitle,
     handle: snapshot.handle,
     createdAt: null,
+    updatedAt: null,
     description: "",
     descriptionHtml: "",
     seoTitle: metrics.seoTitle || "",
@@ -5802,49 +5948,63 @@ function buildIssueSignalCounts({ returns, refunds, reviews }) {
 }
 
 function buildCustomerTextInsights({ returns = [], reviews = [] }) {
-  const returnTexts = returns
-    .map((item) => {
-      const reason = String(item.reason || "").trim();
-      const noteText = [item.reasonNote, item.customerNote].filter(Boolean).join(" ");
-      const isOther = isGenericOtherReason(reason);
-      const analysisText = getReturnCustomerLanguageText(item);
-      const text = analysisText || noteText;
-      if (!analysisText.trim()) return null;
-      const issueCode = classifyIssueText(analysisText);
-      return {
-        source: "returns",
-        text,
-        analysisText,
-        reason,
-        noteText,
-        issueCode,
-        sentiment: classifyCustomerSentiment(analysisText),
-        emotion: classifyCustomerEmotion(analysisText),
-        subjectiveNegative: isSubjectiveNegativeText(analysisText),
-        createdAt: item.createdAt,
-        variant: item.variantTitle || item.sku || "",
-        isOther,
-      };
-    })
-    .filter(Boolean);
-  const reviewTexts = reviews
-    .map((review) => {
-      const text = [review.title, review.body].filter(Boolean).join(" - ");
-      if (!text.trim()) return null;
-      return {
-        source: review.sourceType || "reviews",
-        sourceLabel: review.sourceLabel || "Reviews",
-        text,
-        analysisText: text,
-        rating: Number(review.rating || 0),
-        issueCode: classifyIssueText(text),
-        sentiment: classifyCustomerSentiment(text, Number(review.rating || 0)),
-        emotion: classifyCustomerEmotion(text, Number(review.rating || 0)),
-        subjectiveNegative: isSubjectiveNegativeText(text),
-        createdAt: review.createdAt,
-      };
-    })
-    .filter(Boolean);
+  return summarizeCustomerTextAnalysisItems(buildCustomerTextAnalysisItems({ returns, reviews }));
+}
+
+function buildCustomerTextAnalysisItems({ returns = [], reviews = [] }) {
+  return {
+    returnTexts: returns.map(buildReturnTextAnalysisItem).filter(Boolean),
+    reviewTexts: reviews.map(buildReviewTextAnalysisItem).filter(Boolean),
+  };
+}
+
+function buildReturnTextAnalysisItem(item = {}) {
+  const reason = String(item.reason || "").trim();
+  const noteText = [item.reasonNote, item.customerNote].filter(Boolean).join(" ");
+  const isOther = isGenericOtherReason(reason);
+  const analysisText = getReturnCustomerLanguageText(item);
+  const text = analysisText || noteText;
+  if (!analysisText.trim()) return null;
+  const issueCode = classifyIssueText(analysisText);
+  return {
+    key: getReturnTextCacheKey(item),
+    source: "returns",
+    text,
+    analysisText,
+    reason,
+    noteText,
+    issueCode,
+    sentiment: classifyCustomerSentiment(analysisText),
+    emotion: classifyCustomerEmotion(analysisText),
+    subjectiveNegative: isSubjectiveNegativeText(analysisText),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt || item.processedAt || item.createdAt,
+    variant: item.variantTitle || item.sku || "",
+    quantity: Number(item.quantity || 1),
+    isOther,
+  };
+}
+
+function buildReviewTextAnalysisItem(review = {}) {
+  const text = [review.title, review.body].filter(Boolean).join(" - ");
+  if (!text.trim()) return null;
+  return {
+    key: getReviewTextCacheKey(review),
+    source: review.sourceType || "reviews",
+    sourceLabel: review.sourceLabel || "Reviews",
+    text,
+    analysisText: text,
+    rating: Number(review.rating || 0),
+    issueCode: classifyIssueText(text),
+    sentiment: classifyCustomerSentiment(text, Number(review.rating || 0)),
+    emotion: classifyCustomerEmotion(text, Number(review.rating || 0)),
+    subjectiveNegative: isSubjectiveNegativeText(text),
+    createdAt: review.createdAt,
+    updatedAt: review.updatedAt || review.createdAt,
+  };
+}
+
+function summarizeCustomerTextAnalysisItems({ returnTexts = [], reviewTexts = [] } = {}) {
   const allTexts = [...returnTexts, ...reviewTexts];
   const sentiment = summarizeSentiment(allTexts);
   const emotions = summarizeEmotionCounts(allTexts);
@@ -5874,30 +6034,122 @@ function buildCustomerTextInsights({ returns = [], reviews = [] }) {
   };
 }
 
+function buildIncrementalCustomerTextInsights({ returns = [], reviews = [], previousCache = {}, cutoffAt = null, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
+  const cutoff = parseValidDate(cutoffAt);
+  const previousReturnItems = normalizeCachedAnalysisItems(previousCache.returnItems);
+  const previousReviewItems = normalizeCachedAnalysisItems(previousCache.reviewItems);
+  const returnCandidates = returns.map((item) => ({
+    key: getReturnTextCacheKey(item),
+    item,
+    changedAt: item.updatedAt || item.processedAt || item.createdAt,
+    hasText: Boolean(getReturnCustomerLanguageText(item).trim()),
+  })).filter((candidate) => candidate.hasText);
+  const reviewCandidates = reviews.map((item) => ({
+    key: getReviewTextCacheKey(item),
+    item,
+    changedAt: item.updatedAt || item.createdAt,
+    hasText: Boolean([item.title, item.body].filter(Boolean).join(" - ").trim()),
+  })).filter((candidate) => candidate.hasText);
+  if (cutoff && !returnCandidates.length && !reviewCandidates.length) {
+    return {
+      textInsights: summarizeCustomerTextAnalysisItems({ returnTexts: [], reviewTexts: [] }),
+      cache: { returnItems: [], reviewItems: [] },
+      mode: "incremental",
+      analyzedItems: 0,
+      reusedItems: 0,
+      newReturnEvents: [],
+      newReviewEvents: [],
+      reason: "no_customer_text_in_window",
+    };
+  }
+  const canUseIncremental = Boolean(cutoff && previousReturnItems.length + previousReviewItems.length > 0)
+    && hasCachedCoverageForOldItems(returnCandidates, previousReturnItems, cutoff)
+    && hasCachedCoverageForOldItems(reviewCandidates, previousReviewItems, cutoff);
+
+  if (!canUseIncremental) {
+    const fullItems = buildCustomerTextAnalysisItems({ returns, reviews });
+    return {
+      textInsights: summarizeCustomerTextAnalysisItems(fullItems),
+      cache: {
+        returnItems: trimAnalysisItemsForCache(filterAnalysisItemsByLookback(fullItems.returnTexts, windowDays)),
+        reviewItems: trimAnalysisItemsForCache(filterAnalysisItemsByLookback(fullItems.reviewTexts, windowDays)),
+      },
+      mode: "full",
+      analyzedItems: fullItems.returnTexts.length + fullItems.reviewTexts.length,
+      reusedItems: 0,
+      newReturnEvents: returns,
+      newReviewEvents: reviews,
+      reason: cutoff ? "previous_cache_missing_or_incomplete" : "no_previous_cutoff",
+    };
+  }
+
+  const returnItemMap = new Map();
+  filterAnalysisItemsByLookback(previousReturnItems, windowDays)
+    .filter((item) => returnCandidates.some((candidate) => candidate.key === item.key))
+    .forEach((item) => returnItemMap.set(item.key, item));
+  const reviewItemMap = new Map();
+  filterAnalysisItemsByLookback(previousReviewItems, windowDays)
+    .filter((item) => reviewCandidates.some((candidate) => candidate.key === item.key))
+    .forEach((item) => reviewItemMap.set(item.key, item));
+
+  const newReturnEvents = returnCandidates
+    .filter((candidate) => isChangedAfterCutoff(candidate.changedAt, cutoff) || !returnItemMap.has(candidate.key))
+    .map((candidate) => candidate.item);
+  const newReviewEvents = reviewCandidates
+    .filter((candidate) => isChangedAfterCutoff(candidate.changedAt, cutoff) || !reviewItemMap.has(candidate.key))
+    .map((candidate) => candidate.item);
+
+  newReturnEvents.map(buildReturnTextAnalysisItem).filter(Boolean).forEach((item) => returnItemMap.set(item.key, item));
+  newReviewEvents.map(buildReviewTextAnalysisItem).filter(Boolean).forEach((item) => reviewItemMap.set(item.key, item));
+
+  const returnItems = Array.from(returnItemMap.values());
+  const reviewItems = Array.from(reviewItemMap.values());
+  return {
+    textInsights: summarizeCustomerTextAnalysisItems({ returnTexts: returnItems, reviewTexts: reviewItems }),
+    cache: {
+      returnItems: trimAnalysisItemsForCache(returnItems),
+      reviewItems: trimAnalysisItemsForCache(reviewItems),
+    },
+    mode: "incremental",
+    analyzedItems: newReturnEvents.length + newReviewEvents.length,
+    reusedItems: returnItems.length + reviewItems.length - newReturnEvents.length - newReviewEvents.length,
+    newReturnEvents,
+    newReviewEvents,
+    reason: "previous_cache_reused",
+  };
+}
+
 function buildRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnits = 0, refundUnits = 0, refundAmount = 0 }) {
-  const refundTexts = refunds
-    .map((item) => {
-      const text = getRefundOperationalText(item);
-      if (!text.trim()) return null;
-      const noteText = getRefundNoteText(item);
-      const reasonText = getRefundReasonText(item);
-      return {
-        source: "refunds",
-        text,
-        analysisText: text,
-        issueCode: classifyIssueText(text),
-        sentiment: classifyCustomerSentiment(text),
-        emotion: classifyCustomerEmotion(text),
-        createdAt: item.createdAt,
-        variant: item.variantTitle || item.sku || "",
-        amount: Number(item.amount || 0),
-        restockType: item.restockType || "",
-        noteText,
-        reasonText,
-        adjustmentReasons: Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : [],
-      };
-    })
-    .filter(Boolean);
+  const refundTexts = refunds.map(buildRefundTextAnalysisItem).filter(Boolean);
+  return summarizeRefundOperationalAnalysisItems({ refundTexts, refunds, refundRate, soldUnits, refundUnits, refundAmount });
+}
+
+function buildRefundTextAnalysisItem(item = {}) {
+  const text = getRefundOperationalText(item);
+  if (!text.trim()) return null;
+  const noteText = getRefundNoteText(item);
+  const reasonText = getRefundReasonText(item);
+  return {
+    key: getRefundTextCacheKey(item),
+    source: "refunds",
+    text,
+    analysisText: text,
+    issueCode: classifyIssueText(text),
+    sentiment: classifyCustomerSentiment(text),
+    emotion: classifyCustomerEmotion(text),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt || item.processedAt || item.createdAt,
+    variant: item.variantTitle || item.sku || "",
+    quantity: Number(item.quantity || 1),
+    amount: Number(item.amount || 0),
+    restockType: item.restockType || "",
+    noteText,
+    reasonText,
+    adjustmentReasons: Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : [],
+  };
+}
+
+function summarizeRefundOperationalAnalysisItems({ refundTexts = [], refunds = [], refundRate = 0, soldUnits = 0, refundUnits = 0, refundAmount = 0 }) {
   const refundReasons = countTopValues(refunds.flatMap((item) => [
     getRefundReasonText(item),
     ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
@@ -5943,6 +6195,272 @@ function buildRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnit
       adjustmentReasons: item.adjustmentReasons,
     })),
   };
+}
+
+function buildIncrementalRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnits = 0, refundUnits = 0, refundAmount = 0, previousCache = {}, cutoffAt = null, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
+  const cutoff = parseValidDate(cutoffAt);
+  const previousItems = normalizeCachedAnalysisItems(previousCache.items);
+  const candidates = refunds.map((item) => ({
+    key: getRefundTextCacheKey(item),
+    item,
+    changedAt: item.updatedAt || item.processedAt || item.createdAt,
+    hasText: Boolean(getRefundOperationalText(item).trim()),
+  })).filter((candidate) => candidate.hasText);
+  if (cutoff && !candidates.length) {
+    return {
+      refundInsights: summarizeRefundOperationalAnalysisItems({ refundTexts: [], refunds, refundRate, soldUnits, refundUnits, refundAmount }),
+      cache: { items: [] },
+      mode: "incremental",
+      analyzedItems: 0,
+      reusedItems: 0,
+      newRefundEvents: [],
+      reason: "no_refund_text_in_window",
+    };
+  }
+  const canUseIncremental = Boolean(cutoff && previousItems.length)
+    && hasCachedCoverageForOldItems(candidates, previousItems, cutoff);
+
+  if (!canUseIncremental) {
+    const items = refunds.map(buildRefundTextAnalysisItem).filter(Boolean);
+    return {
+      refundInsights: summarizeRefundOperationalAnalysisItems({ refundTexts: items, refunds, refundRate, soldUnits, refundUnits, refundAmount }),
+      cache: { items: trimAnalysisItemsForCache(filterAnalysisItemsByLookback(items, windowDays)) },
+      mode: "full",
+      analyzedItems: items.length,
+      reusedItems: 0,
+      newRefundEvents: refunds,
+      reason: cutoff ? "previous_cache_missing_or_incomplete" : "no_previous_cutoff",
+    };
+  }
+
+  const itemMap = new Map();
+  filterAnalysisItemsByLookback(previousItems, windowDays)
+    .filter((item) => candidates.some((candidate) => candidate.key === item.key))
+    .forEach((item) => itemMap.set(item.key, item));
+  const newRefundEvents = candidates
+    .filter((candidate) => isChangedAfterCutoff(candidate.changedAt, cutoff) || !itemMap.has(candidate.key))
+    .map((candidate) => candidate.item);
+  newRefundEvents.map(buildRefundTextAnalysisItem).filter(Boolean).forEach((item) => itemMap.set(item.key, item));
+  const items = Array.from(itemMap.values());
+
+  return {
+    refundInsights: summarizeRefundOperationalAnalysisItems({ refundTexts: items, refunds, refundRate, soldUnits, refundUnits, refundAmount }),
+    cache: { items: trimAnalysisItemsForCache(items) },
+    mode: "incremental",
+    analyzedItems: newRefundEvents.length,
+    reusedItems: items.length - newRefundEvents.length,
+    newRefundEvents,
+    reason: "previous_cache_reused",
+  };
+}
+
+function resolveProductContentAnalysisState({ product = {}, previousCache = {}, cutoffAt = null }) {
+  const cutoff = parseValidDate(cutoffAt);
+  const signature = buildProductContentSignature(product);
+  const productUpdatedAt = toIso(product.updatedAt || product.createdAt);
+  const cachedContent = previousCache?.deterministicContent;
+  const cachedSignature = String(previousCache?.signature || "");
+  const changed = Boolean(
+    !cutoff
+    || !cachedContent
+    || cachedSignature !== signature
+    || isChangedAfterCutoff(productUpdatedAt, cutoff),
+  );
+
+  if (!changed && cachedContent) {
+    return {
+      deterministicContent: cachedContent,
+      signature,
+      productUpdatedAt,
+      cachedContentGaps: previousCache.contentGaps || null,
+      reused: true,
+      changed: false,
+      reason: "product_content_unchanged_since_previous_diagnosis",
+    };
+  }
+
+  return {
+    deterministicContent: analyzeProductContentDeterministically(product),
+    signature,
+    productUpdatedAt,
+    cachedContentGaps: null,
+    reused: false,
+    changed: true,
+    reason: cutoff ? "product_content_changed_or_cache_missing" : "no_previous_cutoff",
+  };
+}
+
+function buildProductContentSignature(product = {}) {
+  const normalized = {
+    title: normalizeText(product.title),
+    handle: normalizeText(product.handle),
+    description: normalizeText(stripHtml(product.description || product.descriptionHtml || "")),
+    seoTitle: normalizeText(product.seoTitle),
+    seoDescription: normalizeText(product.seoDescription),
+    templateSuffix: normalizeText(product.templateSuffix),
+    vendor: normalizeText(product.vendor),
+    productType: normalizeText(product.productType),
+    tags: (Array.isArray(product.tags) ? product.tags : []).map(normalizeText).sort(),
+    collections: (Array.isArray(product.collections) ? product.collections : []).map(normalizeText).sort(),
+    options: (Array.isArray(product.options) ? product.options : []).map((option) => ({
+      name: normalizeText(option.name),
+      values: (Array.isArray(option.values) ? option.values : []).map(normalizeText).sort(),
+    })),
+    variants: (Array.isArray(product.variants) ? product.variants : []).map((variant) => ({
+      id: String(variant.id || ""),
+      title: normalizeText(variant.title),
+      sku: normalizeText(variant.sku),
+      price: normalizeMoneyValue(variant.price),
+      compareAtPrice: normalizeMoneyValue(variant.compareAtPrice),
+      selectedOptions: (Array.isArray(variant.selectedOptions) ? variant.selectedOptions : []).map((option) => ({
+        name: normalizeText(option.name),
+        value: normalizeText(option.value),
+      })),
+    })),
+    media: (Array.isArray(product.media) ? product.media : []).map((item) => ({
+      id: String(item.id || ""),
+      alt: normalizeText(item.alt),
+      type: normalizeText(item.mediaContentType),
+      width: Number(item.width || 0),
+      height: Number(item.height || 0),
+    })),
+  };
+  return stableSignature(normalized);
+}
+
+function getOverallIncrementalMode({ productContentState, customerTextState, refundTextState, previousDetailedDiagnosisAt }) {
+  if (!previousDetailedDiagnosisAt) return "full";
+  const modes = [
+    productContentState?.reused ? "incremental" : "full",
+    customerTextState?.mode,
+    refundTextState?.mode,
+  ];
+  return modes.every((mode) => mode === "incremental") ? "incremental" : "mixed";
+}
+
+function buildIncrementalEvidenceSnippetInputs({ returns = [], refunds = [], negativeReviews = [], productContentState = {}, customerTextState = {}, refundTextState = {} }) {
+  const incremental = customerTextState.mode === "incremental" || refundTextState.mode === "incremental" || productContentState.reused;
+  if (!incremental) return { returns, refunds, reviews: negativeReviews };
+  return {
+    returns: customerTextState.newReturnEvents || [],
+    refunds: refundTextState.newRefundEvents || [],
+    reviews: customerTextState.newReviewEvents?.filter((review) => Number(review.rating || 0) <= 2 || containsIssueLanguage(review.body)) || [],
+  };
+}
+
+function buildIssueSignalCountsFromAnalysis({ customerTextCache = {}, refundTextCache = {}, fallback = {} } = {}) {
+  const counts = {};
+  const customerItems = [
+    ...(Array.isArray(customerTextCache.returnItems) ? customerTextCache.returnItems : []),
+    ...(Array.isArray(customerTextCache.reviewItems) ? customerTextCache.reviewItems : []),
+  ];
+  customerItems.forEach((item) => {
+    const issue = normalizeIssueCode(item.issueCode) || classifyIssueText(item.analysisText || item.text || "");
+    if (!issue) return;
+    counts[issue] = (counts[issue] || 0) + Math.max(1, Number(item.quantity || 1));
+  });
+  const refundItems = Array.isArray(refundTextCache.items) ? refundTextCache.items : [];
+  refundItems.forEach((item) => {
+    const issue = normalizeIssueCode(item.issueCode) || classifyIssueText(item.analysisText || item.text || "");
+    const issueCode = issue === "product_quality" ? "refund_impact" : issue;
+    if (!issueCode) return;
+    counts[issueCode] = (counts[issueCode] || 0) + Math.max(1, Number(item.quantity || 1));
+  });
+  if (Object.keys(counts).length) return counts;
+  return buildIssueSignalCounts(fallback);
+}
+
+function normalizeCachedAnalysisItems(items = []) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((item) => item && typeof item === "object" && item.key)
+    .map((item) => ({
+      ...item,
+      key: String(item.key),
+      text: String(item.text || ""),
+      analysisText: String(item.analysisText || item.text || ""),
+      issueCode: normalizeIssueCode(item.issueCode) || classifyIssueText(item.analysisText || item.text || ""),
+      sentiment: ["positive", "neutral", "negative"].includes(item.sentiment) ? item.sentiment : classifyCustomerSentiment(item.analysisText || item.text || "", item.rating),
+      emotion: normalizeEmotionCode(item.emotion) || "none",
+      subjectiveNegative: Boolean(item.subjectiveNegative),
+      createdAt: toIso(item.createdAt),
+      updatedAt: toIso(item.updatedAt || item.createdAt),
+    }));
+}
+
+function trimAnalysisItemsForCache(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    key: item.key,
+    source: item.source,
+    sourceLabel: item.sourceLabel,
+    text: truncateText(item.text || item.analysisText || "", 900),
+    analysisText: truncateText(item.analysisText || item.text || "", 900),
+    reason: item.reason || "",
+    noteText: truncateText(item.noteText || "", 500),
+    reasonText: truncateText(item.reasonText || "", 500),
+    rating: item.rating,
+    issueCode: item.issueCode,
+    sentiment: item.sentiment,
+    emotion: item.emotion,
+    subjectiveNegative: Boolean(item.subjectiveNegative),
+    createdAt: toIso(item.createdAt),
+    updatedAt: toIso(item.updatedAt || item.createdAt),
+    variant: item.variant || "",
+    quantity: Number(item.quantity || 1),
+    amount: Number(item.amount || 0),
+    restockType: item.restockType || "",
+    adjustmentReasons: Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons.slice(0, 8) : [],
+    isOther: Boolean(item.isOther),
+  }));
+}
+
+function filterAnalysisItemsByLookback(items = [], windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS) {
+  const cutoff = Date.now() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000;
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const date = parseValidDate(item.createdAt || item.updatedAt);
+    return !date || date.getTime() >= cutoff;
+  });
+}
+
+function hasCachedCoverageForOldItems(candidates = [], cachedItems = [], cutoff) {
+  const cachedKeys = new Set(cachedItems.map((item) => item.key).filter(Boolean));
+  return candidates.every((candidate) => isChangedAfterCutoff(candidate.changedAt, cutoff) || cachedKeys.has(candidate.key));
+}
+
+function isChangedAfterCutoff(value, cutoff) {
+  const date = parseValidDate(value);
+  const cutoffDate = parseValidDate(cutoff);
+  if (!date || !cutoffDate) return false;
+  return date.getTime() > cutoffDate.getTime();
+}
+
+function getReturnTextCacheKey(item = {}) {
+  return stableEventCacheKey("return", item, [item.id, item.returnId, item.orderId, item.variantId, item.reason, item.reasonNote, item.customerNote, item.createdAt]);
+}
+
+function getReviewTextCacheKey(review = {}) {
+  return stableEventCacheKey(review.sourceType || "review", review, [review.id, review.sourceRow, review.productId, review.handle, review.rating, review.title, review.body, review.createdAt]);
+}
+
+function getRefundTextCacheKey(item = {}) {
+  return stableEventCacheKey("refund", item, [item.id, item.refundId, item.orderId, item.variantId, item.reason, item.reasonLabel, item.note, item.restockType, item.createdAt]);
+}
+
+function stableEventCacheKey(prefix, item = {}, parts = []) {
+  const explicit = parts.find((part) => part !== undefined && part !== null && String(part).trim());
+  if (explicit && (String(explicit).startsWith("gid://") || String(explicit).includes(":") || String(explicit).length >= 8)) {
+    return `${prefix}:${String(explicit)}`;
+  }
+  return `${prefix}:${stableSignature(parts.map((part) => String(part || "")).join("|") || JSON.stringify(item || {}))}`;
+}
+
+function stableSignature(value) {
+  const text = typeof value === "string" ? value : JSON.stringify(value || {});
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function calculateRefundOperationalRiskLift({ refundUnits = 0, refundRate = 0, soldUnits = 0, noteCount = 0 }) {
