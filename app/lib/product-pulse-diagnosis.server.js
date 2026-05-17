@@ -2673,6 +2673,7 @@ function getFaqTopicForText(value) {
 
 function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const copy = ai.report?.recommendation_copy || {};
+  const actionRationales = getAiActionRationaleMap(ai);
   const recommendations = [];
   const issueLabel = getHumanIssueLabel(mainIssue);
   const topReasons = deterministic.metrics.topReturnReasons || [];
@@ -3396,7 +3397,42 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   return deduplicateRecommendationActions(uniqueBy(recommendations, (item) => item.id))
+    .map((item) => attachAiActionRationale(item, actionRationales))
     .map((item, index) => decorateRecommendationRecipe(item, { deterministic, mainIssue, index }));
+}
+
+function getAiActionRationaleMap(ai = {}) {
+  const entries = Array.isArray(ai.actionRationales?.action_rationales)
+    ? ai.actionRationales.action_rationales
+    : [];
+  return new Map(entries
+    .map((item) => [
+      normalizeRecommendationRationaleKey(item?.action_id || item?.id || item?.actionId),
+      normalizeRecommendationRationaleText(item?.rationale || item?.why_this_action || item?.why || ""),
+    ])
+    .filter(([key, value]) => key && value));
+}
+
+function attachAiActionRationale(action = {}, rationaleMap = new Map()) {
+  const key = normalizeRecommendationRationaleKey(action.id);
+  const rationale = rationaleMap.get(key);
+  if (!rationale) return action;
+  return {
+    ...action,
+    payload: {
+      ...(action.payload || {}),
+      whyThisAction: rationale,
+      rationaleSource: "ai_action_rationale",
+    },
+  };
+}
+
+function normalizeRecommendationRationaleKey(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function normalizeRecommendationRationaleText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 700);
 }
 
 function deduplicateRecommendationActions(actions = []) {
@@ -3667,6 +3703,7 @@ function isStaleDiagnosis(value, staleDays = 14) {
 
 function decorateRecommendationRecipe(action, { deterministic, mainIssue, index }) {
   const recipe = getRecommendationRecipeMetadata(action, { deterministic, mainIssue, index });
+  const compact = getRecommendationCompactMetadata(action, { deterministic, mainIssue, recipe });
   return {
     ...action,
     priorityGroup: recipe.priorityGroup,
@@ -3683,9 +3720,98 @@ function decorateRecommendationRecipe(action, { deterministic, mainIssue, index 
       reviewApplyFlow: "Review -> Apply",
       priorityGroup: recipe.priorityGroup,
       impactLevel: recipe.impactLevel,
+      impact: compact.impact,
       actionTier: recipe.actionTier,
+      visibility: compact.visibility,
+      confidence: compact.confidence,
+      evidenceStrength: compact.evidenceStrength,
+      reversibility: compact.reversibility,
+      approvalLevel: compact.approvalLevel,
+      reasonCategory: compact.reasonCategory,
+      expectedBenefit: compact.expectedBenefit,
     },
   };
+}
+
+function getRecommendationCompactMetadata(action, { deterministic, mainIssue, recipe }) {
+  return {
+    impact: getCompactImpactLabel(recipe.impact || recipe.impactLevel),
+    visibility: getRecommendationVisibility(action),
+    confidence: getRecommendationConfidenceLabel(deterministic.confidence),
+    evidenceStrength: getRecommendationEvidenceStrengthLabel(deterministic, action),
+    reversibility: getRecommendationReversibility(action),
+    approvalLevel: getRecommendationApprovalLevel(action, recipe),
+    reasonCategory: getRecommendationReasonCategory(action, mainIssue),
+    expectedBenefit: getRecommendationExpectedBenefit(action, recipe),
+  };
+}
+
+function getCompactImpactLabel(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return "High";
+  if (normalized.includes("medium")) return "Medium";
+  return "Optional";
+}
+
+function getRecommendationConfidenceLabel(confidence) {
+  const score = Number(confidence || 0);
+  if (score >= 75) return "High";
+  if (score >= 50) return "Medium";
+  return "Low";
+}
+
+function getRecommendationEvidenceStrengthLabel(deterministic = {}, action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("mismatch") || normalized.includes("conflict")) return "Conflicting";
+  const metrics = deterministic.metrics || {};
+  const sourceCount = Array.isArray(deterministic.sourceCoverage) ? deterministic.sourceCoverage.length : Array.isArray(metrics.sourceCoverage) ? metrics.sourceCoverage.length : 0;
+  const signalCount = Number(metrics.customerSignalCount || metrics.signalCount || 0);
+  if (signalCount >= 10 && sourceCount >= 3) return "Strong";
+  if (signalCount >= 5 || sourceCount >= 2) return "Moderate";
+  return "Weak";
+}
+
+function getRecommendationVisibility(action = {}) {
+  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.shopifyField || ""}`.toLowerCase();
+  if (/\b(description|pdp|faq|title|seo|meta|handle|media|image|alt text|specs|details)\b/.test(value)) return "Customer-facing";
+  if (/\b(status|price|compare-at|inventory|variant|supplier|qa|fulfillment|safety)\b/.test(value)) return "Operational";
+  return "Internal";
+}
+
+function getRecommendationReversibility(action = {}) {
+  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.shopifyField || ""}`.toLowerCase();
+  if (/\b(status|archive|draft|inventory|price|compare-at|variant)\b/.test(value)) return "Hard";
+  if (/\b(description|pdp|title|seo|meta|handle|template|media|collection|classification)\b/.test(value)) return "Moderate";
+  return "Easy";
+}
+
+function getRecommendationApprovalLevel(action = {}, recipe = {}) {
+  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${recipe.applicationRisk || ""} ${recipe.approval || ""}`.toLowerCase();
+  if (/\b(high|status|archive|draft|inventory|price|compare-at|strong|manual approval)\b/.test(value)) return "Strong confirmation required";
+  if (/\b(tag|metafield|watchlist|baseline|internal note|copy-support|connect-missing-source|monitoring)\b/.test(value)) return "Auto-safe";
+  return "Review required";
+}
+
+function getRecommendationReasonCategory(action = {}, mainIssue = "") {
+  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""} ${mainIssue || ""}`.toLowerCase();
+  if (/\b(momentum|watchlist|baseline)\b/.test(value)) return "Momentum";
+  if (/\b(seo|meta|handle)\b/.test(value)) return "SEO";
+  if (/\b(variant|sku|option)\b/.test(value)) return "Variant issue";
+  if (/\b(sentiment|subjective|fear|safety|emotion)\b/.test(value)) return "Sentiment";
+  if (/\b(review|rating|judge|csv)\b/.test(value)) return "Reviews";
+  if (/\b(refund|price|margin|value)\b/.test(value)) return "Refunds";
+  if (/\b(return)\b/.test(value)) return "Returns";
+  if (/\b(description|content|pdp|faq|spec|title|media|image)\b/.test(value)) return "Content gap";
+  return "Content gap";
+}
+
+function getRecommendationExpectedBenefit(action = {}, recipe = {}) {
+  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${recipe.expectedImpact || ""}`.toLowerCase();
+  if (/\b(seo|meta|handle)\b/.test(value)) return "Improve SEO";
+  if (/\b(tag|collection|metafield|workflow|support|note|coverage|watchlist|baseline)\b/.test(value)) return "Improve workflow";
+  if (/\b(status|inventory|draft|archive|safety|qa|supplier|bad purchase)\b/.test(value)) return "Prevent bad purchases";
+  if (/\b(return|refund|variant|fit|size|quality|durability)\b/.test(value)) return "Reduce returns";
+  return "Reduce confusion";
 }
 
 function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, index }) {

@@ -767,7 +767,8 @@ function isSystemProductActionRecord(record = {}) {
 
 function getDashboardActionHistoryRecord(action = {}, history = []) {
   const currentRecords = (Array.isArray(history) ? history : [])
-    .filter((record) => !isSystemProductActionRecord(record));
+    .filter((record) => !isSystemProductActionRecord(record))
+    .sort((first, second) => new Date(second.appliedAt || second.createdAt || 0).getTime() - new Date(first.appliedAt || first.createdAt || 0).getTime());
   const actionId = normalizeDashboardActionToken(action.id || action.actionId || action.actionType);
   const actionLabel = normalizeDashboardActionLabel(action.label || action.title);
   const exactRecord = currentRecords.find((record) => {
@@ -889,7 +890,8 @@ function compareDashboardActionPriority(first, second) {
 function getDashboardActionPriorityScore(product, action = {}, { maxMarginRisk = 0 } = {}) {
   const productImportance = getDashboardProductImportanceScore(product, { maxMarginRisk });
   const tierBonus = getDashboardActionTier(action) === 1 ? 12 : getDashboardActionTier(action) === 2 ? 6 : 0;
-  return Math.round(Math.min(100, Math.max(0, productImportance + tierBonus)));
+  const actionFit = getDashboardActionFitScore(action);
+  return Math.round(Math.min(100, Math.max(0, productImportance + tierBonus + actionFit)));
 }
 
 function getDashboardProductImportanceScore(product, { maxMarginRisk = 0 } = {}) {
@@ -914,6 +916,67 @@ function getDashboardProductMomentumScore(product = {}) {
   if (Number.isFinite(direct) && direct > 0) return Math.min(100, Math.max(0, direct));
   const nested = Number(metrics.productMomentum?.score ?? product.productMomentum?.score ?? 0);
   return Number.isFinite(nested) ? Math.min(100, Math.max(0, nested)) : 0;
+}
+
+function getDashboardActionFitScore(action = {}) {
+  const payload = action.payload || {};
+  const value = `${action.id || ""} ${action.actionId || ""} ${action.type || ""} ${action.actionType || ""} ${action.label || ""} ${action.title || ""} ${payload.shopifyField || ""} ${payload.reasonCategory || ""} ${payload.expectedBenefit || ""} ${payload.proposedChange || ""}`.toLowerCase();
+  const impact = normalizeDashboardActionRankValue(payload.impact || payload.impactLevel);
+  const confidence = normalizeDashboardActionRankValue(payload.confidence);
+  const risk = normalizeDashboardActionRankValue(payload.applicationRisk);
+  const effort = normalizeDashboardActionRankValue(action.effort || payload.effort);
+  const evidence = normalizeDashboardActionRankValue(payload.evidenceStrength);
+  const visibility = normalizeDashboardActionRankValue(payload.visibility);
+  const isCustomerFacing = visibility.includes("customer") || /\b(description|pdp|faq|title|seo|meta|handle|media|image|alt text|spec|details)\b/.test(value);
+  const isInternal = visibility.includes("internal") || /\b(tag|collection|workflow|support|internal|baseline|monitoring|connect missing source)\b/.test(value);
+  const hasDirectShopifyChange = dashboardActionHasDirectShopifyChange(action);
+  const investigationOnly = /\b(review|inspect|verify|check|evidence|investigation|follow up|follow-up|supplier|qa)\b/.test(value) && !hasDirectShopifyChange;
+  const isSensitive = /\b(price|compare-at|inventory|status|archive|draft|unlisted|pause affected|reduce availability|stop selling)\b/.test(value);
+  const highImpact = impact.includes("high") || /\b(expectation|description|pdp|faq|variant|qa|supplier|status|inventory|price|compare-at)\b/.test(value);
+  const lowRisk = risk.includes("low") || (!risk && !isSensitive);
+  const lowEffort = effort.includes("low") || (!effort && !isSensitive);
+  const strongEvidence = evidence.includes("strong");
+
+  let score = 0;
+  if (highImpact) score += 8;
+  if (isCustomerFacing) score += 14;
+  if (lowRisk) score += 8;
+  if (lowEffort) score += 5;
+  if (confidence.includes("high")) score += 5;
+  if (strongEvidence) score += 6;
+  if (highImpact && isCustomerFacing && lowRisk && lowEffort && (strongEvidence || confidence.includes("high"))) score += 12;
+  if (/\b(return|review|sentiment|quality|variant|content|expectation|fit|sizing)\b/.test(value) && highImpact) score += 5;
+  if (isInternal) score -= 10;
+  if (investigationOnly) score -= 22;
+  if (isSensitive) score -= 20;
+  if (normalizeDashboardActionRankValue(payload.approvalLevel || payload.approval).includes("strong")) score -= 8;
+
+  return score;
+}
+
+function dashboardActionHasDirectShopifyChange(action = {}) {
+  const payload = action.payload || {};
+  return Boolean(
+    payload.draftText
+      || payload.draftTitle
+      || payload.productStatus
+      || payload.tag
+      || payload.collectionName
+      || payload.draftHandle
+      || payload.templateSuffix
+      || payload.field === "classification"
+      || payload.field === "seo.title"
+      || payload.field === "seo.description"
+      || Array.isArray(payload.tags)
+      || Array.isArray(payload.faqItems)
+      || Array.isArray(payload.mediaUpdates)
+      || Array.isArray(payload.descriptionChanges)
+      || Array.isArray(payload.metafields)
+  );
+}
+
+function normalizeDashboardActionRankValue(value = "") {
+  return String(value || "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function getDashboardActionCategory(action = {}) {

@@ -30,7 +30,10 @@ describe("ProductPulse product job helpers", () => {
     });
 
     expect(collapsible).toContain("<details>");
-    expect(collapsible).toContain("<summary>Frequently asked questions</summary>");
+    expect(collapsible).toContain("Frequently asked questions");
+    expect(collapsible).toContain("<summary style=");
+    expect(collapsible).toContain("productpulse-callout");
+    expect(collapsible).toContain("background:#eff6ff");
     expect(modal).toContain("role=\"dialog\"");
     expect(modal).toContain("Open frequently asked questions");
   });
@@ -114,6 +117,20 @@ describe("ProductPulse product job helpers", () => {
     expect(html).toContain("<strong>Black</strong>");
     expect(html).toContain("<div><p>");
     expect(html).not.toContain("True White");
+  });
+
+  it("wraps appended description guidance in a ProductPulse callout without replacing current HTML", () => {
+    const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
+      currentHtml: "<div><p>Current product description.</p></div>",
+      draftText: "Current product description.\n\nPlease note: check compatibility before purchase.",
+      operation: "replace",
+      action: { id: "product-description-changes", payload: {} },
+    });
+
+    expect(html).toContain("<div><p>Current product description.</p></div>");
+    expect(html).toContain("productpulse-callout");
+    expect(html).toContain("Please note: check compatibility before purchase.");
+    expect(html).toContain("Product note");
   });
 
   it("builds product-list evidence bars in fixed source-family order with real metric detail", () => {

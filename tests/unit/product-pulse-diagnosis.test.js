@@ -1122,6 +1122,12 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
             }],
           },
         },
+        actionRationales: {
+          action_rationales: [{
+            action_id: "create-product-faq",
+            rationale: "Returns and negative reviews repeat fit uncertainty, so an FAQ gives shoppers a direct answer before checkout.",
+          }],
+        },
       },
     });
 
@@ -1137,6 +1143,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       "description-modal",
       "metafield-json",
     ]);
+    expect(faq.payload.whyThisAction).toBe("Returns and negative reviews repeat fit uncertainty, so an FAQ gives shoppers a direct answer before checkout.");
   });
 
   it("does not create duplicate description actions from the same cause and copy", () => {

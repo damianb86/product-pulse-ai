@@ -3533,8 +3533,9 @@ function getProductRecommendedActions(product) {
   const ignoredIssues = getIgnoredIssueRecords(product);
   const filteredActions = product.recommendedActions.filter((action) => !isRecommendedActionRelatedToIgnoredIssues(action, ignoredIssues, product));
   const normalizedActions = consolidateDescriptionRecommendedActions(consolidateReviewRecommendedActions(filteredActions), product);
+  const rankedActions = rankRecommendedActionsForDisplay(normalizedActions, product);
 
-  return normalizedActions.map((action, index) => ({
+  return rankedActions.map((action, index) => ({
     id: action.id,
     label: action.label,
     type: action.type,
@@ -3557,20 +3558,199 @@ function getProductRecommendedActions(product) {
   }));
 }
 
+function rankRecommendedActionsForDisplay(actions = [], product = {}) {
+  return (Array.isArray(actions) ? actions : [])
+    .map((action, index) => ({
+      action,
+      index,
+      score: getRecommendedActionDisplayScore(action, product),
+    }))
+    .sort((first, second) => second.score - first.score || first.index - second.index)
+    .map((item) => item.action);
+}
+
+function getRecommendedActionDisplayScore(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const application = getRecommendedActionApplication(action, product);
+  const mode = getRecommendedActionMode(action, 0);
+  const actionKind = getRecommendedActionKind(mode, application);
+  const impact = getActionRankingImpact(action);
+  const confidence = getActionRankingConfidence(action, product);
+  const applyRisk = getActionRankingApplyRisk(action, application);
+  const effort = getActionRankingEffort(action);
+  const visibility = getActionRankingVisibility(action);
+  const evidenceStrength = getActionRankingEvidenceStrength(action, product);
+  const tier = getActionRankingTier(action);
+  const reason = getActionRankingReason(action);
+  const normalized = getRecommendedActionRankingText(action, application);
+  const isCustomerFacing = visibility === "customer";
+  const isInternal = visibility === "internal";
+  const isOperational = visibility === "operational";
+  const isSensitive = isSensitiveRecommendedAction(action, application);
+  const affectsReturnsOrReviews = /return|review|sentiment|quality|qa|variant|content|description|pdp|expectation|faq|spec|sizing|fit/.test(`${reason} ${normalized}`);
+  const lowRiskHighImpact = impact === "high" && applyRisk === "low";
+  const lowEffortHighImpact = impact === "high" && (effort === "low" || effort === "medium");
+  const idealPrimary = isCustomerFacing && lowRiskHighImpact && evidenceStrength === "strong" && lowEffortHighImpact;
+
+  let score = 0;
+  score += { high: 48, medium: 24, optional: 4 }[impact] || 0;
+  score += { high: 18, medium: 9, low: -6 }[confidence] || 0;
+  score += { low: 20, medium: 6, high: -22 }[applyRisk] || 0;
+  score += { low: 12, medium: 6, high: -8 }[effort] || 0;
+  score += { strong: 18, moderate: 9, weak: -8, conflicting: 2 }[evidenceStrength] || 0;
+  score += tier === 1 ? 12 : tier === 2 ? 2 : -18;
+  score += isCustomerFacing ? 24 : isOperational ? 6 : -12;
+
+  if (idealPrimary) score += 22;
+  if (lowRiskHighImpact && confidence === "high") score += 16;
+  if (lowEffortHighImpact) score += 12;
+  if (affectsReturnsOrReviews && impact === "high") score += 10;
+  if (/expectation|fit note|quality note|faq|spec|details|correct-product-description|description/.test(normalized)) score += 8;
+  if (/tag|collection|workflow|monitoring|baseline|connect-missing-source|internal note/.test(normalized)) score -= 10;
+  if (actionKind === "investigation") score -= 18;
+  if (isInternal) score -= 8;
+  if (isSensitive) {
+    score -= 26;
+    if (evidenceStrength !== "strong") score -= 10;
+  }
+  const approval = normalizeActionRankingValue(payload.approvalLevel || payload.approval);
+  if (approval.includes("strong") || approval.includes("manual approval")) score -= 8;
+
+  return score;
+}
+
+function getRecommendedActionRankingText(action = {}, application = {}) {
+  const payload = action.payload || {};
+  return [
+    action.id,
+    action.type,
+    action.label,
+    action.title,
+    payload.shopifyField,
+    payload.reasonCategory,
+    payload.expectedBenefit,
+    payload.proposedChange,
+    payload.trigger,
+    application.target,
+    application.operation,
+  ].map((item) => String(item || "").toLowerCase()).join(" ");
+}
+
+function getActionRankingImpact(action = {}) {
+  const payload = action.payload || {};
+  const explicit = normalizeActionRankingValue(payload.impact || payload.impactLevel);
+  if (explicit.includes("high")) return "high";
+  if (explicit.includes("medium")) return "medium";
+  if (explicit.includes("optional")) return "optional";
+  const normalized = getRecommendedActionRankingText(action);
+  if (/expectation|description|pdp|faq|spec|details|variant|qa|supplier|source.*mismatch|status|draft|archive|inventory|price|compare-at/.test(normalized)) return "high";
+  if (/seo|meta|title|handle|media|image|alt text|classification|category|vendor|product type|template|watchlist|diagnosis/.test(normalized)) return "medium";
+  return "optional";
+}
+
+function getActionRankingConfidence(action = {}, product = {}) {
+  const explicit = normalizeActionRankingValue(action.payload?.confidence);
+  if (explicit.includes("high")) return "high";
+  if (explicit.includes("medium")) return "medium";
+  if (explicit.includes("low")) return "low";
+  const confidence = Number(product.confidence || product.metrics?.confidence || 0);
+  if (confidence >= 75) return "high";
+  if (confidence >= 50) return "medium";
+  return "low";
+}
+
+function getActionRankingApplyRisk(action = {}, application = {}) {
+  const explicit = normalizeActionRankingValue(action.payload?.applicationRisk || application.applicationRisk);
+  if (explicit.includes("high")) return "high";
+  if (explicit.includes("medium")) return "medium";
+  if (explicit.includes("low")) return "low";
+  return isSensitiveRecommendedAction(action, application) ? "high" : "low";
+}
+
+function getActionRankingEffort(action = {}) {
+  const explicit = normalizeActionRankingValue(action.effort || action.payload?.effort);
+  if (explicit.includes("high")) return "high";
+  if (explicit.includes("medium")) return "medium";
+  if (explicit.includes("low")) return "low";
+  return "low";
+}
+
+function getActionRankingVisibility(action = {}) {
+  const explicit = normalizeActionRankingValue(action.payload?.visibility);
+  if (explicit.includes("customer")) return "customer";
+  if (explicit.includes("operational")) return "operational";
+  if (explicit.includes("internal")) return "internal";
+  const inferred = normalizeActionRankingValue(inferActionVisibility(action));
+  if (inferred.includes("customer")) return "customer";
+  if (inferred.includes("operational")) return "operational";
+  return "internal";
+}
+
+function getActionRankingEvidenceStrength(action = {}, product = {}) {
+  const explicit = normalizeActionRankingValue(action.payload?.evidenceStrength);
+  if (explicit.includes("conflicting")) return "conflicting";
+  if (explicit.includes("strong")) return "strong";
+  if (explicit.includes("moderate")) return "moderate";
+  if (explicit.includes("weak")) return "weak";
+  const inferred = normalizeActionRankingValue(inferActionEvidenceStrength(action));
+  if (inferred.includes("conflicting")) return "conflicting";
+  if (inferred.includes("strong")) return "strong";
+  if (inferred.includes("moderate")) return "moderate";
+  if (inferred.includes("weak")) return "weak";
+  const payload = action.payload || {};
+  const metrics = product.metrics || {};
+  const signalCount = [
+    Number(payload.returnUnits || metrics.returnUnits || 0),
+    Number(payload.negativeReviewCount || metrics.negativeReviewCount || 0),
+    Number(payload.signalsCount || metrics.signalCount || 0),
+    Array.isArray(payload.topReturnReasons) ? payload.topReturnReasons.length : 0,
+    Array.isArray(payload.contentIssues) ? payload.contentIssues.length : 0,
+    Array.isArray(payload.affectedVariants) ? payload.affectedVariants.length : 0,
+    Array.isArray(payload.reviewSections) ? payload.reviewSections.reduce((sum, section) => sum + Number(section.count || section.items?.length || 0), 0) : 0,
+  ].reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+  const sourceCount = Array.isArray(product.sourceCoverage) ? product.sourceCoverage.length : Array.isArray(metrics.sourceCoverage) ? metrics.sourceCoverage.length : 0;
+  if (signalCount >= 10 && sourceCount >= 3) return "strong";
+  if (signalCount >= 5 || sourceCount >= 2) return "moderate";
+  return "weak";
+}
+
+function getActionRankingTier(action = {}) {
+  const explicit = Number(action.payload?.actionTier || action.actionTier || 0);
+  if ([1, 2, 3].includes(explicit)) return explicit;
+  const impact = getActionRankingImpact(action);
+  const visibility = getActionRankingVisibility(action);
+  if (impact === "high" && visibility !== "internal") return 1;
+  if (impact === "medium") return 2;
+  return 3;
+}
+
+function getActionRankingReason(action = {}) {
+  return normalizeActionRankingValue(action.payload?.reasonCategory || inferActionReasonCategory(action));
+}
+
+function normalizeActionRankingValue(value = "") {
+  return String(value || "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isSensitiveRecommendedAction(action = {}, application = {}) {
+  const normalized = getRecommendedActionRankingText(action, application);
+  return /\b(price|compare-at|inventory|status|archive|draft|unlisted|pause affected|reduce availability|stop selling)\b/.test(normalized);
+}
+
 function getRecommendedActionHistoryRecord(action = {}, actionHistory = []) {
   const records = (Array.isArray(actionHistory) ? actionHistory : [])
     .filter((record) => !isSystemRecommendedActionRecord(record))
     .sort((first, second) => getRecommendedActionRecordTime(second) - getRecommendedActionRecordTime(first));
-  const completedRecords = records.filter((record) => Boolean(getArchivedActionStateFromRecordStatus(record.status)));
   const actionKeys = getRecommendedActionMatchKeys(action);
-  const exactRecord = completedRecords.find((record) => intersectsActionKeys(actionKeys, getStoredRecommendedActionMatchKeys(record)));
-  if (exactRecord) return exactRecord;
+  const exactRecord = records.find((record) => intersectsActionKeys(actionKeys, getStoredRecommendedActionMatchKeys(record)));
+  if (exactRecord) return getArchivedActionStateFromRecordStatus(exactRecord.status) ? exactRecord : null;
 
   const actionFamily = getRecommendedActionPersistenceFamily(action);
   if (!actionFamily) return null;
-  return completedRecords.find((record) => (
+  const familyRecord = records.find((record) => (
     getRecommendedActionPersistenceFamily(record) === actionFamily
-  )) || null;
+  ));
+  return familyRecord && getArchivedActionStateFromRecordStatus(familyRecord.status) ? familyRecord : null;
 }
 
 function getRecommendedActionRecordTime(record = {}) {
@@ -3831,6 +4011,7 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
       applicationRisk: "Low",
       approval: "Review required before applying",
       contentIssues: payloads.flatMap((payload) => Array.isArray(payload.contentIssues) ? payload.contentIssues : []),
+      whyThisAction: mergeRecommendedActionRationales(payloads),
       topReturnReasons: uniqueStrings(payloads.flatMap((payload) => payload.topReturnReasons || [])),
       returnUnits: payloads.reduce((max, payload) => Math.max(max, Number(payload.returnUnits || 0)), 0),
       returnRate: payloads.reduce((max, payload) => Math.max(max, Number(payload.returnRate || 0)), 0),
@@ -3844,6 +4025,15 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
     groupedAction,
     ...withoutDescriptionActions.slice(firstDescriptionIndex),
   ];
+}
+
+function mergeRecommendedActionRationales(payloads = []) {
+  const rationales = uniqueStrings((Array.isArray(payloads) ? payloads : [])
+    .flatMap((payload) => [payload?.whyThisAction, payload?.actionRationale, payload?.rationale])
+    .filter(Boolean));
+  if (!rationales.length) return "";
+  if (rationales.length === 1) return rationales[0];
+  return rationales.slice(0, 2).join(" ");
 }
 
 function mergeEquivalentDescriptionChange(changes = [], change = {}) {
@@ -4838,7 +5028,8 @@ function getRecommendedActionEvidence(action, product) {
 }
 
 function getRecommendedActionPriority(action, product) {
-  if (action.payload?.priorityGroup) return action.payload.priorityGroup;
+  const priorityGroup = String(action.payload?.priorityGroup || "").trim();
+  if (priorityGroup && !/^primary\b/i.test(priorityGroup)) return priorityGroup;
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("faq")) return "Buyer clarity";
   if (normalized.includes("rewrite") || normalized.includes("draft") || normalized.includes("description") || normalized.includes("fit")) return "Customer-facing fix";
@@ -5070,6 +5261,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const [watchlistLocalState, setWatchlistLocalState] = useState(null);
   const [recommendedActionsCollapsed, setRecommendedActionsCollapsed] = useState(false);
+  const [recommendedActionSort, setRecommendedActionSort] = useState("priority");
+  const [recommendedActionsExpanded, setRecommendedActionsExpanded] = useState(false);
   const [draftText, setDraftText] = useState("");
   const productRef = useRef(product);
   const minimizedActionStatesRef = useRef(minimizedActionStates);
@@ -5103,6 +5296,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setWatchlistConfirmation(null);
     setWatchlistLocalState(null);
     setRecommendedActionsCollapsed(false);
+    setRecommendedActionSort("priority");
+    setRecommendedActionsExpanded(false);
   }, [productIdentityKey, productResolvedAt]);
 
   useEffect(() => {
@@ -5203,8 +5398,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
   const activeRecommendedActions = detail.recommendedActions.filter((action) => !isRecommendedActionRelatedToIgnoredIssues(action, ignoredIssueRows, product));
   const hiddenIgnoredRecommendedActionCount = Math.max(0, detail.recommendedActions.length - activeRecommendedActions.length);
-  const visibleRecommendedActions = activeRecommendedActions.filter((action) => !isActionArchived(action));
-  const minimizedRecommendedActions = activeRecommendedActions.filter((action) => isActionArchived(action));
+  const visibleRecommendedActions = sortRecommendedActionsForPanel(
+    activeRecommendedActions.filter((action) => !isActionArchived(action)),
+    recommendedActionSort,
+    product,
+  );
+  const displayedRecommendedActions = recommendedActionsExpanded
+    ? visibleRecommendedActions
+    : visibleRecommendedActions.slice(0, 3);
+  const hiddenVisibleRecommendedActionCount = Math.max(visibleRecommendedActions.length - displayedRecommendedActions.length, 0);
+  const minimizedRecommendedActions = sortRecommendedActionsForPanel(
+    activeRecommendedActions.filter((action) => isActionArchived(action)),
+    recommendedActionSort,
+    product,
+  );
   const visibleRecommendedActionCount = detail.hasFullDiagnosis ? visibleRecommendedActions.length : 0;
   const resolved = resolvedLocally ?? Boolean(detail.resolvedAt);
   const diagnosisPending = pendingActionType === "diagnose";
@@ -5350,6 +5557,19 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     showToast(`${action.title} dismissed for this product.`);
   };
 
+  const handleRestoreDismissedAction = (action) => {
+    const actionKey = getRecommendedActionKey(action);
+    setMinimizedActionStates((current) => ({ ...current, [actionKey]: "active" }));
+    setSelectedRecommendedAction(null);
+    const formData = new FormData();
+    formData.set("_action", "restore-action");
+    formData.set("productId", product.slug || product.handle || "");
+    formData.set("actionId", action.id || actionKey);
+    formData.set("label", action.title || action.label || "");
+    dismissFetcher.submit(formData, { method: "post" });
+    showToast(`${action.title} restored.`);
+  };
+
   const handleMarkActionReviewed = (action) => {
     const actionKey = getRecommendedActionKey(action);
     if (willCompleteVisibleRecommendedActions(activeRecommendedActions, minimizedActionStates, actionKey)) {
@@ -5391,7 +5611,14 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
 
   const handleExpandArchivedAction = (action) => {
-    setSelectedRecommendedAction(action);
+    const archivedState = getArchivedActionState(action, minimizedActionStates);
+    setSelectedRecommendedAction(archivedState
+      ? {
+          ...action,
+          archivedStateOverride: archivedState,
+          appliedRecord: action.appliedRecord || { status: archivedState },
+        }
+      : action);
   };
 
   return (
@@ -5618,18 +5845,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
             <ProductOrderActivityPanel detail={detail} />
             <ProductReturnRatePredictionPanel detail={detail} />
-            <ProductMomentumPanel detail={detail} />
-
-            <ProductDetailSectionLabel number="3" title="Evidence by source" subtitle="Explore the evidence clearly" />
-            <div ref={evidencePanelRef}>
-              <EvidenceObservabilityPanel
-                detail={detail}
-                product={product}
-                selectedEvidence={selectedEvidence}
-                selectedEvidenceIndex={selectedEvidenceIndex}
-                onSelectEvidence={setSelectedEvidenceIndex}
-              />
-            </div>
           </main>
 
           <aside className="ppProductDetailSidebar">
@@ -5638,6 +5853,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               <div className="ppRecommendedActionsHeader">
                 <div>
                   <h2>Recommended actions</h2>
+                  <p>Prioritized next steps based on product signals and evidence.</p>
                   <span>
                     {detail.hasFullDiagnosis
                       ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
@@ -5657,6 +5873,32 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               </div>
               {!recommendedActionsCollapsed && (
                 <div id="pp-recommended-actions-content">
+                  <div className="ppRecommendedActionsToolbar">
+                    <span className="ppRecommendedActionsCountBadge">
+                      <span className="ppRecommendedActionsCountIcon" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </span>
+                      {visibleRecommendedActionCount} action{visibleRecommendedActionCount === 1 ? "" : "s"}
+                    </span>
+                    <label className="ppRecommendedActionsSort">
+                      <span>Sort recommended actions</span>
+                      <select
+                        value={recommendedActionSort}
+                        onChange={(event) => {
+                          setRecommendedActionSort(event.target.value);
+                          setRecommendedActionsExpanded(false);
+                        }}
+                      >
+                        <option value="priority">Sort by priority</option>
+                        <option value="impact">Sort by impact</option>
+                        <option value="confidence">Sort by confidence</option>
+                        <option value="risk">Sort by lowest apply risk</option>
+                        <option value="effort">Sort by lowest effort</option>
+                      </select>
+                    </label>
+                  </div>
                   <div className="ppRecommendedActionList">
                     {!detail.hasFullDiagnosis ? (
                       <EmptyProductDetailState
@@ -5671,7 +5913,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         variant="recommendedActions"
                       />
                     )}
-                    {visibleRecommendedActions.map((action, index) => (
+                    {displayedRecommendedActions.map((action, index) => (
                       <ProductRecommendedActionCompact
                         key={getRecommendedActionKey(action)}
                         action={action}
@@ -5680,6 +5922,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       />
                     ))}
                   </div>
+                  {visibleRecommendedActions.length > 3 && (
+                    <button
+                      className="ppRecommendedActionsMore"
+                      type="button"
+                      onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
+                    >
+                      <span>{recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}</span>
+                      <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                    </button>
+                  )}
                   {minimizedRecommendedActions.length > 0 && (
                     <MinimizedRecommendedActionsTray
                       actions={minimizedRecommendedActions}
@@ -5712,11 +5964,26 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               )}
             </div>
 
-            <ProductDetailSectionLabel number="4" title="Evidence summary" subtitle="Quick summary by category" />
+            <ProductDetailSectionLabel number="3" title="Evidence summary" subtitle="Quick summary by category" />
             <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
             <ProductRiskHistoryPanel detail={detail} />
+            <ProductMomentumPanel detail={detail} />
           </aside>
         </div>
+
+        <div className="ppProductDetailFullWidth">
+          <ProductDetailSectionLabel number="4" title="Evidence by source" subtitle="Explore the evidence clearly" />
+          <div ref={evidencePanelRef}>
+            <EvidenceObservabilityPanel
+              detail={detail}
+              product={product}
+              selectedEvidence={selectedEvidence}
+              selectedEvidenceIndex={selectedEvidenceIndex}
+              onSelectEvidence={setSelectedEvidenceIndex}
+            />
+          </div>
+        </div>
+
         {diagnosisConfirmation && (
           <ProductAnalysisConfirmModal
             confirmation={diagnosisConfirmation}
@@ -5744,6 +6011,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             onReview={handleReviewEvidence}
             onRequestApply={handleRequestApplyAction}
             onDismiss={handleDismissAction}
+            onRestoreDismiss={handleRestoreDismissedAction}
             onMarkReviewed={handleMarkActionReviewed}
             onAddInvestigationTag={handleAddInvestigationTag}
           />
@@ -7615,6 +7883,8 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
     ? activeSource.cards
     : getEvidenceSourceCards(activeSource.title, activeSource.points, product);
   const reportHref = getProductEvidenceReportHref(product, activeSource);
+  const activeSourceTitle = activeSource.title || "";
+  const sourceReportKind = getEvidenceSourceReportKind(activeSourceTitle);
 
   return (
     <div className="ppProductPanel ppEvidenceObservabilityPanel">
@@ -7640,46 +7910,59 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
         ))}
       </div>
 
-      <div className="ppEvidenceSourcePanel">
-        <div className="ppEvidenceActiveHeader">
-          <div className="ppEvidenceActiveTitle">
-            <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${activeSource.tone}`}>
-              <s-icon type={activeSource.icon} size="small"></s-icon>
-            </span>
-            <div>
-              <span>{activeSource.title}</span>
-              <h3>{getEvidenceSourcePanelTitle(activeSource.title)}</h3>
-              <p>{activeSource.summary}</p>
-            </div>
-          </div>
-          <span className="ppEvidenceSignalCount">{activeSource.points.length} signals</span>
-        </div>
-
-        <div className="ppEvidenceMetricGrid">
-          {activeCards.map((card) => (
-            <EvidenceMetricCard card={card} key={`${activeSource.title}-${card.label}-${card.value}`} />
-          ))}
-          <Link className="ppEvidenceReportCard" to={reportHref}>
-            <span className="ppEvidenceReportIcon" aria-hidden="true">
-              <s-icon type="chart-line" size="small"></s-icon>
-            </span>
-            <span>
-              <strong>View full report</strong>
-              <small>See technical evidence, detected issues and raw source data</small>
-            </span>
-            <s-icon type="chevron-right" size="small"></s-icon>
-          </Link>
-        </div>
-
-        <div className="ppEvidencePanelFooter">
-          <Link className="ppEvidenceFullReportButton" to={reportHref}>
-            <s-icon type="file" size="small"></s-icon>
-            View Full Report
-          </Link>
-        </div>
-      </div>
+      {sourceReportKind === "customer-language" && (
+        <CustomerLanguageEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
+      )}
+      {sourceReportKind === "returns" && (
+        <ShopifyReturnsEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
+      )}
+      {sourceReportKind === "reviews" && (
+        <ReviewEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
+      )}
+      {sourceReportKind === "refunds" && (
+        <RefundEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
+      )}
+      {sourceReportKind === "orders" && (
+        <OrdersEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
+      )}
+      {sourceReportKind === "generic" && (
+        <GenericEvidenceSourceReportPanel source={activeSource} product={product} reportHref={reportHref} cards={activeCards} />
+      )}
     </div>
   );
+}
+
+function getEvidenceSourceReportKind(source = "") {
+  if (isCustomerLanguageEvidenceSource(source)) return "customer-language";
+  if (isShopifyRefundsEvidenceSource(source)) return "refunds";
+  if (isShopifyReturnsEvidenceSource(source)) return "returns";
+  if (isShopifyOrdersEvidenceSource(source)) return "orders";
+  if (isReviewEvidenceSource(source)) return "reviews";
+  return "generic";
+}
+
+function isCustomerLanguageEvidenceSource(source = "") {
+  const normalized = String(source || "").toLowerCase();
+  return normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer");
+}
+
+function isReviewEvidenceSource(source = "") {
+  const normalized = String(source || "").toLowerCase();
+  return normalized.includes("review") || normalized.includes("judge") || normalized.includes("judgeme");
+}
+
+function isShopifyReturnsEvidenceSource(source = "") {
+  const normalized = String(source || "").toLowerCase();
+  return normalized.includes("return") && !normalized.includes("refund");
+}
+
+function isShopifyRefundsEvidenceSource(source = "") {
+  return String(source || "").toLowerCase().includes("refund");
+}
+
+function isShopifyOrdersEvidenceSource(source = "") {
+  const normalized = String(source || "").toLowerCase();
+  return normalized.includes("order") || normalized.includes("sales");
 }
 
 function EvidenceObservabilityHeader({ detail }) {
@@ -7695,6 +7978,1105 @@ function EvidenceObservabilityHeader({ detail }) {
       </div>
     </div>
   );
+}
+
+function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
+  const metrics = product.metrics || {};
+  const textInsights = metrics.textInsights || {};
+  const sentiment = normalizeEvidenceSentiment(textInsights.sentiment);
+  const topEmotion = getTopEvidenceEmotion(textInsights.emotions);
+  const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
+  const emergentEmotion = getTopEvidenceEmotion(textInsights.aiEmergentSentiments);
+  const themes = getCustomerLanguageThemes(textInsights, source.points);
+  const signalBreakdown = getCustomerLanguageSignalBreakdown(textInsights);
+  const signalRows = getCustomerLanguageSignalRows(textInsights, themes);
+  const recurringThemeCount = Math.max(themes.length, Number(textInsights.repeatedLanguage?.length || 0), Number(textInsights.returns?.repeatedLanguage?.length || 0));
+  const aiConfidence = getCustomerLanguageAiConfidenceLabel({ textInsights, sentiment, source });
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppCustomerLanguageReport">
+      <EvidenceSourceReportHeader source={source} title="Customer language analysis" summary="AI analyzes customer language to uncover sentiment, emotions and recurring themes." />
+
+      <div className="ppEvidenceHeroMetricStrip">
+        <EvidenceSourceStatCard icon="note" label="Text signals" value={formatInteger(sentiment.total)} detail="Signals detected" tone="blue" />
+        <EvidenceSourceStatCard icon="alert-circle" label="Negative language" value={formatInteger(sentiment.negative)} detail={`${formatInteger(sentiment.neutral)} neutral / ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > 0 ? "red" : "teal"} />
+        <EvidenceSourceStatCard icon="target" label="Dominant emotion" value={formatEvidenceEmotionValue(topEmotion)} detail="Deterministic taxonomy" tone="violet" />
+        <EvidenceSourceStatCard icon="wand" label="AI emotions" value={formatEvidenceEmotionValue(topAiEmotion || emergentEmotion)} detail="Known AI labels" tone="violet" />
+      </div>
+
+      <section className="ppEvidenceReportSectionCard">
+        <div className="ppEvidenceReportSectionHeaderRow">
+          <div>
+            <h4>Snapshot overview</h4>
+            <p>What&apos;s driving customer conversations</p>
+          </div>
+          <Link to={reportHref}>View full report <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </div>
+
+        <div className="ppCustomerSnapshotGrid">
+          <EvidenceSourceStatCard compact icon="target" label="Top emotion" value={formatEvidenceEmotionValue(topEmotion)} detail={`Detected in ${formatInteger(topEmotion?.count || 0)} signals`} tone="red" />
+          <EvidenceSourceStatCard compact icon="chart-line" label="Overall sentiment" value={getDominantSentimentLabel(sentiment)} detail={`${formatInteger(sentiment.negative)} negative · ${formatInteger(sentiment.neutral)} neutral · ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > sentiment.positive ? "red" : sentiment.positive > sentiment.negative ? "teal" : "blue"} />
+          <EvidenceSourceStatCard compact icon="note" label="Recurring themes" value={formatInteger(recurringThemeCount)} detail="Themes found" tone="blue" />
+          <EvidenceSourceStatCard compact icon="shield-check-mark" label="AI confidence" value={aiConfidence} detail="Signal quality" tone={aiConfidence === "High" ? "teal" : aiConfidence === "Medium" ? "amber" : "blue"} />
+        </div>
+
+        <div className="ppCustomerLanguageAnalysisGrid">
+          <div>
+            <h4>Top themes</h4>
+            <p>Most frequent themes found in customer language</p>
+            <EvidenceThemeBarList themes={themes} />
+          </div>
+          <div>
+            <h4>Signal breakdown</h4>
+            <p>How signals are distributed</p>
+            <EvidenceSignalDonut total={signalBreakdown.total} rows={signalBreakdown.rows} />
+          </div>
+        </div>
+      </section>
+
+      <section className="ppEvidenceReportSectionCard">
+        <div className="ppEvidenceReportSectionHeaderRow">
+          <div>
+            <h4>All signals by type</h4>
+            <p>Detailed breakdown of all detected signals</p>
+          </div>
+        </div>
+        <div className="ppEvidenceSignalTableWrap">
+          <table className="ppEvidenceSignalTable">
+            <thead>
+              <tr>
+                <th>Signal type</th>
+                <th>What it means</th>
+                <th>Count</th>
+                <th>Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {signalRows.map((row) => (
+                <tr key={row.type}>
+                  <td><span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><s-icon type={row.icon} size="small"></s-icon></span>{row.type}</td>
+                  <td>{row.meaning}</td>
+                  <td>{row.count}</td>
+                  <td>{row.trend}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="ppEvidenceTableFooter">
+          <Link to={reportHref}>View full report <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
+  const metrics = product.metrics || {};
+  const textInsights = metrics.textInsights || {};
+  const returnsSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
+  const topReasons = getReturnReasonRows(metrics);
+  const topReason = topReasons[0] || { label: "No reason stored", count: 0, share: 0 };
+  const repeatedLanguage = getReturnRepeatedLanguage(textInsights);
+  const returnExamples = getReturnExampleRows(textInsights, metrics);
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppShopifyReturnsReport">
+      <EvidenceSourceReportHeader source={source} title="Shopify returns" summary={`Return behavior is contributing to the product risk model${Number(metrics.returnRate || 0) ? ` with a ${formatPercent(metrics.returnRate)} return rate.` : "."}`} />
+
+      <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+        <EvidenceSourceStatCard icon="return" label="Total returns" value={formatInteger(metrics.returnUnits || 0)} detail={`${formatPercent(metrics.returnRate || 0)} return rate`} tone="blue" />
+        <EvidenceSourceStatCard icon="chart-line" label="Return rate" value={formatPercent(metrics.returnRate || 0)} detail={`${formatInteger(metrics.soldUnits || 0)} sold units in scan window`} tone={Number(metrics.returnRate || 0) >= 20 ? "teal" : "blue"} />
+        <EvidenceSourceStatCard icon="clock" label="Returned within" value={`${formatInteger(metrics.returnUnits || 0)} units`} detail={`${formatInteger(metrics.windowDays || 60)} day evidence window`} tone="blue" trend={metrics.signalTrend} />
+        <EvidenceSourceStatCard icon="target" label="Top reason" value={topReason.label} detail="Most frequent" tone="violet" />
+      </div>
+
+      <div className="ppReturnsEvidenceGrid">
+        <section className="ppEvidenceReportSectionCard ppReturnsOverTimeCard">
+          <h4>Returns over time</h4>
+          <p>Return rate trend in scan window</p>
+          <EvidenceReturnRateChart activity={metrics.monthlyOrderActivity} prediction={metrics.returnRatePrediction} returnRate={metrics.returnRate} />
+        </section>
+
+        <section className="ppEvidenceReportSectionCard ppReturnsTopReasonsCard">
+          <h4>Top return reasons</h4>
+          <p>By return units</p>
+          <EvidenceReasonBarList rows={topReasons} total={Number(metrics.returnUnits || 0)} />
+          <Link to={reportHref}>View all reasons <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </section>
+      </div>
+
+      <div className="ppReturnsDetailMetricGrid">
+        <EvidenceSourceStatCard icon="calendar" label="Last signal captured" value={metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product)} detail={`${formatInteger(metrics.signalCount || source.points.length)} total signals`} tone="blue" />
+        <EvidenceSourceStatCard icon="return" label="Return notes sentiment" value={formatInteger(returnsSentiment.negative)} detail={`${formatInteger(returnsSentiment.negative)} negative · ${formatInteger(returnsSentiment.neutral)} neutral · ${formatInteger(returnsSentiment.positive)} positive`} tone={returnsSentiment.negative ? "red" : "blue"} />
+        <EvidenceSourceStatCard icon="note" label="Repeated language" value={formatInteger(repeatedLanguage.length)} detail={repeatedLanguage[0] ? `${quoteSourceText(repeatedLanguage[0].term)} (${formatInteger(repeatedLanguage[0].count)})` : "No repeated return language"} tone={repeatedLanguage.length ? "red" : "blue"} />
+        <EvidenceSourceStatCard icon="lightbulb" label="Return insights" value={formatInteger(getReturnInsightCount(textInsights, source))} detail="Insight groups" tone="blue" />
+        <EvidenceSourceStatCard icon="product" label="Vendor" value={metrics.vendor || "Not stored"} detail={metrics.vendor || "Vendor not captured"} tone="blue" />
+        <EvidenceSourceStatCard icon="tag" label="Product type" value={metrics.productType || "Not stored"} detail={metrics.productType || "Product type not captured"} tone="blue" />
+        <EvidenceSourceStatCard icon="note" label="Description words" value={formatInteger(metrics.descriptionWordCount || 0)} detail="In product description" tone="blue" />
+        <EvidenceSourceStatCard icon="shield-check-mark" label="Content quality" value={metrics.contentQualityScore ? `${metrics.contentQualityScore} / 100` : "Not scored"} detail="Content quality score" tone="blue" />
+      </div>
+
+      <div className="ppReturnsBottomGrid">
+        <section className="ppEvidenceReportSectionCard ppRecentReturnNotesCard">
+          <div className="ppEvidenceReportSectionHeaderRow">
+            <div>
+              <h4>Recent return notes</h4>
+              <p>Latest return notes captured</p>
+            </div>
+            <Link to={reportHref}>View all notes <s-icon type="chevron-right" size="small"></s-icon></Link>
+          </div>
+          <div className="ppRecentReturnNoteList">
+            {returnExamples.map((example) => (
+              <div key={`${example.text}-${example.date}`}>
+                <span>{renderAnalysisText(example.text)}</span>
+                <small>{example.date}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <Link aria-label="View Full Report" className="ppReturnsFullReportCard" to={reportHref}>
+          <span className="ppReturnsFullReportIcon" aria-hidden="true">
+            <s-icon type="chart-line" size="small"></s-icon>
+          </span>
+          <strong>View full report</strong>
+          <small>See technical evidence, detected issues and raw source data.</small>
+          <span>Open full report <s-icon type="chevron-right" size="small"></s-icon></span>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function ReviewEvidencePanel({ source, product, reportHref }) {
+  const reviewStats = getReviewEvidenceStats(source, product);
+  const emotionRows = getReviewEmotionRows(product.metrics?.textInsights || {});
+  const repeatedLanguage = getReviewRepeatedLanguage(product.metrics?.textInsights || {}, source.title);
+  const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points);
+  const insights = [
+    { label: "Average rating / negative rate", value: reviewStats.negativeRateLabel, detail: "Product-level rating pressure", tone: reviewStats.negativeCount ? "red" : "teal" },
+    { label: "Evidence", value: formatInteger(reviewStats.totalAnalyzed || reviewStats.reviewCount), detail: "Reviews analyzed", tone: "blue" },
+    { label: "Total signals detected", value: formatInteger(source.points.length || reviewStats.negativeCount), detail: "Review evidence points", tone: "violet" },
+  ];
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppReviewEvidenceReport">
+      <EvidenceSourceReportHeader source={source} title={source.title || "Judge.me reviews"} eyebrow="Reviews" summary="Review evidence connects rating pressure, negative language and customer-reported expectations." />
+
+      <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+        <EvidenceSourceStatCard icon="star" label="Total reviews" value={formatInteger(reviewStats.reviewCount)} detail={`${formatInteger(reviewStats.negativeCount)} negative reviews`} tone="blue" />
+        <EvidenceSourceStatCard icon="star" label="Average rating" value={reviewStats.averageRatingLabel} detail="Product-level rating" tone="teal" />
+        <EvidenceSourceStatCard icon="alert-circle" label="Negative reviews" value={formatInteger(reviewStats.negativeCount)} detail={`${reviewStats.negativeRateLabel} negative rate`} tone={reviewStats.negativeCount ? "red" : "teal"} />
+        <EvidenceSourceStatCard icon="clock" label="Recent negatives" value={formatInteger(reviewStats.recentNegativeCount)} detail="Recent negative signals" tone="violet" />
+      </div>
+
+      <div className="ppEvidenceThreeColumnGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Review sentiment</h4>
+          <EvidenceSignalDonut total={reviewStats.sentiment.total} rows={reviewStats.sentimentRows} />
+        </section>
+
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Review emotions <span>(detected)</span></h4>
+          <EvidenceBarList rows={emotionRows} tone="red" emptyLabel="No review emotions stored" />
+        </section>
+
+        <section className="ppEvidenceReportSectionCard">
+          <div className="ppEvidenceReportSectionHeaderRow ppEvidenceReportSectionHeaderRow-compact">
+            <div>
+              <h4>Repeated review language</h4>
+              <p>Top repeated phrases</p>
+            </div>
+          </div>
+          <EvidencePhraseList phrases={repeatedLanguage} tone="red" emptyLabel="No repeated review phrases stored" />
+          <Link className="ppEvidenceSectionLink" to={reportHref}>See all phrases <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </section>
+      </div>
+
+      <div className="ppEvidenceTwoColumnGrid ppEvidenceTwoColumnGrid-wideLeft">
+        <section className="ppEvidenceReportSectionCard">
+          <div className="ppEvidenceReportSectionHeaderRow">
+            <div>
+              <h4>Latest negative review examples</h4>
+              <p>Showing {formatInteger(Math.min(examples.length, 4))} of {formatInteger(examples.length || 0)}</p>
+            </div>
+          </div>
+          <div className="ppEvidenceReviewExampleGrid">
+            {examples.slice(0, 4).map((example, index) => (
+              <article key={`${example.title}-${example.text}-${index}`} className="ppEvidenceReviewExample">
+                <div className="ppEvidenceReviewStars" aria-label={`${formatInteger(example.rating)} star review`}>
+                  {Array.from({ length: 5 }, (_, starIndex) => (
+                    <span className={starIndex < Number(example.rating || 1) ? "isActive" : ""} key={starIndex}>★</span>
+                  ))}
+                  <small>{example.date}</small>
+                </div>
+                <strong>{example.title}</strong>
+                <p>{renderAnalysisText(example.text)}</p>
+                <div>
+                  {example.tags.slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}
+                  <em>Evidence #{index + 1}</em>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="ppEvidenceReportSectionCard ppEvidenceReviewSummaryCard">
+          <h4>Review evidence</h4>
+          <p>{formatInteger(reviewStats.negativeCount)} negative reviews out of {formatInteger(reviewStats.reviewCount)} analyzed</p>
+          <strong>{reviewStats.negativeRateLabel} negative rate</strong>
+          <div className="ppEvidenceSingleBar"><span style={{ width: `${Math.max(2, clampPercentValue(reviewStats.negativeRate))}%` }}></span></div>
+          <Link to={reportHref}>View all reviews <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </section>
+      </div>
+
+      <div className="ppEvidenceBottomReportGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <h4>{source.title || "Review"} insights</h4>
+          <div className="ppEvidenceMiniInsightGrid">
+            {insights.map((item) => (
+              <EvidenceMiniInsight key={item.label} {...item} />
+            ))}
+          </div>
+        </section>
+        <EvidenceFullReportCard href={reportHref} />
+      </div>
+    </div>
+  );
+}
+
+function RefundEvidencePanel({ source, product, reportHref }) {
+  const metrics = product.metrics || {};
+  const refundInsights = metrics.refundInsights || {};
+  const refundSentiment = normalizeEvidenceSentiment(refundInsights.sentiment);
+  const reasonRows = getRefundReasonRows(metrics);
+  const repeatedLanguage = getRefundRepeatedLanguage(metrics);
+  const refundExamples = getRefundExampleRows(metrics);
+  const topReason = reasonRows[0] || { label: "No reason stored", count: 0, share: 0 };
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppRefundEvidenceReport">
+      <EvidenceSourceReportHeader source={source} title="Shopify refunds" eyebrow="Refunds" summary={`Refund pressure is tracked separately from returns to highlight financial impact${Number(metrics.refundAmount || 0) ? ` (${formatMoney(metrics.refundAmount)})` : "."}`} />
+
+      <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+        <EvidenceSourceStatCard icon="star" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail={`${formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} refund rate`} tone="blue" />
+        <EvidenceSourceStatCard icon="cash-dollar" label="Refund amount" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail="Stored refund value" tone="red" />
+        <EvidenceSourceStatCard icon="chart-line" label="Refund pressure" value={formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} detail={`${formatInteger(metrics.soldUnits || refundInsights.soldUnits || 0)} sold units baseline`} tone={Number(metrics.refundRate || refundInsights.refundRate || 0) >= 20 ? "red" : "amber"} />
+        <EvidenceSourceStatCard icon="cash-dollar" label="Margin at risk" value={formatMoney(metrics.marginAtRisk || 0)} detail={`${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`} tone="teal" />
+      </div>
+
+      <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+        <EvidenceSourceStatCard icon="star" label="Refund evidence" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail={`${formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} of refunded units`} tone="red" />
+        <EvidenceSourceStatCard icon="calendar" label="Last signal captured" value={metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product)} detail={`${formatInteger(metrics.signalCount || source.points.length)} total signals`} tone="blue" />
+        <EvidenceSourceStatCard icon="target" label="Top refund reason" value={topReason.label} detail="Primary refund signal" tone="violet" />
+        <EvidenceSourceStatCard icon="alert-circle" label="Refund-note tone" value={formatInteger(refundSentiment.negative)} detail={`${formatInteger(refundSentiment.negative)} negative, ${formatInteger(refundSentiment.neutral)} neutral, ${formatInteger(refundSentiment.positive)} positive`} tone={refundSentiment.negative ? "red" : "blue"} />
+      </div>
+
+      <div className="ppEvidenceThreeColumnGrid ppEvidenceThreeColumnGrid-equal">
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Refund reasons / context</h4>
+          <p>By refunded units</p>
+          <EvidenceReasonBarList rows={reasonRows} total={Number(metrics.refundUnits || refundInsights.total || 0)} />
+          <Link className="ppEvidenceSectionLink" to={reportHref}>View all reasons <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </section>
+
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Refund note sentiment</h4>
+          <EvidenceSignalDonut total={refundSentiment.total} rows={getSentimentDonutRows(refundSentiment)} />
+        </section>
+
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Repeated refund-note language</h4>
+          <p>Top repeated phrases</p>
+          <EvidencePhraseList phrases={repeatedLanguage} tone="red" emptyLabel="No repeated refund-note language stored" />
+          <Link className="ppEvidenceSectionLink" to={reportHref}>See all phrases <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </section>
+      </div>
+
+      <div className="ppReturnsDetailMetricGrid">
+        <EvidenceSourceStatCard icon="note" label="Refund note" value={topReason.label} detail="Most common note" tone="blue" />
+        <EvidenceSourceStatCard icon="cash-dollar" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail="Refunded units" tone="blue" />
+        <EvidenceSourceStatCard icon="cash-dollar" label="Refund amount" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail="Total refunded" tone="red" />
+        <EvidenceSourceStatCard icon="product" label="Vendor" value={metrics.vendor || "Not stored"} detail="Vendor" tone="blue" />
+        <EvidenceSourceStatCard icon="tag" label="Product type" value={metrics.productType || "Not stored"} detail="Product type" tone="blue" />
+      </div>
+
+      <div className="ppReturnsBottomGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <div className="ppEvidenceReportSectionHeaderRow">
+            <div>
+              <h4>Recent refund notes</h4>
+              <p>Showing {formatInteger(refundExamples.length)} of {formatInteger(refundExamples.length)}</p>
+            </div>
+          </div>
+          <div className="ppEvidenceRefundNoteGrid">
+            {refundExamples.map((example, index) => (
+              <article key={`${example.text}-${index}`}>
+                <strong>{example.reason || "Refund note"}</strong>
+                <p>{renderAnalysisText(example.text)}</p>
+                <span>{example.date}</span>
+                <em>{example.sentiment}</em>
+              </article>
+            ))}
+          </div>
+        </section>
+        <EvidenceFullReportCard href={reportHref} />
+      </div>
+    </div>
+  );
+}
+
+function OrdersEvidencePanel({ source, product, reportHref }) {
+  const metrics = product.metrics || {};
+  const activity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
+  const summary = activity.summary || {};
+  const unitsSold = Number(summary.totalOrderUnits || metrics.soldUnits || 0);
+  const orderCount = Number(summary.totalOrders || metrics.orderCount || metrics.ordersLast30Days || 0);
+  const revenue = Number(summary.totalRevenue || metrics.salesAmount || metrics.revenueLast30Days || metrics.revenueAtRisk || 0);
+  const windowDays = Number(activity.windowDays || metrics.windowDays || 365);
+  const aov = orderCount ? revenue / orderCount : Number(metrics.avgOrderValue || metrics.avgUnitRevenue || 0);
+  const velocity = windowDays ? unitsSold / windowDays : 0;
+  const channelRows = getOrderChannelRows(metrics, orderCount);
+  const geographyRows = getOrderGeographyRows(metrics, orderCount);
+  const insightRows = [
+    { label: "Units sold in window", value: formatInteger(unitsSold), detail: "Units sold in window", tone: "blue" },
+    { label: "Order window", value: formatInteger(windowDays), detail: "Order window", tone: "violet" },
+    { label: "Total signals detected", value: formatInteger(metrics.signalCount || source.points.length), detail: "Total signals detected", tone: "blue" },
+  ];
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppOrdersEvidenceReport">
+      <EvidenceSourceReportHeader source={source} title="Shopify orders" eyebrow="Orders" summary="Order data establishes baseline sold units, velocity and demand context." />
+
+      <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+        <EvidenceSourceStatCard icon="cash-dollar" label="Units sold" value={formatInteger(unitsSold)} detail="Sold in scan window" tone="teal" />
+        <EvidenceSourceStatCard icon="cash-dollar" label="Orders" value={formatInteger(orderCount)} detail="Orders in scan window" tone="teal" />
+        <EvidenceSourceStatCard icon="clock" label="Order window" value={`${formatInteger(windowDays)} days`} detail="Analysis window" tone="blue" />
+        <EvidenceSourceStatCard icon="cash-dollar" label="AOV" value={formatMoney(aov)} detail="Average order value" tone="blue" />
+      </div>
+
+      <div className="ppReturnsEvidenceGrid">
+        <section className="ppEvidenceReportSectionCard ppOrdersLineChartCard">
+          <h4>Units sold over time</h4>
+          <p>Daily sold units</p>
+          <EvidenceOrdersLineChart months={activity.months} fallbackValue={unitsSold} />
+        </section>
+        <section className="ppEvidenceReportSectionCard ppOrderVelocityCard">
+          <h4>Order velocity</h4>
+          <p>By units per day</p>
+          <strong>{formatDecimal(velocity, 3)}</strong>
+          <small>Units per day (avg)</small>
+          <MiniTrend tone="violet" values={activity.months.map((month) => Number(month.orderUnits || month.orders || 0))} />
+        </section>
+      </div>
+
+      <div className="ppEvidenceTwoColumnGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Sales by channel</h4>
+          <p>By sold units</p>
+          <EvidenceBarList rows={channelRows} tone="violet" emptyLabel="No channel data stored" />
+        </section>
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Geography</h4>
+          <p>By sold units</p>
+          <EvidenceBarList rows={geographyRows} tone="blue" emptyLabel="No geography data stored" />
+        </section>
+      </div>
+
+      <div className="ppReturnsDetailMetricGrid">
+        <EvidenceSourceStatCard icon="product" label="Vendor" value={metrics.vendor || "Not stored"} detail="Vendor" tone="blue" />
+        <EvidenceSourceStatCard icon="tag" label="Product type" value={metrics.productType || "Not stored"} detail="Product type" tone="blue" />
+        <EvidenceSourceStatCard icon="duplicate" label="Collections" value={formatInteger(getEvidenceList(metrics.collections).length)} detail="Collections" tone="blue" />
+        <EvidenceSourceStatCard icon="note" label="Signal count" value={formatInteger(metrics.signalCount || source.points.length)} detail="Total signals" tone="blue" />
+      </div>
+
+      <div className="ppEvidenceBottomReportGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Order insights</h4>
+          <div className="ppEvidenceMiniInsightGrid">
+            {insightRows.map((item, index) => (
+              <EvidenceMiniInsight key={item.label} label={`Insight ${index + 1}`} value={item.value} detail={item.detail} tone={item.tone} />
+            ))}
+          </div>
+        </section>
+        <EvidenceFullReportCard href={reportHref} />
+      </div>
+    </div>
+  );
+}
+
+function GenericEvidenceSourceReportPanel({ source, product, reportHref, cards = [] }) {
+  const visibleCards = cards.length ? cards : getEvidenceSourceCards(source.title, source.points, product);
+  const heroCards = visibleCards.slice(0, 4);
+  const detailCards = visibleCards.slice(4);
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppGenericEvidenceReport">
+      <EvidenceSourceReportHeader source={source} title={source.title} eyebrow={getEvidenceSourcePanelTitle(source.title)} summary={source.summary} />
+
+      <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+        {heroCards.map((card) => (
+          <EvidenceSourceStatCard key={`${source.title}-${card.label}-${card.value}`} icon={card.icon} label={card.label} value={card.value} detail={card.detail} tone={card.tone || "blue"} trend={card.trend} />
+        ))}
+      </div>
+
+      <div className="ppEvidenceBottomReportGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <div className="ppEvidenceReportSectionHeaderRow">
+            <div>
+              <h4>Source findings</h4>
+              <p>Most relevant evidence points from this source</p>
+            </div>
+          </div>
+          <div className="ppEvidenceFindingStream ppEvidenceFindingStream-compact">
+            {(source.points.length ? source.points : ["No stored details yet."]).slice(0, 8).map((point, index) => (
+              <EvidenceFinding point={point} index={index} key={`${source.title}-generic-${point}-${index}`} />
+            ))}
+          </div>
+        </section>
+
+        <EvidenceFullReportCard href={reportHref} />
+      </div>
+
+      {detailCards.length > 0 && (
+        <div className="ppEvidenceMetricGrid">
+          {detailCards.map((card) => (
+            <EvidenceMetricCard card={card} key={`${source.title}-detail-${card.label}-${card.value}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceSourceReportHeader({ source, title, summary, eyebrow = "" }) {
+  return (
+    <div className="ppEvidenceActiveHeader ppEvidenceReportActiveHeader">
+      <div className="ppEvidenceActiveTitle">
+        <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${source.tone}`}>
+          <s-icon type={source.icon} size="small"></s-icon>
+        </span>
+        <div>
+          {eyebrow && <span>{eyebrow}</span>}
+          <h3>{title}</h3>
+          <p>{summary}</p>
+        </div>
+      </div>
+      <span className="ppEvidenceSignalCount">{source.points.length} signals</span>
+    </div>
+  );
+}
+
+function EvidenceSourceStatCard({ icon = "info", label, value, detail, tone = "blue", compact = false, trend = null }) {
+  return (
+    <article className={`ppEvidenceSourceStatCard ppEvidenceMetricCard-${tone}${compact ? " ppEvidenceSourceStatCard-compact" : ""}`}>
+      <span className="ppEvidenceMetricIcon" aria-hidden="true">
+        <s-icon type={icon} size="small"></s-icon>
+      </span>
+      <div>
+        <span>{label}</span>
+        <strong>{value || "0"}</strong>
+        <small>{renderAnalysisText(detail || "Stored evidence")}</small>
+      </div>
+      {Array.isArray(trend) && trend.length > 0 && <MiniTrend tone={getTrendTone(trend)} values={trend} />}
+    </article>
+  );
+}
+
+function getReviewEvidenceStats(source = {}, product = {}) {
+  const metrics = product.metrics || {};
+  const textInsights = metrics.textInsights || {};
+  const isCsv = String(source?.title || source || "").toLowerCase().includes("csv");
+  const reviewCount = Number(isCsv
+    ? metrics.csvReviewCount || metrics.csvReviewRatingCount || metrics.reviewCount || 0
+    : metrics.reviewCount || metrics.judgeMeReviewCount || metrics.csvReviewCount || metrics.csvReviewRatingCount || 0);
+  const averageRating = Number(isCsv
+    ? metrics.csvAverageRating || metrics.csvReviewRating || metrics.avgRating || metrics.reviewRating || 0
+    : metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating || metrics.csvReviewRating || 0);
+  const negativeCount = Number(isCsv
+    ? metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || metrics.negativeReviewCount || 0
+    : metrics.negativeReviewCount || metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || 0);
+  const negativeRate = Number(isCsv
+    ? metrics.csvNegativeRatingRate || metrics.negativeReviewRate || (reviewCount ? (negativeCount / reviewCount) * 100 : 0)
+    : metrics.negativeReviewRate || (reviewCount ? (negativeCount / reviewCount) * 100 : 0));
+  const recentNegativeCount = Number(metrics.recentNegativeReviewCount || negativeCount || 0);
+  const storedSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
+  const sentiment = storedSentiment.total
+    ? storedSentiment
+    : {
+        total: reviewCount,
+        negative: negativeCount,
+        neutral: Math.max(0, reviewCount - negativeCount),
+        positive: 0,
+      };
+
+  return {
+    reviewCount,
+    averageRating,
+    averageRatingLabel: averageRating ? formatDecimal(averageRating, 1) : "0",
+    negativeCount,
+    negativeRate,
+    negativeRateLabel: formatPercent(negativeRate),
+    recentNegativeCount,
+    totalAnalyzed: Math.max(reviewCount, sentiment.total),
+    sentiment,
+    sentimentRows: getSentimentDonutRows(sentiment),
+  };
+}
+
+function getSentimentDonutRows(sentiment = {}) {
+  const normalized = normalizeEvidenceSentiment(sentiment);
+  return [
+    { label: "Negative", value: normalized.negative, tone: "red", color: "var(--pp-risk-red)" },
+    { label: "Neutral", value: normalized.neutral, tone: "blue", color: "var(--pp-pulse-blue)" },
+    { label: "Positive", value: normalized.positive, tone: "teal", color: "var(--pp-signal-teal)" },
+  ];
+}
+
+function getReviewEmotionRows(textInsights = {}) {
+  const rows = getEvidenceList(textInsights.reviews?.emotions?.length ? textInsights.reviews.emotions : textInsights.emotions)
+    .map((item) => ({
+      label: item.label || item.normalizedLabel || item.code || "Emotion",
+      count: Number(item.count || item.signals || 0),
+    }))
+    .filter((item) => item.label && item.count >= 0)
+    .sort((first, second) => second.count - first.count)
+    .slice(0, 5);
+  return rows.length ? rows : [{ label: "No emotion taxonomy stored", count: 0 }];
+}
+
+function getReviewRepeatedLanguage(textInsights = {}, sourceTitle = "") {
+  const sourceKey = String(sourceTitle || "").toLowerCase().includes("csv") ? "csv" : "review";
+  const rows = [
+    ...getEvidenceList(textInsights.reviews?.repeatedLanguage),
+    ...getEvidenceList(textInsights.repeatedLanguage).filter((item) => {
+      const sources = getEvidenceList(item.sources).join(" ").toLowerCase();
+      return sourceKey === "csv" ? sources.includes("csv") : sources.includes("review");
+    }),
+  ].map((item) => ({
+    term: item.term || item.label || item.phrase || "",
+    count: Number(item.count || item.signals || 0),
+  })).filter((item) => item.term);
+  return dedupePhraseRows(rows).slice(0, 6);
+}
+
+function getReviewExampleRows(textInsights = {}, points = []) {
+  const examples = getEvidenceList(textInsights.reviews?.examples)
+    .map((example) => ({
+      title: example.title || example.summary || truncateText(example.text || example.body || "Review example", 56),
+      text: example.text || example.body || example.note || "Review text was captured but no excerpt is stored.",
+      rating: Number(example.rating || (String(example.sentiment || "").toLowerCase() === "negative" ? 1 : 3)),
+      date: example.date || example.createdAt ? formatProductAnalysisDate(example.date || example.createdAt) : "",
+      tags: [
+        example.emotion ? formatEvidenceEmotionLabel(example.emotion) : "",
+        example.sentiment ? startCase(example.sentiment) : "",
+      ].filter(Boolean),
+    }));
+  if (examples.length) return examples;
+
+  return points
+    .map((point) => parseEvidencePoint(point))
+    .filter((point) => /review|rating|negative|star/i.test(`${point.label} ${point.body}`))
+    .slice(0, 4)
+    .map((point) => ({
+      title: truncateText(point.label || "Review evidence", 56),
+      text: point.body || point.label || "Review evidence captured.",
+      rating: /negative|low|bad|poor/i.test(point.body || point.label || "") ? 1 : 3,
+      date: "",
+      tags: [/negative|bad|poor/i.test(point.body || "") ? "Negative" : "Evidence"].filter(Boolean),
+    }));
+}
+
+function getRefundReasonRows(metrics = {}) {
+  const refundInsights = metrics.refundInsights || {};
+  const total = Math.max(Number(metrics.refundUnits || refundInsights.total || 0), 0);
+  const rows = getEvidenceReasonItems(refundInsights.topReasons || metrics.topRefundReasonDetails || metrics.topRefundReasons)
+    .map((item) => {
+      const countMatch = String(item.detail || "").match(/\d+/);
+      const count = Number(item.count || countMatch?.[0] || 0);
+      const share = Number(item.share || item.percent || item.percentage || (total && count ? (count / total) * 100 : 0));
+      return { ...item, count, share };
+    });
+  if (!rows.length && total > 0) {
+    rows.push({ label: "Order Level Refund", count: total, share: 100, detail: `${formatInteger(total)} refunded units` });
+  }
+  const usedLabels = new Set(rows.map((row) => String(row.label).toLowerCase()));
+  ["Order Level Refund", "Damaged", "Doesn't Fit", "Changed Mind", "Not as Described"].forEach((label) => {
+    if (!usedLabels.has(label.toLowerCase())) rows.push({ label, count: 0, share: 0, detail: "0 signals" });
+  });
+  return rows.slice(0, 5);
+}
+
+function getRefundRepeatedLanguage(metrics = {}) {
+  const rows = getEvidenceList(metrics.refundInsights?.repeatedLanguage)
+    .map((item) => ({
+      term: item.term || item.label || item.phrase || "",
+      count: Number(item.count || item.signals || 0),
+    }))
+    .filter((item) => item.term);
+  return dedupePhraseRows(rows).slice(0, 6);
+}
+
+function getRefundExampleRows(metrics = {}) {
+  const examples = getEvidenceList(metrics.refundInsights?.examples)
+    .map((example) => ({
+      reason: example.reasonText || example.reason || example.issueCode ? startCase(example.reasonText || example.reason || example.issueCode) : "Refund note",
+      text: example.noteText || example.text || example.reasonText || "Refund context was captured without a free-form note.",
+      date: example.createdAt ? formatProductAnalysisDate(example.createdAt) : (metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : ""),
+      sentiment: example.sentiment ? startCase(example.sentiment) : "Operational",
+    }));
+  if (examples.length) return examples.slice(0, 4);
+  return [{ reason: "No refund notes stored", text: "Refund units or amount may exist without a Shopify refund note.", date: "", sentiment: "Info" }];
+}
+
+function dedupePhraseRows(rows = []) {
+  const byTerm = new Map();
+  rows.forEach((row) => {
+    const term = String(row.term || "").replace(/^["“]+|["”]+$/g, "").trim();
+    if (!term) return;
+    const key = term.toLowerCase();
+    byTerm.set(key, {
+      term,
+      count: Math.max(Number(row.count || 0), Number(byTerm.get(key)?.count || 0)),
+    });
+  });
+  return [...byTerm.values()].sort((first, second) => second.count - first.count);
+}
+
+function truncateText(value = "", maxLength = 80) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function EvidenceBarList({ rows = [], tone = "violet", emptyLabel = "No rows stored" }) {
+  const visibleRows = rows.length ? rows : [{ label: emptyLabel, count: 0 }];
+  const max = Math.max(...visibleRows.map((row) => Number(row.count || row.value || 0)), 1);
+  return (
+    <div className={`ppEvidenceHorizontalBars ppEvidenceHorizontalBars-${tone}`}>
+      {visibleRows.map((row) => {
+        const count = Number(row.count || row.value || 0);
+        const share = Number(row.share || row.percent || row.percentage || 0);
+        const detail = row.detail || (share ? `${formatPercent(share)}` : "");
+        return (
+          <div key={row.label}>
+            <span><strong>{row.label}</strong><em>{detail || formatInteger(count)}</em></span>
+            <div aria-hidden="true"><span style={{ width: `${Math.max(count ? 6 : 1, Math.round((count / max) * 100))}%` }}></span></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EvidencePhraseList({ phrases = [], tone = "red", emptyLabel = "No repeated phrases stored" }) {
+  const rows = phrases.length ? phrases : [{ term: emptyLabel, count: 0 }];
+  return (
+    <div className={`ppEvidencePhraseList ppEvidencePhraseList-${tone}`}>
+      {rows.map((phrase) => (
+        <div key={phrase.term}>
+          <strong>{quoteSourceText(phrase.term)}</strong>
+          <span>{formatInteger(phrase.count || 0)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EvidenceMiniInsight({ label, value, detail, tone = "blue" }) {
+  return (
+    <article className={`ppEvidenceMiniInsight ppEvidenceMetricCard-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function EvidenceFullReportCard({ href }) {
+  return (
+    <Link aria-label="View Full Report" className="ppReturnsFullReportCard" to={href}>
+      <span className="ppReturnsFullReportIcon" aria-hidden="true">
+        <s-icon type="file" size="small"></s-icon>
+      </span>
+      <strong>View full report</strong>
+      <small>See technical evidence, issues and raw source data.</small>
+      <span>Open full report <s-icon type="chevron-right" size="small"></s-icon></span>
+    </Link>
+  );
+}
+
+function getOrderChannelRows(metrics = {}, orderCount = 0) {
+  const rawRows = getEvidenceList(metrics.salesByChannel || metrics.orderChannels || metrics.channels);
+  if (rawRows.length) {
+    return rawRows.map((row) => ({
+      label: row.label || row.channel || row.name || "Channel",
+      count: Number(row.count || row.orders || row.units || row.value || 0),
+      share: Number(row.share || row.percent || row.percentage || 0),
+      detail: row.detail || "",
+    }));
+  }
+  return orderCount
+    ? [{ label: "Online Store", count: orderCount, share: 100, detail: `${formatPercent(100)}` }, { label: "Other", count: 0, share: 0, detail: "0%" }]
+    : [{ label: "No channel data stored", count: 0, share: 0, detail: "" }];
+}
+
+function getOrderGeographyRows(metrics = {}, orderCount = 0) {
+  const rawRows = getEvidenceList(metrics.salesByCountry || metrics.orderGeography || metrics.geography || metrics.countries);
+  if (rawRows.length) {
+    return rawRows.map((row) => ({
+      label: row.label || row.country || row.name || "Region",
+      count: Number(row.count || row.orders || row.units || row.value || 0),
+      share: Number(row.share || row.percent || row.percentage || 0),
+      detail: row.detail || "",
+    }));
+  }
+  return orderCount
+    ? [{ label: "Captured Shopify orders", count: orderCount, share: 100, detail: `${formatPercent(100)}` }]
+    : [{ label: "No geography data stored", count: 0, share: 0, detail: "" }];
+}
+
+function EvidenceOrdersLineChart({ months = [], fallbackValue = 0 }) {
+  const sourcePoints = (Array.isArray(months) ? months : [])
+    .map((month) => ({
+      label: month.shortLabel || month.label || month.key || "",
+      value: Number(month.orderUnits || month.orders || 0),
+    }))
+    .filter((point) => point.label);
+  const points = sourcePoints.length >= 2
+    ? sourcePoints
+    : [{ label: "Start", value: 0 }, { label: "Now", value: Number(fallbackValue || 0) }];
+  const max = Math.max(...points.map((point) => point.value), 1);
+  const chartPoints = points.map((point, index) => ({
+    x: points.length === 1 ? 50 : Math.round((index / (points.length - 1)) * 1000) / 10,
+    y: Math.round((100 - (point.value / max) * 90) * 10) / 10,
+  }));
+  const path = buildSmoothSvgPath(chartPoints);
+  const labels = [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]].filter(Boolean);
+
+  return (
+    <div className="ppEvidenceOrdersLineChart">
+      <div className="ppEvidenceOrdersYAxis" aria-hidden="true">
+        <span>{formatInteger(max)}</span>
+        <span>{formatInteger(Math.round(max / 2))}</span>
+        <span>0</span>
+      </div>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Units sold over time">
+        <path d={path} />
+      </svg>
+      <div className="ppEvidenceReturnXAxis" aria-hidden="true">
+        {labels.map((label, index) => <span key={`${label.label}-${index}`}>{label.label}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function normalizeEvidenceSentiment(sentiment = {}) {
+  return {
+    total: Number(sentiment?.total || 0),
+    negative: Number(sentiment?.negative || 0),
+    neutral: Number(sentiment?.neutral || 0),
+    positive: Number(sentiment?.positive || 0),
+    dominant: sentiment?.dominant || "",
+  };
+}
+
+function getTopEvidenceEmotion(items = []) {
+  const list = getEvidenceList(items)
+    .map((item) => ({
+      label: item.label || item.normalizedLabel || item.code || "",
+      count: Number(item.count || item.signals || 0),
+      polarity: item.polarity || "",
+    }))
+    .filter((item) => item.label);
+  if (!list.length) return null;
+  list.sort((first, second) => second.count - first.count);
+  return list[0];
+}
+
+function formatEvidenceEmotionValue(item) {
+  if (!item?.label) return "None stored";
+  return item.count ? `${item.label} ${formatInteger(item.count)}` : item.label;
+}
+
+function getDominantSentimentLabel(sentiment = {}) {
+  if (!sentiment.total) return "None stored";
+  if (sentiment.negative >= sentiment.neutral && sentiment.negative >= sentiment.positive && sentiment.negative > 0) return "Negative";
+  if (sentiment.positive >= sentiment.neutral && sentiment.positive > 0) return "Positive";
+  return "Neutral";
+}
+
+function getCustomerLanguageAiConfidenceLabel({ textInsights = {}, sentiment = {}, source = {} }) {
+  const signalCount = Number(sentiment.total || 0);
+  const hasAiLabels = getEvidenceList(textInsights.aiKnownEmotions).length + getEvidenceList(textInsights.aiEmergentSentiments).length;
+  const sourceSignals = Number(source?.points?.length || 0);
+  if (signalCount >= 8 || (signalCount >= 4 && hasAiLabels >= 2) || sourceSignals >= 8) return "High";
+  if (signalCount >= 3 || hasAiLabels) return "Medium";
+  return "Low";
+}
+
+function getCustomerLanguageThemes(textInsights = {}, points = []) {
+  const byLabel = new Map();
+  const addTheme = (label, count = 1) => {
+    const cleanLabel = String(label || "").replace(/^["“]+|["”]+$/g, "").trim();
+    if (!cleanLabel || /^none stored$/i.test(cleanLabel)) return;
+    const key = cleanLabel.toLowerCase();
+    byLabel.set(key, {
+      label: cleanLabel,
+      count: (byLabel.get(key)?.count || 0) + Math.max(1, Number(count || 1)),
+    });
+  };
+
+  getEvidenceList(textInsights.otherReturnClassifications).forEach((item) => addTheme(item.label || item.issueCode, item.count));
+  getEvidenceList(textInsights.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
+  getEvidenceList(textInsights.returns?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
+  getEvidenceList(textInsights.reviews?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
+  getEvidenceList(textInsights.emotions).forEach((item) => addTheme(item.label || item.code, item.count));
+  getEvidenceList(textInsights.aiKnownEmotions).forEach((item) => addTheme(item.label || item.code, item.count || item.signals));
+  getEvidenceList(textInsights.aiEmergentSentiments).forEach((item) => addTheme(item.label || item.normalizedLabel, item.count || item.signals));
+
+  points.forEach((point) => {
+    const parsed = parseEvidencePoint(point);
+    const body = parsed.body || parsed.label || point;
+    const quoted = String(body).match(/"([^"]+)"/);
+    if (quoted) addTheme(quoted[1], 1);
+  });
+
+  const themes = [...byLabel.values()].sort((first, second) => second.count - first.count).slice(0, 5);
+  return themes.length ? themes : [{ label: "No recurring theme stored", count: 0 }];
+}
+
+function getCustomerLanguageSignalBreakdown(textInsights = {}) {
+  const sentiment = normalizeEvidenceSentiment(textInsights.sentiment);
+  const other = Math.max(0, sentiment.total - sentiment.negative - sentiment.neutral - sentiment.positive);
+  return {
+    total: sentiment.total,
+    rows: [
+      { label: "Negative", value: sentiment.negative, tone: "red", color: "var(--pp-risk-red)" },
+      { label: "Neutral", value: sentiment.neutral, tone: "violet", color: "var(--pp-insight-violet)" },
+      { label: "Positive", value: sentiment.positive, tone: "teal", color: "var(--pp-signal-teal)" },
+      { label: "Other / Info", value: other, tone: "neutral", color: "var(--pp-slate-300)" },
+    ],
+  };
+}
+
+function getCustomerLanguageSignalRows(textInsights = {}, themes = []) {
+  const returnsSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
+  const reviewsSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
+  const emergent = getTopEvidenceEmotion(textInsights.aiEmergentSentiments);
+  const subjective = textInsights.subjectiveNegativity || {};
+  const insightCount = themes.filter((theme) => Number(theme.count || 0) > 0).length;
+
+  return [
+    {
+      type: "Emergent emotion",
+      meaning: "New sentiment clusters",
+      count: emergent ? formatEvidenceEmotionValue(emergent) : "None stored",
+      trend: emergent ? `${formatInteger(emergent.count)} text signals` : "-",
+      icon: "alert-circle",
+      tone: emergent?.polarity === "negative" ? "red" : "violet",
+    },
+    {
+      type: "Subjective reactions",
+      meaning: "Direct customer reactions",
+      count: formatInteger(subjective.count || 0),
+      trend: subjective.total ? `${formatInteger(subjective.total)} text signals` : "-",
+      icon: "return",
+      tone: "blue",
+    },
+    {
+      type: "Customer insight",
+      meaning: "Product-related insights",
+      count: formatInteger(insightCount),
+      trend: insightCount ? `From ${formatInteger(insightCount)} insight groups` : "-",
+      icon: "lightbulb",
+      tone: "violet",
+    },
+    {
+      type: "Returns sentiment",
+      meaning: "Sentiment in return notes",
+      count: returnsSentiment.total ? `${formatInteger(returnsSentiment.negative)} negative` : "0",
+      trend: returnsSentiment.total ? `${formatInteger(returnsSentiment.total)} return text signals` : "-",
+      icon: "return",
+      tone: returnsSentiment.negative ? "red" : "blue",
+    },
+    {
+      type: "Reviews sentiment",
+      meaning: "Sentiment in reviews",
+      count: reviewsSentiment.total ? `${formatInteger(reviewsSentiment.negative)} negative` : "0",
+      trend: reviewsSentiment.total ? `${formatInteger(reviewsSentiment.total)} review text signals` : "-",
+      icon: "star",
+      tone: reviewsSentiment.negative ? "amber" : "blue",
+    },
+  ];
+}
+
+function EvidenceThemeBarList({ themes = [] }) {
+  const max = Math.max(...themes.map((theme) => Number(theme.count || 0)), 1);
+  return (
+    <div className="ppEvidenceThemeBars">
+      {themes.map((theme) => {
+        const count = Number(theme.count || 0);
+        return (
+          <div key={theme.label}>
+            <span>{theme.label}</span>
+            <div aria-hidden="true"><span style={{ width: `${Math.max(4, Math.round((count / max) * 100))}%` }}></span></div>
+            <strong>{formatInteger(count)}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EvidenceSignalDonut({ total = 0, rows = [] }) {
+  const safeTotal = Math.max(Number(total || 0), rows.reduce((sum, row) => sum + Number(row.value || 0), 0), 1);
+  let cursor = 0;
+  const segments = rows.map((row) => {
+    const value = Math.max(0, Number(row.value || 0));
+    const start = cursor;
+    const end = cursor + (value / safeTotal) * 100;
+    cursor = end;
+    return `${row.color} ${start}% ${end}%`;
+  }).join(", ");
+  const background = segments || "var(--pp-slate-200) 0% 100%";
+
+  return (
+    <div className="ppEvidenceDonutWrap">
+      <div className="ppEvidenceDonut" style={{ background: `conic-gradient(${background})` }} aria-hidden="true">
+        <span><strong>{formatInteger(total)}</strong><small>Total signals</small></span>
+      </div>
+      <div className="ppEvidenceDonutLegend">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <span style={{ background: row.color }}></span>
+            <strong>{row.label}</strong>
+            <em>{formatInteger(row.value)} ({formatPercent(safeTotal ? (Number(row.value || 0) / safeTotal) * 100 : 0)})</em>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getReturnReasonRows(metrics = {}) {
+  const total = Math.max(Number(metrics.returnUnits || 0), 0);
+  const rows = getEvidenceReasonItems(metrics.topReturnReasonDetails || metrics.topReturnReasons)
+    .map((item) => {
+      const countMatch = String(item.detail || "").match(/\d+/);
+      const count = Number(item.count || countMatch?.[0] || 0);
+      const share = Number(item.share || item.percent || item.percentage || (total && count ? (count / total) * 100 : 0));
+      return {
+        ...item,
+        count,
+        share,
+      };
+    });
+  const usedLabels = new Set(rows.map((row) => String(row.label).toLowerCase()));
+  ["Other reason", "Color", "Not as described", "Quality issue", "Wrong item"].forEach((label) => {
+    if (!usedLabels.has(label.toLowerCase())) rows.push({ label, count: 0, share: 0, detail: "0 signals" });
+  });
+  return rows.slice(0, 5);
+}
+
+function EvidenceReasonBarList({ rows = [], total = 0 }) {
+  const max = Math.max(...rows.map((row) => Number(row.count || 0)), Number(total || 0), 1);
+  return (
+    <div className="ppEvidenceReasonBars">
+      {rows.map((row) => {
+        const count = Number(row.count || 0);
+        const share = Number(row.share || (total && count ? (count / total) * 100 : 0));
+        return (
+          <div key={row.label}>
+            <span><strong>{row.label}</strong><em>{formatInteger(count)} ({formatPercent(share)})</em></span>
+            <div aria-hidden="true"><span style={{ width: `${Math.max(count ? 6 : 1, Math.round((count / max) * 100))}%` }}></span></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function getReturnTimelinePoints(activity = null, prediction = null, fallbackReturnRate = 0) {
+  const months = Array.isArray(activity?.months) ? activity.months : [];
+  const monthPoints = months
+    .filter((month) => month.key || month.label)
+    .map((month) => ({
+      label: month.shortLabel || month.label || month.key,
+      value: clampPercentValue(month.returnRate || 0),
+    }));
+  if (monthPoints.length >= 2) return monthPoints;
+  const observed = Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [];
+  const observedPoints = observed.map((point) => ({
+    label: point.label || point.key,
+    value: clampPercentValue(point.smoothedReturnRate || point.rawReturnRate || 0),
+  }));
+  if (observedPoints.length >= 2) return observedPoints;
+  return [
+    { label: "Start", value: 0 },
+    { label: "Now", value: clampPercentValue(fallbackReturnRate || 0) },
+  ];
+}
+
+function EvidenceReturnRateChart({ activity = null, prediction = null, returnRate = 0 }) {
+  const points = getReturnTimelinePoints(activity, prediction, returnRate);
+  const chartPoints = points.map((point, index) => ({
+    x: points.length === 1 ? 50 : Math.round((index / (points.length - 1)) * 1000) / 10,
+    y: Math.round((100 - clampPercentValue(point.value)) * 10) / 10,
+  }));
+  const path = buildSmoothSvgPath(chartPoints);
+  const areaPath = chartPoints.length
+    ? `M 0,100 L ${chartPoints.map((point) => `${point.x},${point.y}`).join(" L ")} L 100,100 Z`
+    : "";
+  const labels = [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]].filter(Boolean);
+
+  return (
+    <div className="ppEvidenceReturnChart">
+      <div className="ppEvidenceReturnYAxis" aria-hidden="true">
+        <span>100%</span>
+        <span>75%</span>
+        <span>50%</span>
+        <span>25%</span>
+        <span>0%</span>
+      </div>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Return rate over time">
+        <path className="ppEvidenceReturnArea" d={areaPath} />
+        <path className="ppEvidenceReturnLine" d={path} />
+      </svg>
+      <div className="ppEvidenceReturnXAxis" aria-hidden="true">
+        {labels.map((label, index) => <span key={`${label.label}-${index}`}>{label.label}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function getReturnRepeatedLanguage(textInsights = {}) {
+  return [
+    ...getEvidenceList(textInsights.returns?.repeatedLanguage),
+    ...getEvidenceList(textInsights.repeatedLanguage).filter((item) => getEvidenceList(item.sources).some((source) => String(source).toLowerCase().includes("return"))),
+  ].map((item) => ({
+    term: item.term || item.label || "",
+    count: Number(item.count || item.signals || 0),
+  })).filter((item) => item.term);
+}
+
+function getReturnInsightCount(textInsights = {}, source = {}) {
+  return getEvidenceList(textInsights.otherReturnClassifications).length
+    + getEvidenceList(textInsights.returns?.emotions).length
+    + getEvidenceList(textInsights.returns?.examples).length
+    + Math.max(0, Number(source?.points?.length || 0) - 3);
+}
+
+function getReturnExampleRows(textInsights = {}, metrics = {}) {
+  const examples = getEvidenceList(textInsights.returns?.examples).map((example) => ({
+    text: example.text || example.note || "Return note captured",
+    date: example.date || example.createdAt || (metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : ""),
+  }));
+  if (examples.length) return examples.slice(0, 4);
+  return [
+    { text: "No return notes captured for this product yet.", date: metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : "" },
+  ];
 }
 
 function EvidenceMetricCard({ card }) {
@@ -8780,7 +10162,7 @@ function detailLastAnalysis(product) {
 
 function getEvidenceReasonItems(value) {
   return getEvidenceList(value).map((item) => {
-    if (typeof item === "string") return { label: item, detail: "Stored reason", badge: "" };
+    if (typeof item === "string") return { label: item, detail: "Stored reason", badge: "", count: 0, share: 0 };
     const label = item.label || item.reason || item.name || item.value || "Reason";
     const count = Number(item.count || item.quantity || item.units || 0);
     const share = Number(item.share || item.percent || item.percentage || 0);
@@ -8788,6 +10170,8 @@ function getEvidenceReasonItems(value) {
       label,
       detail: count ? `${formatInteger(count)} signal${count === 1 ? "" : "s"}` : "Stored reason",
       badge: share ? formatPercent(share) : "",
+      count,
+      share,
     };
   }).filter((item) => item.label);
 }
@@ -9094,7 +10478,10 @@ function willCompleteVisibleRecommendedActions(actions = [], minimizedActionStat
 
 function getArchivedActionState(action = {}, minimizedActionStates = {}) {
   const actionKey = getRecommendedActionKey(action);
-  if (minimizedActionStates[actionKey]) return minimizedActionStates[actionKey];
+  if (Object.prototype.hasOwnProperty.call(minimizedActionStates, actionKey)) {
+    const localState = minimizedActionStates[actionKey];
+    return localState === "active" ? "" : localState;
+  }
   const storedState = getArchivedActionStateFromRecordStatus(action.appliedRecord?.status);
   if (storedState) return storedState;
   return "";
@@ -9115,8 +10502,41 @@ function getArchivedActionStateFromRecordStatus(status) {
   return "";
 }
 
+function sortRecommendedActionsForPanel(actions = [], sortKey = "priority", product = {}) {
+  const list = Array.isArray(actions) ? actions : [];
+  const key = String(sortKey || "priority");
+  const ranked = list.map((action, index) => ({ action, index }));
+
+  const getValue = (action) => {
+    const payload = action.payload || {};
+    if (key === "impact") return getActionSortRank(getCompactIndicatorValue(payload.impact || payload.impactLevel, "Optional"), { highFirst: true });
+    if (key === "confidence") return getActionSortRank(getCompactIndicatorValue(payload.confidence, "Medium"), { highFirst: true });
+    if (key === "risk") return getActionSortRank(getCompactIndicatorValue(payload.applicationRisk, "Low"), { highFirst: false });
+    if (key === "effort") return getActionSortRank(getCompactIndicatorValue(action.effort || payload.effort, "Low"), { highFirst: false });
+    return getRecommendedActionDisplayScore(action, product);
+  };
+
+  return ranked
+    .sort((first, second) => getValue(second.action) - getValue(first.action) || first.index - second.index)
+    .map((item) => item.action);
+}
+
+function getActionSortRank(value = "", { highFirst = true } = {}) {
+  const normalized = String(value || "").toLowerCase();
+  const highOrder = { high: 3, medium: 2, optional: 1, low: 1 };
+  const lowOrder = { low: 3, medium: 2, high: 1, optional: 1 };
+  const order = highFirst ? highOrder : lowOrder;
+  if (normalized.includes("high")) return order.high;
+  if (normalized.includes("medium")) return order.medium;
+  if (normalized.includes("optional")) return order.optional;
+  if (normalized.includes("low")) return order.low;
+  return 0;
+}
+
 function ProductRecommendedActionCompact({ action, index, onOpen }) {
   const badgeLabel = action.priority || action.type || action.effort || "Recommended";
+  const indicators = getCompactRecommendedActionMetricItems(action);
+  const description = getCompactRecommendedActionDescription(action);
   return (
     <button
       className="ppCompactRecommendedAction"
@@ -9128,16 +10548,238 @@ function ProductRecommendedActionCompact({ action, index, onOpen }) {
       <span className="ppCompactRecommendedContent">
         <strong>{action.title}</strong>
         <span className={`ppCompactRecommendedBadge ppCompactRecommendedBadge-${getCompactActionPriorityTone(badgeLabel)}`}>
+          <span aria-hidden="true"></span>
           {badgeLabel}
         </span>
+        <span className="ppCompactRecommendedDescription">{description}</span>
       </span>
       <s-icon type="chevron-right" size="small"></s-icon>
+      <span className="ppCompactRecommendedMetrics" aria-label="Recommended action indicators">
+        {indicators.map((indicator) => (
+          <span className="ppCompactActionMetric" key={indicator.label}>
+            <span className={`ppCompactActionMetricIcon ppCompactActionMetricIcon-${indicator.tone}`}>
+              <s-icon type={indicator.icon} size="small"></s-icon>
+            </span>
+            <span>
+              <small>{indicator.label}</small>
+              <strong>{indicator.value}</strong>
+            </span>
+          </span>
+        ))}
+      </span>
     </button>
   );
 }
 
+function getCompactRecommendedActionMetricItems(action = {}) {
+  const payload = action.payload || {};
+  const impact = getCompactIndicatorValue(payload.impact || payload.impactLevel, "Optional");
+  const applicationRisk = getCompactIndicatorValue(payload.applicationRisk, "Low");
+  const effort = getCompactIndicatorValue(action.effort || payload.effort, "Low");
+  const confidence = getCompactIndicatorValue(payload.confidence, "Medium");
+
+  return [
+    { label: "Impact", value: impact, tone: getCompactImpactTone(impact), icon: "target" },
+    { label: "Risk", value: applicationRisk, tone: getCompactRiskTone(applicationRisk), icon: "shield-check-mark" },
+    { label: "Effort", value: effort, tone: getCompactEffortTone(effort), icon: "clock" },
+    { label: "Confidence", value: confidence, tone: getCompactConfidenceTone(confidence), icon: "chart-line" },
+  ].filter((item) => item.value);
+}
+
+function getCompactRecommendedActionDescription(action = {}) {
+  const payload = action.payload || {};
+  const candidates = [
+    payload.shortDescription,
+    payload.description,
+    payload.expectedBenefit,
+    payload.expectedImpact,
+    payload.proposedChange,
+    payload.whyThisAction,
+    action.detail,
+    action.reason,
+  ];
+  const value = candidates.map((item) => String(item || "").replace(/\s+/g, " ").trim()).find(Boolean);
+  if (value) return truncateCompactActionDescription(value);
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (normalized.includes("faq")) return "Add a focused FAQ to answer shopper questions before checkout.";
+  if (normalized.includes("qa") || normalized.includes("supplier")) return "Review quality or fulfillment signals with the responsible team.";
+  if (normalized.includes("description") || normalized.includes("pdp") || normalized.includes("copy")) return "Improve PDP copy so shoppers understand the product before buying.";
+  if (normalized.includes("tag") || normalized.includes("workflow")) return "Add internal workflow context so the product is easier to track.";
+  return "Review this recommended next step based on the stored diagnosis evidence.";
+}
+
+function truncateCompactActionDescription(value = "", maxLength = 104) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3).trim()}...`;
+}
+
+function getRecommendedActionExtendedDetails(action = {}, application = {}) {
+  const payload = action.payload || {};
+  const impact = getCompactIndicatorValue(payload.impact || payload.impactLevel, "Optional");
+  const applicationRisk = getCompactIndicatorValue(payload.applicationRisk, "Low");
+  const effort = getCompactIndicatorValue(action.effort || payload.effort, "Low");
+  const visibility = getCompactIndicatorValue(payload.visibility, inferActionVisibility(action));
+  const confidence = getCompactIndicatorValue(payload.confidence, "Medium");
+  const evidenceStrength = getCompactIndicatorValue(payload.evidenceStrength, inferActionEvidenceStrength(action));
+  const shopifyField = getCompactShopifyField(payload.shopifyField || action.type || "ProductPulse workflow");
+  const reversibility = getCompactIndicatorValue(payload.reversibility, inferActionReversibility(action));
+  const approval = getCompactIndicatorValue(payload.approvalLevel || payload.approval, inferActionApproval(action));
+  const reason = getCompactIndicatorValue(payload.reasonCategory, inferActionReasonCategory(action));
+  const expectedBenefit = getCompactIndicatorValue(payload.expectedBenefit || payload.expectedImpact, inferActionExpectedBenefit(action));
+
+  return [
+    { label: "Impact", value: impact, tone: getCompactImpactTone(impact) },
+    { label: "Apply risk", value: applicationRisk, tone: getCompactRiskTone(applicationRisk) },
+    { label: "Effort", value: effort, tone: getCompactEffortTone(effort) },
+    { label: "Visibility", value: visibility, tone: getCompactVisibilityTone(visibility) },
+    { label: "Confidence", value: confidence, tone: getCompactConfidenceTone(confidence) },
+    { label: "Evidence", value: evidenceStrength, tone: getCompactEvidenceTone(evidenceStrength) },
+    { label: "Shopify field", value: application.shopifyField || shopifyField, tone: "neutral" },
+    { label: "Reversibility", value: reversibility, tone: getCompactReversibilityTone(reversibility) },
+    { label: "Approval", value: approval, tone: getCompactApprovalTone(approval) },
+    { label: "Reason", value: reason, tone: "neutral" },
+    { label: "Benefit", value: expectedBenefit, tone: "blue" },
+  ].filter((item) => item.value);
+}
+
+function getCompactIndicatorValue(value, fallback = "") {
+  const raw = String(value || fallback || "").replace(/\s+/g, " ").trim();
+  if (!raw) return "";
+  if (/^high impact$/i.test(raw)) return "High";
+  if (/^medium impact$/i.test(raw)) return "Medium";
+  if (/^optional$/i.test(raw)) return "Optional";
+  if (/^review required before applying$/i.test(raw)) return "Review required";
+  if (/^manual approval required$/i.test(raw)) return "Strong confirmation required";
+  return raw;
+}
+
+function getCompactShopifyField(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "Workflow";
+  return text
+    .replace(/^Product\./, "")
+    .replace(/^ProductVariant\./, "Variant ")
+    .replace(/^InventoryLevel /, "Inventory ")
+    .replace(/productpulse\./i, "")
+    .replace(/\bor\b.+$/i, "")
+    .trim()
+    .slice(0, 32);
+}
+
+function inferActionVisibility(action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (/\b(description|pdp|faq|title|seo|meta|handle|media|image|alt text|specs|details)\b/.test(normalized)) return "Customer-facing";
+  if (/\b(status|price|inventory|variant|supplier|qa|fulfillment|safety)\b/.test(normalized)) return "Operational";
+  return "Internal";
+}
+
+function inferActionEvidenceStrength(action = {}) {
+  const evidenceCount = Array.isArray(action.evidence) ? action.evidence.length : 0;
+  const normalized = `${action.id || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("mismatch")) return "Conflicting";
+  if (evidenceCount >= 3) return "Strong";
+  if (evidenceCount >= 2) return "Moderate";
+  return "Weak";
+}
+
+function inferActionReversibility(action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (/\b(status|archive|draft|inventory|price|variant)\b/.test(normalized)) return "Hard";
+  if (/\b(description|title|seo|meta|handle|template|media|collection|classification)\b/.test(normalized)) return "Moderate";
+  return "Easy";
+}
+
+function inferActionApproval(action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.applicationRisk || ""}`.toLowerCase();
+  if (/\b(high|status|archive|draft|inventory|price|manual approval)\b/.test(normalized)) return "Strong confirmation required";
+  if (/\b(tag|metafield|watchlist|baseline|note)\b/.test(normalized)) return "Auto-safe";
+  return "Review required";
+}
+
+function inferActionReasonCategory(action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""}`.toLowerCase();
+  if (/\b(momentum|watchlist|baseline)\b/.test(normalized)) return "Momentum";
+  if (/\b(seo|meta|handle)\b/.test(normalized)) return "SEO";
+  if (/\b(variant|sku|option)\b/.test(normalized)) return "Variant issue";
+  if (/\b(sentiment|subjective|safety|emotion)\b/.test(normalized)) return "Sentiment";
+  if (/\b(review|rating|judge|csv)\b/.test(normalized)) return "Reviews";
+  if (/\b(refund|price|margin|value)\b/.test(normalized)) return "Refunds";
+  if (/\b(return)\b/.test(normalized)) return "Returns";
+  return "Content gap";
+}
+
+function inferActionExpectedBenefit(action = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.expectedImpact || ""}`.toLowerCase();
+  if (/\b(seo|meta|handle)\b/.test(normalized)) return "Improve SEO";
+  if (/\b(tag|collection|metafield|workflow|support|note|coverage|watchlist|baseline)\b/.test(normalized)) return "Improve workflow";
+  if (/\b(status|inventory|draft|archive|safety|qa|supplier)\b/.test(normalized)) return "Prevent bad purchases";
+  if (/\b(return|refund|variant|fit|size|quality|durability)\b/.test(normalized)) return "Reduce returns";
+  return "Reduce confusion";
+}
+
+function getCompactRiskTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return "red";
+  if (normalized.includes("medium")) return "amber";
+  return "green";
+}
+
+function getCompactImpactTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return "red";
+  if (normalized.includes("medium")) return "amber";
+  return "blue";
+}
+
+function getCompactEffortTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return "amber";
+  if (normalized.includes("medium")) return "blue";
+  return "green";
+}
+
+function getCompactVisibilityTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("customer")) return "violet";
+  if (normalized.includes("operational")) return "amber";
+  return "blue";
+}
+
+function getCompactConfidenceTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high")) return "green";
+  if (normalized.includes("low")) return "amber";
+  return "blue";
+}
+
+function getCompactEvidenceTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("strong")) return "green";
+  if (normalized.includes("conflicting")) return "red";
+  if (normalized.includes("weak")) return "amber";
+  return "blue";
+}
+
+function getCompactReversibilityTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("hard")) return "red";
+  if (normalized.includes("moderate")) return "amber";
+  return "green";
+}
+
+function getCompactApprovalTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("strong")) return "red";
+  if (normalized.includes("review")) return "amber";
+  return "green";
+}
+
 function getCompactActionPriorityTone(priority = "") {
   const normalized = String(priority || "").toLowerCase();
+  if (normalized.includes("high")) return "red";
+  if (normalized.includes("medium")) return "teal";
+  if (normalized.includes("optional")) return "blue";
   if (normalized.includes("primary")) return "violet";
   if (normalized.includes("customer") || normalized.includes("clarity") || normalized.includes("buyer")) return "teal";
   if (normalized.includes("risk")) return "red";
@@ -9255,7 +10897,7 @@ function RecommendedActionReviewBody({
       </RecommendedActionReviewSection>
 
       <RecommendedActionReviewSection icon="check-circle" title="Apply details">
-        <RecommendedActionApplyDetails application={application} />
+        <RecommendedActionApplyDetails action={action} application={application} />
       </RecommendedActionReviewSection>
 
       <RecommendedActionAdvancedDetails action={action} application={application} />
@@ -9366,11 +11008,22 @@ function getInvestigationNextSteps(action = {}) {
 
 function RecommendedActionInvestigationDetails({ action, application }) {
   const optionalAction = getInvestigationOptionalShopifyAction(action);
-  const details = [
+  const baseDetails = [
     { icon: "product", label: "Will edit", value: "Nothing by default", tone: "blue" },
     { icon: "tag", label: "Optional Shopify action", value: optionalAction, tone: "blue" },
     { icon: "alert-circle", label: "Risk", value: application.applicationRisk || "Low", tone: getActionRiskTone(application.applicationRisk) },
     { icon: "check", label: "Approval", value: "Manual review required", tone: "warning" },
+  ];
+  const details = [
+    ...baseDetails,
+    ...getRecommendedActionExtendedDetails(action, application)
+      .filter((detail) => !["Apply risk", "Shopify field", "Approval"].includes(detail.label))
+      .map((detail) => ({
+        icon: getActionDetailIcon(detail.label),
+        label: detail.label,
+        value: detail.value,
+        tone: getActionDetailTone(detail),
+      })),
   ];
 
   return (
@@ -9513,12 +11166,22 @@ function RecommendedActionProposedChange({
 
 function RecommendedActionPreview({ application, editedText }) {
   const preview = getRecommendedActionPreviewParts(application, editedText);
+  const beforeHighlights = Array.isArray(preview.beforeHighlights) ? preview.beforeHighlights : [];
+  const afterHighlights = [
+    ...(Array.isArray(preview.afterHighlights) ? preview.afterHighlights : []),
+    ...(preview.highlightText ? [{ text: preview.highlightText, position: preview.highlightPosition || "before" }] : []),
+  ];
+  const leadingAfterHighlights = afterHighlights.filter((highlight) => highlight.position !== "after");
+  const trailingAfterHighlights = afterHighlights.filter((highlight) => highlight.position === "after");
 
   return (
     <div className="ppActionPreviewGrid">
       <div className="ppActionPreviewColumn">
         <strong>{preview.beforeLabel}</strong>
         <div className="ppActionPreviewBox">
+          {beforeHighlights.map((highlight, index) => (
+            <ActionPreviewHighlightBlock highlight={highlight} key={`before-highlight-${index}`} />
+          ))}
           <p>{renderAnalysisText(preview.beforeText)}</p>
         </div>
       </div>
@@ -9528,20 +11191,29 @@ function RecommendedActionPreview({ application, editedText }) {
       <div className="ppActionPreviewColumn">
         <strong>{preview.afterLabel}</strong>
         <div className="ppActionPreviewBox ppActionPreviewBox-after">
-          {preview.highlightText && preview.highlightPosition !== "after" && (
-            <div className="ppActionPreviewInsertedText">
-              <s-icon type="wand" size="small"></s-icon>
-              <p>{renderAnalysisText(preview.highlightText)}</p>
-            </div>
-          )}
+          {leadingAfterHighlights.map((highlight, index) => (
+            <ActionPreviewHighlightBlock highlight={highlight} key={`after-highlight-leading-${index}`} />
+          ))}
           {preview.afterText && <p>{renderAnalysisText(preview.afterText)}</p>}
-          {preview.highlightText && preview.highlightPosition === "after" && (
-            <div className="ppActionPreviewInsertedText">
-              <s-icon type="wand" size="small"></s-icon>
-              <p>{renderAnalysisText(preview.highlightText)}</p>
-            </div>
-          )}
+          {trailingAfterHighlights.map((highlight, index) => (
+            <ActionPreviewHighlightBlock highlight={highlight} key={`after-highlight-trailing-${index}`} />
+          ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionPreviewHighlightBlock({ highlight }) {
+  const text = typeof highlight === "string" ? highlight : highlight?.text;
+  const label = typeof highlight === "string" ? "" : highlight?.label;
+  if (!text) return null;
+  return (
+    <div className="ppActionPreviewInsertedText">
+      <s-icon type="wand" size="small"></s-icon>
+      <div>
+        {label && <strong>{label}</strong>}
+        <p>{renderAnalysisText(text)}</p>
       </div>
     </div>
   );
@@ -9557,6 +11229,28 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
     : "Current Shopify value";
   const afterLabel = isDescription ? "Updated description preview" : `${application.target || "Updated value"} preview`;
   const emptyCurrent = isDescription ? "No current Shopify description was loaded for this product." : "No current Shopify value was loaded.";
+
+  if (isDescription && Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
+    const selectedIds = Array.isArray(application.selectedChangeIds) && application.selectedChangeIds.length
+      ? new Set(application.selectedChangeIds)
+      : new Set(application.descriptionChanges.map((change) => change.id));
+    const selectedChanges = application.descriptionChanges.filter((change) => selectedIds.has(change.id));
+    const replacement = selectedChanges.find((change) => change.operation === "replace");
+    const prependChanges = selectedChanges.filter((change) => change.operation === "prepend");
+    const appendChanges = selectedChanges.filter((change) => change.operation === "append");
+    const baseText = replacement ? "" : toActionPreviewExcerpt(current || emptyCurrent);
+    return {
+      beforeLabel,
+      afterLabel,
+      beforeText: toActionPreviewExcerpt(current || emptyCurrent),
+      afterText: baseText,
+      afterHighlights: [
+        ...prependChanges.map((change) => buildActionPreviewChangeHighlight(change, "before")),
+        ...(replacement ? [buildActionPreviewChangeHighlight(replacement, "before")] : []),
+        ...appendChanges.map((change) => buildActionPreviewChangeHighlight(change, "after")),
+      ],
+    };
+  }
 
   if (application.insertionPosition === "prepend" && current) {
     return {
@@ -9588,6 +11282,14 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
   };
 }
 
+function buildActionPreviewChangeHighlight(change = {}, position = "before") {
+  return {
+    label: change.operationLabel || change.title || "ProductPulse change",
+    text: toActionPreviewExcerpt(change.text || ""),
+    position,
+  };
+}
+
 function toActionPreviewExcerpt(value = "", maxLength = 460) {
   const text = normalizeActionText(value);
   if (text.length <= maxLength) return text;
@@ -9614,7 +11316,9 @@ function RecommendedActionWhyItems({ action, product }) {
 }
 
 function getRecommendedActionWhyNarrative(action = {}, product = {}) {
-  return getDescriptionActionWhyNarrative(action, product) || getMediaActionWhyNarrative(action, product);
+  const payload = action.payload || {};
+  const aiRationale = String(payload.whyThisAction || payload.actionRationale || payload.rationale || "").trim();
+  return aiRationale || getDescriptionActionWhyNarrative(action, product) || getMediaActionWhyNarrative(action, product);
 }
 
 function getRecommendedActionWhyItems(action = {}, product = {}) {
@@ -9697,12 +11401,21 @@ function getRecommendedActionWhyItems(action = {}, product = {}) {
   return items.slice(0, 3);
 }
 
-function RecommendedActionApplyDetails({ application }) {
-  const details = [
+function RecommendedActionApplyDetails({ action, application }) {
+  const baseDetails = [
     { icon: "edit", label: "Will edit", value: application.shopifyField || application.target || "ProductPulse workflow", tone: "blue" },
     { icon: "alert-circle", label: "Risk", value: application.applicationRisk || "Low", tone: getActionRiskTone(application.applicationRisk) },
     { icon: "check", label: "Approval", value: application.approval || "Review required", tone: "warning" },
   ];
+  const extendedDetails = getRecommendedActionExtendedDetails(action, application)
+    .filter((detail) => !["Apply risk", "Shopify field", "Approval"].includes(detail.label))
+    .map((detail) => ({
+      icon: getActionDetailIcon(detail.label),
+      label: detail.label,
+      value: detail.value,
+      tone: getActionDetailTone(detail),
+    }));
+  const details = uniqueActionDetailRows([...baseDetails, ...extendedDetails]);
 
   return (
     <div className="ppActionApplyDetailsGrid">
@@ -9715,6 +11428,35 @@ function RecommendedActionApplyDetails({ application }) {
       ))}
     </div>
   );
+}
+
+function uniqueActionDetailRows(rows = []) {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = String(row.label || "").toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return Boolean(row.value);
+  });
+}
+
+function getActionDetailIcon(label = "") {
+  const normalized = String(label || "").toLowerCase();
+  if (normalized.includes("impact") || normalized.includes("benefit")) return "target";
+  if (normalized.includes("effort")) return "wand";
+  if (normalized.includes("visibility")) return "view";
+  if (normalized.includes("confidence") || normalized.includes("evidence")) return "chart-line";
+  if (normalized.includes("reversibility")) return "refresh";
+  if (normalized.includes("reason")) return "info";
+  return "product";
+}
+
+function getActionDetailTone(detail = {}) {
+  const tone = String(detail.tone || "").toLowerCase();
+  if (tone === "red" || tone === "high") return "high";
+  if (tone === "amber" || tone === "warning" || tone === "medium") return "warning";
+  if (tone === "green" || tone === "low") return "low";
+  return "blue";
 }
 
 function RecommendedActionAdvancedDetails({ action, application }) {
@@ -9845,7 +11587,7 @@ function getRecommendedActionModalSubtitle(application = {}, actionKind = "apply
   return "Review the proposed Shopify change before applying it.";
 }
 
-function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss, onMarkReviewed, onAddInvestigationTag }) {
+function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss, onRestoreDismiss, onMarkReviewed, onAddInvestigationTag }) {
   if (!action) return null;
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
@@ -9889,6 +11631,7 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
           onReview={onReview}
           onRequestApply={onRequestApply}
           onDismiss={onDismiss}
+          onRestoreDismiss={onRestoreDismiss}
           onMarkReviewed={onMarkReviewed}
           onAddInvestigationTag={onAddInvestigationTag}
           actionKind={actionKind}
@@ -9899,7 +11642,7 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
   );
 }
 
-function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onMarkReviewed, onAddInvestigationTag, onCollapse, showHeader = true, actionKind: forcedActionKind = "" }) {
+function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onRestoreDismiss, onMarkReviewed, onAddInvestigationTag, onCollapse, showHeader = true, actionKind: forcedActionKind = "" }) {
   const baseApplication = getRecommendedActionApplication(action, product);
   const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
   const defaultDescriptionChangeIds = getDefaultDescriptionChangeIds(baseApplication);
@@ -9915,7 +11658,9 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const [detailExpanded, setDetailExpanded] = useState(false);
   const [editedText, setEditedText] = useState(application.value || action.detail || "");
   const [isEditingInline, setIsEditingInline] = useState(false);
+  const archivedState = action.archivedStateOverride || getArchivedActionStateFromRecordStatus(action.appliedRecord?.status);
   const applied = action.appliedRecord?.status === "applied";
+  const dismissed = archivedState === "dismissed";
   const drafted = action.appliedRecord?.status === "draft";
   const mode = action.mode || (action.submit ? "submit" : "edit");
   const actionKind = forcedActionKind || getRecommendedActionKind(mode, application);
@@ -9991,9 +11736,14 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
 
   const actionCta = (
     <div className={`ppProductActionCta ${showHeader ? "" : "ppRecommendedActionModalFooter"}`.trim()}>
-      <button className="ppActionDismissButton" type="button" onClick={() => onDismiss(action)} disabled={pending || applied}>
-        <s-icon type="x" size="small"></s-icon>
-        <span>Dismiss</span>
+      <button
+        className={`ppActionDismissButton ${dismissed ? "isRestore" : ""}`.trim()}
+        type="button"
+        onClick={() => dismissed ? onRestoreDismiss?.(action) : onDismiss(action)}
+        disabled={pending || applied}
+      >
+        <s-icon type={dismissed ? "refresh" : "x"} size="small"></s-icon>
+        <span>{dismissed ? "Undo dismiss" : "Dismiss"}</span>
       </button>
       {!showHeader && actionKind === "applyable" && application.editable && (
         <button className="ppActionEditFooterButton" type="button" onClick={() => setIsEditingInline(true)} disabled={pending || applied}>
@@ -11037,9 +12787,10 @@ function ImpactBreakdownPanel({ breakdown }) {
           </article>
         );
       })}
-      {!expanded && hiddenCount > 0 && (
-        <button className="ppImpactBreakdownMore" type="button" onClick={() => setExpanded(true)}>
-          View More
+      {rows.length > 6 && (
+        <button className="ppImpactBreakdownMore" type="button" onClick={() => setExpanded((current) => !current)}>
+          <span>{expanded ? "View less" : `View more${hiddenCount ? ` (${hiddenCount})` : ""}`}</span>
+          <s-icon type={expanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
         </button>
       )}
     </div>
@@ -11634,6 +13385,10 @@ function formatSignedPercent(value) {
 
 function formatInteger(value) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
+}
+
+function formatDecimal(value, maximumFractionDigits = 1) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(Number(value || 0));
 }
 
 function clampNumber(value, min, max) {

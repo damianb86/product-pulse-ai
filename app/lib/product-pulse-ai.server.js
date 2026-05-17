@@ -26,6 +26,12 @@ const AI_TASKS = {
     maxOutputTokens: 1600,
     temperature: 0.1,
   },
+  action_rationale: {
+    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
+    fallbackModel: "gpt-5.4-mini",
+    maxOutputTokens: 1800,
+    temperature: 0.2,
+  },
   final_report: {
     modelEnv: ["OPENAI_PREMIUM_MODEL", "OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL"],
     fallbackModel: "gpt-5.4",
@@ -114,6 +120,16 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     recommendation_copy: {},
   });
 
+  const actionRationaleResponse = await generateAiText({
+    shop,
+    jobId,
+    task: "action_rationale",
+    prompt: buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report),
+  });
+  const actionRationales = parseAiJson(actionRationaleResponse.text, {
+    action_rationales: [],
+  });
+
   return {
     provider: reportResponse.provider,
     model: reportResponse.model,
@@ -121,16 +137,19 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       classification: pickAiModelSummary(classificationResponse),
       emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
       contentGap: pickAiModelSummary(gapResponse),
+      actionRationale: pickAiModelSummary(actionRationaleResponse),
       finalReport: pickAiModelSummary(reportResponse),
     },
     classification,
     emergentSentiments,
     contentGaps,
+    actionRationales,
     report,
     raw: {
       classification: classificationResponse.text,
       emergentSentiments: emergentSentimentResponse.text,
       contentGaps: gapResponse.text,
+      actionRationales: actionRationaleResponse.text,
       report: reportResponse.text,
     },
   };
@@ -343,6 +362,9 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "You are ProductPulse AI writing the final product diagnosis report for a merchant.",
     "The system already calculated all numeric metrics. Never change risk score, confidence, impact, rates, counts, or amounts.",
     "Use the metrics, clusters, product-content analysis, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
+    "Product-modifying copy in recommendation_copy is applied to Shopify only after merchant review. Use your strongest product-copy reasoning here: be specific, accurate, and preserve useful existing product information.",
+    "For shopper-facing notes, FAQs, description add-ons, SEO copy, titles, media alt text, and product descriptions, write only the inner merchant-ready copy. The ProductPulse application will wrap notes, FAQ blocks, and add-ons in a consistent HTML callout.",
+    "Use plain text or simple paragraph/list structure only. Do not include outer CSS, inline styles, scripts, custom wrappers, or theme-specific markup in recommendation_copy.",
     "When drafting product_description, preserve useful existing description content and expand it with missing shopper guidance instead of replacing the product story from scratch.",
     "Only provide a full product_description rewrite when the current description is missing, very short, incoherent, contradictory, or clearly about the wrong product. If the current description is good and only needs a specific clarification, leave product_description empty or provide a short add-on note instead of a full rewrite.",
     "If the issue is a specific contradiction such as description text mentioning a color or variant that is not available, do not rewrite the whole description. Keep product_description empty unless your proposed text actually corrects that contradiction.",
@@ -394,6 +416,40 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     JSON.stringify(emergentSentiments || {}, null, 2),
     "Recommendation candidates chosen by rules:",
     JSON.stringify(input?.recommendationCandidates || [], null, 2),
+  ].join("\n\n");
+}
+
+function buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report) {
+  return [
+    "You are ProductPulse AI explaining recommended actions to a merchant.",
+    "Use a medium-depth explanation: clear and specific, but short. Do not write generic text like \"signals indicate this\" without saying which signals and what they mean.",
+    "For each recommendation candidate, write one concise rationale for the modal section \"Why this action\".",
+    "Explain: what ProductPulse found, which evidence groups support it, and why this exact action is a reasonable next step.",
+    "Use only the supplied data. Do not invent counts, dates, quotes, sources, or product facts.",
+    "When quoting exact customer wording, return-note text, refund-note text, review text, product-description text, title text, tags, collections, SKUs, or variant names, wrap the exact excerpt in double quotation marks.",
+    "Keep each rationale to one short paragraph, ideally 35 to 75 words.",
+    "Return valid JSON only. No markdown.",
+    "Schema:",
+    JSON.stringify({
+      action_rationales: [{
+        action_id: "add-product-description-guidance",
+        rationale: "ProductPulse recommends updating the description because return notes and content analysis point to the same buyer confusion: shoppers are missing a specific product detail before purchase. Adding that clarification to the PDP gives buyers the relevant context before checkout and can reduce avoidable returns.",
+      }],
+    }, null, 2),
+    "Product:",
+    JSON.stringify(input?.product || {}, null, 2),
+    "Deterministic metrics:",
+    JSON.stringify(input?.deterministic || {}, null, 2),
+    "Recommendation candidates:",
+    JSON.stringify(input?.recommendationCandidates || [], null, 2),
+    "AI classification:",
+    JSON.stringify(classification || {}, null, 2),
+    "PDP content gaps:",
+    JSON.stringify(contentGaps || {}, null, 2),
+    "Emergent customer sentiments:",
+    JSON.stringify(emergentSentiments || {}, null, 2),
+    "Final report draft:",
+    JSON.stringify(report || {}, null, 2),
   ].join("\n\n");
 }
 

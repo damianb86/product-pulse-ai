@@ -529,6 +529,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Explore and review the evidence behind each detected issue.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Returns" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Total returns")).toBeInTheDocument();
+    expect(screen.getByText("Returns over time")).toBeInTheDocument();
+    expect(screen.getByText("Top return reasons")).toBeInTheDocument();
+    expect(screen.getByText("Recent return notes")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View Full Report" })).toHaveAttribute("href", "/app/products/core-linen-trouser/evidence?source=Returns");
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Total reviews")).toBeInTheDocument();
@@ -548,6 +551,43 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Expand Add fit note" }));
     expect(screen.getByRole("heading", { name: "Add fit note" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo dismiss" })).toBeInTheDocument();
+  });
+
+  it("restores a dismissed recommended action from the action modal", async () => {
+    let submittedAction = null;
+    let submittedActionId = null;
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      submittedAction = String(formData.get("_action") || "");
+      submittedActionId = String(formData.get("actionId") || "");
+      return {
+        status: "success",
+        action: { id: submittedActionId, label: "Add fit note" },
+        actionRecordStatus: "active",
+      };
+    });
+
+    const product = {
+      ...defaultView.startHere,
+      actionHistory: [{
+        id: "dismissed-fit-note",
+        actionId: "fit-note",
+        label: "Add fit note",
+        status: "dismissed",
+        appliedAt: "2026-05-14T10:00:00.000Z",
+      }],
+    };
+
+    renderWithAction(<ProductDiagnosisScreen data={defaultView} product={product} />, action);
+    fireEvent.click(screen.getByRole("button", { name: "Expand Add fit note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Undo dismiss" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(submittedAction).toBe("restore-action");
+    expect(submittedActionId).toBe("fit-note");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Expand Add fit note" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
   });
 
   it("shows saved product risk history in the detail sidebar", () => {
@@ -577,6 +617,7 @@ describe("ProductPulse screens", () => {
     const historyPanel = container.querySelector(".ppProductRiskHistoryPanel");
 
     expect(historyPanel).toBeInTheDocument();
+    expect(historyPanel.closest(".ppProductDetailSidebar")).toBeInTheDocument();
     expect(within(historyPanel).getByText("Product risk over time")).toBeInTheDocument();
     expect(within(historyPanel).getByText("88 / 100")).toBeInTheDocument();
     expect(within(historyPanel).getByText("Up 16 pts since last analysis")).toBeInTheDocument();
@@ -621,8 +662,13 @@ describe("ProductPulse screens", () => {
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const panel = container.querySelector(".ppProductMomentumPanel");
+    const sidebarPanels = Array.from(container.querySelectorAll(".ppProductDetailSidebar > *"));
+    const riskPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppProductRiskHistoryPanel"));
+    const momentumPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppProductMomentumPanel"));
 
     expect(screen.getAllByText("Product Momentum").length).toBeGreaterThan(0);
+    expect(panel.closest(".ppProductDetailSidebar")).toBeInTheDocument();
+    expect(momentumPanelIndex).toBeGreaterThan(riskPanelIndex);
     expect(within(panel).getByText("86")).toBeInTheDocument();
     expect(within(panel).getByText("/100")).toBeInTheDocument();
     expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
@@ -819,9 +865,11 @@ describe("ProductPulse screens", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
     const sidebarLabels = Array.from(container.querySelectorAll(".ppProductDetailSidebar .ppProductDetailSectionLabel")).map((element) => element.textContent);
     expect(sidebarLabels[0]).toContain("2Recommended actions");
-    expect(sidebarLabels[1]).toContain("4Evidence summary");
+    expect(sidebarLabels[1]).toContain("3Evidence summary");
+    expect(container.querySelector(".ppProductDetailFullWidth .ppEvidenceObservabilityPanel")).toBeInTheDocument();
+    expect(container.querySelector(".ppProductDetailPrimary .ppEvidenceObservabilityPanel")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
-    expect(screen.queryByText(/customers report this trouser runs small/)).not.toBeInTheDocument();
+    expect(screen.getByText(/customers report this trouser runs small/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Minimize" }));
     expect(screen.getByRole("button", { name: "Expand" })).toHaveAttribute("aria-expanded", "false");
@@ -832,6 +880,119 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Minimize" })).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     expect(screen.getAllByText(/customers report this trouser runs small/).length).toBeGreaterThan(0);
+  });
+
+  it("orders recommended actions by customer-facing high-impact fixes before internal or sensitive actions", () => {
+    const product = {
+      ...defaultView.startHere,
+      confidence: 84,
+      sourceCoverage: ["Shopify returns", "Reviews", "Product content"],
+      recommendedActions: [
+        {
+          id: "apply-risk-tags",
+          label: "Add internal risk tags",
+          type: "Workflow tags",
+          effort: "Low",
+          status: "Ready",
+          payload: {
+            tags: ["risk-medium"],
+            impact: "Optional",
+            visibility: "Internal",
+            confidence: "High",
+            evidenceStrength: "Strong",
+            applicationRisk: "Low",
+            actionTier: 3,
+          },
+        },
+        {
+          id: "set-product-draft",
+          label: "Change product status",
+          type: "High-risk action",
+          effort: "High",
+          status: "Manual approval required",
+          payload: {
+            productStatus: "DRAFT",
+            impact: "High",
+            visibility: "Operational",
+            confidence: "High",
+            evidenceStrength: "Strong",
+            applicationRisk: "High",
+            actionTier: 1,
+          },
+        },
+        {
+          id: "create-product-faq",
+          label: "Add product FAQ",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Ready",
+          payload: {
+            faqItems: [{ question: "How does it fit?", answer: "It runs slim through the chest." }],
+            impact: "High",
+            visibility: "Customer-facing",
+            confidence: "High",
+            evidenceStrength: "Strong",
+            applicationRisk: "Low",
+            actionTier: 1,
+          },
+        },
+        {
+          id: "recommend-qa-review",
+          label: "Supplier / QA review",
+          type: "QA review",
+          effort: "Medium",
+          status: "Ready",
+          payload: {
+            impact: "High",
+            visibility: "Operational",
+            confidence: "High",
+            evidenceStrength: "Strong",
+            applicationRisk: "Low",
+            actionTier: 1,
+          },
+        },
+      ],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    const actionButtons = screen.getAllByRole("button", { name: /Open recommended action/ });
+    expect(actionButtons[0]).toHaveAccessibleName("Open recommended action Add product FAQ");
+    expect(within(actionButtons[0]).getByText("Primary next step")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Sort recommended actions" })).toHaveDisplayValue("Sort by priority");
+    expect(within(actionButtons[0]).getByText("How does it fit? It runs slim through the chest.")).toBeInTheDocument();
+    expect(within(actionButtons[0]).getByText("Impact")).toBeInTheDocument();
+    expect(within(actionButtons[0]).getByText("Risk")).toBeInTheDocument();
+    expect(within(actionButtons[0]).getByText("Effort")).toBeInTheDocument();
+    expect(within(actionButtons[0]).getByText("Confidence")).toBeInTheDocument();
+    expect(within(actionButtons[0]).getAllByText("Low").length).toBeGreaterThanOrEqual(2);
+    expect(within(actionButtons[0]).getAllByText("High").length).toBeGreaterThanOrEqual(2);
+    expect(within(actionButtons[0]).queryByText("Evidence")).not.toBeInTheDocument();
+    expect(actionButtons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Open recommended action Add product FAQ",
+      "Open recommended action Supplier / QA review",
+      "Open recommended action Change product status",
+    ]);
+    expect(screen.queryByRole("button", { name: "Open recommended action Add internal risk tags" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View more (1)" }));
+    const expandedActionButtons = screen.getAllByRole("button", { name: /Open recommended action/ });
+    expect(expandedActionButtons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Open recommended action Add product FAQ",
+      "Open recommended action Supplier / QA review",
+      "Open recommended action Change product status",
+      "Open recommended action Add internal risk tags",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "View less" }));
+    expect(screen.getAllByRole("button", { name: /Open recommended action/ })).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: "Open recommended action Add internal risk tags" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add product FAQ" }));
+    expect(screen.getByText("Visibility")).toBeInTheDocument();
+    expect(screen.getByText("Evidence")).toBeInTheDocument();
+    expect(screen.getByText("Reversibility")).toBeInTheDocument();
+    expect(screen.getByText("Reason")).toBeInTheDocument();
+    expect(screen.getByText("Benefit")).toBeInTheDocument();
   });
 
   it("renames description rewrites that only append copy and explains why", () => {
@@ -1338,6 +1499,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Dominant emotion")).toBeInTheDocument();
     expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
     expect(screen.getByText("AI emotions")).toBeInTheDocument();
+    expect(screen.getByText("Snapshot overview")).toBeInTheDocument();
+    expect(screen.getByText("Top themes")).toBeInTheDocument();
+    expect(screen.getByText("Signal breakdown")).toBeInTheDocument();
+    expect(screen.getByText("All signals by type")).toBeInTheDocument();
     expect(screen.getByText("Emergent emotion")).toBeInTheDocument();
     expect(screen.getAllByText("Superstitious discomfort 2").length).toBeGreaterThan(0);
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
@@ -1582,6 +1747,35 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Current breakdown")).toBeInTheDocument();
     expect(screen.getByText("Inputs used")).toBeInTheDocument();
     expect(screen.getByText(/designed for prioritization/)).toBeInTheDocument();
+  });
+
+  it("toggles extra impact breakdown rows from a centered view-more control", () => {
+    const rows = Array.from({ length: 8 }, (_, index) => ({
+      label: `Collection ${index + 1}`,
+      productsAffected: index + 1,
+      marginAtRisk: 1000 - index * 50,
+      revenueAtRisk: 2000 - index * 80,
+      avgRisk: 70 - index,
+    }));
+    const data = {
+      ...defaultView,
+      analytics: {
+        ...defaultView.analytics,
+        impactBreakdown: {
+          defaultKey: "collection",
+          filters: [{ key: "collection", label: "By collection", rows }],
+        },
+      },
+    };
+
+    renderWithRouter(<AnalyticsScreen data={data} />);
+
+    expect(screen.getByText("Collection 6")).toBeInTheDocument();
+    expect(screen.queryByText("Collection 7")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View more (2)" }));
+    expect(screen.getByText("Collection 8")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View less" }));
+    expect(screen.queryByText("Collection 7")).not.toBeInTheDocument();
   });
 
   it("starts the risk margin x-axis near the lowest plotted risk score", () => {

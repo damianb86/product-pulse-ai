@@ -603,6 +603,31 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     : null;
   if (applyResult?.status === "validation_error") return applyResult;
 
+  if (requestedStatus === "active") {
+    const restoreMatchers = [
+      ...(equivalentActionIds.length ? [{ actionType: { in: equivalentActionIds } }] : []),
+      ...(equivalentActionLabels.length ? [{ label: { in: equivalentActionLabels } }] : []),
+    ];
+    await prisma.productAction.updateMany({
+      where: {
+        shop,
+        productGid: snapshot.productGid,
+        status: "dismissed",
+        OR: restoreMatchers.length ? restoreMatchers : [{ actionType: recordActionId }],
+      },
+      data: {
+        status: "active",
+        appliedAt: null,
+      },
+    });
+    return {
+      status: "success",
+      message: `${recordLabel} was restored for ${snapshot.productTitle}.`,
+      action,
+      actionRecordStatus: "active",
+    };
+  }
+
   const status = requestedStatus || (action.id === "ignore-issue" ? "ignored" : action.id === "mark-resolved" || action.id === "mark-unresolved" || action.id === "unignore-issue" || action.applyImmediately || applyResult ? "applied" : "draft");
   if (action.id === "ignore-issue") {
     const existingIssueActions = await prisma.productAction.findMany({
@@ -791,6 +816,7 @@ function isIssueCurrentlyIgnoredInActionRecords(actions = [], issueKey = "") {
 
 function normalizeProductActionRecordStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
+  if (["active", "pending"].includes(normalized)) return "active";
   if (["dismissed", "reviewed"].includes(normalized)) return normalized;
   return "";
 }
@@ -1264,19 +1290,21 @@ function normalizeFaqAnswer(value) {
 
 function buildProductPulseFaqHtml({ faqItems, variant, action }) {
   const actionId = escapeHtml(action.id || "product-faq");
+  const calloutAttributes = buildProductPulseCalloutAttributes(actionId, "productpulse-faq");
+  const headingHtml = buildProductPulseCalloutHeading("Frequently asked questions");
   const itemsHtml = faqItems.map((item) => (
-    `<dt>${escapeHtml(item.question)}</dt>\n<dd>${escapeHtml(item.answer)}</dd>`
+    `<dt style="font-weight:700;color:#111827;margin-top:12px;">${escapeHtml(item.question)}</dt>\n<dd style="margin:4px 0 0;color:#374151;line-height:1.55;">${escapeHtml(item.answer)}</dd>`
   )).join("\n");
 
   if (variant === "description-section") {
-    return `<section data-productpulse-action="${actionId}" class="productpulse-faq productpulse-faq-section">\n<h3>Frequently asked questions</h3>\n<dl>\n${itemsHtml}\n</dl>\n</section>`;
+    return `<section ${calloutAttributes}>\n${headingHtml}\n<dl style="margin:0;">\n${itemsHtml}\n</dl>\n</section>`;
   }
 
   if (variant === "description-modal") {
-    return `<section data-productpulse-action="${actionId}" class="productpulse-faq productpulse-faq-modal">\n<details>\n<summary>Open frequently asked questions</summary>\n<div role="dialog" aria-label="Frequently asked questions">\n<h3>Frequently asked questions</h3>\n<dl>\n${itemsHtml}\n</dl>\n</div>\n</details>\n</section>`;
+    return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Open frequently asked questions</summary>\n<div role="dialog" aria-label="Frequently asked questions" style="margin-top:12px;">\n${headingHtml}\n<dl style="margin:0;">\n${itemsHtml}\n</dl>\n</div>\n</details>\n</section>`;
   }
 
-  return `<section data-productpulse-action="${actionId}" class="productpulse-faq productpulse-faq-collapsible">\n<details>\n<summary>Frequently asked questions</summary>\n<dl>\n${itemsHtml}\n</dl>\n</details>\n</section>`;
+  return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>\n</section>`;
 }
 
 async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId }) {
@@ -1391,6 +1419,19 @@ function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation,
     const patchedHtml = applyDescriptionHtmlReplacements(currentHtml, action.payload.descriptionReplacements);
     if (patchedHtml.changed) return patchedHtml.html;
   }
+  if (operation === "replace" && currentHtml) {
+    const placementDraft = extractPlacedDescriptionDraft({
+      currentText: stripHtml(currentHtml),
+      draftText,
+    });
+    if (placementDraft) {
+      const blocks = [];
+      if (placementDraft.prependText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.prependText, action));
+      blocks.push(currentHtml);
+      if (placementDraft.appendText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.appendText, action));
+      return blocks.filter(Boolean).join("\n");
+    }
+  }
   if (operation === "replace") return buildProductPulseDescriptionReplacement(draftText, action);
   const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action);
   if (operation === "append") return [currentHtml, suggestionHtml].filter(Boolean).join("\n");
@@ -1428,11 +1469,13 @@ function escapeRegExp(value) {
 
 function buildProductPulseDescriptionBlock(text, action) {
   const heading = String(action.id || "").includes("faq") ? "Product FAQ" : "Product note";
-  return `<section data-productpulse-action="${escapeHtml(action.id || "product-action")}">\n<h3>${heading}</h3>\n${buildHtmlParagraphs(text)}\n</section>`;
+  const actionId = escapeHtml(action.id || "product-action");
+  return `<section ${buildProductPulseCalloutAttributes(actionId, "productpulse-note")}>\n${buildProductPulseCalloutHeading(heading)}\n${buildHtmlParagraphs(text)}\n</section>`;
 }
 
 function buildProductPulseDescriptionReplacement(text, action) {
-  return `<div data-productpulse-action="${escapeHtml(action.id || "product-action")}">\n${buildHtmlParagraphs(text)}\n</div>`;
+  const actionId = escapeHtml(action.id || "product-action");
+  return `<div ${buildProductPulseCalloutAttributes(actionId, "productpulse-description-update")}>\n${buildProductPulseCalloutHeading("Updated product description")}\n${buildHtmlParagraphs(text)}\n</div>`;
 }
 
 function buildHtmlParagraphs(text) {
@@ -1440,8 +1483,62 @@ function buildHtmlParagraphs(text) {
     .split(/\n{2,}|\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .map((line) => `<p style="margin:0 0 10px;color:#374151;line-height:1.6;">${escapeHtml(line)}</p>`)
     .join("\n");
+}
+
+function buildProductPulseCalloutAttributes(actionId, className = "productpulse-callout") {
+  return [
+    `data-productpulse-action="${actionId}"`,
+    `class="${escapeHtml(className)} productpulse-callout"`,
+    "style=\"margin:18px 0;padding:16px 18px;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;border-radius:12px;background:#eff6ff;color:#1f2937;box-shadow:0 1px 2px rgba(15,23,42,0.04);\"",
+  ].join(" ");
+}
+
+function buildProductPulseCalloutHeading(label) {
+  return `<p style="margin:0 0 10px;color:#1d4ed8;font-size:12px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;">${escapeHtml(label)}</p>`;
+}
+
+function extractPlacedDescriptionDraft({ currentText = "", draftText = "" } = {}) {
+  const blocks = splitDescriptionDraftBlocks(draftText);
+  const current = normalizeDescriptionComparisonText(currentText);
+  if (!current || blocks.length < 2) return null;
+
+  const currentIndex = blocks.findIndex((block) => descriptionsReferToSameText(block, currentText));
+  if (currentIndex < 0) return null;
+  const prependText = blocks.slice(0, currentIndex).join("\n\n").trim();
+  const appendText = blocks.slice(currentIndex + 1).join("\n\n").trim();
+  if (!prependText && !appendText) return null;
+  return { prependText, appendText };
+}
+
+function splitDescriptionDraftBlocks(value = "") {
+  return String(value || "")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+function descriptionsReferToSameText(first = "", second = "") {
+  const firstNormalized = normalizeDescriptionComparisonText(first);
+  const secondNormalized = normalizeDescriptionComparisonText(second);
+  if (!firstNormalized || !secondNormalized) return false;
+  if (firstNormalized === secondNormalized) return true;
+  if (firstNormalized.includes(secondNormalized) || secondNormalized.includes(firstNormalized)) return true;
+  const firstTokens = new Set(firstNormalized.split(/\s+/).filter((token) => token.length > 4));
+  const secondTokens = secondNormalized.split(/\s+/).filter((token) => token.length > 4);
+  if (!firstTokens.size || !secondTokens.length) return false;
+  const shared = secondTokens.filter((token) => firstTokens.has(token)).length;
+  return shared / secondTokens.length >= 0.9;
+}
+
+function normalizeDescriptionComparisonText(value = "") {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .trim()
+    .toLowerCase();
 }
 
 function escapeHtml(value) {

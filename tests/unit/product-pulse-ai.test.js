@@ -315,6 +315,9 @@ describe("ProductPulse AI provider fallback", () => {
           evidence_summary: "Shopify return notes contain repeated emotional language.",
           recommendation_copy: {},
         }),
+        JSON.stringify({
+          action_rationales: [],
+        }),
       ][prompts.length - 1];
 
       return new Response(JSON.stringify({
@@ -336,11 +339,12 @@ describe("ProductPulse AI provider fallback", () => {
       },
     });
 
-    expect(prompts).toHaveLength(4);
+    expect(prompts).toHaveLength(5);
     expect(prompts[0]).toContain("Predefined sentiment taxonomy");
     expect(prompts[1]).toContain("clustering customer emotions");
     expect(prompts[3]).toContain("Write main_finding_detail as 1 to 3 merchant-facing paragraphs");
     expect(prompts[3]).toContain("Do not let reviews consume the whole main finding");
+    expect(prompts[4]).toContain("Why this action");
     expect(result.emergentSentiments.emergent_sentiments[0]).toMatchObject({
       normalized_label: "superstitious_discomfort",
       has_sufficient_evidence: true,
