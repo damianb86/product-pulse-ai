@@ -1,4 +1,5 @@
 import prisma from "../db.server";
+import { generateWatchChangeReportNarrative } from "./product-pulse-ai.server";
 import { getProductScoreHistoryForProductsForShop } from "./product-pulse-history.server";
 import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 
@@ -359,7 +360,7 @@ export async function recordWatchActivityForShop(shop, activity = {}) {
   });
 }
 
-export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan", noChangesReused = false } = {}) {
+export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan", noChangesReused = false, jobId = null } = {}) {
   const productGids = Array.from(new Set(snapshots.map((snapshot) => snapshot?.productGid).filter(Boolean)));
   if (!shop || !productGids.length) return { count: 0 };
   const [watchedItems, productPulseSettings, previousReports] = await Promise.all([
@@ -383,44 +384,50 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
     }
   });
   const now = new Date();
-  const reportRows = source === "full-diagnosis"
-    ? snapshots
-      .filter((snapshot) => itemByProductGid.has(snapshot.productGid))
-      .map((snapshot) => {
-        const item = itemByProductGid.get(snapshot.productGid);
-        const previousActivity = previousReportByProductGid.get(snapshot.productGid);
-        const report = buildWatchChangeReport({
-          snapshot,
-          productPulseSettings,
-          previousReport: previousActivity?.metadata?.report || null,
-          previousSummary: previousActivity?.metadata?.snapshotSummary || previousActivity?.metadata?.report?.current || null,
+  const reportRows = [];
+  if (source === "full-diagnosis") {
+    for (const snapshot of snapshots.filter((item) => itemByProductGid.has(item.productGid))) {
+      const item = itemByProductGid.get(snapshot.productGid);
+      const previousActivity = previousReportByProductGid.get(snapshot.productGid);
+      const baseReport = buildWatchChangeReport({
+        snapshot,
+        productPulseSettings,
+        previousReport: previousActivity?.metadata?.report || null,
+        previousSummary: previousActivity?.metadata?.snapshotSummary || previousActivity?.metadata?.report?.current || null,
+        source,
+        noChangesReused,
+        createdAt: now,
+      });
+      const report = await enrichWatchChangeReportWithAiNarrative({
+        shop,
+        jobId,
+        productTitle: snapshot.productTitle || item.productTitle,
+        report: baseReport,
+        noChangesReused,
+      });
+      reportRows.push({
+        shop,
+        productGid: snapshot.productGid,
+        productTitle: snapshot.productTitle || item.productTitle,
+        watchlistItemId: item.id,
+        eventType: WATCH_CHANGE_REPORT_EVENT,
+        title: report.title,
+        detail: report.narrative || report.summary,
+        metadata: {
           source,
           noChangesReused,
-          createdAt: now,
-        });
-        return {
-          shop,
-          productGid: snapshot.productGid,
-          productTitle: snapshot.productTitle || item.productTitle,
-          watchlistItemId: item.id,
-          eventType: WATCH_CHANGE_REPORT_EVENT,
-          title: report.title,
-          detail: report.summary,
-          metadata: {
-            source,
-            noChangesReused,
-            riskScore: report.current.riskScore,
-            riskLabel: report.current.riskLabel,
-            confidence: report.current.confidence,
-            impactScore: report.current.impactScore,
-            primaryIssue: report.current.primaryIssue,
-            report,
-            snapshotSummary: report.current,
-          },
-          createdAt: now,
-        };
-      })
-    : [];
+          riskScore: report.current.riskScore,
+          riskLabel: report.current.riskLabel,
+          confidence: report.current.confidence,
+          impactScore: report.current.impactScore,
+          primaryIssue: report.current.primaryIssue,
+          report,
+          snapshotSummary: report.current,
+        },
+        createdAt: now,
+      });
+    }
+  }
   const rows = snapshots
     .filter((snapshot) => itemByProductGid.has(snapshot.productGid))
     .map((snapshot) => {
@@ -601,9 +608,36 @@ function formatWatchChangeReportActivity(activity = {}) {
     timestamp: formatWatchTimestamp(activity.createdAt),
     previous: report.previous || null,
     current: report.current || null,
+    narrative: report.narrative || "",
+    sourceInsights: Array.isArray(report.sourceInsights) ? report.sourceInsights : [],
     sections: Array.isArray(report.sections) ? report.sections : [],
     changes: Array.isArray(report.changes) ? report.changes : [],
   };
+}
+
+async function enrichWatchChangeReportWithAiNarrative({ shop, jobId, productTitle, report, noChangesReused = false } = {}) {
+  const deterministicNarrative = buildWatchChangeDeterministicNarrative({ productTitle, report, noChangesReused });
+  const baseReport = {
+    ...report,
+    narrative: deterministicNarrative,
+    aiNarrativeStatus: "deterministic",
+  };
+  if (!report || report.status === "unchanged" || report.status === "baseline" || noChangesReused) return baseReport;
+  try {
+    const narrative = await generateWatchChangeReportNarrative({ shop, jobId, productTitle, report: baseReport });
+    if (!narrative) return baseReport;
+    return {
+      ...baseReport,
+      narrative,
+      aiNarrativeStatus: "generated",
+    };
+  } catch (error) {
+    return {
+      ...baseReport,
+      aiNarrativeStatus: "failed",
+      aiNarrativeError: error?.message || String(error || "AI narrative unavailable"),
+    };
+  }
 }
 
 function buildWatchChangeReport({
@@ -620,6 +654,7 @@ function buildWatchChangeReport({
   const previousRunAt = previous?.capturedAt || previousReport?.currentRunAt || previousReport?.createdAt || null;
 
   if (!previous) {
+    const sourceInsights = buildWatchEvidenceChangeInsights(null, current);
     return {
       id: `watch-report-${snapshot.productGid || "product"}-${createdAt.getTime()}`,
       status: "baseline",
@@ -633,6 +668,8 @@ function buildWatchChangeReport({
       currentRunAt: current.capturedAt,
       previous: null,
       current,
+      narrative: "ProductPulse captured the first Watchlist baseline for this product. Future Watchlist runs will compare new product risk, returns, refunds, reviews, source language and momentum against this stored point.",
+      sourceInsights,
       sections: [{
         id: "baseline",
         title: "Baseline",
@@ -641,7 +678,7 @@ function buildWatchChangeReport({
           id: "baseline-captured",
           label: "Current diagnosis baseline",
           from: "No previous Watchlist run",
-          to: `${current.riskLabel} risk (${current.riskScore}/100)`,
+          to: `${current.riskLabel} risk (${current.riskScore})`,
           delta: "Baseline",
           direction: "neutral",
           detail: "ProductPulse will use this snapshot to explain future Watchlist changes.",
@@ -657,6 +694,7 @@ function buildWatchChangeReport({
     buildImpactChangeSection(previous, current),
     buildMomentumChangeSection(previous, current),
   ].filter((section) => section.changes.length);
+  const sourceInsights = buildWatchEvidenceChangeInsights(previous, current);
   const changes = sections.flatMap((section) => section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title })));
   const status = changes.length ? "changed" : "unchanged";
   const headline = changes.length ? getWatchReportHeadline(changes) : "No meaningful changes detected";
@@ -677,6 +715,8 @@ function buildWatchChangeReport({
     currentRunAt: current.capturedAt,
     previous,
     current,
+    narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceInsights, changes, current, previous } }),
+    sourceInsights,
     sections: status === "unchanged" ? [{
       id: "unchanged",
       title: "No changes",
@@ -684,8 +724,8 @@ function buildWatchChangeReport({
       changes: [{
         id: "no-meaningful-change",
         label: "Watchlist comparison",
-        from: `${previous.riskLabel} risk (${previous.riskScore}/100)`,
-        to: `${current.riskLabel} risk (${current.riskScore}/100)`,
+        from: `${previous.riskLabel} risk (${previous.riskScore})`,
+        to: `${current.riskLabel} risk (${current.riskScore})`,
         delta: "Stable",
         direction: "neutral",
         detail: "The latest run matched the previous stored product state closely enough that there is nothing new to review.",
@@ -742,7 +782,161 @@ function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefin
     productMomentumScore: clampRoundNumber(firstNumber(metrics.productMomentumScore, productMomentum.score)),
     productMomentumTier: firstString(metrics.productMomentumTier, productMomentum.tier, "No momentum"),
     productMomentumDirection: firstString(metrics.momentumDirection, productMomentum.direction),
+    evidenceDetails: buildWatchEvidenceDetails(metrics),
     sourceFingerprint: metrics.incrementalDiagnosis?.cache?.sourceFingerprint || null,
+  };
+}
+
+function buildWatchEvidenceDetails(metrics = {}) {
+  const cache = metrics.incrementalDiagnosis?.cache || {};
+  const customerText = cache.customerText || {};
+  const refundCache = cache.refunds || {};
+  const returnItems = normalizeWatchAnalysisItems(customerText.returnItems).slice(-60);
+  const reviewItems = normalizeWatchAnalysisItems(customerText.reviewItems).slice(-80);
+  const refundItems = normalizeWatchAnalysisItems(refundCache.items).slice(-40);
+  const textInsights = metrics.textInsights || {};
+  const refundInsights = metrics.refundInsights || {};
+  return {
+    returns: {
+      totalUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
+      rate: normalizeRatePercent(firstNumber(metrics.returnRate, metrics.monthlyOrderActivity?.summary?.returnRate)),
+      topReasons: normalizeWatchCountRows(metrics.topReturnReasonDetails),
+      sentiment: normalizeWatchSentiment(textInsights.returns?.sentiment),
+      repeatedLanguage: normalizeWatchCountRows(textInsights.returns?.repeatedLanguage),
+      items: returnItems.map(trimWatchEvidenceItem),
+    },
+    reviews: {
+      total: clampRoundNumber(firstNumber(metrics.reviewCount)),
+      negative: clampRoundNumber(firstNumber(metrics.negativeReviewCount)),
+      positive: Math.max(0, reviewItems.filter((item) => item.sentiment === "positive").length),
+      neutral: Math.max(0, reviewItems.filter((item) => item.sentiment === "neutral").length),
+      averageRating: Number(metrics.avgRating || metrics.reviewRating || 0),
+      sentiment: normalizeWatchSentiment(textInsights.reviews?.sentiment),
+      repeatedLanguage: normalizeWatchCountRows(textInsights.reviews?.repeatedLanguage),
+      items: reviewItems.map(trimWatchEvidenceItem),
+    },
+    refunds: {
+      totalUnits: clampRoundNumber(firstNumber(metrics.refundUnits)),
+      amount: roundMoney(firstNumber(metrics.refundAmount)),
+      rate: normalizeRatePercent(firstNumber(metrics.refundRate)),
+      topReasons: normalizeWatchCountRows(metrics.topRefundReasonDetails || refundInsights.topReasons),
+      sentiment: normalizeWatchSentiment(refundInsights.sentiment),
+      repeatedLanguage: normalizeWatchCountRows(refundInsights.repeatedLanguage),
+      items: refundItems.map(trimWatchEvidenceItem),
+    },
+    content: {
+      changed: Boolean(metrics.incrementalDiagnosis?.productContent?.changed),
+      mode: metrics.incrementalDiagnosis?.productContent?.mode || "",
+      reason: metrics.incrementalDiagnosis?.productContent?.reason || "",
+      descriptionWordCount: clampRoundNumber(firstNumber(metrics.descriptionWordCount)),
+      contentQualityScore: clampRoundNumber(firstNumber(metrics.contentQualityScore), 0, 100),
+      contentIssues: normalizeWatchCountRows((Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []).map((item) => ({
+        label: item.label || item.issue || item.title || item.issueCode,
+        count: 1,
+      }))).slice(0, 8),
+    },
+  };
+}
+
+function buildWatchEvidenceChangeInsights(previous, current) {
+  const previousDetails = previous?.evidenceDetails || {};
+  const currentDetails = current?.evidenceDetails || {};
+  return [
+    buildWatchReturnInsight(previous, current, previousDetails.returns, currentDetails.returns),
+    buildWatchReviewInsight(previous, current, previousDetails.reviews, currentDetails.reviews),
+    buildWatchRefundInsight(previous, current, previousDetails.refunds, currentDetails.refunds),
+    buildWatchContentInsight(previousDetails.content, currentDetails.content),
+  ].filter(Boolean);
+}
+
+function buildWatchReturnInsight(previous, current, previousReturns = {}, currentReturns = {}) {
+  const newItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items);
+  const unitDelta = Number(current?.returnUnits || currentReturns.totalUnits || 0) - Number(previous?.returnUnits || previousReturns.totalUnits || 0);
+  const rateDelta = Number(current?.returnRatePercent || currentReturns.rate || 0) - Number(previous?.returnRatePercent || previousReturns.rate || 0);
+  if (!newItems.length && Math.abs(unitDelta) < 1 && Math.abs(rateDelta) < 0.2) return null;
+  const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReturns.items);
+  const reasons = countWatchTerms(newItems.map((item) => item.reason || item.issueCode).filter(Boolean));
+  const repeated = extractWatchRepeatedLanguage(newItems);
+  return {
+    id: "return-evidence",
+    title: "Return evidence changed",
+    tone: unitDelta > 0 || rateDelta > 0 ? "orange" : "green",
+    metric: unitDelta > 0 ? `+${formatNumberWithSuffix(unitDelta)} returned unit${unitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentReturns.totalUnits || current?.returnUnits || 0)} returned units`,
+    summary: newItems.length
+      ? `${newItems.length} new return text signal${newItems.length === 1 ? "" : "s"} were captured since the previous Watchlist report.`
+      : `Return pressure moved from ${formatNumberWithSuffix(previous?.returnRatePercent || previousReturns.rate || 0, "%")} to ${formatNumberWithSuffix(current?.returnRatePercent || currentReturns.rate || 0, "%")}.`,
+    bullets: [
+      reasons.length ? `Top new return reason language: ${formatWatchCountList(reasons, 3)}.` : "",
+      sentiment.total ? `New return sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      repeated.length ? `Repeated new return language: ${formatWatchCountList(repeated, 4)}.` : "",
+      newItems[0]?.text ? `Representative note: "${truncateWatchText(newItems[0].text, 150)}"` : "",
+    ].filter(Boolean),
+  };
+}
+
+function buildWatchReviewInsight(previous, current, previousReviews = {}, currentReviews = {}) {
+  const newItems = getNewWatchEvidenceItems(previousReviews.items, currentReviews.items);
+  const negativeDelta = Number(current?.negativeReviewCount || currentReviews.negative || 0) - Number(previous?.negativeReviewCount || previousReviews.negative || 0);
+  const reviewDelta = Number(current?.reviewCount || currentReviews.total || 0) - Number(previous?.reviewCount || previousReviews.total || 0);
+  if (!newItems.length && Math.abs(negativeDelta) < 1 && Math.abs(reviewDelta) < 1) return null;
+  const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReviews.items);
+  const repeated = extractWatchRepeatedLanguage(newItems);
+  const ratings = countWatchTerms(newItems.map((item) => Number(item.rating || 0) ? `${Number(item.rating)} star` : "").filter(Boolean));
+  return {
+    id: "review-evidence",
+    title: "Review evidence changed",
+    tone: negativeDelta > 0 || sentiment.negative > sentiment.positive ? "orange" : "blue",
+    metric: newItems.length ? `${newItems.length} new review${newItems.length === 1 ? "" : "s"}` : `${negativeDelta > 0 ? "+" : ""}${negativeDelta} negative reviews`,
+    summary: newItems.length
+      ? `${newItems.length} new review text signal${newItems.length === 1 ? "" : "s"} were added to the watched product evidence.`
+      : `Stored review volume changed from ${previous?.reviewCount || previousReviews.total || 0} to ${current?.reviewCount || currentReviews.total || 0}.`,
+    bullets: [
+      sentiment.total ? `New review sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      ratings.length ? `New review ratings: ${formatWatchCountList(ratings, 4)}.` : "",
+      repeated.length ? `Repeated new review language: ${formatWatchCountList(repeated, 4)}.` : "",
+      newItems[0]?.text ? `Representative review: "${truncateWatchText(newItems[0].text, 150)}"` : "",
+    ].filter(Boolean),
+  };
+}
+
+function buildWatchRefundInsight(previous, current, previousRefunds = {}, currentRefunds = {}) {
+  const newItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items);
+  const unitDelta = Number(current?.refundUnits || currentRefunds.totalUnits || 0) - Number(previous?.refundUnits || previousRefunds.totalUnits || 0);
+  if (!newItems.length && Math.abs(unitDelta) < 1) return null;
+  const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentRefunds.items);
+  const reasons = countWatchTerms(newItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]).filter(Boolean));
+  const repeated = extractWatchRepeatedLanguage(newItems);
+  return {
+    id: "refund-evidence",
+    title: "Refund evidence changed",
+    tone: unitDelta > 0 ? "orange" : "green",
+    metric: unitDelta > 0 ? `+${formatNumberWithSuffix(unitDelta)} refunded unit${unitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentRefunds.totalUnits || current?.refundUnits || 0)} refunded units`,
+    summary: newItems.length
+      ? `${newItems.length} new refund note signal${newItems.length === 1 ? "" : "s"} were captured.`
+      : `Refunded units changed from ${previous?.refundUnits || previousRefunds.totalUnits || 0} to ${current?.refundUnits || currentRefunds.totalUnits || 0}.`,
+    bullets: [
+      reasons.length ? `Top new refund reason language: ${formatWatchCountList(reasons, 3)}.` : "",
+      sentiment.total ? `New refund-note sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      repeated.length ? `Repeated new refund-note language: ${formatWatchCountList(repeated, 4)}.` : "",
+      newItems[0]?.text ? `Representative refund note: "${truncateWatchText(newItems[0].text, 150)}"` : "",
+    ].filter(Boolean),
+  };
+}
+
+function buildWatchContentInsight(previousContent = {}, currentContent = {}) {
+  if (!currentContent?.changed) return null;
+  return {
+    id: "product-content",
+    title: "Product content changed",
+    tone: "blue",
+    metric: "PDP content updated",
+    summary: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous deep diagnosis.",
+    bullets: [
+      Number(currentContent.descriptionWordCount || 0) ? `Description now has ${currentContent.descriptionWordCount} words.` : "",
+      Number(currentContent.contentQualityScore || 0) ? `Current content quality score: ${currentContent.contentQualityScore}.` : "",
+      currentContent.contentIssues?.length ? `Detected content issues: ${formatWatchCountList(currentContent.contentIssues, 4)}.` : "",
+      previousContent?.mode ? `Previous product-content mode: ${previousContent.mode}.` : "",
+    ].filter(Boolean),
   };
 }
 
@@ -753,7 +947,6 @@ function buildRiskChangeSection(previous, current) {
       label: "Product risk",
       previous: previous.riskScore,
       current: current.riskScore,
-      suffix: "/100",
       threshold: 1,
       detail: "Product risk changed based on the latest stored evidence and score model.",
     }),
@@ -954,6 +1147,24 @@ function getWatchReportHeadline(changes = []) {
   if (!preferred) return "No meaningful changes detected";
   const direction = preferred.direction === "up" ? "increased" : preferred.direction === "down" ? "decreased" : "changed";
   return `${preferred.label} ${direction} from ${preferred.from} to ${preferred.to}.`;
+}
+
+function buildWatchChangeDeterministicNarrative({ productTitle = "This product", report = {}, noChangesReused = false } = {}) {
+  if (noChangesReused || report.status === "unchanged") {
+    return `${productTitle} did not show meaningful Watchlist changes since the previous run. Product risk, source evidence, financial exposure and commercial momentum stayed close to the last stored report.`;
+  }
+  if (report.status === "baseline") {
+    return `${productTitle} now has a Watchlist baseline. Future runs will compare new returns, refunds, reviews, source language, product risk and momentum against this stored point.`;
+  }
+  const insightText = (report.sourceInsights || [])
+    .slice(0, 3)
+    .map((insight) => `${insight.title}: ${insight.summary}`)
+    .join(" ");
+  return [
+    `${productTitle} changed since the previous Watchlist run.`,
+    report.headline || "",
+    insightText || "The report below shows the most relevant movement in risk, evidence, impact and momentum.",
+  ].filter(Boolean).join(" ");
 }
 
 function buildWatchlistTrend(products = [], historyByProductGid = new Map(), productPulseSettings = undefined) {
@@ -1169,6 +1380,147 @@ function getSummaryLabel(value) {
 function optionalString(value) {
   const normalized = String(value || "").trim();
   return normalized || null;
+}
+
+function normalizeWatchAnalysisItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object" && String(item.key || "").trim())
+    .map((item) => ({
+      key: String(item.key),
+      source: String(item.source || ""),
+      sourceLabel: String(item.sourceLabel || ""),
+      text: String(item.text || item.analysisText || "").trim(),
+      analysisText: String(item.analysisText || item.text || "").trim(),
+      reason: String(item.reason || "").trim(),
+      reasonText: String(item.reasonText || "").trim(),
+      noteText: String(item.noteText || "").trim(),
+      restockType: String(item.restockType || "").trim(),
+      issueCode: String(item.issueCode || "").trim(),
+      sentiment: ["positive", "neutral", "negative"].includes(item.sentiment) ? item.sentiment : "neutral",
+      emotion: String(item.emotion || "none"),
+      rating: Number(item.rating || 0),
+      quantity: Number(item.quantity || 1),
+      amount: Number(item.amount || 0),
+      variant: String(item.variant || "").trim(),
+      createdAt: item.createdAt || null,
+      updatedAt: item.updatedAt || item.createdAt || null,
+    }))
+    .sort((a, b) => new Date(a.createdAt || a.updatedAt || 0).getTime() - new Date(b.createdAt || b.updatedAt || 0).getTime());
+}
+
+function trimWatchEvidenceItem(item = {}) {
+  return {
+    key: item.key,
+    source: item.source,
+    sourceLabel: item.sourceLabel,
+    text: truncateWatchText(item.text || item.analysisText || "", 240),
+    reason: item.reason,
+    reasonText: item.reasonText,
+    noteText: truncateWatchText(item.noteText || "", 180),
+    restockType: item.restockType,
+    issueCode: item.issueCode,
+    sentiment: item.sentiment,
+    emotion: item.emotion,
+    rating: item.rating,
+    quantity: item.quantity,
+    amount: item.amount,
+    variant: item.variant,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function normalizeWatchCountRows(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (typeof item === "string") return { label: item, count: 1 };
+      return {
+        label: String(item?.label || item?.term || item?.reason || item?.issue || item?.issueCode || "").trim(),
+        count: Number(item?.count || item?.value || 1),
+      };
+    })
+    .filter((item) => item.label)
+    .slice(0, 12);
+}
+
+function normalizeWatchSentiment(sentiment = {}) {
+  return {
+    total: clampRoundNumber(firstNumber(sentiment.total)),
+    negative: clampRoundNumber(firstNumber(sentiment.negative)),
+    neutral: clampRoundNumber(firstNumber(sentiment.neutral)),
+    positive: clampRoundNumber(firstNumber(sentiment.positive)),
+    dominant: firstString(sentiment.dominant),
+  };
+}
+
+function getNewWatchEvidenceItems(previousItems = [], currentItems = []) {
+  const previousKeys = new Set((Array.isArray(previousItems) ? previousItems : []).map((item) => item.key).filter(Boolean));
+  return (Array.isArray(currentItems) ? currentItems : []).filter((item) => item?.key && !previousKeys.has(item.key));
+}
+
+function summarizeWatchEvidenceItems(items = []) {
+  const summary = { total: 0, negative: 0, neutral: 0, positive: 0 };
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const sentiment = ["positive", "negative", "neutral"].includes(item?.sentiment) ? item.sentiment : "neutral";
+    summary.total += 1;
+    summary[sentiment] += 1;
+  });
+  return summary;
+}
+
+function countWatchTerms(values = []) {
+  const counts = new Map();
+  values
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .forEach((value) => {
+      const label = humanizeWatchLabel(value);
+      if (!label) return;
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function extractWatchRepeatedLanguage(items = []) {
+  const stopWords = new Set(["the", "and", "for", "that", "this", "with", "from", "was", "were", "are", "but", "not", "you", "your", "they", "them", "have", "has", "had", "other", "reason", "return", "refund", "product"]);
+  const counts = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    String(item?.analysisText || item?.text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length > 3 && !stopWords.has(word))
+      .forEach((word) => counts.set(word, (counts.get(word) || 0) + 1));
+  });
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, 6);
+}
+
+function formatWatchCountList(items = [], limit = 4) {
+  return (Array.isArray(items) ? items : [])
+    .slice(0, limit)
+    .map((item) => `${item.label}${Number(item.count || 0) > 1 ? ` (${item.count})` : ""}`)
+    .join(", ");
+}
+
+function humanizeWatchLabel(value) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function truncateWatchText(value, max = 180) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trim()}…`;
 }
 
 function firstNumber(...values) {

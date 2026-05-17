@@ -444,6 +444,16 @@ export function ConnectScreen({ data, actionData }) {
   );
 }
 
+function isQuickScanCsvReviewSourceAvailable(data = {}) {
+  if (data.quickScanCsvReviews) return Boolean(data.quickScanCsvReviews.available);
+  const sources = Array.isArray(data.sourceGroups)
+    ? data.sourceGroups.flatMap((group) => group.sources || [])
+    : [];
+  const csvSource = sources.find((source) => source.key === "csvReviews" || source.sourceKey === "csvReviews");
+  if (!csvSource) return false;
+  return Boolean(csvSource.connected && csvSource.active !== false);
+}
+
 export function ProductsScreen({ data, filters = {}, actionData }) {
   const revalidator = useRevalidator();
   const navigation = useNavigation();
@@ -459,6 +469,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const [quickScanConfirmation, setQuickScanConfirmation] = useState(false);
+  const [quickScanCsvWarning, setQuickScanCsvWarning] = useState(false);
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
@@ -482,6 +493,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const pendingWatchlistAction = navigation.state === "submitting" && ["add-to-watchlist", "remove-from-watchlist"].includes(String(navigation.formData?.get("_action") || ""));
   const pendingAnalyzeIds = pendingBulkAnalyze ? Array.from(navigation.formData?.getAll("productId") || []).map(String) : [];
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
+  const quickScanCsvAvailable = isQuickScanCsvReviewSourceAvailable(data);
   const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
   const visibleProductKeys = productRows.map(getProductActionKey);
   const selectedCount = selectedProducts.size;
@@ -588,6 +600,15 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const handleStartFastScan = () => {
     if (fastScanRunning) return;
+    if (!quickScanCsvAvailable) {
+      setQuickScanCsvWarning(true);
+      return;
+    }
+    setQuickScanConfirmation(true);
+  };
+
+  const handleContinueQuickScanWithoutCsv = () => {
+    setQuickScanCsvWarning(false);
     setQuickScanConfirmation(true);
   };
 
@@ -1043,6 +1064,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           onConfirm={handleConfirmFastScan}
         />
       )}
+      {quickScanCsvWarning && (
+        <QuickScanCsvReviewsModal
+          onCancel={() => setQuickScanCsvWarning(false)}
+          onContinue={handleContinueQuickScanWithoutCsv}
+        />
+      )}
     </FullWidthPage>
   );
 }
@@ -1337,6 +1364,7 @@ function WatchChangeReportModal({ product, report, onClose }) {
   const statusTone = getWatchReportStatusTone(report?.status);
   const statusLabel = getWatchReportStatusLabel(report?.status);
   const sections = Array.isArray(report?.sections) ? report.sections : [];
+  const sourceInsights = Array.isArray(report?.sourceInsights) ? report.sourceInsights : [];
   const current = report?.current || {};
 
   return createPortal(
@@ -1347,7 +1375,7 @@ function WatchChangeReportModal({ product, report, onClose }) {
           <div>
             <span className="ppWatchChangeReportEyebrow">Watchlist change report</span>
             <h2 id="watch-change-report-title">{product.title}</h2>
-            <p>{report?.summary || "Latest Watchlist comparison for this product."}</p>
+            <p>{report?.narrative || report?.summary || "Latest Watchlist comparison for this product."}</p>
           </div>
           <button className="ppModalCloseButton" type="button" aria-label="Close Watchlist change report" onClick={onClose}>
             <s-icon type="x" size="small"></s-icon>
@@ -1377,6 +1405,28 @@ function WatchChangeReportModal({ product, report, onClose }) {
           <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
             <s-icon type={report.status === "unchanged" ? "check" : "info"} size="small"></s-icon>
             <span>{report.headline}</span>
+          </div>
+        ) : null}
+
+        {sourceInsights.length ? (
+          <div className="ppWatchChangeReportInsights">
+            {sourceInsights.map((insight) => (
+              <article className={`ppWatchChangeReportInsight ppWatchChangeReportInsight-${insight.tone || "blue"}`} key={insight.id || insight.title}>
+                <div className="ppWatchChangeReportInsightHeader">
+                  <DashboardIcon type={getWatchReportInsightIcon(insight.id)} tone={insight.tone || "blue"} size="small" />
+                  <div>
+                    <h3>{insight.title}</h3>
+                    <strong>{insight.metric}</strong>
+                  </div>
+                </div>
+                <p>{insight.summary}</p>
+                {Array.isArray(insight.bullets) && insight.bullets.length ? (
+                  <ul>
+                    {insight.bullets.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                ) : null}
+              </article>
+            ))}
           </div>
         ) : null}
 
@@ -1410,7 +1460,7 @@ function WatchChangeReportModal({ product, report, onClose }) {
         <div className="ppWatchChangeReportSnapshot">
           <h3>Current product state</h3>
           <div>
-            <span><b>Risk:</b> {current.riskLabel || "Pending"} · {current.riskScore ?? "-"} / 100</span>
+            <span><b>Risk:</b> {current.riskLabel || "Pending"} · {current.riskScore ?? "-"}</span>
             <span><b>Confidence:</b> {current.confidence ?? "-"}%</span>
             <span><b>Primary issue:</b> {current.primaryIssue || "No primary issue"}</span>
             <span><b>Return rate:</b> {current.returnRatePercent ?? 0}%</span>
@@ -1418,7 +1468,7 @@ function WatchChangeReportModal({ product, report, onClose }) {
           </div>
         </div>
 
-        <footer className="ppWatchChangeReportFooter">
+        <footer className="ppAnalysisConfirmFooter ppWatchChangeReportFooter">
           <Link className="ppSecondaryButton" to={product.href || "/app/products"} onClick={onClose}>
             Open product
           </Link>
@@ -1447,6 +1497,14 @@ function getWatchReportSectionIcon(sectionId) {
   if (sectionId === "evidence") return "view";
   if (sectionId === "impact") return "cash-dollar";
   if (sectionId === "momentum") return "chart-line";
+  return "info";
+}
+
+function getWatchReportInsightIcon(insightId) {
+  if (insightId === "return-evidence") return "return";
+  if (insightId === "review-evidence") return "star";
+  if (insightId === "refund-evidence") return "cash-dollar";
+  if (insightId === "product-content") return "product";
   return "info";
 }
 
@@ -2178,6 +2236,49 @@ function clampClientInteger(value, min, max, fallback) {
   const number = Number.parseInt(value, 10);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, number));
+}
+
+function QuickScanCsvReviewsModal({ onCancel, onContinue }) {
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal ppQuickScanCsvModal" role="dialog" aria-modal="true" aria-labelledby="quick-scan-csv-title">
+        <div className="ppAnalysisConfirmHeader">
+          <span className="ppAnalysisConfirmIcon ppQuickScanCsvIcon" aria-hidden="true">
+            <s-icon type="file" size="small"></s-icon>
+          </span>
+          <div>
+            <span>Recommended source</span>
+            <h2 id="quick-scan-csv-title">Add CSV reviews before QuickScan?</h2>
+            <p>
+              QuickScan can run without review data, but uploaded CSV reviews make the scan more useful when you already collect product reviews.
+            </p>
+          </div>
+        </div>
+
+        <div className="ppActionConfirmNotice ppQuickScanCsvNotice">
+          <s-icon type="info" size="small"></s-icon>
+          <p>
+            ProductPulse does not call your review provider during QuickScan. It only uses the normalized CSV review file uploaded in Connect.
+          </p>
+        </div>
+
+        <div className="ppAnalysisConfirmProducts ppQuickScanCsvChecklist">
+          <span>Recommended CSV fields</span>
+          <ul>
+            <li>Product handle or Shopify product ID so reviews can be matched to products.</li>
+            <li>Rating or stars so QuickScan can include review pressure in the preliminary score.</li>
+            <li>Review date and text are optional for QuickScan, but useful later for deep diagnosis.</li>
+          </ul>
+        </div>
+
+        <div className="ppAnalysisConfirmFooter ppQuickScanCsvFooter">
+          <button className="ppSecondaryButton" type="button" onClick={onCancel}>Cancel</button>
+          <Link className="ppSecondaryButton" to="/app/connect">Upload CSV first</Link>
+          <button className="ppPrimaryButton" type="button" onClick={onContinue}>Continue without CSV</button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {

@@ -134,6 +134,72 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.changes.some((change) => change.id === "risk-score")).toBe(true);
     expect(report.changes.some((change) => change.id === "return-rate")).toBe(true);
     expect(report.sections.map((section) => section.id)).toContain("risk");
+    expect(report.changes.find((change) => change.id === "risk-score").to).toBe("67");
+  });
+
+  it("adds source-level Watchlist evidence insights for new returns and reviews", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-16T10:00:00.000Z",
+      riskScore: 51,
+      riskLabel: "Medium",
+      confidence: 62,
+      impactScore: 10,
+      returnRatePercent: 8,
+      returnUnits: 1,
+      negativeReviewCount: 0,
+      reviewCount: 1,
+      evidenceDetails: {
+        returns: {
+          totalUnits: 1,
+          items: [{ key: "return-old", text: "Too small", sentiment: "negative", reason: "Size", issueCode: "fit_size" }],
+        },
+        reviews: {
+          total: 1,
+          negative: 0,
+          items: [{ key: "review-old", text: "Works fine", sentiment: "positive", rating: 5 }],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 62,
+        impactScore: 14,
+        confidence: 68,
+        primaryIssue: "Product quality",
+        metrics: {
+          returnRate: 0.18,
+          returnUnits: 3,
+          negativeReviewCount: 1,
+          reviewCount: 2,
+          textInsights: {
+            returns: { sentiment: { total: 2, negative: 2, neutral: 0, positive: 0 } },
+            reviews: { sentiment: { total: 2, negative: 1, neutral: 0, positive: 1 } },
+          },
+          incrementalDiagnosis: {
+            cache: {
+              customerText: {
+                returnItems: [
+                  { key: "return-old", text: "Too small", analysisText: "Too small", sentiment: "negative", reason: "Size", issueCode: "fit_size" },
+                  { key: "return-new", text: "Feels broken and cheap", analysisText: "Feels broken and cheap", sentiment: "negative", reason: "Quality issue", issueCode: "product_quality" },
+                ],
+                reviewItems: [
+                  { key: "review-old", text: "Works fine", analysisText: "Works fine", sentiment: "positive", rating: 5 },
+                  { key: "review-new", text: "Cheap plastic, not worth it", analysisText: "Cheap plastic, not worth it", sentiment: "negative", rating: 1, issueCode: "value_quality" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-17T10:00:00.000Z"),
+    });
+
+    expect(report.sourceInsights.map((insight) => insight.id)).toEqual(expect.arrayContaining(["return-evidence", "review-evidence"]));
+    expect(report.sourceInsights.find((insight) => insight.id === "return-evidence").bullets.join(" ")).toContain("New return sentiment");
+    expect(report.sourceInsights.find((insight) => insight.id === "review-evidence").bullets.join(" ")).toContain("Representative review");
   });
 
   it("reports no meaningful changes when the current snapshot matches the previous run", () => {

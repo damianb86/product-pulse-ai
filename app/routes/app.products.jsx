@@ -2,6 +2,7 @@ import { useActionData, useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { ProductsScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
+import { getCsvReviewSourceStatusForShop } from "../lib/product-pulse-csv.server";
 import {
   getProductsQueueForShop,
   recordProductDetailActionForShop,
@@ -31,10 +32,16 @@ export const loader = async ({ request }) => {
     direction: url.searchParams.get("direction") || "desc",
   };
 
+  const [productTable, quickScanCsvReviews] = await Promise.all([
+    getProductsQueueForShop(session.shop, admin, filters, { settings }),
+    getCsvReviewSourceStatusForShop(session.shop),
+  ]);
+
   return {
     data: {
       ...getAppViewData(filters),
-      productTable: await getProductsQueueForShop(session.shop, admin, filters, { settings }),
+      productTable,
+      quickScanCsvReviews,
       persistProductJobs: true,
     },
     filters,

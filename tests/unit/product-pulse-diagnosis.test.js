@@ -813,6 +813,97 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(second.evidenceSnippets.map((snippet) => snippet.text).join(" ")).not.toContain("scary in the room");
   });
 
+  it("stores and merges Shopify source events so incremental fetches do not refetch the full window", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/987",
+      productTitle: "Canvas Print",
+      handle: "canvas-print",
+      metrics: {},
+    };
+    const product = {
+      id: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      updatedAt: daysAgo(20),
+      description: "Framed canvas print with included hanging hardware.",
+      variants: [],
+      tags: ["art"],
+      collections: ["Prints"],
+    };
+    const oldSale = {
+      id: "sale-old",
+      orderId: "order-old",
+      createdAt: daysAgo(12),
+      quantity: 1,
+      amount: 100,
+    };
+    const oldReturn = {
+      id: "return-old",
+      returnId: "return-1",
+      orderId: "order-old",
+      createdAt: daysAgo(11),
+      quantity: 1,
+      reason: "OTHER",
+      reasonNote: "Looked darker than expected.",
+    };
+    const first = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: { product, sales: [oldSale], refunds: [], returns: [oldReturn], orderAccessDenied: false },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+    const cutoff = daysAgo(3);
+    const context = __productPulseDiagnosisTestHooks.getIncrementalSourceFetchContext({
+      snapshot: {
+        ...snapshot,
+        metrics: {
+          ...first.metrics,
+          lastDetailedDiagnosisAt: cutoff,
+          incrementalDiagnosis: {
+            ...first.metrics.incrementalDiagnosis,
+            cache: {
+              ...first.metrics.incrementalDiagnosis.cache,
+              sourceEvents: {
+                ...first.metrics.incrementalDiagnosis.cache.sourceEvents,
+                cachedAt: cutoff,
+                fetchedThroughAt: cutoff,
+              },
+            },
+          },
+        },
+      },
+      windowDays: 30,
+    });
+    const updatedOldSale = {
+      ...oldSale,
+      quantity: 2,
+      amount: 200,
+    };
+    const newSale = {
+      id: "sale-new",
+      orderId: "order-new",
+      createdAt: daysAgo(1),
+      quantity: 1,
+      amount: 120,
+    };
+
+    const merged = __productPulseDiagnosisTestHooks.mergeIncrementalSourceEvents({
+      previous: context.previousSourceEvents,
+      current: { sales: [updatedOldSale, newSale], refunds: [], returns: [] },
+      windowDays: 30,
+    });
+
+    expect(first.metrics.incrementalDiagnosis.cache.sourceEvents.sales).toHaveLength(1);
+    expect(first.metrics.incrementalDiagnosis.cache.sourceEvents.returns).toHaveLength(1);
+    expect(context.shopifyCanReuse).toBe(true);
+    expect(context.sinceDate).toBe(cutoff.slice(0, 10));
+    expect(merged.sales).toHaveLength(2);
+    expect(merged.sales.find((item) => item.id === "sale-old").quantity).toBe(2);
+    expect(merged.returns).toHaveLength(1);
+  });
+
   it("reuses product content analysis until Shopify product content changes", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const snapshot = {
@@ -988,6 +1079,37 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(decision.shouldReuse).toBe(false);
     expect(decision.blockers).toContain("source_or_material_metrics_changed");
+  });
+
+  it("does not reuse cached diagnosis when incremental Shopify source extraction was incomplete", () => {
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        metrics: {
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+        },
+      },
+      deterministic: {
+        evidenceSnippets: [],
+        metrics: {
+          incrementalDiagnosis: {
+            productContent: { reused: true },
+            customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 2 },
+            refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 1 },
+            sourceChanges: {
+              previousFingerprint: "fingerprint",
+              currentFingerprint: "fingerprint",
+              unchanged: true,
+              sourceExtractionComplete: false,
+            },
+            aiEvidenceSnippetCount: 0,
+          },
+        },
+      },
+    });
+
+    expect(decision.shouldReuse).toBe(false);
+    expect(decision.blockers).toContain("source_extraction_incomplete");
   });
 
   it("builds monthly Shopify order activity by original order month", () => {

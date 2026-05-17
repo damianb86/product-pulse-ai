@@ -149,8 +149,9 @@ describe("ProductPulse screens", () => {
               latestChangeReport: {
                 status: "changed",
                 title: "Watchlist changes detected",
-                summary: "2 meaningful changes since the previous Watchlist run. Product risk increased from 58/100 to 63/100.",
-                headline: "Product risk increased from 58/100 to 63/100.",
+                summary: "2 meaningful changes since the previous Watchlist run. Product risk increased from 58 to 63.",
+                narrative: "Nintendo New 3DS XL picked up new return and review evidence since the last Watchlist scan.",
+                headline: "Product risk increased from 58 to 63.",
                 changeCount: 2,
                 previousRunAt: "2026-05-16T10:00:00.000Z",
                 currentRunAt: "2026-05-17T10:00:00.000Z",
@@ -170,12 +171,20 @@ describe("ProductPulse screens", () => {
                   changes: [{
                     id: "risk-score",
                     label: "Product risk",
-                    from: "58/100",
-                    to: "63/100",
-                    delta: "+5/100",
+                    from: "58",
+                    to: "63",
+                    delta: "+5",
                     direction: "up",
                     detail: "Product risk changed based on the latest stored evidence and score model.",
                   }],
+                }],
+                sourceInsights: [{
+                  id: "return-evidence",
+                  title: "Return evidence changed",
+                  tone: "orange",
+                  metric: "+2 returned units",
+                  summary: "2 new return text signals were captured since the previous Watchlist report.",
+                  bullets: ["New return sentiment: 2 negative, 0 neutral, 0 positive."],
                 }],
               },
             },
@@ -267,7 +276,9 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "View latest Watchlist change report for Nintendo New 3DS XL" }));
     const reportDialog = screen.getByRole("dialog", { name: "Nintendo New 3DS XL" });
     expect(within(reportDialog).getByText("Watchlist change report")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("Product risk increased from 58/100 to 63/100.")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Product risk increased from 58 to 63.")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Return evidence changed")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Nintendo New 3DS XL picked up new return and review evidence since the last Watchlist scan.")).toBeInTheDocument();
     fireEvent.click(within(reportDialog).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("button", { name: /Move Nintendo New 3DS XL/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/app/watchlist/activity");
@@ -382,6 +393,23 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Fast product scan running")).toBeInTheDocument();
     expect(screen.getByText(/backend job will keep running/)).toBeInTheDocument();
     expect(screen.queryByText(/8%/)).not.toBeInTheDocument();
+  });
+
+  it("recommends uploading CSV reviews before QuickScan when no review CSV is configured", () => {
+    const data = {
+      ...defaultView,
+      quickScanCsvReviews: { available: false, connected: false, active: false, rowCount: 0 },
+    };
+
+    renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
+    fireEvent.click(screen.getAllByRole("button", { name: /Run quick scan/ })[0]);
+    expect(screen.getByRole("heading", { name: "Add CSV reviews before QuickScan?" })).toBeInTheDocument();
+    expect(screen.getByText(/ProductPulse does not call your review provider during QuickScan/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Upload CSV first" })).toHaveAttribute("href", "/app/connect");
+    expect(screen.queryByRole("heading", { name: "Confirm quick product scan" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue without CSV" }));
+    expect(screen.getByRole("heading", { name: "Confirm quick product scan" })).toBeInTheDocument();
   });
 
   it("keeps the quick scan action available when product rows exist", async () => {

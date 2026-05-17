@@ -88,6 +88,25 @@ export async function getNormalizedCsvReviewRatingsForShop(shop) {
   }));
 }
 
+export async function getCsvReviewSourceStatusForShop(shop) {
+  if (!shop) return { available: false, connected: false, active: false, rowCount: 0 };
+  const source = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
+  }).catch(() => null);
+  const config = source?.config || {};
+  const rowCount = Number(config.normalizedRowCount || 0);
+  const filePath = String(config.normalizedFilePath || "").trim();
+
+  return {
+    available: Boolean(source?.connected && source.active && filePath && rowCount > 0),
+    connected: Boolean(source?.connected),
+    active: Boolean(source?.active),
+    rowCount,
+    fileName: config.displayFileName || config.fileName || CSV_REVIEW_IMPORT_DISPLAY_NAME,
+    uploadedAt: config.uploadedAt || source?.lastSyncedAt || null,
+  };
+}
+
 export async function getNormalizedCsvReviewsForShop(shop) {
   if (!shop) return [];
   const source = await prisma.productPulseSource.findUnique({
