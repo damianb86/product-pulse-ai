@@ -95,6 +95,7 @@ const privacyStoredItems = [
   "Source connection state, coverage preferences, and health metadata.",
   "Catalog scan jobs, diagnosis jobs, job logs, and recoverable error details.",
   "Product risk snapshots, AI diagnosis summaries, issue evidence, and recommendations.",
+  "Watchlist products, watch settings, watch activity, and product score history.",
   "Draft product actions, credit ledger entries, and contact requests from this page.",
   "Shopify session tokens required for embedded admin authentication.",
 ];
@@ -172,6 +173,10 @@ export const action = async ({ request }) => {
         `- Product risk snapshots: ${counts.riskSnapshots}`,
         `- Product diagnoses: ${counts.diagnoses}`,
         `- Draft product actions: ${counts.actions}`,
+        `- Watchlist products: ${counts.watchlistItems}`,
+        `- Watchlist settings: ${counts.watchSettings}`,
+        `- Watchlist activity entries: ${counts.watchActivities}`,
+        `- Product score history entries: ${counts.scoreHistory}`,
         `- Credit ledger entries: ${counts.creditEntries}`,
         `- Contact requests: ${counts.contacts}`,
         `- Sessions: ${counts.sessions}`,
@@ -199,7 +204,7 @@ export const action = async ({ request }) => {
         `Shop: ${session.shop}`,
         "",
         "The merchant requested deletion of all ProductPulse AI app data.",
-        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, draft actions, credit ledger entries, contact requests, and sessions.",
+        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, draft actions, watchlist products, watch settings, watch activity, product score history, credit ledger entries, contact requests, and sessions.",
       ].join("\n"),
     });
 
@@ -575,8 +580,9 @@ export default function Help() {
             </div>
             <p>
               This permanently deletes source records, jobs, job logs, risk
-              snapshots, diagnoses, draft actions, credit ledger entries,
-              contact requests, and Shopify sessions for this shop.
+              snapshots, diagnoses, draft actions, Watchlist products, Watchlist
+              settings, Watchlist activity, product score history, credit ledger
+              entries, contact requests, and Shopify sessions for this shop.
             </p>
             <p className={styles.subduedText}>
               This action cannot be undone. You may be asked to log in again
@@ -679,6 +685,10 @@ async function getProductPulseDataCounts(shop) {
     riskSnapshots,
     diagnoses,
     actions,
+    watchlistItems,
+    watchSettings,
+    watchActivities,
+    scoreHistory,
     creditEntries,
     contacts,
     sessions,
@@ -689,6 +699,10 @@ async function getProductPulseDataCounts(shop) {
     db.productRiskSnapshot.count({ where: { shop } }),
     db.productDiagnosis.count({ where: { shop } }),
     db.productAction.count({ where: { shop } }),
+    db.productWatchlistItem.count({ where: { shop } }),
+    db.productWatchSettings.count({ where: { shop } }),
+    db.productWatchActivity.count({ where: { shop } }),
+    db.productScoreHistory.count({ where: { shop } }),
     db.creditLedgerEntry.count({ where: { shop } }),
     db.contactRequest.count({ where: { shop } }),
     db.session.count({ where: { shop } }),
@@ -701,6 +715,10 @@ async function getProductPulseDataCounts(shop) {
     riskSnapshots,
     diagnoses,
     actions,
+    watchlistItems,
+    watchSettings,
+    watchActivities,
+    scoreHistory,
     creditEntries,
     contacts,
     sessions,
@@ -712,6 +730,10 @@ async function deleteProductPulseData(shop) {
     db.productAction.deleteMany({ where: { shop } }),
     db.productDiagnosis.deleteMany({ where: { shop } }),
     db.productRiskSnapshot.deleteMany({ where: { shop } }),
+    db.productWatchActivity.deleteMany({ where: { shop } }),
+    db.productWatchlistItem.deleteMany({ where: { shop } }),
+    db.productWatchSettings.deleteMany({ where: { shop } }),
+    db.productScoreHistory.deleteMany({ where: { shop } }),
     db.productPulseJobLog.deleteMany({ where: { shop } }),
     db.catalogSignalJob.deleteMany({ where: { shop } }),
     db.productPulseSource.deleteMany({ where: { shop } }),
@@ -726,6 +748,9 @@ function formatProductPulseCounts(counts) {
     `${counts.riskSnapshots} risk snapshot(s)`,
     `${counts.diagnoses} diagnosis record(s)`,
     `${counts.actions} draft action(s)`,
+    `${counts.watchlistItems} watchlist product(s)`,
+    `${counts.watchActivities} watch activity record(s)`,
+    `${counts.scoreHistory} score history record(s)`,
     `${counts.sources} source record(s)`,
     `${counts.contacts} contact request(s)`,
   ].join(", ");

@@ -206,6 +206,16 @@ model ProductWatchActivity {
   @@index([shop, eventType])
 }
 
+model ProductPulseSchedulerLock {
+  key        String   @id
+  owner      String
+  acquiredAt DateTime @default(now())
+  expiresAt  DateTime
+  updatedAt  DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
 model ProductScoreHistory {
   id           String   @id @default(cuid())
   shop         String

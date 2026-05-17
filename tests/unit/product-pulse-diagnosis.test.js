@@ -796,6 +796,37 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("counts return-only Shopify events as order activity for rate denominators", () => {
+    const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 60,
+      sales: [],
+      returns: [
+        { id: "return-1", orderId: "order-1", createdAt: "2026-05-01T10:00:00.000Z", quantity: 1 },
+        { id: "return-2", orderId: "order-2", createdAt: "2026-05-02T10:00:00.000Z", quantity: 1 },
+        { id: "return-3", orderId: "order-3", createdAt: "2026-05-03T10:00:00.000Z", quantity: 1 },
+      ],
+      refunds: [],
+    });
+
+    const may = activity.months.find((month) => month.key === "2026-05");
+
+    expect(may).toMatchObject({
+      orders: 3,
+      orderUnits: 3,
+      returnedOrders: 3,
+      returnedUnits: 3,
+      returnRate: 100,
+    });
+    expect(activity.summary).toMatchObject({
+      totalOrders: 3,
+      totalOrderUnits: 3,
+      totalReturnedOrders: 3,
+      totalReturnedUnits: 3,
+      returnRate: 100,
+    });
+  });
+
   it("builds weekly return-rate prediction with a three-month forecast", () => {
     const prediction = __productPulseDiagnosisTestHooks.buildReturnRatePrediction({
       now: "2026-05-16T12:00:00.000Z",
@@ -820,6 +851,65 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(prediction.summary.last60DayReturnRate).toBeGreaterThan(0);
     expect(prediction.forecastPoints).toHaveLength(13);
     expect(prediction.forecastPoints[0]).toMatchObject({ kind: "forecast" });
+    expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
+  });
+
+  it("keeps the return-rate forecast stable when recent return behavior is flat", () => {
+    const sales = [];
+    const returns = [];
+    const weekStarts = ["2026-03-30", "2026-04-06", "2026-04-13", "2026-04-20", "2026-04-27", "2026-05-04"];
+
+    weekStarts.forEach((weekStart, weekIndex) => {
+      for (let orderIndex = 0; orderIndex < 10; orderIndex += 1) {
+        const orderId = `flat-order-${weekIndex}-${orderIndex}`;
+        sales.push({
+          id: `line-${orderId}`,
+          orderId,
+          createdAt: `${weekStart}T10:00:00.000Z`,
+          quantity: 1,
+          amount: 100,
+        });
+      }
+      returns.push({
+        id: `return-${weekIndex}`,
+        orderId: `flat-order-${weekIndex}-0`,
+        createdAt: `${weekStart}T12:00:00.000Z`,
+        quantity: 1,
+      });
+    });
+
+    const prediction = __productPulseDiagnosisTestHooks.buildReturnRatePrediction({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 90,
+      sales,
+      returns,
+    });
+    const currentRate = prediction.observedPoints.at(-1).smoothedReturnRate;
+    const maxForecastRate = Math.max(...prediction.forecastPoints.map((point) => point.predictedReturnRate));
+
+    expect(prediction.summary.totalReturnRate).toBe(10);
+    expect(maxForecastRate).toBeLessThanOrEqual(currentRate + 2);
+  });
+
+  it("builds return-rate forecasts when only Shopify returns were captured", () => {
+    const prediction = __productPulseDiagnosisTestHooks.buildReturnRatePrediction({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 60,
+      sales: [],
+      returns: [
+        { id: "return-1", orderId: "order-1", createdAt: "2026-05-01T10:00:00.000Z", quantity: 1 },
+        { id: "return-2", orderId: "order-2", createdAt: "2026-05-02T10:00:00.000Z", quantity: 1 },
+        { id: "return-3", orderId: "order-3", createdAt: "2026-05-03T10:00:00.000Z", quantity: 1 },
+      ],
+    });
+
+    expect(prediction.summary.totalOrders).toBe(3);
+    expect(prediction.summary.totalOrderUnits).toBe(3);
+    expect(prediction.summary.totalReturnedOrders).toBe(3);
+    expect(prediction.summary.totalReturnedUnits).toBe(3);
+    expect(prediction.summary.totalReturnRate).toBe(100);
+    expect(prediction.summary.forecastWeeks).toBe(13);
+    expect(prediction.forecastPoints).toHaveLength(13);
     expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
   });
 

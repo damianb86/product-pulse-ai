@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import prisma from "../db.server";
 import { unauthenticated } from "../shopify.server";
 import { serializeError } from "./product-pulse-job-logs.server";
@@ -8,6 +9,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CRON_TIME = "03:00";
 const DEFAULT_CRON_TIMEZONE = "UTC";
 const DEFAULT_CRON_WINDOW_MINUTES = 120;
+const DEFAULT_CRON_LOCK_TTL_MINUTES = 120;
 const WATCH_RUN_EVENT_TYPES = ["watch_scan_queued"];
 const activeWatchlistCronRuns = global.productPulseWatchlistCronRuns || new Set();
 
@@ -30,11 +32,16 @@ export function getWatchlistCronConfig(env = process.env) {
     env.PRODUCT_PULSE_WATCHLIST_CRON_WINDOW_MINUTES
       || env.WATCHLIST_CRON_WINDOW_MINUTES,
   );
+  const lockTtlMinutes = normalizeLockTtlMinutes(
+    env.PRODUCT_PULSE_WATCHLIST_CRON_LOCK_TTL_MINUTES
+      || env.WATCHLIST_CRON_LOCK_TTL_MINUTES,
+  );
 
   return {
     scheduleTime,
     timezone,
     windowMinutes,
+    lockTtlMinutes,
     secretConfigured: Boolean(getWatchlistCronSecret(env)),
   };
 }
@@ -72,7 +79,7 @@ export async function runWatchlistCron(options = {}) {
   const config = options.config || getWatchlistCronConfig(options.env || process.env);
   const forceSchedule = Boolean(options.forceSchedule);
   const forceCadence = Boolean(options.forceCadence);
-  const runKey = `${config.timezone}:${config.scheduleTime}`;
+  const runKey = `watchlist-cron:${config.timezone}:${config.scheduleTime}`;
 
   if (!forceSchedule && !isWithinWatchlistCronWindow(now, config)) {
     return {
@@ -95,6 +102,33 @@ export async function runWatchlistCron(options = {}) {
   }
 
   activeWatchlistCronRuns.add(runKey);
+  let lock;
+
+  try {
+    lock = await acquireSchedulerLock(runKey, {
+      now,
+      ttlMinutes: config.lockTtlMinutes,
+    });
+  } catch (error) {
+    activeWatchlistCronRuns.delete(runKey);
+    throw error;
+  }
+
+  if (!lock.acquired) {
+    activeWatchlistCronRuns.delete(runKey);
+    return {
+      status: "skipped",
+      reason: "distributed_lock_active",
+      ranAt: now.toISOString(),
+      config,
+      lock: {
+        key: runKey,
+        expiresAt: lock.expiresAt,
+      },
+      results: [],
+    };
+  }
+
   try {
     const itemsByShop = await getActiveWatchlistItemsByShop();
     const results = [];
@@ -114,6 +148,7 @@ export async function runWatchlistCron(options = {}) {
       results,
     };
   } finally {
+    await releaseSchedulerLock(lock).catch(() => {});
     activeWatchlistCronRuns.delete(runKey);
   }
 }
@@ -287,6 +322,12 @@ function normalizeWindowMinutes(value) {
   return Math.min(1440, Math.max(1, Math.round(number)));
 }
 
+function normalizeLockTtlMinutes(value) {
+  const number = Number(value || DEFAULT_CRON_LOCK_TTL_MINUTES);
+  if (!Number.isFinite(number)) return DEFAULT_CRON_LOCK_TTL_MINUTES;
+  return Math.min(1440, Math.max(5, Math.round(number)));
+}
+
 function parseCronTimeToMinutes(value) {
   const [hours, minutes] = normalizeCronTime(value).split(":").map(Number);
   return (hours * 60) + minutes;
@@ -311,4 +352,61 @@ function safeEqual(left, right) {
     result |= left.charCodeAt(index) ^ right.charCodeAt(index);
   }
   return result === 0;
+}
+
+async function acquireSchedulerLock(key, { now = new Date(), ttlMinutes = DEFAULT_CRON_LOCK_TTL_MINUTES, owner = randomUUID() } = {}) {
+  const expiresAt = new Date(now.getTime() + normalizeLockTtlMinutes(ttlMinutes) * 60 * 1000);
+
+  try {
+    await prisma.productPulseSchedulerLock.create({
+      data: {
+        key,
+        owner,
+        acquiredAt: now,
+        expiresAt,
+      },
+    });
+    return { acquired: true, key, owner, expiresAt: expiresAt.toISOString() };
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+  }
+
+  const updated = await prisma.productPulseSchedulerLock.updateMany({
+    where: {
+      key,
+      expiresAt: { lte: now },
+    },
+    data: {
+      owner,
+      acquiredAt: now,
+      expiresAt,
+    },
+  });
+
+  if (updated.count > 0) return { acquired: true, key, owner, expiresAt: expiresAt.toISOString() };
+
+  const existing = await prisma.productPulseSchedulerLock.findUnique({
+    where: { key },
+    select: { expiresAt: true },
+  });
+  return {
+    acquired: false,
+    key,
+    owner,
+    expiresAt: existing?.expiresAt?.toISOString?.() || null,
+  };
+}
+
+async function releaseSchedulerLock(lock) {
+  if (!lock?.acquired || !lock.key || !lock.owner) return;
+  await prisma.productPulseSchedulerLock.deleteMany({
+    where: {
+      key: lock.key,
+      owner: lock.owner,
+    },
+  });
+}
+
+function isUniqueConstraintError(error) {
+  return error?.code === "P2002";
 }

@@ -500,6 +500,13 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyzeLinkButton-primary s-icon {
   color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
+  opacity: 1;
+}
+
+.ppAnalyzeLinkButton-primary svg {
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
 }
 
 .ppAnalyzeLinkButton-primary:hover {
@@ -917,6 +924,12 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
+.ppMomentumTriggerMain .ppMiniTrend {
+  width: 58px;
+  height: 18px;
+  margin-top: 0;
+}
+
 .ppMomentumSubline {
   color: var(--pp-slate-500);
   font-size: 11px;
@@ -1065,6 +1078,120 @@ s-page[inline-size="large-500"] {
   font-size: 12px;
   font-weight: 760;
   line-height: 1.25;
+}
+
+.ppMomentumPopoverHeader {
+  display: grid;
+  gap: 3px;
+  padding: 2px 2px 0;
+}
+
+.ppMomentumPopoverHeader > span {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 820;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ppMomentumPopoverHeader strong {
+  color: var(--pp-slate-950);
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.ppMomentumPopoverHeader small {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppMomentumPopoverTrend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.12);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.06), rgba(var(--pp-insight-violet-rgb), 0.05));
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.25;
+}
+
+.ppMomentumPopoverTrend .ppMiniTrend {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.ppMomentumPopoverStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppMomentumPopoverStats > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppMomentumPopoverStats b {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 820;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppMomentumPopoverStats strong {
+  color: var(--pp-slate-950);
+  font-size: 13px;
+  line-height: 1.15;
+}
+
+.ppMomentumPopoverStats small {
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.ppMomentumWatchlistButton {
+  justify-self: center;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--pp-insight-violet), var(--pp-pulse-blue));
+  color: var(--pp-cloud-white);
+  font-size: 13px;
+  font-weight: 820;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(var(--pp-pulse-blue-rgb), 0.22);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.ppMomentumWatchlistButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(var(--pp-pulse-blue-rgb), 0.28);
+}
+
+.ppMomentumWatchlistButton .ppBinocularsIcon {
+  width: 15px;
+  height: 15px;
+  color: currentColor;
 }
 
 .ppSignalPopoverWrap:hover .ppSignalPopover,
@@ -2552,7 +2679,7 @@ s-page[inline-size="large-500"] {
   top: 0;
   right: 0;
   z-index: 4;
-  transform: translate(50%, -50%);
+  transform: translate(0, -50%);
 }
 
 
@@ -2675,6 +2802,12 @@ s-page[inline-size="large-500"] {
   background: linear-gradient(135deg, var(--pp-insight-violet), var(--pp-pulse-blue));
   color: var(--pp-cloud-white);
   box-shadow: 0 10px 22px rgba(var(--pp-insight-violet-rgb), 0.16);
+}
+
+.ppMainFindingCard .ppDashboardIcon s-icon,
+.ppMainFindingCard .ppDashboardIcon svg {
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
 }
 
 .ppMainFindingCard span,
@@ -2896,6 +3029,10 @@ s-page[inline-size="large-500"] {
 
 .ppMiniTrend-green {
   color: var(--pp-signal-teal);
+}
+
+.ppMiniTrend-table {
+  color: var(--pp-slate-900);
 }
 
 .ppProductDetailGrid {
@@ -7997,6 +8134,8 @@ s-page[inline-size="large-500"] {
   border: 1px solid var(--pp-slate-200);
   border-radius: 999px;
   background: var(--pp-slate-100);
+  margin-top: 5px;
+  margin-bottom: 15px;
 }
 
 .ppAnalyticsSegmentedControl button {
@@ -8026,6 +8165,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsTrendMain {
+  flex-direction: column;
   display: flex;
   align-items: stretch;
   min-width: 0;
@@ -12212,6 +12352,140 @@ s-page[inline-size="large-500"] {
   color: inherit;
 }
 
+.ppSettingsMomentumControl {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid rgba(var(--pp-signal-teal-rgb), 0.18);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-signal-teal-rgb), 0.09), rgba(var(--pp-pulse-blue-rgb), 0.045)),
+    var(--pp-cloud-white);
+}
+
+.ppSettingsMomentumHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.ppSettingsMomentumHeader strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+}
+
+.ppSettingsMomentumHeader p {
+  max-width: 760px;
+  margin: 4px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppSettingsMomentumHeader span {
+  min-width: 70px;
+  display: inline-flex;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(var(--pp-signal-teal-rgb), 0.14);
+  color: var(--pp-signal-teal);
+  font-size: 20px;
+  font-weight: 850;
+}
+
+.ppSettingsMomentumSliderRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 12px;
+  align-items: center;
+}
+
+.ppSettingsMomentumSliderRow input[type="range"] {
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+}
+
+.ppSettingsMomentumSliderRow input[type="range"]::-webkit-slider-runnable-track {
+  height: 12px;
+  border: 1px solid rgba(var(--pp-signal-teal-rgb), 0.22);
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--pp-slate-100) 0 var(--pp-momentum-threshold),
+    var(--pp-signal-teal) var(--pp-momentum-threshold) 100%
+  );
+  box-shadow: inset 0 1px 2px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppSettingsMomentumSliderRow input[type="range"]::-moz-range-track {
+  height: 12px;
+  border: 1px solid rgba(var(--pp-signal-teal-rgb), 0.22);
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--pp-slate-100) 0 var(--pp-momentum-threshold),
+    var(--pp-signal-teal) var(--pp-momentum-threshold) 100%
+  );
+  box-shadow: inset 0 1px 2px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppSettingsMomentumSliderRow input[type="range"]::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  margin-top: -6px;
+  border: 3px solid var(--pp-cloud-white);
+  border-radius: 999px;
+  appearance: none;
+  background: var(--pp-signal-teal);
+  box-shadow: 0 0 0 1px rgba(var(--pp-signal-teal-rgb), 0.34), 0 8px 16px rgba(var(--pp-shadow-rgb), 0.18);
+  cursor: grab;
+}
+
+.ppSettingsMomentumSliderRow input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--pp-cloud-white);
+  border-radius: 999px;
+  background: var(--pp-signal-teal);
+  box-shadow: 0 0 0 1px rgba(var(--pp-signal-teal-rgb), 0.34), 0 8px 16px rgba(var(--pp-shadow-rgb), 0.18);
+  cursor: grab;
+}
+
+.ppSettingsMomentumSliderRow input[type="number"] {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  font: inherit;
+  font-weight: 750;
+}
+
+.ppSettingsMomentumLegend {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppSettingsMomentumLegend span:nth-child(4) {
+  color: var(--pp-signal-teal);
+  text-align: right;
+}
+
+.ppSettingsMomentumLegend span:nth-child(2),
+.ppSettingsMomentumLegend span:nth-child(3) {
+  text-align: center;
+}
+
 .ppSettingsLookbackControl {
   display: grid;
   gap: 12px;
@@ -12650,7 +12924,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductsTable {
   width: 100%;
-  min-width: 1320px;
+  min-width: 1420px;
   border-collapse: collapse;
 }
 
@@ -12911,6 +13185,33 @@ s-page[inline-size="large-500"] {
   min-width: 68px;
   justify-content: flex-start;
   gap: 6px;
+}
+
+.ppRiskTrendCell {
+  min-width: 74px;
+  display: inline-grid;
+  gap: 1px;
+  color: var(--pp-slate-900);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-decoration: none;
+}
+
+.ppRiskTrendCell span {
+  color: inherit;
+}
+
+.ppRiskTrendCell .ppMiniTrend {
+  width: 58px;
+  height: 18px;
+  color: var(--pp-slate-900);
+  margin-top: 0;
+}
+
+.ppRiskTrendCell:hover {
+  color: var(--pp-pulse-blue);
+  text-decoration: none;
 }
 
 .ppAnalyzeIconOnly {

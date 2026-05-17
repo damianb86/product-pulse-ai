@@ -1,20 +1,19 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "803894d3814cf8d9c9c99a345287b472"
+name = "Product Pulse IA"
 application_url = "https://example.com"
 embedded = true
-name = "Product Pulse IA"
+
+[build]
+automatically_update_urls_on_dev = true
 
 [webhooks]
 api_version = "2026-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,write_products,read_orders,read_returns,read_inventory,write_inventory,read_locations"
+scopes = "read_orders,read_all_orders,read_products,write_products,read_returns,read_inventory,write_inventory,read_locations"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
-
-[build]
-include_config_on_deploy = true
-automatically_update_urls_on_dev = true

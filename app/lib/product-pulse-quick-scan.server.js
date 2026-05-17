@@ -5,8 +5,13 @@ import { recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import {
   getAnalysisLookbackDays,
   getProductPulseSettings,
+  getQuickScanMinimumMomentumScore,
   getQuickScanMinimumRiskScore,
 } from "./product-pulse-settings.server";
+import {
+  buildProductMomentum,
+  buildProductMomentumCatalogBaseline,
+} from "./product-pulse-diagnosis.server";
 import {
   buildDatedSignalTrend,
   buildIssueTrendMap,
@@ -81,7 +86,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
 
   await updateQuickScanJob(jobId, {
     progress: 72,
-    source: "Calculating deterministic product risk",
+    source: "Calculating product risk and momentum",
   });
 
   const candidates = buildQuickScanCandidates({
@@ -96,7 +101,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.scored",
-    message: "Deterministic risk scoring completed.",
+    message: "Deterministic risk and Product Momentum scoring completed.",
     data: {
       candidateCount: candidates.length,
       topCandidates: candidates.slice(0, 5).map((candidate) => ({
@@ -104,6 +109,8 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
         handle: candidate.handle,
         title: candidate.productTitle,
         riskScore: candidate.riskScore,
+        productMomentum: candidate.metrics.productMomentum?.score,
+        inclusionReason: candidate.metrics.quickScanInclusionReason,
         primaryIssue: candidate.primaryIssue,
         returnRate: candidate.metrics.returnRate,
         refundRate: candidate.metrics.refundRate,
@@ -120,12 +127,12 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.persisted",
-    message: "QuickScan persisted only products above the risk threshold and skipped products with full diagnoses.",
+    message: "QuickScan persisted products above the product risk or momentum threshold and skipped products with full diagnoses.",
     data: {
       persistedCandidates: persistence.persistedCandidates,
       ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
       retainedFullDiagnosisProducts: persistence.retainedFullDiagnosisProducts,
-      persistenceRule: `risk_score >= ${getQuickScanMinimumRiskScore(settings)}`,
+      persistenceRule: `risk_score >= ${getQuickScanMinimumRiskScore(settings)} OR product_momentum >= ${getQuickScanMinimumMomentumScore(settings)}`,
     },
   });
   await waitForMinimumDuration(startedAt, QUICK_SCAN_MINIMUM_DURATION_MS);
@@ -236,11 +243,22 @@ export function buildQuickScanCandidates({
 
   const aggregateList = Array.from(aggregates.values());
   const storeTotals = getStoreTotals(aggregateList);
+  const now = new Date();
+  const momentumBaselineSnapshots = buildQuickScanMomentumBaselineSnapshots(aggregateList, windowDays, now);
+  const riskMinimumScore = getQuickScanMinimumRiskScore(settings);
+  const momentumMinimumScore = getQuickScanMinimumMomentumScore(settings);
 
   return aggregateList
-    .map((aggregate) => scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionMode }))
+    .map((aggregate) => scoreProductAggregate(aggregate, storeTotals, {
+      windowDays,
+      extractionMode,
+      momentumBaselineSnapshots,
+      riskMinimumScore,
+      momentumMinimumScore,
+      now,
+    }))
     .filter((candidate) => isPersistableCandidate(candidate, settings))
-    .sort((a, b) => b.riskScore - a.riskScore)
+    .sort((a, b) => b.metrics.quickScanCandidateScore - a.metrics.quickScanCandidateScore)
     .slice(0, 50);
 }
 
@@ -582,6 +600,7 @@ async function extractProductsWithPaginatedQueries({ admin }) {
             id
             handle
             title
+            createdAt
             vendor
             productType
             tags
@@ -1128,6 +1147,8 @@ function normalizeOrderLineItemEvent(lineItem, order) {
 
   return {
     type: "sale",
+    id: lineItem.id,
+    orderId: order?.id,
     occurredAt: order?.createdAt,
     productId: product.id,
     variantId: variant.id,
@@ -1343,6 +1364,7 @@ function normalizeProduct(product) {
     id: product.id,
     handle: product.handle || getHandleFromTitle(product.title),
     title: product.title || "Untitled product",
+    createdAt: product.createdAt || null,
     vendor: product.vendor || "",
     productType: product.productType || "",
     tags: Array.isArray(product.tags) ? product.tags : [],
@@ -1380,6 +1402,7 @@ function getProductAggregate(aggregates, product) {
       returnReasons: new Map(),
       notes: [],
       refundNotes: [],
+      salesEvents: [],
       affectedVariants: new Map(),
       lastSignalAt: null,
       signalEvents: [],
@@ -1465,6 +1488,15 @@ function applyEventToAggregate(aggregate, event) {
   if (event.type === "sale") {
     aggregate.soldUnits += quantity;
     aggregate.salesAmount += toNumber(event.amount);
+    if (event.occurredAt) {
+      aggregate.salesEvents.push({
+        id: event.id || `${event.productId || aggregate.product.id}:${event.variantId || ""}:${event.occurredAt}:${aggregate.salesEvents.length}`,
+        orderId: event.orderId || event.id || `${event.productId || aggregate.product.id}:${event.occurredAt}:${aggregate.salesEvents.length}`,
+        createdAt: event.occurredAt,
+        quantity,
+        amount: toNumber(event.amount),
+      });
+    }
     return;
   }
 
@@ -1535,7 +1567,29 @@ function getStoreTotals(aggregates) {
   };
 }
 
-function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionMode }) {
+function buildQuickScanMomentumBaselineSnapshots(aggregateList = [], windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS, now = new Date()) {
+  return (Array.isArray(aggregateList) ? aggregateList : []).map((aggregate) => ({
+    productGid: aggregate.product?.id || "",
+    metrics: {
+      productMomentum: buildProductMomentum({
+        product: aggregate.product || {},
+        sales: aggregate.salesEvents || [],
+        windowDays,
+        catalogBaseline: null,
+        now,
+      }),
+    },
+  }));
+}
+
+function scoreProductAggregate(aggregate, storeTotals, {
+  windowDays,
+  extractionMode,
+  momentumBaselineSnapshots = [],
+  riskMinimumScore = getQuickScanMinimumRiskScore(),
+  momentumMinimumScore = getQuickScanMinimumMomentumScore(),
+  now = new Date(),
+}) {
   const returnRate = safeRate(aggregate.returnUnits, aggregate.soldUnits);
   const refundRate = safeRate(aggregate.refundUnits, aggregate.soldUnits);
   const returnRatePercent = roundPercent(returnRate);
@@ -1618,6 +1672,19 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
     factors: scoreModel.confidenceFactors,
   };
   const impactFactors = scoreModel.impactFactors;
+  const productMomentum = {
+    ...buildProductMomentum({
+      product: aggregate.product,
+      sales: aggregate.salesEvents,
+      windowDays,
+      catalogBaseline: buildProductMomentumCatalogBaseline(momentumBaselineSnapshots, aggregate.product.id),
+      now,
+    }),
+    source: "shopify_orders_quickscan",
+  };
+  const riskQualified = riskScore >= riskMinimumScore;
+  const momentumQualified = productMomentum.score >= momentumMinimumScore;
+  const quickScanCandidateScore = Math.max(riskScore, productMomentum.score);
 
   return {
     productGid: aggregate.product.id,
@@ -1656,6 +1723,16 @@ function scoreProductAggregate(aggregate, storeTotals, { windowDays, extractionM
       priorityScore: scoreModel.priorityScore,
       evidenceStrengthScore: scoreModel.evidenceStrengthScore,
       scoreCalculationStatus: "Score calculated from persisted components",
+      productMomentum,
+      productMomentumScore: productMomentum.score,
+      productMomentumTier: productMomentum.tier,
+      momentumDirection: productMomentum.direction,
+      momentumConfidence: productMomentum.confidence,
+      momentumConfidenceLabel: productMomentum.confidenceLabel,
+      quickScanCandidateScore,
+      quickScanInclusionReason: !riskQualified && momentumQualified ? "momentum_threshold" : "risk_threshold",
+      quickScanRiskThreshold: riskMinimumScore,
+      quickScanMomentumThreshold: momentumMinimumScore,
       avgRating: csvRatingSummary.averageRating,
       reviewRating: csvRatingSummary.averageRating,
       reviewCount: csvRatingSummary.ratingCount,
@@ -1812,7 +1889,9 @@ async function shopifyGraphql(admin, query, variables) {
 
 function isPersistableCandidate(candidate, settings = undefined) {
   const minimumRiskScore = getQuickScanMinimumRiskScore(settings);
-  return candidate.riskScore >= minimumRiskScore;
+  const minimumMomentumScore = getQuickScanMinimumMomentumScore(settings);
+  const momentumScore = Number(candidate.metrics?.productMomentum?.score ?? candidate.metrics?.productMomentumScore ?? 0);
+  return candidate.riskScore >= minimumRiskScore || momentumScore >= minimumMomentumScore;
 }
 
 function getCsvRatingSummary(aggregate) {
@@ -2080,6 +2159,7 @@ const PRODUCT_CATALOG_BULK_QUERY = `{
         id
         handle
         title
+        createdAt
         vendor
         productType
         tags

@@ -375,7 +375,10 @@ export function buildDashboardViewData(productItems = products, options = {}) {
   const totalNegativeReviews = sumDashboardMetric(productList, "negativeReviewCount");
   const actionRows = buildDashboardActionRows(productList);
   const pendingActions = actionRows.filter((action) => action.status === "pending");
-  const importantPendingActions = pendingActions.filter(isDashboardImportantAction);
+  const primaryOrSecondaryPendingActions = pendingActions.filter(isDashboardImportantAction);
+  const importantPendingActions = primaryOrSecondaryPendingActions.length
+    ? primaryOrSecondaryPendingActions
+    : pendingActions.filter((action) => action.actionTier === 3);
   const appliedActionIds = new Set(actionRows.filter((action) => action.status === "applied").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
   const reviewedActionIds = new Set(actionRows.filter((action) => action.status === "reviewed").map((action) => `${action.product?.id || action.productTitle}:${action.id}`));
   const appliedActionCount = appliedActionIds.size;
@@ -462,13 +465,13 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
   const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
   const pendingAction = [...pendingActions]
     .filter((action) => hasDashboardFullDiagnosis(action.product))
-    .sort((first, second) => second.priorityScore - first.priorityScore)[0] || null;
+    .sort(compareDashboardActionPriority)[0] || null;
   const diagnosisCandidates = productList.filter((product) => !hasDashboardFullDiagnosis(product));
   const recheckCandidates = productList.filter((product) => product.resolvedAt || (Array.isArray(product.actionHistory) && product.actionHistory.some((action) => action.status === "applied")));
   const fallbackPool = diagnosisCandidates.length ? diagnosisCandidates : recheckCandidates.length ? recheckCandidates : productList;
   const product = pendingAction?.product || [...fallbackPool].sort((first, second) => (
-    getDashboardPriorityScore(second, { maxMarginRisk })
-      - getDashboardPriorityScore(first, { maxMarginRisk })
+    getDashboardProductImportanceScore(second, { maxMarginRisk })
+      - getDashboardProductImportanceScore(first, { maxMarginRisk })
   ))[0];
 
   if (!product) return null;
@@ -479,7 +482,7 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
   const refundRate = clampDashboardRate(metrics.refundRate);
   const negativeReviews = Number(metrics.negativeReviewCount || 0);
   const mainIssue = getDashboardIssueLabel(product.primaryIssue || metrics.mainIssue || "Product quality");
-  const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
+  const priorityScore = pendingAction?.priorityScore || getDashboardProductImportanceScore(product, { maxMarginRisk });
   const actionMode = pendingAction
     ? "pending-action"
     : !hasFullDiagnosis
@@ -685,7 +688,8 @@ function buildDashboardActionRows(productList) {
       const actionId = action.id || action.label || "";
       const record = getDashboardActionHistoryRecord(action, history);
       const status = normalizeDashboardActionStatus(record?.status || action.status);
-      const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
+      const actionTier = getDashboardActionTier(action);
+      const priorityScore = getDashboardActionPriorityScore(product, action, { maxMarginRisk });
       return {
         id: actionId,
         label: action.label || "Review recommended action",
@@ -698,7 +702,9 @@ function buildDashboardActionRows(productList) {
         tone: getDashboardActionTone(action),
         category: getDashboardActionCategory(action),
         family: getDashboardActionFamily(action),
-        important: isDashboardImportantAction(action),
+        actionTier,
+        actionTierLabel: getDashboardActionTierLabel(actionTier),
+        important: actionTier <= 2,
         priorityScore,
         marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
         createdAt: record?.createdAt || action.createdAt || null,
@@ -725,7 +731,8 @@ function buildDashboardActionRows(productList) {
           status,
           payload: record.payload || {},
         };
-        const priorityScore = getDashboardPriorityScore(product, { maxMarginRisk });
+        const actionTier = getDashboardActionTier(action);
+        const priorityScore = getDashboardActionPriorityScore(product, action, { maxMarginRisk });
         return {
           id: action.id,
           label: action.label,
@@ -738,7 +745,9 @@ function buildDashboardActionRows(productList) {
           tone: getDashboardActionTone(action),
           category: getDashboardActionCategory(action),
           family: getDashboardActionFamily(action),
-          important: isDashboardImportantAction(action),
+          actionTier,
+          actionTierLabel: getDashboardActionTierLabel(actionTier),
+          important: actionTier <= 2,
           priorityScore,
           marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
           createdAt: record.createdAt || null,
@@ -748,10 +757,7 @@ function buildDashboardActionRows(productList) {
       .filter(Boolean);
 
     return [...rows, ...historicalRows];
-  }).sort((first, second) => (
-    second.priorityScore - first.priorityScore
-      || second.marginAtRisk - first.marginAtRisk
-  ));
+  }).sort(compareDashboardActionPriority);
 }
 
 function isSystemProductActionRecord(record = {}) {
@@ -813,16 +819,101 @@ function getDashboardActionFamily(action = {}) {
 }
 
 function isDashboardImportantAction(action = {}) {
+  return getDashboardActionTier(action) <= 2;
+}
+
+function getDashboardActionTier(action = {}) {
+  const payload = action.payload || {};
+  const explicitTier = Number(payload.actionTier || action.actionTier || 0);
+  if ([1, 2, 3].includes(explicitTier)) return explicitTier;
   const family = getDashboardActionFamily(action);
-  return [
-    "product-copy",
-    "faq",
-    "title-metadata",
-    "variant",
-    "media",
-    "commercial-control",
-    "qa-review",
-  ].includes(family);
+  const value = `${action.id || ""} ${action.actionId || ""} ${action.actionType || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payload.actionType || ""} ${payload.type || ""} ${payload.operation || ""} ${payload.shopifyField || ""} ${payload.proposedChange || ""}`.toLowerCase();
+  const hasDirectShopifyChange = Boolean(
+    payload.draftText
+      || payload.draftTitle
+      || payload.productStatus
+      || payload.tag
+      || payload.collectionName
+      || Array.isArray(payload.tags)
+      || Array.isArray(payload.faqItems)
+      || Array.isArray(payload.mediaUpdates)
+      || Array.isArray(payload.descriptionChanges),
+  );
+  const investigationIntent = /\b(review|inspect|verify|check|evidence|investigation|follow up|follow-up|supplier|qa)\b/.test(value);
+  if (investigationIntent && !hasDirectShopifyChange) return 3;
+
+  if (
+    family === "product-copy"
+      || family === "title-metadata"
+      || family === "commercial-control"
+      || value.includes("product status")
+      || value.includes("draft")
+      || value.includes("archive")
+      || value.includes("stop selling")
+      || value.includes("pause product")
+      || value.includes("category")
+      || value.includes("collection")
+  ) {
+    return 1;
+  }
+
+  if (
+    family === "faq"
+      || family === "variant"
+      || family === "media"
+      || family === "workflow-tag"
+      || value.includes("tag")
+      || value.includes("faq")
+      || value.includes("alt text")
+      || value.includes("variant")
+      || value.includes("option")
+  ) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function getDashboardActionTierLabel(tier) {
+  if (tier === 1) return "Primary product change";
+  if (tier === 2) return "Secondary product update";
+  return "Manual review";
+}
+
+function compareDashboardActionPriority(first, second) {
+  return (first.actionTier || 3) - (second.actionTier || 3)
+    || second.priorityScore - first.priorityScore
+    || second.marginAtRisk - first.marginAtRisk;
+}
+
+function getDashboardActionPriorityScore(product, action = {}, { maxMarginRisk = 0 } = {}) {
+  const productImportance = getDashboardProductImportanceScore(product, { maxMarginRisk });
+  const tierBonus = getDashboardActionTier(action) === 1 ? 12 : getDashboardActionTier(action) === 2 ? 6 : 0;
+  return Math.round(Math.min(100, Math.max(0, productImportance + tierBonus)));
+}
+
+function getDashboardProductImportanceScore(product, { maxMarginRisk = 0 } = {}) {
+  const riskScore = Number(product?.riskScore || 0);
+  const confidenceScore = Number(product?.confidence || product?.metrics?.confidence || 0);
+  const momentumScore = getDashboardProductMomentumScore(product);
+  const marginRisk = getDashboardMetric(product, "marginAtRisk");
+  const maxReferenceImpact = Math.max(maxMarginRisk, 25000);
+  const normalizedLogImpactScore = Math.min(100, Math.max(0, 100 * Math.log1p(Math.max(0, marginRisk)) / Math.log1p(maxReferenceImpact)));
+
+  return Math.round(
+    riskScore * 0.45
+      + momentumScore * 0.25
+      + normalizedLogImpactScore * 0.2
+      + confidenceScore * 0.1,
+  );
+}
+
+function getDashboardProductMomentumScore(product = {}) {
+  const metrics = product.metrics || {};
+  const direct = Number(metrics.productMomentumScore ?? product.productMomentumScore ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return Math.min(100, Math.max(0, direct));
+  const nested = Number(metrics.productMomentum?.score ?? product.productMomentum?.score ?? 0);
+  return Number.isFinite(nested) ? Math.min(100, Math.max(0, nested)) : 0;
 }
 
 function getDashboardActionCategory(action = {}) {
@@ -862,9 +953,8 @@ function buildDashboardPriorityProducts(productList, importantPendingActions = [
 
   return Array.from(productRows.values())
     .sort((first, second) => (
-      second.action.priorityScore - first.action.priorityScore
+      compareDashboardActionPriority(first.action, second.action)
         || getDashboardPriorityScore(second.product, { maxMarginRisk }) - getDashboardPriorityScore(first.product, { maxMarginRisk })
-        || getDashboardMetric(second.product, "marginAtRisk") - getDashboardMetric(first.product, "marginAtRisk")
     ))
     .slice(0, 3)
     .map(({ product, action }, index) => ({
@@ -893,15 +983,20 @@ function buildDashboardActionQueue(pendingActions) {
     };
     current.value += 1;
     current.products.add(action.productTitle);
-    if (action.priorityScore > (current.priorityScore || 0)) {
+    if (
+      !current.actionTier
+        || action.actionTier < current.actionTier
+        || (action.actionTier === current.actionTier && action.priorityScore > (current.priorityScore || 0))
+    ) {
       current.href = action.href;
       current.priorityScore = action.priorityScore;
+      current.actionTier = action.actionTier;
     }
     grouped.set(action.category, current);
   });
 
   const rows = Array.from(grouped.values())
-    .sort((first, second) => second.value - first.value || (second.priorityScore || 0) - (first.priorityScore || 0))
+    .sort((first, second) => (first.actionTier || 3) - (second.actionTier || 3) || second.value - first.value || (second.priorityScore || 0) - (first.priorityScore || 0))
     .map((row) => ({
       label: row.label,
       value: row.value,

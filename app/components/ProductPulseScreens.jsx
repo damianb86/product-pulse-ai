@@ -14,6 +14,7 @@ const RISK_THRESHOLD_HANDLE_GAP = 5;
 const PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID = "product-pulse-settings-save-bar";
 const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
+const DEFAULT_MOMENTUM_INCLUSION_THRESHOLD = 70;
 
 export function DashboardScreen({ data, actionData }) {
   const submit = useSubmit();
@@ -827,6 +828,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       onSort={() => handleSort("riskScore")}
                     />
                   </th>
+                  <th>Trend</th>
                   <th>Momentum</th>
                   <th>Status</th>
                   <th>Analysis</th>
@@ -847,7 +849,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               <tbody>
                 {productRows.length === 0 && (
                   <tr className="ppProductsEmptyRow">
-                    <td colSpan="11">
+                    <td colSpan="12">
                       <div className="ppProductsEmptyState">
                         <DashboardIcon type="search" tone="blue" />
                         <div>
@@ -915,7 +917,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                           <span>{product.riskScore}</span>
                         </div>
                       </td>
-                      <td><ProductMomentumCell product={product} /></td>
+                      <td><ProductRiskTrendCell product={product} /></td>
+                      <td><ProductMomentumCell product={product} onWatchlistToggle={handleRequestWatchlistToggle} /></td>
                       <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
                       <td><ProductAnalysisStatusBadge product={product} showLabel={false} /></td>
                       <td>
@@ -927,7 +930,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       <td>
                         <div className="ppTableAction">
                           <button
-                            className="ppAnalyzeLinkButton ppAnalyzeIconOnly"
+                            className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary ppAnalyzeIconOnly"
                             type="button"
                             aria-label={`Analyze ${product.title}`}
                             disabled={pendingBulkAnalyze}
@@ -1589,23 +1592,27 @@ export function SettingsScreen({ data = {}, actionData }) {
   const formRef = useRef(null);
   const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
   const normalizedSettingsRisk = useMemo(() => normalizeClientRiskThresholds(settings.risk), [settings.risk]);
+  const normalizedMomentumThreshold = normalizeClientMomentumThreshold(settings.momentum?.minimumScore);
   const normalizedQueueLimit = normalizeClientQueueLimit(settings.diagnosis?.maxQueuedPerSubmission);
   const normalizedLookbackDays = normalizeClientLookbackDays(settings.analysis?.lookbackDays);
   const [riskThresholds, setRiskThresholds] = useState(normalizedSettingsRisk);
+  const [momentumThreshold, setMomentumThreshold] = useState(normalizedMomentumThreshold);
   const [queueLimit, setQueueLimit] = useState(normalizedQueueLimit);
   const [lookbackDays, setLookbackDays] = useState(normalizedLookbackDays);
   const isSaving = navigation.state === "submitting";
   const settingsDirty = riskThresholds.minimumScore !== normalizedSettingsRisk.minimumScore
     || riskThresholds.mediumThreshold !== normalizedSettingsRisk.mediumThreshold
     || riskThresholds.highThreshold !== normalizedSettingsRisk.highThreshold
+    || Number(momentumThreshold) !== Number(normalizedMomentumThreshold)
     || Number(queueLimit) !== Number(normalizedQueueLimit)
     || Number(lookbackDays) !== Number(normalizedLookbackDays);
 
   useEffect(() => {
     setRiskThresholds(normalizedSettingsRisk);
+    setMomentumThreshold(normalizedMomentumThreshold);
     setQueueLimit(normalizedQueueLimit);
     setLookbackDays(normalizedLookbackDays);
-  }, [normalizedSettingsRisk, normalizedQueueLimit, normalizedLookbackDays]);
+  }, [normalizedSettingsRisk, normalizedMomentumThreshold, normalizedQueueLimit, normalizedLookbackDays]);
 
   useEffect(() => {
     const saveBar = getShopifySaveBarApi();
@@ -1626,6 +1633,7 @@ export function SettingsScreen({ data = {}, actionData }) {
     formData.set("minimumScore", String(riskThresholds.minimumScore));
     formData.set("mediumThreshold", String(riskThresholds.mediumThreshold));
     formData.set("highThreshold", String(riskThresholds.highThreshold));
+    formData.set("momentumMinimumScore", String(momentumThreshold));
     formData.set("maxQueuedPerSubmission", String(queueLimit));
     formData.set("analysisLookbackDays", String(lookbackDays));
     submit(formData, { method: "post" });
@@ -1633,6 +1641,7 @@ export function SettingsScreen({ data = {}, actionData }) {
 
   const handleDiscardSettings = () => {
     setRiskThresholds(normalizedSettingsRisk);
+    setMomentumThreshold(normalizedMomentumThreshold);
     setQueueLimit(normalizedQueueLimit);
     setLookbackDays(normalizedLookbackDays);
     getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
@@ -1661,7 +1670,7 @@ export function SettingsScreen({ data = {}, actionData }) {
           <div className="ppSettingsHeroSummary" aria-label="Current risk threshold summary">
             <strong>{riskThresholds.highThreshold}+</strong>
             <span>High risk</span>
-            <small>QuickScan keeps products from {riskThresholds.minimumScore}+ product risk.</small>
+            <small>QuickScan keeps products from {riskThresholds.minimumScore}+ product risk or {momentumThreshold}+ momentum.</small>
           </div>
         </div>
 
@@ -1690,6 +1699,8 @@ export function SettingsScreen({ data = {}, actionData }) {
             </div>
 
             <RiskThresholdSlider thresholds={riskThresholds} onChange={setRiskThresholds} />
+
+            <MomentumInclusionSlider value={momentumThreshold} onChange={setMomentumThreshold} />
           </section>
 
           <section className="ppSettingsGrid ppSettingsGridSingle">
@@ -1817,6 +1828,54 @@ function RiskThresholdSlider({ thresholds, onChange }) {
   );
 }
 
+function MomentumInclusionSlider({ value, onChange }) {
+  const normalizedValue = normalizeClientMomentumThreshold(value);
+  const handleChange = (event) => {
+    onChange(normalizeClientMomentumThreshold(event.target.value));
+  };
+
+  return (
+    <div className="ppSettingsMomentumControl" style={{ "--pp-momentum-threshold": `${normalizedValue}%` }}>
+      <input type="hidden" name="momentumMinimumScore" value={normalizedValue} />
+      <div className="ppSettingsMomentumHeader">
+        <div>
+          <strong>Product Momentum inclusion</strong>
+          <p>
+            QuickScan keeps products at or above this Product Momentum even when Product Risk is below the minimum risk threshold.
+          </p>
+        </div>
+        <span>{normalizedValue}+</span>
+      </div>
+      <div className="ppSettingsMomentumSliderRow">
+        <input
+          type="range"
+          aria-label="Minimum Product Momentum score"
+          min="0"
+          max="100"
+          step="1"
+          value={normalizedValue}
+          onChange={handleChange}
+        />
+        <input
+          type="number"
+          aria-label="Minimum Product Momentum exact value"
+          min="0"
+          max="100"
+          step="1"
+          value={normalizedValue}
+          onChange={handleChange}
+        />
+      </div>
+      <div className="ppSettingsMomentumLegend" aria-hidden="true">
+        <span>Ignored</span>
+        <span>Stable</span>
+        <span>Rising</span>
+        <span>Hot</span>
+      </div>
+    </div>
+  );
+}
+
 function SettingsNumberField({ name, label, detail, defaultValue, value, onChange, min, max }) {
   const controlledProps = value == null ? { defaultValue } : { value, onChange };
   return (
@@ -1895,6 +1954,9 @@ function getDefaultProductPulseClientSettings() {
       mediumThreshold: 55,
       highThreshold: 75,
     },
+    momentum: {
+      minimumScore: DEFAULT_MOMENTUM_INCLUSION_THRESHOLD,
+    },
     diagnosis: {
       maxQueuedPerSubmission: 25,
     },
@@ -1910,6 +1972,10 @@ function normalizeClientQueueLimit(value) {
 
 function normalizeClientLookbackDays(value) {
   return clampClientInteger(value, PRODUCT_PULSE_MIN_LOOKBACK_DAYS, PRODUCT_PULSE_MAX_LOOKBACK_DAYS, 60);
+}
+
+function normalizeClientMomentumThreshold(value) {
+  return clampClientInteger(value, 0, 100, DEFAULT_MOMENTUM_INCLUSION_THRESHOLD);
 }
 
 function normalizeClientRiskThresholds(risk = {}) {
@@ -3093,6 +3159,10 @@ function getProductRiskScoreLabel(score) {
 }
 
 function getProductRiskTrendValues(product = {}) {
+  const rowValues = (Array.isArray(product.riskTrend) ? product.riskTrend : [])
+    .map(Number)
+    .filter((value) => Number.isFinite(value));
+  if (rowValues.length >= 2) return rowValues;
   const historyValues = (Array.isArray(product.metrics?.riskHistory) ? product.metrics.riskHistory : [])
     .map((entry) => Number(entry?.riskScore))
     .filter((value) => Number.isFinite(value));
@@ -3482,9 +3552,86 @@ function getProductRecommendedActions(product) {
     action: getRecommendedActionButtonLabel(action, index),
     mode: getRecommendedActionMode(action, index),
     payload: action.payload || {},
-    appliedRecord: actionHistory.find((record) => record.actionId === action.id),
+    appliedRecord: getRecommendedActionHistoryRecord(action, actionHistory),
     submit: getRecommendedActionMode(action, index) === "submit",
   }));
+}
+
+function getRecommendedActionHistoryRecord(action = {}, actionHistory = []) {
+  const records = (Array.isArray(actionHistory) ? actionHistory : [])
+    .filter((record) => !isSystemRecommendedActionRecord(record))
+    .sort((first, second) => getRecommendedActionRecordTime(second) - getRecommendedActionRecordTime(first));
+  const completedRecords = records.filter((record) => Boolean(getArchivedActionStateFromRecordStatus(record.status)));
+  const actionKeys = getRecommendedActionMatchKeys(action);
+  const exactRecord = completedRecords.find((record) => intersectsActionKeys(actionKeys, getStoredRecommendedActionMatchKeys(record)));
+  if (exactRecord) return exactRecord;
+
+  const actionFamily = getRecommendedActionPersistenceFamily(action);
+  if (!actionFamily) return null;
+  return completedRecords.find((record) => (
+    getRecommendedActionPersistenceFamily(record) === actionFamily
+  )) || null;
+}
+
+function getRecommendedActionRecordTime(record = {}) {
+  return new Date(record.appliedAt || record.createdAt || 0).getTime();
+}
+
+function isSystemRecommendedActionRecord(record = {}) {
+  const actionId = String(record.actionId || record.actionType || record.id || "").toLowerCase();
+  return ["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue", "run-ai-diagnosis"].includes(actionId);
+}
+
+function getRecommendedActionMatchKeys(action = {}) {
+  const payload = action.payload || {};
+  return new Set([
+    action.id,
+    action.actionId,
+    action.actionType,
+    action.label,
+    action.title,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...(Array.isArray(payload.actionAliases) ? payload.actionAliases : []),
+    ...(Array.isArray(action.actionAliases) ? action.actionAliases : []),
+  ].map(normalizeRecommendedActionMatchKey).filter(Boolean));
+}
+
+function getStoredRecommendedActionMatchKeys(record = {}) {
+  const payload = record.payload || {};
+  return new Set([
+    record.actionId,
+    record.actionType,
+    record.id,
+    record.label,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...(Array.isArray(payload.actionAliases) ? payload.actionAliases : []),
+    ...(Array.isArray(record.actionAliases) ? record.actionAliases : []),
+  ].map(normalizeRecommendedActionMatchKey).filter(Boolean));
+}
+
+function intersectsActionKeys(firstKeys, secondKeys) {
+  if (!firstKeys?.size || !secondKeys?.size) return false;
+  return [...firstKeys].some((key) => secondKeys.has(key));
+}
+
+function normalizeRecommendedActionMatchKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function getRecommendedActionPersistenceFamily(action = {}) {
+  const payload = action.payload || {};
+  const normalized = normalizeActionMatchText([action.id, action.actionId, action.actionType, action.label, action.title, action.type, payload]);
+  if (action.id === "product-description-changes" || action.actionId === "product-description-changes" || payload.descriptionChangeGroup || isDescriptionChangeAction(action)) return "product-description";
+  if (action.id === "review-product-evidence" || action.actionId === "review-product-evidence" || Array.isArray(payload.reviewSections) || /\b(evidence|inspect|verify|investigation|review)\b/.test(normalized)) return "product-evidence";
+  if (isFaqRecommendedAction(action)) return "product-faq";
+  if (payload.draftTitle || /\b(title|seo|metadata|meta description)\b/.test(normalized)) return "product-metadata";
+  if (payload.productStatus || /\b(status|draft|archive|unlisted)\b/.test(normalized)) return "product-status";
+  if (payload.tag || Array.isArray(payload.tags) || /\b(tag|collection)\b/.test(normalized)) return "product-workflow";
+  if (Array.isArray(payload.mediaUpdates) || /\b(image|media|alt text)\b/.test(normalized)) return "product-media";
+  if (/\b(variant|option|sku)\b/.test(normalized)) return "product-variant";
+  return "";
 }
 
 function getIgnoredIssueRecords(product = {}) {
@@ -4091,6 +4238,60 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     return getFaqRecommendedActionApplication(action, product, options);
   }
 
+  if (payload.field === "seo.title" || normalized.includes("seo title")) {
+    const value = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: true,
+      target: "SEO title",
+      operation: "Update SEO title",
+      intro: "This updates only the Shopify search engine listing title. The visible product title will stay unchanged.",
+      confirmationTitle: "Confirm SEO title update",
+      confirmationDetail: "ProductPulse will update the product SEO title in Shopify after you review the proposed text.",
+      applyLabel: "Update SEO title",
+      valueLabel: "Proposed SEO title",
+      value,
+      currentValueLabel: "Current SEO title",
+      currentValue: payload.currentValue || product?.metrics?.seoTitle || "",
+    });
+  }
+
+  if (payload.field === "seo.description" || normalized.includes("meta description")) {
+    const value = String(payload.draftText || "").replace(/\s+/g, " ").trim();
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: true,
+      target: "Meta description",
+      operation: "Update meta description",
+      intro: "This updates the Shopify search engine listing description. It does not change the product page description shoppers see on the PDP.",
+      confirmationTitle: "Confirm meta description update",
+      confirmationDetail: "ProductPulse will update the product meta description in Shopify after you review the proposed copy.",
+      applyLabel: "Update meta description",
+      valueLabel: "Proposed meta description",
+      value,
+      currentValueLabel: "Current meta description",
+      currentValue: payload.currentValue || product?.metrics?.seoDescription || "",
+    });
+  }
+
+  if (payload.draftHandle || payload.field === "handle" || normalized.includes("url handle")) {
+    const value = String(payload.draftText || payload.draftHandle || "").replace(/[^a-z0-9-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: true,
+      target: "URL handle",
+      operation: "Update URL handle",
+      intro: "This changes the Shopify product URL handle. ProductPulse requests a redirect so old links continue to work when Shopify supports it.",
+      confirmationTitle: "Confirm URL handle update",
+      confirmationDetail: "ProductPulse will update the product URL handle and request a redirect from the old handle.",
+      applyLabel: "Update handle",
+      valueLabel: "Proposed URL handle",
+      value,
+      currentValueLabel: "Current URL handle",
+      currentValue: payload.currentValue || product?.handle || "",
+    });
+  }
+
   if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) {
     const primaryUpdate = payload.mediaUpdates[0] || {};
     const suggestedAltText = String(payload.draftText || primaryUpdate.suggestedAltText || "").trim();
@@ -4145,6 +4346,82 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       value: status,
       currentValueLabel: "Current Shopify status",
       currentValue: payload.currentStatus || product?.metrics?.productStatus || "",
+    });
+  }
+
+  if (payload.field === "classification" || normalized.includes("product classification")) {
+    const draftVendor = String(payload.draftVendor || "").trim();
+    const draftProductType = String(payload.draftProductType || "").trim();
+    const value = [
+      draftVendor ? `Vendor: ${draftVendor}` : "",
+      draftProductType ? `Product type: ${draftProductType}` : "",
+      payload.draftCategory ? `Category to review: ${payload.draftCategory}` : "",
+    ].filter(Boolean).join("\n");
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: true,
+      target: "Product classification",
+      operation: "Update classification",
+      intro: "This updates available Shopify classification fields when a concrete vendor or product type is proposed. Category changes remain a review item unless a valid Shopify category ID is provided.",
+      confirmationTitle: "Confirm product classification update",
+      confirmationDetail: "ProductPulse will update the proposed Shopify product classification fields after review.",
+      applyLabel: "Update classification",
+      valueLabel: "Proposed classification",
+      value,
+      currentValueLabel: "Current classification",
+      currentValue: [
+        product?.metrics?.vendor ? `Vendor: ${product.metrics.vendor}` : "",
+        product?.metrics?.productType ? `Product type: ${product.metrics.productType}` : "",
+      ].filter(Boolean).join("\n"),
+    });
+  }
+
+  if (payload.field === "templateSuffix" || payload.templateSuffix || normalized.includes("product template")) {
+    const value = String(payload.templateSuffix || payload.draftText || "").trim();
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: true,
+      target: "Product template",
+      operation: "Update template",
+      intro: "This changes the Shopify product template suffix. Use it only after confirming the theme includes the proposed template.",
+      confirmationTitle: "Confirm product template update",
+      confirmationDetail: "ProductPulse will update the product template suffix in Shopify.",
+      applyLabel: "Update template",
+      valueLabel: "Proposed template suffix",
+      value,
+      currentValueLabel: "Current template suffix",
+      currentValue: payload.currentTemplateSuffix || product?.metrics?.templateSuffix || "default",
+    });
+  }
+
+  if (Array.isArray(payload.metafields) && payload.metafields.length) {
+    const value = payload.metafields.map((metafield) => `${metafield.namespace}.${metafield.key}: ${metafield.value}`).join("\n");
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      editable: false,
+      target: "Product metafields",
+      operation: "Set product metafields",
+      intro: "This saves structured ProductPulse metadata on the Shopify product for internal workflows, theme blocks or reporting.",
+      confirmationTitle: "Confirm product metafields update",
+      confirmationDetail: "ProductPulse will set the listed product metafields in Shopify.",
+      applyLabel: "Save metafields",
+      valueLabel: "Metafields to save",
+      value,
+    });
+  }
+
+  if (normalized.includes("add-to-watchlist") || normalized.includes("watchlist")) {
+    return withRecipeApplicationFields(action, {
+      kind: "productpulse_workflow",
+      editable: false,
+      target: "ProductPulse Watchlist",
+      operation: "Add to Watchlist",
+      intro: "This adds the product to periodic Watchlist monitoring so future deep diagnostics can track changes over time.",
+      confirmationTitle: "Confirm Watchlist addition",
+      confirmationDetail: "ProductPulse will add this product to the Watchlist if there is an available slot.",
+      applyLabel: "Add to Watchlist",
+      valueLabel: "Product to watch",
+      value: product?.title || payload.productTitle || action.title || "Selected product",
     });
   }
 
@@ -4679,10 +4956,23 @@ function getRecommendedActionMode(action, index) {
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
   const payload = action.payload || {};
-  const hasShopifyApplyPayload = Boolean(payload.draftText || payload.tag || payload.draftTitle || payload.productStatus || (Array.isArray(payload.tags) && payload.tags.length) || (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length) || (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length));
-  if (normalizedId.includes("run-ai-diagnosis")) return "diagnose";
+  const hasShopifyApplyPayload = Boolean(
+    payload.draftText
+    || payload.tag
+    || payload.draftTitle
+    || payload.draftHandle
+    || payload.productStatus
+    || payload.templateSuffix
+    || payload.field === "classification"
+    || (Array.isArray(payload.tags) && payload.tags.length)
+    || (Array.isArray(payload.metafields) && payload.metafields.length)
+    || (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length)
+    || (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length)
+  );
+  if (normalizedId.includes("run-ai-diagnosis") || normalizedId.includes("run-full-diagnosis")) return "diagnose";
+  if (normalizedId.includes("add-to-watchlist")) return "apply-product";
   if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) return "apply-product";
-  if (payload.draftTitle || payload.productStatus) return "apply-product";
+  if (payload.draftTitle || payload.productStatus || payload.draftHandle || payload.templateSuffix || payload.field === "classification" || payload.field === "seo.title" || payload.field === "seo.description" || (Array.isArray(payload.metafields) && payload.metafields.length)) return "apply-product";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
   if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
@@ -4702,6 +4992,13 @@ function getRecommendedActionButtonLabel(action, index) {
 
 function getActionIcon(type) {
   const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("seo") || normalized.includes("url handle")) return "search";
+  if (normalized.includes("template")) return "product";
+  if (normalized.includes("metafield")) return "file";
+  if (normalized.includes("classification") || normalized.includes("category")) return "product";
+  if (normalized.includes("source") || normalized.includes("coverage")) return "external";
+  if (normalized.includes("watchlist")) return "view";
+  if (normalized.includes("diagnosis") || normalized.includes("baseline")) return "wand";
   if (normalized.includes("price") || normalized.includes("commercial")) return "cash-dollar";
   if (normalized.includes("inventory")) return "package";
   if (normalized.includes("collection")) return "duplicate";
@@ -4724,6 +5021,14 @@ function getActionIcon(type) {
 
 function getActionIconSymbol(type) {
   const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("seo")) return "SEO";
+  if (normalized.includes("url handle")) return "URL";
+  if (normalized.includes("template")) return "TPL";
+  if (normalized.includes("metafield")) return "MF";
+  if (normalized.includes("classification") || normalized.includes("category")) return "CAT";
+  if (normalized.includes("source") || normalized.includes("coverage")) return "SRC";
+  if (normalized.includes("watchlist")) return "WT";
+  if (normalized.includes("diagnosis") || normalized.includes("baseline")) return "AI";
   if (normalized.includes("price") || normalized.includes("commercial")) return "$";
   if (normalized.includes("inventory")) return "INV";
   if (normalized.includes("collection")) return "COL";
@@ -5042,7 +5347,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     formData.set("actionId", action.id || actionKey);
     formData.set("label", action.title || action.label || "");
     dismissFetcher.submit(formData, { method: "post" });
-    showToast(`${action.title} dismissed for this review session.`);
+    showToast(`${action.title} dismissed for this product.`);
   };
 
   const handleMarkActionReviewed = (action) => {
@@ -5780,7 +6085,7 @@ function getReturnRatePredictionActionCopy(adjustment = null) {
       tone: "worsening",
       icon: "alert-circle",
       short: "Worse with open actions",
-      detail: `${pending} open recommendation${pending === 1 ? "" : "s"} remain unresolved, so the forecast keeps more return-rate pressure. ${dismissed ? `${dismissed} dismissed action${dismissed === 1 ? "" : "s"} treated as neutral.` : ""}`.trim(),
+      detail: `${pending} open recommendation${pending === 1 ? "" : "s"} remain unresolved. ProductPulse only raises the forecast when return history is already trending up; unresolved actions do not add pressure by themselves. ${dismissed ? `${dismissed} dismissed action${dismissed === 1 ? "" : "s"} treated as neutral.` : ""}`.trim(),
     };
   }
   return {
@@ -5930,7 +6235,7 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
         <div>
           <s-icon type="info" size="small"></s-icon>
           <strong>No action impact yet</strong>
-          <span>Complete recommended actions to let ProductPulse lower or raise the forecast path on refresh.</span>
+          <span>Complete recommended actions to let ProductPulse lower the forecast path on refresh.</span>
         </div>
       </div>
     );
@@ -5968,7 +6273,7 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
       <p>
         {beneficialHandled > 0
           ? `${beneficialHandled} completed recommendation${beneficialHandled === 1 ? "" : "s"} pull the forecast downward after refresh.`
-          : "Open recommendations keep extra return-rate pressure in the forecast until they are applied or reviewed."}
+          : "Open recommendations are neutral: they do not add extra return-rate pressure, but they also do not lower the forecast until applied or reviewed."}
       </p>
     </div>
   );
@@ -6283,8 +6588,8 @@ export function AnalyticsScreen({ data }) {
             title="Impact breakdown"
             subtitle="Slice margin exposure by Shopify catalog dimensions and evidence source"
             className="ppAnalyticsPanelBreakdown"
-            action={<AnalyticsBreakdownTabs filters={breakdownFilters} selectedKey={selectedBreakdown.key} onChange={setImpactBreakdownKey} />}
           >
+            <AnalyticsBreakdownTabs filters={breakdownFilters} selectedKey={selectedBreakdown.key} onChange={setImpactBreakdownKey} />
             <ImpactBreakdownPanel breakdown={selectedBreakdown} />
           </AnalyticsPanel>
 
@@ -6683,27 +6988,68 @@ function ProductArt({ variant, label, size = "small", imageUrl, imageAlt }) {
   );
 }
 
-function ProductMomentumCell({ product }) {
+function ProductRiskTrendCell({ product }) {
+  const values = getProductRiskTrendValues(product);
+  const display = getProductRiskDisplay(product.riskScore || 0, values, product.riskTone || "info", true);
+  const href = product.href || `/app/products/${product.handle || product.slug || product.id}`;
+  const trendValues = values.length >= 2
+    ? values
+    : [Number(product.riskScore || 0), Number(product.riskScore || 0)];
+
+  return (
+    <Link className="ppRiskTrendCell" to={href} aria-label={`${display.label} risk trend for ${product.title}`}>
+      <span>{display.label}</span>
+      <MiniTrend tone="table" values={trendValues} />
+    </Link>
+  );
+}
+
+function ProductMomentumCell({ product, onWatchlistToggle }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef(null);
   const momentum = normalizeProductMomentum(product.productMomentum || product.metrics?.productMomentum);
   const href = product.href || `/app/products/${product.handle || product.slug || product.id}`;
+  const showPopover = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 500);
+  };
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   if (!momentum) {
     return (
       <span
         className="ppMomentumPopoverWrap"
         ref={triggerRef}
-        onBlur={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
+        onBlur={scheduleClose}
+        onFocus={showPopover}
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
       >
         <Link className="ppMomentumMissingTrigger" to={href} aria-label={`Product Momentum unavailable for ${product.title}`}>
           <s-icon type="info" size="small"></s-icon>
           <span>Missing</span>
         </Link>
-        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppMomentumPopover" width={300} estimatedHeight={140}>
+        <FloatingTablePopover
+          anchorRef={triggerRef}
+          open={open}
+          className="ppMomentumPopover"
+          width={300}
+          estimatedHeight={140}
+          onMouseEnter={showPopover}
+          onMouseLeave={scheduleClose}
+        >
           <strong>Product Momentum unavailable</strong>
           <span>Run a deep product diagnosis to calculate current commercial strength from sales velocity, growth, catalog share and recent activity.</span>
         </FloatingTablePopover>
@@ -6711,35 +7057,103 @@ function ProductMomentumCell({ product }) {
     );
   }
 
+  const trendValues = momentum.inputs.weeklyUnitsLast4Weeks.length
+    ? momentum.inputs.weeklyUnitsLast4Weeks
+    : [momentum.score, momentum.score];
+  const momentumTone = getTrendTone(trendValues, momentum.score);
+  const canSuggestWatchlist = shouldSuggestWatchlistForMomentum(momentum, product);
+
   return (
     <span
       className="ppMomentumPopoverWrap"
       ref={triggerRef}
-      onBlur={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onBlur={scheduleClose}
+      onFocus={showPopover}
+      onMouseEnter={showPopover}
+      onMouseLeave={scheduleClose}
     >
       <Link className={`ppMomentumTrigger ppMomentumTrigger-${getProductMomentumBarsTone(momentum)}`} to={href} aria-label={`Open Product Momentum for ${product.title}`}>
         <span className="ppMomentumTriggerMain">
-          <SignalBars tone={getProductMomentumBarsTone(momentum)} values={momentum.inputs.weeklyUnitsLast4Weeks} />
+          <MiniTrend tone={momentumTone} values={trendValues} />
           <span>{momentum.tier} {momentum.score}</span>
         </span>
         <span className="ppMomentumSubline">{momentum.display.growthLabel} 30d · {momentum.display.catalogPositionLabel}</span>
       </Link>
-      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppMomentumPopover" width={340} estimatedHeight={250}>
-        <strong>Product Momentum: {momentum.tier} · {momentum.score}/100</strong>
-        <span className="ppSignalPopoverMeta">
-          <span><b>Confidence</b>{momentum.confidenceLabel}</span>
-          <span><b>Last 30 days</b>{formatInteger(momentum.inputs.unitsLast30Days)} units sold · {formatMoney(momentum.inputs.revenueLast30Days)} revenue</span>
-          <span><b>Growth</b>{momentum.display.growthLabel} vs previous 30 days</span>
-          <span><b>Catalog position</b>{momentum.display.catalogPositionLabel}</span>
-          <span><b>Trend</b>{momentum.display.trendLabel}</span>
+      <FloatingTablePopover
+        anchorRef={triggerRef}
+        open={open}
+        className="ppMomentumPopover"
+        width={360}
+        estimatedHeight={330}
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
+      >
+        <span className="ppMomentumPopoverHeader">
+          <span>Product Momentum</span>
+          <strong>{momentum.tier} · {momentum.score}/100</strong>
+          <small>{momentum.direction} · {momentum.confidenceLabel}</small>
         </span>
-        <span className="ppSignalPopoverFooter">{momentum.display.recommendedUse}</span>
+        <span className="ppMomentumPopoverTrend">
+          <MiniTrend tone={momentumTone} size="large" values={trendValues} />
+          <span>{momentum.display.trendLabel}</span>
+        </span>
+        <span className="ppMomentumPopoverStats">
+          <span>
+            <b>Last 30 days</b>
+            <strong>{formatInteger(momentum.inputs.unitsLast30Days)} units</strong>
+            <small>{formatMoney(momentum.inputs.revenueLast30Days)} revenue</small>
+          </span>
+          <span>
+            <b>Growth</b>
+            <strong>{momentum.display.growthLabel}</strong>
+            <small>vs previous 30 days</small>
+          </span>
+          <span>
+            <b>Catalog position</b>
+            <strong>{momentum.display.catalogPositionLabel}</strong>
+            <small>{getMomentumCatalogComparisonLabel(momentum)}</small>
+          </span>
+          <span>
+            <b>Confidence</b>
+            <strong>{momentum.confidenceLabel}</strong>
+            <small>{formatInteger(momentum.confidence)}/100</small>
+          </span>
+        </span>
+        {canSuggestWatchlist ? (
+          <button
+            className="ppMomentumWatchlistButton"
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(false);
+              onWatchlistToggle?.(product);
+            }}
+          >
+            <ProductPulseGlyph type="binoculars" />
+            Add to Watchlist
+          </button>
+        ) : (
+          <span className="ppSignalPopoverFooter">{momentum.display.recommendedUse}</span>
+        )}
       </FloatingTablePopover>
     </span>
   );
+}
+
+function shouldSuggestWatchlistForMomentum(momentum = {}, product = {}) {
+  const recommendedUse = String(momentum.display?.recommendedUse || "").toLowerCase();
+  return Boolean(
+    !product.isWatched
+      && product.productGid
+      && (Number(momentum.score || 0) >= 70 || recommendedUse.includes("watchlist")),
+  );
+}
+
+function getMomentumCatalogComparisonLabel(momentum = {}) {
+  const catalogProductCount = Number(momentum.catalog?.catalogProductCount || 0);
+  if (catalogProductCount > 0) return `${formatInteger(catalogProductCount)} products compared`;
+  if (momentum.catalog?.hasCatalogBaseline) return "Catalog baseline available";
+  return "Catalog baseline pending";
 }
 
 function ProductSignalCell({ product }) {
@@ -6891,12 +7305,29 @@ function SignalBars({ values, tone }) {
   );
 }
 
-function FloatingTablePopover({ anchorRef, open, className = "", width = 320, estimatedHeight = 220, placement = "bottom-start", role = "tooltip", children }) {
+function FloatingTablePopover({
+  anchorRef,
+  open,
+  className = "",
+  width = 320,
+  estimatedHeight = 220,
+  placement = "bottom-start",
+  role = "tooltip",
+  children,
+  onMouseEnter,
+  onMouseLeave,
+}) {
   const style = useFloatingTablePopoverStyle(anchorRef, open, { width, estimatedHeight, placement });
   if (!open || !style || typeof document === "undefined") return null;
 
   return createPortal(
-    <span className={`${className} ppFloatingTablePopover`.trim()} role={role} style={style}>
+    <span
+      className={`${className} ppFloatingTablePopover`.trim()}
+      role={role}
+      style={style}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
       {children}
     </span>,
     document.body,
@@ -9349,7 +9780,20 @@ function getActionRiskTone(value = "") {
 function getRecommendedActionKind(mode = "", application = {}) {
   if (mode === "apply-product") return "applyable";
   const target = String(application.target || "").toLowerCase();
-  if (target.includes("product description") || target.includes("product title") || target.includes("product tags") || target.includes("product status") || target.includes("media alt text")) return "applyable";
+  if (
+    target.includes("product description")
+    || target.includes("product title")
+    || target.includes("product tags")
+    || target.includes("product status")
+    || target.includes("media alt text")
+    || target.includes("seo title")
+    || target.includes("meta description")
+    || target.includes("url handle")
+    || target.includes("product classification")
+    || target.includes("product template")
+    || target.includes("product metafields")
+    || target.includes("productpulse watchlist")
+  ) return "applyable";
   return "investigation";
 }
 
@@ -10463,24 +10907,6 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
             <text className="ppChartAxisText" key={`${label}-${index}`} x={layout.left + index * (layout.width / Math.max(labels.length - 1, 1))} y={layout.labelY}>{label}</text>
           ))}
         </svg>
-      </div>
-      <div className="ppAnalyticsTrendSide">
-        {summary && (
-          <div className="ppAnalyticsTrendContext" aria-label="Margin at risk comparison">
-            <span><b>Current total</b>{summary.currentTotalLabel || "$0"}</span>
-            <span><b>Trend-weighted now</b>{summary.trendWeightedLabel || "$0"}</span>
-            <small>{summary.detail}</small>
-          </div>
-        )}
-        <div className="ppAnalyticsTrendSummary">
-          {safeSeries.slice(0, 5).map((row) => (
-            <article key={row.label} className={`ppAnalyticsTrendSummaryCard ppAnalyticsTrendSummaryCard-${row.color || "blue"}`}>
-              <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
-              <strong>{row.displayValue || formatInteger((row.values || []).at(-1) || 0)}</strong>
-              {row.detail && <small>{row.detail}</small>}
-            </article>
-          ))}
-        </div>
         <div className="ppAnalyticsTrendLegend" aria-label="Trend line legend">
           {safeSeries.map((row) => (
             <button
@@ -10504,6 +10930,24 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
               <small>Current value: {activeLegend.displayValue || formatInteger((activeLegend.values || []).at(-1) || 0)}</small>
             </div>
           )}
+        </div>
+      </div>
+      <div className="ppAnalyticsTrendSide">
+        {summary && (
+          <div className="ppAnalyticsTrendContext" aria-label="Margin at risk comparison">
+            <span><b>Current total</b>{summary.currentTotalLabel || "$0"}</span>
+            <span><b>Trend-weighted now</b>{summary.trendWeightedLabel || "$0"}</span>
+            <small>{summary.detail}</small>
+          </div>
+        )}
+        <div className="ppAnalyticsTrendSummary">
+          {safeSeries.slice(0, 5).map((row) => (
+            <article key={row.label} className={`ppAnalyticsTrendSummaryCard ppAnalyticsTrendSummaryCard-${row.color || "blue"}`}>
+              <span><i className={`ppDot-${row.color || "blue"}`} />{row.label}</span>
+              <strong>{row.displayValue || formatInteger((row.values || []).at(-1) || 0)}</strong>
+              {row.detail && <small>{row.detail}</small>}
+            </article>
+          ))}
         </div>
       </div>
     </div>

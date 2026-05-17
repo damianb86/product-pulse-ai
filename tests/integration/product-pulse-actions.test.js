@@ -6,6 +6,7 @@ import {
   runCatalogSignalScan,
   startProductDiagnosis,
 } from "../../app/lib/product-pulse-data";
+import { __productPulseDiagnosisTestHooks as diagnosisHooks } from "../../app/lib/product-pulse-diagnosis.server";
 
 describe("ProductPulse actions", () => {
   it("creates a running scan state", () => {
@@ -202,6 +203,66 @@ describe("ProductPulse actions", () => {
     });
   });
 
+  it("prioritizes product-change actions over investigation-only actions on the dashboard", () => {
+    const investigationOnlyProduct = {
+      id: "gid://shopify/Product/investigate",
+      handle: "investigate-product",
+      title: "Investigation Product",
+      riskScore: 96,
+      confidence: 86,
+      analysisDepth: "full",
+      primaryIssue: "Source integrity",
+      metrics: {
+        latestDiagnosisId: "diagnosis-investigate",
+        marginAtRisk: 1800,
+        productMomentumScore: 92,
+        signalCount: 11,
+      },
+      recommendedActions: [
+        { id: "review-product-evidence", label: "Review product evidence", type: "Workflow", status: "Ready" },
+      ],
+      actionHistory: [],
+    };
+    const customerFacingProduct = {
+      id: "gid://shopify/Product/customer-facing",
+      handle: "customer-facing-product",
+      title: "Customer Facing Product",
+      riskScore: 68,
+      confidence: 74,
+      analysisDepth: "full",
+      primaryIssue: "Expectation mismatch",
+      metrics: {
+        latestDiagnosisId: "diagnosis-customer-facing",
+        marginAtRisk: 450,
+        productMomentumScore: 78,
+        signalCount: 5,
+      },
+      recommendedActions: [
+        {
+          id: "update-description",
+          label: "Update product description",
+          type: "PDP copy",
+          status: "Ready",
+          payload: { draftText: "Add clear expectation-setting copy to the product page." },
+        },
+      ],
+      actionHistory: [],
+    };
+
+    const dashboard = buildDashboardViewData([investigationOnlyProduct, customerFacingProduct]);
+
+    expect(dashboard.actionQueue.total).toBe(2);
+    expect(dashboard.startProduct).toMatchObject({
+      title: "Customer Facing Product",
+      actionTitle: "Update product description",
+    });
+    expect(dashboard.priorityProducts).toHaveLength(1);
+    expect(dashboard.priorityProducts[0]).toMatchObject({
+      title: "Customer Facing Product",
+      actionLabel: "Update product description",
+    });
+  });
+
   it("uses configured analysis lookback for analytics trend windows", () => {
     const product = {
       id: "gid://shopify/Product/window",
@@ -224,5 +285,93 @@ describe("ProductPulse actions", () => {
     expect(analytics.windowDays).toBe(45);
     expect(analytics.windowLabel).toBe("Last 45 days");
     expect(analytics.impactTrend.labels[0]).toBe("45d ago");
+  });
+
+  it("creates expanded recommended action recipes with impact tiers", () => {
+    const product = {
+      id: "gid://shopify/Product/action-recipes",
+      numericId: "1",
+      title: "Sample Console Bundle",
+      handle: "product-123",
+      description: "A short console bundle.",
+      descriptionHtml: "<p>A short console bundle.</p>",
+      seoTitle: "",
+      seoDescription: "",
+      vendor: "",
+      productType: "",
+      tags: ["console"],
+      collections: ["Gaming"],
+      options: [],
+      variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "SKU1" }],
+      media: [{ id: "gid://shopify/MediaImage/1", alt: "", mediaContentType: "IMAGE" }],
+    };
+    const content = diagnosisHooks.analyzeProductContentDeterministically(product);
+    const deterministic = {
+      product,
+      mainIssue: "product_content",
+      mainIssueLabel: "Product content",
+      riskScore: 62,
+      confidence: 71,
+      estimatedImpact: { marginAtRisk: 120, revenueAtRisk: 300 },
+      issueSignalCounts: { product_content: 2 },
+      evidenceSnippets: [],
+      sourceCoverage: ["Shopify product", "Shopify orders"],
+      metrics: {
+        contentAnalysis: content,
+        contentIssues: content.issues,
+        contentAdvisories: content.advisories,
+        contentIssueCount: content.issues.length,
+        contentAdvisoryCount: content.advisories.length,
+        contentQualityScore: content.score,
+        customerSignalCount: 2,
+        signalCount: 3,
+        returnUnits: 2,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        reviewCount: 0,
+        productMomentumScore: 84,
+        returnRate: 12,
+        refundRate: 0,
+        marginAtRisk: 120,
+        topReturnReasons: ["Not as described"],
+        topReturnReasonDetails: [{ label: "Not as described", count: 2 }],
+        topRefundReasons: [],
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        variants: product.variants,
+        mediaCount: content.mediaCount,
+        mediaWithoutAltCount: content.mediaWithoutAltCount,
+        titleNeedsReview: content.titleNeedsReview,
+        seoTitleNeedsReview: content.seoTitleNeedsReview,
+        metaDescriptionNeedsReview: content.metaDescriptionNeedsReview,
+        handleNeedsReview: content.handleNeedsReview,
+        specsBlockRecommended: content.specsBlockRecommended,
+        classificationNeedsReview: content.classificationNeedsReview,
+        templateNeedsReview: content.templateNeedsReview,
+        faqNeed: { shouldRecommend: false },
+        textInsights: {},
+        refundInsights: {},
+      },
+    };
+
+    const recommendations = diagnosisHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: product.id,
+        productTitle: product.title,
+        handle: product.handle,
+      },
+      deterministic,
+      ai: { report: { recommendation_copy: {} } },
+      mainIssue: "product_content",
+    });
+    const byId = new Map(recommendations.map((action) => [action.id, action]));
+
+    expect(byId.get("rewrite-seo-title")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.get("rewrite-meta-description")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.get("improve-url-handle")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.get("add-specs-details-block")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.get("update-product-classification")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.get("add-structured-metafields")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.get("add-to-watchlist")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
   });
 });

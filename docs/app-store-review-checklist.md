@@ -15,11 +15,11 @@
 - Each route has a clear heading and primary action.
 
 ## Scopes
-- MVP requests only `read_products`, `read_orders`, `read_returns`.
+- The app requests product, order, historical order, return and inventory scopes needed by the current product diagnostics workflow.
 - Order/return data purpose is documented as product quality intelligence.
-- `read_orders` is used only for product-level order/refund aggregates and may require protected customer data approval for Order object access.
+- `read_orders` and `read_all_orders` are used only for product-level order/refund aggregates. `read_all_orders` requires Shopify protected-scope approval before production use.
 - No customer scopes are requested.
-- Product writes require a future explicit `write_products` review.
+- Product writes use merchant-confirmed `write_products` actions only.
 
 ## Billing
 - Real paid plans are not enabled in MVP.

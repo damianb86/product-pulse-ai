@@ -24,6 +24,7 @@ import {
   getProductScoreHistoryForProductsForShop,
   getProductScoreHistoryForShop,
 } from "./product-pulse-history.server";
+import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -127,12 +128,18 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
   const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
   const watchedByProductGid = new Map(watchedItems.map((item) => [item.productGid, item]));
+  const scoreHistoryByProductGid = await getProductScoreHistoryForProductsForShop(
+    shop,
+    pageSnapshots.map((snapshot) => snapshot.productGid),
+    { take: 80 },
+  );
   const rows = pageSnapshots.map((snapshot) => formatProductRow(
     snapshot,
     latestDiagnosisByProductGid.get(snapshot.productGid),
     resolvedActionsByProductGid.get(snapshot.productGid),
     settings,
     watchedByProductGid.get(snapshot.productGid),
+    scoreHistoryByProductGid.get(snapshot.productGid) || [],
   ));
   const rowsWithImages = await attachProductImages(rows, admin);
   const rowsWithJobs = attachActiveProductDiagnosisJobs(rowsWithImages, activeDiagnosisJobs);
@@ -552,6 +559,10 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       || getSnapshotRecommendedActions(snapshot, metrics).find((item) => item.id === actionId);
   }
 
+  if (!action && payloadOverride.actionStatus) {
+    action = getSyntheticProductActionForRecord(actionId, payloadOverride);
+  }
+
   if (!action && payloadOverride.draftText) {
     const isDescriptionFallback = actionId === "product-description-changes" || payloadOverride.descriptionOperation;
     action = {
@@ -580,6 +591,11 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   };
   const recordActionId = action.id || actionId || payloadOverride.label || "product-action";
   const recordLabel = action.label || payloadOverride.label || actionId || "Product action";
+  const equivalentActionIds = getProductActionEquivalentIds(action, actionId, payloadOverride);
+  const equivalentActionLabels = getProductActionEquivalentLabels(action, payloadOverride);
+  payload.sourceActionId = actionId || action.id || "";
+  payload.canonicalActionId = recordActionId;
+  payload.actionAliases = equivalentActionIds;
   const requestedStatus = normalizeProductActionRecordStatus(payloadOverride.actionStatus);
   const shouldApplyToShopify = payloadOverride.applyMode === "apply";
   const applyResult = shouldApplyToShopify
@@ -610,8 +626,17 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     }
   }
   if (["dismissed", "reviewed"].includes(status)) {
+    const duplicateMatchers = [
+      ...(equivalentActionIds.length ? [{ actionType: { in: equivalentActionIds } }] : []),
+      ...(equivalentActionLabels.length ? [{ label: { in: equivalentActionLabels } }] : []),
+    ];
     const existingCompletedAction = await prisma.productAction.findFirst({
-      where: { shop, productGid: snapshot.productGid, actionType: recordActionId, status },
+      where: {
+        shop,
+        productGid: snapshot.productGid,
+        status,
+        OR: duplicateMatchers.length ? duplicateMatchers : [{ actionType: recordActionId }],
+      },
       orderBy: { createdAt: "desc" },
     });
     if (existingCompletedAction) {
@@ -658,6 +683,101 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   };
 }
 
+function getSyntheticProductActionForRecord(actionId, payloadOverride = {}) {
+  const id = String(actionId || "").trim();
+  const label = String(payloadOverride.label || "").trim();
+  const normalized = `${id} ${label}`.toLowerCase();
+  if (!id && !label) return null;
+
+  if (id === "product-description-changes" || /\b(description|pdp|copy|expectation|quality note)\b/.test(normalized)) {
+    return {
+      id: id || "product-description-changes",
+      label: label || "Update product description",
+      type: "PDP copy",
+      effort: "Low",
+      status: "Ready",
+      payload: {
+        descriptionChangeGroup: id === "product-description-changes",
+        operation: "replace",
+        shopifyField: "Product description",
+      },
+    };
+  }
+
+  if (id === "review-product-evidence" || /\b(evidence|inspect|verify|investigation|review)\b/.test(normalized)) {
+    return {
+      id: id || "review-product-evidence",
+      label: label || "Review product evidence",
+      type: "Workflow",
+      effort: "Low",
+      status: "Ready",
+      payload: {
+        reviewSections: [],
+        shopifyField: "Product evidence",
+      },
+    };
+  }
+
+  return {
+    id,
+    label: label || id || "Product action",
+    type: inferProductActionTypeFromText(normalized),
+    effort: "Low",
+    status: "Ready",
+    payload: {},
+  };
+}
+
+function inferProductActionTypeFromText(value = "") {
+  if (/\b(tag|collection|workflow)\b/.test(value)) return "Workflow";
+  if (/\b(variant|sku|option)\b/.test(value)) return "Product variant";
+  if (/\b(title|seo|meta)\b/.test(value)) return "Product metadata";
+  if (/\b(image|media|alt text)\b/.test(value)) return "Product media";
+  if (/\b(price|inventory|status|draft|archive|unlisted)\b/.test(value)) return "Commercial control";
+  return "ProductPulse workflow";
+}
+
+function getProductActionEquivalentIds(action = {}, actionId = "", payloadOverride = {}) {
+  const payload = action.payload || {};
+  const aliases = new Set([
+    action.id,
+    action.actionId,
+    action.actionType,
+    actionId,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...(Array.isArray(payload.actionAliases) ? payload.actionAliases : []),
+  ].map(normalizeProductActionAlias).filter(Boolean));
+
+  const matchText = `${action.id || ""} ${action.actionId || ""} ${action.actionType || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payloadOverride.label || ""} ${payload.operation || ""} ${payload.shopifyField || ""}`.toLowerCase();
+  if (action.id === "product-description-changes" || payload.descriptionChangeGroup || /\b(description|pdp|copy|expectation note|quality note)\b/.test(matchText)) {
+    aliases.add("product-description-changes");
+  }
+  if (action.id === "review-product-evidence" || Array.isArray(payload.reviewSections) || /\b(evidence|inspect|verify|investigation|review)\b/.test(matchText)) {
+    aliases.add("review-product-evidence");
+  }
+  if (/\b(faq)\b/.test(matchText)) aliases.add("create-product-faq");
+  if (/\b(title|seo|metadata)\b/.test(matchText)) aliases.add("title-metadata");
+  if (/\b(variant|sku|option)\b/.test(matchText)) aliases.add("variant-options");
+  if (/\b(tag|collection)\b/.test(matchText)) aliases.add("workflow-tag");
+  if (/\b(image|media|alt text)\b/.test(matchText)) aliases.add("media-alt-text");
+  if (/\b(price|inventory|status|draft|archive|unlisted)\b/.test(matchText)) aliases.add("commercial-control");
+
+  return [...aliases];
+}
+
+function getProductActionEquivalentLabels(action = {}, payloadOverride = {}) {
+  return [...new Set([
+    action.label,
+    action.title,
+    payloadOverride.label,
+  ].map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function normalizeProductActionAlias(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 function isIssueCurrentlyIgnoredInActionRecords(actions = [], issueKey = "") {
   const normalizedKey = normalizeIgnoredIssueKey(issueKey);
   if (!normalizedKey) return false;
@@ -692,6 +812,25 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     return applyFaqRecommendationAction({ admin, snapshot, action, payload });
   }
 
+  if (normalizedId.includes("add-to-watchlist")) {
+    const result = await addWatchedProductForShop(snapshot.shop, {
+      productGid: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      imageUrl: snapshot.metrics?.imageUrl || snapshot.metrics?.image || "",
+      imageAlt: snapshot.productTitle,
+    });
+    if (result.status === "validation_error") return result;
+    return {
+      message: result.message || `${snapshot.productTitle} added to the watchlist.`,
+      change: {
+        target: "ProductPulse Watchlist",
+        operation: "add",
+        value: snapshot.productGid,
+      },
+    };
+  }
+
   if (payload.tag || Array.isArray(payload.tags) || normalizedType.includes("tag")) {
     const tags = uniqueActionTags([...(Array.isArray(payload.tags) ? payload.tags : []), payload.tag]);
     if (!tags.length) return { status: "validation_error", message: "This action does not include a product tag to apply." };
@@ -724,6 +863,51 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
         target: "Product media alt text",
         operation: "set",
         value: mediaUpdates,
+      },
+    };
+  }
+
+  if (payload.field === "seo.title" || normalizedId.includes("seo-title")) {
+    const title = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
+    if (!title) return { status: "validation_error", message: "This SEO title action does not include text to apply." };
+    const result = await updateProductFields(admin, snapshot.productGid, { seo: { title } });
+    if (result.status === "validation_error") return result;
+    return {
+      message: `SEO title was updated for ${snapshot.productTitle}.`,
+      change: {
+        target: "SEO title",
+        operation: "set",
+        value: title,
+      },
+    };
+  }
+
+  if (payload.field === "seo.description" || normalizedId.includes("meta-description")) {
+    const description = String(payload.draftText || "").replace(/\s+/g, " ").trim();
+    if (!description) return { status: "validation_error", message: "This meta description action does not include text to apply." };
+    const result = await updateProductFields(admin, snapshot.productGid, { seo: { description } });
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Meta description was updated for ${snapshot.productTitle}.`,
+      change: {
+        target: "Meta description",
+        operation: "set",
+        value: description,
+      },
+    };
+  }
+
+  if (payload.draftHandle || payload.field === "handle" || normalizedId.includes("url-handle")) {
+    const handle = String(payload.draftText || payload.draftHandle || "").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!handle) return { status: "validation_error", message: "This URL handle action does not include a handle to apply." };
+    const result = await updateProductFields(admin, snapshot.productGid, { handle, redirectNewHandle: payload.redirectNewHandle !== false });
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Product URL handle was updated for ${snapshot.productTitle}.`,
+      change: {
+        target: "URL handle",
+        operation: "set",
+        value: handle,
       },
     };
   }
@@ -768,6 +952,54 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
+  if (payload.field === "classification" || normalizedId.includes("product-classification")) {
+    const parsed = parseClassificationDraft(payload.draftText || payload.value || "");
+    const vendor = String(payload.draftVendor || parsed.vendor || "").replace(/\s+/g, " ").trim();
+    const productType = String(payload.draftProductType || parsed.productType || "").replace(/\s+/g, " ").trim();
+    const productFields = {};
+    if (vendor) productFields.vendor = vendor;
+    if (productType) productFields.productType = productType;
+    if (!Object.keys(productFields).length) return { status: "validation_error", message: "This classification action does not include a vendor or product type to apply." };
+    const result = await updateProductFields(admin, snapshot.productGid, productFields);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Product classification was updated for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product classification",
+        operation: "set",
+        value: productFields,
+      },
+    };
+  }
+
+  if (payload.templateSuffix || payload.field === "templateSuffix" || normalizedId.includes("product-template")) {
+    const templateSuffix = String(payload.draftText || payload.templateSuffix || "").trim();
+    if (!templateSuffix) return { status: "validation_error", message: "This template action does not include a template suffix to apply." };
+    const result = await updateProductFields(admin, snapshot.productGid, { templateSuffix });
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Product template was updated for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product template",
+        operation: "set",
+        value: templateSuffix,
+      },
+    };
+  }
+
+  if (Array.isArray(payload.metafields) && payload.metafields.length) {
+    const result = await setProductMetafields(admin, snapshot.productGid, payload.metafields);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `${payload.metafields.length === 1 ? "Product metafield was saved" : "Product metafields were saved"} for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product metafields",
+        operation: "set",
+        value: payload.metafields,
+      },
+    };
+  }
+
   if (payload.draftText && (normalizedType.includes("pdp") || normalizedType.includes("faq") || normalizedId.includes("description") || normalizedId.includes("fit"))) {
     const operation = getDescriptionOperationForAction({ ...action, payload });
     const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
@@ -795,6 +1027,20 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
 
 function uniqueActionTags(values = []) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function parseClassificationDraft(value = "") {
+  const lines = String(value || "").split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const result = {};
+  lines.forEach((line) => {
+    const [label, ...rest] = line.split(":");
+    const normalizedLabel = String(label || "").trim().toLowerCase();
+    const content = rest.join(":").trim();
+    if (!content) return;
+    if (normalizedLabel.includes("vendor")) result.vendor = content;
+    if (normalizedLabel.includes("product type")) result.productType = content;
+  });
+  return result;
 }
 
 function normalizeShopifyProductStatus(value) {
@@ -1077,6 +1323,50 @@ async function setProductFaqMetafield(admin, productGid, { namespace, key, type,
     return { status: "success" };
   } catch (error) {
     return { status: "validation_error", message: `Unable to set product FAQ metafield: ${error.message}` };
+  }
+}
+
+async function setProductMetafields(admin, productGid, metafields = []) {
+  const normalizedMetafields = (Array.isArray(metafields) ? metafields : [])
+    .map((metafield) => ({
+      ownerId: productGid,
+      namespace: String(metafield.namespace || "productpulse").trim(),
+      key: String(metafield.key || "").trim(),
+      type: String(metafield.type || "single_line_text_field").trim(),
+      value: typeof metafield.value === "string" ? metafield.value : JSON.stringify(metafield.value ?? ""),
+    }))
+    .filter((metafield) => metafield.namespace && metafield.key && metafield.type);
+  if (!normalizedMetafields.length) {
+    return { status: "validation_error", message: "This metafield action does not include valid metafields to save." };
+  }
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseSetProductMetafields($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields {
+            id
+            namespace
+            key
+            type
+            value
+          }
+          userErrors {
+            field
+            message
+            code
+          }
+        }
+      }`,
+      { variables: { metafields: normalizedMetafields } },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.metafieldsSet?.userErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return { status: "success" };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to set product metafields: ${error.message}` };
   }
 }
 
@@ -1588,7 +1878,7 @@ function isActiveStatus(status) {
   return status === "Queued" || status === "Running";
 }
 
-function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null) {
+function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null, scoreHistory = []) {
   const metrics = snapshot.metrics || {};
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
@@ -1621,6 +1911,7 @@ function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = nul
     signalTone: getEvidenceToneForProduct(snapshot.riskScore, metrics, settings),
     signalBars: getSignalBars(metrics),
     signalDetails: getSignalDetails(snapshot, metrics, settings),
+    riskTrend: getProductRiskTrendForRow(metrics, scoreHistory),
     productMomentum: metrics.productMomentum || null,
     issue: snapshot.primaryIssue,
     sources: sources.map(getSourceToken),
@@ -1630,6 +1921,21 @@ function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = nul
     credits: 1,
     href: `/app/products/${snapshot.handle}`,
   };
+}
+
+function getProductRiskTrendForRow(metrics = {}, scoreHistory = []) {
+  const scoreHistoryValues = formatProductRiskHistory(scoreHistory)
+    .map((entry) => Number(entry.riskScore))
+    .filter((value) => Number.isFinite(value));
+  if (scoreHistoryValues.length >= 2) return scoreHistoryValues.slice(-12);
+  const riskHistoryValues = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((entry) => Number(entry?.riskScore))
+    .filter((value) => Number.isFinite(value));
+  if (riskHistoryValues.length >= 2) return riskHistoryValues.slice(-12);
+  return (Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [])
+    .map(Number)
+    .filter((value) => Number.isFinite(value))
+    .slice(-12);
 }
 
 function getProductAnalysisState(snapshot, latestDiagnosis = null) {
@@ -2595,12 +2901,14 @@ function getActiveResolvedStoredAction(storedActions = []) {
 }
 
 function formatStoredProductAction(action) {
+  const payload = action.payload || {};
   return {
     id: action.id,
     actionId: action.actionType,
     label: action.label,
     status: action.status,
-    payload: action.payload || {},
+    payload,
+    actionAliases: Array.isArray(payload.actionAliases) ? payload.actionAliases : [],
     createdAt: toIso(action.createdAt),
     appliedAt: toIso(action.appliedAt),
   };
@@ -2632,11 +2940,8 @@ function adjustReturnRatePredictionForActions(prediction = null, recommendations
     else totals.pending += 1;
     return totals;
   }, { pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
-  const adjustmentPoints = clampNumber(
-    counts.pending * 1.15 + counts.dismissed * 0.2 - counts.applied * 1.65 - counts.reviewed * 1.1,
-    -9,
-    9,
-  );
+  const mitigationPoints = clampNumber(counts.applied * 1.65 + counts.reviewed * 1.1, 0, 9);
+  const adjustmentPoints = -mitigationPoints;
   const baseForecastNext90ReturnRate = roundTo(averageNumbers(prediction.forecastPoints.map((point) => Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0))), 2);
   const forecastPoints = prediction.forecastPoints.map((point, index) => {
     const horizonWeight = (index + 1) / prediction.forecastPoints.length;
@@ -3584,6 +3889,7 @@ function clampSignalBar(value) {
 }
 
 export const __productPulseJobsTestHooks = {
+  adjustReturnRatePredictionForActions,
   buildManualProductRiskSnapshotPayload,
   buildProductPulseFaqHtml,
   buildUpdatedProductDescriptionHtml,

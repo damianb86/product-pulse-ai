@@ -35,6 +35,59 @@ describe("ProductPulse product job helpers", () => {
     expect(modal).toContain("Open frequently asked questions");
   });
 
+  it("keeps open recommendations neutral in return-rate forecasts", () => {
+    const prediction = {
+      forecastPoints: [
+        { key: "2026-05-18", predictedReturnRate: 12 },
+        { key: "2026-05-25", predictedReturnRate: 12 },
+      ],
+      summary: { forecastNext90ReturnRate: 12 },
+    };
+    const recommendations = [
+      { id: "update-product-description", label: "Update product description" },
+      { id: "create-product-faq", label: "Create product FAQ" },
+    ];
+
+    const adjusted = productPulseJobsTestHooks.adjustReturnRatePredictionForActions(prediction, recommendations, []);
+
+    expect(adjusted.actionAdjustment).toMatchObject({
+      pending: 2,
+      applied: 0,
+      reviewed: 0,
+      dismissed: 0,
+      adjustmentPoints: 0,
+      direction: "neutral",
+    });
+    expect(adjusted.forecastPoints.map((point) => point.predictedReturnRate)).toEqual([12, 12]);
+  });
+
+  it("only lowers return-rate forecasts for applied or reviewed recommendations", () => {
+    const prediction = {
+      forecastPoints: [
+        { key: "2026-05-18", predictedReturnRate: 20 },
+        { key: "2026-05-25", predictedReturnRate: 20 },
+      ],
+      summary: { forecastNext90ReturnRate: 20 },
+    };
+    const recommendations = [
+      { id: "update-product-description", label: "Update product description" },
+      { id: "create-product-faq", label: "Create product FAQ" },
+      { id: "add-product-tag", label: "Add product tag" },
+    ];
+    const storedActions = [
+      { actionId: "update-product-description", status: "applied", createdAt: "2026-05-16T00:00:00.000Z" },
+      { actionId: "create-product-faq", status: "reviewed", createdAt: "2026-05-16T00:01:00.000Z" },
+      { actionId: "add-product-tag", status: "dismissed", createdAt: "2026-05-16T00:02:00.000Z" },
+    ];
+
+    const adjusted = productPulseJobsTestHooks.adjustReturnRatePredictionForActions(prediction, recommendations, storedActions);
+
+    expect(adjusted.actionAdjustment.direction).toBe("improving");
+    expect(adjusted.actionAdjustment.adjustmentPoints).toBeLessThan(0);
+    expect(adjusted.forecastPoints[0].predictedReturnRate).toBeLessThan(20);
+    expect(adjusted.forecastPoints[1].predictedReturnRate).toBeLessThan(adjusted.forecastPoints[0].predictedReturnRate);
+  });
+
   it("parses edited FAQ text before falling back to stored FAQ items", () => {
     const parsed = productPulseJobsTestHooks.normalizeFaqItemsForApply(
       [{ question: "Original question?", answer: "Original answer." }],

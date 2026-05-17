@@ -26,6 +26,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:a11y": "playwright test tests/accessibility",
     "seed:demo": "node prisma/seed-product-pulse-demo.js",
+    "watchlist:cron": "node scripts/run-watchlist-cron.js",
+    "watchlist:cron:force": "node scripts/run-watchlist-cron.js --force --force-cadence",
     "shopify:validate": "shopify app config validate --json",
     "shopify:build": "shopify app build",
     "qa": "npm run typecheck && npm run lint && npm run test && npm run shopify:validate && npm run shopify:build"

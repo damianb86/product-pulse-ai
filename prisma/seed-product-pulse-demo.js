@@ -551,6 +551,7 @@ async function main() {
 async function seedSources(shop) {
   const settings = {
     risk: { minimumScore: 18, mediumThreshold: 55, highThreshold: 75 },
+    momentum: { minimumScore: 70 },
     diagnosis: { maxQueuedPerSubmission: 100 },
     analysis: { lookbackDays: 365 },
   };

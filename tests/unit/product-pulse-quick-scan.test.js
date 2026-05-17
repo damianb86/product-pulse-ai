@@ -118,6 +118,93 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates).toHaveLength(0);
   });
 
+  it("keeps high-momentum products even when product risk is below the QuickScan risk threshold", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const momentumProductId = "gid://shopify/Product/momentum";
+    const baselineProducts = Array.from({ length: 4 }, (_, index) => ({
+      id: `gid://shopify/Product/baseline-${index}`,
+      handle: `baseline-${index}`,
+      title: `Baseline ${index}`,
+      productType: "Games",
+      createdAt: daysAgo(180),
+      variants: [{ id: `gid://shopify/ProductVariant/baseline-${index}`, title: "Default Title", sku: `BASE-${index}` }],
+    }));
+    const candidates = buildQuickScanCandidates({
+      windowDays: 120,
+      settings: {
+        risk: {
+          minimumScore: 95,
+          mediumThreshold: 96,
+          highThreshold: 98,
+        },
+        momentum: {
+          minimumScore: 70,
+        },
+      },
+      products: [
+        {
+          id: momentumProductId,
+          handle: "fast-selling-console",
+          title: "Fast Selling Console",
+          productType: "Games",
+          createdAt: daysAgo(180),
+          variants: [{ id: "gid://shopify/ProductVariant/momentum", title: "Default Title", sku: "FAST" }],
+        },
+        ...baselineProducts,
+      ],
+      events: [
+        ...Array.from({ length: 18 }, (_, index) => ({
+          type: "sale",
+          id: `recent-${index}`,
+          orderId: `recent-order-${index}`,
+          productId: momentumProductId,
+          variantId: "gid://shopify/ProductVariant/momentum",
+          quantity: 1,
+          amount: 300,
+          occurredAt: daysAgo(index < 9 ? 6 : 18),
+        })),
+        ...Array.from({ length: 2 }, (_, index) => ({
+          type: "sale",
+          id: `previous-${index}`,
+          orderId: `previous-order-${index}`,
+          productId: momentumProductId,
+          variantId: "gid://shopify/ProductVariant/momentum",
+          quantity: 1,
+          amount: 300,
+          occurredAt: daysAgo(45 + index),
+        })),
+        ...baselineProducts.flatMap((product, index) => ([
+          {
+            type: "sale",
+            id: `baseline-recent-${index}`,
+            orderId: `baseline-recent-order-${index}`,
+            productId: product.id,
+            variantId: product.variants[0].id,
+            quantity: 1,
+            amount: 80,
+            occurredAt: daysAgo(12 + index),
+          },
+          {
+            type: "sale",
+            id: `baseline-previous-${index}`,
+            orderId: `baseline-previous-order-${index}`,
+            productId: product.id,
+            variantId: product.variants[0].id,
+            quantity: 4,
+            amount: 320,
+            occurredAt: daysAgo(50 + index),
+          },
+        ])),
+      ],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].handle).toBe("fast-selling-console");
+    expect(candidates[0].riskScore).toBeLessThan(95);
+    expect(candidates[0].metrics.productMomentum.score).toBeGreaterThanOrEqual(70);
+    expect(candidates[0].metrics.quickScanInclusionReason).toBe("momentum_threshold");
+  });
+
   it("escalates sparse but severe Shopify risk while keeping confidence moderate", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,

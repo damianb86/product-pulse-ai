@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getQuickScanMinimumRiskScore,
+  getQuickScanMinimumMomentumScore,
   getAnalysisLookbackDays,
   getRiskLabelForScore,
   getStatusLabelForScore,
@@ -17,6 +18,7 @@ describe("ProductPulse settings", () => {
       mediumThreshold: 55,
       highThreshold: 75,
     });
+    expect(settings.momentum).toEqual({ minimumScore: 70 });
     expect(settings.diagnosis.maxQueuedPerSubmission).toBe(25);
     expect(settings.analysis.lookbackDays).toBe(60);
   });
@@ -28,9 +30,13 @@ describe("ProductPulse settings", () => {
         mediumThreshold: 60,
         highThreshold: 82,
       },
+      momentum: {
+        minimumScore: 76,
+      },
     });
 
     expect(getQuickScanMinimumRiskScore(settings)).toBe(40);
+    expect(getQuickScanMinimumMomentumScore(settings)).toBe(76);
     expect(getAnalysisLookbackDays(settings)).toBe(60);
     expect(getRiskLabelForScore(59, settings)).toBe("Low");
     expect(getRiskLabelForScore(60, settings)).toBe("Medium");
@@ -60,6 +66,22 @@ describe("ProductPulse settings", () => {
         maxQueuedPerSubmission: 10,
       },
     })).toMatch(/High risk/);
+  });
+
+  it("rejects invalid momentum inclusion thresholds", () => {
+    expect(validateProductPulseSettings({
+      risk: {
+        minimumScore: 40,
+        mediumThreshold: 60,
+        highThreshold: 80,
+      },
+      momentum: {
+        minimumScore: 101,
+      },
+      diagnosis: {
+        maxQueuedPerSubmission: 10,
+      },
+    })).toMatch(/Momentum inclusion/);
   });
 
   it("normalizes and validates the analysis lookback window", () => {

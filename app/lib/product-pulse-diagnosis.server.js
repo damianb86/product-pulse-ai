@@ -239,7 +239,7 @@ async function fetchProductMomentumCatalogBaseline({ shop, currentProductGid }) 
   return buildProductMomentumCatalogBaseline(snapshots, currentProductGid);
 }
 
-function buildProductMomentumCatalogBaseline(snapshots = [], currentProductGid = "") {
+export function buildProductMomentumCatalogBaseline(snapshots = [], currentProductGid = "") {
   const rows = (Array.isArray(snapshots) ? snapshots : [])
     .map((snapshot) => {
       const metrics = snapshot?.metrics || {};
@@ -299,6 +299,11 @@ async function fetchShopifyProduct({ admin, snapshot }) {
             vendor
             productType
             status
+            seo {
+              title
+              description
+            }
+            templateSuffix
             tags
             options {
               name
@@ -386,6 +391,11 @@ async function fetchShopifyProduct({ admin, snapshot }) {
           vendor
           productType
           status
+          seo {
+            title
+            description
+          }
+          templateSuffix
           tags
           options {
             name
@@ -1715,6 +1725,12 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       descriptionWordCount: deterministicContent.descriptionWordCount,
       hasDescription: deterministicContent.hasDescription,
       titleNeedsReview: deterministicContent.titleNeedsReview,
+      seoTitleNeedsReview: deterministicContent.seoTitleNeedsReview,
+      metaDescriptionNeedsReview: deterministicContent.metaDescriptionNeedsReview,
+      handleNeedsReview: deterministicContent.handleNeedsReview,
+      specsBlockRecommended: deterministicContent.specsBlockRecommended,
+      classificationNeedsReview: deterministicContent.classificationNeedsReview,
+      templateNeedsReview: deterministicContent.templateNeedsReview,
       variantNamingAdvisory: deterministicContent.variantNamingAdvisory,
       mediaCount: deterministicContent.mediaCount,
       mediaWithoutAltCount: deterministicContent.mediaWithoutAltCount,
@@ -1757,8 +1773,12 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       reconstructedRiskHistory,
       trendMeta: signalTrendResult.meta,
       issueSignalTrends,
+      handle: product.handle || snapshot.handle,
       productType: product.productType || snapshotMetrics.productType || "",
       vendor: product.vendor || snapshotMetrics.vendor || "",
+      seoTitle: product.seoTitle || snapshotMetrics.seoTitle || "",
+      seoDescription: product.seoDescription || snapshotMetrics.seoDescription || "",
+      templateSuffix: product.templateSuffix || snapshotMetrics.templateSuffix || "",
       tags: product.tags || [],
       collections: product.collections || [],
       variantCount: product.variants?.length || Number(snapshotMetrics.variantCount || 0),
@@ -2335,6 +2355,9 @@ function buildAiProductInput(product, snapshot) {
     handle: product.handle || snapshot.handle,
     title: product.title || snapshot.productTitle,
     description: product.description || "",
+    seoTitle: product.seoTitle || "",
+    seoDescription: product.seoDescription || "",
+    templateSuffix: product.templateSuffix || "",
     vendor: product.vendor || "",
     productType: product.productType || "",
     tags: product.tags || [],
@@ -2402,6 +2425,12 @@ function buildAiDeterministicInput(deterministic) {
       contentAdvisories: deterministic.metrics.contentAdvisories,
       faqNeed: deterministic.metrics.faqNeed,
       titleNeedsReview: deterministic.metrics.titleNeedsReview,
+      seoTitleNeedsReview: deterministic.metrics.seoTitleNeedsReview,
+      metaDescriptionNeedsReview: deterministic.metrics.metaDescriptionNeedsReview,
+      handleNeedsReview: deterministic.metrics.handleNeedsReview,
+      specsBlockRecommended: deterministic.metrics.specsBlockRecommended,
+      classificationNeedsReview: deterministic.metrics.classificationNeedsReview,
+      templateNeedsReview: deterministic.metrics.templateNeedsReview,
       variantNamingAdvisory: deterministic.metrics.variantNamingAdvisory,
       mediaCount: deterministic.metrics.mediaCount,
       mediaWithoutAltCount: deterministic.metrics.mediaWithoutAltCount,
@@ -2457,12 +2486,27 @@ function buildRuleRecommendationCandidates(deterministic) {
     candidates.push({ id: "align-product-metadata", type: "Workflow", reason: "Title, description, tags, collections and product type should tell a consistent story." });
   }
   if (recipeSignals.title.shouldRecommend) candidates.push({ id: "update-product-title", type: "Product title", reason: recipeSignals.title.reason });
+  if (recipeSignals.seoTitle.shouldRecommend) candidates.push({ id: "rewrite-seo-title", type: "SEO title", reason: recipeSignals.seoTitle.reason });
+  if (recipeSignals.metaDescription.shouldRecommend) candidates.push({ id: "rewrite-meta-description", type: "SEO meta description", reason: recipeSignals.metaDescription.reason });
+  if (recipeSignals.handle.shouldRecommend) candidates.push({ id: "improve-url-handle", type: "URL handle", reason: recipeSignals.handle.reason });
+  if (recipeSignals.specs.shouldRecommend) candidates.push({ id: "add-specs-details-block", type: "PDP copy", reason: recipeSignals.specs.reason });
   if (recipeSignals.variants.shouldRecommend) candidates.push({ id: "correct-variant-options", type: "Variant options", reason: recipeSignals.variants.reason });
   if (recipeSignals.pricing.shouldRecommend) candidates.push({ id: "review-product-pricing", type: "Commercial review", reason: recipeSignals.pricing.reason });
   if (recipeSignals.status.shouldRecommend) candidates.push({ id: "set-product-draft", type: "High-risk action", reason: recipeSignals.status.reason });
   if (recipeSignals.inventory.shouldRecommend) candidates.push({ id: "limit-variant-inventory", type: "Inventory hold", reason: recipeSignals.inventory.reason });
   if (recipeSignals.collection.shouldRecommend) candidates.push({ id: "move-to-review-collection", type: "Collection workflow", reason: recipeSignals.collection.reason });
   if (recipeSignals.media.shouldRecommend) candidates.push({ id: "improve-product-media", type: "Media guidance", reason: recipeSignals.media.reason });
+  if (recipeSignals.mediaOrder.shouldRecommend) candidates.push({ id: "reorder-product-media", type: "Media order", reason: recipeSignals.mediaOrder.reason });
+  if (recipeSignals.contextualMedia.shouldRecommend) candidates.push({ id: "add-contextual-media-recommendation", type: "Media guidance", reason: recipeSignals.contextualMedia.reason });
+  if (recipeSignals.classification.shouldRecommend) candidates.push({ id: "update-product-classification", type: "Product classification", reason: recipeSignals.classification.reason });
+  if (recipeSignals.structuredMetafields.shouldRecommend) candidates.push({ id: "add-structured-metafields", type: "Product metafield", reason: recipeSignals.structuredMetafields.reason });
+  if (recipeSignals.template.shouldRecommend) candidates.push({ id: "switch-product-template", type: "Product template", reason: recipeSignals.template.reason });
+  if (recipeSignals.sourceMismatch.shouldRecommend) candidates.push({ id: "fix-source-review-mismatch", type: "Source integrity", reason: recipeSignals.sourceMismatch.reason });
+  if (recipeSignals.missingSource.shouldRecommend) candidates.push({ id: "connect-missing-source", type: "Source connection", reason: recipeSignals.missingSource.reason });
+  if (recipeSignals.monitoringCoverage.shouldRecommend) candidates.push({ id: "improve-monitoring-coverage", type: "Monitoring coverage", reason: recipeSignals.monitoringCoverage.reason });
+  if (recipeSignals.baselineScan.shouldRecommend) candidates.push({ id: "create-baseline-scan", type: "Baseline scan", reason: recipeSignals.baselineScan.reason });
+  if (recipeSignals.watchlist.shouldRecommend) candidates.push({ id: "add-to-watchlist", type: "Watchlist", reason: recipeSignals.watchlist.reason });
+  if (recipeSignals.fullDiagnosis.shouldRecommend) candidates.push({ id: "run-full-diagnosis", type: "Diagnosis", reason: recipeSignals.fullDiagnosis.reason });
   if (recipeSignals.qa.shouldRecommend) candidates.push({ id: "recommend-qa-review", type: "Operational QA", reason: recipeSignals.qa.reason });
   if (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
@@ -2833,7 +2877,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (recipeSignals.title.shouldRecommend) {
     recommendations.push({
       id: "update-product-title",
-      label: "Clarify product title",
+      label: "Improve product title",
       type: "Product title",
       effort: "Low",
       status: "Draft",
@@ -2843,6 +2887,85 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         currentTitle: deterministic.product?.title || snapshot.productTitle,
         issue: "product_content",
         trigger: recipeSignals.title.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.seoTitle.shouldRecommend) {
+    recommendations.push({
+      id: "rewrite-seo-title",
+      label: "Rewrite SEO title",
+      type: "SEO title",
+      effort: "Low",
+      status: "Draft",
+      payload: {
+        field: "seo.title",
+        draftText: buildSuggestedSeoTitle({ product: deterministic.product, snapshot, mainIssue, aiTitle: copy.seo_title || copy.product_title }),
+        currentValue: deterministic.product?.seoTitle || "",
+        issue: "seo_content",
+        trigger: recipeSignals.seoTitle.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.metaDescription.shouldRecommend) {
+    recommendations.push({
+      id: "rewrite-meta-description",
+      label: "Rewrite meta description",
+      type: "SEO meta description",
+      effort: "Low",
+      status: "Draft",
+      payload: {
+        field: "seo.description",
+        draftText: buildSuggestedMetaDescription({ product: deterministic.product, snapshot, mainIssue, aiDescription: copy.meta_description || "" }),
+        currentValue: deterministic.product?.seoDescription || "",
+        issue: "seo_content",
+        trigger: recipeSignals.metaDescription.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.handle.shouldRecommend) {
+    recommendations.push({
+      id: "improve-url-handle",
+      label: "Improve URL handle",
+      type: "URL handle",
+      effort: "Low",
+      status: "Draft",
+      payload: {
+        field: "handle",
+        draftHandle: buildSuggestedProductHandle({ product: deterministic.product, snapshot }),
+        currentValue: deterministic.product?.handle || snapshot.handle,
+        redirectNewHandle: true,
+        issue: "seo_content",
+        trigger: recipeSignals.handle.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.specs.shouldRecommend) {
+    const specsBlock = buildSpecsDetailsBlock({ product: deterministic.product, contentIssues, mainIssue });
+    recommendations.push({
+      id: "add-specs-details-block",
+      label: "Add specs/details block",
+      type: "PDP copy",
+      effort: "Low",
+      status: "Draft",
+      payload: {
+        draftText: specsBlock,
+        issue: "product_content",
+        currentDescriptionText,
+        contentIssues: contentIssues.map((issue) => ({
+          label: issue.label,
+          evidence: issue.evidence,
+          severity: issue.severity,
+          code: issue.code,
+        })),
+        operation: "append",
+        placement: "append",
+        changeStrategy: "add-specs-block",
+        causeKey: getRecommendationCauseKey({ issue: "specs_block", text: specsBlock, deterministic }),
+        trigger: recipeSignals.specs.reason,
       },
     });
   }
@@ -2857,7 +2980,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     const mediaGuidance = copy.media_guidance || buildMediaGuidance(deterministic);
     recommendations.push({
       id: "improve-product-media",
-      label: "Improve images and alt text",
+      label: mediaUpdates.length ? "Add / update image alt text" : "Improve product media",
       type: mediaUpdates.length ? "Media alt text" : "Media guidance",
       effort: mediaUpdates.length ? "Low" : "Medium",
       status: mediaUpdates.length ? "Draft" : "Ready",
@@ -2871,6 +2994,40 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         issue: mainIssue,
         trigger: recipeSignals.media.reason,
         causeKey: getRecommendationCauseKey({ issue: "media", text: recipeSignals.media.reason, deterministic }),
+      },
+    });
+  }
+
+  if (recipeSignals.mediaOrder.shouldRecommend) {
+    recommendations.push({
+      id: "reorder-product-media",
+      label: "Reorder product media",
+      type: "Media order",
+      effort: "Medium",
+      status: "Manual approval required",
+      payload: {
+        mediaGuidance: buildMediaGuidance(deterministic),
+        imageBrief: buildRecommendedImageBrief(deterministic),
+        mediaCount: deterministic.metrics.mediaCount || 0,
+        issue: mainIssue,
+        trigger: recipeSignals.mediaOrder.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.contextualMedia.shouldRecommend) {
+    recommendations.push({
+      id: "add-contextual-media-recommendation",
+      label: "Add contextual media recommendation",
+      type: "Media guidance",
+      effort: "Medium",
+      status: "Ready",
+      payload: {
+        mediaGuidance: buildMediaGuidance(deterministic),
+        imageBrief: buildRecommendedImageBrief(deterministic),
+        mediaCount: deterministic.metrics.mediaCount || 0,
+        issue: mainIssue,
+        trigger: recipeSignals.contextualMedia.reason,
       },
     });
   }
@@ -2954,10 +3111,26 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  if (recipeSignals.sourceMismatch.shouldRecommend) {
+    recommendations.push({
+      id: "fix-source-review-mismatch",
+      label: "Fix source/review mismatch",
+      type: "Source integrity",
+      effort: "Medium",
+      status: "Manual verification required",
+      payload: {
+        mismatchSignals: recipeSignals.sourceMismatch.signals || [],
+        reviewSections,
+        issue: "source_integrity",
+        trigger: recipeSignals.sourceMismatch.reason,
+      },
+    });
+  }
+
   if (recipeSignals.variants.shouldRecommend) {
     recommendations.push({
       id: "correct-variant-options",
-      label: "Review variant and option clarity",
+      label: "Fix variant names/options",
       type: "Variant options",
       effort: "Medium",
       status: "Ready",
@@ -2974,7 +3147,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (recipeSignals.pricing.shouldRecommend) {
     recommendations.push({
       id: "review-product-pricing",
-      label: "Review price and value perception",
+      label: "Adjust price / compare-at price",
       type: "Commercial review",
       effort: "Medium",
       status: "Ready",
@@ -2994,10 +3167,61 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  if (recipeSignals.classification.shouldRecommend) {
+    const classificationDraft = buildProductClassificationDraft({ product: deterministic.product, mainIssue });
+    recommendations.push({
+      id: "update-product-classification",
+      label: "Update product classification",
+      type: "Product classification",
+      effort: "Medium",
+      status: classificationDraft.draftVendor || classificationDraft.draftProductType ? "Draft" : "Manual approval required",
+      payload: {
+        field: "classification",
+        currentVendor: deterministic.product?.vendor || "",
+        currentProductType: deterministic.product?.productType || "",
+        ...classificationDraft,
+        issue: "product_content",
+        trigger: recipeSignals.classification.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.structuredMetafields.shouldRecommend) {
+    recommendations.push({
+      id: "add-structured-metafields",
+      label: "Add structured metafields",
+      type: "Product metafield",
+      effort: "Medium",
+      status: "Draft",
+      payload: {
+        metafields: buildStructuredMetafieldRecommendations({ deterministic, mainIssue }),
+        issue: mainIssue,
+        trigger: recipeSignals.structuredMetafields.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.template.shouldRecommend) {
+    recommendations.push({
+      id: "switch-product-template",
+      label: "Switch product template",
+      type: "Product template",
+      effort: "Medium",
+      status: "Manual approval required",
+      payload: {
+        field: "templateSuffix",
+        templateSuffix: "productpulse-guidance",
+        currentTemplateSuffix: deterministic.product?.templateSuffix || "default",
+        issue: mainIssue,
+        trigger: recipeSignals.template.reason,
+      },
+    });
+  }
+
   if (recipeSignals.collection.shouldRecommend) {
     recommendations.push({
       id: "move-to-review-collection",
-      label: "Move product to review collection",
+      label: "Add to review collection",
       type: "Collection workflow",
       effort: "Low",
       status: "Ready",
@@ -3012,7 +3236,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (supportNote && (hasActionableMainIssue || contentIssues.length > 0)) {
     recommendations.push({
       id: "copy-support-note",
-      label: "Share internal note with support team",
+      label: "Create internal note",
       type: "Internal note",
       effort: "Low",
       status: "Ready",
@@ -3032,10 +3256,99 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  const workflowTags = getRecommendedWorkflowTags({ mainIssue, deterministic });
+  if (workflowTags.length && deterministic.metrics.signalCount >= 2) {
+    recommendations.push({
+      id: "add-workflow-tags",
+      label: "Add workflow tags",
+      type: "Product tag",
+      effort: "Low",
+      status: "Ready",
+      payload: { tags: workflowTags, productGid: snapshot.productGid, issue: mainIssue },
+    });
+  }
+
+  if (recipeSignals.missingSource.shouldRecommend) {
+    recommendations.push({
+      id: "connect-missing-source",
+      label: "Connect missing source",
+      type: "Source connection",
+      effort: "Medium",
+      status: "Manual setup required",
+      payload: {
+        missingSources: recipeSignals.missingSource.sources || [],
+        issue: "coverage",
+        trigger: recipeSignals.missingSource.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.monitoringCoverage.shouldRecommend) {
+    recommendations.push({
+      id: "improve-monitoring-coverage",
+      label: "Improve monitoring coverage",
+      type: "Monitoring coverage",
+      effort: "Medium",
+      status: "Manual setup required",
+      payload: {
+        missingSources: recipeSignals.missingSource.sources || [],
+        productMomentumScore: deterministic.metrics.productMomentumScore,
+        issue: "coverage",
+        trigger: recipeSignals.monitoringCoverage.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.baselineScan.shouldRecommend) {
+    recommendations.push({
+      id: "create-baseline-scan",
+      label: "Create baseline scan",
+      type: "Baseline scan",
+      effort: "Low",
+      status: "Ready",
+      payload: {
+        productMomentumScore: deterministic.metrics.productMomentumScore,
+        issue: "baseline",
+        trigger: recipeSignals.baselineScan.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.watchlist.shouldRecommend) {
+    recommendations.push({
+      id: "add-to-watchlist",
+      label: "Add to Watchlist",
+      type: "Watchlist",
+      effort: "Low",
+      status: "Ready",
+      payload: {
+        productMomentumScore: deterministic.metrics.productMomentumScore,
+        productRiskScore: deterministic.riskScore,
+        issue: "monitoring",
+        trigger: recipeSignals.watchlist.reason,
+      },
+    });
+  }
+
+  if (recipeSignals.fullDiagnosis.shouldRecommend) {
+    recommendations.push({
+      id: "run-full-diagnosis",
+      label: "Run full diagnosis",
+      type: "Diagnosis",
+      effort: "Medium",
+      status: "Ready",
+      payload: {
+        productMomentumScore: deterministic.metrics.productMomentumScore,
+        issue: "diagnosis",
+        trigger: recipeSignals.fullDiagnosis.reason,
+      },
+    });
+  }
+
   if (recipeSignals.qa.shouldRecommend) {
     recommendations.push({
       id: "recommend-qa-review",
-      label: "Recommend supplier or QA review",
+      label: "Supplier / QA review",
       type: "Operational QA",
       effort: "Medium",
       status: "Ready",
@@ -3052,7 +3365,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (recipeSignals.inventory.shouldRecommend) {
     recommendations.push({
       id: "limit-variant-inventory",
-      label: "Review inventory hold for affected variant",
+      label: "Pause affected variant / reduce availability",
       type: "Inventory hold",
       effort: "High",
       status: "Manual approval required",
@@ -3068,7 +3381,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (recipeSignals.status.shouldRecommend) {
     recommendations.push({
       id: "set-product-draft",
-      label: "Set product to draft while reviewing",
+      label: "Change product status",
       type: "High-risk action",
       effort: "High",
       status: "Manual approval required",
@@ -3082,8 +3395,77 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  return uniqueBy(recommendations, (item) => item.id)
+  return deduplicateRecommendationActions(uniqueBy(recommendations, (item) => item.id))
     .map((item, index) => decorateRecommendationRecipe(item, { deterministic, mainIssue, index }));
+}
+
+function deduplicateRecommendationActions(actions = []) {
+  return actions.reduce((kept, action) => {
+    if (!isDescriptionRecommendation(action)) {
+      kept.push(action);
+      return kept;
+    }
+
+    const duplicateIndex = kept.findIndex((existing) => isDuplicateDescriptionRecommendation(existing, action));
+    if (duplicateIndex < 0) {
+      kept.push(action);
+      return kept;
+    }
+
+    const existing = kept[duplicateIndex];
+    const preferred = choosePreferredDescriptionRecommendation(existing, action);
+    const skipped = preferred === existing ? action : existing;
+    kept[duplicateIndex] = mergeRecommendationRelationship(preferred, skipped);
+    return kept;
+  }, []);
+}
+
+function isDescriptionRecommendation(action = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  return Boolean(payload.draftText && (
+    normalized.includes("description")
+    || normalized.includes("pdp")
+    || normalized.includes("note")
+    || normalized.includes("expectation")
+    || normalized.includes("specs")
+    || ["prepend", "append", "replace"].includes(payload.operation)
+  ));
+}
+
+function isDuplicateDescriptionRecommendation(first = {}, second = {}) {
+  if (!isDescriptionRecommendation(first) || !isDescriptionRecommendation(second)) return false;
+  const firstCause = String(first.payload?.causeKey || "").trim();
+  const secondCause = String(second.payload?.causeKey || "").trim();
+  if (firstCause && secondCause && firstCause === secondCause) return true;
+  return hasSubstantialOverlap(first.payload?.draftText || "", second.payload?.draftText || "");
+}
+
+function choosePreferredDescriptionRecommendation(first = {}, second = {}) {
+  const score = (action) => {
+    const normalized = `${action.id || ""} ${action.label || ""}`.toLowerCase();
+    const operation = action.payload?.operation || action.payload?.placement || "";
+    let total = 0;
+    if (operation === "replace") total += 30;
+    if (operation === "prepend") total += 22;
+    if (operation === "append") total += 12;
+    if (normalized.includes("expectation") || normalized.includes("fit-note") || normalized.includes("quality-note") || normalized.includes("subjective")) total += 8;
+    if (normalized.includes("guidance")) total += 2;
+    return total;
+  };
+  return score(second) > score(first) ? second : first;
+}
+
+function mergeRecommendationRelationship(preferred = {}, skipped = {}) {
+  const payload = preferred.payload || {};
+  return {
+    ...preferred,
+    payload: {
+      ...payload,
+      relatedActionIds: uniqueBy([...(payload.relatedActionIds || []), skipped.id].filter(Boolean), String),
+      relatedActionLabels: uniqueBy([...(payload.relatedActionLabels || []), skipped.label].filter(Boolean), String),
+    },
+  };
 }
 
 function getRecommendationRecipeSignals(deterministic = {}) {
@@ -3106,11 +3488,31 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     || contentAdvisories.some((item) => ["missing_media_context", "missing_media_alt_text"].includes(normalizeContentIssueCode(item.code)));
   const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
   const refundInsights = metrics.refundInsights || {};
+  const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
+  const missingSourceSignals = getMissingSourceSignals(deterministic);
+  const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
+  const staleAnalysis = isStaleDiagnosis(metrics.lastAnalyzedAt || metrics.lastDiagnosisAt || metrics.latestDiagnosisAt);
 
   return {
     title: {
       shouldRecommend: Boolean(metrics.titleNeedsReview || contentIssues.some((item) => ["generic_title", "title_description_mismatch"].includes(normalizeContentIssueCode(item.code)))),
       reason: "The product title is generic, misleading, or clearly disconnected from the product content.",
+    },
+    seoTitle: {
+      shouldRecommend: Boolean(metrics.seoTitleNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      reason: "The SEO title is missing, duplicated, too long, too generic or weak for the product keywords.",
+    },
+    metaDescription: {
+      shouldRecommend: Boolean(metrics.metaDescriptionNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      reason: "The meta description is missing, too short, too long or unclear for search-result shoppers.",
+    },
+    handle: {
+      shouldRecommend: Boolean(metrics.handleNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      reason: "The product URL handle is confusing, inconsistent with the title, or missing useful product keywords.",
+    },
+    specs: {
+      shouldRecommend: Boolean(metrics.specsBlockRecommended && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
+      reason: "A compact specs/details block would clarify dimensions, compatibility, materials, care, included items or product limits.",
     },
     variants: {
       shouldRecommend: variantCount > 1 && (
@@ -3146,6 +3548,52 @@ function getRecommendationRecipeSignals(deterministic = {}) {
         ? `${metrics.mediaWithoutAltCount} product media item${Number(metrics.mediaWithoutAltCount) === 1 ? "" : "s"} need clearer alt text.`
         : "Customer expectations may depend on images, scale, color, material or visual context.",
     },
+    mediaOrder: {
+      shouldRecommend: Boolean(Number(metrics.mediaCount || 0) > 1 && (mainIssue === "color_expectation" || contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "missing_media_context"))),
+      reason: "The current media sequence may not put the clearest context, scale, color or format image first.",
+    },
+    contextualMedia: {
+      shouldRecommend: Boolean((Number(metrics.mediaCount || 0) === 0 || ["color_expectation", "subjective_negative_reaction"].includes(mainIssue)) && (hasActionableEvidence || mainIssue === "color_expectation")),
+      reason: "Customers may need an additional contextual image showing scale, packaging, color, material or real use.",
+    },
+    classification: {
+      shouldRecommend: Boolean(metrics.classificationNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      reason: "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
+    },
+    structuredMetafields: {
+      shouldRecommend: Boolean(hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
+      reason: "Structured product metadata can preserve warnings, QA status, SEO notes or risk flags for themes and reporting.",
+    },
+    template: {
+      shouldRecommend: Boolean(metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
+      reason: "The product may need a richer template to display FAQ, specs or warning content beyond plain description text.",
+    },
+    sourceMismatch: {
+      shouldRecommend: Boolean(sourceMismatchSignals.length >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE),
+      reason: "Reviews, returns or text appear to reference another product, SKU, feed item or variant.",
+      signals: sourceMismatchSignals,
+    },
+    missingSource: {
+      shouldRecommend: Boolean(missingSourceSignals.length && (hasActionableEvidence || productMomentumScore >= 70)),
+      reason: `Diagnosis coverage is limited by missing sources: ${missingSourceSignals.join(", ")}.`,
+      sources: missingSourceSignals,
+    },
+    monitoringCoverage: {
+      shouldRecommend: Boolean(productMomentumScore >= 70 && missingSourceSignals.length),
+      reason: "This product has enough commercial momentum to deserve stronger monitoring coverage before issues become expensive.",
+    },
+    baselineScan: {
+      shouldRecommend: Boolean(productMomentumScore >= 75 && Number(deterministic.riskScore || 0) < 50 && !hasActionableEvidence),
+      reason: "The product is commercially important but currently has limited problem evidence, so a baseline can help monitor future changes.",
+    },
+    watchlist: {
+      shouldRecommend: Boolean(productMomentumScore >= 80 && Number(deterministic.riskScore || 0) < 70),
+      reason: "Momentum is high enough that this product should be watched periodically even if risk is not currently high.",
+    },
+    fullDiagnosis: {
+      shouldRecommend: Boolean(productMomentumScore >= 70 && staleAnalysis),
+      reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh full diagnosis.",
+    },
     qa: {
       shouldRecommend: Boolean(hasActionableEvidence && (highRiskOperationalIssue || refundInsights.shouldSurface || Number(metrics.returnRate || 0) >= 15)),
       reason: refundInsights.shouldSurface
@@ -3178,6 +3626,45 @@ function getValuePerceptionSignals(deterministic = {}) {
     .slice(0, 5);
 }
 
+function getSourceMismatchSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const contentIssues = [
+    ...(Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : []),
+  ];
+  const textValues = [
+    ...(Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets : []).map((item) => item.text || item.body || item.quote || item.summary || ""),
+    ...contentIssues.map((item) => `${item.code || ""} ${item.label || ""} ${item.evidence || ""}`),
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []).map((item) => item.term || item.label || item.phrase || ""),
+  ].map(String);
+  return uniqueBy(
+    textValues.filter((value) => /\b(wrong product|different product|another product|not this product|wrong sku|sku mismatch|review mismatch|feed mismatch|wrong variant|not the item|different item)\b/i.test(value)),
+    (value) => normalizeText(value),
+  ).slice(0, 5);
+}
+
+function getMissingSourceSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const sourceCoverage = new Set((deterministic.sourceCoverage || metrics.sourceCoverage || []).map((source) => normalizeText(source)));
+  const missing = [];
+  if (metrics.orderAccessDenied) missing.push("Shopify orders");
+  if (!sourceCoverageHas(sourceCoverage, "csv") && !sourceCoverageHas(sourceCoverage, "judge") && !Number(metrics.reviewCount || 0)) missing.push("external reviews");
+  return uniqueBy(missing, normalizeText).slice(0, 4);
+}
+
+function sourceCoverageHas(sourceCoverage, needle) {
+  const normalizedNeedle = normalizeText(needle);
+  return [...sourceCoverage].some((source) => source.includes(normalizedNeedle));
+}
+
+function isStaleDiagnosis(value, staleDays = 14) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return Date.now() - date.getTime() > staleDays * 24 * 60 * 60 * 1000;
+}
+
 function decorateRecommendationRecipe(action, { deterministic, mainIssue, index }) {
   const recipe = getRecommendationRecipeMetadata(action, { deterministic, mainIssue, index });
   return {
@@ -3195,6 +3682,8 @@ function decorateRecommendationRecipe(action, { deterministic, mainIssue, index 
       approval: recipe.approval,
       reviewApplyFlow: "Review -> Apply",
       priorityGroup: recipe.priorityGroup,
+      impactLevel: recipe.impactLevel,
+      actionTier: recipe.actionTier,
     },
   };
 }
@@ -3213,6 +3702,8 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
     applicationRisk: "Low",
     approval: "Review required before applying",
     priorityGroup: primary,
+    impactLevel: "Optional",
+    actionTier: 3,
   };
 
   if (id === "correct-product-description") {
@@ -3223,9 +3714,11 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Remove a buyer-facing content contradiction without rewriting the full PDP copy.",
       applicationRisk: "Low",
       priorityGroup: "Customer-facing fix",
+      impactLevel: "High impact",
+      actionTier: 1,
     };
   }
-  if (id.includes("description") || id.includes("fit-note") || id.includes("expectation") || id.includes("quality-note") || id.includes("subjective")) {
+  if ((id.includes("description") && id !== "rewrite-meta-description") || id.includes("fit-note") || id.includes("expectation") || id.includes("quality-note") || id.includes("subjective")) {
     return {
       ...common,
       proposedChange: payload.operation === "replace" ? "Rewrite the Shopify product description while preserving useful existing copy." : "Insert shopper-facing expectation guidance into the product description.",
@@ -3233,6 +3726,8 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Reduce avoidable buyer confusion before checkout.",
       applicationRisk: "Low",
       priorityGroup: "Customer-facing fix",
+      impactLevel: "High impact",
+      actionTier: 1,
     };
   }
   if (id === "create-product-faq") {
@@ -3243,6 +3738,8 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Answer repeated buyer uncertainty before purchase.",
       applicationRisk: "Low",
       priorityGroup: "Customer-facing fix",
+      impactLevel: "High impact",
+      actionTier: 1,
     };
   }
   if (id === "update-product-title") {
@@ -3252,7 +3749,57 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       shopifyField: "Product.title",
       expectedImpact: "Make the product easier to identify and reduce expectation mismatch.",
       applicationRisk: "Medium",
-      priorityGroup: "Customer-facing fix",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "rewrite-seo-title") {
+    return {
+      ...common,
+      proposedChange: `Change the SEO title to "${payload.draftText || payload.draftTitle || "a clearer search title"}".`,
+      shopifyField: "Product.seo.title",
+      expectedImpact: "Improve search-result clarity without changing the visible PDP title.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "rewrite-meta-description") {
+    return {
+      ...common,
+      proposedChange: "Rewrite the Shopify meta description for clearer search-result copy.",
+      shopifyField: "Product.seo.description",
+      expectedImpact: "Clarify search-result expectations and reduce low-intent clicks.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "improve-url-handle") {
+    return {
+      ...common,
+      proposedChange: `Change the product URL handle to "${payload.draftHandle || payload.draftText || "a clearer handle"}" and create a redirect when Shopify supports it.`,
+      shopifyField: "Product.handle",
+      expectedImpact: "Make the URL easier to read, share and match to product keywords.",
+      applicationRisk: "Medium",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "add-specs-details-block") {
+    return {
+      ...common,
+      proposedChange: "Add a compact specs/details block to the Shopify product description.",
+      shopifyField: "Product.descriptionHtml",
+      expectedImpact: "Reduce confusion around dimensions, compatibility, materials, care, included items or product limits.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
     };
   }
   if (id === "correct-variant-options") {
@@ -3263,7 +3810,9 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Reduce wrong variant selection and focus remediation on the affected scope.",
       applicationRisk: "Medium",
       approval: "Manual approval required",
-      priorityGroup: "Catalog fix",
+      priorityGroup: "High-impact product fix",
+      impactLevel: "High impact",
+      actionTier: 1,
     };
   }
   if (id === "review-product-pricing") {
@@ -3274,7 +3823,9 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: `Reduce value mismatch risk while protecting ${formatMoney(metrics.marginAtRisk || 0)} margin exposure.`,
       applicationRisk: "High",
       approval: "Manual approval required",
-      priorityGroup: "Commercial fix",
+      priorityGroup: "High-impact product fix",
+      impactLevel: "High impact",
+      actionTier: 1,
     };
   }
   if (id === "set-product-draft") {
@@ -3285,7 +3836,9 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Temporarily stop the product from continuing to create customer-facing risk.",
       applicationRisk: "High",
       approval: "Manual approval required",
-      priorityGroup: "Operational control",
+      priorityGroup: "High-impact product fix",
+      impactLevel: "High impact",
+      actionTier: 1,
     };
   }
   if (id === "limit-variant-inventory") {
@@ -3296,7 +3849,9 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Limit exposure while preserving unaffected variants.",
       applicationRisk: "High",
       approval: "Manual approval required",
-      priorityGroup: "Operational control",
+      priorityGroup: "High-impact product fix",
+      impactLevel: "High impact",
+      actionTier: 1,
     };
   }
   if (id === "apply-risk-tags") {
@@ -3306,7 +3861,9 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       shopifyField: "Product.tags",
       expectedImpact: "Make the product discoverable in internal workflows and automated collections.",
       applicationRisk: "Low",
-      priorityGroup: "Catalog fix",
+      priorityGroup: "Optional workflow",
+      impactLevel: "Optional",
+      actionTier: 3,
     };
   }
   if (id === "move-to-review-collection") {
@@ -3317,7 +3874,9 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Group risky products for quality, merchandising or operations review.",
       applicationRisk: "Medium",
       approval: "Manual approval required",
-      priorityGroup: "Catalog fix",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
     };
   }
   if (id === "improve-product-media") {
@@ -3332,7 +3891,73 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Reduce visual expectation mismatch and improve PDP clarity.",
       applicationRisk: updates.length ? "Low" : "Medium",
       approval: updates.length ? "Review required before applying" : "Manual approval required",
-      priorityGroup: "Customer-facing fix",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "reorder-product-media") {
+    return {
+      ...common,
+      proposedChange: "Move the clearest scale, format, color or context media earlier in the product gallery.",
+      shopifyField: "Product media order",
+      expectedImpact: "Help shoppers understand the product visually before they read detailed copy.",
+      applicationRisk: "Medium",
+      approval: "Manual approval required",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "add-contextual-media-recommendation") {
+    return {
+      ...common,
+      proposedChange: payload.imageBrief || "Add a contextual product image that shows scale, material, packaging, color or real use.",
+      shopifyField: "Product media",
+      expectedImpact: "Reduce visual surprise and expectation mismatch before purchase.",
+      applicationRisk: "Medium",
+      approval: "Manual approval required",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "update-product-classification") {
+    return {
+      ...common,
+      proposedChange: "Review and update product type, vendor or Shopify category classification.",
+      shopifyField: "Product.productType, Product.vendor or category",
+      expectedImpact: "Improve catalog reporting, filters, automatic collections and operational routing.",
+      applicationRisk: "Medium",
+      approval: payload.draftVendor || payload.draftProductType ? "Review required before applying" : "Manual approval required",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "add-structured-metafields") {
+    return {
+      ...common,
+      proposedChange: "Save ProductPulse risk, QA or content notes as structured product metafields.",
+      shopifyField: "Product metafields",
+      expectedImpact: "Make diagnosis context reusable in themes, workflows and reporting.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "switch-product-template") {
+    return {
+      ...common,
+      proposedChange: `Switch this product to the "${payload.templateSuffix || "productpulse-guidance"}" product template after theme review.`,
+      shopifyField: "Product.templateSuffix",
+      expectedImpact: "Give this product a layout that can display FAQ, specs or warnings more clearly.",
+      applicationRisk: "Medium",
+      approval: "Manual approval required",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
     };
   }
   if (id === "copy-support-note") {
@@ -3342,7 +3967,9 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       shopifyField: "Internal support workflow",
       expectedImpact: "Help support answer repeated product questions consistently.",
       applicationRisk: "Low",
-      priorityGroup: "Operational follow-up",
+      priorityGroup: "Optional workflow",
+      impactLevel: "Optional",
+      actionTier: 3,
     };
   }
   if (id === "recommend-qa-review") {
@@ -3353,7 +3980,96 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       expectedImpact: "Address potential physical, supplier or durability issues outside the PDP.",
       applicationRisk: "Low",
       approval: "Manual approval required",
-      priorityGroup: "Operational follow-up",
+      priorityGroup: "High-impact product fix",
+      impactLevel: "High impact",
+      actionTier: 1,
+    };
+  }
+  if (id === "fix-source-review-mismatch") {
+    return {
+      ...common,
+      proposedChange: "Verify whether reviews, returns, CSV rows or feed data are attached to the wrong product, SKU or variant.",
+      shopifyField: "Evidence source integrity",
+      expectedImpact: "Prevent the merchant from changing the wrong product based on mismatched evidence.",
+      applicationRisk: "Low",
+      approval: "Manual verification required",
+      priorityGroup: "High-impact product fix",
+      impactLevel: "High impact",
+      actionTier: 1,
+    };
+  }
+  if (id === "add-workflow-tags") {
+    return {
+      ...common,
+      proposedChange: `Add workflow tags: ${(payload.tags || []).join(", ")}.`,
+      shopifyField: "Product.tags",
+      expectedImpact: "Route the product into team workflows without changing customer-facing copy.",
+      applicationRisk: "Low",
+      priorityGroup: "Optional workflow",
+      impactLevel: "Optional",
+      actionTier: 3,
+    };
+  }
+  if (id === "connect-missing-source") {
+    return {
+      ...common,
+      proposedChange: `Connect or enable missing source coverage: ${(payload.missingSources || []).join(", ") || "missing sources"}.`,
+      shopifyField: "ProductPulse source connections",
+      expectedImpact: "Increase diagnosis confidence before taking bigger product changes.",
+      applicationRisk: "Low",
+      approval: "Manual setup required",
+      priorityGroup: "Optional workflow",
+      impactLevel: "Optional",
+      actionTier: 3,
+    };
+  }
+  if (id === "improve-monitoring-coverage") {
+    return {
+      ...common,
+      proposedChange: "Improve monitoring coverage for a commercially important product.",
+      shopifyField: "ProductPulse monitoring workflow",
+      expectedImpact: "Catch risk changes earlier for products that matter commercially.",
+      applicationRisk: "Low",
+      approval: "Manual setup required",
+      priorityGroup: "Optional workflow",
+      impactLevel: "Optional",
+      actionTier: 3,
+    };
+  }
+  if (id === "create-baseline-scan") {
+    return {
+      ...common,
+      proposedChange: "Create a baseline scan so future changes can be compared against a clean starting point.",
+      shopifyField: "ProductPulse diagnosis history",
+      expectedImpact: "Make future risk and momentum changes easier to detect.",
+      applicationRisk: "Low",
+      priorityGroup: "Optional workflow",
+      impactLevel: "Optional",
+      actionTier: 3,
+    };
+  }
+  if (id === "add-to-watchlist") {
+    return {
+      ...common,
+      proposedChange: "Add this product to the Watchlist for periodic deep diagnostics.",
+      shopifyField: "ProductPulse Watchlist",
+      expectedImpact: "Monitor commercially important products before small issues grow.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "run-full-diagnosis") {
+    return {
+      ...common,
+      proposedChange: "Run or re-run the full product diagnosis.",
+      shopifyField: "ProductPulse diagnosis job",
+      expectedImpact: "Refresh diagnosis confidence for important or stale products.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
     };
   }
   return common;
@@ -3368,6 +4084,132 @@ function buildSuggestedProductTitle(product = {}, mainIssue = "") {
     getHumanIssueLabel(mainIssue) !== "Product quality" ? getHumanIssueLabel(mainIssue) : "",
   ].filter(Boolean);
   return parts.length ? uniqueBy(parts, normalizeText).join(" ") : current || "Clarified product title";
+}
+
+function buildSuggestedSeoTitle({ product = {}, snapshot = {}, mainIssue = "", aiTitle = "" } = {}) {
+  const base = normalizeSuggestedTitle(aiTitle || product.title || snapshot.productTitle || buildSuggestedProductTitle(product, mainIssue));
+  const vendor = String(product.vendor || "").trim();
+  const withVendor = vendor && !normalizeText(base).includes(normalizeText(vendor)) ? `${base} | ${vendor}` : base;
+  return normalizeSuggestedTitle(withVendor).slice(0, 70).replace(/\s+[|-]?\s*$/, "");
+}
+
+function buildSuggestedMetaDescription({ product = {}, snapshot = {}, mainIssue = "", aiDescription = "" } = {}) {
+  const title = String(product.title || snapshot.productTitle || "This product").trim();
+  const description = stripHtml(product.description || product.descriptionHtml || "").replace(/\s+/g, " ").trim();
+  const issueLabel = getHumanIssueLabel(mainIssue).toLowerCase();
+  const base = aiDescription || description || `${title} with clear product details, specifications, included items and expectation-setting guidance for shoppers.`;
+  const prefix = base.toLowerCase().startsWith(title.toLowerCase()) ? base : `${title}: ${base}`;
+  const suffix = issueLabel && !["product quality", "no issue"].includes(issueLabel) ? ` Includes guidance around ${issueLabel}.` : "";
+  return truncateSentence(`${prefix}${suffix}`, 155);
+}
+
+function buildSuggestedProductHandle({ product = {}, snapshot = {} } = {}) {
+  const source = String(product.title || snapshot.productTitle || product.handle || snapshot.handle || "product").trim();
+  const handle = normalizeText(source)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 80);
+  return handle || String(product.handle || snapshot.handle || "product").replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+}
+
+function buildSpecsDetailsBlock({ product = {}, contentIssues = [], mainIssue = "" } = {}) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const optionNames = Array.isArray(product.options) ? product.options.map((option) => option.name).filter(Boolean) : [];
+  const issueLabel = getHumanIssueLabel(mainIssue);
+  const lines = [
+    "Product details to confirm before buying:",
+    product.productType ? `- Product type: ${product.productType}` : "",
+    product.vendor ? `- Brand/vendor: ${product.vendor}` : "",
+    optionNames.length ? `- Available options: ${optionNames.join(", ")}` : "",
+    variants.length ? `- Variants/SKUs: ${variants.slice(0, 5).map((variant) => [variant.title, variant.sku].filter(Boolean).join(" / ")).filter(Boolean).join("; ")}` : "",
+    contentIssues.length ? `- Clarify: ${contentIssues.slice(0, 3).map((issue) => issue.label).filter(Boolean).join(", ")}` : "",
+    issueLabel && issueLabel !== "No issue" ? `- Buyer expectation note: ${issueLabel}` : "",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+function buildProductClassificationDraft({ product = {}, mainIssue = "" } = {}) {
+  const title = String(product.title || "").trim();
+  const categories = detectProductCategoryGroups([
+    title,
+    product.description,
+    ...(Array.isArray(product.tags) ? product.tags : []),
+    ...(Array.isArray(product.collections) ? product.collections : []),
+  ].join(" "));
+  const [category] = [...categories];
+  const draftProductType = product.productType || getProductTypeFromCategory(category, mainIssue);
+  return {
+    draftVendor: product.vendor || "",
+    draftProductType: draftProductType || "",
+    draftCategory: category || "",
+  };
+}
+
+function getProductTypeFromCategory(category = "", mainIssue = "") {
+  if (category === "apparel") return "Apparel";
+  if (category === "toy") return "Toys & Games";
+  if (category === "art") return "Art & Decor";
+  if (category === "electronics") return "Electronics";
+  if (category === "beauty") return "Beauty";
+  if (category === "home") return "Home";
+  if (category === "food") return "Food & Beverage";
+  const issue = normalizeIssueCode(mainIssue);
+  if (issue === "fit_sizing") return "Apparel";
+  if (issue === "compatibility") return "Electronics";
+  return "";
+}
+
+function buildStructuredMetafieldRecommendations({ deterministic = {}, mainIssue = "" } = {}) {
+  const metrics = deterministic.metrics || {};
+  const issue = normalizeIssueCode(mainIssue || deterministic.mainIssue);
+  const riskLevel = Number(deterministic.riskScore || 0) >= 75 ? "high" : Number(deterministic.riskScore || 0) >= 55 ? "medium" : "low";
+  return [
+    {
+      namespace: "productpulse",
+      key: "risk_level",
+      type: "single_line_text_field",
+      value: riskLevel,
+    },
+    {
+      namespace: "productpulse",
+      key: "main_issue",
+      type: "single_line_text_field",
+      value: issue || "none",
+    },
+    {
+      namespace: "productpulse",
+      key: "diagnosis_summary",
+      type: "json",
+      value: JSON.stringify({
+        riskScore: deterministic.riskScore || 0,
+        confidence: deterministic.confidence || 0,
+        returnRate: metrics.returnRate || 0,
+        refundRate: metrics.refundRate || 0,
+        issue,
+      }),
+    },
+  ];
+}
+
+function getRecommendedWorkflowTags({ mainIssue, deterministic = {} } = {}) {
+  const issue = normalizeIssueCode(mainIssue);
+  const metrics = deterministic.metrics || {};
+  const tags = [];
+  if (issue === "quality_defect" || issue === "durability") tags.push("qa-review-needed");
+  if (issue === "safety_concern") tags.push("safety-review-needed");
+  if (metrics.seoTitleNeedsReview || metrics.metaDescriptionNeedsReview || metrics.handleNeedsReview) tags.push("seo-fix-needed");
+  if (Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0) >= 70) tags.push("watchlist-candidate");
+  if (metrics.classificationNeedsReview) tags.push("catalog-classification-review");
+  return uniqueBy(tags, normalizeText);
+}
+
+function truncateSentence(value = "", maxLength = 155) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  const clipped = text.slice(0, maxLength + 1);
+  const sentence = clipped.replace(/\s+\S*$/, "").replace(/[,:;.-]+$/, "");
+  return `${sentence || clipped.slice(0, maxLength).trim()}...`;
 }
 
 function normalizeSuggestedTitle(value) {
@@ -4448,6 +5290,9 @@ function normalizeShopifyProduct(product, snapshot) {
     createdAt: toIso(product.createdAt),
     description: cleanProductDescription(product),
     descriptionHtml: String(product.descriptionHtml || ""),
+    seoTitle: String(product.seo?.title || ""),
+    seoDescription: String(product.seo?.description || ""),
+    templateSuffix: String(product.templateSuffix || ""),
     vendor: product.vendor || "",
     productType: product.productType || "",
     status: product.status || "Unknown",
@@ -4475,6 +5320,9 @@ function normalizeSnapshotProduct(snapshot) {
     createdAt: null,
     description: "",
     descriptionHtml: "",
+    seoTitle: metrics.seoTitle || "",
+    seoDescription: metrics.seoDescription || "",
+    templateSuffix: metrics.templateSuffix || "",
     vendor: metrics.vendor || "",
     productType: metrics.productType || "",
     status: "Unknown",
@@ -5497,6 +6345,10 @@ function analyzeProductContentDeterministically(product) {
   const normalizedDescription = normalizeText(description);
   const normalizedTitle = normalizeText(product.title);
   const productType = normalizeText(product.productType);
+  const seoTitle = String(product.seoTitle || "").replace(/\s+/g, " ").trim();
+  const seoDescription = String(product.seoDescription || "").replace(/\s+/g, " ").trim();
+  const handle = String(product.handle || "").trim();
+  const templateSuffix = String(product.templateSuffix || "").trim();
   const tags = Array.isArray(product.tags) ? product.tags.map(String).filter(Boolean) : [];
   const collections = Array.isArray(product.collections) ? product.collections.map(String).filter(Boolean) : [];
   const variants = Array.isArray(product.variants) ? product.variants : [];
@@ -5545,6 +6397,37 @@ function analyzeProductContentDeterministically(product) {
     advisories.push(buildContentAdvisory("missing_media_alt_text", "Media alt text could be improved", "One or more product media items have no alt text."));
   }
 
+  if (!seoTitle) {
+    advisories.push(buildContentAdvisory("missing_seo_title", "SEO title is missing", "The product has no explicit Shopify SEO title."));
+  } else if (seoTitle.length > 70 || isGenericProductTitle(seoTitle)) {
+    advisories.push(buildContentAdvisory("weak_seo_title", "SEO title could be stronger", `The SEO title is ${seoTitle.length > 70 ? "too long" : "too generic"} for search results.`));
+  }
+
+  if (!seoDescription) {
+    advisories.push(buildContentAdvisory("missing_meta_description", "Meta description is missing", "The product has no explicit Shopify meta description."));
+  } else if (seoDescription.length < 70 || seoDescription.length > 165) {
+    advisories.push(buildContentAdvisory("weak_meta_description", "Meta description could be clearer", `The meta description is ${seoDescription.length < 70 ? "too short" : "too long"} for search results.`));
+  }
+
+  if (handle && shouldReviewProductHandle(handle, product.title)) {
+    advisories.push(buildContentAdvisory("weak_product_handle", "URL handle could be clearer", "The product URL handle is hard to read, inconsistent with the title, or missing useful product keywords."));
+  }
+
+  const hasSpecsLanguage = /(dimension|dimensions|size|sizing|material|materials|compatible|compatibility|includes|included|care|weight|height|width|length|capacity|model|specification|specifications)/i.test(description);
+  const specsBlockRecommended = Boolean(description && !hasSpecsLanguage && (descriptionWordCount < 80 || productType || variants.length > 1));
+  if (specsBlockRecommended) {
+    advisories.push(buildContentAdvisory("missing_specs_block", "Specs/details block could improve clarity", "The description does not clearly separate specifications, compatibility, included items, materials, care or limits."));
+  }
+
+  if (!String(product.vendor || "").trim() || !String(product.productType || "").trim()) {
+    advisories.push(buildContentAdvisory("classification_incomplete", "Product classification needs review", "Vendor or product type is missing, which can weaken catalog workflows and reporting."));
+  }
+
+  const templateNeedsReview = Boolean(!templateSuffix && (specsBlockRecommended || issues.some((issue) => ["missing_description", "short_description", "description_variant_mismatch"].includes(issue.code))));
+  if (templateNeedsReview) {
+    advisories.push(buildContentAdvisory("template_may_need_special_layout", "Product template could support richer guidance", "This product may need a template that can show FAQ, specs or warning content more clearly than plain description text."));
+  }
+
   const score = clamp(100 - issues.reduce((total, issue) => total + issue.riskLift * 3, 0), 0, 100);
 
   return {
@@ -5552,6 +6435,12 @@ function analyzeProductContentDeterministically(product) {
     descriptionLength: description.length,
     descriptionWordCount,
     titleNeedsReview: issues.some((issue) => issue.code === "generic_title"),
+    seoTitleNeedsReview: advisories.some((issue) => ["missing_seo_title", "weak_seo_title"].includes(issue.code)),
+    metaDescriptionNeedsReview: advisories.some((issue) => ["missing_meta_description", "weak_meta_description"].includes(issue.code)),
+    handleNeedsReview: advisories.some((issue) => issue.code === "weak_product_handle"),
+    specsBlockRecommended,
+    classificationNeedsReview: advisories.some((issue) => issue.code === "classification_incomplete"),
+    templateNeedsReview,
     variantNamingAdvisory: advisories.some((issue) => issue.code === "unclear_variant_names"),
     mediaCount: media.length,
     mediaWithoutAltCount: media.filter((item) => !String(item.alt || "").trim()).length,
@@ -5573,6 +6462,18 @@ function isGenericProductTitle(value) {
 function isDefaultVariantTitle(value) {
   const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, " ").trim();
   return !normalized || normalized === "default title" || normalized === "default";
+}
+
+function shouldReviewProductHandle(handle = "", title = "") {
+  const normalizedHandle = String(handle || "").trim().toLowerCase();
+  if (!normalizedHandle) return false;
+  if (normalizedHandle.length < 6 || /[_%]|-{2,}/.test(normalizedHandle)) return true;
+  if (/^\d+$/.test(normalizedHandle) || /^product-\d+$/.test(normalizedHandle)) return true;
+  const handleTokens = new Set(meaningfulTokens(normalizedHandle.replace(/-/g, " ")));
+  const titleTokens = meaningfulTokens(title);
+  if (titleTokens.length < 2 || !handleTokens.size) return false;
+  const shared = titleTokens.filter((token) => handleTokens.has(token)).length;
+  return shared === 0;
 }
 
 function buildContentIssue(code, label, severity, evidence, riskLift) {
@@ -6337,8 +7238,9 @@ function buildMonthlyOrderActivity({
     const bucket = buckets.get(monthKey);
     if (!bucket) return;
     const orderKey = event.orderId || event.id || `return:${index}:${monthKey}`;
+    bucket.orderIds.add(orderKey);
     bucket.returnOrderIds.add(orderKey);
-    bucket.returnedUnits += Number(event.quantity || event.processedQuantity || event.refundedQuantity || 0);
+    bucket.returnedUnits += getOperationalEventQuantity(event);
   });
 
   refunds.forEach((event, index) => {
@@ -6346,8 +7248,9 @@ function buildMonthlyOrderActivity({
     const bucket = buckets.get(monthKey);
     if (!bucket) return;
     const orderKey = event.orderId || event.id || `refund:${index}:${monthKey}`;
+    bucket.orderIds.add(orderKey);
     bucket.refundOrderIds.add(orderKey);
-    bucket.refundedUnits += Number(event.quantity || 0);
+    bucket.refundedUnits += getOperationalEventQuantity(event);
     bucket.refundAmount += Number(event.amount || event.totalRefundedAmount || 0);
   });
 
@@ -6393,7 +7296,7 @@ function buildMonthlyOrderActivity({
         summary.totalOrderUnits,
         summary.totalOrders ? (summary.totalRefundedOrders / summary.totalOrders) * 100 : 0,
       ),
-    maxOrders: Math.max(summary.maxOrders, 1),
+      maxOrders: Math.max(summary.maxOrders, 1),
     },
   };
 }
@@ -6427,8 +7330,9 @@ function buildReturnRatePrediction({
     const bucket = buckets.get(weekKey);
     if (!bucket) return;
     const orderKey = event.orderId || event.id || `return:${index}:${weekKey}`;
+    bucket.orderIds.add(orderKey);
     bucket.returnOrderIds.add(orderKey);
-    bucket.returnedUnits += Number(event.quantity || event.processedQuantity || event.refundedQuantity || 0);
+    bucket.returnedUnits += getOperationalEventQuantity(event);
   });
 
   const rawPoints = [...buckets.values()].map(normalizeReturnRateWeekBucket);
@@ -6484,7 +7388,7 @@ function buildReturnRatePrediction({
   };
 }
 
-function buildProductMomentum({
+export function buildProductMomentum({
   product = {},
   sales = [],
   windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
@@ -6837,16 +7741,18 @@ function createReturnRateWeekBucket(date) {
 function normalizeReturnRateWeekBucket(bucket) {
   const orders = bucket.orderIds.size;
   const returnedOrders = bucket.returnOrderIds.size;
+  const returnedUnits = Math.max(Number(bucket.returnedUnits || 0), returnedOrders);
+  const orderUnits = Math.max(Number(bucket.orderUnits || 0), returnedUnits, orders);
   return {
     key: bucket.key,
     label: bucket.label,
     startAt: bucket.startAt,
     orders,
-    orderUnits: bucket.orderUnits,
+    orderUnits,
     returnedOrders,
-    returnedUnits: bucket.returnedUnits,
-    rawReturnRate: orders || bucket.orderUnits
-      ? calculateUnitRatePercent(bucket.returnedUnits, bucket.orderUnits, orders ? (returnedOrders / orders) * 100 : 0)
+    returnedUnits,
+    rawReturnRate: orders || orderUnits
+      ? calculateUnitRatePercent(returnedUnits, orderUnits, orders ? (returnedOrders / orders) * 100 : 0)
       : null,
   };
 }
@@ -6854,7 +7760,7 @@ function normalizeReturnRateWeekBucket(bucket) {
 function buildSmoothedReturnRatePoints(rawPoints = [], totalReturnRate = 0) {
   const priorRate = clamp(totalReturnRate / 100, 0, 1);
   const priorStrength = 4;
-  let previousRate = totalReturnRate;
+  let previousRate = 0;
 
   return rawPoints.map((point, index) => {
     const rolling = rawPoints.slice(Math.max(0, index - 2), index + 1);
@@ -6887,13 +7793,22 @@ function buildReturnRateForecastPoints({ observedPoints = [], totalReturnRate = 
   if (values.length < 2) return [];
 
   const currentRate = values[values.length - 1];
-  const recentValues = values.slice(-4);
-  const previousValues = values.slice(-8, -4);
-  const recentAvg = average(recentValues);
-  const previousAvg = previousValues.length ? average(previousValues) : values[0];
-  const recentOrderAvg = average(observedPoints.slice(-4).map((point) => point.orders));
-  const sampleWeight = clamp(recentOrderAvg / 8, 0.25, 1);
-  const weeklySlope = clamp(((recentAvg - previousAvg) / Math.max(recentValues.length, 1)) * sampleWeight, -3, 3);
+  const recentValues = values.slice(-Math.min(values.length, 6));
+  const recentDelta = recentValues.length > 1 ? recentValues[recentValues.length - 1] - recentValues[0] : 0;
+  const recentSlope = linearRegressionSlope(recentValues);
+  const flatThreshold = Math.max(0.5, Math.min(2.5, Math.abs(totalReturnRate) * 0.06));
+  const trendDirection = Math.abs(recentDelta) <= flatThreshold && Math.abs(recentSlope) <= 0.35
+    ? "flat"
+    : recentDelta > 0 && recentSlope > 0
+      ? "rising"
+      : recentDelta < 0 && recentSlope < 0
+        ? "falling"
+        : "mixed";
+  const recentOrderAvg = average(observedPoints.slice(-4).map((point) => Number(point.orders || point.orderUnits || 0)));
+  const sampleWeight = clamp(recentOrderAvg / 8, 0.2, 1);
+  const weeklySlope = trendDirection === "flat"
+    ? 0
+    : clamp(recentSlope * sampleWeight, -2.5, 2.5);
   const seasonalRates = buildReturnRateSeasonalityRates(observedPoints);
   const startDate = addUtcDays(startOfUtcWeek(currentDate), 7);
   const forecastPoints = [];
@@ -6902,10 +7817,18 @@ function buildReturnRateForecastPoints({ observedPoints = [], totalReturnRate = 
   for (let index = 0; index < RETURN_RATE_PREDICTION_FORECAST_WEEKS; index += 1) {
     const date = addUtcDays(startDate, index * 7);
     const horizon = (index + 1) / RETURN_RATE_PREDICTION_FORECAST_WEEKS;
-    const dampedTrend = currentRate + weeklySlope * (index + 1) * (1 - horizon * 0.48);
+    const dampedTrend = currentRate + weeklySlope * (index + 1) * (1 - horizon * 0.62);
     const seasonalRate = seasonalRates.get(date.getUTCMonth()) ?? totalReturnRate;
-    const target = (dampedTrend * 0.58) + (seasonalRate * 0.18) + (totalReturnRate * 0.24);
-    const easing = 0.34 + horizon * 0.18;
+    const anchorRate = trendDirection === "flat"
+      ? currentRate
+      : trendDirection === "falling"
+        ? Math.min(currentRate, totalReturnRate)
+        : totalReturnRate;
+    const trendWeight = trendDirection === "flat" ? 0.72 : 0.66;
+    const seasonalWeight = seasonalRates.has(date.getUTCMonth()) ? 0.12 : 0.06;
+    const anchorWeight = 1 - trendWeight - seasonalWeight;
+    const target = (dampedTrend * trendWeight) + (seasonalRate * seasonalWeight) + (anchorRate * anchorWeight);
+    const easing = trendDirection === "flat" ? 0.22 : 0.30 + horizon * 0.14;
     const predictedReturnRate = clamp(previousPrediction + (target - previousPrediction) * easing, 0, 100);
     previousPrediction = predictedReturnRate;
     forecastPoints.push({
@@ -6917,6 +7840,7 @@ function buildReturnRateForecastPoints({ observedPoints = [], totalReturnRate = 
       baselineReturnRate: roundRate(totalReturnRate),
       seasonalReturnRate: roundRate(seasonalRate),
       trendSlope: roundRate(weeklySlope, 3),
+      trendDirection,
     });
   }
 
@@ -6998,22 +7922,29 @@ function normalizeMonthlyOrderActivityBucket(bucket) {
   const orders = bucket.orderIds.size;
   const returnedOrders = bucket.returnOrderIds.size;
   const refundedOrders = bucket.refundOrderIds.size;
+  const returnedUnits = Math.max(Number(bucket.returnedUnits || 0), returnedOrders);
+  const refundedUnits = Math.max(Number(bucket.refundedUnits || 0), refundedOrders);
+  const orderUnits = Math.max(Number(bucket.orderUnits || 0), returnedUnits, refundedUnits, orders);
   return {
     key: bucket.key,
     label: bucket.label,
     shortLabel: bucket.shortLabel,
     startAt: bucket.startAt,
     orders,
-    orderUnits: bucket.orderUnits,
+    orderUnits,
     revenue: roundCurrency(bucket.revenue),
     returnedOrders,
-    returnedUnits: bucket.returnedUnits,
+    returnedUnits,
     refundedOrders,
-    refundedUnits: bucket.refundedUnits,
+    refundedUnits,
     refundAmount: roundCurrency(bucket.refundAmount),
-    returnRate: calculateUnitRatePercent(bucket.returnedUnits, bucket.orderUnits, orders ? (returnedOrders / orders) * 100 : 0),
-    refundRate: calculateUnitRatePercent(bucket.refundedUnits, bucket.orderUnits, orders ? (refundedOrders / orders) * 100 : 0),
+    returnRate: calculateUnitRatePercent(returnedUnits, orderUnits, orders ? (returnedOrders / orders) * 100 : 0),
+    refundRate: calculateUnitRatePercent(refundedUnits, orderUnits, orders ? (refundedOrders / orders) * 100 : 0),
   };
+}
+
+function getOperationalEventQuantity(event = {}) {
+  return Math.max(0, Number(event.quantity || event.processedQuantity || event.refundedQuantity || 0));
 }
 
 function getOperationalEventMonthKey(event, orderMonthById) {

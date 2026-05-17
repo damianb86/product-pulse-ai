@@ -6,12 +6,13 @@
 - Shopify CLI commands stay in `package.json` for validation, build, app dev and deploy preparation.
 
 ## Scopes
-- MVP configured scopes: `read_products`, `read_orders`, `read_returns`.
+- Configured scopes: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `read_returns`, `read_inventory`, `write_inventory`, `read_locations`.
 - `read_products` is needed for product titles, handles, variants, tags and collections.
-- `read_orders` is needed for order/refund signals. Shopify limits order access by default; older-order access is not requested in MVP. Shopify Order object access can also require protected customer data approval in the Partner Dashboard.
+- `read_orders` is needed for order/refund signals.
+- `read_all_orders` is needed to read historical orders beyond Shopify's standard recent-order window. Shopify requires protected access approval in the Partner Dashboard before this scope can be used in production.
 - `read_returns` is needed for return reasons and return-quality signals.
-- `write_products` is not requested in MVP because ProductPulse stores draft actions internally. It should be added only when merchant-confirmed product writes are implemented.
-- Do not request `read_customers`, `write_orders`, `write_products` or `read_all_orders` for the current app surface.
+- `write_products` is needed for merchant-confirmed product description, tag and catalog updates.
+- Do not request `read_customers` or `write_orders` for the current app surface.
 
 ## Admin GraphQL Patterns
 - Run Admin GraphQL only from server loaders/actions.
@@ -52,5 +53,5 @@ Writes are disabled in MVP. Future gated writes:
 - Logs and test fixtures must not include real merchant data.
 
 ## Validation Status
-- Shopify access-scope docs were used to verify that Product/Variant/Collection data requires `read_products`, Order data requires `read_orders`, and Return data requires `read_returns`.
+- Shopify access-scope docs were used to verify that Product/Variant/Collection data requires `read_products`, Order data requires `read_orders`, historical order access requires `read_all_orders`, and Return data requires `read_returns`.
 - Live Shopify CLI validation may require an interactive Shopify login in local or configured CI credentials.

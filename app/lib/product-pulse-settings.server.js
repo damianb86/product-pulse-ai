@@ -11,6 +11,9 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
     mediumThreshold: 55,
     highThreshold: 75,
   },
+  momentum: {
+    minimumScore: 70,
+  },
   diagnosis: {
     maxQueuedPerSubmission: 25,
   },
@@ -83,6 +86,7 @@ export async function updateProductPulseSettings(shop, formData) {
 export function normalizeProductPulseSettings(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   const risk = source.risk && typeof source.risk === "object" ? source.risk : {};
+  const momentum = source.momentum && typeof source.momentum === "object" ? source.momentum : {};
   const diagnosis = source.diagnosis && typeof source.diagnosis === "object" ? source.diagnosis : {};
   const analysis = source.analysis && typeof source.analysis === "object" ? source.analysis : {};
 
@@ -105,6 +109,9 @@ export function normalizeProductPulseSettings(input = {}) {
       minimumScore,
       mediumThreshold,
       highThreshold,
+    },
+    momentum: {
+      minimumScore: clampInteger(momentum.minimumScore, 0, 100, DEFAULT_PRODUCT_PULSE_SETTINGS.momentum.minimumScore),
     },
     diagnosis: {
       maxQueuedPerSubmission: clampInteger(
@@ -132,6 +139,9 @@ export function parseSettingsFormData(formData) {
       mediumThreshold: formDataNumber(formData, "mediumThreshold"),
       highThreshold: formDataNumber(formData, "highThreshold"),
     },
+    momentum: {
+      minimumScore: formDataNumber(formData, "momentumMinimumScore"),
+    },
     diagnosis: {
       maxQueuedPerSubmission: formDataNumber(formData, "maxQueuedPerSubmission"),
     },
@@ -143,11 +153,13 @@ export function parseSettingsFormData(formData) {
 
 export function validateProductPulseSettings(input = {}) {
   const risk = input.risk || {};
+  const momentum = input.momentum || {};
   const diagnosis = input.diagnosis || {};
   const analysis = input.analysis || {};
   const minimumScore = Number(risk.minimumScore);
   const mediumThreshold = Number(risk.mediumThreshold);
   const highThreshold = Number(risk.highThreshold);
+  const momentumMinimumScore = Number(momentum.minimumScore ?? DEFAULT_PRODUCT_PULSE_SETTINGS.momentum.minimumScore);
   const maxQueuedPerSubmission = Number(diagnosis.maxQueuedPerSubmission);
   const lookbackDays = Number(analysis.lookbackDays ?? DEFAULT_PRODUCT_PULSE_SETTINGS.analysis.lookbackDays);
 
@@ -165,6 +177,9 @@ export function validateProductPulseSettings(input = {}) {
   }
   if (highThreshold > 100) {
     return "High risk threshold cannot be higher than 100.";
+  }
+  if (!Number.isFinite(momentumMinimumScore) || momentumMinimumScore < 0 || momentumMinimumScore > 100) {
+    return "Momentum inclusion threshold must be between 0 and 100.";
   }
   if (!Number.isFinite(maxQueuedPerSubmission) || maxQueuedPerSubmission < 1 || maxQueuedPerSubmission > PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES) {
     return `Max queued diagnoses must be between 1 and ${PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES}.`;
@@ -212,6 +227,10 @@ export function getStatusFilterValueForScore(score, resolved = false, settings) 
 
 export function getQuickScanMinimumRiskScore(settings) {
   return normalizeProductPulseSettings(settings).risk.minimumScore;
+}
+
+export function getQuickScanMinimumMomentumScore(settings) {
+  return normalizeProductPulseSettings(settings).momentum.minimumScore;
 }
 
 export function getAnalysisLookbackDays(settings) {

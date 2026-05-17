@@ -313,6 +313,7 @@ describe("ProductPulse screens", () => {
       ...defaultView,
       settings: {
         risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
+        momentum: { minimumScore: 72 },
         diagnosis: { maxQueuedPerSubmission: 12 },
         analysis: { lookbackDays: 120 },
       },
@@ -323,6 +324,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Minimum QuickScan score")).toHaveValue("50");
     expect(screen.getByLabelText("Medium risk starts at")).toHaveValue("55");
     expect(screen.getByLabelText("High risk starts at")).toHaveValue("75");
+    expect(screen.getByText("Product Momentum inclusion")).toBeInTheDocument();
+    expect(screen.getByLabelText("Minimum Product Momentum score")).toHaveValue("72");
     expect(screen.queryByText("Table defaults")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Max diagnoses queued at once")).toHaveValue(12);
     expect(screen.getByText("Evidence lookback")).toBeInTheDocument();
@@ -438,8 +441,11 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("+68% 30d · Top 12%")).toBeInTheDocument();
     expect(screen.getByText("Strong · 3 sources")).toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByRole("link", { name: "Open Product Momentum for Linen Shirt" }));
-    expect(await screen.findByText("Product Momentum: Hot · 86/100")).toBeInTheDocument();
-    expect(screen.getByText("42 units sold · $3,240 revenue")).toBeInTheDocument();
+    expect(await screen.findByText("Product Momentum")).toBeInTheDocument();
+    expect(screen.getByText("Hot · 86/100")).toBeInTheDocument();
+    expect(screen.getByText("42 units")).toBeInTheDocument();
+    expect(screen.getByText("$3,240 revenue")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to Watchlist" })).toBeInTheDocument();
     const evidenceLink = screen.getByRole("link", { name: "Open evidence for Linen Shirt" });
     expect(evidenceLink).toHaveAttribute("href", "/app/products/linen-shirt/evidence");
     fireEvent.mouseEnter(evidenceLink);
@@ -536,7 +542,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
-    expect(screen.getByText(/dismissed for this review session/)).toBeInTheDocument();
+    expect(screen.getByText(/dismissed for this product/)).toBeInTheDocument();
     expect(screen.getByText("Completed and dismissed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand Add fit note" })).toHaveTextContent("Dismissed");
     expect(screen.queryByRole("heading", { name: "Add fit note" })).not.toBeInTheDocument();
