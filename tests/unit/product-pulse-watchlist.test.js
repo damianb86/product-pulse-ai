@@ -151,12 +151,12 @@ describe("ProductPulse watchlist helpers", () => {
       evidenceDetails: {
         returns: {
           totalUnits: 1,
-          items: [{ key: "return-old", text: "Too small", sentiment: "negative", reason: "Size", issueCode: "fit_size" }],
+          items: [{ key: "return-old", text: "Too small", sentiment: "negative", reason: "Size", issueCode: "fit_size", createdAt: "2026-05-15T10:00:00.000Z" }],
         },
         reviews: {
           total: 1,
           negative: 0,
-          items: [{ key: "review-old", text: "Works fine", sentiment: "positive", rating: 5 }],
+          items: [{ key: "review-old", text: "Works fine", sentiment: "positive", rating: 5, createdAt: "2026-05-15T10:00:00.000Z" }],
         },
       },
     };
@@ -182,12 +182,12 @@ describe("ProductPulse watchlist helpers", () => {
             cache: {
               customerText: {
                 returnItems: [
-                  { key: "return-old", text: "Too small", analysisText: "Too small", sentiment: "negative", reason: "Size", issueCode: "fit_size" },
-                  { key: "return-new", text: "Feels broken and cheap", analysisText: "Feels broken and cheap", sentiment: "negative", reason: "Quality issue", issueCode: "product_quality" },
+                  { key: "return-old", text: "Too small", analysisText: "Too small", sentiment: "negative", reason: "Size", issueCode: "fit_size", createdAt: "2026-05-15T10:00:00.000Z" },
+                  { key: "return-new", text: "Feels broken and cheap", analysisText: "Feels broken and cheap", sentiment: "negative", reason: "Quality issue", issueCode: "product_quality", createdAt: "2026-05-17T09:30:00.000Z" },
                 ],
                 reviewItems: [
-                  { key: "review-old", text: "Works fine", analysisText: "Works fine", sentiment: "positive", rating: 5 },
-                  { key: "review-new", text: "Cheap plastic, not worth it", analysisText: "Cheap plastic, not worth it", sentiment: "negative", rating: 1, issueCode: "value_quality" },
+                  { key: "review-old", text: "Works fine", analysisText: "Works fine", sentiment: "positive", rating: 5, createdAt: "2026-05-15T10:00:00.000Z" },
+                  { key: "review-new", text: "Cheap plastic, not worth it", analysisText: "Cheap plastic, not worth it", sentiment: "negative", rating: 1, issueCode: "value_quality", createdAt: "2026-05-17T09:40:00.000Z" },
                 ],
               },
             },
@@ -200,6 +200,110 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.sourceInsights.map((insight) => insight.id)).toEqual(expect.arrayContaining(["return-evidence", "review-evidence"]));
     expect(report.sourceInsights.find((insight) => insight.id === "return-evidence").bullets.join(" ")).toContain("New return sentiment");
     expect(report.sourceInsights.find((insight) => insight.id === "review-evidence").bullets.join(" ")).toContain("Representative review");
+  });
+
+  it("does not treat historical reviews as new when the previous report lacks item-level review cache", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-17T21:54:39.527Z",
+      riskScore: 62,
+      riskLabel: "Medium",
+      confidence: 68,
+      impactScore: 14,
+      negativeReviewCount: 10,
+      reviewCount: 10,
+      signalCount: 14,
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 62,
+        impactScore: 14,
+        confidence: 68,
+        primaryIssue: "Product quality",
+        metrics: {
+          negativeReviewCount: 10,
+          reviewCount: 10,
+          signalCount: 14,
+          incrementalDiagnosis: {
+            cache: {
+              customerText: {
+                reviewItems: Array.from({ length: 10 }, (_, index) => ({
+                  key: `review-${index + 1}`,
+                  text: `Old review ${index + 1}`,
+                  analysisText: `Old review ${index + 1}`,
+                  sentiment: "negative",
+                  rating: index % 2 === 0 ? 1 : 2,
+                  createdAt: `2026-05-17T21:4${index % 9}:00.000Z`,
+                })),
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-17T22:22:40.407Z"),
+    });
+
+    expect(report.sourceInsights.some((insight) => insight.id === "review-evidence")).toBe(false);
+  });
+
+  it("counts only reviews created after the previous watch report when older reports have no item baseline", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-17T21:53:42.419Z",
+      riskScore: 71,
+      riskLabel: "Medium",
+      confidence: 70,
+      impactScore: 14,
+      negativeReviewCount: 8,
+      reviewCount: 8,
+      signalCount: 12,
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 74,
+        impactScore: 14,
+        confidence: 70,
+        primaryIssue: "Product quality",
+        metrics: {
+          negativeReviewCount: 9,
+          reviewCount: 9,
+          signalCount: 13,
+          incrementalDiagnosis: {
+            cache: {
+              customerText: {
+                reviewItems: [
+                  ...Array.from({ length: 8 }, (_, index) => ({
+                    key: `review-old-${index + 1}`,
+                    text: `Historical review ${index + 1}`,
+                    analysisText: `Historical review ${index + 1}`,
+                    sentiment: "negative",
+                    rating: 2,
+                    createdAt: `2026-05-17T21:4${index % 9}:00.000Z`,
+                  })),
+                  {
+                    key: "review-new-1",
+                    text: "New review says the plastic feels cheap.",
+                    analysisText: "New review says the plastic feels cheap.",
+                    sentiment: "negative",
+                    rating: 1,
+                    createdAt: "2026-05-17T22:20:54.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-17T22:22:33.739Z"),
+    });
+
+    const reviewInsight = report.sourceInsights.find((insight) => insight.id === "review-evidence");
+    expect(reviewInsight?.metric).toBe("1 new review");
+    expect(reviewInsight?.summary).toContain("1 new review text signal");
   });
 
   it("reports no meaningful changes when the current snapshot matches the previous run", () => {

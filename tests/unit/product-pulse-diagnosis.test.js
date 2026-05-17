@@ -813,6 +813,77 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(second.evidenceSnippets.map((snippet) => snippet.text).join(" ")).not.toContain("scary in the room");
   });
 
+  it("marks unchanged cached reviews as reusable without new AI evidence snippets", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const product = {
+      id: "gid://shopify/Product/321",
+      numericId: "321",
+      title: "Canvas Print",
+      handle: "canvas-print",
+      updatedAt: daysAgo(10),
+      description: "Canvas wall art with framed finish.",
+      variants: [],
+      tags: ["art"],
+      collections: ["Art prints"],
+    };
+    const snapshot = {
+      productGid: "gid://shopify/Product/321",
+      productTitle: "Canvas Print",
+      handle: "canvas-print",
+      primaryIssue: "Product quality",
+      metrics: {},
+    };
+    const oldReview = {
+      id: "review-old-stable",
+      title: "Too dark",
+      body: "The image is darker than expected.",
+      rating: 2,
+      createdAt: daysAgo(8),
+    };
+    const first = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: { product, sales: [], refunds: [], returns: [], orderAccessDenied: false },
+      judgeMeData: { connected: true, reviews: [oldReview], matchConfidence: 1 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+
+    const second = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        ...snapshot,
+        riskScore: first.riskScore,
+        confidence: first.confidence,
+        metrics: {
+          ...first.metrics,
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: daysAgo(3),
+        },
+      },
+      shopifyData: { product, sales: [], refunds: [], returns: [], orderAccessDenied: false },
+      judgeMeData: { connected: true, reviews: [oldReview], matchConfidence: 1 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+    const reuseDecision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        ...snapshot,
+        riskScore: first.riskScore,
+        confidence: first.confidence,
+        metrics: {
+          ...first.metrics,
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: daysAgo(3),
+        },
+      },
+      deterministic: second,
+    });
+
+    expect(second.metrics.incrementalDiagnosis.customerText.mode).toBe("incremental");
+    expect(second.metrics.incrementalDiagnosis.customerText.analyzedItems).toBe(0);
+    expect(second.metrics.incrementalDiagnosis.aiEvidenceSnippetCount).toBe(0);
+    expect(reuseDecision.shouldReuse).toBe(true);
+  });
+
   it("stores and merges Shopify source events so incremental fetches do not refetch the full window", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const snapshot = {

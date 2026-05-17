@@ -12733,10 +12733,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeReportModal {
-  width: min(920px, calc(100vw - 36px));
-  max-height: min(860px, calc(100vh - 36px));
+  width: min(1180px, calc(100vw - 36px));
+  max-height: min(900px, calc(100vh - 32px));
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
   border-radius: 18px;
@@ -12745,15 +12745,25 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeReportHeader {
+  position: relative;
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr) 44px;
-  gap: 14px;
+  grid-template-columns: 76px minmax(0, 1fr) 44px;
+  gap: 16px;
   align-items: start;
-  padding: 22px 24px 18px;
+  padding: 24px 28px 20px;
   border-bottom: 1px solid var(--pp-slate-200);
-  background:
-    radial-gradient(circle at 4% 0%, rgba(var(--pp-pulse-blue-rgb), 0.10), transparent 28%),
-    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-50));
+  background: linear-gradient(180deg, var(--pp-cloud-white), #fbfdff);
+}
+
+.ppWatchChangeReportHeader .ppDashboardIcon {
+  width: 62px;
+  height: 62px;
+  border-radius: 999px;
+}
+
+.ppWatchChangeReportHeader .ppDashboardIcon s-icon {
+  width: 30px;
+  height: 30px;
 }
 
 .ppWatchChangeReportHeader h2,
@@ -12763,52 +12773,128 @@ s-page[inline-size="large-500"] {
 
 .ppWatchChangeReportHeader h2 {
   color: var(--pp-slate-950);
-  font-size: 24px;
+  font-size: clamp(24px, 2.5vw, 34px);
   font-weight: 950;
   line-height: 1.1;
 }
 
 .ppWatchChangeReportHeader p {
-  max-width: 720px;
-  margin-top: 6px;
+  max-width: none;
+  margin-top: 9px;
   color: var(--pp-slate-600);
-  font-size: 13px;
-  font-weight: 650;
-  line-height: 1.45;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .ppWatchChangeReportEyebrow {
   display: block;
   margin-bottom: 3px;
   color: var(--pp-pulse-blue);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   letter-spacing: 0;
   text-transform: uppercase;
 }
 
+.ppWatchChangeReportHeaderStatus {
+  position: absolute;
+  top: 24px;
+  right: 80px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.ppWatchChangeReportHeaderStatus span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.ppWatchChangeReportHeaderStatus-green {
+  border: 1px solid rgba(var(--pp-success-green-rgb), 0.22);
+  background: rgba(var(--pp-success-green-rgb), 0.09);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchChangeReportHeaderStatus-green span {
+  background: var(--pp-success-green);
+}
+
+.ppWatchChangeReportHeaderStatus-blue {
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.20);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
+}
+
+.ppWatchChangeReportHeaderStatus-blue span {
+  background: var(--pp-pulse-blue);
+}
+
+.ppWatchChangeReportHeaderStatus-orange {
+  border: 1px solid rgba(var(--pp-warning-amber-rgb), 0.30);
+  background: rgba(var(--pp-warning-amber-rgb), 0.10);
+  color: color-mix(in srgb, var(--pp-warning-amber) 76%, var(--pp-midnight-ink));
+}
+
+.ppWatchChangeReportHeaderStatus-orange span {
+  background: var(--pp-warning-amber);
+}
+
+.ppWatchChangeReportBody {
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  padding: 14px 28px 16px;
+  overflow: auto;
+  background: linear-gradient(180deg, #fbfdff, var(--pp-cloud-white));
+}
+
 .ppWatchChangeReportMeta {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--pp-slate-200);
+  gap: 12px;
+  padding: 0;
+  border-bottom: 0;
 }
 
 .ppWatchChangeReportMeta > div {
-  min-height: 64px;
+  min-height: 58px;
   display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 9px;
   align-content: center;
-  gap: 5px;
-  padding: 10px 12px;
+  align-items: center;
+  padding: 9px 10px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
   background: var(--pp-cloud-white);
 }
 
+.ppWatchChangeReportMeta .ppDashboardIcon {
+  grid-row: 1 / span 2;
+  width: 42px;
+  height: 42px;
+}
+
+.ppWatchChangeReportMeta .ppDashboardIcon s-icon,
+.ppWatchChangeReportMeta .ppDashboardIcon svg {
+  width: 24px;
+  height: 24px;
+  transform: none;
+}
+
 .ppWatchChangeReportMeta span {
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -12816,7 +12902,7 @@ s-page[inline-size="large-500"] {
 .ppWatchChangeReportMeta strong {
   overflow: hidden;
   color: var(--pp-slate-900);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -12847,7 +12933,7 @@ s-page[inline-size="large-500"] {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 24px 14px;
+  margin: 0;
   padding: 10px 12px;
   border-radius: 12px;
   color: var(--pp-slate-800);
@@ -12870,15 +12956,155 @@ s-page[inline-size="large-500"] {
   background: rgba(var(--pp-warning-amber-rgb), 0.09);
 }
 
+.ppWatchChangedPanel {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 14px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchChangedPanelTitle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+}
+
+.ppWatchChangedPanelTitle h3,
+.ppWatchChangedPanelTitle p {
+  margin: 0;
+}
+
+.ppWatchChangedPanelTitle h3 {
+  color: var(--pp-slate-950);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.ppWatchChangedPanelTitle p {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppWatchChangedGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppWatchChangedCard {
+  position: relative;
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 12px 12px 11px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchChangedCard .ppDashboardIcon {
+  width: 42px;
+  height: 42px;
+}
+
+.ppWatchChangedCard .ppDashboardIcon s-icon,
+.ppWatchChangedCard .ppDashboardIcon svg {
+  width: 24px;
+  height: 24px;
+  transform: none;
+}
+
+.ppWatchChangedCard > div {
+  min-width: 0;
+}
+
+.ppWatchChangedCard span,
+.ppWatchChangedCard small,
+.ppWatchChangedCard strong,
+.ppWatchChangedCard em {
+  display: block;
+}
+
+.ppWatchChangedCard span {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ppWatchChangedCard strong {
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 34px);
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  color: var(--pp-slate-950);
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.ppWatchChangedCard strong em {
+  min-width: 0;
+  overflow: visible;
+  font-style: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.ppWatchChangedCard strong s-icon {
+  flex: 0 0 auto;
+  color: var(--pp-slate-400);
+}
+
+.ppWatchChangedCard small {
+  margin-top: 8px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ppWatchChangedCard > .ppWatchChangeDelta {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  min-width: auto;
+  padding: 5px 7px;
+}
+
+.ppWatchChangedCard-red {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.18);
+}
+
+.ppWatchChangedCard-orange {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.24);
+}
+
+.ppWatchChangedCard-green {
+  border-color: rgba(var(--pp-success-green-rgb), 0.20);
+}
+
+.ppWatchChangedCard-purple {
+  border-color: rgba(124, 58, 237, 0.20);
+}
+
 .ppWatchChangeReportInsights {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 0 24px 14px;
+  gap: 10px;
+  padding: 0;
 }
 
 .ppWatchChangeReportInsight {
-  padding: 13px;
+  padding: 12px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 14px;
   background: var(--pp-cloud-white);
@@ -12901,9 +13127,21 @@ s-page[inline-size="large-500"] {
 
 .ppWatchChangeReportInsightHeader {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   gap: 10px;
-  align-items: center;
+  align-items: start;
+}
+
+.ppWatchChangeReportInsightHeader .ppDashboardIcon {
+  width: 42px;
+  height: 42px;
+}
+
+.ppWatchChangeReportInsightHeader .ppDashboardIcon s-icon,
+.ppWatchChangeReportInsightHeader .ppDashboardIcon svg {
+  width: 24px;
+  height: 24px;
+  transform: none;
 }
 
 .ppWatchChangeReportInsight h3,
@@ -12914,7 +13152,7 @@ s-page[inline-size="large-500"] {
 
 .ppWatchChangeReportInsight h3 {
   color: var(--pp-slate-900);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 950;
 }
 
@@ -12927,33 +13165,62 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeReportInsight p {
-  margin-top: 10px;
+  margin-top: 4px;
   color: var(--pp-slate-700);
   font-size: 12px;
   font-weight: 650;
   line-height: 1.4;
 }
 
+.ppWatchInsightPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0 54px;
+}
+
+.ppWatchInsightPills span {
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 850;
+}
+
 .ppWatchChangeReportInsight ul {
   display: grid;
-  gap: 5px;
-  margin-top: 9px;
-  padding-left: 17px;
+  gap: 4px;
+  margin: 10px 0 0 54px;
+  padding-left: 18px;
   color: var(--pp-slate-600);
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ppWatchChangeReportInsight blockquote {
+  margin: 10px 0 0 54px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 10px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.05);
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .ppWatchChangeReportSections {
   display: grid;
-  gap: 12px;
-  padding: 0 24px 18px;
-  overflow: auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  overflow: visible;
 }
 
 .ppWatchChangeReportSection {
   border: 1px solid var(--pp-slate-200);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--pp-cloud-white);
   overflow: hidden;
 }
@@ -12961,10 +13228,22 @@ s-page[inline-size="large-500"] {
 .ppWatchChangeReportSectionHeader {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--pp-slate-200);
-  background: var(--pp-slate-50);
+  gap: 9px;
+  padding: 10px 12px 8px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.ppWatchChangeReportSectionHeader .ppDashboardIcon {
+  width: 42px;
+  height: 42px;
+}
+
+.ppWatchChangeReportSectionHeader .ppDashboardIcon s-icon,
+.ppWatchChangeReportSectionHeader .ppDashboardIcon svg {
+  width: 24px;
+  height: 24px;
+  transform: none;
 }
 
 .ppWatchChangeReportSectionHeader h3 {
@@ -12975,16 +13254,21 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeRows {
-  display: grid;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  border-left: 1px solid var(--pp-slate-200);
 }
 
 .ppWatchChangeRow {
+  flex: 1 1 0;
+  min-width: 132px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.65fr) auto;
-  gap: 12px;
-  align-items: center;
-  padding: 13px 14px;
-  border-bottom: 1px solid var(--pp-slate-200);
+  gap: 5px;
+  align-items: start;
+  padding: 10px 12px;
+  border-left: 1px solid var(--pp-slate-200);
+  border-bottom: 0;
 }
 
 .ppWatchChangeRow:last-child {
@@ -13007,6 +13291,16 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.ppWatchChangeRow > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .ppWatchChangeValues {
@@ -13036,6 +13330,7 @@ s-page[inline-size="large-500"] {
 
 .ppWatchChangeDelta {
   display: inline-flex;
+  align-items: center;
   justify-content: center;
   min-width: 64px;
   padding: 5px 8px;
@@ -13047,13 +13342,23 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeDelta-up {
-  background: rgba(var(--pp-risk-red-rgb), 0.10);
-  color: var(--pp-risk-red);
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  color: color-mix(in srgb, var(--pp-success-green) 75%, var(--pp-midnight-ink));
 }
 
 .ppWatchChangeDelta-down {
+  background: rgba(var(--pp-risk-red-rgb), 0.08);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchChangeDelta-good {
   background: rgba(var(--pp-success-green-rgb), 0.12);
-  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+  color: color-mix(in srgb, var(--pp-success-green) 75%, var(--pp-midnight-ink));
+}
+
+.ppWatchChangeDelta-bad {
+  background: rgba(var(--pp-risk-red-rgb), 0.08);
+  color: var(--pp-risk-red);
 }
 
 .ppWatchChangeDelta-neutral {
@@ -13062,18 +13367,35 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeReportSnapshot {
-  margin: 0 24px 18px;
-  padding: 13px 14px;
+  display: grid;
+  grid-template-columns: 42px auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin: 0;
+  padding: 10px 12px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.15);
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.06), rgba(var(--pp-success-green-rgb), 0.05));
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchChangeReportSnapshot .ppDashboardIcon {
+  width: 42px;
+  height: 42px;
+}
+
+.ppWatchChangeReportSnapshot .ppDashboardIcon s-icon,
+.ppWatchChangeReportSnapshot .ppDashboardIcon svg {
+  width: 24px;
+  height: 24px;
+  transform: none;
 }
 
 .ppWatchChangeReportSnapshot h3 {
-  margin: 0 0 9px;
+  margin: 0;
   color: var(--pp-slate-900);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 950;
+  white-space: nowrap;
 }
 
 .ppWatchChangeReportSnapshot > div {
@@ -13085,22 +13407,144 @@ s-page[inline-size="large-500"] {
 .ppWatchChangeReportSnapshot span {
   padding: 6px 9px;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  border-radius: 8px;
+  background: var(--pp-slate-50);
   color: var(--pp-slate-700);
   font-size: 12px;
   font-weight: 700;
 }
 
+.ppWatchSnapshotRisk {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.24) !important;
+  background: rgba(var(--pp-warning-amber-rgb), 0.09) !important;
+}
+
+.ppWatchSnapshotConfidence {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18) !important;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08) !important;
+}
+
+.ppWatchSnapshotReturn {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.16) !important;
+  background: rgba(var(--pp-risk-red-rgb), 0.07) !important;
+}
+
+.ppWatchSnapshotMomentum {
+  border-color: rgba(var(--pp-success-green-rgb), 0.18) !important;
+  background: rgba(var(--pp-success-green-rgb), 0.08) !important;
+}
+
 .ppWatchChangeReportFooter {
   justify-content: flex-end;
-  padding: 16px 24px;
+  gap: 12px;
+  padding: 14px 28px 18px;
   border-top: 1px solid var(--pp-slate-200);
   background: var(--pp-cloud-white);
 }
 
 .ppWatchChangeReportFooter.ppAnalysisConfirmFooter {
   margin-top: 0;
+}
+
+.ppWatchChangeReportFooter .ppSecondaryButton,
+.ppWatchChangeReportFooter .ppPrimaryButton {
+  min-width: 152px;
+  min-height: 42px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.ppWatchChangeReportFooter .ppSecondaryButton {
+  border-color: var(--pp-slate-300);
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-50));
+  color: var(--pp-slate-800);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+}
+
+.ppWatchChangeReportFooter .ppPrimaryButton {
+  background: linear-gradient(180deg, var(--pp-pulse-blue), color-mix(in srgb, var(--pp-pulse-blue) 78%, var(--pp-midnight-ink)));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.24) inset, 0 12px 22px rgba(var(--pp-pulse-blue-rgb), 0.28);
+}
+
+@media (max-width: 980px) {
+  .ppWatchChangeReportHeader {
+    grid-template-columns: 58px minmax(0, 1fr) 44px;
+  }
+
+  .ppWatchChangeReportHeaderStatus {
+    top: 18px;
+    right: 68px;
+    width: max-content;
+  }
+
+  .ppWatchChangeReportHeader .ppModalCloseButton {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .ppWatchChangeReportMeta,
+  .ppWatchChangedGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppWatchChangeReportInsights {
+    grid-template-columns: 1fr;
+  }
+
+  .ppWatchChangeReportSections {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ppWatchChangeReportModal {
+    width: calc(100vw - 18px);
+    max-height: calc(100vh - 18px);
+    border-radius: 14px;
+  }
+
+  .ppWatchChangeReportHeader,
+  .ppWatchChangeReportBody,
+  .ppWatchChangeReportFooter {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .ppWatchChangeReportHeader {
+    grid-template-columns: 58px minmax(0, 1fr) 38px;
+    padding-top: 52px;
+  }
+
+  .ppWatchChangeReportHeaderStatus {
+    top: 12px;
+    right: 62px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .ppWatchChangeReportMeta,
+  .ppWatchChangedGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppWatchChangeRows {
+    display: grid;
+    border-left: 0;
+  }
+
+  .ppWatchChangeRow {
+    border-left: 0;
+    border-top: 1px solid var(--pp-slate-200);
+  }
+
+  .ppWatchChangeReportSnapshot {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .ppWatchChangeReportSnapshot > div {
+    grid-column: 1 / -1;
+  }
 }
 
 .ppWatchlistTableFooter {

@@ -850,7 +850,7 @@ function buildWatchEvidenceChangeInsights(previous, current) {
 }
 
 function buildWatchReturnInsight(previous, current, previousReturns = {}, currentReturns = {}) {
-  const newItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items);
+  const newItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.returnUnits || currentReturns.totalUnits || 0) - Number(previous?.returnUnits || previousReturns.totalUnits || 0);
   const rateDelta = Number(current?.returnRatePercent || currentReturns.rate || 0) - Number(previous?.returnRatePercent || previousReturns.rate || 0);
   if (!newItems.length && Math.abs(unitDelta) < 1 && Math.abs(rateDelta) < 0.2) return null;
@@ -875,7 +875,7 @@ function buildWatchReturnInsight(previous, current, previousReturns = {}, curren
 }
 
 function buildWatchReviewInsight(previous, current, previousReviews = {}, currentReviews = {}) {
-  const newItems = getNewWatchEvidenceItems(previousReviews.items, currentReviews.items);
+  const newItems = getNewWatchEvidenceItems(previousReviews.items, currentReviews.items, { sinceAt: previous?.capturedAt });
   const negativeDelta = Number(current?.negativeReviewCount || currentReviews.negative || 0) - Number(previous?.negativeReviewCount || previousReviews.negative || 0);
   const reviewDelta = Number(current?.reviewCount || currentReviews.total || 0) - Number(previous?.reviewCount || previousReviews.total || 0);
   if (!newItems.length && Math.abs(negativeDelta) < 1 && Math.abs(reviewDelta) < 1) return null;
@@ -900,7 +900,7 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
 }
 
 function buildWatchRefundInsight(previous, current, previousRefunds = {}, currentRefunds = {}) {
-  const newItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items);
+  const newItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.refundUnits || currentRefunds.totalUnits || 0) - Number(previous?.refundUnits || previousRefunds.totalUnits || 0);
   if (!newItems.length && Math.abs(unitDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentRefunds.items);
@@ -1453,9 +1453,23 @@ function normalizeWatchSentiment(sentiment = {}) {
   };
 }
 
-function getNewWatchEvidenceItems(previousItems = [], currentItems = []) {
-  const previousKeys = new Set((Array.isArray(previousItems) ? previousItems : []).map((item) => item.key).filter(Boolean));
-  return (Array.isArray(currentItems) ? currentItems : []).filter((item) => item?.key && !previousKeys.has(item.key));
+function getNewWatchEvidenceItems(previousItems = [], currentItems = [], { sinceAt = null } = {}) {
+  const previousList = Array.isArray(previousItems) ? previousItems : [];
+  const previousKeys = new Set(previousList.map((item) => item?.key).filter(Boolean));
+  const hasPreviousItemBaseline = previousKeys.size > 0;
+  const cutoff = parseWatchDate(sinceAt);
+
+  return (Array.isArray(currentItems) ? currentItems : []).filter((item) => {
+    if (!item?.key || previousKeys.has(item.key)) return false;
+
+    const itemDate = parseWatchDate(item.createdAt || item.updatedAt || item.processedAt || item.date);
+    if (cutoff) {
+      if (!itemDate) return false;
+      return itemDate.getTime() > cutoff.getTime();
+    }
+
+    return hasPreviousItemBaseline;
+  });
 }
 
 function summarizeWatchEvidenceItems(items = []) {
@@ -1580,6 +1594,12 @@ function toWatchIso(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return new Date().toISOString();
   return date.toISOString();
+}
+
+function parseWatchDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatWatchDate(value) {

@@ -1366,118 +1366,171 @@ function WatchChangeReportModal({ product, report, onClose }) {
   const sections = Array.isArray(report?.sections) ? report.sections : [];
   const sourceInsights = Array.isArray(report?.sourceInsights) ? report.sourceInsights : [];
   const current = report?.current || {};
+  const changedCards = getWatchReportChangeCards(report, sections);
 
   return createPortal(
     <div className="ppAnalysisConfirmOverlay ppWatchChangeReportOverlay" role="presentation">
       <section className="ppWatchChangeReportModal" role="dialog" aria-modal="true" aria-labelledby="watch-change-report-title">
         <header className="ppWatchChangeReportHeader">
-          <DashboardIcon type={report?.status === "unchanged" ? "check" : "chart-line"} tone={statusTone} />
+          <DashboardIcon type={report?.status === "unchanged" ? "check" : "chart-line"} tone="blue" />
           <div>
             <span className="ppWatchChangeReportEyebrow">Watchlist change report</span>
             <h2 id="watch-change-report-title">{product.title}</h2>
             <p>{report?.narrative || report?.summary || "Latest Watchlist comparison for this product."}</p>
           </div>
+          <strong className={`ppWatchChangeReportHeaderStatus ppWatchChangeReportHeaderStatus-${statusTone}`}>
+            <span aria-hidden="true" />
+            {statusLabel}
+          </strong>
           <button className="ppModalCloseButton" type="button" aria-label="Close Watchlist change report" onClick={onClose}>
             <s-icon type="x" size="small"></s-icon>
           </button>
         </header>
 
-        <div className="ppWatchChangeReportMeta">
-          <div>
-            <span>Status</span>
-            <strong className={`ppWatchChangeReportStatus ppWatchChangeReportStatus-${statusTone}`}>{statusLabel}</strong>
+        <div className="ppWatchChangeReportBody">
+          <div className="ppWatchChangeReportMeta">
+            <div>
+              <DashboardIcon type="calendar" tone="blue" size="small" />
+              <span>Previous run</span>
+              <strong>{formatWatchReportTimestamp(report?.previousRunAt) || "No previous run"}</strong>
+            </div>
+            <div>
+              <DashboardIcon type="clock" tone="blue" size="small" />
+              <span>Current run</span>
+              <strong>{formatWatchReportTimestamp(report?.currentRunAt || report?.createdAt)}</strong>
+            </div>
+            <div>
+              <DashboardIcon type="file" tone="blue" size="small" />
+              <span>Changed fields</span>
+              <strong>{Number(report?.changeCount || 0)}</strong>
+            </div>
+            <div>
+              <DashboardIcon type={report?.status === "unchanged" ? "check" : "alert-circle"} tone={statusTone} size="small" />
+              <span>Scan status</span>
+              <strong className={`ppWatchChangeReportStatus ppWatchChangeReportStatus-${statusTone}`}>{statusLabel}</strong>
+            </div>
           </div>
-          <div>
-            <span>Previous run</span>
-            <strong>{formatWatchReportTimestamp(report?.previousRunAt) || "No previous run"}</strong>
-          </div>
-          <div>
-            <span>Current run</span>
-            <strong>{formatWatchReportTimestamp(report?.currentRunAt || report?.createdAt)}</strong>
-          </div>
-          <div>
-            <span>Changed fields</span>
-            <strong>{Number(report?.changeCount || 0)}</strong>
-          </div>
-        </div>
 
-        {report?.headline ? (
-          <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
-            <s-icon type={report.status === "unchanged" ? "check" : "info"} size="small"></s-icon>
-            <span>{report.headline}</span>
-          </div>
-        ) : null}
+          {changedCards.length ? (
+            <section className="ppWatchChangedPanel" aria-label="Watchlist fields that changed">
+              <div className="ppWatchChangedPanelTitle">
+                <h3>What changed</h3>
+                {report?.headline ? <p>{report.headline}</p> : null}
+              </div>
+              <div className="ppWatchChangedGrid">
+                {changedCards.map((change) => {
+                  const tone = getWatchChangeCardTone(change);
+                  return (
+                    <article className={`ppWatchChangedCard ppWatchChangedCard-${tone}`} key={change.sectionId ? `${change.sectionId}-${change.id}` : change.id || change.label}>
+                      <DashboardIcon type={getWatchChangeCardIcon(change)} tone={tone} size="small" />
+                      <div>
+                        <span>{change.label}</span>
+                        <strong>
+                          <em>{change.from}</em>
+                          <s-icon type="arrow-right" size="small"></s-icon>
+                          <em>{change.to}</em>
+                        </strong>
+                        <small>{change.detail}</small>
+                      </div>
+                      <b className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchChangeDeltaTone(change)}`}>{change.delta}</b>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : report?.headline ? (
+            <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
+              <s-icon type={report.status === "unchanged" ? "check" : "info"} size="small"></s-icon>
+              <span>{report.headline}</span>
+            </div>
+          ) : null}
 
-        {sourceInsights.length ? (
-          <div className="ppWatchChangeReportInsights">
-            {sourceInsights.map((insight) => (
-              <article className={`ppWatchChangeReportInsight ppWatchChangeReportInsight-${insight.tone || "blue"}`} key={insight.id || insight.title}>
-                <div className="ppWatchChangeReportInsightHeader">
-                  <DashboardIcon type={getWatchReportInsightIcon(insight.id)} tone={insight.tone || "blue"} size="small" />
-                  <div>
-                    <h3>{insight.title}</h3>
-                    <strong>{insight.metric}</strong>
-                  </div>
+          {sourceInsights.length ? (
+            <div className="ppWatchChangeReportInsights">
+              {sourceInsights.map((insight) => {
+                const quote = getWatchInsightQuote(insight);
+                const bullets = getWatchInsightBullets(insight);
+                return (
+                  <article className={`ppWatchChangeReportInsight ppWatchChangeReportInsight-${insight.tone || "blue"}`} key={insight.id || insight.title}>
+                    <div className="ppWatchChangeReportInsightHeader">
+                      <DashboardIcon type={getWatchReportInsightIcon(insight.id)} tone={insight.tone || "blue"} size="small" />
+                      <div>
+                        <h3>{insight.title}</h3>
+                        <p>{insight.summary}</p>
+                      </div>
+                    </div>
+                    <div className="ppWatchInsightPills">
+                      {getWatchInsightPills(insight).map((pill) => <span key={pill}>{pill}</span>)}
+                    </div>
+                    {bullets.length ? (
+                      <ul>
+                        {bullets.map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    ) : null}
+                    {quote ? <blockquote>{quote}</blockquote> : null}
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+
+          <div className="ppWatchChangeReportSections">
+            {sections.map((section) => (
+              <article className="ppWatchChangeReportSection" key={section.id || section.title}>
+                <div className="ppWatchChangeReportSectionHeader">
+                  <DashboardIcon type={getWatchReportSectionIcon(section.id)} tone={section.tone || "blue"} size="small" />
+                  <h3>{section.title}</h3>
                 </div>
-                <p>{insight.summary}</p>
-                {Array.isArray(insight.bullets) && insight.bullets.length ? (
-                  <ul>
-                    {insight.bullets.map((item) => <li key={item}>{item}</li>)}
-                  </ul>
-                ) : null}
+                <div className="ppWatchChangeRows">
+                  {(section.changes || []).map((change) => (
+                    <div className="ppWatchChangeRow" key={change.id || change.label}>
+                      <strong>{change.label}</strong>
+                      <span>{change.from} <s-icon type="arrow-right" size="small"></s-icon> {change.to}</span>
+                      <em className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchChangeDeltaTone(change)}`}>{change.delta}</em>
+                    </div>
+                  ))}
+                </div>
               </article>
             ))}
           </div>
-        ) : null}
 
-        <div className="ppWatchChangeReportSections">
-          {sections.map((section) => (
-            <article className="ppWatchChangeReportSection" key={section.id || section.title}>
-              <div className="ppWatchChangeReportSectionHeader">
-                <DashboardIcon type={getWatchReportSectionIcon(section.id)} tone={section.tone || "blue"} size="small" />
-                <h3>{section.title}</h3>
-              </div>
-              <div className="ppWatchChangeRows">
-                {(section.changes || []).map((change) => (
-                  <div className="ppWatchChangeRow" key={change.id || change.label}>
-                    <div>
-                      <strong>{change.label}</strong>
-                      <small>{change.detail}</small>
-                    </div>
-                    <div className="ppWatchChangeValues">
-                      <span>{change.from}</span>
-                      <s-icon type="arrow-right" size="small"></s-icon>
-                      <span>{change.to}</span>
-                    </div>
-                    <em className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchChangeDirectionTone(change.direction)}`}>{change.delta}</em>
-                  </div>
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
-
-        <div className="ppWatchChangeReportSnapshot">
-          <h3>Current product state</h3>
-          <div>
-            <span><b>Risk:</b> {current.riskLabel || "Pending"} · {current.riskScore ?? "-"}</span>
-            <span><b>Confidence:</b> {current.confidence ?? "-"}%</span>
-            <span><b>Primary issue:</b> {current.primaryIssue || "No primary issue"}</span>
-            <span><b>Return rate:</b> {current.returnRatePercent ?? 0}%</span>
-            <span><b>Momentum:</b> {current.productMomentumTier || "No momentum"} · {current.productMomentumScore ?? 0} / 100</span>
+          <div className="ppWatchChangeReportSnapshot">
+            <DashboardIcon type="shield-check-mark" tone="blue" size="small" />
+            <h3>Current product state</h3>
+            <div>
+              <span className="ppWatchSnapshotRisk"><b>Risk:</b> {current.riskLabel || "Pending"} · {current.riskScore ?? "-"}</span>
+              <span className="ppWatchSnapshotConfidence"><b>Confidence:</b> {current.confidence ?? "-"}%</span>
+              <span><b>Primary issue:</b> {current.primaryIssue || "No primary issue"}</span>
+              <span className="ppWatchSnapshotReturn"><b>Return rate:</b> {current.returnRatePercent ?? 0}%</span>
+              <span className="ppWatchSnapshotMomentum"><b>Momentum:</b> {current.productMomentumTier || "No momentum"} · {current.productMomentumScore ?? 0} / 100</span>
+            </div>
           </div>
         </div>
 
         <footer className="ppAnalysisConfirmFooter ppWatchChangeReportFooter">
           <Link className="ppSecondaryButton" to={product.href || "/app/products"} onClick={onClose}>
+            <s-icon type="external" size="small"></s-icon>
             Open product
           </Link>
-          <button className="ppPrimaryButton" type="button" onClick={onClose}>Done</button>
+          <button className="ppPrimaryButton" type="button" onClick={onClose}>
+            Done
+            <s-icon type="check" size="small"></s-icon>
+          </button>
         </footer>
       </section>
     </div>,
     document.body,
   );
+}
+
+function getWatchReportChangeCards(report, sections = []) {
+  const explicit = Array.isArray(report?.changes) ? report.changes : [];
+  const sectionChanges = sections.flatMap((section) => (
+    Array.isArray(section?.changes)
+      ? section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title }))
+      : []
+  ));
+  return (explicit.length ? explicit : sectionChanges).slice(0, 4);
 }
 
 function getWatchReportStatusTone(status) {
@@ -1508,10 +1561,74 @@ function getWatchReportInsightIcon(insightId) {
   return "info";
 }
 
+function getWatchChangeCardIcon(change = {}) {
+  const id = String(change.id || change.label || "").toLowerCase();
+  if (id.includes("review")) return "star";
+  if (id.includes("return")) return "return";
+  if (id.includes("refund") || id.includes("revenue") || id.includes("margin") || id.includes("impact")) return "cash-dollar";
+  if (id.includes("signal") || id.includes("evidence")) return "chart-line";
+  if (id.includes("momentum")) return "chart-line";
+  if (id.includes("confidence")) return "shield-check-mark";
+  return "target";
+}
+
+function getWatchChangeCardTone(change = {}) {
+  const id = String(change.id || change.label || "").toLowerCase();
+  if (id.includes("negative") || id.includes("risk") || id.includes("return-rate")) return "red";
+  if (id.includes("return")) return "orange";
+  if (id.includes("refund") || id.includes("revenue") || id.includes("margin") || id.includes("impact")) return "purple";
+  if (id.includes("signal") || id.includes("evidence")) return "green";
+  if (id.includes("momentum")) return "green";
+  return "blue";
+}
+
+function getWatchInsightPills(insight = {}) {
+  const pills = [insight.metric].filter(Boolean);
+  const bullets = Array.isArray(insight.bullets) ? insight.bullets : [];
+  bullets.slice(0, 2).forEach((bullet) => {
+    const text = String(bullet || "").split(":")[0].replace(/\.$/, "").trim();
+    if (text) pills.push(text);
+  });
+  return Array.from(new Set(pills)).slice(0, 3);
+}
+
+function getWatchInsightQuote(insight = {}) {
+  const bullets = Array.isArray(insight.bullets) ? insight.bullets : [];
+  const quoteBullet = bullets.find((bullet) => /representative/i.test(String(bullet || "")));
+  if (!quoteBullet) return "";
+  return String(quoteBullet).replace(/^Representative [^:]+:\s*/i, "").trim();
+}
+
+function getWatchInsightBullets(insight = {}) {
+  const bullets = Array.isArray(insight.bullets) ? insight.bullets : [];
+  return bullets
+    .filter((bullet) => !/representative/i.test(String(bullet || "")))
+    .slice(0, 4);
+}
+
 function getWatchChangeDirectionTone(direction) {
   if (direction === "up") return "up";
   if (direction === "down") return "down";
   return "neutral";
+}
+
+function getWatchChangeDeltaTone(change = {}) {
+  const direction = getWatchChangeDirectionTone(change.direction);
+  if (direction === "neutral") return "neutral";
+  const id = String(change.id || change.label || "").toLowerCase();
+  const increaseIsNegative = (
+    id.includes("risk")
+    || id.includes("negative")
+    || id.includes("return-rate")
+    || id.includes("refund")
+    || id.includes("revenue")
+    || id.includes("margin")
+    || id.includes("impact")
+  );
+  if (increaseIsNegative) {
+    return direction === "up" ? "bad" : "good";
+  }
+  return direction === "up" ? "good" : "bad";
 }
 
 function formatWatchReportTimestamp(value) {
@@ -7214,6 +7331,70 @@ function getPreviewWatchlistData(data = {}) {
       latestChangeTone: "orange",
       lastIssue: product.lastAnalysis ? `Updated ${product.lastAnalysis}` : "Detected 6h ago",
       lastIssueDetail: "May 18, 2:02 AM",
+      latestChangeReport: {
+        status: "changed",
+        narrative: "Since the last run, negative reviews increased 5 -> 6, the top return reason shifted to color, and evidence signals rose 19 -> 21.",
+        headline: "4 meaningful Watchlist changes were detected since the previous run.",
+        changeCount: 4,
+        previousRunAt: "2026-05-17T19:41:00.000Z",
+        currentRunAt: "2026-05-17T19:43:00.000Z",
+        current: {
+          riskLabel: product.risk || "Medium",
+          riskScore: product.riskScore || 68,
+          confidence: product.confidence || 80,
+          primaryIssue: product.issue || "Product quality",
+          returnRatePercent: product.returnRatePercent || 100,
+          productMomentumTier: product.productMomentumTier || "Rising",
+          productMomentumScore: product.productMomentumScore || 65,
+        },
+        sections: [
+          {
+            id: "evidence",
+            title: "Evidence movement",
+            tone: "green",
+            changes: [
+              { id: "evidence-signals", label: "Evidence signals", from: "19", to: "21", delta: "+2", direction: "up", detail: "More evidence signals were detected in the latest run." },
+              { id: "new-reviews", label: "New reviews", from: "0", to: "1", delta: "+1", direction: "up", detail: "One new review was captured since the previous Watchlist run." },
+              { id: "negative-sentiment", label: "Negative sentiment", from: "0", to: "1", delta: "+1", direction: "up", detail: "New customer language changed the sentiment profile." },
+            ],
+          },
+          {
+            id: "financial",
+            title: "Financial exposure",
+            tone: "purple",
+            changes: [
+              { id: "revenue-at-risk", label: "Revenue at risk", from: "$1,799", to: "$1,801", delta: "+$2", direction: "up", detail: "Revenue exposure increased slightly based on latest evidence." },
+              { id: "margin-at-risk", label: "Margin at risk", from: "$320", to: "$329", delta: "+$9", direction: "up", detail: "Margin exposure moved with the current product state." },
+            ],
+          },
+        ],
+        sourceInsights: [
+          {
+            id: "review-evidence",
+            title: "Review evidence changed",
+            tone: "blue",
+            metric: "+1 New review",
+            summary: "The newest review added one negative sentiment signal to the Watchlist comparison.",
+            bullets: [
+              "New review ratings: 1 Star.",
+              "New review sentiment: 1 negative, 0 neutral, 0 positive.",
+              "Representative review: \"The product felt different than expected and needs clearer guidance.\"",
+            ],
+          },
+          {
+            id: "product-content",
+            title: "Product content changed",
+            tone: "blue",
+            metric: "PDP content updated",
+            summary: "Product content was rechecked and contributes updated content-quality context.",
+            bullets: [
+              "Description now has 264 words.",
+              "Current content quality score: 75.",
+              "Detected content issues: Missing customer guidance, Missing specifications.",
+            ],
+          },
+        ],
+      },
     }] : [],
     mock: {},
   };
