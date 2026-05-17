@@ -146,6 +146,38 @@ describe("ProductPulse screens", () => {
               lastIssue: "Detected 6h ago",
               lastIssueDetail: "May 18, 2:02 AM",
               href: "/app/products/nintendo-new-3ds-xl",
+              latestChangeReport: {
+                status: "changed",
+                title: "Watchlist changes detected",
+                summary: "2 meaningful changes since the previous Watchlist run. Product risk increased from 58/100 to 63/100.",
+                headline: "Product risk increased from 58/100 to 63/100.",
+                changeCount: 2,
+                previousRunAt: "2026-05-16T10:00:00.000Z",
+                currentRunAt: "2026-05-17T10:00:00.000Z",
+                current: {
+                  riskLabel: "Medium",
+                  riskScore: 63,
+                  confidence: 72,
+                  primaryIssue: "Product quality",
+                  returnRatePercent: 12,
+                  productMomentumTier: "Rising",
+                  productMomentumScore: 74,
+                },
+                sections: [{
+                  id: "risk",
+                  title: "Risk and diagnosis",
+                  tone: "purple",
+                  changes: [{
+                    id: "risk-score",
+                    label: "Product risk",
+                    from: "58/100",
+                    to: "63/100",
+                    delta: "+5/100",
+                    direction: "up",
+                    detail: "Product risk changed based on the latest stored evidence and score model.",
+                  }],
+                }],
+              },
             },
             {
               id: "watch-2",
@@ -232,6 +264,11 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("63 · Medium")).toBeInTheDocument();
     expect(screen.getByText("46 · Low")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
+    fireEvent.click(screen.getByRole("button", { name: "View latest Watchlist change report for Nintendo New 3DS XL" }));
+    const reportDialog = screen.getByRole("dialog", { name: "Nintendo New 3DS XL" });
+    expect(within(reportDialog).getByText("Watchlist change report")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Product risk increased from 58/100 to 63/100.")).toBeInTheDocument();
+    fireEvent.click(within(reportDialog).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("button", { name: /Move Nintendo New 3DS XL/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/app/watchlist/activity");
     expect(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" })).toBeInTheDocument();

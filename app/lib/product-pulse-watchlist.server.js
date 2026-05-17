@@ -32,6 +32,7 @@ const DEFAULT_WATCH_SETTINGS = {
   alertsEnabled: true,
 };
 const WATCH_TREND_COLORS = ["#3A6BFF", "#7C3AED", "#14B8A6", "#F59E0B", "#EF4444"];
+const WATCH_CHANGE_REPORT_EVENT = "watch_change_report";
 
 export async function getWatchlistForShop(shop) {
   const items = await prisma.productWatchlistItem.findMany({
@@ -39,14 +40,22 @@ export async function getWatchlistForShop(shop) {
     orderBy: { addedAt: "asc" },
   });
   const productGids = items.map((item) => item.productGid).filter(Boolean);
-  const snapshots = productGids.length
-    ? await prisma.productRiskSnapshot.findMany({
-      where: { shop, productGid: { in: productGids } },
-    })
-    : [];
+  const [snapshots, latestChangeReports] = productGids.length
+    ? await Promise.all([
+      prisma.productRiskSnapshot.findMany({
+        where: { shop, productGid: { in: productGids } },
+      }),
+      getLatestWatchChangeReportsForProducts(shop, productGids),
+    ])
+    : [[], new Map()];
   const snapshotByProductGid = new Map(snapshots.map((snapshot) => [snapshot.productGid, snapshot]));
   const productPulseSettings = await getProductPulseSettings(shop);
-  const rows = items.map((item) => formatWatchlistRow(item, snapshotByProductGid.get(item.productGid), productPulseSettings));
+  const rows = items.map((item) => formatWatchlistRow(
+    item,
+    snapshotByProductGid.get(item.productGid),
+    productPulseSettings,
+    latestChangeReports.get(item.productGid),
+  ));
   const watchedCount = rows.length;
   const [activities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
@@ -350,16 +359,68 @@ export async function recordWatchActivityForShop(shop, activity = {}) {
   });
 }
 
-export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan" } = {}) {
+export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan", noChangesReused = false } = {}) {
   const productGids = Array.from(new Set(snapshots.map((snapshot) => snapshot?.productGid).filter(Boolean)));
   if (!shop || !productGids.length) return { count: 0 };
-  const [watchedItems, productPulseSettings] = await Promise.all([
+  const [watchedItems, productPulseSettings, previousReports] = await Promise.all([
     prisma.productWatchlistItem.findMany({
       where: { shop, productGid: { in: productGids }, status: { not: "Paused" } },
     }),
     getProductPulseSettings(shop),
+    source === "full-diagnosis"
+      ? prisma.productWatchActivity.findMany({
+        where: { shop, productGid: { in: productGids }, eventType: WATCH_CHANGE_REPORT_EVENT },
+        orderBy: { createdAt: "desc" },
+        take: productGids.length * 8,
+      })
+      : [],
   ]);
   const itemByProductGid = new Map(watchedItems.map((item) => [item.productGid, item]));
+  const previousReportByProductGid = new Map();
+  previousReports.forEach((activity) => {
+    if (activity.productGid && !previousReportByProductGid.has(activity.productGid)) {
+      previousReportByProductGid.set(activity.productGid, activity);
+    }
+  });
+  const now = new Date();
+  const reportRows = source === "full-diagnosis"
+    ? snapshots
+      .filter((snapshot) => itemByProductGid.has(snapshot.productGid))
+      .map((snapshot) => {
+        const item = itemByProductGid.get(snapshot.productGid);
+        const previousActivity = previousReportByProductGid.get(snapshot.productGid);
+        const report = buildWatchChangeReport({
+          snapshot,
+          productPulseSettings,
+          previousReport: previousActivity?.metadata?.report || null,
+          previousSummary: previousActivity?.metadata?.snapshotSummary || previousActivity?.metadata?.report?.current || null,
+          source,
+          noChangesReused,
+          createdAt: now,
+        });
+        return {
+          shop,
+          productGid: snapshot.productGid,
+          productTitle: snapshot.productTitle || item.productTitle,
+          watchlistItemId: item.id,
+          eventType: WATCH_CHANGE_REPORT_EVENT,
+          title: report.title,
+          detail: report.summary,
+          metadata: {
+            source,
+            noChangesReused,
+            riskScore: report.current.riskScore,
+            riskLabel: report.current.riskLabel,
+            confidence: report.current.confidence,
+            impactScore: report.current.impactScore,
+            primaryIssue: report.current.primaryIssue,
+            report,
+            snapshotSummary: report.current,
+          },
+          createdAt: now,
+        };
+      })
+    : [];
   const rows = snapshots
     .filter((snapshot) => itemByProductGid.has(snapshot.productGid))
     .map((snapshot) => {
@@ -372,10 +433,15 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
         productTitle: snapshot.productTitle || item.productTitle,
         watchlistItemId: item.id,
         eventType: source === "full-diagnosis" ? "diagnosis_completed" : "watch_scan_completed",
-        title: source === "full-diagnosis" ? "Product diagnosis completed" : "Watch scan updated product risk",
-        detail: `${riskLabel} risk (${riskScore}/100) · ${snapshot.primaryIssue || "No primary issue"}`,
+        title: source === "full-diagnosis"
+          ? noChangesReused ? "Product diagnosis reused" : "Product diagnosis completed"
+          : "Watch scan updated product risk",
+        detail: noChangesReused
+          ? `No source changes detected · ${riskLabel} risk (${riskScore}/100)`
+          : `${riskLabel} risk (${riskScore}/100) · ${snapshot.primaryIssue || "No primary issue"}`,
         metadata: {
           source,
+          noChangesReused,
           riskScore,
           riskLabel,
           confidence: snapshot.confidence,
@@ -384,8 +450,9 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
         },
       };
     });
-  if (!rows.length) return { count: 0 };
-  return prisma.productWatchActivity.createMany({ data: rows });
+  const activityRows = [...reportRows, ...rows];
+  if (!activityRows.length) return { count: 0 };
+  return prisma.productWatchActivity.createMany({ data: activityRows });
 }
 
 async function findWatchedProduct(shop, productGid) {
@@ -396,7 +463,7 @@ async function findWatchedProduct(shop, productGid) {
   });
 }
 
-function formatWatchlistRow(item, snapshot, productPulseSettings = undefined) {
+function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, latestChangeReport = null) {
   const riskScore = snapshot ? Number(snapshot.riskScore || 0) : null;
   const metrics = snapshot?.metrics || {};
   const riskTone = snapshot ? getRiskToneForScore(riskScore, productPulseSettings) : "subdued";
@@ -425,6 +492,7 @@ function formatWatchlistRow(item, snapshot, productPulseSettings = undefined) {
     lastIssue: hasSnapshot ? `Updated ${formatWatchDate(updatedAt)}` : "Not scanned yet",
     lastIssueDetail: hasSnapshot ? formatWatchTimestamp(updatedAt) : "Waiting for automatic watch cadence",
     addedAt: formatWatchDate(item.addedAt),
+    latestChangeReport,
   };
 }
 
@@ -454,6 +522,22 @@ async function getWatchActivityRowsForShop(shop, { take = 5 } = {}) {
     take,
   });
   return activities.map(formatWatchActivity);
+}
+
+async function getLatestWatchChangeReportsForProducts(shop, productGids = []) {
+  if (!shop || !productGids.length) return new Map();
+  const reports = await prisma.productWatchActivity.findMany({
+    where: { shop, productGid: { in: productGids }, eventType: WATCH_CHANGE_REPORT_EVENT },
+    orderBy: { createdAt: "desc" },
+    take: productGids.length * 8,
+  });
+  const byProductGid = new Map();
+  reports.forEach((activity) => {
+    if (activity.productGid && !byProductGid.has(activity.productGid)) {
+      byProductGid.set(activity.productGid, formatWatchChangeReportActivity(activity));
+    }
+  });
+  return byProductGid;
 }
 
 async function getWatchActivityStatsForShop(shop, productPulseSettings = undefined) {
@@ -497,6 +581,379 @@ function formatWatchActivity(activity) {
     riskLabel: metadata.riskLabel || "",
     metadata,
   };
+}
+
+function formatWatchChangeReportActivity(activity = {}) {
+  const metadata = activity.metadata || {};
+  const report = metadata.report || {};
+  return {
+    id: activity.id,
+    productGid: activity.productGid || "",
+    productTitle: activity.productTitle || "",
+    title: report.title || activity.title || "Watchlist change report",
+    summary: report.summary || activity.detail || "",
+    status: report.status || "changed",
+    headline: report.headline || "",
+    changeCount: Number(report.changeCount || 0),
+    previousRunAt: report.previousRunAt || null,
+    currentRunAt: report.currentRunAt || activity.createdAt?.toISOString?.() || activity.createdAt || null,
+    createdAt: activity.createdAt?.toISOString?.() || activity.createdAt || null,
+    timestamp: formatWatchTimestamp(activity.createdAt),
+    previous: report.previous || null,
+    current: report.current || null,
+    sections: Array.isArray(report.sections) ? report.sections : [],
+    changes: Array.isArray(report.changes) ? report.changes : [],
+  };
+}
+
+function buildWatchChangeReport({
+  snapshot = {},
+  productPulseSettings = undefined,
+  previousReport = null,
+  previousSummary = null,
+  source = "full-diagnosis",
+  noChangesReused = false,
+  createdAt = new Date(),
+} = {}) {
+  const current = buildWatchSnapshotSummary(snapshot, productPulseSettings, createdAt);
+  const previous = previousSummary || previousReport?.current || null;
+  const previousRunAt = previous?.capturedAt || previousReport?.currentRunAt || previousReport?.createdAt || null;
+
+  if (!previous) {
+    return {
+      id: `watch-report-${snapshot.productGid || "product"}-${createdAt.getTime()}`,
+      status: "baseline",
+      title: "Watch baseline captured",
+      headline: "First Watchlist comparison point stored",
+      summary: "This is the first stored Watchlist report for this product. Future runs will compare against this baseline.",
+      source,
+      noChangesReused,
+      changeCount: 0,
+      previousRunAt: null,
+      currentRunAt: current.capturedAt,
+      previous: null,
+      current,
+      sections: [{
+        id: "baseline",
+        title: "Baseline",
+        tone: "blue",
+        changes: [{
+          id: "baseline-captured",
+          label: "Current diagnosis baseline",
+          from: "No previous Watchlist run",
+          to: `${current.riskLabel} risk (${current.riskScore}/100)`,
+          delta: "Baseline",
+          direction: "neutral",
+          detail: "ProductPulse will use this snapshot to explain future Watchlist changes.",
+        }],
+      }],
+      changes: [],
+    };
+  }
+
+  const sections = [
+    buildRiskChangeSection(previous, current),
+    buildEvidenceChangeSection(previous, current),
+    buildImpactChangeSection(previous, current),
+    buildMomentumChangeSection(previous, current),
+  ].filter((section) => section.changes.length);
+  const changes = sections.flatMap((section) => section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title })));
+  const status = changes.length ? "changed" : "unchanged";
+  const headline = changes.length ? getWatchReportHeadline(changes) : "No meaningful changes detected";
+  const summary = changes.length
+    ? `${changes.length} meaningful change${changes.length === 1 ? "" : "s"} since the previous Watchlist run. ${headline}`
+    : "No meaningful product risk, evidence, impact or momentum changes were detected since the previous Watchlist run.";
+
+  return {
+    id: `watch-report-${snapshot.productGid || "product"}-${createdAt.getTime()}`,
+    status,
+    title: status === "changed" ? "Watchlist changes detected" : "No Watchlist changes detected",
+    headline,
+    summary,
+    source,
+    noChangesReused,
+    changeCount: changes.length,
+    previousRunAt,
+    currentRunAt: current.capturedAt,
+    previous,
+    current,
+    sections: status === "unchanged" ? [{
+      id: "unchanged",
+      title: "No changes",
+      tone: "green",
+      changes: [{
+        id: "no-meaningful-change",
+        label: "Watchlist comparison",
+        from: `${previous.riskLabel} risk (${previous.riskScore}/100)`,
+        to: `${current.riskLabel} risk (${current.riskScore}/100)`,
+        delta: "Stable",
+        direction: "neutral",
+        detail: "The latest run matched the previous stored product state closely enough that there is nothing new to review.",
+      }],
+    }] : sections,
+    changes,
+  };
+}
+
+function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefined, capturedAt = new Date()) {
+  const metrics = snapshot.metrics || {};
+  const riskScore = clampRoundNumber(snapshot.riskScore);
+  const returnRatePercent = normalizeRatePercent(firstNumber(
+    metrics.returnRatePercent,
+    metrics.returnRate,
+    metrics.returns?.returnRate,
+    metrics.monthlyOrderActivity?.summary?.returnRate,
+    metrics.returnRatePrediction?.summary?.totalReturnRate,
+  ));
+  const refundRatePercent = normalizeRatePercent(firstNumber(
+    metrics.refundRatePercent,
+    metrics.refundRate,
+    metrics.refunds?.refundRate,
+    metrics.monthlyOrderActivity?.summary?.refundRate,
+  ));
+  const productMomentum = metrics.productMomentum || {};
+  return {
+    capturedAt: toWatchIso(capturedAt),
+    riskScore,
+    riskLabel: getRiskLabelForScore(riskScore, productPulseSettings),
+    confidence: clampRoundNumber(snapshot.confidence ?? metrics.confidence),
+    impactScore: clampRoundNumber(snapshot.impactScore ?? metrics.impactScore),
+    estimatedImpact: roundMoney(firstNumber(metrics.estimatedImpact, metrics.impactRange?.mid, metrics.financialExposure?.estimatedImpact)),
+    marginAtRisk: roundMoney(firstNumber(metrics.marginAtRisk, metrics.financialExposure?.marginAtRisk, metrics.impactFactors?.marginAtRisk)),
+    revenueAtRisk: roundMoney(firstNumber(metrics.revenueAtRisk, metrics.financialExposure?.revenueAtRisk, metrics.impactFactors?.revenueAtRisk)),
+    primaryIssue: String(snapshot.primaryIssue || metrics.primaryIssue || metrics.mainIssue || "No primary issue"),
+    returnRatePercent,
+    refundRatePercent,
+    returnUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.returns?.units, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
+    refundUnits: clampRoundNumber(firstNumber(metrics.refundUnits, metrics.refunds?.units, metrics.monthlyOrderActivity?.summary?.refundedOrders)),
+    negativeReviewCount: clampRoundNumber(firstNumber(metrics.negativeReviewCount, metrics.reviews?.negativeReviews)),
+    reviewCount: clampRoundNumber(firstNumber(metrics.reviewCount, metrics.reviews?.totalReviews)),
+    signalCount: clampRoundNumber(firstNumber(metrics.signalCount, metrics.signalsCount, metrics.totalSignals, metrics.evidenceSignalCount)),
+    topReturnReason: firstString(
+      metrics.topReturnReason,
+      metrics.topReturnReasonDetails?.[0]?.label,
+      metrics.returnReasons?.[0]?.label,
+    ),
+    topRefundReason: firstString(
+      metrics.topRefundReason,
+      metrics.topRefundReasonDetails?.[0]?.label,
+      metrics.refundReasons?.[0]?.label,
+    ),
+    productMomentumScore: clampRoundNumber(firstNumber(metrics.productMomentumScore, productMomentum.score)),
+    productMomentumTier: firstString(metrics.productMomentumTier, productMomentum.tier, "No momentum"),
+    productMomentumDirection: firstString(metrics.momentumDirection, productMomentum.direction),
+    sourceFingerprint: metrics.incrementalDiagnosis?.cache?.sourceFingerprint || null,
+  };
+}
+
+function buildRiskChangeSection(previous, current) {
+  const changes = [
+    numericWatchChange({
+      id: "risk-score",
+      label: "Product risk",
+      previous: previous.riskScore,
+      current: current.riskScore,
+      suffix: "/100",
+      threshold: 1,
+      detail: "Product risk changed based on the latest stored evidence and score model.",
+    }),
+    textWatchChange({
+      id: "risk-label",
+      label: "Risk tier",
+      previous: previous.riskLabel,
+      current: current.riskLabel,
+      detail: "The risk category changed according to the current shop thresholds.",
+    }),
+    numericWatchChange({
+      id: "diagnosis-confidence",
+      label: "Diagnosis confidence",
+      previous: previous.confidence,
+      current: current.confidence,
+      suffix: "%",
+      threshold: 1,
+      detail: "Confidence changed because source coverage, sample size or agreement changed.",
+    }),
+    textWatchChange({
+      id: "primary-issue",
+      label: "Primary issue",
+      previous: previous.primaryIssue,
+      current: current.primaryIssue,
+      detail: "The top diagnosis focus changed since the previous Watchlist run.",
+    }),
+  ].filter(Boolean);
+  return { id: "risk", title: "Risk and diagnosis", tone: "purple", changes };
+}
+
+function buildEvidenceChangeSection(previous, current) {
+  const changes = [
+    numericWatchChange({
+      id: "return-rate",
+      label: "Return rate",
+      previous: previous.returnRatePercent,
+      current: current.returnRatePercent,
+      suffix: "%",
+      threshold: 0.2,
+      detail: "Return pressure changed in the product evidence window.",
+    }),
+    numericWatchChange({
+      id: "returned-units",
+      label: "Returned units",
+      previous: previous.returnUnits,
+      current: current.returnUnits,
+      threshold: 1,
+      detail: "Returned product units changed since the last Watchlist report.",
+    }),
+    numericWatchChange({
+      id: "refund-rate",
+      label: "Refund rate",
+      previous: previous.refundRatePercent,
+      current: current.refundRatePercent,
+      suffix: "%",
+      threshold: 0.2,
+      detail: "Refund pressure changed in the product evidence window.",
+    }),
+    numericWatchChange({
+      id: "negative-reviews",
+      label: "Negative reviews",
+      previous: previous.negativeReviewCount,
+      current: current.negativeReviewCount,
+      threshold: 1,
+      detail: "Negative review volume changed for this watched product.",
+    }),
+    numericWatchChange({
+      id: "signal-count",
+      label: "Evidence signals",
+      previous: previous.signalCount,
+      current: current.signalCount,
+      threshold: 1,
+      detail: "The amount of stored diagnostic evidence changed.",
+    }),
+    textWatchChange({
+      id: "top-return-reason",
+      label: "Top return reason",
+      previous: previous.topReturnReason,
+      current: current.topReturnReason,
+      detail: "The leading return reason changed.",
+    }),
+    textWatchChange({
+      id: "top-refund-reason",
+      label: "Top refund reason",
+      previous: previous.topRefundReason,
+      current: current.topRefundReason,
+      detail: "The leading refund reason changed.",
+    }),
+  ].filter(Boolean);
+  return { id: "evidence", title: "Evidence movement", tone: "blue", changes };
+}
+
+function buildImpactChangeSection(previous, current) {
+  const changes = [
+    moneyWatchChange({
+      id: "estimated-impact",
+      label: "Estimated impact",
+      previous: previous.estimatedImpact,
+      current: current.estimatedImpact,
+      threshold: 1,
+      detail: "Estimated business exposure changed since the previous run.",
+    }),
+    moneyWatchChange({
+      id: "margin-at-risk",
+      label: "Margin at risk",
+      previous: previous.marginAtRisk,
+      current: current.marginAtRisk,
+      threshold: 1,
+      detail: "Estimated margin exposure changed for this watched product.",
+    }),
+    moneyWatchChange({
+      id: "revenue-at-risk",
+      label: "Revenue at risk",
+      previous: previous.revenueAtRisk,
+      current: current.revenueAtRisk,
+      threshold: 1,
+      detail: "Estimated revenue exposure changed for this watched product.",
+    }),
+  ].filter(Boolean);
+  return { id: "impact", title: "Financial exposure", tone: "orange", changes };
+}
+
+function buildMomentumChangeSection(previous, current) {
+  const changes = [
+    numericWatchChange({
+      id: "momentum-score",
+      label: "Product Momentum",
+      previous: previous.productMomentumScore,
+      current: current.productMomentumScore,
+      suffix: "/100",
+      threshold: 1,
+      detail: "Commercial momentum changed based on recent sales velocity and catalog position.",
+    }),
+    textWatchChange({
+      id: "momentum-tier",
+      label: "Momentum tier",
+      previous: previous.productMomentumTier,
+      current: current.productMomentumTier,
+      detail: "The commercial attention category changed.",
+    }),
+    textWatchChange({
+      id: "momentum-direction",
+      label: "Momentum direction",
+      previous: previous.productMomentumDirection,
+      current: current.productMomentumDirection,
+      detail: "The product's sales movement label changed.",
+    }),
+  ].filter(Boolean);
+  return { id: "momentum", title: "Commercial momentum", tone: "green", changes };
+}
+
+function numericWatchChange({ id, label, previous, current, suffix = "", threshold = 1, detail }) {
+  if (!Number.isFinite(Number(previous)) || !Number.isFinite(Number(current))) return null;
+  const previousNumber = Number(previous);
+  const currentNumber = Number(current);
+  const delta = currentNumber - previousNumber;
+  if (Math.abs(delta) < threshold) return null;
+  return {
+    id,
+    label,
+    from: formatNumberWithSuffix(previousNumber, suffix),
+    to: formatNumberWithSuffix(currentNumber, suffix),
+    delta: `${delta > 0 ? "+" : ""}${formatNumberWithSuffix(delta, suffix)}`,
+    direction: delta > 0 ? "up" : "down",
+    detail,
+  };
+}
+
+function moneyWatchChange({ id, label, previous, current, threshold = 1, detail }) {
+  const change = numericWatchChange({ id, label, previous, current, threshold, detail });
+  if (!change) return null;
+  return {
+    ...change,
+    from: formatMoney(previous),
+    to: formatMoney(current),
+    delta: `${Number(current) - Number(previous) > 0 ? "+" : ""}${formatMoney(Number(current) - Number(previous))}`,
+  };
+}
+
+function textWatchChange({ id, label, previous, current, detail }) {
+  const previousText = String(previous || "").trim();
+  const currentText = String(current || "").trim();
+  if (!previousText || !currentText || previousText === currentText) return null;
+  return {
+    id,
+    label,
+    from: previousText,
+    to: currentText,
+    delta: "Changed",
+    direction: "neutral",
+    detail,
+  };
+}
+
+function getWatchReportHeadline(changes = []) {
+  const preferred = changes.find((change) => ["risk-score", "return-rate", "negative-reviews", "estimated-impact", "momentum-score"].includes(change.id))
+    || changes[0];
+  if (!preferred) return "No meaningful changes detected";
+  const direction = preferred.direction === "up" ? "increased" : preferred.direction === "down" ? "decreased" : "changed";
+  return `${preferred.label} ${direction} from ${preferred.from} to ${preferred.to}.`;
 }
 
 function buildWatchlistTrend(products = [], historyByProductGid = new Map(), productPulseSettings = undefined) {
@@ -608,6 +1065,7 @@ function getActivityIcon(eventType) {
   if (eventType === "product_resumed") return "play";
   if (eventType === "all_watches_paused") return "pause";
   if (eventType === "diagnosis_completed") return "wand";
+  if (eventType === WATCH_CHANGE_REPORT_EVENT) return "chart-line";
   if (eventType === "watch_scan_completed") return "refresh";
   if (eventType === "watch_scan_queued") return "play";
   if (eventType === "settings_changed") return "settings";
@@ -622,6 +1080,12 @@ function getActivityTone(eventType, metadata = {}) {
   if (eventType === "all_watches_paused") return "purple";
   if (eventType === "product_added") return "blue";
   if (eventType === "diagnosis_completed") return "purple";
+  if (eventType === WATCH_CHANGE_REPORT_EVENT) {
+    const status = metadata.report?.status || "";
+    if (status === "unchanged") return "green";
+    if (status === "baseline") return "blue";
+    return "orange";
+  }
   if (eventType === "watch_scan_queued") return "blue";
   if (eventType === "watch_scan_completed") {
     const riskScore = Number(metadata.riskScore || 0);
@@ -707,6 +1171,65 @@ function optionalString(value) {
   return normalized || null;
 }
 
+function firstNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    const normalized = String(value || "").trim();
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function clampRoundNumber(value, min = 0, max = Number.POSITIVE_INFINITY) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round(Math.max(min, Math.min(max, number)));
+}
+
+function roundMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round(number * 100) / 100;
+}
+
+function normalizeRatePercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  const percent = Math.abs(number) <= 1 && number !== 0 ? number * 100 : number;
+  return Math.round(percent * 10) / 10;
+}
+
+function formatNumberWithSuffix(value, suffix = "") {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return suffix ? `0${suffix}` : "0";
+  const rounded = Math.abs(number) >= 10 ? Math.round(number) : Math.round(number * 10) / 10;
+  return `${rounded}${suffix}`;
+}
+
+function formatMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "$0";
+  const sign = number < 0 ? "-" : "";
+  const absolute = Math.abs(number);
+  const formatted = absolute >= 1000
+    ? Math.round(absolute).toLocaleString("en-US")
+    : (Math.round(absolute * 100) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return `${sign}$${formatted}`;
+}
+
+function toWatchIso(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  return date.toISOString();
+}
+
 function formatWatchDate(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "Recently";
@@ -728,6 +1251,7 @@ function formatWatchTimestamp(value) {
 }
 
 export const __productPulseWatchlistTestHooks = {
+  buildWatchChangeReport,
   buildWatchlistTrend,
   formatWatchlistRow,
 };

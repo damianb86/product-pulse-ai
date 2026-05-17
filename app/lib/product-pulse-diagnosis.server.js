@@ -2523,6 +2523,8 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     },
   });
 
+  await recordWatchlistScanActivities(shop, [snapshot], { source: "full-diagnosis", noChangesReused: true });
+
   return {
     status: "skipped",
     skipped: true,

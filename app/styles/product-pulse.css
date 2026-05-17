@@ -12689,6 +12689,314 @@ s-page[inline-size="large-500"] {
   color: var(--pp-risk-red);
 }
 
+.ppWatchActionsButton-report {
+  color: var(--pp-pulse-blue);
+}
+
+.ppWatchActionsButton-report:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.38);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.09);
+}
+
+.ppWatchChangeReportOverlay {
+  z-index: 900;
+}
+
+.ppWatchChangeReportModal {
+  width: min(920px, calc(100vw - 36px));
+  max-height: min(860px, calc(100vh - 36px));
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 18px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 28px 80px rgba(var(--pp-shadow-rgb), 0.28);
+}
+
+.ppWatchChangeReportHeader {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 44px;
+  gap: 14px;
+  align-items: start;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  background:
+    radial-gradient(circle at 4% 0%, rgba(var(--pp-pulse-blue-rgb), 0.10), transparent 28%),
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-50));
+}
+
+.ppWatchChangeReportHeader h2,
+.ppWatchChangeReportHeader p {
+  margin: 0;
+}
+
+.ppWatchChangeReportHeader h2 {
+  color: var(--pp-slate-950);
+  font-size: 24px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.ppWatchChangeReportHeader p {
+  max-width: 720px;
+  margin-top: 6px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppWatchChangeReportEyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppWatchChangeReportMeta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchChangeReportMeta > div {
+  min-height: 64px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchChangeReportMeta span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.ppWatchChangeReportMeta strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchChangeReportStatus {
+  width: max-content;
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+
+.ppWatchChangeReportStatus-green {
+  background: rgba(var(--pp-success-green-rgb), 0.13);
+  color: color-mix(in srgb, var(--pp-success-green) 70%, var(--pp-midnight-ink));
+}
+
+.ppWatchChangeReportStatus-blue {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.10);
+  color: var(--pp-pulse-blue);
+}
+
+.ppWatchChangeReportStatus-orange {
+  background: rgba(var(--pp-warning-amber-rgb), 0.16);
+  color: color-mix(in srgb, var(--pp-warning-amber) 76%, var(--pp-midnight-ink));
+}
+
+.ppWatchChangeReportHeadline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 24px 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--pp-slate-800);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ppWatchChangeReportHeadline-green {
+  border: 1px solid rgba(var(--pp-success-green-rgb), 0.20);
+  background: rgba(var(--pp-success-green-rgb), 0.08);
+}
+
+.ppWatchChangeReportHeadline-blue {
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.07);
+}
+
+.ppWatchChangeReportHeadline-orange {
+  border: 1px solid rgba(var(--pp-warning-amber-rgb), 0.22);
+  background: rgba(var(--pp-warning-amber-rgb), 0.09);
+}
+
+.ppWatchChangeReportSections {
+  display: grid;
+  gap: 12px;
+  padding: 0 24px 18px;
+  overflow: auto;
+}
+
+.ppWatchChangeReportSection {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 14px;
+  background: var(--pp-cloud-white);
+  overflow: hidden;
+}
+
+.ppWatchChangeReportSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  background: var(--pp-slate-50);
+}
+
+.ppWatchChangeReportSectionHeader h3 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.ppWatchChangeRows {
+  display: grid;
+}
+
+.ppWatchChangeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.65fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchChangeRow:last-child {
+  border-bottom: 0;
+}
+
+.ppWatchChangeRow strong,
+.ppWatchChangeRow small {
+  display: block;
+}
+
+.ppWatchChangeRow strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppWatchChangeRow small {
+  margin-top: 3px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppWatchChangeValues {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppWatchChangeValues span {
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 7px;
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchChangeValues s-icon {
+  color: var(--pp-slate-400);
+}
+
+.ppWatchChangeDelta {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 64px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.ppWatchChangeDelta-up {
+  background: rgba(var(--pp-risk-red-rgb), 0.10);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchChangeDelta-down {
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchChangeDelta-neutral {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-600);
+}
+
+.ppWatchChangeReportSnapshot {
+  margin: 0 24px 18px;
+  padding: 13px 14px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.15);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.06), rgba(var(--pp-success-green-rgb), 0.05));
+}
+
+.ppWatchChangeReportSnapshot h3 {
+  margin: 0 0 9px;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppWatchChangeReportSnapshot > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ppWatchChangeReportSnapshot span {
+  padding: 6px 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppWatchChangeReportFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--pp-slate-200);
+  background: var(--pp-cloud-white);
+}
+
 .ppWatchlistTableFooter {
   padding: 10px 14px;
   color: var(--pp-slate-700);

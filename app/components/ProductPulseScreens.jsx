@@ -1239,80 +1239,228 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
 }
 
 function WatchlistProductRow({ product }) {
+  const [reportOpen, setReportOpen] = useState(false);
   const latestTone = product.latestChangeTone || "slate";
   const hasScore = Number.isFinite(Number(product.riskScore));
   const paused = product.status === "Paused";
+  const latestReport = product.latestChangeReport || null;
+  const hasReport = Boolean(latestReport);
 
   return (
-    <tr>
-      <td>
-        <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
-          <ProductArt
-            variant={product.variant || "shirt"}
-            label={product.title}
-            imageUrl={product.imageUrl}
-            imageAlt={product.imageAlt}
-          />
-          <span>
-            <strong>{product.title}</strong>
-            <small>{product.sku ? `SKU: ${product.sku}` : product.handle ? `/${product.handle}` : "Shopify product"}</small>
-          </span>
-        </Link>
-      </td>
-      <td>
-        <span className={`ppWatchStatus ppWatchStatus-${product.statusTone || "success"}`}>
-          <span aria-hidden="true" />
-          {product.status || "Watching"}
-        </span>
-      </td>
-      <td>
-        <div className="ppWatchRiskCell">
-          <span className={`ppWatchRiskDial ppWatchRiskDial-${product.riskTone || "subdued"}`}>{hasScore ? product.riskScore : "-"}</span>
-          <strong className={`ppWatchRiskLabel ppWatchRiskLabel-${product.riskTone || "subdued"}`}>{product.riskLabel || "Pending"}</strong>
-        </div>
-      </td>
-      <td>
-        <div className="ppWatchIssueCell">
-          <span className={`ppWatchIssueDot ppWatchIssueDot-${latestTone}`} aria-hidden="true" />
-          <span>
-            <strong>{product.latestChange || "Awaiting first scan"}</strong>
-            <small>{product.latestChangeDetail || "This product will be checked on the next watch run."}</small>
-          </span>
-        </div>
-      </td>
-      <td>
-        <div className="ppWatchUpdateCell">
-          <strong>{product.lastIssue || "Not scanned yet"}</strong>
-          <small>{product.lastIssueDetail || "Waiting for automatic watch cadence"}</small>
-        </div>
-      </td>
-      <td>
-        <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
-          <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
-            <s-icon type="view" size="small"></s-icon>
+    <>
+      <tr>
+        <td>
+          <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
+            <ProductArt
+              variant={product.variant || "shirt"}
+              label={product.title}
+              imageUrl={product.imageUrl}
+              imageAlt={product.imageAlt}
+            />
+            <span>
+              <strong>{product.title}</strong>
+              <small>{product.sku ? `SKU: ${product.sku}` : product.handle ? `/${product.handle}` : "Shopify product"}</small>
+            </span>
           </Link>
-          <Form method="post">
-            <input type="hidden" name="_action" value={paused ? "resume-watched-product" : "pause-watched-product"} />
-            <input type="hidden" name="productGid" value={product.productGid || ""} />
-            <button className="ppWatchActionsButton" type="submit" aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}>
-              {paused ? (
-                <s-icon type="play" size="small"></s-icon>
-              ) : (
-                <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
-              )}
+        </td>
+        <td>
+          <span className={`ppWatchStatus ppWatchStatus-${product.statusTone || "success"}`}>
+            <span aria-hidden="true" />
+            {product.status || "Watching"}
+          </span>
+        </td>
+        <td>
+          <div className="ppWatchRiskCell">
+            <span className={`ppWatchRiskDial ppWatchRiskDial-${product.riskTone || "subdued"}`}>{hasScore ? product.riskScore : "-"}</span>
+            <strong className={`ppWatchRiskLabel ppWatchRiskLabel-${product.riskTone || "subdued"}`}>{product.riskLabel || "Pending"}</strong>
+          </div>
+        </td>
+        <td>
+          <div className="ppWatchIssueCell">
+            <span className={`ppWatchIssueDot ppWatchIssueDot-${latestTone}`} aria-hidden="true" />
+            <span>
+              <strong>{product.latestChange || "Awaiting first scan"}</strong>
+              <small>{product.latestChangeDetail || "This product will be checked on the next watch run."}</small>
+            </span>
+          </div>
+        </td>
+        <td>
+          <div className="ppWatchUpdateCell">
+            <strong>{product.lastIssue || "Not scanned yet"}</strong>
+            <small>{product.lastIssueDetail || "Waiting for automatic watch cadence"}</small>
+          </div>
+        </td>
+        <td>
+          <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
+            <button
+              className="ppWatchActionsButton ppWatchActionsButton-report"
+              type="button"
+              disabled={!hasReport}
+              aria-label={`View latest Watchlist change report for ${product.title}`}
+              onClick={() => setReportOpen(true)}
+            >
+              <s-icon type="chart-line" size="small"></s-icon>
             </button>
-          </Form>
-          <Form method="post">
-            <input type="hidden" name="_action" value="remove-watched-product" />
-            <input type="hidden" name="productGid" value={product.productGid || ""} />
-            <button className="ppWatchActionsButton ppWatchActionsButton-danger" type="submit" aria-label={`Remove ${product.title} from watchlist`}>
-              <s-icon type="x" size="small"></s-icon>
-            </button>
-          </Form>
-        </div>
-      </td>
-    </tr>
+            <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
+              <s-icon type="view" size="small"></s-icon>
+            </Link>
+            <Form method="post">
+              <input type="hidden" name="_action" value={paused ? "resume-watched-product" : "pause-watched-product"} />
+              <input type="hidden" name="productGid" value={product.productGid || ""} />
+              <button className="ppWatchActionsButton" type="submit" aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}>
+                {paused ? (
+                  <s-icon type="play" size="small"></s-icon>
+                ) : (
+                  <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
+                )}
+              </button>
+            </Form>
+            <Form method="post">
+              <input type="hidden" name="_action" value="remove-watched-product" />
+              <input type="hidden" name="productGid" value={product.productGid || ""} />
+              <button className="ppWatchActionsButton ppWatchActionsButton-danger" type="submit" aria-label={`Remove ${product.title} from watchlist`}>
+                <s-icon type="x" size="small"></s-icon>
+              </button>
+            </Form>
+          </div>
+        </td>
+      </tr>
+      {reportOpen && hasReport ? (
+        <WatchChangeReportModal product={product} report={latestReport} onClose={() => setReportOpen(false)} />
+      ) : null}
+    </>
   );
+}
+
+function WatchChangeReportModal({ product, report, onClose }) {
+  if (typeof document === "undefined") return null;
+  const statusTone = getWatchReportStatusTone(report?.status);
+  const statusLabel = getWatchReportStatusLabel(report?.status);
+  const sections = Array.isArray(report?.sections) ? report.sections : [];
+  const current = report?.current || {};
+
+  return createPortal(
+    <div className="ppAnalysisConfirmOverlay ppWatchChangeReportOverlay" role="presentation">
+      <section className="ppWatchChangeReportModal" role="dialog" aria-modal="true" aria-labelledby="watch-change-report-title">
+        <header className="ppWatchChangeReportHeader">
+          <DashboardIcon type={report?.status === "unchanged" ? "check" : "chart-line"} tone={statusTone} />
+          <div>
+            <span className="ppWatchChangeReportEyebrow">Watchlist change report</span>
+            <h2 id="watch-change-report-title">{product.title}</h2>
+            <p>{report?.summary || "Latest Watchlist comparison for this product."}</p>
+          </div>
+          <button className="ppModalCloseButton" type="button" aria-label="Close Watchlist change report" onClick={onClose}>
+            <s-icon type="x" size="small"></s-icon>
+          </button>
+        </header>
+
+        <div className="ppWatchChangeReportMeta">
+          <div>
+            <span>Status</span>
+            <strong className={`ppWatchChangeReportStatus ppWatchChangeReportStatus-${statusTone}`}>{statusLabel}</strong>
+          </div>
+          <div>
+            <span>Previous run</span>
+            <strong>{formatWatchReportTimestamp(report?.previousRunAt) || "No previous run"}</strong>
+          </div>
+          <div>
+            <span>Current run</span>
+            <strong>{formatWatchReportTimestamp(report?.currentRunAt || report?.createdAt)}</strong>
+          </div>
+          <div>
+            <span>Changed fields</span>
+            <strong>{Number(report?.changeCount || 0)}</strong>
+          </div>
+        </div>
+
+        {report?.headline ? (
+          <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
+            <s-icon type={report.status === "unchanged" ? "check" : "info"} size="small"></s-icon>
+            <span>{report.headline}</span>
+          </div>
+        ) : null}
+
+        <div className="ppWatchChangeReportSections">
+          {sections.map((section) => (
+            <article className="ppWatchChangeReportSection" key={section.id || section.title}>
+              <div className="ppWatchChangeReportSectionHeader">
+                <DashboardIcon type={getWatchReportSectionIcon(section.id)} tone={section.tone || "blue"} size="small" />
+                <h3>{section.title}</h3>
+              </div>
+              <div className="ppWatchChangeRows">
+                {(section.changes || []).map((change) => (
+                  <div className="ppWatchChangeRow" key={change.id || change.label}>
+                    <div>
+                      <strong>{change.label}</strong>
+                      <small>{change.detail}</small>
+                    </div>
+                    <div className="ppWatchChangeValues">
+                      <span>{change.from}</span>
+                      <s-icon type="arrow-right" size="small"></s-icon>
+                      <span>{change.to}</span>
+                    </div>
+                    <em className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchChangeDirectionTone(change.direction)}`}>{change.delta}</em>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="ppWatchChangeReportSnapshot">
+          <h3>Current product state</h3>
+          <div>
+            <span><b>Risk:</b> {current.riskLabel || "Pending"} · {current.riskScore ?? "-"} / 100</span>
+            <span><b>Confidence:</b> {current.confidence ?? "-"}%</span>
+            <span><b>Primary issue:</b> {current.primaryIssue || "No primary issue"}</span>
+            <span><b>Return rate:</b> {current.returnRatePercent ?? 0}%</span>
+            <span><b>Momentum:</b> {current.productMomentumTier || "No momentum"} · {current.productMomentumScore ?? 0} / 100</span>
+          </div>
+        </div>
+
+        <footer className="ppWatchChangeReportFooter">
+          <Link className="ppSecondaryButton" to={product.href || "/app/products"} onClick={onClose}>
+            Open product
+          </Link>
+          <button className="ppPrimaryButton" type="button" onClick={onClose}>Done</button>
+        </footer>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function getWatchReportStatusTone(status) {
+  if (status === "unchanged") return "green";
+  if (status === "baseline") return "blue";
+  return "orange";
+}
+
+function getWatchReportStatusLabel(status) {
+  if (status === "unchanged") return "No changes";
+  if (status === "baseline") return "Baseline";
+  return "Changes detected";
+}
+
+function getWatchReportSectionIcon(sectionId) {
+  if (sectionId === "risk") return "target";
+  if (sectionId === "evidence") return "view";
+  if (sectionId === "impact") return "cash-dollar";
+  if (sectionId === "momentum") return "chart-line";
+  return "info";
+}
+
+function getWatchChangeDirectionTone(direction) {
+  if (direction === "up") return "up";
+  if (direction === "down") return "down";
+  return "neutral";
+}
+
+function formatWatchReportTimestamp(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
 function WatchlistActivityPanel({ activities = [], showAllLink = true }) {
