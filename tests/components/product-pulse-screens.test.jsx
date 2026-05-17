@@ -536,6 +536,12 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Total reviews")).toBeInTheDocument();
     expect(screen.getByText("Negative reviews")).toBeInTheDocument();
+    expect(screen.getByText("Review sentiment")).toBeInTheDocument();
+    expect(screen.getByText("Latest negative review examples")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Refunds" }));
+    expect(screen.getAllByText("Refund amount").length).toBeGreaterThan(0);
+    expect(screen.getByText("Refund reasons / context")).toBeInTheDocument();
+    expect(screen.getByText("Recent refund notes")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit suggested text for Add fit note" }));
     fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
@@ -1506,6 +1512,43 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Emergent emotion")).toBeInTheDocument();
     expect(screen.getAllByText("Superstitious discomfort 2").length).toBeGreaterThan(0);
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
+  });
+
+  it("renders specialized Shopify orders evidence with sales context", () => {
+    const product = {
+      ...defaultView.startHere,
+      evidence: [{
+        source: "Shopify orders",
+        quote: "Order data captured",
+        weight: "365 day Shopify order window",
+      }],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        soldUnits: 15,
+        salesAmount: 2300,
+        monthlyOrderActivity: {
+          windowDays: 365,
+          months: [
+            { key: "2026-03", label: "Mar 2026", shortLabel: "Mar", orders: 3, orderUnits: 4, revenue: 600 },
+            { key: "2026-04", label: "Apr 2026", shortLabel: "Apr", orders: 7, orderUnits: 8, revenue: 1200 },
+            { key: "2026-05", label: "May 2026", shortLabel: "May", orders: 2, orderUnits: 3, revenue: 500 },
+          ],
+          summary: {
+            totalOrders: 12,
+            totalOrderUnits: 15,
+            totalRevenue: 2300,
+            maxOrders: 8,
+          },
+        },
+      },
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByRole("tab", { name: "Shopify orders" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Units sold over time")).toBeInTheDocument();
+    expect(screen.getByText("Order velocity")).toBeInTheDocument();
+    expect(screen.getByText("Sales by channel")).toBeInTheDocument();
+    expect(screen.getByText("Order insights")).toBeInTheDocument();
   });
 
   it("renders the full product evidence report with raw evidence relationships", () => {

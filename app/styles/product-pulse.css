@@ -5664,6 +5664,398 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
+.ppEvidenceThreeColumnGrid,
+.ppEvidenceTwoColumnGrid,
+.ppEvidenceBottomReportGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.ppEvidenceThreeColumnGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ppEvidenceThreeColumnGrid-equal {
+  align-items: stretch;
+}
+
+.ppEvidenceTwoColumnGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ppEvidenceTwoColumnGrid-wideLeft {
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.85fr);
+}
+
+.ppEvidenceBottomReportGrid {
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
+}
+
+.ppEvidenceReportSectionCard h4 span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceReportSectionHeaderRow-compact {
+  padding-bottom: 10px;
+}
+
+.ppEvidenceSectionLink {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.ppEvidenceHorizontalBars,
+.ppEvidencePhraseList {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ppEvidenceHorizontalBars > div {
+  display: grid;
+  gap: 7px;
+}
+
+.ppEvidenceHorizontalBars > div > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+}
+
+.ppEvidenceHorizontalBars strong {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidenceHorizontalBars em {
+  color: var(--pp-slate-600);
+  font-style: normal;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.ppEvidenceHorizontalBars > div > div {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppEvidenceHorizontalBars > div > div span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pp-insight-violet), rgba(var(--pp-pulse-blue-rgb), 0.45));
+}
+
+.ppEvidenceHorizontalBars-red > div > div span,
+.ppEvidenceReasonBars > div > div span {
+  background: linear-gradient(90deg, var(--pp-risk-red), rgba(var(--pp-risk-red-rgb), 0.42));
+}
+
+.ppEvidenceHorizontalBars-blue > div > div span {
+  background: linear-gradient(90deg, var(--pp-pulse-blue), rgba(var(--pp-pulse-blue-rgb), 0.42));
+}
+
+.ppEvidenceHorizontalBars-teal > div > div span {
+  background: linear-gradient(90deg, var(--pp-signal-teal), rgba(var(--pp-signal-teal-rgb), 0.42));
+}
+
+.ppEvidencePhraseList > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppEvidencePhraseList strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-risk-red);
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppEvidencePhraseList span {
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 880;
+}
+
+.ppEvidencePhraseList-violet strong {
+  color: var(--pp-insight-violet);
+}
+
+.ppEvidenceReviewExampleGrid,
+.ppEvidenceRefundNoteGrid,
+.ppEvidenceMiniInsightGrid {
+  display: grid;
+  gap: 12px;
+}
+
+.ppEvidenceReviewExampleGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ppEvidenceReviewExample,
+.ppEvidenceRefundNoteGrid article,
+.ppEvidenceMiniInsight {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+}
+
+.ppEvidenceReviewExample {
+  display: grid;
+  gap: 10px;
+}
+
+.ppEvidenceReviewStars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--pp-slate-300);
+  font-size: 15px;
+}
+
+.ppEvidenceReviewStars .isActive {
+  color: var(--pp-risk-red);
+}
+
+.ppEvidenceReviewStars small {
+  margin-left: auto;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceReviewExample strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.ppEvidenceReviewExample p,
+.ppEvidenceRefundNoteGrid p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppEvidenceReviewExample > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.ppEvidenceReviewExample > div:last-child span,
+.ppEvidenceRefundNoteGrid em {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.ppEvidenceReviewExample > div:last-child em {
+  margin-left: auto;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.ppEvidenceReviewSummaryCard {
+  align-content: start;
+}
+
+.ppEvidenceReviewSummaryCard strong {
+  margin-top: 18px;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 930;
+}
+
+.ppEvidenceSingleBar {
+  height: 7px;
+  overflow: hidden;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppEvidenceSingleBar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--pp-risk-red);
+}
+
+.ppEvidenceReviewSummaryCard a {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 22px;
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.ppEvidenceMiniInsightGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.ppEvidenceMiniInsight {
+  display: grid;
+  gap: 5px;
+}
+
+.ppEvidenceMiniInsight span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceMiniInsight strong {
+  color: var(--pp-slate-900);
+  font-size: 20px;
+  font-weight: 930;
+}
+
+.ppEvidenceMiniInsight small {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ppEvidenceRefundNoteGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ppEvidenceRefundNoteGrid article {
+  display: grid;
+  gap: 8px;
+}
+
+.ppEvidenceRefundNoteGrid strong {
+  color: var(--pp-insight-violet);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppEvidenceRefundNoteGrid span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceRefundNoteGrid em {
+  justify-self: start;
+}
+
+.ppOrdersLineChartCard {
+  min-height: 288px;
+}
+
+.ppOrderVelocityCard {
+  align-content: center;
+  gap: 8px;
+}
+
+.ppOrderVelocityCard strong {
+  color: var(--pp-slate-900);
+  font-size: 38px;
+  font-weight: 950;
+}
+
+.ppOrderVelocityCard small {
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.ppOrderVelocityCard .ppMiniTrend {
+  width: 100%;
+  height: 68px;
+  margin-top: 20px;
+  color: var(--pp-insight-violet);
+}
+
+.ppEvidenceOrdersLineChart {
+  position: relative;
+  min-height: 225px;
+  margin-top: 18px;
+  padding: 10px 0 26px 48px;
+}
+
+.ppEvidenceOrdersLineChart svg {
+  width: 100%;
+  height: 186px;
+  overflow: visible;
+  border-bottom: 1px solid var(--pp-slate-200);
+  background:
+    linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 0 / 100% 25%,
+    linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-insight-violet-rgb), 0.03));
+}
+
+.ppEvidenceOrdersLineChart path {
+  fill: none;
+  stroke: var(--pp-insight-violet);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppEvidenceOrdersYAxis {
+  position: absolute;
+  top: 8px;
+  bottom: 26px;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceFindingStream-compact {
+  margin-top: 14px;
+}
+
+.ppGenericEvidenceReport .ppEvidenceMetricGrid {
+  margin-top: 0;
+}
+
 .ppEvidenceMetricGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -15314,7 +15706,11 @@ s-page[inline-size="large-500"] {
 
   .ppCustomerLanguageAnalysisGrid,
   .ppReturnsEvidenceGrid,
-  .ppReturnsBottomGrid {
+  .ppReturnsBottomGrid,
+  .ppEvidenceThreeColumnGrid,
+  .ppEvidenceTwoColumnGrid,
+  .ppEvidenceTwoColumnGrid-wideLeft,
+  .ppEvidenceBottomReportGrid {
     grid-template-columns: 1fr;
   }
 
@@ -15331,6 +15727,12 @@ s-page[inline-size="large-500"] {
   .ppEvidenceHeroMetricStrip-four .ppEvidenceSourceStatCard:nth-child(2n),
   .ppReturnsDetailMetricGrid .ppEvidenceSourceStatCard:nth-child(2n) {
     border-right: 1px solid var(--pp-slate-200);
+  }
+
+  .ppEvidenceReviewExampleGrid,
+  .ppEvidenceRefundNoteGrid,
+  .ppEvidenceMiniInsightGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -15383,6 +15785,13 @@ s-page[inline-size="large-500"] {
   .ppCustomerLanguageAnalysisGrid,
   .ppReturnsEvidenceGrid,
   .ppReturnsBottomGrid,
+  .ppEvidenceThreeColumnGrid,
+  .ppEvidenceTwoColumnGrid,
+  .ppEvidenceTwoColumnGrid-wideLeft,
+  .ppEvidenceBottomReportGrid,
+  .ppEvidenceReviewExampleGrid,
+  .ppEvidenceRefundNoteGrid,
+  .ppEvidenceMiniInsightGrid,
   .ppEvidenceDonutWrap,
   .ppEvidenceReportSummary,
   .ppEvidenceScoreTheoryGrid,
@@ -15433,6 +15842,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppEvidenceThemeBars > div,
+  .ppEvidenceHorizontalBars > div > span,
   .ppRecentReturnNoteList > div {
     grid-template-columns: 1fr;
   }

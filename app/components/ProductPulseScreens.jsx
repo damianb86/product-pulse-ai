@@ -3286,6 +3286,9 @@ function getEvidenceSourceSummary(source, points = [], product = {}) {
   if (normalized.includes("review") || normalized.includes("judge")) {
     return "Review evidence connects rating pressure, negative language and customer-reported expectations to the diagnosis.";
   }
+  if (normalized.includes("order") || normalized.includes("sales")) {
+    return "Order data establishes baseline sold units, sales velocity and demand context for the diagnosis.";
+  }
   if (normalized.includes("variant")) {
     return "Variant evidence shows whether signals concentrate in a specific SKU, size, color or option.";
   }
@@ -3391,8 +3394,10 @@ function getEvidenceSourcePriority(source) {
   if (normalized.includes("return")) return 1;
   if (normalized.includes("review") || normalized.includes("judge")) return 2;
   if (normalized.includes("refund")) return 3;
-  if (normalized.includes("product") || normalized.includes("shopify")) return 4;
-  if (normalized.includes("variant")) return 5;
+  if (normalized.includes("product") || normalized.includes("content")) return 4;
+  if (normalized.includes("order") || normalized.includes("sales")) return 5;
+  if (normalized.includes("variant")) return 6;
+  if (normalized.includes("shopify")) return 7;
   return 10;
 }
 
@@ -3418,6 +3423,7 @@ function getEvidenceIcon(source) {
   if (normalized.includes("return")) return "return";
   if (normalized.includes("review")) return "star";
   if (normalized.includes("refund")) return "cash-dollar";
+  if (normalized.includes("order") || normalized.includes("sales")) return "cash-dollar";
   if (normalized.includes("support")) return "question-circle";
   if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) return "note";
   if (normalized.includes("content") || normalized.includes("description")) return "note";
@@ -10003,6 +10009,20 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("AI emotions", getTopEmotionLabel(textInsights.aiKnownEmotions), "Known AI sentiment labels", "wand", "violet");
     add("Emergent emotion", getTopEmotionLabel(textInsights.aiEmergentSentiments), "New sentiment clusters suggested by AI", "target", "violet");
     add("Subjective reactions", formatInteger(textInsights.subjectiveNegativity?.count), `${formatInteger(textInsights.subjectiveNegativity?.total)} customer text signals`, "view", "amber");
+  } else if (normalized.includes("order") || normalized.includes("sales")) {
+    const activity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
+    const summary = activity.summary || {};
+    const unitsSold = Number(summary.totalOrderUnits || metrics.soldUnits || 0);
+    const orderCount = Number(summary.totalOrders || metrics.orderCount || metrics.ordersLast30Days || 0);
+    const revenue = Number(summary.totalRevenue || metrics.salesAmount || metrics.revenueLast30Days || metrics.revenueAtRisk || 0);
+    const windowDays = Number(activity.windowDays || metrics.windowDays || 365);
+    const aov = orderCount ? revenue / orderCount : Number(metrics.avgOrderValue || metrics.avgUnitRevenue || 0);
+    add("Units sold", formatInteger(unitsSold), "Sold in scan window", "cash-dollar", "teal");
+    add("Orders", formatInteger(orderCount), "Orders in scan window", "cash-dollar", "teal");
+    add("Order window", `${formatInteger(windowDays)} days`, "Analysis window", "clock", "blue");
+    add("AOV", formatMoney(aov), "Average order value", "cash-dollar", "blue");
+    add("Revenue", formatMoney(revenue), "Order revenue in available window", "cash-dollar", "teal");
+    add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
   } else if (normalized.includes("variant")) {
     add("Affected variants", formatInteger(getEvidenceList(metrics.affectedVariants).length), getEvidenceList(metrics.affectedVariants).slice(0, 3).join(", ") || "No affected variants stored", "duplicate", "blue");
     add("Variant count", formatInteger(metrics.variantCount), "Shopify product variants", "product", "teal");
