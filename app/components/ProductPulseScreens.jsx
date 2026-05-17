@@ -1353,7 +1353,7 @@ function WatchlistTrendPanel({ trend = {} }) {
     <section className="ppWatchlistPanel ppWatchTrendPanel">
       <div className="ppWatchlistPanelHeader">
         <div>
-          <h2>Watchlist trend (risk activity) <s-icon type="info" size="small"></s-icon></h2>
+          <h2>Watchlist trend (risk activity)</h2>
           <small>{hasSeries ? "Risk history for all watched products" : "Risk history for watched products"}</small>
         </div>
       </div>
@@ -7822,7 +7822,7 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
   );
 }
 
-function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline, icon }) {
+function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline }) {
   const trendValues = Array.isArray(sparkline) ? sparkline : [];
   const helpText = getInsightMetricHelp(title);
 
@@ -7838,7 +7838,6 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
       <strong>{value}</strong>
       <small>{renderAnalysisText(detail)}</small>
       {trendValues.length > 0 && <MiniTrend tone={getTrendTone(trendValues)} size="large" values={trendValues} />}
-      {icon && <DashboardIcon type={icon} tone="blue" size="small" />}
       {typeof progress === "number" && (
         <div className="ppProductInsightProgress" aria-label={`${progress}% confidence`}>
           <span style={{ width: `${progress}%` }} />

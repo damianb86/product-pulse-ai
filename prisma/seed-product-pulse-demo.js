@@ -649,6 +649,8 @@ async function seedCreditBalance(shop) {
 
 async function seedProduct(shop, product, index) {
   const profile = getIssueProfile(product);
+  const diagnosisCreatedAt = daysAgo(2 + index, SEED_NOW);
+  const diagnosisCompletedAt = daysAgo(1 + index, SEED_NOW);
   const riskCurve = buildRiskCurve(product, index);
   const monthlyOrderActivity = buildMonthlyOrderActivity(product, riskCurve, index);
   const monthlySummary = monthlyOrderActivity.summary;
@@ -673,10 +675,12 @@ async function seedProduct(shop, product, index) {
     riskHistory,
     signalTrend,
     riskTrend,
+    diagnosisCreatedAt,
+    diagnosisCompletedAt,
   });
   const sourceCoverage = getSourceCoverage(index);
 
-  const snapshot = await prisma.productRiskSnapshot.upsert({
+  let snapshot = await prisma.productRiskSnapshot.upsert({
     where: { shop_productGid: { shop, productGid: product.productGid } },
     create: {
       shop,
@@ -709,7 +713,7 @@ async function seedProduct(shop, product, index) {
       shop,
       productGid: product.productGid,
       productTitle: product.productTitle,
-      status: "completed",
+      status: "Completed",
       riskScore: product.riskScore,
       confidence: product.confidence,
       likelyCause: buildLikelyCause(product, profile, monthlySummary),
@@ -717,9 +721,27 @@ async function seedProduct(shop, product, index) {
       evidence,
       recommendations,
       creditsConsumed: 1,
-      createdAt: daysAgo(2 + index, SEED_NOW),
-      completedAt: daysAgo(1 + index, SEED_NOW),
+      createdAt: diagnosisCreatedAt,
+      completedAt: diagnosisCompletedAt,
     },
+  });
+
+  const metricsWithDiagnosis = {
+    ...metrics,
+    latestDiagnosisId: diagnosis.id,
+    latestDiagnosisAt: diagnosisCompletedAt.toISOString(),
+    lastDetailedDiagnosisAt: diagnosisCompletedAt.toISOString(),
+    lastAnalyzedAt: diagnosisCompletedAt.toISOString(),
+    incrementalDiagnosis: {
+      ...(metrics.incrementalDiagnosis || {}),
+      diagnosisId: diagnosis.id,
+      latestDiagnosisId: diagnosis.id,
+    },
+  };
+
+  snapshot = await prisma.productRiskSnapshot.update({
+    where: { shop_productGid: { shop, productGid: product.productGid } },
+    data: { metrics: metricsWithDiagnosis },
   });
 
   await prisma.productScoreHistory.createMany({
@@ -747,7 +769,7 @@ async function seedProduct(shop, product, index) {
     snapshotId: snapshot.id,
     diagnosisId: diagnosis.id,
     profile,
-    metrics,
+    metrics: metricsWithDiagnosis,
   };
 }
 
@@ -856,6 +878,8 @@ function buildMetrics({
   riskHistory,
   signalTrend,
   riskTrend,
+  diagnosisCreatedAt,
+  diagnosisCompletedAt,
 }) {
   const summary = monthlyOrderActivity.summary;
   const reviewCount = Math.max(8, Math.round(summary.totalOrders * (0.06 + (index % 4) * 0.012)));
@@ -884,11 +908,36 @@ function buildMetrics({
     negativeReviewRate,
     contentIssueCount,
   });
+  const contentIssues = buildContentIssues(product, profile, contentIssueCount);
+  const contentAdvisories = buildContentAdvisories(product, profile);
+  const textInsights = buildTextInsights(profile, negativeReviewCount, summary);
+  const refundInsights = buildRefundInsights(summary);
+  const incrementalDiagnosis = buildSeedIncrementalDiagnosis({
+    product,
+    profile,
+    index,
+    summary,
+    contentIssues,
+    contentAdvisories,
+    textInsights,
+    refundInsights,
+    contentIssueCount,
+    descriptionWordCount,
+    mediaCount,
+    mediaWithoutAltCount,
+    diagnosisCreatedAt,
+    diagnosisCompletedAt,
+  });
 
   return {
     seedSource: DEMO_SEED_SOURCE,
     analysisDepth: "full",
     windowDays: 365,
+    createdAt: diagnosisCreatedAt.toISOString(),
+    completedAt: diagnosisCompletedAt.toISOString(),
+    latestDiagnosisAt: diagnosisCompletedAt.toISOString(),
+    lastDetailedDiagnosisAt: diagnosisCompletedAt.toISOString(),
+    lastAnalyzedAt: diagnosisCompletedAt.toISOString(),
     productGid: product.productGid,
     handle: product.handle,
     sku: buildSku(product),
@@ -906,9 +955,9 @@ function buildMetrics({
     contentQualityScore: clamp(92 - product.riskScore + deterministicInt(product.handle, 0, 10), 18, 92),
     contentQualityRisk: clamp(product.riskScore * 0.35 + contentIssueCount * 4, 0, 45),
     contentIssueCount,
-    contentIssues: buildContentIssues(product, profile, contentIssueCount),
+    contentIssues,
     contentAdvisoryCount: contentIssueCount,
-    contentAdvisories: buildContentAdvisories(product, profile),
+    contentAdvisories,
     mediaCount,
     mediaWithoutAltCount,
     titleNeedsReview: product.riskScore >= 80 || profile.issueCode === "fit_sizing" || product.primaryIssue.toLowerCase().includes("other"),
@@ -967,8 +1016,8 @@ function buildMetrics({
       rate: round(42 - reasonIndex * 11.2, 1),
     })),
     affectedVariants: buildAffectedVariants(product, index),
-    textInsights: buildTextInsights(profile, negativeReviewCount, summary),
-    refundInsights: buildRefundInsights(summary),
+    textInsights,
+    refundInsights,
     reviewSourceStats: {
       judgeMe: { reviewCount: Math.round(reviewCount * 0.62), negativeReviewCount: Math.round(negativeReviewCount * 0.62), averageRating: avgRating },
       csv: { reviewCount: reviewCount - Math.round(reviewCount * 0.62), negativeReviewCount: negativeReviewCount - Math.round(negativeReviewCount * 0.62), averageRating: round(Math.max(1, avgRating - 0.2), 1) },
@@ -993,6 +1042,7 @@ function buildMetrics({
     priceHistory: buildPriceHistory(product, monthlyOrderActivity.months, index),
     scoreCalculationStatus: "Score calculated from persisted components",
     riskComponents,
+    incrementalDiagnosis,
     evidence,
   };
 }
@@ -1053,6 +1103,265 @@ function buildSeedRiskComponents({ product, profile, summary, negativeReviewRate
     calculated: Math.round(rawScore),
     riskScore: product.riskScore,
   };
+}
+
+function buildSeedIncrementalDiagnosis({
+  product,
+  profile,
+  index,
+  summary,
+  contentIssues,
+  contentAdvisories,
+  textInsights,
+  refundInsights,
+  descriptionWordCount,
+  mediaCount,
+  mediaWithoutAltCount,
+  diagnosisCompletedAt,
+}) {
+  const completedAtIso = diagnosisCompletedAt.toISOString();
+  const productUpdatedAt = daysAgo(5 + (index % 11), diagnosisCompletedAt).toISOString();
+  const productContent = buildSeedProductContentCache({
+    product,
+    profile,
+    contentIssues,
+    contentAdvisories,
+    descriptionWordCount,
+    mediaCount,
+    mediaWithoutAltCount,
+    productUpdatedAt,
+  });
+  const customerText = buildSeedCustomerTextCache({
+    product,
+    profile,
+    summary,
+    textInsights,
+    diagnosisCompletedAt,
+  });
+  const refunds = buildSeedRefundTextCache({
+    product,
+    profile,
+    summary,
+    refundInsights,
+    diagnosisCompletedAt,
+  });
+  const customerItemCount = customerText.returnItems.length + customerText.reviewItems.length;
+  const refundItemCount = refunds.items.length;
+  const sourceFingerprint = hashString(JSON.stringify({
+    productContentSignature: productContent.signature,
+    soldUnits: summary.totalOrderUnits,
+    salesAmount: summary.totalRevenue,
+    returnUnits: summary.totalReturnedUnits,
+    refundUnits: summary.totalRefundedUnits,
+    refundAmount: summary.totalRefundAmount,
+    customerTextKeys: [...customerText.returnItems, ...customerText.reviewItems].map((item) => item.key).sort(),
+    refundTextKeys: refunds.items.map((item) => item.key).sort(),
+  })).toString(36);
+
+  return {
+    schemaVersion: 1,
+    mode: "incremental",
+    previousCompletedAt: completedAtIso,
+    cutoffAt: completedAtIso,
+    productContent: {
+      mode: "reused",
+      reused: true,
+      changed: false,
+      signature: productContent.signature,
+      productUpdatedAt,
+      reason: "seeded_product_content_unchanged_since_previous_diagnosis",
+      canReuseContentGaps: true,
+    },
+    customerText: {
+      mode: "incremental",
+      analyzedItems: 0,
+      reusedItems: customerItemCount,
+      totalItems: customerItemCount,
+      reason: "seeded_previous_customer_text_cache_reused",
+    },
+    refunds: {
+      mode: "incremental",
+      analyzedItems: 0,
+      reusedItems: refundItemCount,
+      totalItems: refundItemCount,
+      reason: "seeded_previous_refund_cache_reused",
+    },
+    sourceChanges: {
+      mode: "compared",
+      previousFingerprint: sourceFingerprint,
+      currentFingerprint: sourceFingerprint,
+      unchanged: true,
+      reason: "seeded_source_fingerprint_matches_previous_diagnosis",
+    },
+    aiEvidenceSnippetCount: 0,
+    cache: {
+      sourceFingerprint,
+      productContent,
+      customerText,
+      refunds,
+    },
+  };
+}
+
+function buildSeedProductContentCache({
+  product,
+  profile,
+  contentIssues,
+  contentAdvisories,
+  descriptionWordCount,
+  mediaCount,
+  mediaWithoutAltCount,
+  productUpdatedAt,
+}) {
+  const contentQualityScore = clamp(92 - product.riskScore + deterministicInt(product.handle, 0, 10), 18, 92);
+  const deterministicContent = {
+    score: contentQualityScore,
+    riskLift: clamp(product.riskScore * 0.35 + contentIssues.length * 4, 0, 45),
+    descriptionLength: descriptionWordCount * 6,
+    descriptionWordCount,
+    hasDescription: true,
+    titleNeedsReview: product.riskScore >= 80 || profile.issueCode === "fit_sizing" || product.primaryIssue.toLowerCase().includes("other"),
+    seoTitleNeedsReview: product.riskScore >= 70 || contentIssues.length >= 3,
+    metaDescriptionNeedsReview: product.riskScore >= 65 || contentIssues.length >= 2,
+    handleNeedsReview: product.riskScore >= 85 || product.handle.length > 70,
+    specsBlockRecommended: contentIssues.length >= 2,
+    classificationNeedsReview: product.riskScore >= 80 && product.productType.length <= 5,
+    templateNeedsReview: product.riskScore >= 75 && ["fit_sizing", "subjective_negative_reaction"].includes(profile.issueCode),
+    variantNamingAdvisory: product.productTitle.toLowerCase().includes("snowboard") || profile.issueCode === "fit_sizing",
+    mediaCount,
+    mediaWithoutAltCount,
+    issues: contentIssues.map((issue, issueIndex) => ({
+      issueCode: issue.issueCode,
+      label: issue.label,
+      severity: product.riskScore >= 80 && issueIndex === 0 ? "medium" : "low",
+      evidence: issue.detail,
+      suggestedAction: issue.issueCode === "media_context_gap" ? "Improve media context" : "Update product description",
+      riskLift: clamp(4 + issueIndex * 2 + product.riskScore / 25, 2, 12),
+    })),
+    advisories: contentAdvisories.map((advisory) => ({
+      code: advisory.source,
+      label: advisory.title,
+      evidence: advisory.detail,
+      severity: "low",
+    })),
+  };
+  const contentGaps = {
+    content_quality_score: contentQualityScore,
+    content_summary: `${product.productTitle} has seeded PDP content analysis focused on ${profile.mainIssue.toLowerCase()}.`,
+    present: ["title", "description", "vendor", "product type", "price"],
+    missing: contentIssues.map((issue) => issue.label),
+    notes: `Seeded cache keeps product content analysis reusable until Shopify updatedAt changes after ${productUpdatedAt}.`,
+    content_issues: deterministicContent.issues,
+    issue_specific_gaps: contentIssues.map((issue) => ({
+      issue_category: profile.issueCode,
+      missing_content: issue.label,
+      why_it_matters: issue.detail,
+      suggested_fix: issue.issueCode === "media_context_gap" ? "Add image guidance or alt text." : "Add clearer buyer-facing description copy.",
+    })),
+  };
+  const signature = hashString(JSON.stringify({
+    title: product.productTitle,
+    handle: product.handle,
+    descriptionWordCount,
+    tags: product.tags,
+    productType: product.productType,
+    vendor: product.vendor,
+    mediaCount,
+    mediaWithoutAltCount,
+  })).toString(36);
+
+  return {
+    signature,
+    productUpdatedAt,
+    deterministicContent,
+    contentGaps,
+  };
+}
+
+function buildSeedCustomerTextCache({ product, profile, summary, textInsights, diagnosisCompletedAt }) {
+  const returnItems = profile.repeatedLanguage.slice(0, 3).map((term, itemIndex) => {
+    const quantity = Math.max(1, Math.round(summary.totalReturnedUnits * (0.16 - itemIndex * 0.035)));
+    const createdAt = daysAgo(75 - itemIndex * 17, diagnosisCompletedAt).toISOString();
+    const text = `${profile.returnReasons[itemIndex] || profile.returnReasons[0]}: customer said ${quote(term)} while describing ${profile.mainIssue.toLowerCase()}.`;
+    return {
+      key: `seed:return:${product.handle}:${itemIndex}`,
+      source: "returns",
+      sourceLabel: "Shopify returns",
+      text,
+      analysisText: text,
+      reason: profile.returnReasons[itemIndex] || profile.returnReasons[0],
+      noteText: `Customer said ${quote(term)}.`,
+      reasonText: profile.returnReasons[itemIndex] || profile.returnReasons[0],
+      issueCode: profile.issueCode,
+      sentiment: itemIndex === 0 ? "negative" : "neutral",
+      emotion: profile.sentiment === "neutral" ? "confusion" : profile.sentiment,
+      subjectiveNegative: profile.issueCode === "subjective_negative_reaction",
+      createdAt,
+      updatedAt: createdAt,
+      variant: buildAffectedVariants(product, itemIndex)[0] || "Default Title",
+      quantity,
+      amount: round(quantity * product.price, 2),
+      isOther: (profile.returnReasons[itemIndex] || "").toLowerCase() === "other",
+    };
+  });
+  const reviewItems = profile.repeatedLanguage.slice(0, 3).map((term, itemIndex) => {
+    const createdAt = daysAgo(64 - itemIndex * 19, diagnosisCompletedAt).toISOString();
+    const rating = itemIndex === 0 ? 1 : 2;
+    const text = `Review ${rating}/5: ${product.productTitle} felt ${term}.`;
+    return {
+      key: `seed:review:${product.handle}:${itemIndex}`,
+      source: itemIndex % 2 ? "csv_review" : "judgeme_review",
+      sourceLabel: itemIndex % 2 ? "CSV reviews" : "Judge.me reviews",
+      text,
+      analysisText: text,
+      rating,
+      issueCode: profile.issueCode,
+      sentiment: "negative",
+      emotion: textInsights.emotions[itemIndex % textInsights.emotions.length]?.label || profile.sentiment,
+      subjectiveNegative: profile.issueCode === "subjective_negative_reaction",
+      createdAt,
+      updatedAt: createdAt,
+      variant: buildAffectedVariants(product, itemIndex)[0] || "Default Title",
+      quantity: 1,
+    };
+  });
+
+  return {
+    returnItems,
+    reviewItems,
+  };
+}
+
+function buildSeedRefundTextCache({ product, profile, summary, refundInsights, diagnosisCompletedAt }) {
+  const refundUnits = Math.max(0, Number(refundInsights.refundUnits || summary.totalRefundedUnits || 0));
+  const itemCount = Math.min(4, Math.max(0, refundUnits));
+  const items = Array.from({ length: itemCount }, (_, itemIndex) => {
+    const quantity = Math.max(1, Math.round(refundUnits / Math.max(1, itemCount)));
+    const amount = round(quantity * product.price * 0.92, 2);
+    const createdAt = daysAgo(58 - itemIndex * 13, diagnosisCompletedAt).toISOString();
+    const reason = refundInsights.topReasons[itemIndex % refundInsights.topReasons.length]?.label || "Customer request";
+    const text = `${reason}: refund was connected to ${profile.mainIssue.toLowerCase()} follow-up.`;
+    return {
+      key: `seed:refund:${product.handle}:${itemIndex}`,
+      source: "refunds",
+      text,
+      analysisText: text,
+      issueCode: profile.issueCode === "product_quality" ? "refund_impact" : profile.issueCode,
+      sentiment: refundInsights.level === "high" ? "negative" : "neutral",
+      emotion: refundInsights.level === "high" ? "frustration" : "none",
+      createdAt,
+      updatedAt: createdAt,
+      variant: buildAffectedVariants(product, itemIndex)[0] || "Default Title",
+      quantity,
+      amount,
+      restockType: itemIndex % 2 ? "return" : "no_restock",
+      noteText: `Seeded refund note for ${profile.mainIssue.toLowerCase()}.`,
+      reasonText: reason,
+      adjustmentReasons: [reason],
+    };
+  });
+
+  return { items };
 }
 
 function buildMonthlyOrderActivity(product, riskCurve, index) {

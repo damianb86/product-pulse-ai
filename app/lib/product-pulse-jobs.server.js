@@ -1889,13 +1889,17 @@ async function runProductDiagnosisJob(job) {
 
   await updateProductDiagnosisJob(job.id, {
     progress: 92,
-    source: `Finalizing AI Product Diagnosis - ${snapshot.productTitle}`,
+    source: diagnosis?.skipped
+      ? `No product changes detected - reused diagnosis - ${snapshot.productTitle}`
+      : `Finalizing AI Product Diagnosis - ${snapshot.productTitle}`,
   });
 
   await updateProductDiagnosisJob(job.id, {
     status: "Completed",
     progress: 100,
-    source: `AI Product Diagnosis completed - ${snapshot.productTitle}`,
+    source: diagnosis?.skipped
+      ? `No changes detected; previous diagnosis reused - ${snapshot.productTitle}`
+      : `AI Product Diagnosis completed - ${snapshot.productTitle}`,
     finishedAt: new Date(),
   });
 
@@ -1903,10 +1907,15 @@ async function runProductDiagnosisJob(job) {
     shop: job.shop,
     jobId: job.id,
     event: "product_diagnosis.completed",
-    message: "Product diagnosis completed.",
+    message: diagnosis?.skipped
+      ? "Product diagnosis finished from cache because no source changes were detected. No credit was consumed."
+      : "Product diagnosis completed.",
     data: {
       durationMs: Date.now() - startedAt,
       diagnosisId: diagnosis?.diagnosisId,
+      skipped: Boolean(diagnosis?.skipped),
+      skipReason: diagnosis?.skipReason,
+      creditsConsumed: diagnosis?.creditsConsumed ?? 1,
       riskScore: diagnosis?.riskScore,
       confidence: diagnosis?.confidence,
       estimatedImpact: diagnosis?.estimatedImpact,

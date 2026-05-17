@@ -95,10 +95,23 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
         productContent: deterministic.metrics.incrementalDiagnosis?.productContent || null,
         customerText: deterministic.metrics.incrementalDiagnosis?.customerText || null,
         refunds: deterministic.metrics.incrementalDiagnosis?.refunds || null,
+        sourceChanges: deterministic.metrics.incrementalDiagnosis?.sourceChanges || null,
         aiEvidenceSnippetCount: deterministic.metrics.incrementalDiagnosis?.aiEvidenceSnippetCount || deterministic.evidenceSnippets.length,
       },
     },
   });
+
+  const reuseDecision = getNoChangeDiagnosisReuseDecision({ snapshot, deterministic });
+  if (reuseDecision.shouldReuse) {
+    const reusedDiagnosis = await buildNoChangeDiagnosisReuseResult({
+      shop,
+      jobId,
+      snapshot,
+      deterministic,
+      reuseDecision,
+    });
+    if (reusedDiagnosis) return reusedDiagnosis;
+  }
 
   const ai = await runProductDiagnosisAiAnalysis({ shop, jobId, input: aiInput });
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
@@ -1627,6 +1640,29 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
+  const sourceFingerprint = buildDiagnosisSourceFingerprint({
+    productContentSignature: productContentState.signature,
+    sales,
+    returns,
+    refunds,
+    judgeMeReviews,
+    csvReviews,
+    orderAccessDenied: shopifyData.orderAccessDenied,
+    sourceCoverage,
+    windowDays,
+  });
+  const previousSourceFingerprint = previousIncrementalCache.sourceFingerprint || null;
+  const sourceChanges = {
+    mode: previousSourceFingerprint ? "compared" : "baseline_missing",
+    previousFingerprint: previousSourceFingerprint,
+    currentFingerprint: sourceFingerprint,
+    unchanged: Boolean(previousSourceFingerprint && previousSourceFingerprint === sourceFingerprint),
+    reason: previousSourceFingerprint
+      ? previousSourceFingerprint === sourceFingerprint
+        ? "all_source_fingerprints_match_previous_diagnosis"
+        : "source_fingerprint_changed_since_previous_diagnosis"
+      : "previous_source_fingerprint_missing",
+  };
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const trendOptions = {
     startAt: getSinceDate(windowDays),
@@ -1906,8 +1942,10 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
           totalItems: (refundTextState.cache.items || []).length,
           reason: refundTextState.reason,
         },
+        sourceChanges,
         aiEvidenceSnippetCount: evidenceSnippets.length,
         cache: {
+          sourceFingerprint,
           productContent: {
             signature: productContentState.signature,
             productUpdatedAt: productContentState.productUpdatedAt,
@@ -2443,6 +2481,250 @@ async function persistDetailedDiagnosis({ shop, snapshot, payload }) {
   });
 
   return diagnosis;
+}
+
+async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, deterministic, reuseDecision }) {
+  const reusableDiagnosis = await findReusableCompletedDiagnosis({ shop, snapshot });
+  if (!reusableDiagnosis) return null;
+
+  await persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, reuseDecision });
+
+  const estimatedImpact = Number(snapshot.metrics?.estimatedImpact ?? snapshot.metrics?.impactRange?.mid ?? 0);
+  const modelsUsed = {
+    classification: buildCachedAiModelSummary("signal_classification"),
+    emergentSentiment: buildCachedAiModelSummary("emergent_sentiment"),
+    contentGap: {
+      task: "content_gap",
+      model: "previous-product-content-analysis",
+      provider: "cache",
+    },
+    actionRationale: buildCachedAiModelSummary("action_rationale"),
+    finalReport: buildCachedAiModelSummary("final_report"),
+  };
+
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "product_diagnosis.no_changes_reused",
+    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse reused the previous deep diagnosis without AI calls or credit consumption.",
+    data: {
+      productGid: snapshot.productGid,
+      previousDiagnosisId: reusableDiagnosis.id,
+      previousCompletedAt: toIso(reusableDiagnosis.completedAt),
+      creditsConsumed: 0,
+      reuseDecision,
+      incrementalDiagnosis: {
+        mode: deterministic.metrics.incrementalDiagnosis?.mode || "incremental",
+        productContent: deterministic.metrics.incrementalDiagnosis?.productContent || null,
+        customerText: deterministic.metrics.incrementalDiagnosis?.customerText || null,
+        refunds: deterministic.metrics.incrementalDiagnosis?.refunds || null,
+        sourceChanges: deterministic.metrics.incrementalDiagnosis?.sourceChanges || null,
+      },
+    },
+  });
+
+  return {
+    status: "skipped",
+    skipped: true,
+    skipReason: "no_changes_since_previous_diagnosis",
+    message: "No product, order, return, refund, review, or source changes were detected. The previous deep diagnosis was reused and no diagnostic credit was consumed.",
+    diagnosisId: reusableDiagnosis.id,
+    riskScore: snapshot.riskScore,
+    confidence: snapshot.confidence,
+    estimatedImpact,
+    provider: "cache",
+    model: "previous-detailed-diagnosis",
+    modelsUsed,
+    creditsConsumed: 0,
+  };
+}
+
+async function findReusableCompletedDiagnosis({ shop, snapshot }) {
+  const latestDiagnosisId = snapshot.metrics?.latestDiagnosisId;
+  if (latestDiagnosisId) {
+    const byId = await prisma.productDiagnosis.findFirst({
+      where: {
+        id: latestDiagnosisId,
+        shop,
+        productGid: snapshot.productGid,
+        status: "Completed",
+      },
+    });
+    if (byId) return byId;
+  }
+
+  return prisma.productDiagnosis.findFirst({
+    where: {
+      shop,
+      productGid: snapshot.productGid,
+      status: "Completed",
+    },
+    orderBy: [
+      { completedAt: "desc" },
+      { createdAt: "desc" },
+    ],
+  });
+}
+
+async function persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, reuseDecision }) {
+  const currentMetrics = deterministic.metrics || {};
+  const previousMetrics = snapshot.metrics || {};
+  const previousIncremental = previousMetrics.incrementalDiagnosis || {};
+  const currentIncremental = currentMetrics.incrementalDiagnosis || {};
+  const mergedIncremental = {
+    ...previousIncremental,
+    ...currentIncremental,
+    cache: {
+      ...(previousIncremental.cache || {}),
+      ...(currentIncremental.cache || {}),
+    },
+    noChangeReuse: {
+      checkedAt: new Date().toISOString(),
+      reason: reuseDecision.reason,
+      matchedBy: reuseDecision.matchedBy,
+    },
+  };
+
+  await prisma.productRiskSnapshot.update({
+    where: { shop_productGid: { shop, productGid: snapshot.productGid } },
+    data: {
+      metrics: {
+        ...previousMetrics,
+        incrementalDiagnosis: mergedIncremental,
+        lastNoChangeDiagnosisAt: new Date().toISOString(),
+      },
+    },
+  });
+}
+
+function buildCachedAiModelSummary(task) {
+  return {
+    task,
+    model: "previous-detailed-diagnosis",
+    provider: "cache",
+  };
+}
+
+function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} } = {}) {
+  const previousMetrics = snapshot.metrics || {};
+  const metrics = deterministic.metrics || {};
+  const incremental = metrics.incrementalDiagnosis || {};
+  const hasPreviousCompletedDiagnosis = Boolean(
+    previousMetrics.latestDiagnosisId
+      || previousMetrics.lastDetailedDiagnosisAt
+      || previousMetrics.latestDiagnosisAt,
+  );
+  const productContentReused = incremental.productContent?.reused === true;
+  const customerTextUnchanged = isIncrementalAnalysisUnchanged(incremental.customerText);
+  const refundsUnchanged = isIncrementalAnalysisUnchanged(incremental.refunds);
+  const aiEvidenceSnippetCount = Number(incremental.aiEvidenceSnippetCount ?? deterministic.evidenceSnippets?.length ?? 0);
+  const noNewAiEvidence = aiEvidenceSnippetCount === 0;
+  const sourceChanges = incremental.sourceChanges || {};
+  const sourceFingerprintCompared = Boolean(sourceChanges.previousFingerprint && sourceChanges.currentFingerprint);
+  const sourceFingerprintUnchanged = sourceChanges.unchanged === true;
+  const materialComparison = compareMaterialDiagnosisMetrics(previousMetrics, {
+    ...metrics,
+    riskScore: deterministic.riskScore,
+    confidence: deterministic.confidence,
+    estimatedImpact: deterministic.estimatedImpact?.estimatedImpact ?? metrics.estimatedImpact,
+    revenueAtRisk: deterministic.estimatedImpact?.revenueAtRisk ?? metrics.revenueAtRisk,
+    marginAtRisk: deterministic.estimatedImpact?.marginAtRisk ?? metrics.marginAtRisk,
+  });
+  const materialUnchanged = !sourceFingerprintCompared && materialComparison.unchanged;
+  const matchedBy = sourceFingerprintUnchanged ? "source_fingerprint" : materialUnchanged ? "material_metrics" : null;
+  const blockers = [
+    !hasPreviousCompletedDiagnosis ? "missing_previous_completed_diagnosis" : null,
+    !productContentReused ? "product_content_changed_or_not_cached" : null,
+    !customerTextUnchanged ? "customer_text_changed_or_not_incremental" : null,
+    !refundsUnchanged ? "refunds_changed_or_not_incremental" : null,
+    !noNewAiEvidence ? "new_ai_evidence_snippets_detected" : null,
+    !matchedBy ? "source_or_material_metrics_changed" : null,
+  ].filter(Boolean);
+  const shouldReuse = blockers.length === 0;
+
+  return {
+    shouldReuse,
+    reason: shouldReuse ? "no_changes_since_previous_diagnosis" : "changes_or_missing_cache_detected",
+    matchedBy,
+    blockers,
+    hasPreviousCompletedDiagnosis,
+    productContentReused,
+    customerTextUnchanged,
+    refundsUnchanged,
+    noNewAiEvidence,
+    sourceFingerprintCompared,
+    sourceFingerprintUnchanged,
+    sourceChanges,
+    materialComparison,
+  };
+}
+
+function isIncrementalAnalysisUnchanged(state = {}) {
+  return state?.mode === "incremental" && Number(state.analyzedItems || 0) === 0;
+}
+
+function compareMaterialDiagnosisMetrics(previousMetrics = {}, currentMetrics = {}) {
+  const numericKeys = [
+    "soldUnits",
+    "salesAmount",
+    "returnUnits",
+    "returnRate",
+    "refundUnits",
+    "refundRate",
+    "refundAmount",
+    "reviewCount",
+    "avgRating",
+    "negativeReviewCount",
+    "negativeReviewRate",
+    "recentNegativeReviewCount",
+    "customerSignalCount",
+    "contentIssueCount",
+    "descriptionWordCount",
+    "contentQualityScore",
+    "contentQualityRisk",
+    "mediaCount",
+    "mediaWithoutAltCount",
+    "signalCount",
+    "riskScore",
+    "confidence",
+    "estimatedImpact",
+    "revenueAtRisk",
+    "marginAtRisk",
+    "productMomentumScore",
+  ];
+  const changed = [];
+  let compared = 0;
+
+  numericKeys.forEach((key) => {
+    const previousValue = Number(previousMetrics[key]);
+    const currentValue = Number(currentMetrics[key]);
+    if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue)) return;
+    compared += 1;
+    const tolerance = key.toLowerCase().includes("rate") || key.toLowerCase().includes("rating") ? 0.05 : 0.5;
+    if (Math.abs(previousValue - currentValue) > tolerance) {
+      changed.push({ key, previousValue, currentValue });
+    }
+  });
+
+  [
+    "topReturnReasonDetails",
+    "topRefundReasonDetails",
+    "affectedVariantDetails",
+    "sourceCoverage",
+    "reviewSourceStats",
+  ].forEach((key) => {
+    if (previousMetrics[key] === undefined || currentMetrics[key] === undefined) return;
+    compared += 1;
+    if (stableSignature(previousMetrics[key]) !== stableSignature(currentMetrics[key])) {
+      changed.push({ key });
+    }
+  });
+
+  return {
+    unchanged: compared >= 8 && changed.length === 0,
+    compared,
+    changed: changed.slice(0, 12),
+  };
 }
 
 function buildAiProductInput(product, snapshot) {
@@ -6446,6 +6728,116 @@ function getRefundTextCacheKey(item = {}) {
   return stableEventCacheKey("refund", item, [item.id, item.refundId, item.orderId, item.variantId, item.reason, item.reasonLabel, item.note, item.restockType, item.createdAt]);
 }
 
+function buildDiagnosisSourceFingerprint({
+  productContentSignature = "",
+  sales = [],
+  returns = [],
+  refunds = [],
+  judgeMeReviews = [],
+  csvReviews = [],
+  orderAccessDenied = false,
+  sourceCoverage = [],
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+} = {}) {
+  return stableSignature({
+    schemaVersion: 1,
+    windowDays: Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS),
+    orderAccessDenied: Boolean(orderAccessDenied),
+    productContentSignature: String(productContentSignature || ""),
+    sourceCoverage: (Array.isArray(sourceCoverage) ? sourceCoverage : []).map(String).sort(),
+    sales: buildFingerprintEvents(sales, [
+      "id",
+      "orderId",
+      "lineItemId",
+      "variantId",
+      "sku",
+      "quantity",
+      "amount",
+      "createdAt",
+      "updatedAt",
+    ]),
+    returns: buildFingerprintEvents(returns, [
+      "id",
+      "returnId",
+      "orderId",
+      "lineItemId",
+      "variantId",
+      "sku",
+      "reason",
+      "reasonNote",
+      "customerNote",
+      "quantity",
+      "amount",
+      "createdAt",
+      "updatedAt",
+      "processedAt",
+    ]),
+    refunds: buildFingerprintEvents(refunds, [
+      "id",
+      "refundId",
+      "orderId",
+      "lineItemId",
+      "variantId",
+      "sku",
+      "reason",
+      "reasonLabel",
+      "note",
+      "restockType",
+      "quantity",
+      "amount",
+      "createdAt",
+      "updatedAt",
+      "processedAt",
+      "adjustmentReasons",
+    ]),
+    judgeMeReviews: buildFingerprintEvents(judgeMeReviews, [
+      "id",
+      "sourceRow",
+      "productId",
+      "handle",
+      "rating",
+      "title",
+      "body",
+      "createdAt",
+      "updatedAt",
+    ]),
+    csvReviews: buildFingerprintEvents(csvReviews, [
+      "id",
+      "sourceRow",
+      "productId",
+      "handle",
+      "rating",
+      "title",
+      "body",
+      "createdAt",
+      "updatedAt",
+    ]),
+  });
+}
+
+function buildFingerprintEvents(items = [], keys = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => normalizeFingerprintEvent(item, keys))
+    .sort((left, right) => left.key.localeCompare(right.key));
+}
+
+function normalizeFingerprintEvent(item = {}, keys = []) {
+  const normalized = {};
+  keys.forEach((key) => {
+    const value = item[key];
+    if (value === undefined || value === null || value === "") return;
+    if (Array.isArray(value)) {
+      normalized[key] = value.map((entry) => String(entry || "").trim()).filter(Boolean).sort();
+    } else if (typeof value === "number") {
+      normalized[key] = roundCurrency(value);
+    } else {
+      normalized[key] = String(value).trim();
+    }
+  });
+  const key = stableSignature(normalized);
+  return { key, ...normalized };
+}
+
 function stableEventCacheKey(prefix, item = {}, parts = []) {
   const explicit = parts.find((part) => part !== undefined && part !== null && String(part).trim());
   if (explicit && (String(explicit).startsWith("gid://") || String(explicit).includes(":") || String(explicit).length >= 8)) {
@@ -9130,6 +9522,8 @@ export const __productPulseDiagnosisTestHooks = {
   analyzeProductContentDeterministically,
   buildContentAnalysis,
   shouldRecommendFullDescriptionRewrite,
+  getNoChangeDiagnosisReuseDecision,
+  buildDiagnosisSourceFingerprint,
   classifyIssueText,
   getCsvReviewMatchConfidence,
   isShopifyQueryCostLimitError,

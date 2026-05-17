@@ -884,6 +884,112 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(changed.metrics.descriptionWordCount).toBeGreaterThan(first.metrics.descriptionWordCount);
   });
 
+  it("identifies unchanged incremental diagnoses as reusable without AI", () => {
+    const fingerprint = __productPulseDiagnosisTestHooks.buildDiagnosisSourceFingerprint({
+      productContentSignature: "product-signature-1",
+      sales: [{ id: "sale-1", quantity: 2, amount: 80, createdAt: "2026-05-01T12:00:00.000Z" }],
+      returns: [{ id: "return-1", quantity: 1, reason: "OTHER", reasonNote: "Too dark", createdAt: "2026-05-03T12:00:00.000Z" }],
+      refunds: [],
+      judgeMeReviews: [{ id: "review-1", rating: 2, body: "Too dark", createdAt: "2026-05-04T12:00:00.000Z" }],
+      csvReviews: [],
+      sourceCoverage: ["Shopify product", "Shopify returns", "Judge.me reviews"],
+      windowDays: 60,
+    });
+    const snapshot = {
+      productGid: "gid://shopify/Product/123",
+      riskScore: 62,
+      confidence: 65,
+      metrics: {
+        latestDiagnosisId: "diagnosis-1",
+        lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+        soldUnits: 2,
+        returnUnits: 1,
+        refundUnits: 0,
+        reviewCount: 1,
+        negativeReviewCount: 1,
+        signalCount: 3,
+        riskScore: 62,
+        confidence: 65,
+        estimatedImpact: 120,
+      },
+    };
+    const deterministic = {
+      riskScore: 62,
+      confidence: 65,
+      estimatedImpact: { estimatedImpact: 120, revenueAtRisk: 260, marginAtRisk: 120 },
+      evidenceSnippets: [],
+      metrics: {
+        soldUnits: 2,
+        returnUnits: 1,
+        refundUnits: 0,
+        reviewCount: 1,
+        negativeReviewCount: 1,
+        signalCount: 3,
+        riskScore: 62,
+        confidence: 65,
+        estimatedImpact: 120,
+        incrementalDiagnosis: {
+          productContent: { reused: true },
+          customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 2 },
+          refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+          sourceChanges: {
+            previousFingerprint: fingerprint,
+            currentFingerprint: fingerprint,
+            unchanged: true,
+          },
+          aiEvidenceSnippetCount: 0,
+        },
+      },
+    };
+
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({ snapshot, deterministic });
+
+    expect(decision.shouldReuse).toBe(true);
+    expect(decision.matchedBy).toBe("source_fingerprint");
+  });
+
+  it("does not reuse cached diagnosis when source fingerprints changed", () => {
+    const previousFingerprint = __productPulseDiagnosisTestHooks.buildDiagnosisSourceFingerprint({
+      productContentSignature: "product-signature-1",
+      sales: [{ id: "sale-1", quantity: 2, amount: 80, createdAt: "2026-05-01T12:00:00.000Z" }],
+      sourceCoverage: ["Shopify product", "Shopify orders"],
+      windowDays: 60,
+    });
+    const currentFingerprint = __productPulseDiagnosisTestHooks.buildDiagnosisSourceFingerprint({
+      productContentSignature: "product-signature-1",
+      sales: [{ id: "sale-1", quantity: 3, amount: 120, createdAt: "2026-05-01T12:00:00.000Z" }],
+      sourceCoverage: ["Shopify product", "Shopify orders"],
+      windowDays: 60,
+    });
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        metrics: {
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+        },
+      },
+      deterministic: {
+        evidenceSnippets: [],
+        metrics: {
+          incrementalDiagnosis: {
+            productContent: { reused: true },
+            customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            sourceChanges: {
+              previousFingerprint,
+              currentFingerprint,
+              unchanged: false,
+            },
+            aiEvidenceSnippetCount: 0,
+          },
+        },
+      },
+    });
+
+    expect(decision.shouldReuse).toBe(false);
+    expect(decision.blockers).toContain("source_or_material_metrics_changed");
+  });
+
   it("builds monthly Shopify order activity by original order month", () => {
     const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
       now: "2026-05-16T12:00:00.000Z",
