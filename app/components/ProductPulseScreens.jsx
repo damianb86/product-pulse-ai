@@ -4493,6 +4493,7 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
   if (descriptionActions.length <= 1 && descriptionChanges.length <= 1) return actions;
 
   const payloads = descriptionActions.map((action) => action.payload || {});
+  const groupMetadata = getDescriptionActionGroupMetadata(descriptionActions, product);
   const groupedAction = {
     id: "product-description-changes",
     label: "Update product description",
@@ -4506,9 +4507,20 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
       trigger: "ProductPulse found multiple product-description improvements that should be reviewed together.",
       proposedChange: "Apply selected description changes in one Shopify update.",
       shopifyField: "Product description",
-      expectedImpact: "Reduce overlapping shopper-facing copy changes and keep the final PDP description consistent.",
+      expectedImpact: "Reduce buyer confusion and keep the final PDP description consistent.",
+      shortDescription: mergeRecommendedActionRationales(payloads) || "Apply selected shopper-facing description changes as one consistent PDP update.",
       applicationRisk: "Low",
       approval: "Review required before applying",
+      impact: groupMetadata.impact,
+      impactLevel: groupMetadata.impactLevel,
+      actionTier: groupMetadata.actionTier,
+      visibility: "Customer-facing",
+      confidence: groupMetadata.confidence,
+      evidenceStrength: groupMetadata.evidenceStrength,
+      reasonCategory: groupMetadata.reasonCategory,
+      expectedBenefit: groupMetadata.expectedBenefit,
+      reversibility: "Moderate",
+      approvalLevel: "Review required",
       contentIssues: payloads.flatMap((payload) => Array.isArray(payload.contentIssues) ? payload.contentIssues : []),
       whyThisAction: mergeRecommendedActionRationales(payloads),
       topReturnReasons: uniqueStrings(payloads.flatMap((payload) => payload.topReturnReasons || [])),
@@ -4524,6 +4536,63 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
     groupedAction,
     ...withoutDescriptionActions.slice(firstDescriptionIndex),
   ];
+}
+
+function getDescriptionActionGroupMetadata(actions = [], product = {}) {
+  const payloads = actions.map((action) => action.payload || {});
+  const impact = getStrongestCompactValue(payloads.map((payload) => payload.impact || payload.impactLevel), "Medium", ["High", "Medium", "Optional"]);
+  const confidence = getStrongestCompactValue(
+    payloads.map((payload) => payload.confidence).concat(product.confidence >= 75 ? ["High"] : product.confidence >= 50 ? ["Medium"] : []),
+    "Medium",
+    ["High", "Medium", "Low"],
+  );
+  const evidenceStrength = getStrongestCompactValue(payloads.map((payload) => payload.evidenceStrength), inferDescriptionGroupEvidenceStrength(actions, product), ["Strong", "Moderate", "Weak", "Conflicting"]);
+  const actionTier = actions.reduce((best, action) => {
+    const tier = Number(action.payload?.actionTier || action.actionTier || 0);
+    return tier > 0 ? Math.min(best, tier) : best;
+  }, impact === "High" ? 1 : 2);
+
+  return {
+    impact,
+    impactLevel: impact === "Optional" ? "Optional" : `${impact} impact`,
+    actionTier,
+    confidence,
+    evidenceStrength,
+    reasonCategory: inferActionReasonCategory(actions[0] || {}),
+    expectedBenefit: "Reduce confusion",
+  };
+}
+
+function getStrongestCompactValue(values = [], fallback = "", orderedValues = []) {
+  const normalizedValues = values
+    .map((value) => getCompactIndicatorValue(value, ""))
+    .filter(Boolean);
+  const candidates = normalizedValues.length ? normalizedValues : [fallback].filter(Boolean);
+  if (!orderedValues.length) return candidates[0] || fallback || "";
+  const lowerOrder = orderedValues.map((value) => value.toLowerCase());
+  return candidates
+    .sort((first, second) => {
+      const firstIndex = lowerOrder.indexOf(String(first).toLowerCase());
+      const secondIndex = lowerOrder.indexOf(String(second).toLowerCase());
+      return (firstIndex < 0 ? 999 : firstIndex) - (secondIndex < 0 ? 999 : secondIndex);
+    })[0] || fallback || "";
+}
+
+function inferDescriptionGroupEvidenceStrength(actions = [], product = {}) {
+  const payloadSignalCount = actions.reduce((total, action) => {
+    const payload = action.payload || {};
+    return total
+      + Number(payload.returnUnits || 0)
+      + Number(payload.negativeReviewCount || 0)
+      + (Array.isArray(payload.contentIssues) ? payload.contentIssues.length : 0)
+      + (Array.isArray(action.evidence) ? action.evidence.length : 0);
+  }, 0);
+  const metrics = product.metrics || {};
+  const signalCount = Math.max(payloadSignalCount, Number(metrics.signalCount || 0));
+  const sourceCount = Array.isArray(product.sourceCoverage) ? product.sourceCoverage.length : Array.isArray(metrics.sourceCoverage) ? metrics.sourceCoverage.length : 0;
+  if (signalCount >= 10 && sourceCount >= 3) return "Strong";
+  if (signalCount >= 5 || sourceCount >= 2) return "Moderate";
+  return "Weak";
 }
 
 function mergeRecommendedActionRationales(payloads = []) {
@@ -6448,6 +6517,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         const ignored = isIssueIgnored(issue, ignoredIssues);
                         const ignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "ignore-issue";
                         const unignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "unignore-issue";
+                        const issueEvidenceText = issue.evidence?.length > 0 ? issue.evidence.slice(0, 2).join(" ") : "";
 
                         return (
                           <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
@@ -6458,8 +6528,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                 </span>
                                 <span>
                                   <strong>{issue.issue}</strong>
-                                  {issue.evidence?.length > 0 && (
-                                    <small>{issue.evidence.slice(0, 2).join(" ")}</small>
+                                  {issueEvidenceText && (
+                                    <small title={issueEvidenceText}>{issueEvidenceText}</small>
                                   )}
                                 </span>
                                 {ignored && <s-badge tone="success">Ignored</s-badge>}
@@ -6469,7 +6539,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                             <td>{issue.confidence}</td>
                             <td>{issue.signals}</td>
                             <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
-                            <td>{issue.action}</td>
+                            <td title={issue.action}>{issue.action}</td>
                             <td>
                               <IssueInlineActions
                                 issue={issue}
@@ -7217,7 +7287,7 @@ function ProductEvidenceSummaryPanel({ detail, onSelectEvidence }) {
     <div className="ppProductEvidenceSummaryPanel">
       <div className="ppEvidenceSummaryList">
         {evidenceRows.map((source, index) => (
-          <button className="ppEvidenceSummaryRow" type="button" key={source.title} onClick={() => onSelectEvidence(index)}>
+          <button className="ppEvidenceSummaryRow" type="button" key={source.title} onClick={() => onSelectEvidence(index)} title={source.summary}>
             <span className={`ppEvidenceSummaryIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
               <s-icon type={source.icon} size="small"></s-icon>
             </span>

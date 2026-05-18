@@ -1794,7 +1794,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     salesAmount,
     storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
     storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
-    storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate || snapshotMetrics.csvNegativeRatingRate,
+    storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate,
     sentimentTotal: textInsights?.sentiment?.total || 0,
     sentimentNegativeCount: textInsights?.sentiment?.negative || 0,
     subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
@@ -2201,7 +2201,7 @@ function buildReconstructedRiskHistoryPoint({
     reviewSourceStats,
     storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
     storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
-    storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate || snapshotMetrics.csvNegativeRatingRate,
+    storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate,
     sentimentTotal: textInsights?.sentiment?.total || 0,
     sentimentNegativeCount: textInsights?.sentiment?.negative || 0,
     subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
@@ -4022,12 +4022,14 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const hasActionableEvidence = hasCustomerEvidence || contentIssues.length > 0;
   const variantCount = Number(metrics.variantCount || product.variants?.length || 0);
   const affectedVariantCount = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants.length : 0;
+  const hasVariantConcentration = hasAffectedVariantConcentration(metrics);
   const valueSignals = getValuePerceptionSignals(deterministic);
   const mediaIssue = Number(metrics.mediaWithoutAltCount || 0) > 0
     || Number(metrics.mediaCount || 0) === 0
     || mainIssue === "color_expectation"
     || contentAdvisories.some((item) => ["missing_media_context", "missing_media_alt_text"].includes(normalizeContentIssueCode(item.code)));
   const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
+  const operationalQualitySignals = hasOperationalQualitySignals(deterministic);
   const refundInsights = metrics.refundInsights || {};
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
   const missingSourceSignals = getMissingSourceSignals(deterministic);
@@ -4057,11 +4059,11 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     },
     variants: {
       shouldRecommend: variantCount > 1 && (
-        affectedVariantCount > 0
+        hasVariantConcentration
         || Boolean(metrics.variantNamingAdvisory)
         || contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "unclear_variant_names")
       ) && (hasCustomerEvidence || Boolean(metrics.variantNamingAdvisory)),
-      reason: affectedVariantCount
+      reason: hasVariantConcentration && affectedVariantCount
         ? "Signals are concentrated in specific variants, SKUs or options."
         : "Variant names or option labels are unclear enough to review.",
     },
@@ -4136,7 +4138,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh full diagnosis.",
     },
     qa: {
-      shouldRecommend: Boolean(hasActionableEvidence && (highRiskOperationalIssue || refundInsights.shouldSurface || Number(metrics.returnRate || 0) >= 15)),
+      shouldRecommend: Boolean(hasActionableEvidence && (highRiskOperationalIssue || refundInsights.shouldSurface || (Number(metrics.returnRate || 0) >= 15 && operationalQualitySignals))),
       reason: refundInsights.shouldSurface
         ? "Refund pressure or refund notes point to an operational quality review."
         : "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
@@ -4165,6 +4167,45 @@ function getValuePerceptionSignals(deterministic = {}) {
 
   return uniqueBy(values.filter((value) => /\b(expensive|price|priced|cost|costly|cheap|not worth|worth it|value|overpriced|quality for the price)\b/i.test(value)), (value) => normalizeText(value))
     .slice(0, 5);
+}
+
+function hasAffectedVariantConcentration(metrics = {}) {
+  const variants = Array.isArray(metrics.affectedVariantDetails)
+    ? metrics.affectedVariantDetails
+    : Array.isArray(metrics.affectedVariants)
+      ? metrics.affectedVariants.map((label) => ({ label, count: 1 }))
+      : [];
+  if (variants.length < 1) return false;
+  const counts = variants.map((variant) => Number(variant.count || 0)).filter((count) => count > 0);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const strongest = Math.max(0, ...counts);
+  if (strongest < 3 || total < 4) return false;
+  return strongest / Math.max(total, 1) >= 0.65;
+}
+
+function hasOperationalQualitySignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  if (["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue)) return true;
+  const contentIssues = [
+    ...(Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : []),
+  ];
+  const repeated = [
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []),
+    ...(Array.isArray(metrics.textInsights?.reviews?.repeatedLanguage) ? metrics.textInsights.reviews.repeatedLanguage : []),
+    ...(Array.isArray(metrics.textInsights?.returns?.repeatedLanguage) ? metrics.textInsights.returns.repeatedLanguage : []),
+  ];
+  const topReasons = Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [];
+  const snippets = Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets : [];
+  const values = [
+    ...contentIssues.map((issue) => `${issue.code || ""} ${issue.label || ""} ${issue.evidence || ""}`),
+    ...repeated.map((item) => `${item.term || item.label || item.phrase || ""}`),
+    ...topReasons.map((item) => `${item.label || item}`),
+    ...snippets.map((item) => `${item.text || item.body || item.quote || item.summary || ""}`),
+  ].map(String);
+  return values.some((value) => /\b(leak|leaking|spill|spilled|broken|crack|cracked|defect|defective|damaged|damage|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|ripped|stain|mold|battery|burn|sharp)\b/i.test(value));
 }
 
 function getSourceMismatchSignals(deterministic = {}) {
@@ -8414,7 +8455,7 @@ function calculateRiskScoreBreakdown({ snapshot, metrics }) {
     ...metrics,
     storeReturnBaseline: snapshot.metrics?.storeAvgReturnRate,
     storeRefundBaseline: snapshot.metrics?.storeAvgRefundRate,
-    storeNegativeReviewBaseline: snapshot.metrics?.storeAvgNegativeReviewRate || snapshot.metrics?.csvNegativeRatingRate,
+    storeNegativeReviewBaseline: snapshot.metrics?.storeAvgNegativeReviewRate,
     sentimentTotal: metrics.textInsights?.sentiment?.total || 0,
     sentimentNegativeCount: metrics.textInsights?.sentiment?.negative || 0,
     subjectiveNegativeCount: metrics.textInsights?.subjectiveNegativity?.count || 0,
@@ -9549,6 +9590,7 @@ function getPdpActionId(issue) {
   if (issue === "subjective_negative_reaction") return "draft-subjective-expectation-note";
   if (issue === "compatibility") return "draft-compatibility-faq";
   if (issue === "product_content") return "rewrite-product-description";
+  if (issue === "quality_defect" || issue === "durability") return "draft-quality-note";
   return "draft-pdp-copy";
 }
 

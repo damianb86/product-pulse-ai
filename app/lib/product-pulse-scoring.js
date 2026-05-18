@@ -204,7 +204,7 @@ function calculateRiskComponents(metrics, options = {}) {
     || metrics.contentIssueCount
     || metrics.refundAmount;
   const base = hasEvidence ? clamp(number(options.baseRisk ?? 6), 5, 8) : 0;
-  const returnsScore = calculateSmoothedRateRisk({
+  const returnsRateScore = calculateSmoothedRateRisk({
     events: metrics.returnUnits,
     population: metrics.soldUnits,
     observedRate: metrics.returnRate,
@@ -214,6 +214,10 @@ function calculateRiskComponents(metrics, options = {}) {
     targetSampleSize: number(options.targetReturnSampleSize) || 60,
     severityScale: number(options.returnSeverityScale) || 0.065,
   });
+  const highReturnPressure = metrics.returnUnits >= 3 && metrics.soldUnits >= 5 && metrics.returnRate > metrics.storeReturnBaseline + 0.25
+    ? clamp(8 + (metrics.returnRate - metrics.storeReturnBaseline) * 14 + Math.log1p(metrics.returnUnits) * 1.2, 0, 25)
+    : 0;
+  const returnsScore = clamp(Math.max(returnsRateScore, highReturnPressure), 0, 25);
   const refundRateScore = calculateSmoothedRateRisk({
     events: metrics.refundUnits,
     population: metrics.soldUnits,
