@@ -5419,10 +5419,10 @@ function normalizeVariantActionUpdates(payload = {}) {
               optionName: String(option.optionName || option.name || "").trim(),
               currentValue: String(option.currentValue || option.value || "").trim(),
               suggestedValue: String(option.suggestedValue || option.name || option.value || "").trim(),
-            })).filter((option) => option.optionName && option.suggestedValue)
+            })).filter((option) => option.optionName && option.suggestedValue && !sameVariantLabel(option.currentValue, option.suggestedValue))
           : [],
       }))
-      .filter((update) => update.currentLabel || update.suggestedLabel || update.optionValues.length);
+      .filter(hasMeaningfulVariantSuggestion);
   }
 
   const affected = Array.isArray(payload.affectedVariants) ? payload.affectedVariants : [];
@@ -5436,7 +5436,17 @@ function normalizeVariantActionUpdates(payload = {}) {
       suggestedLabel: buildReadableVariantSuggestion(label, payload),
       optionValues: [],
     }))
-    .filter((update) => update.currentLabel);
+    .filter(hasMeaningfulVariantSuggestion);
+}
+
+function hasMeaningfulVariantSuggestion(update = {}) {
+  if (Array.isArray(update.optionValues) && update.optionValues.some((option) => !sameVariantLabel(option.currentValue, option.suggestedValue))) return true;
+  return Boolean(update.suggestedLabel && !sameVariantLabel(update.currentLabel || update.variantTitle, update.suggestedLabel));
+}
+
+function sameVariantLabel(first = "", second = "") {
+  return String(first || "").replace(/\s+/g, " ").trim().toLowerCase()
+    === String(second || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function buildReadableVariantSuggestion(label = "", payload = {}) {
@@ -5975,13 +5985,17 @@ function getRecommendedActionMode(action, index) {
   if (normalizedId.includes("run-ai-diagnosis") || normalizedId.includes("run-full-diagnosis")) return "diagnose";
   if (normalizedId.includes("add-to-watchlist")) return "apply-product";
   if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) return "apply-product";
-  if (Array.isArray(payload.variantUpdates) && payload.variantUpdates.length) return "apply-product";
+  if (hasDirectVariantOptionUpdates(payload)) return "apply-product";
   if (payload.draftTitle || payload.productStatus || payload.draftHandle || payload.templateSuffix || payload.field === "classification" || payload.field === "seo.title" || payload.field === "seo.description" || (Array.isArray(payload.metafields) && payload.metafields.length)) return "apply-product";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
   if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
   if (normalizedType.includes("workflow") || normalizedType.includes("variant") || normalizedType.includes("commercial") || normalizedType.includes("inventory") || normalizedType.includes("media") || normalizedType.includes("qa") || normalizedId.includes("review-return")) return "review";
   return "submit";
+}
+
+function hasDirectVariantOptionUpdates(payload = {}) {
+  return normalizeVariantActionUpdates(payload).some((update) => update.variantId && update.optionValues.length);
 }
 
 function getRecommendedActionButtonLabel(action, index) {

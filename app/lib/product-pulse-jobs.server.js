@@ -1269,11 +1269,18 @@ function normalizeVariantOptionUpdatesForApply(updates = []) {
       optionValues: Array.isArray(update.optionValues)
         ? update.optionValues.map((option) => ({
             optionName: String(option.optionName || option.name || "").trim(),
+            currentName: String(option.currentValue || option.currentName || "").trim(),
             name: String(option.suggestedValue || option.value || "").trim(),
-          })).filter((option) => option.optionName && option.name)
+          })).filter((option) => option.optionName && option.name && !sameNormalizedText(option.currentName, option.name))
+            .map(({ optionName, name }) => ({ optionName, name }))
         : [],
     }))
     .filter((update) => update.id && update.optionValues.length);
+}
+
+function sameNormalizedText(first = "", second = "") {
+  return String(first || "").replace(/\s+/g, " ").trim().toLowerCase()
+    === String(second || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 async function updateProductVariantOptionValues(admin, productGid, variantUpdates) {
@@ -1625,12 +1632,51 @@ function buildProductPulseDescriptionReplacement(text, action) {
 }
 
 function buildHtmlParagraphs(text) {
+  if (containsAllowedProductPulseHtml(text)) return sanitizeProductPulseDescriptionHtml(text);
   return String(text || "")
     .split(/\n{2,}|\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => `<p style="margin:0 0 10px;color:#374151;line-height:1.6;">${escapeHtml(line)}</p>`)
     .join("\n");
+}
+
+function containsAllowedProductPulseHtml(value = "") {
+  return /<\/?(p|br|strong|b|em|i|ul|ol|li|h3|h4)\b/i.test(String(value || ""));
+}
+
+function sanitizeProductPulseDescriptionHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/(<[^>]+>)/g)
+    .map((part) => {
+      if (!part) return "";
+      if (part.startsWith("<")) return sanitizeProductPulseDescriptionTag(part);
+      return escapeHtml(part);
+    })
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeProductPulseDescriptionTag(tag = "") {
+  const match = String(tag || "").match(/^<\s*(\/)?\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/)?>$/i);
+  if (!match) return escapeHtml(tag);
+  const closing = Boolean(match[1]);
+  const tagName = String(match[2] || "").toLowerCase();
+  const selfClosing = Boolean(match[3]);
+  const inlineTags = new Set(["strong", "b", "em", "i"]);
+  if (inlineTags.has(tagName)) return closing ? `</${tagName}>` : `<${tagName}>`;
+  if (tagName === "br") return "<br>";
+  if (tagName === "p") return closing ? "</p>" : "<p style=\"margin:0 0 10px;color:#374151;line-height:1.6;\">";
+  if (tagName === "h3") return closing ? "</h3>" : "<h3 style=\"margin:0 0 10px;color:#1f2937;font-size:16px;line-height:1.35;font-weight:800;\">";
+  if (tagName === "h4") return closing ? "</h4>" : "<h4 style=\"margin:0 0 8px;color:#1f2937;font-size:14px;line-height:1.35;font-weight:800;\">";
+  if (tagName === "ul") return closing ? "</ul>" : "<ul style=\"margin:0 0 10px 20px;padding:0;color:#374151;line-height:1.6;\">";
+  if (tagName === "ol") return closing ? "</ol>" : "<ol style=\"margin:0 0 10px 20px;padding:0;color:#374151;line-height:1.6;\">";
+  if (tagName === "li") return closing ? "</li>" : "<li style=\"margin:0 0 6px;\">";
+  return escapeHtml(selfClosing ? `<${tagName} />` : tag);
 }
 
 function buildProductPulseCalloutAttributes(actionId, className = "productpulse-callout") {

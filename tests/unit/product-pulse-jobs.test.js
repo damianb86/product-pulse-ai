@@ -133,6 +133,22 @@ describe("ProductPulse product job helpers", () => {
     expect(html).toContain("Product note");
   });
 
+  it("renders safe generated HTML inside ProductPulse description notes", () => {
+    const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
+      currentHtml: "<div><p>Smart indoor herb planter.</p></div>",
+      draftText: "<h3>Important Setup Requirements:</h3>\n<ul>\n<li><b>Wi-Fi Compatibility:</b> Requires a 2.4 GHz Wi-Fi network.</li>\n<li><b>App Language:</b> English only.</li>\n</ul>",
+      operation: "prepend",
+      action: { id: "add-product-description-guidance", payload: {} },
+    });
+
+    expect(html).toContain("<h3");
+    expect(html).toContain("<ul");
+    expect(html).toContain("<li");
+    expect(html).toContain("<b>Wi-Fi Compatibility:</b>");
+    expect(html).not.toContain("&lt;h3&gt;");
+    expect(html).toContain("<div><p>Smart indoor herb planter.</p></div>");
+  });
+
   it("builds product-list evidence bars in fixed source-family order with real metric detail", () => {
     const bars = productPulseJobsTestHooks.getSignalLifecycleBars({
       productType: "Toys",

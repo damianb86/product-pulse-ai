@@ -1323,6 +1323,37 @@ describe("ProductPulse screens", () => {
     expect(within(dialog).getByRole("button", { name: "Update variants" })).toBeInTheDocument();
   });
 
+  it("does not show no-op variant label suggestions", () => {
+    const product = {
+      ...defaultView.startHere,
+      shopifyAdminUrl: "https://admin.shopify.com/store/qorve/products/123",
+      recommendedActions: [{
+        id: "correct-variant-options",
+        label: "Fix variant names/options",
+        type: "Variant options",
+        effort: "Medium",
+        status: "Ready",
+        payload: {
+          affectedVariants: ["Mixed Herbs"],
+          variantUpdates: [{
+            variantId: "gid://shopify/ProductVariant/1",
+            variantTitle: "Mixed Herbs",
+            currentLabel: "Mixed Herbs",
+            suggestedLabel: "Mixed Herbs",
+            sku: "HERB-MIX",
+            optionValues: [{ optionName: "Style", currentValue: "Mixed Herbs", suggestedValue: "Mixed Herbs" }],
+          }],
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Fix variant names/options" }));
+    const dialog = screen.getByRole("dialog", { name: "Fix variant names/options" });
+    expect(within(dialog).queryByText("Suggested variant labels")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Update variants" })).not.toBeInTheDocument();
+  });
+
   it("deduplicates equivalent grouped description changes from the same cause", () => {
     const currentDescription = "Completed in 1642, this famous artwork reproduction depicts a city guard moving out.";
     const duplicatedNote = "Please note: This reproduction uses dramatic lighting and a dark visual tone that can feel intense in a room.";
