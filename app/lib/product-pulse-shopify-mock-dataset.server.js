@@ -773,14 +773,14 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
   await markMockDatasetStageRunning(context, "orders");
   const orderPlans = buildOrderPlans(products, currencyCode);
   const existingOrders = await fetchGeneratedOrders(context, products, orderPlans, currencyCode);
-  const existingByEmail = new Map(existingOrders.map((order) => [order.plan?.email, order]).filter(([email]) => email));
+  const existingByIndex = new Map(existingOrders.map((order) => [order.plan?.index, order]).filter(([index]) => Number.isInteger(index)));
   const orders = [];
   let createdCount = 0;
   let reusedCount = 0;
 
   for (let index = 0; index < orderPlans.length; index += 1) {
     const plan = orderPlans[index];
-    const existing = existingByEmail.get(plan.email);
+    const existing = existingByIndex.get(plan.index);
     if (existing) {
       orders.push(existing);
       reusedCount += 1;
@@ -790,7 +790,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
           jobId: context.jobId,
           event: "mock_dataset.order_reused",
           message: `Reused existing mock order ${index + 1} of ${orderPlans.length}.`,
-          data: { orderName: existing.name, email: plan.email, phase: plan.phase },
+          data: { orderName: existing.name, generatedOrderIndex: plan.index + 1, phase: plan.phase },
         });
       }
     } else {
@@ -800,7 +800,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
         event: "mock_dataset.order_create_started",
         message: `Creating mock order ${index + 1} of ${orderPlans.length}.`,
         data: {
-          email: plan.email,
+          generatedOrderIndex: plan.index + 1,
           phase: plan.phase,
           itemCount: plan.items.length,
           total: plan.total,
@@ -817,7 +817,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
           event: "mock_dataset.order_create_failed",
           message: `Failed creating mock order ${index + 1} of ${orderPlans.length}.`,
           data: {
-            email: plan.email,
+            generatedOrderIndex: plan.index + 1,
             phase: plan.phase,
             itemCount: plan.items.length,
             total: plan.total,
@@ -833,7 +833,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
         jobId: context.jobId,
         event: "mock_dataset.order_created",
         message: `Created mock order ${index + 1} of ${orderPlans.length}.`,
-        data: { orderName: createdOrder.name, orderId: createdOrder.id, email: plan.email },
+        data: { orderName: createdOrder.name, orderId: createdOrder.id, generatedOrderIndex: plan.index + 1 },
       });
       if (index < orderPlans.length - 1 && orderDelayMs > 0) await wait(orderDelayMs);
     }
@@ -923,12 +923,12 @@ async function fetchGeneratedOrders(context, products, orderPlans, currencyCode,
     cursor = data?.orders?.pageInfo?.hasNextPage ? data.orders.pageInfo.endCursor : null;
   } while (cursor);
 
-  const plansByEmail = new Map(orderPlans.map((plan) => [plan.email, plan]));
+  const plansByIndex = new Map(orderPlans.map((plan) => [plan.index, plan]));
   const productsByVariantId = new Map(products.flatMap((product) => (
     (product.variants || []).map((variant) => [variant.id, { product, variant }])
   )));
   return orders
-    .map((order) => normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, currencyCode))
+    .map((order) => normalizeExistingMockOrder(order, plansByIndex, productsByVariantId, currencyCode))
     .filter(Boolean);
 }
 
@@ -953,7 +953,6 @@ function buildGeneratedOrdersQuery(includeOutcomes) {
         nodes {
           id
           name
-          email
           processedAt
           note
           tags
@@ -1023,8 +1022,17 @@ function buildGeneratedOrdersQuery(includeOutcomes) {
   `;
 }
 
-function normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, currencyCode) {
-  const plan = plansByEmail.get(order.email);
+function getGeneratedOrderIndex(order) {
+  const tagIndex = (order.tags || [])
+    .map((tag) => String(tag || "").match(/^ppgen-order-(\d+)$/i)?.[1])
+    .find(Boolean);
+  const noteIndex = String(order.note || "").match(/ProductPulse generated order\s+(\d+)/i)?.[1];
+  const index = Number(tagIndex || noteIndex || 0);
+  return Number.isFinite(index) && index > 0 ? index - 1 : null;
+}
+
+function normalizeExistingMockOrder(order, plansByIndex, productsByVariantId, currencyCode) {
+  const plan = plansByIndex.get(getGeneratedOrderIndex(order));
   if (!plan) return null;
   const lineItems = (order.lineItems?.nodes || []).map((lineItem) => {
     const matched = productsByVariantId.get(lineItem.variant?.id);
@@ -1237,10 +1245,9 @@ function buildOrderPlans(products, currencyCode) {
       index,
       phase: getOrderPhase(progress),
       processedAt: date.toISOString(),
-      email: `productpulse.mock.${index + 1}@example.com`,
       currencyCode,
       note: `ProductPulse generated order ${index + 1}. ${getOrderPhase(progress)} phase. Controlled mock dataset for diagnostics.`,
-      tags: [GENERATED_ORDER_TAG, `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
+      tags: [GENERATED_ORDER_TAG, `ppgen-order-${index + 1}`, `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
       items,
       total,
     };
@@ -1343,7 +1350,6 @@ function getOrderQuantity(productKey, index, progress) {
 async function createMockOrder(context, plan, location, currencyCode) {
   const orderInput = {
     currency: currencyCode,
-    email: plan.email,
     processedAt: plan.processedAt,
     financialStatus: "PAID",
     fulfillmentStatus: "FULFILLED",
