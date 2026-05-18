@@ -3,6 +3,7 @@ import prisma from "../db.server";
 import { isProductPulseDevelopment } from "./product-pulse-dev.server";
 
 const SENSITIVE_KEY_PATTERN = /(authorization|cookie|password|secret|token|accessToken|refreshToken|apiKey|apiSecret|hmac|signature|session|credentials)/i;
+const SAFE_TOKEN_USAGE_KEY_PATTERN = /^(aiUsage|tokenUsage|tokensByProvider|tokensByModel|tokensByTask|inputTokens|outputTokens|totalTokens|cachedInputTokens|reasoningTokens|knownTokenCallCount|unknownTokenCallCount|unknownTokenCalls|promptTokenCount|candidatesTokenCount|totalTokenCount|cachedContentTokenCount|thoughtsTokenCount|input_tokens|output_tokens|total_tokens|prompt_tokens|completion_tokens|cached_tokens|reasoning_tokens)$/i;
 
 export async function recordJobLog({ shop, jobId, level = "info", event, message, data }) {
   if (!isProductPulseDevelopment() || !shop || !jobId) return;
@@ -56,9 +57,17 @@ function redact(value, depth = 0) {
 
   const safe = {};
   for (const [key, nestedValue] of Object.entries(value)) {
-    safe[key] = SENSITIVE_KEY_PATTERN.test(key)
+    safe[key] = shouldRedactLogKey(key, nestedValue)
       ? "[Redacted]"
       : redact(nestedValue, depth + 1);
   }
   return safe;
+}
+
+function shouldRedactLogKey(key, value) {
+  if (!SENSITIVE_KEY_PATTERN.test(key)) return false;
+  if (!SAFE_TOKEN_USAGE_KEY_PATTERN.test(key)) return true;
+  if (value === null || value === undefined) return false;
+  if (["number", "string", "boolean"].includes(typeof value)) return false;
+  return typeof value !== "object";
 }

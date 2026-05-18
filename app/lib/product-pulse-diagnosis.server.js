@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
+import { summarizeAiUsage } from "./product-pulse-ai-usage.server";
 import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
 import { recordProductScoreHistory, recordReconstructedProductScoreHistory } from "./product-pulse-history.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
@@ -149,6 +150,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       issues: diagnosisPayload.issues.map((issue) => issue.issue),
       recommendations: diagnosisPayload.recommendations.map((action) => action.label),
       modelsUsed: ai.modelsUsed,
+      aiUsage: ai.aiUsage,
     },
   });
 
@@ -161,6 +163,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     provider: ai.provider,
     model: ai.model,
     modelsUsed: ai.modelsUsed,
+    aiUsage: ai.aiUsage,
   };
 }
 
@@ -2457,11 +2460,13 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const metrics = {
     ...scoredDeterministic.metrics,
     incrementalDiagnosis,
+    aiUsage: ai.aiUsage,
     diagnosisReport: {
       mainFinding: adjustedMainFinding,
       evidenceSummary: adjustedMainFinding.summary,
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
+      aiUsage: ai.aiUsage,
       knownEmotions,
       emergentSentiments,
       checkedSources: buildCheckedSources(semanticDeterministic),
@@ -2571,6 +2576,12 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     actionRationale: buildCachedAiModelSummary("action_rationale"),
     finalReport: buildCachedAiModelSummary("final_report"),
   };
+  const aiUsage = summarizeAiUsage([], {
+    productGid: snapshot.productGid,
+    productHandle: snapshot.handle || null,
+    diagnosisMode: "no_change_reuse",
+    creditsConsumed: 0,
+  });
 
   await recordJobLog({
     shop,
@@ -2582,6 +2593,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
       previousDiagnosisId: reusableDiagnosis.id,
       previousCompletedAt: toIso(reusableDiagnosis.completedAt),
       creditsConsumed: 0,
+      aiUsage,
       reuseDecision,
       incrementalDiagnosis: {
         mode: deterministic.metrics.incrementalDiagnosis?.mode || "incremental",
@@ -2608,6 +2620,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     provider: "cache",
     model: "previous-detailed-diagnosis",
     modelsUsed,
+    aiUsage,
     creditsConsumed: 0,
   };
 }
@@ -2675,6 +2688,18 @@ function buildCachedAiModelSummary(task) {
     task,
     model: "previous-detailed-diagnosis",
     provider: "cache",
+    usage: {
+      provider: "cache",
+      model: "previous-detailed-diagnosis",
+      task,
+      requestContext: "cache",
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      cachedInputTokens: 0,
+      reasoningTokens: 0,
+      usageSource: "cache",
+    },
   };
 }
 

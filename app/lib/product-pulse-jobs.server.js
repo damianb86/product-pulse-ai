@@ -2220,6 +2220,7 @@ async function runProductDiagnosisJob(job) {
       provider: diagnosis?.provider,
       model: diagnosis?.model,
       modelsUsed: diagnosis?.modelsUsed,
+      aiUsage: diagnosis?.aiUsage,
     },
   });
 }

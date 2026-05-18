@@ -1,4 +1,5 @@
 import prisma from "../db.server";
+import { createAiUsageTracker, normalizeAiUsageCall } from "./product-pulse-ai-usage.server";
 import { isProductPulseDevelopment } from "./product-pulse-dev.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 
@@ -69,12 +70,24 @@ const PREDEFINED_CUSTOMER_SENTIMENTS = [
 ];
 
 export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
+  const usageTracker = createAiUsageTracker({
+    shop,
+    jobId,
+    operation: "product_diagnosis",
+    metadata: {
+      productGid: input?.product?.id || input?.product?.productGid || null,
+      productHandle: input?.product?.handle || null,
+    },
+  });
+
+  try {
   const classificationPrompt = buildSignalClassificationPrompt(input);
   const classificationResponse = await generateAiText({
     shop,
     jobId,
     task: "signal_classification",
     prompt: classificationPrompt,
+    usageTracker,
   });
   const classification = parseAiJson(classificationResponse.text, {
     classified_signals: [],
@@ -92,6 +105,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     jobId,
     task: "emergent_sentiment",
     prompt: buildEmergentSentimentPrompt(input, classification),
+    usageTracker,
   });
   const emergentSentiments = parseAiJson(emergentSentimentResponse.text, {
     emergent_sentiments: [],
@@ -109,6 +123,18 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       model: "previous-product-content-analysis",
       task: "content_gap",
       text: JSON.stringify(cachedContentGaps),
+      usage: usageTracker.record({
+        provider: "cache",
+        model: "previous-product-content-analysis",
+        task: "content_gap",
+        requestContext: "cache",
+        usageSource: "cache",
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+      }),
     };
     await recordJobLog({
       shop,
@@ -129,6 +155,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       jobId,
       task: "content_gap",
       prompt: gapPrompt,
+      usageTracker,
     });
     contentGaps = parseAiJson(gapResponse.text, {
       missing: [],
@@ -143,6 +170,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     jobId,
     task: "final_report",
     prompt: reportPrompt,
+    usageTracker,
   });
   const report = parseAiJson(reportResponse.text, {
     main_finding_title: input?.deterministic?.mainIssueLabel || "Product issue needs review",
@@ -156,14 +184,23 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     jobId,
     task: "action_rationale",
     prompt: buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report),
+    usageTracker,
   });
   const actionRationales = parseAiJson(actionRationaleResponse.text, {
     action_rationales: [],
+  });
+  const aiUsage = await usageTracker.logSummary({
+    event: "product_diagnosis.ai_token_usage",
+    data: {
+      productGid: input?.product?.id || input?.product?.productGid || null,
+      productHandle: input?.product?.handle || null,
+    },
   });
 
   return {
     provider: reportResponse.provider,
     model: reportResponse.model,
+    aiUsage,
     modelsUsed: {
       classification: pickAiModelSummary(classificationResponse),
       emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
@@ -184,6 +221,19 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       report: reportResponse.text,
     },
   };
+  } catch (error) {
+    await usageTracker.logSummary({
+      level: "warn",
+      event: "product_diagnosis.ai_token_usage_partial",
+      message: "AI token usage captured before the product diagnosis AI step failed.",
+      data: {
+        productGid: input?.product?.id || input?.product?.productGid || null,
+        productHandle: input?.product?.handle || null,
+        error: serializeError(error),
+      },
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 export async function generateProductDiagnosisTestText({ shop, jobId, product }) {
@@ -552,7 +602,7 @@ function buildProductDiagnosisPrompt(product) {
   ].join("\n");
 }
 
-async function generateAiText({ shop, jobId, task, prompt }) {
+async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }) {
   const productionAiEnabled = isProductionAiEnabled();
   const provider = productionAiEnabled ? OPENAI_PROVIDER : GEMINI_PROVIDER;
   const taskConfig = AI_TASKS[task] || AI_TASKS.final_report;
@@ -572,8 +622,8 @@ async function generateAiText({ shop, jobId, task, prompt }) {
   });
 
   return provider === GEMINI_PROVIDER
-    ? generateWithGemini({ shop, jobId, task, taskConfig, prompt })
-    : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt });
+    ? generateWithGemini({ shop, jobId, task, taskConfig, prompt, usageTracker })
+    : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, usageTracker });
 }
 
 function isProductionAiEnabled() {
@@ -590,7 +640,7 @@ function parseBooleanEnv(value) {
   return null;
 }
 
-async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, modelOverride = null, requestContext = "primary" }) {
+async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, modelOverride = null, requestContext = "primary", usageTracker = null }) {
   const apiKey = process.env.OPENAI_API_KEY;
   const model = modelOverride || resolveOpenAIModel(taskConfig);
 
@@ -633,16 +683,25 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, model
 
   const text = extractOpenAIText(json);
   if (!text) throw new Error(`OpenAI returned an empty ${task} response.`);
+  const usage = recordAiUsage({
+    usageTracker,
+    provider: OPENAI_PROVIDER,
+    model,
+    task,
+    requestContext,
+    usage: json.usage || null,
+    usageSource: json.usage ? "openai_response_usage" : "provider_missing",
+  });
 
   await recordJobLog({
     shop,
     jobId,
     event: "product_diagnosis.openai_response",
     message: `OpenAI returned ${task}.`,
-    data: { provider: OPENAI_PROVIDER, model, task, requestContext, text },
+    data: { provider: OPENAI_PROVIDER, model, task, requestContext, usage, text },
   });
 
-  return { provider: OPENAI_PROVIDER, model, task, text };
+  return { provider: OPENAI_PROVIDER, model, task, usage, text };
 }
 
 function resolveOpenAIModel(taskConfig) {
@@ -671,7 +730,12 @@ function extractOpenAIText(response) {
   return chunks.join("\n").trim();
 }
 
-async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
+function recordAiUsage({ usageTracker, provider, model, task, requestContext, usage, usageSource }) {
+  const call = { provider, model, task, requestContext, usage, usageSource };
+  return usageTracker ? usageTracker.record(call) : normalizeAiUsageCall(call);
+}
+
+async function generateWithGemini({ shop, jobId, task, taskConfig, prompt, usageTracker = null }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
@@ -696,17 +760,26 @@ async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
         data: { provider: GEMINI_PROVIDER, model, task, attempt: index + 1 },
       });
 
-      const text = await requestGeminiText({ apiKey, model, prompt, taskConfig });
+      const geminiResponse = await requestGeminiText({ apiKey, model, prompt, taskConfig });
+      const usage = recordAiUsage({
+        usageTracker,
+        provider: GEMINI_PROVIDER,
+        model,
+        task,
+        requestContext: "primary",
+        usage: geminiResponse.usageMetadata || null,
+        usageSource: geminiResponse.usageMetadata ? "gemini_usage_metadata" : "provider_missing",
+      });
       await rememberGeminiSuccess(model);
       await recordJobLog({
         shop,
         jobId,
         event: "product_diagnosis.gemini_response",
         message: `Gemini returned ${task}.`,
-        data: { provider: GEMINI_PROVIDER, model, task, text },
+        data: { provider: GEMINI_PROVIDER, model, task, usage, text: geminiResponse.text },
       });
 
-      return { provider: GEMINI_PROVIDER, model, task, text };
+      return { provider: GEMINI_PROVIDER, model, task, usage, text: geminiResponse.text };
     } catch (error) {
       lastError = error;
       lastRetryReason = getGeminiRetryReason(error);
@@ -763,6 +836,7 @@ async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
             task,
             taskConfig,
             prompt,
+            usageTracker,
             retryReason: lastRetryReason,
             geminiError: poolError,
             lastGeminiError: error,
@@ -783,6 +857,7 @@ async function generateWithGemini({ shop, jobId, task, taskConfig, prompt }) {
       task,
       taskConfig,
       prompt,
+      usageTracker,
       retryReason: lastRetryReason,
       geminiError: poolError,
       lastGeminiError: lastError,
@@ -848,7 +923,10 @@ async function requestGeminiText({ apiKey, model, prompt, taskConfig }) {
     .trim();
 
   if (!text) throw new Error("Gemini returned an empty product diagnosis response.");
-  return text;
+  return {
+    text,
+    usageMetadata: json.usageMetadata || null,
+  };
 }
 
 function getGeminiRetryReason(error) {
@@ -919,6 +997,7 @@ async function generateWithOpenAINanoAfterGeminiExhaustion({
   task,
   taskConfig,
   prompt,
+  usageTracker,
   retryReason,
   geminiError,
   lastGeminiError,
@@ -949,6 +1028,7 @@ async function generateWithOpenAINanoAfterGeminiExhaustion({
       prompt,
       modelOverride: model,
       requestContext: "gemini_fallback",
+      usageTracker,
     });
   } catch (openAiError) {
     await recordJobLog({
@@ -1178,6 +1258,7 @@ function pickAiModelSummary(response) {
     provider: response.provider,
     model: response.model,
     task: response.task,
+    usage: response.usage || null,
   };
 }
 
