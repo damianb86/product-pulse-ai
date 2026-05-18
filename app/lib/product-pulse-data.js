@@ -780,11 +780,16 @@ function getDashboardActionHistoryRecord(action = {}, history = []) {
 
   const family = getDashboardActionFamily(action);
   if (!family || family === "other") return null;
+  if (!shouldUseDashboardActionFamilyFallback(family)) return null;
 
   return currentRecords.find((record) => (
     getDashboardActionFamily(record) === family
       && normalizeDashboardActionStatus(record.status) !== "pending"
   )) || null;
+}
+
+function shouldUseDashboardActionFamilyFallback(family = "") {
+  return ["product-copy", "evidence-review"].includes(family);
 }
 
 function normalizeDashboardActionToken(value) {

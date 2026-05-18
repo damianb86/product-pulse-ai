@@ -866,7 +866,7 @@ describe("ProductPulse screens", () => {
     expect(within(predictionPanel).getByText(/reduce the projected return-rate path/)).toBeInTheDocument();
   });
 
-  it("labels product risk as improving when saved risk history trends downward", () => {
+  it("shows product risk level first and the trend label below the sparkline", () => {
     const product = {
       ...defaultView.startHere,
       riskScore: 50,
@@ -886,8 +886,8 @@ describe("ProductPulse screens", () => {
     const riskSnapshot = container.querySelector(".ppRiskSnapshot");
 
     expect(riskSnapshot).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Emerging")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Improving")).toBeInTheDocument();
-    expect(within(riskSnapshot).queryByText("Emerging")).not.toBeInTheDocument();
   });
 
   it("lets product detail remove an already watched product", () => {
@@ -1215,6 +1215,60 @@ describe("ProductPulse screens", () => {
     expect(within(dialog).getByText("Proposed SEO title")).toBeInTheDocument();
     expect(within(dialog).getByText("Current SEO title")).toBeInTheDocument();
     expect(within(dialog).queryByText("Current Shopify description")).not.toBeInTheDocument();
+  });
+
+  it("does not let a stored SEO meta action archive product description actions through broad aliases", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [
+        {
+          id: "product-description-changes",
+          label: "Update product description",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Ready",
+          payload: {
+            descriptionChangeGroup: true,
+            descriptionChanges: [{
+              id: "add-expectation-note",
+              title: "Add expectation note",
+              operation: "prepend",
+              operationLabel: "Add to top of description",
+              text: "Please note: confirm compatibility before buying.",
+            }],
+          },
+        },
+        {
+          id: "rewrite-meta-description",
+          label: "Rewrite meta description",
+          type: "SEO",
+          effort: "Low",
+          status: "Ready",
+          payload: {
+            field: "seo.description",
+            draftText: "Clear SEO description.",
+          },
+        },
+      ],
+      actionHistory: [
+        {
+          id: "stored-meta",
+          actionId: "rewrite-meta-description",
+          actionType: "rewrite-meta-description",
+          label: "Rewrite meta description",
+          status: "applied",
+          payload: {
+            sourceActionId: "rewrite-meta-description",
+            canonicalActionId: "rewrite-meta-description",
+            actionAliases: ["rewrite-meta-description", "product-description-changes", "title-metadata"],
+          },
+        },
+      ],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByRole("button", { name: "Open recommended action Update product description" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open recommended action Rewrite meta description" })).not.toBeInTheDocument();
   });
 
   it("shows Add to Watchlist as a workflow action without a before/after preview", () => {

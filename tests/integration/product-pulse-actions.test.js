@@ -203,6 +203,48 @@ describe("ProductPulse actions", () => {
     });
   });
 
+  it("does not count one applied metadata action as every metadata recommendation", () => {
+    const product = {
+      id: "gid://shopify/Product/meta",
+      handle: "meta-product",
+      title: "Meta Product",
+      riskScore: 71,
+      confidence: 76,
+      analysisDepth: "full",
+      primaryIssue: "Product content",
+      metrics: {
+        latestDiagnosisId: "diagnosis-meta",
+        marginAtRisk: 300,
+        revenueAtRisk: 900,
+        signalCount: 7,
+      },
+      recommendedActions: [
+        { id: "rewrite-meta-description", label: "Rewrite meta description", type: "SEO", status: "Ready" },
+        { id: "rewrite-seo-title", label: "Rewrite SEO title", type: "SEO", status: "Ready" },
+      ],
+      actionHistory: [
+        {
+          id: "action-meta",
+          actionId: "rewrite-meta-description",
+          label: "Rewrite meta description",
+          status: "applied",
+        },
+      ],
+    };
+
+    const dashboard = buildDashboardViewData([product]);
+    const analytics = buildAnalyticsViewData([product]);
+
+    expect(dashboard.totals.pendingActions).toBe(1);
+    expect(dashboard.totals.appliedActions).toBe(1);
+    expect(dashboard.actionQueue.total).toBe(1);
+    expect(analytics.actionPerformance).toMatchObject({
+      suggested: 2,
+      pending: 1,
+      applied: 1,
+    });
+  });
+
   it("prioritizes product-change actions over investigation-only actions on the dashboard", () => {
     const investigationOnlyProduct = {
       id: "gid://shopify/Product/investigate",

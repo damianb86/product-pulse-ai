@@ -3250,6 +3250,7 @@ function getProductDetailModel(product) {
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
     riskScoreLabel: riskDisplay.label,
+    riskTrendLabel: riskDisplay.trendLabel,
     riskScore: product.riskScore || 0,
     riskTone: riskDisplay.tone,
     confidence: product.confidence || 0,
@@ -3677,13 +3678,20 @@ function getProductRiskTrendState(values = []) {
 }
 
 function getProductRiskDisplay(score, trendValues = [], riskTone = "info", hasRiskSnapshot = true) {
-  if (!hasRiskSnapshot) return { label: "Not scanned", tone: "blue" };
+  if (!hasRiskSnapshot) return { label: "Not scanned", trendLabel: "No saved trend", tone: "blue" };
   const trendState = getProductRiskTrendState(trendValues);
-  if (trendState === "improving") return { label: "Improving", tone: "green" };
-  if (trendState === "rising") return { label: "Rising", tone: score >= 75 ? "red" : "orange" };
-  if (trendState === "stable") return { label: "Stable", tone: getProductInsightTone(riskTone) };
-  if (score >= 35 && score < 55) return { label: "Watch", tone: getProductInsightTone(riskTone) };
-  return { label: getProductRiskScoreLabel(score), tone: getProductInsightTone(riskTone) };
+  const trendLabel = trendState === "improving"
+    ? "Improving"
+    : trendState === "rising"
+      ? "Rising"
+      : trendState === "stable"
+        ? "Stable"
+        : "No saved trend";
+  return {
+    label: getProductRiskScoreLabel(score),
+    trendLabel,
+    tone: getProductInsightTone(riskTone),
+  };
 }
 
 function getEvidenceLabel(evidenceSources, sourceCoverage) {
@@ -4246,6 +4254,7 @@ function getRecommendedActionHistoryRecord(action = {}, actionHistory = []) {
 
   const actionFamily = getRecommendedActionPersistenceFamily(action);
   if (!actionFamily) return null;
+  if (!shouldUseRecommendedActionFamilyFallback(actionFamily)) return null;
   const familyRecord = records.find((record) => (
     getRecommendedActionPersistenceFamily(record) === actionFamily
   ));
@@ -4285,8 +4294,8 @@ function getStoredRecommendedActionMatchKeys(record = {}) {
     record.label,
     payload.sourceActionId,
     payload.canonicalActionId,
-    ...(Array.isArray(payload.actionAliases) ? payload.actionAliases : []),
-    ...(Array.isArray(record.actionAliases) ? record.actionAliases : []),
+    ...getPreciseStoredRecommendedActionAliases(payload.actionAliases),
+    ...getPreciseStoredRecommendedActionAliases(record.actionAliases),
   ].map(normalizeRecommendedActionMatchKey).filter(Boolean));
 }
 
@@ -4297,6 +4306,27 @@ function intersectsActionKeys(firstKeys, secondKeys) {
 
 function normalizeRecommendedActionMatchKey(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+const BROAD_STORED_RECOMMENDED_ACTION_ALIASES = new Set([
+  "product-description-changes",
+  "review-product-evidence",
+  "product-evidence",
+  "title-metadata",
+  "product-metadata",
+  "variant-options",
+  "workflow-tag",
+  "media-alt-text",
+  "commercial-control",
+]);
+
+function getPreciseStoredRecommendedActionAliases(aliases = []) {
+  return (Array.isArray(aliases) ? aliases : [])
+    .filter((alias) => !BROAD_STORED_RECOMMENDED_ACTION_ALIASES.has(normalizeRecommendedActionMatchKey(alias)));
+}
+
+function shouldUseRecommendedActionFamilyFallback(family = "") {
+  return ["product-description", "product-evidence"].includes(family);
 }
 
 function getRecommendedActionPersistenceFamily(action = {}) {
@@ -4680,9 +4710,63 @@ function buildDescriptionChangeDescriptor(action = {}, product = {}) {
     operationLabel: getDescriptionOperationText(operation),
     text,
     intro: getDescriptionActionIntro(operation, action),
-    reason: getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
+    reason: getDescriptionChangeSpecificReason(action, product, operation) || getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
     causeKey: payload.causeKey || "",
   };
+}
+
+function getDescriptionChangeSpecificReason(action = {}, product = {}, operation = "") {
+  const payload = action.payload || {};
+  const metrics = product.metrics || {};
+  const normalizedTitle = `${action.id || ""} ${action.label || ""} ${action.title || ""} ${payload.issue || ""}`.toLowerCase();
+  const contentIssues = getContentIssueLabels(payload.contentIssues || metrics.contentIssues || metrics.contentAnalysis?.issues);
+  const returnReasons = normalizeActionReasonList(payload.topReturnReasons || metrics.topReturnReasonDetails || metrics.topReturnReasons, "return reason");
+  const negativeReviews = Number(payload.negativeReviewCount ?? metrics.negativeReviewCount ?? 0);
+  const returnUnits = Number(payload.returnUnits ?? metrics.returnUnits ?? 0);
+  const focusedIssue = pickDescriptionChangeFocus(contentIssues, normalizedTitle, payload.issue || product.primaryIssue);
+  const evidence = buildDescriptionSpecificEvidence({ returnUnits, returnReasons, negativeReviews, focusedIssue });
+
+  if (operation === "prepend") {
+    return `This top-of-description note is meant to set expectations before the shopper reads the full PDP. ${evidence || `It focuses on ${focusedIssue || "the main buyer-confusion signal"} so the warning or clarification is visible before purchase.`}`;
+  }
+  if (operation === "append") {
+    return `This appended guidance adds supporting detail without replacing the existing PDP copy. ${evidence || `It fills in ${focusedIssue || "a specific missing detail"} after the main description so shoppers can confirm the product fit before buying.`}`;
+  }
+  if (operation === "replace") {
+    return `This rewrite should only change the core description where the PDP is unclear or incomplete. ${evidence || `It focuses on ${focusedIssue || "the strongest content gap"} while preserving useful existing product information.`}`;
+  }
+  return evidence ? `This change focuses on one specific PDP gap: ${evidence}` : "";
+}
+
+function pickDescriptionChangeFocus(contentIssues = [], normalizedTitle = "", fallback = "") {
+  const title = String(normalizedTitle || "").toLowerCase();
+  const matchers = [
+    { test: /\b(size|fit|dimension|measurement|compatib)/, label: "size, fit or compatibility clarity" },
+    { test: /\b(material|quality|finish|durability|leak|waterproof|safety)/, label: "quality, material or durability expectations" },
+    { test: /\b(color|visual|image|photo|appearance|aesthetic|mood|dark|dramatic|scale)/, label: "visual expectations" },
+    { test: /\b(include|package|content|what.*buy|missing|spec|detail)/, label: "included contents and product specs" },
+    { test: /\b(language|region|adapter|charger|manual|locale)/, label: "regional or compatibility guidance" },
+  ];
+  const direct = matchers.find((matcher) => matcher.test.test(title));
+  if (direct) return direct.label;
+  const issue = contentIssues.find((item) => {
+    const normalized = String(item || "").toLowerCase();
+    return matchers.some((matcher) => matcher.test.test(normalized));
+  }) || contentIssues[0] || fallback;
+  return String(issue || "").replace(/[_-]+/g, " ").toLowerCase();
+}
+
+function buildDescriptionSpecificEvidence({ returnUnits = 0, returnReasons = [], negativeReviews = 0, focusedIssue = "" } = {}) {
+  const pieces = [];
+  if (focusedIssue) pieces.push(`It targets ${focusedIssue}`);
+  if (returnUnits > 0) {
+    pieces.push(`${formatInteger(returnUnits)} return${returnUnits === 1 ? "" : "s"}${returnReasons.length ? ` mention ${formatQuotedInlineList(returnReasons.slice(0, 2))}` : ""}`);
+  }
+  if (negativeReviews > 0) {
+    pieces.push(`${formatInteger(negativeReviews)} negative review${negativeReviews === 1 ? "" : "s"} support the same shopper concern`);
+  }
+  if (!pieces.length) return "";
+  return `${pieces.join(", ")}.`;
 }
 
 function getDescriptionChangeOrder(operation = "") {
@@ -6429,6 +6513,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         title="Product risk"
                         value={detail.riskScoreLabel}
                         detail={`${detail.riskScore} / 100`}
+                        footnote={detail.riskTrendLabel}
                         tone={detail.riskTone}
                         sparkline={detail.riskTrend}
                       />
@@ -7354,7 +7439,7 @@ function ProductRiskHistoryPanel({ detail }) {
           <span>Product risk over time</span>
           <strong>{formatInteger(currentRisk)} / 100</strong>
         </div>
-        <s-badge tone={getBadgeToneFromTrendTone(trendTone)}>{detail.riskScoreLabel}</s-badge>
+        <s-badge tone={getBadgeToneFromTrendTone(trendTone)}>{detail.riskTrendLabel}</s-badge>
       </div>
       <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={changeLabel}>
@@ -9978,7 +10063,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
             </div>
           </div>
           <div className="ppEvidenceReportSummary">
-            <EvidenceMetricCard card={{ label: "Product risk", value: `${detail.riskScore}/100`, detail: detail.riskScoreLabel, icon: "target", tone: detail.riskBadgeTone }} />
+            <EvidenceMetricCard card={{ label: "Product risk", value: `${detail.riskScore}/100`, detail: detail.riskTrendLabel, icon: "target", tone: detail.riskBadgeTone }} />
             <EvidenceMetricCard card={{ label: "Diagnosis confidence", value: `${detail.confidence}%`, detail: detail.confidenceLabel, icon: "shield-check-mark", tone: "blue" }} />
             <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} margin at risk`, icon: "cash-dollar", tone: "teal" }} />
             <EvidenceMetricCard card={{ label: "Evidence strength", value: `${detail.evidenceStrengthScore || 0}/100`, detail: `${detail.signalCount} stored signals`, icon: "duplicate", tone: "violet" }} />

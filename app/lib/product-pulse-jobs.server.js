@@ -854,8 +854,8 @@ function getProductActionEquivalentIds(action = {}, actionId = "", payloadOverri
     ...(Array.isArray(payload.actionAliases) ? payload.actionAliases : []),
   ].map(normalizeProductActionAlias).filter(Boolean));
 
-  const matchText = `${action.id || ""} ${action.actionId || ""} ${action.actionType || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payloadOverride.label || ""} ${payload.operation || ""} ${payload.shopifyField || ""}`.toLowerCase();
-  if (action.id === "product-description-changes" || payload.descriptionChangeGroup || /\b(description|pdp|copy|expectation note|quality note)\b/.test(matchText)) {
+  const matchText = `${action.id || ""} ${action.actionId || ""} ${action.actionType || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payloadOverride.label || ""} ${payloadOverride.field || ""} ${payload.operation || ""} ${payload.field || ""} ${payload.shopifyField || ""}`.toLowerCase();
+  if (isProductDescriptionEquivalentAction(action, payloadOverride, matchText)) {
     aliases.add("product-description-changes");
   }
   if (action.id === "review-product-evidence" || Array.isArray(payload.reviewSections) || /\b(evidence|inspect|verify|investigation|review)\b/.test(matchText)) {
@@ -869,6 +869,16 @@ function getProductActionEquivalentIds(action = {}, actionId = "", payloadOverri
   if (/\b(price|inventory|status|draft|archive|unlisted)\b/.test(matchText)) aliases.add("commercial-control");
 
   return [...aliases];
+}
+
+function isProductDescriptionEquivalentAction(action = {}, payloadOverride = {}, matchText = "") {
+  const payload = action.payload || {};
+  const fieldText = `${payloadOverride.field || ""} ${payload.field || ""} ${payload.shopifyField || ""}`.toLowerCase();
+  if (/\bseo\b|meta description|seo description|seo title|search engine|search title/.test(fieldText)) return false;
+  if (/\bmeta description|seo description|seo title|search title|metadata\b/.test(matchText)) return false;
+  return action.id === "product-description-changes"
+    || payload.descriptionChangeGroup
+    || /\b(product description|descriptionhtml|body html|body_html|pdp|pdp copy|expectation note|quality note|fit note)\b/.test(matchText);
 }
 
 function getProductActionEquivalentLabels(action = {}, payloadOverride = {}) {
