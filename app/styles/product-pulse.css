@@ -249,6 +249,97 @@ s-page[inline-size="large-500"] {
   padding: 16px 18px;
 }
 
+.ppNextBestActionPanel,
+.ppProductsToolbar,
+.ppProductDetailHeroPanel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(var(--pp-pulse-blue-rgb), 0.22), transparent 32%),
+    radial-gradient(circle at 92% 14%, rgba(var(--pp-insight-violet-rgb), 0.18), transparent 30%),
+    linear-gradient(135deg, #121a2a 0%, #0f172a 48%, #080d18 100%);
+  box-shadow:
+    0 22px 60px rgba(var(--pp-shadow-rgb), 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.ppNextBestActionPanel::before,
+.ppProductsToolbar::before,
+.ppProductDetailHeroPanel::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  opacity: 0.32;
+  background:
+    linear-gradient(120deg, transparent 0 38%, rgba(255, 255, 255, 0.045) 38% 39%, transparent 39% 100%),
+    radial-gradient(circle at 24px 24px, rgba(255, 255, 255, 0.085) 1px, transparent 1.5px);
+  background-size: 100% 100%, 42px 42px;
+}
+
+.ppNextBestActionPanel > *,
+.ppProductsToolbar > *,
+.ppProductDetailHeroPanel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.ppNextBestActionPanel {
+  border-radius: 14px;
+}
+
+.ppNextBestActionPanel .ppStartHeading h2,
+.ppNextBestActionPanel .ppStartCopy h3,
+.ppNextBestActionPanel .ppNextBestWhy h3 {
+  color: var(--pp-cloud-white);
+}
+
+.ppNextBestActionPanel .ppStartCopy > span,
+.ppNextBestActionPanel .ppNextBestProductName,
+.ppNextBestActionPanel .ppStartCopy p,
+.ppNextBestActionPanel .ppNextBestWhy p {
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.ppNextBestActionPanel .ppNextBestProductName {
+  color: rgba(241, 245, 249, 0.92);
+}
+
+.ppNextBestActionPanel .ppNextBestWhy {
+  border-left-color: rgba(255, 255, 255, 0.14);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 232, 240, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric strong {
+  color: var(--pp-cloud-white);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric small {
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-critical {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.3);
+  background: rgba(var(--pp-risk-red-rgb), 0.16);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-warning {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.32);
+  background: rgba(var(--pp-warning-amber-rgb), 0.16);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-info {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.34);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.16);
+}
+
 .ppStartHeading,
 .ppDashboardSectionHeader {
   display: flex;
@@ -2305,6 +2396,13 @@ s-page[inline-size="large-500"] {
   padding: 18px;
 }
 
+.ppProductDetailHeroPanel {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border-radius: 14px;
+}
+
 .ppProductDetailSectionLabel {
   display: flex;
   align-items: center;
@@ -3039,6 +3137,124 @@ s-page[inline-size="large-500"] {
 
 .ppMiniTrend-table {
   color: var(--pp-slate-900);
+}
+
+.ppProductDetailHeroPanel .ppProductDetailHeader {
+  padding: 0;
+}
+
+.ppProductDetailHeroPanel .ppProductTitleRow h1,
+.ppProductDetailHeroPanel .ppProductTitleHeading h1,
+.ppProductDetailHeroPanel .ppProductInsight strong,
+.ppProductDetailHeroPanel .ppMainFindingCard h2 {
+  color: var(--pp-cloud-white);
+}
+
+.ppProductDetailHeroPanel .ppProductTitleRow p,
+.ppProductDetailHeroPanel .ppProductInsight small,
+.ppProductDetailHeroPanel .ppProductInsight em,
+.ppProductDetailHeroPanel .ppMainFindingText p {
+  color: rgba(226, 232, 240, 0.78);
+}
+
+.ppProductDetailHeroPanel .ppProductInsight > span,
+.ppProductDetailHeroPanel .ppInsightInfoWrap {
+  color: rgba(226, 232, 240, 0.76);
+}
+
+.ppProductDetailHeroPanel .ppProductBackButton,
+.ppProductDetailHeroPanel .ppProductExternalButton {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(241, 245, 249, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ppProductDetailHeroPanel .ppProductBackButton:hover,
+.ppProductDetailHeroPanel .ppProductExternalButton:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.56);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.16);
+  color: var(--pp-cloud-white);
+}
+
+.ppProductDetailHeroPanel .ppProductWatchlistButton {
+  color: #ddd6fe;
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.34);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24), transparent 23%),
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.28), rgba(var(--pp-pulse-blue-rgb), 0.14));
+}
+
+.ppProductDetailHeroPanel .ppProductWatchlistButton.isWatched {
+  color: #fecaca;
+  border-color: rgba(var(--pp-risk-red-rgb), 0.36);
+  background: rgba(var(--pp-risk-red-rgb), 0.16);
+}
+
+.ppProductDetailHeroPanel .ppProductHeaderActions .ppResolveButton.isUnresolved {
+  border-color: rgba(var(--pp-success-green-rgb), 0.44);
+  background: rgba(var(--pp-success-green-rgb), 0.14);
+  color: #bbf7d0;
+}
+
+.ppProductDetailHeroPanel .ppProductHeaderActions .ppResolveButton.isResolved {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.42);
+  background: rgba(var(--pp-risk-red-rgb), 0.14);
+  color: #fecaca;
+}
+
+.ppProductDetailHeroPanel .ppProductDiagnosisRunning {
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.36);
+  background: rgba(var(--pp-info-cyan-rgb), 0.15);
+  color: #cffafe;
+}
+
+.ppProductDetailHeroPanel .ppProductArt {
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 18px 36px rgba(var(--pp-shadow-rgb), 0.32);
+}
+
+.ppProductDetailHeroPanel .ppRiskSnapshot {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.ppProductDetailHeroPanel .ppProductInsight {
+  border-left-color: rgba(255, 255, 255, 0.12);
+}
+
+.ppProductDetailHeroPanel .ppProductInsight:first-child {
+  border-left: 0;
+}
+
+.ppProductDetailHeroPanel .ppProductInsight-red strong,
+.ppProductDetailHeroPanel .ppProductInsight-red em {
+  color: #fca5a5;
+}
+
+.ppProductDetailHeroPanel .ppProductInsight-green strong {
+  color: #5eead4;
+}
+
+.ppProductDetailHeroPanel .ppProductInsightProgress {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ppProductDetailHeroPanel .ppMainFindingCard {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.28);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.16), rgba(var(--pp-pulse-blue-rgb), 0.08) 48%, rgba(var(--pp-signal-teal-rgb), 0.08)),
+    rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.ppProductDetailHeroPanel .ppMainFindingCard::after {
+  background: radial-gradient(circle, rgba(var(--pp-insight-violet-rgb), 0.2), rgba(var(--pp-insight-violet-rgb), 0));
+}
+
+.ppProductDetailHeroPanel .ppMainFindingCard > div > span {
+  color: #c4b5fd;
 }
 
 .ppProductDetailGrid {
@@ -14763,6 +14979,7 @@ s-page[inline-size="large-500"] {
   align-items: stretch;
   gap: 12px;
   padding: 18px;
+  border-radius: 14px;
 }
 
 .ppProductsSearch {
@@ -14943,6 +15160,59 @@ s-page[inline-size="large-500"] {
 
 .ppCompactSearchFilter input::placeholder {
   color: var(--pp-slate-400);
+}
+
+.ppProductsToolbar .ppFilterPillGroupLabel,
+.ppProductsToolbar .ppCompactSelect span {
+  color: rgba(226, 232, 240, 0.74);
+}
+
+.ppProductsToolbar .ppFilterPillGroup > div {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.ppProductsToolbar .ppFilterPill {
+  color: rgba(226, 232, 240, 0.86);
+}
+
+.ppProductsToolbar .ppFilterPill:hover,
+.ppProductsToolbar .ppFilterPill.isActive {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 4px 12px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
+.ppProductsToolbar .ppFilterPill small {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.24);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.ppProductsToolbar .ppCompactSearchFilter input,
+.ppProductsToolbar .ppCompactSelect select {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pp-cloud-white);
+  color-scheme: dark;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ppProductsToolbar .ppCompactSearchFilter input::placeholder {
+  color: rgba(226, 232, 240, 0.5);
+}
+
+.ppProductsToolbar .ppSecondaryActionButton {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(241, 245, 249, 0.9);
+  box-shadow: none;
+}
+
+.ppProductsToolbar .ppSecondaryActionButton:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.58);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  color: var(--pp-cloud-white);
 }
 
 .ppBulkHint {

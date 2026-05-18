@@ -6148,148 +6148,150 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           <main className="ppProductDetailPrimary">
             <ProductDetailSectionLabel number="1" title="Overview" subtitle="The essentials at a glance" />
             <section className="ppProductDetailOverviewCard" aria-label="Product overview">
-              <div className="ppProductDetailHeader">
-                <button className="ppProductBackButton" type="button" onClick={handleBack}>
-                  <s-icon type="arrow-left" size="small"></s-icon>
-                  Back to products
-                </button>
-                <div className="ppProductTitleRow">
-                  <span className="ppProductHeroImageWrap">
-                    <ProductArt
-                      variant={detail.variant}
-                      label={detail.title}
-                      size="hero"
-                      imageUrl={detail.imageUrl}
-                      imageAlt={detail.imageAlt}
-                    />
-                    <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly={detail.hasFullDiagnosis} />
-                  </span>
-                  <div>
-                    <div className="ppProductTitleHeading">
-                      <h1>{detail.title}</h1>
-                    </div>
-                    <p>
-                      {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
-                      {" - Last analyzed "}
-                      {detail.lastAnalysis}
-                    </p>
-                    <div className="ppBadgeRow">
-                      <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
-                        {resolved ? "Resolved" : detail.riskLabel}
-                      </InlineBadge>
-                      {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
-                      {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
-                    </div>
-                  </div>
-                </div>
-                <div className="ppProductHeaderActions">
-                  {detail.shopifyAdminUrl && (
-                    <a
-                      className="ppProductExternalButton"
-                      href={detail.shopifyAdminUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label="Open product in Shopify admin"
-                    >
-                      <s-icon type="external" size="small"></s-icon>
-                    </a>
-                  )}
-                  <button
-                    className={`ppProductExternalButton ppProductWatchlistButton ${isWatched ? "isWatched" : ""}`.trim()}
-                    type="button"
-                    aria-label={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
-                    title={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
-                    disabled={watchlistPending || !detail.productGid}
-                    onClick={handleRequestWatchlistToggle}
-                  >
-                    {isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+              <div className="ppProductDetailHeroPanel">
+                <div className="ppProductDetailHeader">
+                  <button className="ppProductBackButton" type="button" onClick={handleBack}>
+                    <s-icon type="arrow-left" size="small"></s-icon>
+                    Back to products
                   </button>
-                  {detail.diagnosisInProgress ? (
-                    <span className="ppProductDiagnosisRunning">
-                      <span className="ppMiniSpinner" aria-hidden="true" />
-                      {getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)}
+                  <div className="ppProductTitleRow">
+                    <span className="ppProductHeroImageWrap">
+                      <ProductArt
+                        variant={detail.variant}
+                        label={detail.title}
+                        size="hero"
+                        imageUrl={detail.imageUrl}
+                        imageAlt={detail.imageAlt}
+                      />
+                      <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly={detail.hasFullDiagnosis} />
                     </span>
-                  ) : (
-                    <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
-                      <s-icon type="wand" size="small"></s-icon>
-                      {diagnosisPending ? "Queueing..." : detail.diagnosisButtonLabel}
-                    </button>
-                  )}
-                  <Form method="post">
-                    <input type="hidden" name="_action" value={resolved ? "mark-unresolved" : "mark-resolved"} />
-                    <input type="hidden" name="productId" value={product.slug} />
-                    <button className={`ppSecondaryButton ppResolveButton ${resolved ? "isResolved" : "isUnresolved"}`.trim()} type="submit" disabled={!detail.canResolve || resolvingPending}>
-                      <s-icon type={resolved ? "check-circle" : "check"} size="small"></s-icon>
-                      {resolvingPending ? "Saving..." : resolved ? "Mark unresolved" : "Mark as resolved"}
-                    </button>
-                  </Form>
-                </div>
-              </div>
-
-              <div className="ppProductSummaryGrid">
-                <s-section padding="none">
-                  <div className="ppRiskSnapshot">
-                    <ProductInsightMetric
-                      title="Product risk"
-                      value={detail.riskScoreLabel}
-                      detail={`${detail.riskScore} / 100`}
-                      tone={detail.riskTone}
-                      sparkline={detail.riskTrend}
-                    />
-                    <ProductInsightMetric
-                      title="Product Momentum"
-                      value={detail.productMomentum ? detail.productMomentum.tier : "Needs deep diagnosis"}
-                      detail={detail.productMomentum ? `${detail.productMomentum.score} / 100` : "Commercial momentum unavailable"}
-                      footnote={detail.productMomentum
-                        ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
-                        : "Run product diagnosis to calculate recent sales strength."}
-                      tone={detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral"}
-                      sparkline={detail.productMomentum?.inputs.weeklyUnitsLast4Weeks || []}
-                    />
-                    <ProductInsightMetric
-                      title="Diagnosis confidence"
-                      value={detail.confidenceLabel}
-                      detail={`${detail.confidence}%`}
-                      footnote={`Based on ${detail.signalCount} signals`}
-                      tone="green"
-                      progress={detail.confidence}
-                    />
-                    <ProductInsightMetric
-                      title="Financial exposure"
-                      value={formatMoney(detail.estimatedImpact)}
-                      detail={`${formatMoney(detail.marginAtRisk)} margin at risk`}
-                      footnote={getFinancialExposureFootnote(detail)}
-                      tone="red"
-                    />
-                    <ProductInsightMetric
-                      title="Main issue"
-                      value={detail.issueCategory}
-                      detail={detail.issueDetail}
-                      tone={detail.issueTone}
-                      icon="product"
-                    />
-                    <ProductInsightMetric
-                      title="Recommended fix"
-                      value={detail.recommendedFix}
-                      detail={detail.recommendedFixDetail}
-                    />
-                  </div>
-                </s-section>
-
-                <s-section padding="none">
-                  <div className="ppMainFindingCard">
-                    <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
                     <div>
-                      <span>AI Summary</span>
-                      <h2>{detail.mainFindingTitle}</h2>
-                      <div className="ppMainFindingText">
-                        {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
-                          <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
-                        ))}
+                      <div className="ppProductTitleHeading">
+                        <h1>{detail.title}</h1>
+                      </div>
+                      <p>
+                        {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
+                        {" - Last analyzed "}
+                        {detail.lastAnalysis}
+                      </p>
+                      <div className="ppBadgeRow">
+                        <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
+                          {resolved ? "Resolved" : detail.riskLabel}
+                        </InlineBadge>
+                        {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
+                        {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
                       </div>
                     </div>
                   </div>
-                </s-section>
+                  <div className="ppProductHeaderActions">
+                    {detail.shopifyAdminUrl && (
+                      <a
+                        className="ppProductExternalButton"
+                        href={detail.shopifyAdminUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="Open product in Shopify admin"
+                      >
+                        <s-icon type="external" size="small"></s-icon>
+                      </a>
+                    )}
+                    <button
+                      className={`ppProductExternalButton ppProductWatchlistButton ${isWatched ? "isWatched" : ""}`.trim()}
+                      type="button"
+                      aria-label={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
+                      title={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
+                      disabled={watchlistPending || !detail.productGid}
+                      onClick={handleRequestWatchlistToggle}
+                    >
+                      {isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+                    </button>
+                    {detail.diagnosisInProgress ? (
+                      <span className="ppProductDiagnosisRunning">
+                        <span className="ppMiniSpinner" aria-hidden="true" />
+                        {getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)}
+                      </span>
+                    ) : (
+                      <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
+                        <s-icon type="wand" size="small"></s-icon>
+                        {diagnosisPending ? "Queueing..." : detail.diagnosisButtonLabel}
+                      </button>
+                    )}
+                    <Form method="post">
+                      <input type="hidden" name="_action" value={resolved ? "mark-unresolved" : "mark-resolved"} />
+                      <input type="hidden" name="productId" value={product.slug} />
+                      <button className={`ppSecondaryButton ppResolveButton ${resolved ? "isResolved" : "isUnresolved"}`.trim()} type="submit" disabled={!detail.canResolve || resolvingPending}>
+                        <s-icon type={resolved ? "check-circle" : "check"} size="small"></s-icon>
+                        {resolvingPending ? "Saving..." : resolved ? "Mark unresolved" : "Mark as resolved"}
+                      </button>
+                    </Form>
+                  </div>
+                </div>
+
+                <div className="ppProductSummaryGrid">
+                  <s-section padding="none">
+                    <div className="ppRiskSnapshot">
+                      <ProductInsightMetric
+                        title="Product risk"
+                        value={detail.riskScoreLabel}
+                        detail={`${detail.riskScore} / 100`}
+                        tone={detail.riskTone}
+                        sparkline={detail.riskTrend}
+                      />
+                      <ProductInsightMetric
+                        title="Product Momentum"
+                        value={detail.productMomentum ? detail.productMomentum.tier : "Needs deep diagnosis"}
+                        detail={detail.productMomentum ? `${detail.productMomentum.score} / 100` : "Commercial momentum unavailable"}
+                        footnote={detail.productMomentum
+                          ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
+                          : "Run product diagnosis to calculate recent sales strength."}
+                        tone={detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral"}
+                        sparkline={detail.productMomentum?.inputs.weeklyUnitsLast4Weeks || []}
+                      />
+                      <ProductInsightMetric
+                        title="Diagnosis confidence"
+                        value={detail.confidenceLabel}
+                        detail={`${detail.confidence}%`}
+                        footnote={`Based on ${detail.signalCount} signals`}
+                        tone="green"
+                        progress={detail.confidence}
+                      />
+                      <ProductInsightMetric
+                        title="Financial exposure"
+                        value={formatMoney(detail.estimatedImpact)}
+                        detail={`${formatMoney(detail.marginAtRisk)} margin at risk`}
+                        footnote={getFinancialExposureFootnote(detail)}
+                        tone="red"
+                      />
+                      <ProductInsightMetric
+                        title="Main issue"
+                        value={detail.issueCategory}
+                        detail={detail.issueDetail}
+                        tone={detail.issueTone}
+                        icon="product"
+                      />
+                      <ProductInsightMetric
+                        title="Recommended fix"
+                        value={detail.recommendedFix}
+                        detail={detail.recommendedFixDetail}
+                      />
+                    </div>
+                  </s-section>
+
+                  <s-section padding="none">
+                    <div className="ppMainFindingCard">
+                      <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
+                      <div>
+                        <span>AI Summary</span>
+                        <h2>{detail.mainFindingTitle}</h2>
+                        <div className="ppMainFindingText">
+                          {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
+                            <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </s-section>
+                </div>
               </div>
 
               <div className="ppProductPanel ppIssuesOverviewPanel">
