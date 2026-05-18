@@ -39,6 +39,16 @@ const GENERATED_ORDER_TAG = "productpulse-gen-order";
 const GENERATED_REVIEW_SOURCE = "ProductPulse mock reviews";
 const DEFAULT_ORDER_COUNT = 120;
 const MIN_ORDER_CREATE_DELAY_MS = 12_500;
+const GENERATED_PRODUCTS_PAGE_SIZE = 25;
+const GENERATED_PRODUCT_VARIANTS_PAGE_SIZE = 10;
+const GENERATED_ORDERS_PAGE_SIZE = 5;
+const GENERATED_ORDERS_WITH_OUTCOMES_PAGE_SIZE = 3;
+const GENERATED_ORDER_LINE_ITEMS_PAGE_SIZE = 12;
+const GENERATED_ORDER_FULFILLMENTS_PAGE_SIZE = 5;
+const GENERATED_ORDER_FULFILLMENT_LINE_ITEMS_PAGE_SIZE = 12;
+const GENERATED_ORDER_RETURNS_PAGE_SIZE = 8;
+const GENERATED_ORDER_RETURN_LINE_ITEMS_PAGE_SIZE = 8;
+const GENERATED_ORDER_REFUND_LINE_ITEMS_PAGE_SIZE = 8;
 const STAGE_PROGRESS = {
   products: [5, 25],
   orders: [25, 70],
@@ -523,13 +533,15 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
   if (shouldRunMockDatasetStage(requestedStage, "orders")) {
     await updateProgress(context, 25, `Creating or resuming ${DEFAULT_ORDER_COUNT} historical Shopify orders.`);
     orders = await loadOrCreateMockOrders(context, products, location, shopInfo.currencyCode, orderDelayMs);
-  } else if (["outcomes", "manifest", "all"].includes(requestedStage)) {
+  } else if (requestedStage === "outcomes") {
+    orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode, { includeOutcomes: true });
+  } else if (["manifest", "all"].includes(requestedStage)) {
     orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode);
   }
 
   let outcomes = await getStoredMockDatasetOutcomes(shop);
   if (shouldRunMockDatasetStage(requestedStage, "outcomes")) {
-    if (!orders.length) orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode);
+    orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode, { includeOutcomes: true });
     await markMockDatasetStageRunning(context, "outcomes");
     await updateProgress(context, 72, "Creating or resuming returns and refunds from selected fulfilled line items.");
     outcomes = await createMockReturnsAndRefunds(context, orders, shopInfo.currencyCode, {
@@ -683,8 +695,8 @@ async function loadOrCreateMockProducts(context, location, currencyCode, { creat
 
 async function fetchGeneratedProducts(admin, currencyCode) {
   const data = await shopifyGraphql(admin, `#graphql
-    query ProductPulseGeneratedProducts($query: String!) {
-      products(first: 100, query: $query, sortKey: CREATED_AT, reverse: true) {
+    query ProductPulseGeneratedProducts($query: String!, $productsFirst: Int!, $variantsFirst: Int!) {
+      products(first: $productsFirst, query: $query, sortKey: CREATED_AT, reverse: true) {
         nodes {
           id
           title
@@ -699,7 +711,7 @@ async function fetchGeneratedProducts(admin, currencyCode) {
             position
             values
           }
-          variants(first: 50) {
+          variants(first: $variantsFirst) {
             nodes {
               id
               title
@@ -714,7 +726,11 @@ async function fetchGeneratedProducts(admin, currencyCode) {
         }
       }
     }
-  `, { query: `tag:${GENERATED_TAG}` }, "Fetch existing GEN products");
+  `, {
+    query: `tag:${GENERATED_TAG}`,
+    productsFirst: GENERATED_PRODUCTS_PAGE_SIZE,
+    variantsFirst: GENERATED_PRODUCT_VARIANTS_PAGE_SIZE,
+  }, "Fetch existing GEN products");
   return (data?.products?.nodes || [])
     .filter((product) => product.title?.startsWith("GEN ") && product.status !== "ARCHIVED")
     .map((product) => ({ ...product, currencyCode }));
@@ -756,7 +772,7 @@ function serializeProductForState(product) {
 async function loadOrCreateMockOrders(context, products, location, currencyCode, orderDelayMs) {
   await markMockDatasetStageRunning(context, "orders");
   const orderPlans = buildOrderPlans(products, currencyCode);
-  const existingOrders = await fetchGeneratedOrders(context.admin, products, orderPlans, currencyCode);
+  const existingOrders = await fetchGeneratedOrders(context, products, orderPlans, currencyCode);
   const existingByEmail = new Map(existingOrders.map((order) => [order.plan?.email, order]).filter(([email]) => email));
   const orders = [];
   let createdCount = 0;
@@ -852,9 +868,9 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
   return orders;
 }
 
-async function loadExistingMockOrders(context, products, currencyCode) {
+async function loadExistingMockOrders(context, products, currencyCode, { includeOutcomes = false } = {}) {
   const plans = buildOrderPlans(products, currencyCode);
-  const orders = await fetchGeneratedOrders(context.admin, products, plans, currencyCode);
+  const orders = await fetchGeneratedOrders(context, products, plans, currencyCode, { includeOutcomes });
   if (!orders.length) {
     throw new Error("No generated mock orders were found. Run the orders stage before creating returns, refunds or the manifest.");
   }
@@ -863,15 +879,77 @@ async function loadExistingMockOrders(context, products, currencyCode) {
     jobId: context.jobId,
     event: "mock_dataset.orders_loaded",
     message: `Loaded ${orders.length} existing generated mock orders from Shopify.`,
-    data: { orderCount: orders.length },
+    data: { orderCount: orders.length, includeOutcomes },
   });
   return orders;
 }
 
-async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
-  const data = await shopifyGraphql(admin, `#graphql
-    query ProductPulseGeneratedOrders($query: String!) {
-      orders(first: 250, query: $query, sortKey: PROCESSED_AT, reverse: false) {
+async function fetchGeneratedOrders(context, products, orderPlans, currencyCode, { includeOutcomes = false } = {}) {
+  const orders = [];
+  let cursor = null;
+  let page = 0;
+  const ordersFirst = includeOutcomes ? GENERATED_ORDERS_WITH_OUTCOMES_PAGE_SIZE : GENERATED_ORDERS_PAGE_SIZE;
+  do {
+    page += 1;
+    const data = await shopifyGraphql(context.admin, buildGeneratedOrdersQuery(includeOutcomes), {
+      query: `tag:${GENERATED_ORDER_TAG}`,
+      after: cursor,
+      ordersFirst,
+      lineItemsFirst: GENERATED_ORDER_LINE_ITEMS_PAGE_SIZE,
+      fulfillmentsFirst: GENERATED_ORDER_FULFILLMENTS_PAGE_SIZE,
+      fulfillmentLineItemsFirst: GENERATED_ORDER_FULFILLMENT_LINE_ITEMS_PAGE_SIZE,
+      ...(includeOutcomes ? {
+        returnsFirst: GENERATED_ORDER_RETURNS_PAGE_SIZE,
+        returnLineItemsFirst: GENERATED_ORDER_RETURN_LINE_ITEMS_PAGE_SIZE,
+        refundLineItemsFirst: GENERATED_ORDER_REFUND_LINE_ITEMS_PAGE_SIZE,
+      } : {}),
+    }, includeOutcomes ? "Fetch existing generated mock orders with outcomes" : "Fetch existing generated mock orders");
+    const nodes = data?.orders?.nodes || [];
+    orders.push(...nodes);
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.generated_orders_page_loaded",
+      message: `Loaded generated mock orders page ${page}.`,
+      data: {
+        page,
+        count: nodes.length,
+        totalLoaded: orders.length,
+        includeOutcomes,
+        ordersFirst,
+        cost: getGraphqlCostSummary(data),
+      },
+    });
+    cursor = data?.orders?.pageInfo?.hasNextPage ? data.orders.pageInfo.endCursor : null;
+  } while (cursor);
+
+  const plansByEmail = new Map(orderPlans.map((plan) => [plan.email, plan]));
+  const productsByVariantId = new Map(products.flatMap((product) => (
+    (product.variants || []).map((variant) => [variant.id, { product, variant }])
+  )));
+  return orders
+    .map((order) => normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, currencyCode))
+    .filter(Boolean);
+}
+
+function buildGeneratedOrdersQuery(includeOutcomes) {
+  return `#graphql
+    query ProductPulseGeneratedOrders(
+      $query: String!,
+      $after: String,
+      $ordersFirst: Int!,
+      $lineItemsFirst: Int!,
+      $fulfillmentsFirst: Int!,
+      $fulfillmentLineItemsFirst: Int!${includeOutcomes ? `,
+      $returnsFirst: Int!,
+      $returnLineItemsFirst: Int!,
+      $refundLineItemsFirst: Int!` : ""}
+    ) {
+      orders(first: $ordersFirst, after: $after, query: $query, sortKey: PROCESSED_AT, reverse: false) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           id
           name
@@ -879,19 +957,7 @@ async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
           processedAt
           note
           tags
-          transactions(first: 10) {
-            id
-            kind
-            status
-            gateway
-            amountSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-          }
-          lineItems(first: 50) {
+          lineItems(first: $lineItemsFirst) {
             nodes {
               id
               title
@@ -901,9 +967,9 @@ async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
               }
             }
           }
-          fulfillments(first: 10) {
+          fulfillments(first: $fulfillmentsFirst) {
             id
-            fulfillmentLineItems(first: 50) {
+            fulfillmentLineItems(first: $fulfillmentLineItemsFirst) {
               nodes {
                 id
                 quantity
@@ -913,12 +979,13 @@ async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
               }
             }
           }
+          ${includeOutcomes ? `
           refunds {
             id
             note
             createdAt
             processedAt
-            refundLineItems(first: 30) {
+            refundLineItems(first: $refundLineItemsFirst) {
               nodes {
                 id
                 quantity
@@ -928,11 +995,11 @@ async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
               }
             }
           }
-          returns(first: 30) {
+          returns(first: $returnsFirst) {
             nodes {
               id
               createdAt
-              returnLineItems(first: 30) {
+              returnLineItems(first: $returnLineItemsFirst) {
                 nodes {
                   ... on ReturnLineItem {
                     id
@@ -949,18 +1016,11 @@ async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
                 }
               }
             }
-          }
+          }` : ""}
         }
       }
     }
-  `, { query: `tag:${GENERATED_ORDER_TAG}` }, "Fetch existing generated mock orders");
-  const plansByEmail = new Map(orderPlans.map((plan) => [plan.email, plan]));
-  const productsByVariantId = new Map(products.flatMap((product) => (
-    (product.variants || []).map((variant) => [variant.id, { product, variant }])
-  )));
-  return (data?.orders?.nodes || [])
-    .map((order) => normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, currencyCode))
-    .filter(Boolean);
+  `;
 }
 
 function normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, currencyCode) {
@@ -1320,25 +1380,19 @@ async function createMockOrder(context, plan, location, currencyCode) {
   };
 
   const data = await shopifyGraphql(context.admin, `#graphql
-    mutation ProductPulseCreateMockOrder($order: OrderCreateOrderInput!, $options: OrderCreateOptionsInput) {
+    mutation ProductPulseCreateMockOrder(
+      $order: OrderCreateOrderInput!,
+      $options: OrderCreateOptionsInput,
+      $lineItemsFirst: Int!,
+      $fulfillmentsFirst: Int!,
+      $fulfillmentLineItemsFirst: Int!
+    ) {
       orderCreate(order: $order, options: $options) {
         order {
           id
           name
           processedAt
-          transactions(first: 10) {
-            id
-            kind
-            status
-            gateway
-            amountSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-          }
-          lineItems(first: 50) {
+          lineItems(first: $lineItemsFirst) {
             nodes {
               id
               title
@@ -1348,9 +1402,9 @@ async function createMockOrder(context, plan, location, currencyCode) {
               }
             }
           }
-          fulfillments(first: 10) {
+          fulfillments(first: $fulfillmentsFirst) {
             id
-            fulfillmentLineItems(first: 50) {
+            fulfillmentLineItems(first: $fulfillmentLineItemsFirst) {
               nodes {
                 id
                 quantity
@@ -1366,6 +1420,9 @@ async function createMockOrder(context, plan, location, currencyCode) {
     }
   `, {
     order: stripNullish(orderInput),
+    lineItemsFirst: GENERATED_ORDER_LINE_ITEMS_PAGE_SIZE,
+    fulfillmentsFirst: GENERATED_ORDER_FULFILLMENTS_PAGE_SIZE,
+    fulfillmentLineItemsFirst: GENERATED_ORDER_FULFILLMENT_LINE_ITEMS_PAGE_SIZE,
     options: {
       sendReceipt: false,
       sendFulfillmentReceipt: false,
@@ -2174,6 +2231,13 @@ async function shopifyGraphql(admin, query, variables, label = "Shopify GraphQL"
       if (errors.length) {
         throw new Error(`${label}: ${errors.map((error) => error.message).join("; ")}`);
       }
+      if (json.data && json.extensions) {
+        Object.defineProperty(json.data, "__extensions", {
+          value: json.extensions,
+          enumerable: false,
+          configurable: false,
+        });
+      }
       return json.data;
     } catch (error) {
       lastError = await normalizeShopifyGraphqlError(error, label, attempt);
@@ -2216,6 +2280,17 @@ function isTransientShopifyGraphqlError(error) {
     || message.includes("throttled")
     || message.includes("timeout")
     || message.includes("temporarily unavailable");
+}
+
+function getGraphqlCostSummary(data) {
+  const cost = data?.__extensions?.cost;
+  if (!cost) return null;
+  return {
+    requested: cost.requestedQueryCost ?? null,
+    actual: cost.actualQueryCost ?? null,
+    available: cost.throttleStatus?.currentlyAvailable ?? null,
+    restoreRate: cost.throttleStatus?.restoreRate ?? null,
+  };
 }
 
 function getConnectionNodes(connection) {
