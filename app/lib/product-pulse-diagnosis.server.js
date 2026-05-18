@@ -2378,22 +2378,24 @@ function dedupeRiskHistoryPointsByRecordedAt(history = []) {
 
 function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
+  const semanticDeterministic = applyAiSemanticClassificationToDeterministic(deterministic, ai);
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
-  const knownEmotions = normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights);
-  const adjustedRiskComponents = adjustRiskComponentsForContentAnalysis(deterministic.metrics.riskComponents, contentAnalysis);
+  const knownEmotions = normalizeAiKnownEmotions(ai, semanticDeterministic.metrics.textInsights);
+  const adjustedRiskComponents = adjustRiskComponentsForContentAnalysis(semanticDeterministic.metrics.riskComponents, contentAnalysis);
   const adjustedRiskScore = adjustedRiskComponents.riskScore;
   const adjustedRiskHistory = adjustReconstructedRiskHistoryForContentAnalysis(
-    deterministic.metrics.reconstructedRiskHistory || deterministic.metrics.riskHistory,
+    semanticDeterministic.metrics.reconstructedRiskHistory || semanticDeterministic.metrics.riskHistory,
     contentAnalysis,
     adjustedRiskScore,
   );
   const scoredDeterministic = {
-    ...deterministic,
+    ...semanticDeterministic,
     riskScore: adjustedRiskScore,
     metrics: {
-      ...deterministic.metrics,
+      ...semanticDeterministic.metrics,
       textInsights: {
-        ...(deterministic.metrics.textInsights || {}),
+        ...(semanticDeterministic.metrics.textInsights || {}),
+        emotions: knownEmotions.length ? knownEmotions : semanticDeterministic.metrics.textInsights?.emotions || [],
         aiKnownEmotions: knownEmotions,
         aiEmergentSentiments: emergentSentiments,
       },
@@ -2404,10 +2406,10 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
       contentIssues: contentAnalysis.issues,
       contentAdvisoryCount: contentAnalysis.advisories.length,
       contentAdvisories: contentAnalysis.advisories,
-      signalCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
-      issueCount: deterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
+      signalCount: semanticDeterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
+      issueCount: semanticDeterministic.metrics.customerSignalCount + contentAnalysis.issues.length,
       riskComponents: adjustedRiskComponents,
-      riskTrend: buildRiskTrendFromSignalTrend(deterministic.metrics.signalTrend, adjustedRiskScore, deterministic.metrics.riskTrend),
+      riskTrend: buildRiskTrendFromSignalTrend(semanticDeterministic.metrics.signalTrend, adjustedRiskScore, semanticDeterministic.metrics.riskTrend),
       riskHistory: adjustedRiskHistory,
       reconstructedRiskHistory: adjustedRiskHistory,
     },
@@ -2462,7 +2464,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
       aiModels: ai.modelsUsed,
       knownEmotions,
       emergentSentiments,
-      checkedSources: buildCheckedSources(deterministic),
+      checkedSources: buildCheckedSources(semanticDeterministic),
     },
   };
 
@@ -2946,6 +2948,351 @@ function buildPersistedIncrementalDiagnosisState({ runtimeState = {}, aiContentG
       },
     },
   };
+}
+
+function applyAiSemanticClassificationToDeterministic(deterministic = {}, ai = {}) {
+  const semantic = buildAiSemanticClassificationSummary(ai);
+  if (!semantic.hasSignals) return deterministic;
+
+  const fallbackTextInsights = deterministic.metrics?.textInsights || {};
+  const aiAggregateReady = shouldUseAiAggregateTextInsights(deterministic, semantic);
+  const nextTextInsights = mergeAiSemanticTextInsights(fallbackTextInsights, semantic, { replaceAggregate: aiAggregateReady });
+  const nextIssueSignalCounts = mergeAiIssueSignalCounts(deterministic.issueSignalCounts || {}, semantic.issueSignalCounts);
+  const customerSemanticSignalCount = Object.values(semantic.customerIssueSignalCounts).reduce((total, count) => total + Number(count || 0), 0);
+  const customerSignalCount = Math.max(
+    Number(deterministic.metrics?.customerSignalCount || 0),
+    customerSemanticSignalCount,
+  );
+  const signalCount = Math.max(
+    Number(deterministic.metrics?.signalCount || 0),
+    customerSignalCount + Number(deterministic.metrics?.contentIssueCount || 0),
+  );
+  const mainIssue = getMainIssueFromCounts(nextIssueSignalCounts, ai.classification?.main_issue || deterministic.mainIssue);
+
+  return {
+    ...deterministic,
+    mainIssue,
+    mainIssueLabel: getHumanIssueLabel(mainIssue),
+    issueSignalCounts: nextIssueSignalCounts,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      textInsights: nextTextInsights,
+      semanticClassification: {
+        source: "ai_signal_classification",
+        aggregateMode: aiAggregateReady ? "ai_primary" : "ai_delta_overlay",
+        classifiedSignalCount: semantic.classifiedSignals.length,
+        customerClassifiedSignalCount: semantic.customerSignals.length,
+        issueSignalCounts: semantic.issueSignalCounts,
+        customerIssueSignalCounts: semantic.customerIssueSignalCounts,
+        dominantIssue: mainIssue,
+      },
+      customerSignalCount,
+      signalCount,
+      issueCount: signalCount,
+    },
+  };
+}
+
+function shouldUseAiAggregateTextInsights(deterministic = {}, semantic = {}) {
+  const mode = deterministic.metrics?.incrementalDiagnosis?.mode || "full";
+  const fallbackTotal = Number(deterministic.metrics?.textInsights?.sentiment?.total || 0);
+  if (!fallbackTotal) return semantic.customerSignals.length > 0;
+  if (mode === "full") return semantic.customerSignals.length >= Math.max(1, Math.ceil(fallbackTotal * 0.7));
+  return semantic.customerSignals.length >= Math.max(4, Math.ceil(fallbackTotal * 0.85));
+}
+
+function buildAiSemanticClassificationSummary(ai = {}) {
+  const classifiedSignals = normalizeAiClassifiedSignals(ai.classification?.classified_signals);
+  const customerSignals = classifiedSignals.filter((signal) => !isOperationalRefundSignalSource(signal.source));
+  const issueSignalCounts = countAiSignalsByIssue(classifiedSignals);
+  const customerIssueSignalCounts = countAiSignalsByIssue(customerSignals);
+  const sentiment = summarizeAiClassifiedSignalSentiment(customerSignals);
+  const returns = summarizeAiClassifiedSignalSource(customerSignals, "returns");
+  const reviews = summarizeAiClassifiedSignalSource(customerSignals, "reviews");
+  const repeatedLanguage = getFilteredAiRepeatedLanguage(ai)
+    .map(normalizeAiRepeatedLanguageItem)
+    .filter(Boolean);
+  const subjectiveSignals = customerSignals.filter((signal) => signal.issueCode === "subjective_negative_reaction" && signal.sentiment === "negative");
+  const otherReturnClassifications = summarizeAiOtherReturnClassifications(customerSignals);
+
+  return {
+    hasSignals: Boolean(classifiedSignals.length || repeatedLanguage.length || Array.isArray(ai.classification?.clusters) && ai.classification.clusters.length),
+    classifiedSignals,
+    customerSignals,
+    issueSignalCounts,
+    customerIssueSignalCounts,
+    sentiment,
+    returns,
+    reviews,
+    repeatedLanguage,
+    subjectiveNegativity: {
+      count: subjectiveSignals.length,
+      total: customerSignals.length,
+      ratio: customerSignals.length ? roundRate(subjectiveSignals.length / customerSignals.length, 2) : 0,
+      sourceCounts: countBy(subjectiveSignals.map((signal) => signal.sourceGroup)),
+      examples: subjectiveSignals.slice(0, 4).map((signal) => truncateText(signal.text, 180)),
+    },
+    otherReturnClassifications,
+    summary: ai.classification?.sentiment_summary || {},
+  };
+}
+
+function normalizeAiClassifiedSignals(signals = []) {
+  return (Array.isArray(signals) ? signals : [])
+    .map((signal) => {
+      const issueCode = normalizeAiSignalIssueCode(signal.issue_category || signal.issue || signal.issue_detail);
+      const sentiment = normalizeAiSentiment(signal.sentiment);
+      const source = String(signal.source || "").trim().toLowerCase();
+      const sourceGroup = getAiSignalSourceGroup(source);
+      const text = String(signal.text || signal.evidence || "").replace(/\s+/g, " ").trim();
+      return {
+        source,
+        sourceGroup,
+        text,
+        issueCode,
+        issueDetail: signal.issue_detail || "",
+        sentiment,
+        emotion: normalizeEmotionCode(signal.known_emotion) || "none",
+        severity: normalizeSeverity(signal.severity || "medium"),
+        productRelated: signal.product_related !== false,
+      };
+    })
+    .filter((signal) => signal.productRelated && signal.issueCode && signal.text);
+}
+
+function normalizeAiSignalIssueCode(value) {
+  const issueCode = normalizeIssueCode(value);
+  if (!issueCode || issueCode === "other") return "product_quality";
+  return issueCode;
+}
+
+function normalizeAiSentiment(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized === "positive" || normalized === "negative" || normalized === "neutral") return normalized;
+  return "neutral";
+}
+
+function getAiSignalSourceGroup(source = "") {
+  const value = String(source || "").toLowerCase();
+  if (value.includes("refund")) return "refunds";
+  if (value.includes("return")) return "returns";
+  if (value.includes("review") || value.includes("judgeme") || value.includes("csv")) return "reviews";
+  return "customer_language";
+}
+
+function isOperationalRefundSignalSource(source = "") {
+  return String(source || "").toLowerCase().includes("refund");
+}
+
+function countAiSignalsByIssue(signals = []) {
+  return signals.reduce((counts, signal) => {
+    const issue = normalizeIssueCode(signal.issueCode);
+    if (!issue) return counts;
+    counts[issue] = (counts[issue] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function summarizeAiClassifiedSignalSentiment(signals = []) {
+  const counts = { positive: 0, neutral: 0, negative: 0 };
+  signals.forEach((signal) => {
+    counts[normalizeAiSentiment(signal.sentiment)] += 1;
+  });
+  const total = signals.length;
+  const dominant = total
+    ? Object.entries(counts).sort((first, second) => second[1] - first[1])[0][0]
+    : "neutral";
+  return {
+    ...counts,
+    total,
+    dominant: counts.negative > 0 && counts.negative === counts.positive ? "mixed" : dominant,
+    negativeRatio: total ? roundRate(counts.negative / total, 2) : 0,
+  };
+}
+
+function summarizeAiClassifiedSignalSource(signals = [], sourceGroup) {
+  const scoped = signals.filter((signal) => signal.sourceGroup === sourceGroup);
+  return {
+    total: scoped.length,
+    sentiment: summarizeAiClassifiedSignalSentiment(scoped),
+    emotions: summarizeAiSignalEmotions(scoped),
+    subjectiveNegativity: {
+      count: scoped.filter((signal) => signal.issueCode === "subjective_negative_reaction" && signal.sentiment === "negative").length,
+      total: scoped.length,
+      ratio: scoped.length ? roundRate(scoped.filter((signal) => signal.issueCode === "subjective_negative_reaction" && signal.sentiment === "negative").length / scoped.length, 2) : 0,
+      sourceCounts: countBy(scoped.map((signal) => signal.sourceGroup)),
+      examples: scoped
+        .filter((signal) => signal.issueCode === "subjective_negative_reaction")
+        .slice(0, 4)
+        .map((signal) => truncateText(signal.text, 180)),
+    },
+    repeatedLanguage: [],
+    examples: scoped
+      .filter((signal) => signal.sentiment === "negative")
+      .slice(0, 4)
+      .map((signal) => ({
+        text: truncateText(signal.text, 180),
+        sentiment: signal.sentiment,
+        emotion: signal.emotion,
+        issueCode: signal.issueCode,
+        source: signal.source,
+        sourceLabel: sourceGroup === "returns" ? "Returns" : "Reviews",
+      })),
+  };
+}
+
+function summarizeAiSignalEmotions(signals = []) {
+  const grouped = new Map();
+  signals.forEach((signal) => {
+    const code = normalizeEmotionCode(signal.emotion);
+    if (!code || code === "none") return;
+    const current = grouped.get(code) || {
+      code,
+      label: getEmotionLabel(code),
+      polarity: getEmotionPolarity(code),
+      count: 0,
+      sources: new Set(),
+      examples: [],
+    };
+    current.count += 1;
+    if (signal.sourceGroup) current.sources.add(signal.sourceGroup);
+    if (signal.text && current.examples.length < 3) current.examples.push(truncateText(signal.text, 140));
+    grouped.set(code, current);
+  });
+  return Array.from(grouped.values())
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .map((item) => ({ ...item, sources: Array.from(item.sources) }));
+}
+
+function normalizeAiRepeatedLanguageItem(item = {}) {
+  const term = String(item.term || item.label || item.phrase || "").replace(/\s+/g, " ").trim();
+  if (!term) return null;
+  const sourceTypes = normalizeSourceTypes(item.source_types || item.sources);
+  const sentiment = normalizeAiSentiment(item.sentiment || item.dominantSentiment);
+  return {
+    term,
+    count: Math.max(1, Number(item.count || 1)),
+    sources: sourceTypes.length ? sourceTypes : ["ai_signal_classification"],
+    sourceTypes,
+    issueCode: normalizeIssueCode(item.issue_category || item.issueCode || "repeated_language") || "repeated_language",
+    dominantSentiment: sentiment,
+    sentiment,
+    sentiments: {
+      positive: sentiment === "positive" ? Math.max(1, Number(item.count || 1)) : 0,
+      neutral: sentiment === "neutral" ? Math.max(1, Number(item.count || 1)) : 0,
+      negative: sentiment === "negative" ? Math.max(1, Number(item.count || 1)) : 0,
+    },
+    emotion: normalizeEmotionCode(item.known_emotion) || "none",
+    explanation: item.explanation || "",
+    example: item.explanation || term,
+    source: "ai_signal_classification",
+  };
+}
+
+function summarizeAiOtherReturnClassifications(signals = []) {
+  const grouped = new Map();
+  signals
+    .filter((signal) => signal.sourceGroup === "returns" && signal.issueCode && signal.issueCode !== "product_quality")
+    .forEach((signal) => {
+      const key = signal.issueCode;
+      const current = grouped.get(key) || {
+        issueCode: key,
+        label: getHumanIssueLabel(key),
+        count: 0,
+        sentimentCounts: { positive: 0, neutral: 0, negative: 0 },
+        examples: [],
+      };
+      current.count += 1;
+      current.sentimentCounts[signal.sentiment] = (current.sentimentCounts[signal.sentiment] || 0) + 1;
+      if (current.examples.length < 3) current.examples.push(truncateText(signal.text, 160));
+      grouped.set(key, current);
+    });
+  return Array.from(grouped.values()).sort((first, second) => second.count - first.count).slice(0, 5);
+}
+
+function mergeAiSemanticTextInsights(fallback = {}, semantic = {}, { replaceAggregate = false } = {}) {
+  const repeatedLanguage = mergeSemanticRepeatedLanguage(semantic.repeatedLanguage, fallback.repeatedLanguage);
+  const textInsights = {
+    ...fallback,
+    repeatedLanguage,
+    aiRepeatedLanguage: semantic.repeatedLanguage,
+    aiSemanticSummary: semantic.summary,
+  };
+
+  if (replaceAggregate) {
+    return {
+      ...textInsights,
+      sentiment: semantic.sentiment,
+      returns: {
+        ...(fallback.returns || {}),
+        ...semantic.returns,
+        repeatedLanguage: mergeSemanticRepeatedLanguage(
+          semantic.repeatedLanguage.filter((item) => item.sources.some((source) => String(source).includes("return"))),
+          fallback.returns?.repeatedLanguage,
+        ),
+      },
+      reviews: {
+        ...(fallback.reviews || {}),
+        ...semantic.reviews,
+        repeatedLanguage: mergeSemanticRepeatedLanguage(
+          semantic.repeatedLanguage.filter((item) => item.sources.some((source) => String(source).includes("review") || String(source).includes("csv") || String(source).includes("judgeme"))),
+          fallback.reviews?.repeatedLanguage,
+        ),
+      },
+      subjectiveNegativity: semantic.subjectiveNegativity,
+      otherReturnClassifications: semantic.otherReturnClassifications.length ? semantic.otherReturnClassifications : fallback.otherReturnClassifications || [],
+    };
+  }
+
+  return {
+    ...textInsights,
+    subjectiveNegativity: {
+      ...(fallback.subjectiveNegativity || {}),
+      count: Math.max(Number(fallback.subjectiveNegativity?.count || 0), Number(semantic.subjectiveNegativity?.count || 0)),
+      total: Math.max(Number(fallback.subjectiveNegativity?.total || 0), Number(semantic.subjectiveNegativity?.total || 0)),
+      ratio: Math.max(Number(fallback.subjectiveNegativity?.ratio || 0), Number(semantic.subjectiveNegativity?.ratio || 0)),
+      sourceCounts: {
+        ...(fallback.subjectiveNegativity?.sourceCounts || {}),
+        ...(semantic.subjectiveNegativity?.sourceCounts || {}),
+      },
+      examples: uniqueBy([
+        ...(semantic.subjectiveNegativity?.examples || []),
+        ...(fallback.subjectiveNegativity?.examples || []),
+      ], normalizeText).slice(0, 4),
+    },
+    otherReturnClassifications: uniqueBy([
+      ...(semantic.otherReturnClassifications || []),
+      ...(fallback.otherReturnClassifications || []),
+    ], (item) => item.issueCode || item.label).slice(0, 5),
+  };
+}
+
+function mergeSemanticRepeatedLanguage(primary = [], fallback = []) {
+  return uniqueBy([
+    ...(Array.isArray(primary) ? primary : []),
+    ...(Array.isArray(fallback) ? fallback : []),
+  ].filter(isActionableRepeatedLanguageIssue), (item) => normalizeText(item.term || item.label || item.phrase))
+    .sort((first, second) => Number(second.count || 0) - Number(first.count || 0))
+    .slice(0, 10);
+}
+
+function mergeAiIssueSignalCounts(fallback = {}, aiCounts = {}) {
+  const next = { ...(fallback || {}) };
+  Object.entries(aiCounts || {}).forEach(([issueCode, count]) => {
+    const normalized = normalizeIssueCode(issueCode);
+    if (!normalized) return;
+    next[normalized] = Math.max(Number(next[normalized] || 0), Number(count || 0));
+  });
+  return next;
+}
+
+function countBy(values = []) {
+  return (Array.isArray(values) ? values : []).reduce((counts, value) => {
+    const key = String(value || "").trim();
+    if (!key) return counts;
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
 }
 
 function buildRuleRecommendationCandidates(deterministic) {
@@ -5538,6 +5885,12 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   const aiRepeatedLanguage = getFilteredAiRepeatedLanguage(ai);
   const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
   const deterministicIssues = Array.isArray(textInsights.granularIssues) ? textInsights.granularIssues : [];
+  const aiHasMerchantFacingTextFindings = Boolean(
+    aiFindings.length
+    || aiRepeatedLanguage.length
+    || aiEmergentSentiments.length
+    || (Array.isArray(ai.classification?.clusters) && ai.classification.clusters.length),
+  );
   const issues = [];
 
   aiFindings.slice(0, 5).forEach((finding, index) => {
@@ -5559,7 +5912,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
     });
   });
 
-  deterministicIssues.slice(0, 5).forEach((issue, index) => {
+  deterministicIssues.slice(0, aiHasMerchantFacingTextFindings ? 0 : 5).forEach((issue, index) => {
     const issueCode = normalizeIssueCode(issue.issueCode || issue.issue) || "product_quality";
     const trend = getIssueTrend(deterministic, issueCode);
     issues.push({
@@ -8152,7 +8505,7 @@ function analyzeProductContentDeterministically(product) {
   }
 
   if (description && normalizedTitle && isClearlyDisconnectedTitleDescription(product, description)) {
-    issues.push(buildContentIssue("title_description_mismatch", "Title and description are clearly disconnected", "high", "The title and description appear to describe different product categories.", 10));
+    advisories.push(buildContentAdvisory("title_description_mismatch", "Title and description need semantic review", "The local content check found weak title/description overlap. ProductPulse AI must confirm a clear mismatch before this becomes a product issue."));
   }
 
   const variantMismatchIssue = buildDescriptionVariantMismatchIssue(product, description);

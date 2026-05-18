@@ -21,8 +21,8 @@ const AI_TASKS = {
     temperature: 0.15,
   },
   content_gap: {
-    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
-    fallbackModel: "gpt-5.4-nano",
+    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
+    fallbackModel: "gpt-5.4-mini",
     maxOutputTokens: 1600,
     temperature: 0.1,
   },
