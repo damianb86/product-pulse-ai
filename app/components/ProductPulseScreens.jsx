@@ -500,6 +500,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [shopifyProductSearchOpen, setShopifyProductSearchOpen] = useState(false);
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
+  const productTableSearchInputRef = useRef(null);
   const [quickScanConfirmation, setQuickScanConfirmation] = useState(false);
   const [quickScanCsvWarning, setQuickScanCsvWarning] = useState(false);
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
@@ -570,6 +571,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     setSearchValue(currentSearchQuery);
     setSearchOpen(Boolean(currentSearchQuery));
   }, [currentSearchQuery]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    productTableSearchInputRef.current?.focus();
+    productTableSearchInputRef.current?.select();
+  }, [searchOpen]);
 
   useEffect(() => {
     if (searchValue === currentSearchQuery) return undefined;
@@ -867,27 +874,37 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   onClick={() => setShopifyProductSearchOpen(true)}
                 >
                   <s-icon type="search" size="small"></s-icon>
+                  <span className="ppShopifyTinyIcon" aria-hidden="true">S</span>
                   Find Shopify product
                 </button>
-                <button
-                  className="ppTableSearchButton"
-                  type="button"
-                  aria-label="Search products"
-                  aria-expanded={searchOpen}
-                  onClick={() => setSearchOpen((open) => !open)}
-                >
-                  <s-icon type="search" size="small"></s-icon>
-                </button>
+                {!searchOpen && (
+                  <button
+                    className="ppTableSearchButton"
+                    type="button"
+                    aria-label="Search products"
+                    aria-expanded={searchOpen}
+                    onClick={() => setSearchOpen(true)}
+                  >
+                    <s-icon type="search" size="small"></s-icon>
+                  </button>
+                )}
                 {searchOpen && (
                   <div className="ppTableSearchControl">
                     <s-icon type="search" size="small"></s-icon>
                     <input
+                      ref={productTableSearchInputRef}
                       aria-label="Search products"
                       value={searchValue}
                       onChange={(event) => setSearchValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") setSearchOpen(false);
+                      }}
                       placeholder="Search products"
                       type="search"
                     />
+                    <button type="button" aria-label="Close product search" onClick={() => setSearchOpen(false)}>
+                      <s-icon type="x" size="small"></s-icon>
+                    </button>
                   </div>
                 )}
               </div>

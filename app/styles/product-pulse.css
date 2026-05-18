@@ -33,6 +33,10 @@
   --pp-slate-500-rgb: 100, 116, 139;
   --pp-slate-100-rgb: 241, 245, 249;
   --pp-shadow-rgb: 15, 23, 42;
+  --pp-dark-neutral-gradient:
+    radial-gradient(circle at 8% 0%, rgba(255, 255, 255, 0.16), transparent 34%),
+    radial-gradient(circle at 94% 10%, rgba(203, 213, 225, 0.11), transparent 34%),
+    linear-gradient(135deg, #313743 0%, #202631 45%, #0d111a 50%);
 }
 
 body {
@@ -254,11 +258,8 @@ s-page[inline-size="large-500"] {
 .ppProductDetailHeroPanel {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(191, 219, 254, 0.16);
-  background:
-    radial-gradient(circle at 8% 0%, rgba(var(--pp-pulse-blue-rgb), 0.3), transparent 34%),
-    radial-gradient(circle at 92% 14%, rgba(var(--pp-insight-violet-rgb), 0.24), transparent 32%),
-    linear-gradient(135deg, #17284a 0%, #15213b 46%, #241848 100%);
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  background: var(--pp-dark-neutral-gradient);
   box-shadow:
     0 22px 60px rgba(var(--pp-shadow-rgb), 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -7300,6 +7301,50 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 14px 30px rgba(var(--pp-pulse-blue-rgb), 0.1);
   transform: translateY(-1px);
   outline: none;
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedAction {
+  border-color: rgba(226, 232, 240, 0.16);
+  background: var(--pp-dark-neutral-gradient);
+  color: rgba(241, 245, 249, 0.92);
+  box-shadow:
+    0 14px 32px rgba(var(--pp-shadow-rgb), 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedAction:hover,
+.ppProductDetailSidebar .ppCompactRecommendedAction:focus-visible {
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow:
+    0 18px 38px rgba(var(--pp-shadow-rgb), 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedContent > strong,
+.ppProductDetailSidebar .ppCompactActionMetric strong {
+  color: var(--pp-cloud-white);
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedDescription,
+.ppProductDetailSidebar .ppCompactActionMetric small {
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedAction > s-icon {
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedIndex {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--pp-cloud-white);
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedMetrics {
+  border-top-color: rgba(255, 255, 255, 0.14);
+}
+
+.ppProductDetailSidebar .ppCompactActionMetric {
+  border-left-color: rgba(255, 255, 255, 0.12);
 }
 
 .ppCompactRecommendedContent {
@@ -15508,6 +15553,20 @@ s-page[inline-size="large-500"] {
   cursor: pointer;
 }
 
+.ppShopifyTinyIcon {
+  width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  background: #95bf47;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 1px 2px rgba(var(--pp-shadow-rgb), 0.12);
+}
+
 .ppTableFindProductButton:hover {
   border-color: var(--pp-pulse-blue);
   background: rgba(var(--pp-pulse-blue-rgb), 0.13);
@@ -15537,7 +15596,7 @@ s-page[inline-size="large-500"] {
   width: min(300px, 42vw);
   min-height: 36px;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr) 24px;
   align-items: center;
   gap: 8px;
   padding: 0 10px;
@@ -15555,6 +15614,26 @@ s-page[inline-size="large-500"] {
   background: transparent;
   color: var(--pp-slate-700);
   font: inherit;
+}
+
+.ppTableSearchControl button {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pp-slate-500);
+  cursor: pointer;
+}
+
+.ppTableSearchControl button:hover,
+.ppTableSearchControl button:focus-visible {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-900);
+  outline: none;
 }
 
 .ppSelectionPill {
