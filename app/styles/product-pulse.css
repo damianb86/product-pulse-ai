@@ -254,11 +254,11 @@ s-page[inline-size="large-500"] {
 .ppProductDetailHeroPanel {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(191, 219, 254, 0.16);
   background:
-    radial-gradient(circle at 8% 0%, rgba(var(--pp-pulse-blue-rgb), 0.22), transparent 32%),
-    radial-gradient(circle at 92% 14%, rgba(var(--pp-insight-violet-rgb), 0.18), transparent 30%),
-    linear-gradient(135deg, #121a2a 0%, #0f172a 48%, #080d18 100%);
+    radial-gradient(circle at 8% 0%, rgba(var(--pp-pulse-blue-rgb), 0.3), transparent 34%),
+    radial-gradient(circle at 92% 14%, rgba(var(--pp-insight-violet-rgb), 0.24), transparent 32%),
+    linear-gradient(135deg, #17284a 0%, #15213b 46%, #241848 100%);
   box-shadow:
     0 22px 60px rgba(var(--pp-shadow-rgb), 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -3144,22 +3144,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailHeroPanel .ppProductTitleRow h1,
-.ppProductDetailHeroPanel .ppProductTitleHeading h1,
-.ppProductDetailHeroPanel .ppProductInsight strong,
-.ppProductDetailHeroPanel .ppMainFindingCard h2 {
+.ppProductDetailHeroPanel .ppProductTitleHeading h1 {
   color: var(--pp-cloud-white);
 }
 
-.ppProductDetailHeroPanel .ppProductTitleRow p,
-.ppProductDetailHeroPanel .ppProductInsight small,
-.ppProductDetailHeroPanel .ppProductInsight em,
-.ppProductDetailHeroPanel .ppMainFindingText p {
+.ppProductDetailHeroPanel .ppProductTitleRow p {
   color: rgba(226, 232, 240, 0.78);
-}
-
-.ppProductDetailHeroPanel .ppProductInsight > span,
-.ppProductDetailHeroPanel .ppInsightInfoWrap {
-  color: rgba(226, 232, 240, 0.76);
 }
 
 .ppProductDetailHeroPanel .ppProductBackButton,
@@ -3215,13 +3205,16 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailHeroPanel .ppRiskSnapshot {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: rgba(203, 213, 225, 0.78);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+  box-shadow:
+    0 16px 38px rgba(var(--pp-shadow-rgb), 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .ppProductDetailHeroPanel .ppProductInsight {
-  border-left-color: rgba(255, 255, 255, 0.12);
+  border-left-color: rgba(var(--pp-slate-500-rgb), 0.16);
 }
 
 .ppProductDetailHeroPanel .ppProductInsight:first-child {
@@ -3230,23 +3223,42 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailHeroPanel .ppProductInsight-red strong,
 .ppProductDetailHeroPanel .ppProductInsight-red em {
-  color: #fca5a5;
+  color: var(--pp-risk-red);
 }
 
 .ppProductDetailHeroPanel .ppProductInsight-green strong {
-  color: #5eead4;
+  color: var(--pp-signal-teal);
 }
 
 .ppProductDetailHeroPanel .ppProductInsightProgress {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--pp-slate-200);
+}
+
+.ppProductDetailHeroPanel .ppProductInsight > span {
+  color: var(--pp-slate-500);
+}
+
+.ppProductDetailHeroPanel .ppProductInsight strong {
+  color: var(--pp-slate-900);
+}
+
+.ppProductDetailHeroPanel .ppProductInsight small,
+.ppProductDetailHeroPanel .ppProductInsight em {
+  color: var(--pp-slate-700);
+}
+
+.ppProductDetailHeroPanel .ppInsightInfoWrap {
+  color: var(--pp-slate-500);
 }
 
 .ppProductDetailHeroPanel .ppMainFindingCard {
-  border-color: rgba(var(--pp-insight-violet-rgb), 0.28);
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.22);
   background:
-    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.16), rgba(var(--pp-pulse-blue-rgb), 0.08) 48%, rgba(var(--pp-signal-teal-rgb), 0.08)),
-    rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.12), rgba(var(--pp-pulse-blue-rgb), 0.07) 48%, rgba(var(--pp-signal-teal-rgb), 0.06)),
+    rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 16px 38px rgba(var(--pp-shadow-rgb), 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
 .ppProductDetailHeroPanel .ppMainFindingCard::after {
@@ -3254,7 +3266,15 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailHeroPanel .ppMainFindingCard > div > span {
-  color: #c4b5fd;
+  color: var(--pp-insight-violet);
+}
+
+.ppProductDetailHeroPanel .ppMainFindingCard h2 {
+  color: var(--pp-slate-900);
+}
+
+.ppProductDetailHeroPanel .ppMainFindingText p {
+  color: var(--pp-slate-700);
 }
 
 .ppProductDetailGrid {
