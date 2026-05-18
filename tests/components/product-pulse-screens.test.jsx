@@ -1173,6 +1173,102 @@ describe("ProductPulse screens", () => {
     expect(confirmDialog).not.toHaveTextContent(bottomNote);
   });
 
+  it("keeps SEO title recommendations out of product description groups", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        seoTitle: "Old search title",
+      },
+      recommendedActions: [
+        {
+          id: "rewrite-seo-title",
+          label: "Rewrite SEO title",
+          type: "SEO title",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            field: "seo.title",
+            draftText: "Nintendo New 3DS XL Console | ProductPulse",
+            currentValue: "Old search title",
+          },
+        },
+        {
+          id: "add-fit-note",
+          label: "Add fit note",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: "Fit note: check console compatibility before buying.",
+            operation: "prepend",
+          },
+        },
+      ],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByRole("button", { name: "Open recommended action Rewrite SEO title" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Rewrite SEO title" }));
+    const dialog = screen.getByRole("dialog", { name: "Rewrite SEO title" });
+    expect(within(dialog).getByText("Proposed SEO title")).toBeInTheDocument();
+    expect(within(dialog).getByText("Current SEO title")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Current Shopify description")).not.toBeInTheDocument();
+  });
+
+  it("shows Add to Watchlist as a workflow action without a before/after preview", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "add-to-watchlist",
+        label: "Add to Watchlist",
+        type: "Watchlist",
+        effort: "Low",
+        status: "Ready",
+        payload: {},
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add to Watchlist" }));
+    const dialog = screen.getByRole("dialog", { name: "Add to Watchlist" });
+    expect(within(dialog).queryByRole("heading", { name: "Preview" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add to Watchlist" })).toBeInTheDocument();
+  });
+
+  it("shows concrete variant option suggestions and a Shopify edit link", () => {
+    const product = {
+      ...defaultView.startHere,
+      shopifyAdminUrl: "https://admin.shopify.com/store/qorve/products/123",
+      recommendedActions: [{
+        id: "correct-variant-options",
+        label: "Fix variant names/options",
+        type: "Variant options",
+        effort: "Medium",
+        status: "Ready",
+        payload: {
+          variantUpdates: [{
+            variantId: "gid://shopify/ProductVariant/1",
+            variantTitle: "Black",
+            currentLabel: "Black",
+            suggestedLabel: "Midnight Black",
+            sku: "SW-BLK",
+            optionValues: [{ optionName: "Color", currentValue: "Black", suggestedValue: "Midnight Black" }],
+          }],
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Fix variant names/options" }));
+    const dialog = screen.getByRole("dialog", { name: "Fix variant names/options" });
+    expect(within(dialog).getByText("Suggested variant/option updates")).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/Midnight Black/).length).toBeGreaterThan(0);
+    expect(within(dialog).getByRole("link", { name: "Edit in Shopify" })).toHaveAttribute("href", product.shopifyAdminUrl);
+    expect(within(dialog).getByRole("button", { name: "Update variants" })).toBeInTheDocument();
+  });
+
   it("deduplicates equivalent grouped description changes from the same cause", () => {
     const currentDescription = "Completed in 1642, this famous artwork reproduction depicts a city guard moving out.";
     const duplicatedNote = "Please note: This reproduction uses dramatic lighting and a dark visual tone that can feel intense in a room.";

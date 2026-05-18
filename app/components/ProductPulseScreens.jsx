@@ -2568,7 +2568,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
   const tagOverride = String(confirmation.tagOverride || "");
   const valuePreview = editedText || "No value supplied.";
   const unresolvedPlaceholders = getEditableTextPlaceholders(editedText);
-  const submitLabel = pending ? "Applying change..." : "Accept and apply change";
+  const submitLabel = pending ? "Applying change..." : application.confirmationSubmitLabel || "Accept and apply change";
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -2622,6 +2622,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           <input type="hidden" name="actionId" value={action.id || ""} />
           <input type="hidden" name="label" value={action.title || action.label || ""} />
           <input type="hidden" name="draftText" value={editedText} />
+          <input type="hidden" name="field" value={application.field || ""} />
           {tagOverride && <input type="hidden" name="tag" value={tagOverride} />}
           <input type="hidden" name="applyMode" value="apply" />
           <input type="hidden" name="actionVariant" value={application.variantId || ""} />
@@ -4459,12 +4460,12 @@ function isDescriptionChangeAction(action = {}) {
   const payload = action.payload || {};
   if (!payload.draftText) return false;
   if (payload.note || payload.draftTitle || payload.productStatus || payload.tag || Array.isArray(payload.tags)) return false;
+  if (payload.field && !["description", "descriptionHtml", "body_html"].includes(String(payload.field || "").trim())) return false;
   if (isFaqRecommendedAction(action)) return false;
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payload.field || ""}`.toLowerCase();
   return normalized.includes("pdp")
     || normalized.includes("description")
     || normalized.includes("fit")
-    || normalized.includes("rewrite")
     || ["replace", "prepend", "append"].includes(payload.operation)
     || ["prepend", "append"].includes(payload.placement);
 }
@@ -4804,6 +4805,7 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     const value = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
     return withRecipeApplicationFields(action, {
       kind: "shopify_product",
+      field: "seo.title",
       editable: true,
       target: "SEO title",
       operation: "Update SEO title",
@@ -4822,6 +4824,7 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     const value = String(payload.draftText || "").replace(/\s+/g, " ").trim();
     return withRecipeApplicationFields(action, {
       kind: "shopify_product",
+      field: "seo.description",
       editable: true,
       target: "Meta description",
       operation: "Update meta description",
@@ -4840,6 +4843,7 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     const value = String(payload.draftText || payload.draftHandle || "").replace(/[^a-z0-9-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
     return withRecipeApplicationFields(action, {
       kind: "shopify_product",
+      field: "handle",
       editable: true,
       target: "URL handle",
       operation: "Update URL handle",
@@ -4879,6 +4883,7 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     const title = String(payload.draftTitle || action.detail || "").replace(/\s+/g, " ").trim();
     return withRecipeApplicationFields(action, {
       kind: "shopify_product",
+      field: "title",
       editable: true,
       target: "Product title",
       operation: "Update title",
@@ -4972,6 +4977,10 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     });
   }
 
+  if (isVariantOptionsRecommendedAction(action)) {
+    return getVariantOptionsActionApplication(action, product);
+  }
+
   if (normalized.includes("add-to-watchlist") || normalized.includes("watchlist")) {
     return withRecipeApplicationFields(action, {
       kind: "productpulse_workflow",
@@ -4982,8 +4991,11 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       confirmationTitle: "Confirm Watchlist addition",
       confirmationDetail: "ProductPulse will add this product to the Watchlist if there is an available slot.",
       applyLabel: "Add to Watchlist",
+      confirmationSubmitLabel: "Add to Watchlist",
       valueLabel: "Product to watch",
       value: product?.title || payload.productTitle || action.title || "Selected product",
+      hidePreview: true,
+      useApplyLabelInModal: true,
     });
   }
 
@@ -5054,6 +5066,138 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     value: getRecommendedActionDetail(action),
     }),
   };
+}
+
+function isVariantOptionsRecommendedAction(action = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payload.shopifyField || ""}`.toLowerCase();
+  return action.id === "correct-variant-options"
+    || Array.isArray(payload.variantUpdates)
+    || normalized.includes("fix variant")
+    || normalized.includes("variant options")
+    || normalized.includes("productvariant option");
+}
+
+function getVariantOptionsActionApplication(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const variantUpdates = normalizeVariantActionUpdates(payload);
+  const hasDirectUpdates = variantUpdates.some((update) => update.variantId && update.optionValues.length);
+  const suggestionsText = formatVariantActionSuggestions(variantUpdates, payload);
+  const currentText = formatVariantActionCurrentValue(variantUpdates, payload);
+  const editUrl = product?.shopifyAdminUrl || payload.shopifyAdminUrl || "";
+
+  if (hasDirectUpdates) {
+    return withRecipeApplicationFields(action, {
+      kind: "shopify_product",
+      field: "variants",
+      editable: false,
+      target: "Product variants/options",
+      operation: "Update variant option values",
+      intro: "ProductPulse found variant or option labels that may be unclear to shoppers. Review the exact option-value changes before applying them to Shopify.",
+      confirmationTitle: "Confirm variant option update",
+      confirmationDetail: "ProductPulse will update the proposed Shopify variant option values. Option names, prices and inventory will stay unchanged.",
+      applyLabel: "Update variants",
+      useApplyLabelInModal: true,
+      valueLabel: "Suggested variant/option updates",
+      value: suggestionsText,
+      currentValueLabel: "Current variant/options",
+      currentValue: currentText,
+      externalEditUrl: editUrl,
+      externalEditLabel: "Edit in Shopify",
+      variantUpdates,
+    });
+  }
+
+  return withRecipeApplicationFields(action, {
+    kind: "review",
+    editable: false,
+    target: "Product variants/options",
+    operation: "Inspect variant names/options",
+    intro: "ProductPulse does not have enough structured variant-option data to safely update this automatically. Use the suggested labels as a guide, then edit the product in Shopify.",
+    applyLabel: "Open evidence",
+    valueLabel: "Suggested variant review",
+    value: suggestionsText || getRecommendedActionDetail(action),
+    currentValueLabel: "Current affected variants",
+    currentValue: currentText,
+    externalEditUrl: editUrl,
+    externalEditLabel: "Edit in Shopify",
+    variantUpdates,
+  });
+}
+
+function normalizeVariantActionUpdates(payload = {}) {
+  const directUpdates = Array.isArray(payload.variantUpdates) ? payload.variantUpdates : [];
+  if (directUpdates.length) {
+    return directUpdates
+      .map((update) => ({
+        variantId: String(update.variantId || update.id || "").trim(),
+        variantTitle: String(update.variantTitle || update.currentName || update.title || "").trim(),
+        sku: String(update.sku || "").trim(),
+        currentLabel: String(update.currentLabel || update.currentName || update.variantTitle || update.title || "").trim(),
+        suggestedLabel: String(update.suggestedLabel || update.suggestedName || update.suggestion || "").trim(),
+        optionValues: Array.isArray(update.optionValues)
+          ? update.optionValues.map((option) => ({
+              optionName: String(option.optionName || option.name || "").trim(),
+              currentValue: String(option.currentValue || option.value || "").trim(),
+              suggestedValue: String(option.suggestedValue || option.name || option.value || "").trim(),
+            })).filter((option) => option.optionName && option.suggestedValue)
+          : [],
+      }))
+      .filter((update) => update.currentLabel || update.suggestedLabel || update.optionValues.length);
+  }
+
+  const affected = Array.isArray(payload.affectedVariants) ? payload.affectedVariants : [];
+  const details = Array.isArray(payload.variantDetails) ? payload.variantDetails : [];
+  return uniqueStrings([...affected, ...details.map((item) => item.label || item.title || item.sku || "")])
+    .map((label) => ({
+      variantId: "",
+      variantTitle: label,
+      sku: "",
+      currentLabel: label,
+      suggestedLabel: buildReadableVariantSuggestion(label, payload),
+      optionValues: [],
+    }))
+    .filter((update) => update.currentLabel);
+}
+
+function buildReadableVariantSuggestion(label = "", payload = {}) {
+  const value = String(label || "").trim();
+  if (!value) return "";
+  if (/^default title$/i.test(value)) {
+    const firstOptionName = String(Array.isArray(payload.optionNames) ? payload.optionNames[0] || "" : "").toLowerCase();
+    if (firstOptionName.includes("size")) return "One size";
+    if (firstOptionName.includes("color") || firstOptionName.includes("colour")) return "Standard color";
+    return "Standard";
+  }
+  if (/^[a-z0-9-]{3,}$/i.test(value) && value === value.toUpperCase()) return `SKU ${value}`;
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function formatVariantActionCurrentValue(updates = [], payload = {}) {
+  const lines = updates.map((update) => {
+    const optionText = update.optionValues?.length
+      ? update.optionValues.map((option) => `${option.optionName}: ${option.currentValue || "empty"}`).join(", ")
+      : "";
+    const suffix = [update.sku ? `SKU ${update.sku}` : "", optionText].filter(Boolean).join(" - ");
+    return `${update.currentLabel || update.variantTitle || "Variant"}${suffix ? ` (${suffix})` : ""}`;
+  });
+  if (lines.length) return lines.join("\n");
+  const affected = Array.isArray(payload.affectedVariants) ? payload.affectedVariants : [];
+  return affected.length ? affected.join("\n") : "No affected variant labels were loaded.";
+}
+
+function formatVariantActionSuggestions(updates = [], payload = {}) {
+  const lines = updates.map((update) => {
+    const optionChanges = update.optionValues?.length
+      ? update.optionValues.map((option) => `${option.optionName}: ${option.currentValue || "empty"} -> ${option.suggestedValue}`).join(", ")
+      : "";
+    const labelChange = update.suggestedLabel && update.suggestedLabel !== update.currentLabel
+      ? `${update.currentLabel || update.variantTitle || "Variant"} -> ${update.suggestedLabel}`
+      : update.suggestedLabel || update.currentLabel || update.variantTitle || "";
+    return [labelChange, optionChanges].filter(Boolean).join(" | ");
+  }).filter(Boolean);
+  if (lines.length) return lines.join("\n");
+  return payload.trigger || "Review the affected variant names, option values and SKUs before changing the product.";
 }
 
 function withRecipeApplicationFields(action, application) {
@@ -5531,10 +5675,12 @@ function getRecommendedActionMode(action, index) {
     || (Array.isArray(payload.metafields) && payload.metafields.length)
     || (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length)
     || (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length)
+    || (Array.isArray(payload.variantUpdates) && payload.variantUpdates.length)
   );
   if (normalizedId.includes("run-ai-diagnosis") || normalizedId.includes("run-full-diagnosis")) return "diagnose";
   if (normalizedId.includes("add-to-watchlist")) return "apply-product";
   if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) return "apply-product";
+  if (Array.isArray(payload.variantUpdates) && payload.variantUpdates.length) return "apply-product";
   if (payload.draftTitle || payload.productStatus || payload.draftHandle || payload.templateSuffix || payload.field === "classification" || payload.field === "seo.title" || payload.field === "seo.description" || (Array.isArray(payload.metafields) && payload.metafields.length)) return "apply-product";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
@@ -11337,9 +11483,11 @@ function RecommendedActionReviewBody({
         )}
       </RecommendedActionReviewSection>
 
-      <RecommendedActionReviewSection icon="view" title="Preview">
-        <RecommendedActionPreview application={application} editedText={editedText} />
-      </RecommendedActionReviewSection>
+      {!application.hidePreview && (
+        <RecommendedActionReviewSection icon="view" title="Preview">
+          <RecommendedActionPreview application={application} editedText={editedText} />
+        </RecommendedActionReviewSection>
+      )}
 
       <RecommendedActionReviewSection icon="chart-line" title="Why this action">
         <RecommendedActionWhyItems action={action} product={product} />
@@ -11372,6 +11520,12 @@ function RecommendedActionInvestigationBody({ action, application, product }) {
         </ul>
       </RecommendedActionReviewSection>
 
+      {application.variantUpdates?.length > 0 && (
+        <RecommendedActionReviewSection icon="product" title="Suggested variant labels">
+          <RecommendedActionVariantSuggestions suggestions={application.variantUpdates} />
+        </RecommendedActionReviewSection>
+      )}
+
       <RecommendedActionReviewSection icon="chart-line" title="Evidence summary">
         <RecommendedActionWhyItems action={action} product={product} />
       </RecommendedActionReviewSection>
@@ -11393,8 +11547,40 @@ function RecommendedActionInvestigationBody({ action, application, product }) {
   );
 }
 
+function RecommendedActionVariantSuggestions({ suggestions = [] }) {
+  return (
+    <div className="ppVariantSuggestionList">
+      {suggestions.map((suggestion, index) => (
+        <article className="ppVariantSuggestionItem" key={`${suggestion.variantId || suggestion.currentLabel || "variant"}-${index}`}>
+          <span>
+            <small>Current</small>
+            <strong>{suggestion.currentLabel || suggestion.variantTitle || "Variant"}</strong>
+            {suggestion.sku && <em>SKU {suggestion.sku}</em>}
+          </span>
+          <s-icon type="chevron-right" size="small"></s-icon>
+          <span>
+            <small>Suggested</small>
+            <strong>{suggestion.suggestedLabel || formatVariantOptionValueSummary(suggestion.optionValues) || "Review option value"}</strong>
+            {suggestion.optionValues?.length > 0 && <em>{formatVariantOptionValueSummary(suggestion.optionValues)}</em>}
+          </span>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function formatVariantOptionValueSummary(optionValues = []) {
+  return optionValues
+    .map((option) => `${option.optionName}: ${option.suggestedValue}`)
+    .filter(Boolean)
+    .join(", ");
+}
+
 function getInvestigationFollowupText(action = {}, application = {}, product = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (normalized.includes("variant") && application.variantUpdates?.length > 0) {
+    return "Review the suggested variant or option labels, then update the Shopify variant values directly when the mapping is safe or open Shopify to edit option names.";
+  }
   if (normalized.includes("supplier") || normalized.includes("qa")) {
     return "Verify whether this product has a QA issue, source mismatch, supplier-related quality problem, or a signal that should be escalated internally.";
   }
@@ -12126,7 +12312,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
           ? application.applyLabel
           : action.action;
   const buttonText = !showHeader && actionKind === "applyable" && mode === "apply-product" && !applied && !drafted && !pending
-    ? "Apply change"
+    ? (application.useApplyLabelInModal ? application.applyLabel : "Apply change")
     : !showHeader && actionKind === "investigation" && !applied && !drafted && !pending
       ? getInvestigationPrimaryActionLabel(action, mode)
       : defaultButtonText;
@@ -12210,6 +12396,12 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
           <s-icon type={investigationTag ? "tag" : "check"} size="small"></s-icon>
           <span>{investigationTag ? "Add QA tag" : "Mark reviewed"}</span>
         </button>
+      )}
+      {!showHeader && application.externalEditUrl && (
+        <a className="ppActionEditFooterButton" href={application.externalEditUrl} target="_blank" rel="noreferrer">
+          <s-icon type="external" size="small"></s-icon>
+          <span>{application.externalEditLabel || "Edit in Shopify"}</span>
+        </a>
       )}
       {actionButton}
     </div>

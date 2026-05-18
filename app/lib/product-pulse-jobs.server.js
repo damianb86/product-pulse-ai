@@ -573,6 +573,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       status: "Draft",
       payload: {
         draftText: payloadOverride.draftText,
+        ...(payloadOverride.field ? { field: payloadOverride.field } : {}),
         ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
       },
     };
@@ -585,6 +586,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   const payload = {
     ...(action.payload || {}),
     ...(payloadOverride.draftText ? { draftText: payloadOverride.draftText } : {}),
+    ...(payloadOverride.field ? { field: payloadOverride.field } : {}),
     ...(payloadOverride.tag ? { tag: payloadOverride.tag } : {}),
     ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
     ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
@@ -893,6 +895,21 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
+  if (Array.isArray(payload.variantUpdates) && payload.variantUpdates.length) {
+    const variantUpdates = normalizeVariantOptionUpdatesForApply(payload.variantUpdates);
+    if (!variantUpdates.length) return { status: "validation_error", message: "This variant action does not include safe variant option values to apply." };
+    const result = await updateProductVariantOptionValues(admin, snapshot.productGid, variantUpdates);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `${variantUpdates.length === 1 ? "Variant option was updated" : "Variant options were updated"} for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product variants/options",
+        operation: "set",
+        value: variantUpdates,
+      },
+    };
+  }
+
   if (payload.field === "seo.title" || normalizedId.includes("seo-title")) {
     const title = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
     if (!title) return { status: "validation_error", message: "This SEO title action does not include text to apply." };
@@ -1154,6 +1171,47 @@ async function updateProductFields(admin, productGid, productFields, errorPrefix
     return { status: "success" };
   } catch (error) {
     return { status: "validation_error", message: `${errorPrefix}: ${error.message}` };
+  }
+}
+
+function normalizeVariantOptionUpdatesForApply(updates = []) {
+  return updates
+    .map((update) => ({
+      id: String(update.variantId || update.id || "").trim(),
+      optionValues: Array.isArray(update.optionValues)
+        ? update.optionValues.map((option) => ({
+            optionName: String(option.optionName || option.name || "").trim(),
+            name: String(option.suggestedValue || option.value || "").trim(),
+          })).filter((option) => option.optionName && option.name)
+        : [],
+    }))
+    .filter((update) => update.id && update.optionValues.length);
+}
+
+async function updateProductVariantOptionValues(admin, productGid, variantUpdates) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseUpdateProductVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+          productVariants {
+            id
+            title
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+      { variables: { productId: productGid, variants: variantUpdates } },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.productVariantsBulkUpdate?.userErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return { status: "success" };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to update product variants: ${error.message}` };
   }
 }
 

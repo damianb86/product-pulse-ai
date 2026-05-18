@@ -3627,6 +3627,11 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.variants.shouldRecommend) {
+    const variantUpdates = buildVariantOptionUpdateSuggestions({
+      product: deterministic.product,
+      affectedVariants,
+      variantDetails: deterministic.metrics.affectedVariantDetails || [],
+    });
     recommendations.push({
       id: "correct-variant-options",
       label: "Fix variant names/options",
@@ -3637,6 +3642,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         affectedVariants,
         variantCount: deterministic.metrics.variantCount || 0,
         variantDetails: deterministic.metrics.affectedVariantDetails || [],
+        optionNames: deterministic.metrics.optionNames || [],
+        variantUpdates,
         issue: mainIssue,
         trigger: recipeSignals.variants.reason,
       },
@@ -4735,6 +4742,83 @@ function buildSuggestedProductHandle({ product = {}, snapshot = {} } = {}) {
     .replace(/-{2,}/g, "-")
     .slice(0, 80);
   return handle || String(product.handle || snapshot.handle || "product").replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+}
+
+function buildVariantOptionUpdateSuggestions({ product = {}, affectedVariants = [], variantDetails = [] } = {}) {
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  if (!variants.length) return [];
+
+  const affectedLabels = uniqueBy([
+    ...affectedVariants,
+    ...variantDetails.map((item) => item.label || item.title || item.sku || ""),
+  ].map((value) => String(value || "").trim()).filter(Boolean), normalizeText);
+  const affectedSet = new Set(affectedLabels.map(normalizeText));
+  const targetVariants = variants
+    .filter((variant) => {
+      if (!affectedSet.size) return isGenericVariantTitle(variant.title);
+      return affectedSet.has(normalizeText(variant.title))
+        || affectedSet.has(normalizeText(variant.sku))
+        || (Array.isArray(variant.selectedOptions) && variant.selectedOptions.some((option) => affectedSet.has(normalizeText(option.value))));
+    })
+    .slice(0, 4);
+
+  return targetVariants
+    .map((variant) => buildVariantOptionUpdateSuggestion(variant, { product }))
+    .filter(Boolean);
+}
+
+function buildVariantOptionUpdateSuggestion(variant = {}, { product = {} } = {}) {
+  const selectedOptions = Array.isArray(variant.selectedOptions) ? variant.selectedOptions : [];
+  const optionValues = selectedOptions
+    .map((option) => {
+      const optionName = String(option.name || "").trim();
+      const currentValue = String(option.value || "").trim();
+      const suggestedValue = buildSuggestedVariantOptionValue({ optionName, currentValue, variant, product });
+      if (!optionName || !suggestedValue || suggestedValue === currentValue) return null;
+      return { optionName, currentValue, suggestedValue };
+    })
+    .filter(Boolean);
+  const suggestedLabel = optionValues.length
+    ? optionValues.map((option) => option.suggestedValue).join(" / ")
+    : buildSuggestedVariantLabel({ variant, product });
+  if (!variant.id || (!optionValues.length && suggestedLabel === variant.title)) return null;
+  return {
+    variantId: variant.id,
+    variantTitle: variant.title || "",
+    sku: variant.sku || "",
+    currentLabel: variant.title || variant.sku || "Variant",
+    suggestedLabel,
+    optionValues,
+  };
+}
+
+function buildSuggestedVariantOptionValue({ optionName = "", currentValue = "", variant = {}, product = {} } = {}) {
+  const normalizedValue = String(currentValue || "").trim();
+  const normalizedOption = String(optionName || "").trim();
+  if (!normalizedValue || /^default title$/i.test(normalizedValue)) {
+    return buildSuggestedVariantLabel({ variant, product });
+  }
+  if (/^(one size|default)$/i.test(normalizedValue) && product.productType) {
+    return `${normalizedValue} ${product.productType}`.replace(/\s+/g, " ").trim();
+  }
+  if (/^(color|colour)$/i.test(normalizedOption) && product.title && !normalizeText(product.title).includes(normalizeText(normalizedValue))) {
+    return normalizedValue;
+  }
+  return normalizedValue;
+}
+
+function buildSuggestedVariantLabel({ variant = {}, product = {} } = {}) {
+  const selectedOptions = Array.isArray(variant.selectedOptions) ? variant.selectedOptions : [];
+  const currentValues = selectedOptions.map((option) => option.value).filter((value) => value && !/^default title$/i.test(value));
+  if (currentValues.length) return currentValues.join(" / ");
+  const firstOptionName = String(selectedOptions[0]?.name || product.options?.[0]?.name || "").toLowerCase();
+  if (firstOptionName.includes("size")) return "One size";
+  if (firstOptionName.includes("color") || firstOptionName.includes("colour")) return "Standard color";
+  return "Standard";
+}
+
+function isGenericVariantTitle(value = "") {
+  return /^default title$/i.test(String(value || "").trim());
 }
 
 function buildSpecsDetailsBlock({ product = {}, contentIssues = [], mainIssue = "" } = {}) {
