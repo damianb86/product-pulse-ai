@@ -7,10 +7,13 @@
   --pp-mist-gray: #F8FAFC;
   --pp-slate-900: #111827;
   --pp-slate-700: #334155;
+  --pp-slate-600: #475569;
   --pp-slate-500: #64748B;
+  --pp-slate-400: #94A3B8;
   --pp-slate-300: #CBD5E1;
   --pp-slate-200: #E2E8F0;
   --pp-slate-100: #F1F5F9;
+  --pp-slate-50: #F8FAFC;
   --pp-success-green: #22C55E;
   --pp-warning-amber: #F59E0B;
   --pp-risk-red: #EF4444;
@@ -37,6 +40,46 @@
     radial-gradient(circle at 8% 0%, rgba(255, 255, 255, 0.16), transparent 34%),
     radial-gradient(circle at 94% 10%, rgba(203, 213, 225, 0.11), transparent 34%),
     linear-gradient(135deg, #313743 0%, #202631 45%, #0d111a 50%);
+  --pp-highlight-border: rgba(79, 115, 255, 0.22);
+  --pp-highlight-bg:
+    linear-gradient(
+      135deg,
+      #f5f7fb 0%,
+      #f8f7ff 46%,
+      #f7fbff 100%
+    );
+  --pp-highlight-accent:
+    linear-gradient(
+      90deg,
+      rgba(67, 97, 238, 0.85),
+      rgba(124, 92, 255, 0.55),
+      rgba(45, 212, 191, 0.35)
+    );
+  --pp-highlight-glow:
+    radial-gradient(
+      circle,
+      rgba(124, 92, 255, 0.14) 0%,
+      rgba(124, 92, 255, 0.06) 38%,
+      transparent 70%
+    );
+  --pp-highlight-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 10px 28px rgba(15, 23, 42, 0.06),
+    0 0 0 1px rgba(255, 255, 255, 0.65) inset;
+  --pp-overview-highlight-bg:
+    linear-gradient(
+      135deg,
+      #f5f7fb 0%,
+      #f7f5ff 42%,
+      #f4fbff 100%
+    );
+  --pp-actions-highlight-bg:
+    linear-gradient(
+      180deg,
+      #f8f7ff 0%,
+      #f5f7fb 42%,
+      #ffffff 100%
+    );
 }
 
 body {
@@ -258,25 +301,33 @@ s-page[inline-size="large-500"] {
 .ppProductDetailHeroPanel {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(226, 232, 240, 0.18);
-  background: var(--pp-dark-neutral-gradient);
-  box-shadow:
-    0 22px 60px rgba(var(--pp-shadow-rgb), 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--pp-highlight-border);
+  background: var(--pp-highlight-bg);
+  box-shadow: var(--pp-highlight-shadow);
 }
 
 .ppNextBestActionPanel::before,
 .ppProductsToolbar::before,
 .ppProductDetailHeroPanel::before {
   position: absolute;
-  inset: 0;
+  inset: 0 0 auto;
+  height: 3px;
   content: "";
   pointer-events: none;
-  opacity: 0.32;
-  background:
-    linear-gradient(120deg, transparent 0 38%, rgba(255, 255, 255, 0.045) 38% 39%, transparent 39% 100%),
-    radial-gradient(circle at 24px 24px, rgba(255, 255, 255, 0.085) 1px, transparent 1.5px);
-  background-size: 100% 100%, 42px 42px;
+  background: var(--pp-highlight-accent);
+}
+
+.ppNextBestActionPanel::after,
+.ppProductsToolbar::after,
+.ppProductDetailHeroPanel::after {
+  position: absolute;
+  top: -120px;
+  right: -120px;
+  width: 260px;
+  height: 260px;
+  content: "";
+  pointer-events: none;
+  background: var(--pp-highlight-glow);
 }
 
 .ppNextBestActionPanel > *,
@@ -287,58 +338,58 @@ s-page[inline-size="large-500"] {
 }
 
 .ppNextBestActionPanel {
-  border-radius: 14px;
+  border-radius: 18px;
 }
 
 .ppNextBestActionPanel .ppStartHeading h2,
 .ppNextBestActionPanel .ppStartCopy h3,
 .ppNextBestActionPanel .ppNextBestWhy h3 {
-  color: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
 }
 
 .ppNextBestActionPanel .ppStartCopy > span,
 .ppNextBestActionPanel .ppNextBestProductName,
 .ppNextBestActionPanel .ppStartCopy p,
 .ppNextBestActionPanel .ppNextBestWhy p {
-  color: rgba(226, 232, 240, 0.82);
+  color: var(--pp-slate-600, var(--pp-slate-500));
 }
 
 .ppNextBestActionPanel .ppNextBestProductName {
-  color: rgba(241, 245, 249, 0.92);
+  color: var(--pp-slate-700);
 }
 
 .ppNextBestActionPanel .ppNextBestWhy {
-  border-left-color: rgba(255, 255, 255, 0.14);
+  border-left-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
 }
 
 .ppNextBestActionPanel .ppNextBestWhyMetric {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(226, 232, 240, 0.9);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: rgba(var(--pp-slate-500-rgb), 0.16);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--pp-slate-700);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppNextBestActionPanel .ppNextBestWhyMetric strong {
-  color: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
 }
 
 .ppNextBestActionPanel .ppNextBestWhyMetric small {
-  color: rgba(226, 232, 240, 0.72);
+  color: var(--pp-slate-500);
 }
 
 .ppNextBestActionPanel .ppNextBestWhyMetric-critical {
-  border-color: rgba(var(--pp-risk-red-rgb), 0.3);
-  background: rgba(var(--pp-risk-red-rgb), 0.16);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.18);
+  background: rgba(var(--pp-risk-red-rgb), 0.08);
 }
 
 .ppNextBestActionPanel .ppNextBestWhyMetric-warning {
-  border-color: rgba(var(--pp-warning-amber-rgb), 0.32);
-  background: rgba(var(--pp-warning-amber-rgb), 0.16);
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.2);
+  background: rgba(var(--pp-warning-amber-rgb), 0.09);
 }
 
 .ppNextBestActionPanel .ppNextBestWhyMetric-info {
-  border-color: rgba(var(--pp-pulse-blue-rgb), 0.34);
-  background: rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.2);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
 }
 
 .ppStartHeading,
@@ -2400,8 +2451,14 @@ s-page[inline-size="large-500"] {
 .ppProductDetailHeroPanel {
   display: grid;
   gap: 18px;
-  padding: 18px;
-  border-radius: 14px;
+  padding: 24px;
+  border: 1px solid rgba(67, 97, 238, 0.26);
+  border-radius: 20px;
+  background: var(--pp-overview-highlight-bg);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 14px 36px rgba(67, 97, 238, 0.10),
+    0 0 0 1px rgba(255, 255, 255, 0.75) inset;
 }
 
 .ppProductDetailSectionLabel {
@@ -3146,63 +3203,63 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailHeroPanel .ppProductTitleRow h1,
 .ppProductDetailHeroPanel .ppProductTitleHeading h1 {
-  color: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
 }
 
 .ppProductDetailHeroPanel .ppProductTitleRow p {
-  color: rgba(226, 232, 240, 0.78);
+  color: var(--pp-slate-700);
 }
 
 .ppProductDetailHeroPanel .ppProductBackButton,
 .ppProductDetailHeroPanel .ppProductExternalButton {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(241, 245, 249, 0.9);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-color: rgba(var(--pp-slate-500-rgb), 0.18);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--pp-slate-700);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
 }
 
 .ppProductDetailHeroPanel .ppProductBackButton:hover,
 .ppProductDetailHeroPanel .ppProductExternalButton:hover {
-  border-color: rgba(var(--pp-pulse-blue-rgb), 0.56);
-  background: rgba(var(--pp-pulse-blue-rgb), 0.16);
-  color: var(--pp-cloud-white);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.36);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
 }
 
 .ppProductDetailHeroPanel .ppProductWatchlistButton {
-  color: #ddd6fe;
-  border-color: rgba(var(--pp-insight-violet-rgb), 0.34);
+  color: var(--pp-insight-violet);
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.28);
   background:
-    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24), transparent 23%),
-    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.28), rgba(var(--pp-pulse-blue-rgb), 0.14));
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.94), transparent 22%),
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.14), rgba(var(--pp-pulse-blue-rgb), 0.08));
 }
 
 .ppProductDetailHeroPanel .ppProductWatchlistButton.isWatched {
-  color: #fecaca;
-  border-color: rgba(var(--pp-risk-red-rgb), 0.36);
-  background: rgba(var(--pp-risk-red-rgb), 0.16);
+  color: var(--pp-risk-red);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.24);
+  background: var(--pp-red-soft);
 }
 
 .ppProductDetailHeroPanel .ppProductHeaderActions .ppResolveButton.isUnresolved {
-  border-color: rgba(var(--pp-success-green-rgb), 0.44);
-  background: rgba(var(--pp-success-green-rgb), 0.14);
-  color: #bbf7d0;
+  border-color: rgba(var(--pp-success-green-rgb), 0.34);
+  background: linear-gradient(180deg, rgba(var(--pp-success-green-rgb), 0.13), rgba(var(--pp-success-green-rgb), 0.07));
+  color: #15803d;
 }
 
 .ppProductDetailHeroPanel .ppProductHeaderActions .ppResolveButton.isResolved {
-  border-color: rgba(var(--pp-risk-red-rgb), 0.42);
-  background: rgba(var(--pp-risk-red-rgb), 0.14);
-  color: #fecaca;
+  border-color: rgba(var(--pp-risk-red-rgb), 0.32);
+  background: linear-gradient(180deg, rgba(var(--pp-risk-red-rgb), 0.12), rgba(var(--pp-risk-red-rgb), 0.06));
+  color: var(--pp-risk-red);
 }
 
 .ppProductDetailHeroPanel .ppProductDiagnosisRunning {
-  border-color: rgba(var(--pp-info-cyan-rgb), 0.36);
-  background: rgba(var(--pp-info-cyan-rgb), 0.15);
-  color: #cffafe;
+  border-color: rgba(var(--pp-info-cyan-rgb), 0.28);
+  background: var(--pp-cyan-soft);
+  color: var(--pp-slate-900);
 }
 
 .ppProductDetailHeroPanel .ppProductArt {
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 18px 36px rgba(var(--pp-shadow-rgb), 0.32);
+  border-color: rgba(var(--pp-slate-500-rgb), 0.16);
+  box-shadow: 0 14px 30px rgba(var(--pp-shadow-rgb), 0.12);
 }
 
 .ppProductDetailHeroPanel .ppRiskSnapshot {
@@ -7244,10 +7301,40 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailSidebar .ppRecommendedActionsPanel {
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 12px;
-  background: var(--pp-cloud-white);
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 18px 44px rgba(var(--pp-shadow-rgb), 0.06);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(124, 92, 255, 0.20);
+  border-radius: 18px;
+  background: var(--pp-actions-highlight-bg);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 10px 26px rgba(15, 23, 42, 0.055),
+    0 0 0 1px rgba(255, 255, 255, 0.7) inset;
+}
+
+.ppProductDetailSidebar .ppRecommendedActionsPanel::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  content: "";
+  pointer-events: none;
+  background: var(--pp-highlight-accent);
+}
+
+.ppProductDetailSidebar .ppRecommendedActionsPanel::after {
+  position: absolute;
+  top: -120px;
+  right: -120px;
+  width: 260px;
+  height: 260px;
+  content: "";
+  pointer-events: none;
+  background: var(--pp-highlight-glow);
+}
+
+.ppProductDetailSidebar .ppRecommendedActionsPanel > * {
+  position: relative;
+  z-index: 1;
 }
 
 .ppProductDetailSidebar .ppRecommendedActionsHeader {
@@ -7304,47 +7391,58 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedAction {
-  border-color: rgba(226, 232, 240, 0.16);
-  background: var(--pp-dark-neutral-gradient);
-  color: rgba(241, 245, 249, 0.92);
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(124, 92, 255, 0.18);
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--pp-slate-900);
   box-shadow:
-    0 14px 32px rgba(var(--pp-shadow-rgb), 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 10px 24px rgba(var(--pp-shadow-rgb), 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.ppProductDetailSidebar .ppCompactRecommendedAction::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.7), rgba(var(--pp-insight-violet-rgb), 0.42));
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedAction:hover,
 .ppProductDetailSidebar .ppCompactRecommendedAction:focus-visible {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.34);
   box-shadow:
-    0 18px 38px rgba(var(--pp-shadow-rgb), 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 14px 30px rgba(var(--pp-pulse-blue-rgb), 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedContent > strong,
 .ppProductDetailSidebar .ppCompactActionMetric strong {
-  color: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedDescription,
 .ppProductDetailSidebar .ppCompactActionMetric small {
-  color: rgba(226, 232, 240, 0.7);
+  color: var(--pp-slate-500);
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedAction > s-icon {
-  color: rgba(226, 232, 240, 0.72);
+  color: var(--pp-slate-600, var(--pp-slate-500));
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedIndex {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--pp-cloud-white);
+  background: rgba(var(--pp-insight-violet-rgb), 0.1);
+  color: var(--pp-insight-violet);
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedMetrics {
-  border-top-color: rgba(255, 255, 255, 0.14);
+  border-top-color: rgba(var(--pp-slate-500-rgb), 0.14);
 }
 
 .ppProductDetailSidebar .ppCompactActionMetric {
-  border-left-color: rgba(255, 255, 255, 0.12);
+  border-left-color: rgba(var(--pp-slate-500-rgb), 0.14);
 }
 
 .ppCompactRecommendedContent {
@@ -15254,7 +15352,7 @@ s-page[inline-size="large-500"] {
   align-items: stretch;
   gap: 12px;
   padding: 18px;
-  border-radius: 14px;
+  border-radius: 18px;
 }
 
 .ppProductsSearch {
@@ -15439,66 +15537,65 @@ s-page[inline-size="large-500"] {
 
 .ppProductsToolbar .ppFilterPillGroupLabel,
 .ppProductsToolbar .ppCompactSelect span {
-  color: rgba(226, 232, 240, 0.74);
+  color: var(--pp-slate-500);
 }
 
 .ppProductsToolbar .ppFilterPillGroup > div {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: rgba(var(--pp-slate-500-rgb), 0.18);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppProductsToolbar .ppFilterPill {
-  color: rgba(226, 232, 240, 0.86);
+  color: var(--pp-slate-700);
 }
 
 .ppProductsToolbar .ppFilterPill:hover,
 .ppProductsToolbar .ppFilterPill.isActive {
-  background: rgba(255, 255, 255, 0.13);
-  color: var(--pp-cloud-white);
-  box-shadow: 0 4px 12px rgba(var(--pp-shadow-rgb), 0.16);
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 4px 12px rgba(var(--pp-pulse-blue-rgb), 0.1);
 }
 
 .ppProductsToolbar .ppFilterPill small {
-  background: rgba(var(--pp-pulse-blue-rgb), 0.24);
-  color: rgba(255, 255, 255, 0.92);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.1);
+  color: inherit;
 }
 
 .ppProductsToolbar .ppCompactSearchFilter input,
 .ppProductsToolbar .ppCompactSelect select {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--pp-cloud-white);
-  color-scheme: dark;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-color: rgba(var(--pp-slate-500-rgb), 0.18);
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--pp-slate-700);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppProductsToolbar .ppCompactSearchFilter input::placeholder {
-  color: rgba(226, 232, 240, 0.5);
+  color: var(--pp-slate-500);
 }
 
 .ppProductsToolbar .ppSecondaryActionButton {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(241, 245, 249, 0.9);
-  box-shadow: none;
+  border-color: rgba(var(--pp-slate-500-rgb), 0.18);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--pp-slate-700);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppProductsToolbar .ppSecondaryActionButton:hover {
-  border-color: rgba(var(--pp-pulse-blue-rgb), 0.58);
-  background: rgba(var(--pp-pulse-blue-rgb), 0.18);
-  color: var(--pp-cloud-white);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.36);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
 }
 
 .ppProductsToolbar .ppProductsWatchlistBulkButton {
   border-color: rgba(124, 58, 237, 0.34);
-  background: rgba(124, 58, 237, 0.16);
-  color: var(--pp-cloud-white);
+  background: rgba(124, 58, 237, 0.1);
+  color: var(--pp-insight-violet);
 }
 
 .ppProductsToolbar .ppProductsWatchlistBulkButton:not(:disabled):hover {
-  border-color: rgba(124, 58, 237, 0.7);
-  background: rgba(124, 58, 237, 0.26);
+  border-color: rgba(124, 58, 237, 0.46);
+  background: rgba(124, 58, 237, 0.14);
 }
 
 .ppProductsToolbar .ppProductsWatchlistBulkButton:disabled {
