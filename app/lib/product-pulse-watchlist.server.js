@@ -34,6 +34,7 @@ const DEFAULT_WATCH_SETTINGS = {
 };
 const WATCH_TREND_COLORS = ["#3A6BFF", "#7C3AED", "#14B8A6", "#F59E0B", "#EF4444"];
 const WATCH_CHANGE_REPORT_EVENT = "watch_change_report";
+const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 
 export async function getWatchlistForShop(shop) {
   const items = await prisma.productWatchlistItem.findMany({
@@ -41,14 +42,15 @@ export async function getWatchlistForShop(shop) {
     orderBy: { addedAt: "asc" },
   });
   const productGids = items.map((item) => item.productGid).filter(Boolean);
-  const [snapshots, latestChangeReports] = productGids.length
+  const [snapshots, latestChangeReports, activeDiagnosisJobs] = productGids.length
     ? await Promise.all([
       prisma.productRiskSnapshot.findMany({
         where: { shop, productGid: { in: productGids } },
       }),
       getLatestWatchChangeReportsForProducts(shop, productGids),
+      getActiveWatchlistDiagnosisJobsForShop(shop),
     ])
-    : [[], new Map()];
+    : [[], new Map(), []];
   const snapshotByProductGid = new Map(snapshots.map((snapshot) => [snapshot.productGid, snapshot]));
   const productPulseSettings = await getProductPulseSettings(shop);
   const rows = items.map((item) => formatWatchlistRow(
@@ -56,6 +58,7 @@ export async function getWatchlistForShop(shop) {
     snapshotByProductGid.get(item.productGid),
     productPulseSettings,
     latestChangeReports.get(item.productGid),
+    findActiveWatchlistDiagnosisJobForItem(item, activeDiagnosisJobs),
   ));
   const watchedCount = rows.length;
   const [activities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
@@ -225,6 +228,102 @@ export async function addWatchedProductForShop(shop, product = {}) {
     message: `${item.productTitle} added to the watchlist.`,
     action: { id: "add-watched-product", productGid: item.productGid },
     watchedCount: watchedCount + 1,
+  };
+}
+
+export async function addWatchedProductsForShop(shop, products = []) {
+  const normalizedProducts = normalizeBulkWatchlistProducts(products);
+  if (!normalizedProducts.length) {
+    return { status: "validation_error", message: "Select at least one product to add to the watchlist." };
+  }
+
+  const productGids = normalizedProducts.map((product) => product.productGid);
+  const [existingItems, watchedCount] = await Promise.all([
+    prisma.productWatchlistItem.findMany({
+      where: { shop, productGid: { in: productGids } },
+      select: { productGid: true, productTitle: true },
+    }),
+    prisma.productWatchlistItem.count({ where: { shop } }),
+  ]);
+  const existingProductGids = new Set(existingItems.map((item) => item.productGid));
+  const candidates = normalizedProducts.filter((product) => !existingProductGids.has(product.productGid));
+  const existingCount = normalizedProducts.length - candidates.length;
+  const slotsAvailable = Math.max(0, WATCHLIST_MAX_PRODUCTS - watchedCount);
+
+  if (!candidates.length) {
+    return {
+      status: "success",
+      message: existingCount === 1
+        ? "The selected product is already on the watchlist."
+        : "All selected products are already on the watchlist.",
+      action: { id: "add-watched-products" },
+      suppressBanner: true,
+    };
+  }
+
+  if (slotsAvailable <= 0) {
+    return {
+      status: "validation_error",
+      message: "Watchlist is full. Remove a watched product before adding selected products.",
+      action: { id: "add-watched-products" },
+    };
+  }
+
+  const productsToCreate = candidates.slice(0, slotsAvailable);
+  const skippedForCapacity = Math.max(0, candidates.length - productsToCreate.length);
+  const createdItems = [];
+
+  for (const product of productsToCreate) {
+    try {
+      const item = await prisma.productWatchlistItem.create({
+        data: {
+          shop,
+          productGid: product.productGid,
+          productTitle: product.title,
+          handle: optionalString(product.handle),
+          sku: optionalString(product.sku),
+          status: "Watching",
+          imageUrl: optionalString(product.imageUrl),
+          imageAlt: optionalString(product.imageAlt),
+        },
+      });
+      createdItems.push(item);
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+    }
+  }
+
+  if (createdItems.length) {
+    await prisma.productWatchActivity.createMany({
+      data: createdItems.map((item) => ({
+        shop,
+        productGid: item.productGid,
+        productTitle: item.productTitle,
+        watchlistItemId: item.id,
+        eventType: "product_added",
+        title: "Product added to watchlist",
+        detail: item.productTitle,
+        metadata: { handle: item.handle, sku: item.sku, bulk: true },
+      })),
+    });
+  }
+
+  const messageParts = [];
+  if (createdItems.length) {
+    messageParts.push(`${createdItems.length} product${createdItems.length === 1 ? "" : "s"} added to the watchlist`);
+  }
+  if (existingCount) {
+    messageParts.push(`${existingCount} already watching`);
+  }
+  if (skippedForCapacity) {
+    messageParts.push(`${skippedForCapacity} skipped because the watchlist is full`);
+  }
+
+  return {
+    status: createdItems.length ? "success" : "validation_error",
+    message: `${messageParts.join(" · ")}.`,
+    action: { id: "add-watched-products", addedCount: createdItems.length },
+    watchedCount: watchedCount + createdItems.length,
   };
 }
 
@@ -470,7 +569,7 @@ async function findWatchedProduct(shop, productGid) {
   });
 }
 
-function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, latestChangeReport = null) {
+function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, latestChangeReport = null, activeDiagnosisJob = null) {
   const riskScore = snapshot ? Number(snapshot.riskScore || 0) : null;
   const metrics = snapshot?.metrics || {};
   const riskTone = snapshot ? getRiskToneForScore(riskScore, productPulseSettings) : "subdued";
@@ -500,6 +599,50 @@ function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, la
     lastIssueDetail: hasSnapshot ? formatWatchTimestamp(updatedAt) : "Waiting for automatic watch cadence",
     addedAt: formatWatchDate(item.addedAt),
     latestChangeReport,
+    diagnosisJob: activeDiagnosisJob ? formatWatchlistDiagnosisJob(activeDiagnosisJob) : null,
+  };
+}
+
+async function getActiveWatchlistDiagnosisJobsForShop(shop) {
+  return prisma.catalogSignalJob.findMany({
+    where: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      status: { in: ["Queued", "Running"] },
+    },
+    orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
+  });
+}
+
+function findActiveWatchlistDiagnosisJobForItem(item, jobs = []) {
+  const keys = new Set([
+    item?.productGid,
+    item?.handle,
+  ].filter(Boolean).map(String));
+  if (!keys.size) return null;
+
+  return jobs.find((job) => getWatchlistDiagnosisJobKeys(job).some((key) => keys.has(key))) || null;
+}
+
+function getWatchlistDiagnosisJobKeys(job) {
+  return [
+    job.payload?.productGid,
+    job.payload?.handle,
+    job.payload?.productId,
+  ].filter(Boolean).map(String);
+}
+
+function formatWatchlistDiagnosisJob(job) {
+  return {
+    id: job.id,
+    kind: job.kind,
+    status: job.status,
+    progress: job.progress,
+    source: job.errorMessage || job.source,
+    errorMessage: job.errorMessage || null,
+    updatedAtIso: toWatchIso(job.updatedAt),
+    startedAtIso: toWatchIso(job.startedAt),
+    finishedAtIso: job.finishedAt ? toWatchIso(job.finishedAt) : null,
   };
 }
 
@@ -1380,6 +1523,27 @@ function getSummaryLabel(value) {
 function optionalString(value) {
   const normalized = String(value || "").trim();
   return normalized || null;
+}
+
+function normalizeBulkWatchlistProducts(products = []) {
+  const byProductGid = new Map();
+  (Array.isArray(products) ? products : []).forEach((product) => {
+    const productGid = String(product?.productGid || product?.id || "").trim();
+    if (!productGid || byProductGid.has(productGid)) return;
+    byProductGid.set(productGid, {
+      productGid,
+      title: String(product?.title || "Shopify product").trim() || "Shopify product",
+      handle: String(product?.handle || "").trim(),
+      sku: String(product?.sku || "").trim(),
+      imageUrl: String(product?.imageUrl || "").trim(),
+      imageAlt: String(product?.imageAlt || product?.title || "").trim(),
+    });
+  });
+  return Array.from(byProductGid.values());
+}
+
+function isUniqueConstraintError(error) {
+  return error?.code === "P2002";
 }
 
 function normalizeWatchAnalysisItems(items = []) {

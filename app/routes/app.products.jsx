@@ -11,7 +11,7 @@ import {
   startFastProductScan,
 } from "../lib/product-pulse-jobs.server";
 import { getProductPulseSettings } from "../lib/product-pulse-settings.server";
-import { addWatchedProductForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
+import { addWatchedProductForShop, addWatchedProductsForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
 
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
@@ -89,6 +89,10 @@ export const action = async ({ request }) => {
     });
   }
 
+  if (formData.get("_action") === "add-selected-to-watchlist") {
+    return addWatchedProductsForShop(session.shop, parseSelectedWatchlistProducts(formData.get("products")));
+  }
+
   if (formData.get("_action") === "remove-from-watchlist") {
     return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
   }
@@ -100,4 +104,13 @@ export default function Products() {
   const { data, filters } = useLoaderData();
   const actionData = useActionData();
   return <ProductsScreen data={data} filters={filters} actionData={actionData} />;
+}
+
+function parseSelectedWatchlistProducts(value) {
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

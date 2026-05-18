@@ -12817,6 +12817,17 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
 }
 
+.ppWatchlistProductImageWrap {
+  position: relative;
+  display: inline-flex;
+  width: fit-content;
+}
+
+.ppWatchlistDiagnosisLabel {
+  color: var(--pp-pulse-blue) !important;
+  font-weight: 800;
+}
+
 .ppWatchlistProductCell strong,
 .ppWatchlistProductCell small,
 .ppWatchIssueCell strong,
@@ -15390,6 +15401,22 @@ s-page[inline-size="large-500"] {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.58);
   background: rgba(var(--pp-pulse-blue-rgb), 0.18);
   color: var(--pp-cloud-white);
+}
+
+.ppProductsToolbar .ppProductsWatchlistBulkButton {
+  border-color: rgba(124, 58, 237, 0.34);
+  background: rgba(124, 58, 237, 0.16);
+  color: var(--pp-cloud-white);
+}
+
+.ppProductsToolbar .ppProductsWatchlistBulkButton:not(:disabled):hover {
+  border-color: rgba(124, 58, 237, 0.7);
+  background: rgba(124, 58, 237, 0.26);
+}
+
+.ppProductsToolbar .ppProductsWatchlistBulkButton:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 .ppBulkHint {

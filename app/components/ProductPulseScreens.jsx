@@ -522,12 +522,17 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
   const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
-  const pendingWatchlistAction = navigation.state === "submitting" && ["add-to-watchlist", "remove-from-watchlist"].includes(String(navigation.formData?.get("_action") || ""));
+  const pendingWatchlistAction = navigation.state === "submitting" && ["add-to-watchlist", "add-selected-to-watchlist", "remove-from-watchlist"].includes(String(navigation.formData?.get("_action") || ""));
+  const pendingBulkWatchlistAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-selected-to-watchlist";
   const pendingAnalyzeIds = pendingBulkAnalyze ? Array.from(navigation.formData?.getAll("productId") || []).map(String) : [];
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
   const quickScanCsvAvailable = isQuickScanCsvReviewSourceAvailable(data);
   const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
   const visibleProductKeys = productRows.map(getProductActionKey);
+  const selectedProductRows = useMemo(
+    () => productRows.filter((product) => selectedProducts.has(getProductActionKey(product))),
+    [productRows, selectedProducts],
+  );
   const selectedCount = selectedProducts.size;
   const allVisibleSelected = visibleProductKeys.length > 0 && visibleProductKeys.every((key) => selectedProducts.has(key));
   const hasVisibleSelection = visibleProductKeys.some((key) => selectedProducts.has(key));
@@ -619,9 +624,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
       setAnalysisConfirmation(null);
       setShopifyProductSearchOpen(false);
     }
-    if (["add-watched-product", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
+    if (["add-watched-product", "add-watched-products", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistConfirmation(null);
       setOpenActionProduct(null);
+    }
+    if (actionData?.status === "success" && actionData?.action?.id === "add-watched-products") {
+      setSelectedProducts(new Set());
     }
   }, [actionData]);
 
@@ -697,15 +705,34 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const handleAnalyzeSelected = () => {
     if (!selectedCount || pendingBulkAnalyze) return;
     const selectedIds = Array.from(selectedProducts);
-    const selectedRows = productRows.filter((product) => selectedProducts.has(getProductActionKey(product)));
     setAnalysisConfirmation({
       mode: "bulk",
       title: "Confirm selected product analysis",
       products: selectedIds,
-      productTitles: selectedRows.map((product) => product.title),
+      productTitles: selectedProductRows.map((product) => product.title),
       count: selectedIds.length,
       credits: selectedIds.length,
     });
+  };
+
+  const handleAddSelectedToWatchlist = () => {
+    if (!selectedCount || pendingBulkWatchlistAdd) return;
+    const products = selectedProductRows
+      .filter((product) => product.productGid)
+      .map((product) => ({
+        productGid: product.productGid,
+        title: product.title,
+        handle: product.handle,
+        sku: product.sku,
+        imageUrl: product.imageUrl,
+        imageAlt: product.imageAlt || product.title,
+      }));
+    if (!products.length) return;
+
+    const formData = new FormData();
+    formData.set("_action", "add-selected-to-watchlist");
+    formData.set("products", JSON.stringify(products));
+    submit(formData, { method: "post" });
   };
 
   const handleAnalyzeProduct = (product) => {
@@ -807,6 +834,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   <s-icon type="wand" size="small"></s-icon>
                   {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
                 </button>
+                {selectedCount > 0 && (
+                  <button className="ppSecondaryActionButton ppProductsWatchlistBulkButton" type="button" disabled={pendingBulkWatchlistAdd} onClick={handleAddSelectedToWatchlist}>
+                    <s-icon type="binoculars" size="small"></s-icon>
+                    {pendingBulkWatchlistAdd ? "Adding..." : "Add to Watchlist"}
+                  </button>
+                )}
                 <Link className="ppSecondaryActionButton" to="/app/products">
                   <s-icon type="x" size="small"></s-icon>
                   Clear filters
@@ -1107,6 +1140,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 }
 
 export function WatchlistScreen({ data = {}, actionData }) {
+  const revalidator = useRevalidator();
   const navigation = useNavigation();
   const submit = useSubmit();
   const shopifyProductSearchFetcher = useFetcher();
@@ -1140,10 +1174,17 @@ export function WatchlistScreen({ data = {}, actionData }) {
     ? shopifyProductSearchData.message
     : "";
   const atCapacity = watchedCount >= maxProducts;
+  const hasActiveWatchlistDiagnosisJobs = rows.some((row) => getProductDiagnosisState(row));
 
   useEffect(() => {
     shopifyProductSearchSubmitRef.current = shopifyProductSearchFetcher.submit;
   }, [shopifyProductSearchFetcher.submit]);
+
+  useEffect(() => {
+    if (!hasActiveWatchlistDiagnosisJobs) return undefined;
+    const interval = window.setInterval(() => revalidator.revalidate(), PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
+    return () => window.clearInterval(interval);
+  }, [hasActiveWatchlistDiagnosisJobs, revalidator]);
 
   useEffect(() => {
     if (!shopifyProductSearchOpen) return undefined;
@@ -1304,20 +1345,29 @@ function WatchlistProductRow({ product }) {
   const paused = product.status === "Paused";
   const latestReport = product.latestChangeReport || null;
   const hasReport = Boolean(latestReport);
+  const diagnosisState = getProductDiagnosisState(product);
 
   return (
     <>
-      <tr>
+      <tr className={diagnosisState ? "isDiagnosing" : ""}>
         <td>
           <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
-            <ProductArt
-              variant={product.variant || "shirt"}
-              label={product.title}
-              imageUrl={product.imageUrl}
-              imageAlt={product.imageAlt}
-            />
+            <span className="ppWatchlistProductImageWrap">
+              <ProductArt
+                variant={product.variant || "shirt"}
+                label={product.title}
+                imageUrl={product.imageUrl}
+                imageAlt={product.imageAlt}
+              />
+              {diagnosisState && (
+                <span className="ppProductDiagnosisLoader" aria-label={`${diagnosisState.label} for ${product.title}`}>
+                  <span aria-hidden="true" />
+                </span>
+              )}
+            </span>
             <span>
               <strong>{product.title}</strong>
+              {diagnosisState && <small className="ppWatchlistDiagnosisLabel">{diagnosisState.label}</small>}
               <small>{product.sku ? `SKU: ${product.sku}` : product.handle ? `/${product.handle}` : "Shopify product"}</small>
             </span>
           </Link>
