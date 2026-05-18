@@ -6,13 +6,13 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
-import { REQUIRED_SHOPIFY_SCOPES_STRING } from "./lib/product-pulse-scopes";
+import { getConfiguredShopifyScopes } from "./lib/product-pulse-scopes";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
   apiVersion: ApiVersion.April26,
-  scopes: (process.env.SCOPES || REQUIRED_SHOPIFY_SCOPES_STRING).split(","),
+  scopes: getConfiguredShopifyScopes(process.env.SCOPES),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),

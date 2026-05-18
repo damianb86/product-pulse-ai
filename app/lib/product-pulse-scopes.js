@@ -12,3 +12,17 @@ export const REQUIRED_SHOPIFY_SCOPES = [
 ];
 
 export const REQUIRED_SHOPIFY_SCOPES_STRING = REQUIRED_SHOPIFY_SCOPES.join(",");
+
+export function normalizeShopifyScopes(scopeString) {
+  return String(scopeString || "")
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+export function getConfiguredShopifyScopes(scopeString) {
+  return [...new Set([
+    ...REQUIRED_SHOPIFY_SCOPES,
+    ...normalizeShopifyScopes(scopeString),
+  ])];
+}

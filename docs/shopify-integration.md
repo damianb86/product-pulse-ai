@@ -14,6 +14,7 @@
 - `write_products` is needed for merchant-confirmed product description, tag and catalog updates.
 - `write_orders` and `write_returns` are needed for the Settings mock dataset generator, which creates controlled test orders, refunds and returns in Shopify for repeatable diagnostics QA.
 - Do not request `read_customers` for the current app surface.
+- Local `SCOPES` can add extra scopes, but required scopes are merged from `app/lib/product-pulse-scopes.js` at app boot so stale env values do not remove required permissions from OAuth requests.
 
 ## Admin GraphQL Patterns
 - Run Admin GraphQL only from server loaders/actions.
