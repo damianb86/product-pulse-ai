@@ -860,20 +860,7 @@ function buildWatchChangeReport({
     current,
     narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceInsights, changes, current, previous } }),
     sourceInsights,
-    sections: status === "unchanged" ? [{
-      id: "unchanged",
-      title: "No changes",
-      tone: "green",
-      changes: [{
-        id: "no-meaningful-change",
-        label: "Watchlist comparison",
-        from: `${previous.riskLabel} risk (${previous.riskScore})`,
-        to: `${current.riskLabel} risk (${current.riskScore})`,
-        delta: "Stable",
-        direction: "neutral",
-        detail: "The latest run matched the previous stored product state closely enough that there is nothing new to review.",
-      }],
-    }] : sections,
+    sections: status === "unchanged" ? [] : sections,
     changes,
   };
 }

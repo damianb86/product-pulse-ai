@@ -356,6 +356,7 @@ describe("ProductPulse watchlist helpers", () => {
 
     expect(report.status).toBe("unchanged");
     expect(report.changeCount).toBe(0);
-    expect(report.sections[0].title).toBe("No changes");
+    expect(report.sections).toEqual([]);
+    expect(report.changes).toEqual([]);
   });
 });

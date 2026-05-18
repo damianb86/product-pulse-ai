@@ -1443,18 +1443,21 @@ function WatchlistProductRow({ product }) {
 
 function WatchChangeReportModal({ product, report, onClose }) {
   if (typeof document === "undefined") return null;
-  const statusTone = getWatchReportStatusTone(report?.status);
-  const statusLabel = getWatchReportStatusLabel(report?.status);
   const sections = Array.isArray(report?.sections) ? report.sections : [];
+  const visibleSections = getVisibleWatchReportSections(sections);
   const sourceInsights = Array.isArray(report?.sourceInsights) ? report.sourceInsights : [];
   const current = report?.current || {};
-  const changedCards = getWatchReportChangeCards(report, sections);
+  const changedCards = getWatchReportChangeCards(report, visibleSections);
+  const hasVisibleChanges = changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0;
+  const effectiveStatus = !hasVisibleChanges && report?.status !== "baseline" ? "unchanged" : report?.status;
+  const statusTone = getWatchReportStatusTone(effectiveStatus);
+  const statusLabel = getWatchReportStatusLabel(effectiveStatus);
 
   return createPortal(
     <div className="ppAnalysisConfirmOverlay ppWatchChangeReportOverlay" role="presentation">
       <section className="ppWatchChangeReportModal" role="dialog" aria-modal="true" aria-labelledby="watch-change-report-title">
         <header className="ppWatchChangeReportHeader">
-          <DashboardIcon type={report?.status === "unchanged" ? "check" : "chart-line"} tone="blue" />
+          <DashboardIcon type={effectiveStatus === "unchanged" ? "check" : "chart-line"} tone="blue" />
           <div>
             <span className="ppWatchChangeReportEyebrow">Watchlist change report</span>
             <h2 id="watch-change-report-title">{product.title}</h2>
@@ -1487,7 +1490,7 @@ function WatchChangeReportModal({ product, report, onClose }) {
               <strong>{Number(report?.changeCount || 0)}</strong>
             </div>
             <div>
-              <DashboardIcon type={report?.status === "unchanged" ? "check" : "alert-circle"} tone={statusTone} size="small" />
+              <DashboardIcon type={effectiveStatus === "unchanged" ? "check" : "alert-circle"} tone={statusTone} size="small" />
               <span>Scan status</span>
               <strong className={`ppWatchChangeReportStatus ppWatchChangeReportStatus-${statusTone}`}>{statusLabel}</strong>
             </div>
@@ -1520,9 +1523,17 @@ function WatchChangeReportModal({ product, report, onClose }) {
                 })}
               </div>
             </section>
+          ) : effectiveStatus === "unchanged" ? (
+            <section className="ppWatchNoChangesPanel" aria-label="No Watchlist changes detected">
+              <DashboardIcon type="check" tone="green" />
+              <div>
+                <h3>No changes detected</h3>
+                <p>No meaningful product risk, evidence, financial exposure or momentum movement was detected since the previous Watchlist run.</p>
+              </div>
+            </section>
           ) : report?.headline ? (
             <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
-              <s-icon type={report.status === "unchanged" ? "check" : "info"} size="small"></s-icon>
+              <s-icon type="info" size="small"></s-icon>
               <span>{report.headline}</span>
             </div>
           ) : null}
@@ -1557,7 +1568,7 @@ function WatchChangeReportModal({ product, report, onClose }) {
           ) : null}
 
           <div className="ppWatchChangeReportSections">
-            {sections.map((section) => (
+            {visibleSections.map((section) => (
               <article className="ppWatchChangeReportSection" key={section.id || section.title}>
                 <div className="ppWatchChangeReportSectionHeader">
                   <DashboardIcon type={getWatchReportSectionIcon(section.id)} tone={section.tone || "blue"} size="small" />
@@ -1612,7 +1623,35 @@ function getWatchReportChangeCards(report, sections = []) {
       ? section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title }))
       : []
   ));
-  return (explicit.length ? explicit : sectionChanges).slice(0, 4);
+  return (explicit.length ? explicit : sectionChanges).filter(isMeaningfulWatchReportChange).slice(0, 4);
+}
+
+function getVisibleWatchReportSections(sections = []) {
+  return (Array.isArray(sections) ? sections : [])
+    .map((section) => ({
+      ...section,
+      changes: (Array.isArray(section?.changes) ? section.changes : []).filter(isMeaningfulWatchReportChange),
+    }))
+    .filter((section) => section.changes.length);
+}
+
+function isMeaningfulWatchReportChange(change = {}) {
+  if (!change || typeof change !== "object") return false;
+  const id = String(change.id || "").toLowerCase();
+  if (id === "no-meaningful-change") return false;
+  const delta = String(change.delta || "").trim().toLowerCase();
+  if (["", "stable", "no change", "unchanged", "0", "+0", "$0", "+$0", "0%", "+0%"].includes(delta)) return false;
+  const from = normalizeWatchComparableValue(change.from);
+  const to = normalizeWatchComparableValue(change.to);
+  if (from && to && from === to) return false;
+  return true;
+}
+
+function normalizeWatchComparableValue(value) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function getWatchReportStatusTone(status) {
