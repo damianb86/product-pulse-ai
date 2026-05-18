@@ -15,6 +15,7 @@
 - `write_orders` and `write_returns` are needed for the Settings mock dataset generator, which creates controlled test orders, refunds and returns in Shopify for repeatable diagnostics QA.
 - Do not request `read_customers` for the current app surface.
 - Local `SCOPES` can add extra scopes, but required scopes are merged from `app/lib/product-pulse-scopes.js` at app boot so stale env values do not remove required permissions from OAuth requests.
+- Shopify can report only the write scope in a granted session even when that write scope includes equivalent read access. ProductPulse treats `write_products`, `write_orders` and `write_returns` as satisfying `read_products`, `read_orders` and `read_returns` for mock dataset validation.
 
 ## Admin GraphQL Patterns
 - Run Admin GraphQL only from server loaders/actions.

@@ -22,6 +22,11 @@ const GENERATED_TAG = "productpulse-gen";
 const GENERATED_REVIEW_SOURCE = "ProductPulse mock reviews";
 const DEFAULT_ORDER_COUNT = 120;
 const MIN_ORDER_CREATE_DELAY_MS = 12_500;
+const SHOPIFY_SCOPE_READ_EQUIVALENTS = {
+  read_products: ["write_products"],
+  read_orders: ["write_orders"],
+  read_returns: ["write_returns"],
+};
 
 const MOCK_PRODUCTS = [
   {
@@ -414,7 +419,12 @@ const MOCK_PRODUCTS = [
 
 export function getMissingShopifyMockDatasetScopes(scopeString) {
   const granted = new Set(String(scopeString || "").split(",").map((scope) => scope.trim()).filter(Boolean));
-  return REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES.filter((scope) => !granted.has(scope));
+  return REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES.filter((scope) => !hasShopifyScope(granted, scope));
+}
+
+function hasShopifyScope(granted, scope) {
+  if (granted.has(scope)) return true;
+  return (SHOPIFY_SCOPE_READ_EQUIVALENTS[scope] || []).some((equivalentScope) => granted.has(equivalentScope));
 }
 
 export async function getShopifyMockDatasetState(shop) {
