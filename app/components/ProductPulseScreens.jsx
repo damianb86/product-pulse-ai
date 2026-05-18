@@ -4098,6 +4098,19 @@ function getRecommendedActionDisplayScore(action = {}, product = {}) {
   const lowRiskHighImpact = impact === "high" && applyRisk === "low";
   const lowEffortHighImpact = impact === "high" && (effort === "low" || effort === "medium");
   const idealPrimary = isCustomerFacing && lowRiskHighImpact && evidenceStrength === "strong" && lowEffortHighImpact;
+  const sourceIntegrityAction = /source.*mismatch|source integrity|review feed integrity|feed mismatch/.test(normalized);
+  const productSourceIntegrity = /source integrity|review feed|feed mismatch|metadata mismatch|review mismatch|wrong product|wrong sku/.test([
+    product.primaryIssue,
+    product.metrics?.primaryIssue,
+    ...(Array.isArray(product.metrics?.contentAnalysis?.issues) ? product.metrics.contentAnalysis.issues : []).map((issue) => `${issue.code || ""} ${issue.label || ""} ${issue.evidence || ""}`),
+  ].join(" ").toLowerCase());
+  const refundOperationalAction = /supplier|qa/.test(normalized)
+    && Number(product.metrics?.refundUnits || 0) >= 3
+    && Number(product.metrics?.refundRate || 0) >= 20;
+  const broadVariantAction = /variant|option|sku/.test(normalized) && !hasStrongDisplayedVariantConcentration(product.metrics || {});
+  const refundOnlyPricingAction = /price|pricing|compare-at/.test(normalized)
+    && Number(product.metrics?.refundUnits || 0) >= 3
+    && !/\b(expensive|overpriced|not worth|value|price perception|quality for the price)\b/.test(normalized);
 
   let score = 0;
   score += { high: 48, medium: 24, optional: 4 }[impact] || 0;
@@ -4113,6 +4126,11 @@ function getRecommendedActionDisplayScore(action = {}, product = {}) {
   if (lowEffortHighImpact) score += 12;
   if (affectsReturnsOrReviews && impact === "high") score += 10;
   if (/expectation|fit note|quality note|faq|spec|details|correct-product-description|description/.test(normalized)) score += 8;
+  if (sourceIntegrityAction) score += 150;
+  if (productSourceIntegrity && !sourceIntegrityAction && /description|pdp|expectation|faq|fit|variant|option|price|pricing|compare-at/.test(normalized)) score -= 120;
+  if (refundOperationalAction) score += 72;
+  if (broadVariantAction) score -= 80;
+  if (refundOnlyPricingAction) score -= 70;
   if (/tag|collection|workflow|monitoring|baseline|connect-missing-source|internal note/.test(normalized)) score -= 10;
   if (actionKind === "investigation") score -= 18;
   if (isInternal) score -= 8;
@@ -4124,6 +4142,20 @@ function getRecommendedActionDisplayScore(action = {}, product = {}) {
   if (approval.includes("strong") || approval.includes("manual approval")) score -= 8;
 
   return score;
+}
+
+function hasStrongDisplayedVariantConcentration(metrics = {}) {
+  const variantCount = Number(metrics.variantCount || 0);
+  const details = Array.isArray(metrics.affectedVariantDetails) ? metrics.affectedVariantDetails : [];
+  if (!details.length) return false;
+  const counts = details.map((item) => Number(item.count || 0)).filter((count) => count > 0);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const strongest = Math.max(0, ...counts);
+  if (strongest < 3 || total < 4) return false;
+  const affectedCount = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants.length : details.length;
+  const ratio = strongest / Math.max(total, 1);
+  if (variantCount > 1 && affectedCount >= variantCount && ratio < 0.85) return false;
+  return ratio >= 0.65;
 }
 
 function getRecommendedActionRankingText(action = {}, application = {}) {

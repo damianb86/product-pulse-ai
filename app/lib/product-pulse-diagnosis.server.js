@@ -3176,6 +3176,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const topReasons = deterministic.metrics.topReturnReasons || [];
   const affectedVariants = deterministic.metrics.affectedVariants || [];
   const recipeSignals = getRecommendationRecipeSignals(deterministic);
+  const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
   const pdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
@@ -3199,7 +3200,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
-  const primaryPdpDescriptionAction = Boolean(hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction && pdpCopy);
+  const canRecommendCustomerFacingCopy = !sourceIntegrityMode;
+  const primaryPdpDescriptionAction = Boolean(canRecommendCustomerFacingCopy && hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction && pdpCopy);
   const shopperGuidanceForDescription = primaryPdpDescriptionAction ? pdpCopy : "";
   const descriptionDraftForRewrite = shouldRewriteDescription ? buildEnhancedDescriptionDraft({
     title: snapshot.productTitle,
@@ -3238,7 +3240,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (contentIssues.length > 0) {
+  if (contentIssues.length > 0 && canRecommendCustomerFacingCopy) {
     if (shouldRewriteDescription) {
       const descriptionDraft = buildEnhancedDescriptionDraft({
         title: snapshot.productTitle,
@@ -3347,7 +3349,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (faqNeed.shouldRecommend && faqItems.length) {
+  if (canRecommendCustomerFacingCopy && faqNeed.shouldRecommend && faqItems.length) {
     recommendations.push({
       id: "create-product-faq",
       label: getFaqActionLabel(mainIssue),
@@ -3900,7 +3902,10 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  return deduplicateRecommendationActions(uniqueBy(recommendations, (item) => item.id))
+  return prioritizeRecommendationActions(
+    deduplicateRecommendationActions(uniqueBy(recommendations, (item) => item.id)),
+    { deterministic, mainIssue, recipeSignals },
+  )
     .map((item) => attachAiActionRationale(item, actionRationales))
     .map((item, index) => decorateRecommendationRecipe(item, { deterministic, mainIssue, index }));
 }
@@ -4008,6 +4013,38 @@ function mergeRecommendationRelationship(preferred = {}, skipped = {}) {
   };
 }
 
+function prioritizeRecommendationActions(actions = [], { deterministic = {}, mainIssue = "", recipeSignals = {} } = {}) {
+  const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
+  const refundOperationalMode = isRefundDrivenOperationalDiagnosis(deterministic);
+  return [...actions]
+    .map((action, index) => ({
+      action,
+      index,
+      score: getServerRecommendationPriorityScore(action, { sourceIntegrityMode, refundOperationalMode, mainIssue }),
+    }))
+    .sort((first, second) => second.score - first.score || first.index - second.index)
+    .map((item) => item.action);
+}
+
+function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false } = {}) {
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  let score = 0;
+  if (/description|pdp|expectation|faq|spec/.test(normalized)) score += 60;
+  if (/source.*mismatch|source integrity/.test(normalized)) score += 55;
+  if (/supplier|qa/.test(normalized)) score += 50;
+  if (/seo|meta|handle|media|image|alt text/.test(normalized)) score += 30;
+  if (/tag|collection|workflow|internal|evidence/.test(normalized)) score -= 10;
+  if (sourceIntegrityMode) {
+    if (/source.*mismatch|source integrity/.test(normalized)) score += 220;
+    if (/description|pdp|expectation|faq|spec|variant|pricing|price|compare-at/.test(normalized)) score -= 120;
+  }
+  if (refundOperationalMode) {
+    if (/supplier|qa/.test(normalized)) score += 120;
+    if (/pricing|price|compare-at/.test(normalized)) score -= 80;
+  }
+  return score;
+}
+
 function getRecommendationRecipeSignals(deterministic = {}) {
   const metrics = deterministic.metrics || {};
   const product = deterministic.product || {};
@@ -4029,11 +4066,17 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     || contentAdvisories.some((item) => ["missing_media_context", "missing_media_alt_text"].includes(normalizeContentIssueCode(item.code)));
   const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
   const operationalQualitySignals = hasOperationalQualitySignals(deterministic);
+  const operationalQualityTextSignals = hasOperationalQualityTextSignals(deterministic);
   const refundInsights = metrics.refundInsights || {};
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
+  const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, sourceMismatchSignals);
+  const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
   const missingSourceSignals = getMissingSourceSignals(deterministic);
   const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
   const staleAnalysis = isStaleDiagnosis(metrics.lastAnalyzedAt || metrics.lastDiagnosisAt || metrics.latestDiagnosisAt);
+  const hasVariantNamingProblem = Boolean(metrics.variantNamingAdvisory)
+    || contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "unclear_variant_names");
+  const hasPricingContext = valueSignals.length >= 2;
 
   return {
     title: {
@@ -4053,31 +4096,30 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The product URL handle is confusing, inconsistent with the title, or missing useful product keywords.",
     },
     specs: {
-      shouldRecommend: Boolean(metrics.specsBlockRecommended && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
+      shouldRecommend: Boolean(!sourceIntegrityMode && metrics.specsBlockRecommended && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
       reason: "A compact specs/details block would clarify dimensions, compatibility, materials, care, included items or product limits.",
     },
     variants: {
-      shouldRecommend: variantCount > 1 && (
+      shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && (
         hasVariantConcentration
-        || Boolean(metrics.variantNamingAdvisory)
-        || contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "unclear_variant_names")
-      ) && (hasCustomerEvidence || Boolean(metrics.variantNamingAdvisory)),
+        || (hasVariantNamingProblem && !subjectiveExpectationOnly)
+      ) && (hasCustomerEvidence || hasVariantNamingProblem)),
       reason: hasVariantConcentration && affectedVariantCount
         ? "Signals are concentrated in specific variants, SKUs or options."
         : "Variant names or option labels are unclear enough to review.",
     },
     pricing: {
-      shouldRecommend: valueSignals.length >= 2 || (Number(metrics.refundRate || 0) > 20 && Number(metrics.soldUnits || 0) > 10 && Number(metrics.refundUnits || 0) >= 3),
-      reason: valueSignals.length
+      shouldRecommend: Boolean(!sourceIntegrityMode && hasPricingContext),
+      reason: hasPricingContext
         ? `Customer language points to value or price perception: ${valueSignals.slice(0, 3).join(", ")}.`
-        : "Refund pressure is high enough to review price and value expectations manually.",
+        : "Price review requires explicit value or price perception evidence.",
     },
     status: {
       shouldRecommend: Boolean(hasActionableEvidence && highRiskOperationalIssue && Number(deterministic.riskScore || 0) >= 75 && Number(deterministic.confidence || 0) >= 65),
       reason: "Risk and confidence are both high for a potentially serious product-quality issue.",
     },
     inventory: {
-      shouldRecommend: Boolean(variantCount > 1 && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
+      shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && hasVariantConcentration && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
       reason: "The problem appears concentrated enough to consider holding a specific affected variant.",
     },
     collection: {
@@ -4111,7 +4153,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The product may need a richer template to display FAQ, specs or warning content beyond plain description text.",
     },
     sourceMismatch: {
-      shouldRecommend: Boolean(sourceMismatchSignals.length >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE),
+      shouldRecommend: Boolean(sourceIntegrityMode),
       reason: "Reviews, returns or text appear to reference another product, SKU, feed item or variant.",
       signals: sourceMismatchSignals,
     },
@@ -4137,7 +4179,12 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh full diagnosis.",
     },
     qa: {
-      shouldRecommend: Boolean(hasActionableEvidence && (highRiskOperationalIssue || refundInsights.shouldSurface || (Number(metrics.returnRate || 0) >= 15 && operationalQualitySignals))),
+      shouldRecommend: Boolean(!sourceIntegrityMode && hasActionableEvidence && !subjectiveExpectationOnly && (
+        ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
+        || (highRiskOperationalIssue && operationalQualityTextSignals)
+        || (refundInsights.shouldSurface && operationalQualityTextSignals)
+        || (Number(metrics.returnRate || 0) >= 15 && operationalQualitySignals)
+      )),
       reason: refundInsights.shouldSurface
         ? "Refund pressure or refund notes point to an operational quality review."
         : "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
@@ -4168,6 +4215,43 @@ function getValuePerceptionSignals(deterministic = {}) {
     .slice(0, 5);
 }
 
+function isSourceIntegrityDiagnosis(deterministic = {}, sourceMismatchSignals = null) {
+  const metrics = deterministic.metrics || {};
+  const signals = Array.isArray(sourceMismatchSignals) ? sourceMismatchSignals : getSourceMismatchSignals(deterministic);
+  if (signals.length >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) return true;
+  const contentIssues = [
+    ...(Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : []),
+  ];
+  const issueText = [
+    deterministic.mainIssue,
+    metrics.primaryIssue,
+    metrics.mainIssue,
+    ...contentIssues.map((issue) => `${issue.code || ""} ${issue.label || ""} ${issue.evidence || ""}`),
+  ].map(String).join(" ");
+  return /\b(source integrity|review feed|feed integrity|feed mismatch|metadata mismatch|review mismatch|wrong product|wrong sku)\b/i.test(issueText);
+}
+
+function isSubjectiveExpectationOnlyDiagnosis(deterministic = {}) {
+  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  const textValues = getOperationalSignalTextValues(deterministic);
+  const text = textValues.join(" ");
+  const subjectiveIssue = ["fit_sizing", "compatibility", "color_expectation", "subjective_negative_reaction"].includes(mainIssue);
+  const subjectiveLanguage = /\b(too soft|too firm|softness|soft|cushion|cushioned|balance|pose|comfort|comfortable|preference|expected|expectation|subjective|fit|sizing|size|color|appearance)\b/i.test(text);
+  if (!subjectiveIssue && !subjectiveLanguage) return false;
+  return !hasOperationalQualityTextSignals(deterministic);
+}
+
+function isRefundDrivenOperationalDiagnosis(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  return Boolean(
+    Number(metrics.refundUnits || 0) >= 3
+    && Number(metrics.refundRate || 0) >= 20
+    && hasOperationalQualityTextSignals(deterministic)
+  );
+}
+
 function hasAffectedVariantConcentration(metrics = {}) {
   const variants = Array.isArray(metrics.affectedVariantDetails)
     ? metrics.affectedVariantDetails
@@ -4179,13 +4263,26 @@ function hasAffectedVariantConcentration(metrics = {}) {
   const total = counts.reduce((sum, count) => sum + count, 0);
   const strongest = Math.max(0, ...counts);
   if (strongest < 3 || total < 4) return false;
-  return strongest / Math.max(total, 1) >= 0.65;
+  const strongestRatio = strongest / Math.max(total, 1);
+  const variantCount = Number(metrics.variantCount || 0);
+  const affectedCount = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants.length : variants.length;
+  if (variantCount > 1 && affectedCount >= variantCount && strongestRatio < 0.85) return false;
+  return strongestRatio >= 0.65;
 }
 
 function hasOperationalQualitySignals(deterministic = {}) {
-  const metrics = deterministic.metrics || {};
   const mainIssue = normalizeIssueCode(deterministic.mainIssue);
   if (["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue)) return true;
+  return hasOperationalQualityTextSignals(deterministic);
+}
+
+function hasOperationalQualityTextSignals(deterministic = {}) {
+  return getOperationalSignalTextValues(deterministic)
+    .some((value) => /\b(leak|leaking|spill|spilled|broken|break|broke|crack|cracked|chip|chipped|defect|defective|damaged|damage|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|ripped|stain|mold|battery|burn|sharp|packaging|package|shipping|arrived damaged)\b/i.test(value));
+}
+
+function getOperationalSignalTextValues(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
   const contentIssues = [
     ...(Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []),
     ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : []),
@@ -4204,7 +4301,7 @@ function hasOperationalQualitySignals(deterministic = {}) {
     ...topReasons.map((item) => `${item.label || item}`),
     ...snippets.map((item) => `${item.text || item.body || item.quote || item.summary || ""}`),
   ].map(String);
-  return values.some((value) => /\b(leak|leaking|spill|spilled|broken|crack|cracked|defect|defective|damaged|damage|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|ripped|stain|mold|battery|burn|sharp)\b/i.test(value));
+  return values;
 }
 
 function getSourceMismatchSignals(deterministic = {}) {

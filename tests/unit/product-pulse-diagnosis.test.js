@@ -1669,6 +1669,196 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).not.toContain("add-product-description-guidance");
   });
 
+  it("prioritizes source integrity over customer-facing edits when review evidence is mismatched", () => {
+    const deterministic = {
+      mainIssue: "review_feed_integrity",
+      riskScore: 53,
+      confidence: 80,
+      evidenceSnippets: [
+        { text: "This review seems attached to the wrong product and mentions snowboard bindings." },
+        { text: "Feed mismatch: customer talks about boots, not the fan." },
+      ],
+      issueSignalCounts: { fit_sizing: 12, review_feed_integrity: 12 },
+      product: {
+        title: "GEN QuietDesk Mini Fan",
+        description: "Quiet airflow for desks and bedside tables. Includes USB cable.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "White", sku: "GEN-FAN-WHT" },
+          { id: "gid://shopify/ProductVariant/2", title: "Graphite", sku: "GEN-FAN-GPH" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 30,
+        signalCount: 33,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 12,
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Fit and sizing"],
+          reasons: ["Mismatched snowboard reviews mention bindings and boots."],
+        },
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{ code: "incoherent_copy", label: "Review feed metadata mismatch", severity: "high", evidence: "Reviews mention snowboards and boots for a desk fan." }],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "snowboard", count: 6 },
+            { term: "boots", count: 4 },
+          ],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "GEN QuietDesk Mini Fan",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Add sizing guidance for snowboard boots.",
+            product_description: "Rewrite the fan page around snowboard boot sizing.",
+          },
+        },
+      },
+    });
+
+    expect(recommendations[0]?.id).toBe("fix-source-review-mismatch");
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+    expect(recommendations.map((item) => item.id)).not.toContain("rewrite-product-description");
+    expect(recommendations.map((item) => item.id)).not.toContain("draft-fit-note");
+  });
+
+  it("keeps subjective softness feedback out of QA and variant actions without concentration", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 61,
+      confidence: 94,
+      evidenceSnippets: [
+        { text: "Too soft for balance poses, but comfortable for stretching." },
+        { text: "The cushion is nice, just not firm enough for standing work." },
+      ],
+      issueSignalCounts: { quality_defect: 9 },
+      product: {
+        title: "GEN CloudSoft Yoga Mat 12mm",
+        description: "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Sage", sku: "GEN-MAT-SAGE" },
+          { id: "gid://shopify/ProductVariant/2", title: "Charcoal", sku: "GEN-MAT-CHAR" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 15,
+        signalCount: 46,
+        returnUnits: 4,
+        refundUnits: 0,
+        returnRate: 28.57,
+        negativeReviewCount: 11,
+        affectedVariants: ["Sage", "Charcoal"],
+        affectedVariantDetails: [{ label: "Sage", count: 1 }, { label: "Charcoal", count: 3 }],
+        variantCount: 2,
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Product expectations"],
+          reasons: ["Softness expectations repeat enough to clarify before purchase."],
+        },
+        specsBlockRecommended: true,
+        contentIssueCount: 2,
+        contentAnalysis: {
+          issues: [
+            { code: "missing_specifications", label: "Missing physical dimensions", severity: "medium", evidence: "The description mentions thickness but omits length and width." },
+            { code: "missing_customer_guidance", label: "Missing usage guidance", severity: "medium", evidence: "Clarify that this is softer than firm balance mats." },
+          ],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "soft", count: 44 }, { term: "balance", count: 9 }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/2",
+        productTitle: "GEN CloudSoft Yoga Mat 12mm",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Clarify the mat is intentionally soft and best for floor workouts." } } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
+    expect(recommendations.map((item) => item.id)).not.toContain("correct-variant-options");
+    expect(recommendations.map((item) => item.id)).toContain("add-specs-details-block");
+  });
+
+  it("prioritizes QA review for refund-driven damage and does not recommend pricing without value evidence", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 63,
+      confidence: 94,
+      evidenceSnippets: [
+        { text: "Arrived broken despite looking beautiful." },
+        { text: "Packaging was not enough and two bowls were cracked." },
+      ],
+      issueSignalCounts: { quality_defect: 7 },
+      product: {
+        title: "GEN Aurora Ceramic Dinner Set",
+        description: "Includes 4 dinner plates, 4 salad plates and 4 bowls with a hand-glazed finish. Dishwasher safe.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Aurora Blue", sku: "GEN-DINNER-BLU" },
+          { id: "gid://shopify/ProductVariant/2", title: "Warm White", sku: "GEN-DINNER-WHT" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 20,
+        signalCount: 52,
+        soldUnits: 16,
+        returnUnits: 0,
+        refundUnits: 7,
+        refundRate: 43.75,
+        refundAmount: 802,
+        negativeReviewCount: 6,
+        topReturnReasons: [],
+        refundInsights: {
+          shouldSurface: true,
+          highPressure: true,
+          topReasons: [{ label: "Damaged in shipping", count: 7 }],
+        },
+        contentIssueCount: 2,
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short product description", severity: "medium", evidence: "No dimensions or packaging details." },
+            { code: "missing_shipping_packaging_reassurance", label: "Missing shipping/packaging reassurance", severity: "medium", evidence: "Refund notes mention cracked bowls." },
+          ],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "broken", count: 8 }, { term: "packaging", count: 7 }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/3",
+        productTitle: "GEN Aurora Ceramic Dinner Set",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Set expectations about packaging and support for damaged arrivals." } } },
+    });
+
+    expect(recommendations[0]?.id).toBe("recommend-qa-review");
+    expect(recommendations.map((item) => item.id)).not.toContain("review-product-pricing");
+  });
+
   it("builds actionable recommendation recipes with Shopify fields and risk metadata", () => {
     const deterministic = {
       mainIssue: "safety_concern",
