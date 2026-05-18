@@ -8,6 +8,7 @@ import {
 } from "../lib/product-pulse-settings.server";
 import {
   getShopifyMockDatasetState,
+  normalizeShopifyMockDatasetStage,
 } from "../lib/product-pulse-shopify-mock-dataset.server";
 import { startShopifyMockDataset } from "../lib/product-pulse-jobs.server";
 
@@ -33,6 +34,7 @@ export const action = async ({ request }) => {
       shop: session.shop,
       admin,
       scopes: session.scope,
+      stage: normalizeShopifyMockDatasetStage(formData.get("stage")),
     });
   }
 

@@ -15081,6 +15081,52 @@ s-page[inline-size="large-500"] {
   justify-content: center;
 }
 
+.ppSettingsMockStageGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppSettingsMockStageCard {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.13);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 1px 1px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppSettingsMockStageCard strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.ppSettingsMockStageCard p {
+  margin: 5px 0 8px;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+.ppSettingsMockStageCard small {
+  display: inline-flex;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppSettingsMockStageCard .ppSecondaryButton {
+  width: 100%;
+  justify-content: center;
+  min-height: 34px;
+  font-size: 12px;
+}
+
 .ppProductsToolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -17074,6 +17120,7 @@ s-page[inline-size="large-500"] {
   .ppSettingsMockDatasetGrid,
   .ppSettingsMockDatasetActions,
   .ppSettingsMockDatasetMeta,
+  .ppSettingsMockStageGrid,
   .ppProductDetailLayout,
   .ppProductDetailHeader,
   .ppProductTitleRow,

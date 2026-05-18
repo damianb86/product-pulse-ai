@@ -27,7 +27,9 @@ import {
 import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
 import {
   SHOPIFY_MOCK_DATASET_KIND,
+  SHOPIFY_MOCK_DATASET_STAGE_LABELS,
   getMissingShopifyMockDatasetScopes,
+  normalizeShopifyMockDatasetStage,
   runShopifyMockDatasetJob,
 } from "./product-pulse-shopify-mock-dataset.server";
 
@@ -107,6 +109,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
 
 export async function startShopifyMockDataset(input, adminArg, scopesArg) {
   const { shop, admin, scopes } = normalizeStartArgs(input, adminArg, scopesArg);
+  const stage = normalizeShopifyMockDatasetStage(typeof input === "object" ? input.stage : null);
   const missingScopes = getMissingShopifyMockDatasetScopes(scopes);
   if (missingScopes.length) {
     return {
@@ -143,25 +146,27 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
       progress: 0,
       payload: {
         queuedAt: new Date().toISOString(),
+        stage,
+        stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
         expectedProducts: 10,
         expectedOrders: 120,
       },
     },
   });
 
-  ensureShopifyMockDatasetWorker(job, { admin, scopes });
+  ensureShopifyMockDatasetWorker(job, { admin, scopes, stage });
   await recordJobLog({
     shop,
     jobId: job.id,
     event: "mock_dataset.queued",
-    message: "Shopify mock dataset generation queued as a persistent background job.",
-    data: { expectedProducts: 10, expectedOrders: 120 },
+    message: `Shopify mock dataset stage queued: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
+    data: { stage, expectedProducts: 10, expectedOrders: 120 },
   });
 
   return {
     status: "success",
     suppressBanner: true,
-    message: "Mock dataset generation started. ProductPulse is creating GEN products, historical orders, returns, refunds and CSV reviews.",
+    message: `Mock dataset stage started: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
     job: formatJob(job),
   };
 }
@@ -1885,6 +1890,7 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
 
   activeMockDatasetWorkers.add(job.id);
   setTimeout(async () => {
+    const stage = normalizeShopifyMockDatasetStage(options.stage || job.payload?.stage);
     try {
       const claimed = await prisma.catalogSignalJob.updateMany({
         where: {
@@ -1896,7 +1902,7 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
           status: "Running",
           progress: Math.max(Number(job.progress || 0), 2),
           startedAt: job.startedAt || new Date(),
-          source: "Running Shopify mock dataset generation",
+          source: `Running Shopify mock dataset stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}`,
         },
       });
       if (claimed.count !== 1) return;
@@ -1906,7 +1912,7 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
         jobId: job.id,
         event: "mock_dataset.worker_started",
         message: "Shopify mock dataset worker started or rehydrated from an active persisted job.",
-        data: { status: job.status, source: job.source },
+        data: { status: job.status, source: job.source, stage },
       });
 
       const admin = options.admin || await getOfflineAdmin(job.shop);
@@ -1914,6 +1920,7 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
         shop: job.shop,
         admin,
         jobId: job.id,
+        stage,
         onProgress: async (progress, source, data = null) => {
           await prisma.catalogSignalJob.updateMany({
             where: {
@@ -1927,6 +1934,8 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
               source,
               payload: {
                 ...(job.payload || {}),
+                stage,
+                stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
                 ...(data || {}),
               },
             },
@@ -1943,7 +1952,7 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
         data: {
           status: "Completed",
           progress: 100,
-          source: `Mock dataset created: ${summary.productCount} products, ${summary.orderCount} orders, ${summary.reviewCount} reviews.`,
+          source: `Mock dataset stage completed: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
           payload: summary,
           finishedAt: new Date(),
         },
@@ -1954,8 +1963,8 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
         jobId: job.id,
         level: "error",
         event: "mock_dataset.worker_failed",
-        message: "Shopify mock dataset worker failed.",
-        data: { error: serializeError(error), payload: job.payload },
+        message: `Shopify mock dataset worker failed during stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
+        data: { stage, error: serializeError(error), payload: job.payload },
       });
       await markJobFailed(job.id, error, "Shopify mock dataset failed");
     } finally {

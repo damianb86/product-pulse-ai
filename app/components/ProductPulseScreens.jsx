@@ -15,6 +15,38 @@ const PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID = "product-pulse-settings-save-bar";
 const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 const DEFAULT_MOMENTUM_INCLUSION_THRESHOLD = 70;
+const MOCK_DATASET_STAGE_ACTIONS = [
+  {
+    stage: "products",
+    label: "Create products",
+    icon: "product",
+    detail: "Creates or reuses the 10 GEN products with variants, SEO, tags and HTML descriptions.",
+  },
+  {
+    stage: "orders",
+    label: "Create orders",
+    icon: "calendar",
+    detail: "Creates or resumes 120 historical orders, skipping existing generated order emails.",
+  },
+  {
+    stage: "outcomes",
+    label: "Returns & refunds",
+    icon: "cash-dollar",
+    detail: "Creates controlled returns and refunds from generated fulfilled order line items.",
+  },
+  {
+    stage: "reviews",
+    label: "CSV reviews",
+    icon: "file",
+    detail: "Writes the normalized CSV review source linked to the generated products.",
+  },
+  {
+    stage: "manifest",
+    label: "Finalize report",
+    icon: "file",
+    detail: "Saves the scenario manifest with expected findings, actions and phase summaries.",
+  },
+];
 
 export function DashboardScreen({ data, actionData }) {
   const submit = useSubmit();
@@ -1924,8 +1956,11 @@ export function SettingsScreen({ data = {}, actionData }) {
   const [queueLimit, setQueueLimit] = useState(normalizedQueueLimit);
   const [lookbackDays, setLookbackDays] = useState(normalizedLookbackDays);
   const isSaving = navigation.state === "submitting";
-  const isStartingMockDataset = navigation.state === "submitting"
-    && navigation.formData?.get("_action") === "start-shopify-mock-dataset";
+  const pendingMockDatasetStage = navigation.state === "submitting"
+    && navigation.formData?.get("_action") === "start-shopify-mock-dataset"
+    ? String(navigation.formData?.get("stage") || "all")
+    : null;
+  const isStartingMockDataset = Boolean(pendingMockDatasetStage);
   const settingsDirty = riskThresholds.minimumScore !== normalizedSettingsRisk.minimumScore
     || riskThresholds.mediumThreshold !== normalizedSettingsRisk.mediumThreshold
     || riskThresholds.highThreshold !== normalizedSettingsRisk.highThreshold
@@ -2072,8 +2107,7 @@ export function SettingsScreen({ data = {}, actionData }) {
           </section>
         </Form>
 
-        <Form method="post" className="ppSettingsForm">
-          <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
+        <div className="ppSettingsForm">
           <section className="ppSettingsCard ppSettingsMockDatasetCard" aria-labelledby="settings-mock-dataset-title">
             <div className="ppSettingsCardHeader">
               <DashboardIcon type="product" tone="purple" />
@@ -2122,15 +2156,40 @@ export function SettingsScreen({ data = {}, actionData }) {
 
             <div className="ppSettingsMockDatasetActions">
               <p>
-                Shopify limits development and trial stores to 5 created orders per minute, so the job runs in the background and can take around 20 minutes.
+                Shopify can throttle long test-data jobs. Run each stage separately; every stage reuses existing GEN products or generated orders so you can resume after a failure.
               </p>
-              <button className="ppPrimaryButton ppSettingsMockDatasetButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
-                <s-icon type="wand" size="small"></s-icon>
-                {isStartingMockDataset ? "Starting..." : "Create mock dataset"}
-              </button>
+            </div>
+
+            <div className="ppSettingsMockStageGrid" aria-label="Mock dataset generation stages">
+              {MOCK_DATASET_STAGE_ACTIONS.map((stageAction) => {
+                const stageState = mockDataset?.config?.stages?.[stageAction.stage] || {};
+                const completed = stageState.status === "completed";
+                const running = pendingMockDatasetStage === stageAction.stage;
+                return (
+                  <Form method="post" className="ppSettingsMockStageCard" key={stageAction.stage}>
+                    <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
+                    <input type="hidden" name="stage" value={stageAction.stage} />
+                    <DashboardIcon type={stageAction.icon} tone={completed ? "green" : "purple"} size="small" />
+                    <div>
+                      <strong>{stageAction.label}</strong>
+                      <p>{stageAction.detail}</p>
+                      <small>
+                        {completed
+                          ? `Completed ${formatWatchReportTimestamp(stageState.completedAt)}`
+                          : stageState.status === "running"
+                            ? "Running"
+                            : "Not completed yet"}
+                      </small>
+                    </div>
+                    <button className="ppSecondaryButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
+                      {running ? "Starting..." : completed ? "Resume / verify" : "Run stage"}
+                    </button>
+                  </Form>
+                );
+              })}
             </div>
           </section>
-        </Form>
+        </div>
       </ScreenShell>
     </FullWidthPage>
   );

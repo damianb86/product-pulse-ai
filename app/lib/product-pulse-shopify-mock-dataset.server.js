@@ -7,6 +7,22 @@ import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 
 export const SHOPIFY_MOCK_DATASET_KIND = "shopify-mock-dataset";
 export const SHOPIFY_MOCK_DATASET_SOURCE_KEY = "mockDataset";
+export const SHOPIFY_MOCK_DATASET_STAGES = [
+  "all",
+  "products",
+  "orders",
+  "outcomes",
+  "reviews",
+  "manifest",
+];
+export const SHOPIFY_MOCK_DATASET_STAGE_LABELS = {
+  all: "Run remaining setup",
+  products: "Create products",
+  orders: "Create orders",
+  outcomes: "Create returns and refunds",
+  reviews: "Generate CSV reviews",
+  manifest: "Finalize report",
+};
 export const REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES = [
   "read_products",
   "write_products",
@@ -19,9 +35,17 @@ export const REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES = [
 ];
 
 const GENERATED_TAG = "productpulse-gen";
+const GENERATED_ORDER_TAG = "productpulse-gen-order";
 const GENERATED_REVIEW_SOURCE = "ProductPulse mock reviews";
 const DEFAULT_ORDER_COUNT = 120;
 const MIN_ORDER_CREATE_DELAY_MS = 12_500;
+const STAGE_PROGRESS = {
+  products: [5, 25],
+  orders: [25, 70],
+  outcomes: [70, 86],
+  reviews: [86, 93],
+  manifest: [93, 100],
+};
 const SHOPIFY_SCOPE_READ_EQUIVALENTS = {
   read_products: ["write_products"],
   read_orders: ["write_orders"],
@@ -427,6 +451,15 @@ function hasShopifyScope(granted, scope) {
   return (SHOPIFY_SCOPE_READ_EQUIVALENTS[scope] || []).some((equivalentScope) => granted.has(equivalentScope));
 }
 
+export function normalizeShopifyMockDatasetStage(stage) {
+  const normalized = String(stage || "all").trim().toLowerCase();
+  return SHOPIFY_MOCK_DATASET_STAGES.includes(normalized) ? normalized : "all";
+}
+
+function shouldRunMockDatasetStage(requestedStage, stage) {
+  return requestedStage === "all" || requestedStage === stage;
+}
+
 export async function getShopifyMockDatasetState(shop) {
   if (!shop) return null;
   const source = await prisma.productPulseSource.findUnique({
@@ -443,11 +476,16 @@ export async function getShopifyMockDatasetState(shop) {
   };
 }
 
-export async function runShopifyMockDatasetJob({ shop, admin, jobId, onProgress }) {
+export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "all", onProgress }) {
   if (!shop || !admin?.graphql) throw new Error("Shopify Admin client is required to create the mock dataset.");
-  const runId = buildRunId();
+  const requestedStage = normalizeShopifyMockDatasetStage(stage);
+  const existingSource = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop, sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY } },
+  }).catch(() => null);
+  const existingConfig = existingSource?.config || {};
+  const runId = existingConfig.runId || buildRunId();
   const runSuffix = runId.slice(-8);
-  const createdAt = new Date();
+  const createdAt = existingConfig.generatedAt ? new Date(existingConfig.generatedAt) : new Date();
   const orderDelayMs = getOrderCreateDelayMs();
   const context = {
     shop,
@@ -456,46 +494,80 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, onProgress 
     runId,
     runSuffix,
     createdAt,
+    requestedStage,
     onProgress: typeof onProgress === "function" ? onProgress : async () => {},
   };
 
-  await updateProgress(context, 3, "Preparing controlled Shopify mock dataset.");
+  await updateMockDatasetState(context, {
+    runId,
+    generatedAt: createdAt.toISOString(),
+    status: "running",
+    lastRequestedStage: requestedStage,
+  });
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "mock_dataset.stage_requested",
+    message: `Mock dataset stage requested: ${requestedStage}.`,
+    data: { stage: requestedStage, runId },
+  });
+
+  await updateProgress(context, 3, `Preparing Shopify mock dataset stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[requestedStage]}.`);
   const shopInfo = await getShopInfo(admin);
   const location = await getPrimaryLocation(admin);
-  await archivePreviousGeneratedProducts(context);
+  let products = await loadOrCreateMockProducts(context, location, shopInfo.currencyCode, {
+    createMissing: shouldRunMockDatasetStage(requestedStage, "products"),
+  });
 
-  await updateProgress(context, 12, "Creating 10 GEN products with product stories, SEO, tags and variants.");
-  const products = [];
-  for (const productSpec of MOCK_PRODUCTS) {
-    const product = await createMockProduct(context, productSpec, location, shopInfo.currencyCode);
-    products.push(product);
+  let orders = [];
+  if (shouldRunMockDatasetStage(requestedStage, "orders")) {
+    await updateProgress(context, 25, `Creating or resuming ${DEFAULT_ORDER_COUNT} historical Shopify orders.`);
+    orders = await loadOrCreateMockOrders(context, products, location, shopInfo.currencyCode, orderDelayMs);
+  } else if (["outcomes", "manifest", "all"].includes(requestedStage)) {
+    orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode);
   }
 
-  await updateProgress(context, 25, `Creating ${DEFAULT_ORDER_COUNT} historical Shopify orders.`);
-  const orderPlans = buildOrderPlans(products, shopInfo.currencyCode);
-  const orders = [];
-  for (let index = 0; index < orderPlans.length; index += 1) {
-    const createdOrder = await createMockOrder(context, orderPlans[index], location, shopInfo.currencyCode);
-    orders.push(createdOrder);
-    await updateProgress(
-      context,
-      25 + Math.floor(((index + 1) / orderPlans.length) * 45),
-      `Created ${index + 1} of ${orderPlans.length} historical orders.`,
-      { orderName: createdOrder.name },
-    );
-    if (index < orderPlans.length - 1 && orderDelayMs > 0) await wait(orderDelayMs);
+  let outcomes = await getStoredMockDatasetOutcomes(shop);
+  if (shouldRunMockDatasetStage(requestedStage, "outcomes")) {
+    if (!orders.length) orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode);
+    await markMockDatasetStageRunning(context, "outcomes");
+    await updateProgress(context, 72, "Creating or resuming returns and refunds from selected fulfilled line items.");
+    outcomes = await createMockReturnsAndRefunds(context, orders, shopInfo.currencyCode, {
+      existingOutcomes: outcomes,
+      onOutcome: async (nextOutcomes) => {
+        await updateMockDatasetState(context, {
+          returnCount: nextOutcomes.returns.length,
+          refundCount: nextOutcomes.refunds.length,
+          outcomes: nextOutcomes,
+        });
+      },
+    });
+    await markMockDatasetStageComplete(context, "outcomes", {
+      returnCount: outcomes.returns.length,
+      refundCount: outcomes.refunds.length,
+      outcomes,
+    });
   }
 
-  await updateProgress(context, 72, "Creating returns and refunds from selected fulfilled line items.");
-  const outcomes = await createMockReturnsAndRefunds(context, orders, shopInfo.currencyCode);
+  let reviewRows = [];
+  let reviewSource = null;
+  if (shouldRunMockDatasetStage(requestedStage, "reviews")) {
+    await markMockDatasetStageRunning(context, "reviews");
+    await updateProgress(context, 86, "Writing normalized CSV review dataset.");
+    reviewRows = buildReviewRows(products, createdAt);
+    reviewSource = await saveMockCsvReviewSource({ shop, runId, rows: reviewRows });
+    await markMockDatasetStageComplete(context, "reviews", {
+      reviewCount: reviewRows.length,
+      csvReviewFilePath: reviewSource.filePath,
+      csvReviewFileName: reviewSource.fileName,
+      csvReviewChecksum: reviewSource.checksum,
+    });
+  } else {
+    reviewRows = buildReviewRows(products, createdAt);
+    reviewSource = await getStoredMockDatasetReviewSource(shop);
+  }
 
-  await updateProgress(context, 86, "Writing normalized CSV review dataset.");
-  const reviewRows = buildReviewRows(products, createdAt);
-  const reviewSource = await saveMockCsvReviewSource({ shop, runId, rows: reviewRows });
-
-  await updateProgress(context, 93, "Saving mock dataset manifest and expected detections.");
-  const manifest = await saveMockDatasetManifest({
-    shop,
+  let summary = await getCurrentMockDatasetSummary(shop, {
     runId,
     createdAt,
     products,
@@ -505,86 +577,386 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, onProgress 
     reviewSource,
     orderDelayMs,
   });
-
-  await prisma.productPulseSource.upsert({
-    where: { shop_sourceKey: { shop, sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY } },
-    create: {
+  if (shouldRunMockDatasetStage(requestedStage, "manifest")) {
+    if (!orders.length) orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode);
+    await markMockDatasetStageRunning(context, "manifest");
+    await updateProgress(context, 93, "Saving mock dataset manifest and expected detections.");
+    const manifest = await saveMockDatasetManifest({
       shop,
-      sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY,
-      category: "testing",
-      name: "Shopify mock dataset",
-      connected: true,
-      active: true,
-      available: true,
-      health: "connected",
-      coverageWeight: 0,
-      connectedAt: createdAt,
-      lastSyncedAt: createdAt,
-      config: manifest.summary,
-    },
-    update: {
-      connected: true,
-      active: true,
-      available: true,
-      health: "connected",
-      lastSyncedAt: createdAt,
-      config: manifest.summary,
-    },
-  });
+      runId,
+      createdAt,
+      products,
+      orders,
+      outcomes,
+      reviewRows,
+      reviewSource,
+      orderDelayMs,
+    });
+    summary = manifest.summary;
+    await markMockDatasetStageComplete(context, "manifest", {
+      manifestPath: manifest.manifestPath,
+      ...summary,
+    });
+  }
 
   await recordJobLog({
     shop,
     jobId,
-    event: "mock_dataset.completed",
-    message: "Controlled Shopify mock dataset created.",
-    data: manifest.summary,
+    event: "mock_dataset.stage_completed",
+    message: `Mock dataset stage completed: ${requestedStage}.`,
+    data: summary,
   });
 
-  await updateProgress(context, 100, "Shopify mock dataset completed.", manifest.summary);
-  return manifest.summary;
+  await updateMockDatasetState(context, { status: "ready", lastCompletedStage: requestedStage });
+  await updateProgress(context, 100, `Shopify mock dataset stage completed: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[requestedStage]}.`, summary);
+  return summary;
 }
 
-async function archivePreviousGeneratedProducts(context) {
-  const query = `tag:${GENERATED_TAG} AND title:'GEN'`;
-  try {
-    const data = await shopifyGraphql(context.admin, `#graphql
-      query ProductPulseGeneratedProducts($query: String!) {
-        products(first: 50, query: $query) {
-          nodes {
+async function loadOrCreateMockProducts(context, location, currencyCode, { createMissing = false, recordStage = createMissing } = {}) {
+  if (recordStage) await markMockDatasetStageRunning(context, "products");
+  const existingProducts = await fetchGeneratedProducts(context.admin, currencyCode);
+  const existingByTitle = new Map(existingProducts.map((product) => [product.title, product]));
+  const products = [];
+  const missing = [];
+
+  for (const productSpec of MOCK_PRODUCTS) {
+    const existing = existingByTitle.get(productSpec.title);
+    if (existing) {
+      products.push(normalizeExistingMockProduct(productSpec, existing, currencyCode));
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.product_reused",
+        message: `Reused existing GEN product: ${productSpec.title}.`,
+        data: { productId: existing.id, handle: existing.handle },
+      });
+      continue;
+    }
+
+    if (!createMissing) {
+      missing.push(productSpec.title);
+      continue;
+    }
+
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.product_create_started",
+      message: `Creating GEN product: ${productSpec.title}.`,
+      data: { key: productSpec.key, variants: productSpec.variants.length },
+    });
+    let createdProduct;
+    try {
+      createdProduct = await createMockProduct(context, productSpec, location, currencyCode);
+    } catch (error) {
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        level: "error",
+        event: "mock_dataset.product_create_failed",
+        message: `Failed creating GEN product: ${productSpec.title}.`,
+        data: { key: productSpec.key, error: serializeError(error) },
+      });
+      throw error;
+    }
+    products.push(createdProduct);
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.product_created",
+      message: `Created GEN product: ${createdProduct.title}.`,
+      data: { productId: createdProduct.id, handle: createdProduct.handle, variants: createdProduct.variants.length },
+    });
+    if (recordStage) await updateProgressForStage(context, "products", products.length, MOCK_PRODUCTS.length, `Prepared ${products.length} of ${MOCK_PRODUCTS.length} GEN products.`);
+  }
+
+  if (missing.length) {
+    throw new Error(`Mock dataset products are missing. Run the products stage first: ${missing.join(", ")}`);
+  }
+
+  if (recordStage) await markMockDatasetStageComplete(context, "products", {
+    productCount: products.length,
+    products: products.map(serializeProductForState),
+  });
+  return products;
+}
+
+async function fetchGeneratedProducts(admin, currencyCode) {
+  const data = await shopifyGraphql(admin, `#graphql
+    query ProductPulseGeneratedProducts($query: String!) {
+      products(first: 100, query: $query, sortKey: CREATED_AT, reverse: true) {
+        nodes {
+          id
+          title
+          handle
+          productType
+          vendor
+          status
+          tags
+          options {
             id
-            title
+            name
+            position
+            values
+          }
+          variants(first: 50) {
+            nodes {
+              id
+              title
+              price
+              sku
+              selectedOptions {
+                name
+                value
+              }
+            }
           }
         }
       }
-    `, { query });
-    const products = data?.products?.nodes || [];
-    for (const product of products) {
-      await shopifyGraphql(context.admin, `#graphql
-        mutation ProductPulseArchiveGeneratedProduct($product: ProductUpdateInput!) {
-          productUpdate(product: $product) {
-            product { id title status }
-            userErrors { field message }
+    }
+  `, { query: `tag:${GENERATED_TAG}` }, "Fetch existing GEN products");
+  return (data?.products?.nodes || [])
+    .filter((product) => product.title?.startsWith("GEN ") && product.status !== "ARCHIVED")
+    .map((product) => ({ ...product, currencyCode }));
+}
+
+function normalizeExistingMockProduct(spec, product, currencyCode) {
+  return {
+    ...spec,
+    id: product.id,
+    handle: product.handle,
+    title: product.title,
+    currencyCode,
+    variants: (product.variants?.nodes || []).map((variant) => ({
+      id: variant.id,
+      title: variant.title,
+      price: String(variant.price || "0"),
+      sku: variant.sku,
+      selectedOptions: variant.selectedOptions || [],
+      productKey: spec.key,
+    })),
+  };
+}
+
+function serializeProductForState(product) {
+  return {
+    key: product.key,
+    id: product.id,
+    title: product.title,
+    handle: product.handle,
+    variants: (product.variants || []).map((variant) => ({
+      id: variant.id,
+      title: variant.title,
+      sku: variant.sku,
+      price: variant.price,
+    })),
+  };
+}
+
+async function loadOrCreateMockOrders(context, products, location, currencyCode, orderDelayMs) {
+  await markMockDatasetStageRunning(context, "orders");
+  const orderPlans = buildOrderPlans(products, currencyCode);
+  const existingOrders = await fetchGeneratedOrders(context.admin, products, orderPlans, currencyCode);
+  const existingByEmail = new Map(existingOrders.map((order) => [order.plan?.email, order]).filter(([email]) => email));
+  const orders = [];
+  let createdCount = 0;
+  let reusedCount = 0;
+
+  for (let index = 0; index < orderPlans.length; index += 1) {
+    const plan = orderPlans[index];
+    const existing = existingByEmail.get(plan.email);
+    if (existing) {
+      orders.push(existing);
+      reusedCount += 1;
+      if (index % 10 === 0) {
+        await recordJobLog({
+          shop: context.shop,
+          jobId: context.jobId,
+          event: "mock_dataset.order_reused",
+          message: `Reused existing mock order ${index + 1} of ${orderPlans.length}.`,
+          data: { orderName: existing.name, email: plan.email, phase: plan.phase },
+        });
+      }
+    } else {
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.order_create_started",
+        message: `Creating mock order ${index + 1} of ${orderPlans.length}.`,
+        data: {
+          email: plan.email,
+          phase: plan.phase,
+          itemCount: plan.items.length,
+          total: plan.total,
+        },
+      });
+      let createdOrder;
+      try {
+        createdOrder = await createMockOrder(context, plan, location, currencyCode);
+      } catch (error) {
+        await recordJobLog({
+          shop: context.shop,
+          jobId: context.jobId,
+          level: "error",
+          event: "mock_dataset.order_create_failed",
+          message: `Failed creating mock order ${index + 1} of ${orderPlans.length}.`,
+          data: {
+            email: plan.email,
+            phase: plan.phase,
+            itemCount: plan.items.length,
+            total: plan.total,
+            error: serializeError(error),
+          },
+        });
+        throw error;
+      }
+      orders.push(createdOrder);
+      createdCount += 1;
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.order_created",
+        message: `Created mock order ${index + 1} of ${orderPlans.length}.`,
+        data: { orderName: createdOrder.name, orderId: createdOrder.id, email: plan.email },
+      });
+      if (index < orderPlans.length - 1 && orderDelayMs > 0) await wait(orderDelayMs);
+    }
+
+    await updateProgressForStage(context, "orders", index + 1, orderPlans.length, `Prepared ${index + 1} of ${orderPlans.length} historical orders.`);
+    if ((index + 1) % 5 === 0 || index === orderPlans.length - 1) {
+      await updateMockDatasetState(context, {
+        orderCount: orders.length,
+        orderCreateDelayMs: orderDelayMs,
+        orderProgress: {
+          expectedOrders: orderPlans.length,
+          preparedOrders: orders.length,
+          createdCount,
+          reusedCount,
+          lastOrderIndex: index + 1,
+        },
+      });
+    }
+  }
+
+  await markMockDatasetStageComplete(context, "orders", {
+    orderCount: orders.length,
+    orderCreateDelayMs: orderDelayMs,
+    orderProgress: {
+      expectedOrders: orderPlans.length,
+      preparedOrders: orders.length,
+      createdCount,
+      reusedCount,
+      lastOrderIndex: orderPlans.length,
+    },
+  });
+  return orders;
+}
+
+async function loadExistingMockOrders(context, products, currencyCode) {
+  const plans = buildOrderPlans(products, currencyCode);
+  const orders = await fetchGeneratedOrders(context.admin, products, plans, currencyCode);
+  if (!orders.length) {
+    throw new Error("No generated mock orders were found. Run the orders stage before creating returns, refunds or the manifest.");
+  }
+  await recordJobLog({
+    shop: context.shop,
+    jobId: context.jobId,
+    event: "mock_dataset.orders_loaded",
+    message: `Loaded ${orders.length} existing generated mock orders from Shopify.`,
+    data: { orderCount: orders.length },
+  });
+  return orders;
+}
+
+async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
+  const data = await shopifyGraphql(admin, `#graphql
+    query ProductPulseGeneratedOrders($query: String!) {
+      orders(first: 250, query: $query, sortKey: PROCESSED_AT, reverse: false) {
+        nodes {
+          id
+          name
+          email
+          processedAt
+          note
+          tags
+          transactions(first: 10) {
+            id
+            kind
+            status
+            gateway
+            amountSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
+          lineItems(first: 50) {
+            nodes {
+              id
+              title
+              quantity
+              variant {
+                id
+              }
+            }
+          }
+          fulfillments(first: 10) {
+            id
+            fulfillmentLineItems(first: 50) {
+              nodes {
+                id
+                quantity
+                lineItem {
+                  id
+                }
+              }
+            }
           }
         }
-      `, { product: { id: product.id, status: "ARCHIVED", tags: [GENERATED_TAG, "archived-gen"] } }).catch(() => null);
+      }
     }
-    await recordJobLog({
-      shop: context.shop,
-      jobId: context.jobId,
-      event: "mock_dataset.previous_products_archived",
-      message: `${products.length} previous GEN products were archived before creating the new dataset.`,
-      data: { count: products.length },
-    });
-  } catch (error) {
-    await recordJobLog({
-      shop: context.shop,
-      jobId: context.jobId,
-      level: "warning",
-      event: "mock_dataset.archive_previous_failed",
-      message: "Previous GEN products could not be archived. Continuing with unique handles.",
-      data: { error: serializeError(error) },
-    });
-  }
+  `, { query: `tag:${GENERATED_ORDER_TAG}` }, "Fetch existing generated mock orders");
+  const plansByEmail = new Map(orderPlans.map((plan) => [plan.email, plan]));
+  const productsByVariantId = new Map(products.flatMap((product) => (
+    (product.variants || []).map((variant) => [variant.id, { product, variant }])
+  )));
+  return (data?.orders?.nodes || [])
+    .map((order) => normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, currencyCode))
+    .filter(Boolean);
+}
+
+function normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, currencyCode) {
+  const plan = plansByEmail.get(order.email);
+  if (!plan) return null;
+  const lineItems = (order.lineItems?.nodes || []).map((lineItem) => {
+    const matched = productsByVariantId.get(lineItem.variant?.id);
+    const planItem = plan.items.find((item) => item.variantId === lineItem.variant?.id) || plan.items[0];
+    const fulfillmentLineItem = (order.fulfillments || [])
+      .flatMap((fulfillment) => fulfillment.fulfillmentLineItems?.nodes || [])
+      .find((item) => item.lineItem?.id === lineItem.id);
+    return {
+      id: lineItem.id,
+      title: lineItem.title,
+      quantity: lineItem.quantity,
+      variantId: lineItem.variant?.id,
+      fulfillmentLineItemId: fulfillmentLineItem?.id || null,
+      productKey: matched?.product?.key || planItem.productKey,
+      productTitle: matched?.product?.title || planItem.productTitle,
+      handle: matched?.product?.handle || planItem.handle,
+      sku: matched?.variant?.sku || planItem.sku,
+      variantTitle: matched?.variant?.title || planItem.variantTitle,
+      unitPrice: Number(matched?.variant?.price || planItem.unitPrice || 0),
+    };
+  });
+  return {
+    id: order.id,
+    name: order.name,
+    processedAt: order.processedAt,
+    transactions: order.transactions || [],
+    lineItems,
+    plan: { ...plan, currencyCode },
+  };
 }
 
 async function createMockProduct(context, spec, location, currencyCode) {
@@ -627,7 +999,7 @@ async function createMockProduct(context, spec, location, currencyCode) {
         userErrors { field message }
       }
     }
-  `, { product: productInput });
+  `, { product: productInput }, `Create product ${spec.title}`);
   assertNoUserErrors(created?.productCreate?.userErrors, `Create product ${spec.title}`);
   const product = created.productCreate.product;
   const variantsInput = spec.variants.map((variant) => ({
@@ -669,7 +1041,7 @@ async function createMockProduct(context, spec, location, currencyCode) {
     `, {
       productId: product.id,
       variants: variantsInput,
-    });
+    }, `Create variants for ${spec.title}`);
     assertNoUserErrors(variantsData?.productVariantsBulkCreate?.userErrors, `Create variants for ${spec.title}`);
     variants = (variantsData?.productVariantsBulkCreate?.productVariants || []).map((variant) => ({
       id: variant.id,
@@ -724,7 +1096,7 @@ function buildOrderPlans(products, currencyCode) {
       email: `productpulse.mock.${index + 1}@example.com`,
       currencyCode,
       note: `ProductPulse generated order ${index + 1}. ${getOrderPhase(progress)} phase. Controlled mock dataset for diagnostics.`,
-      tags: ["productpulse-gen-order", `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
+      tags: [GENERATED_ORDER_TAG, `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
       items,
       total,
     };
@@ -915,7 +1287,7 @@ async function createMockOrder(context, plan, location, currencyCode) {
       sendFulfillmentReceipt: false,
       inventoryBehaviour: "BYPASS",
     },
-  });
+  }, `Create mock order ${plan.index + 1}`);
   assertNoUserErrors(data?.orderCreate?.userErrors, `Create order ${plan.index + 1}`);
   const order = data.orderCreate.order;
   const lineItems = (order.lineItems?.nodes || []).map((lineItem) => {
@@ -948,10 +1320,10 @@ async function createMockOrder(context, plan, location, currencyCode) {
   };
 }
 
-async function createMockReturnsAndRefunds(context, orders, currencyCode) {
-  const usedLineItems = new Set();
-  const returns = [];
-  const refunds = [];
+async function createMockReturnsAndRefunds(context, orders, currencyCode, { existingOutcomes = {}, onOutcome } = {}) {
+  const returns = Array.isArray(existingOutcomes.returns) ? [...existingOutcomes.returns] : [];
+  const refunds = Array.isArray(existingOutcomes.refunds) ? [...existingOutcomes.refunds] : [];
+  const usedLineItems = new Set([...returns, ...refunds].map((outcome) => outcome.lineItemId).filter(Boolean));
   const returnTargets = new Map(Object.entries({
     "travel-mug-leak": 8,
     "night-watch-print": 6,
@@ -968,8 +1340,14 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode) {
     "earbuds-color": 2,
     "linen-shirt-fit": 2,
   }));
-  const returnCounts = new Map();
-  const refundCounts = new Map();
+  const returnCounts = new Map(returns.map((outcome) => outcome.productKey).filter(Boolean).map((productKey) => [
+    productKey,
+    returns.filter((outcome) => outcome.productKey === productKey).length,
+  ]));
+  const refundCounts = new Map(refunds.map((outcome) => outcome.productKey).filter(Boolean).map((productKey) => [
+    productKey,
+    refunds.filter((outcome) => outcome.productKey === productKey).length,
+  ]));
   const returnCandidates = orders.flatMap((order) => order.lineItems.map((lineItem) => ({ order, lineItem })));
 
   for (const candidate of returnCandidates) {
@@ -982,10 +1360,18 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode) {
     const reason = getReturnReasonForLineItem(lineItem, order, productReturnCount);
     if (!reason) continue;
     usedLineItems.add(lineItem.id);
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.return_create_started",
+      message: `Creating mock return for ${lineItem.productTitle || lineItem.title}.`,
+      data: { orderName: order.name, lineItemId: lineItem.id, productKey: lineItem.productKey, reason },
+    });
     const result = await createReturn(context, order, lineItem, reason);
     if (result?.id) {
       returnCounts.set(lineItem.productKey, productReturnCount + 1);
-      returns.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, ...reason, id: result.id });
+      returns.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, productKey: lineItem.productKey, productTitle: lineItem.productTitle, ...reason, id: result.id });
+      await onOutcome?.({ returns, refunds });
     }
   }
 
@@ -999,10 +1385,18 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode) {
     const reason = getRefundReasonForLineItem(lineItem, order, productRefundCount);
     if (!reason) continue;
     usedLineItems.add(lineItem.id);
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.refund_create_started",
+      message: `Creating mock refund for ${lineItem.productTitle || lineItem.title}.`,
+      data: { orderName: order.name, lineItemId: lineItem.id, productKey: lineItem.productKey, reason },
+    });
     const result = await createRefund(context, order, lineItem, reason, currencyCode);
     if (result?.id) {
       refundCounts.set(lineItem.productKey, productRefundCount + 1);
-      refunds.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, ...reason, id: result.id });
+      refunds.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, productKey: lineItem.productKey, productTitle: lineItem.productTitle, ...reason, id: result.id });
+      await onOutcome?.({ returns, refunds });
     }
   }
 
@@ -1096,7 +1490,7 @@ async function createReturn(context, order, lineItem, reason) {
           returnReasonNote: reason.note,
         }],
       },
-    });
+    }, `Create return for ${order.name}`);
     const errors = data?.returnCreate?.userErrors || [];
     if (errors.length) throw new Error(formatUserErrors(errors));
     return data?.returnCreate?.return || null;
@@ -1145,7 +1539,7 @@ async function createRefund(context, order, lineItem, reason, currencyCode) {
         }],
         transactions: [],
       },
-    });
+    }, `Create refund for ${order.name}`);
     const errors = data?.refundCreate?.userErrors || [];
     if (errors.length) throw new Error(formatUserErrors(errors));
     return data?.refundCreate?.refund || null;
@@ -1413,7 +1807,7 @@ async function saveMockDatasetManifest({ shop, runId, createdAt, products, order
     returnCount: outcomes.returns.length,
     refundCount: outcomes.refunds.length,
     reviewCount: reviewRows.length,
-    csvReviewFilePath: reviewSource.filePath,
+    csvReviewFilePath: reviewSource?.filePath || null,
     manifestPath,
     orderCreateDelayMs: orderDelayMs,
     requiredScopes: REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES,
@@ -1423,6 +1817,150 @@ async function saveMockDatasetManifest({ shop, runId, createdAt, products, order
   await mkdir(shopDir, { recursive: true });
   await writeFile(manifestPath, JSON.stringify(summary, null, 2), "utf8");
   return { summary, manifestPath };
+}
+
+async function getStoredMockDatasetConfig(shop) {
+  const source = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop, sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY } },
+  }).catch(() => null);
+  return source?.config || {};
+}
+
+async function getStoredMockDatasetOutcomes(shop) {
+  const config = await getStoredMockDatasetConfig(shop);
+  return {
+    returns: Array.isArray(config.outcomes?.returns) ? config.outcomes.returns : [],
+    refunds: Array.isArray(config.outcomes?.refunds) ? config.outcomes.refunds : [],
+  };
+}
+
+async function getStoredMockDatasetReviewSource(shop) {
+  const config = await getStoredMockDatasetConfig(shop);
+  if (!config.csvReviewFilePath) return null;
+  return {
+    filePath: config.csvReviewFilePath,
+    fileName: config.csvReviewFileName || path.basename(config.csvReviewFilePath),
+    rowCount: config.reviewCount || 0,
+    checksum: config.csvReviewChecksum || null,
+  };
+}
+
+async function getCurrentMockDatasetSummary(shop, { runId, createdAt, products, orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
+  const config = await getStoredMockDatasetConfig(shop);
+  return {
+    ...config,
+    runId,
+    generatedAt: config.generatedAt || createdAt.toISOString(),
+    productCount: products.length || config.productCount || 0,
+    orderCount: orders.length || config.orderCount || 0,
+    returnCount: outcomes.returns.length || config.returnCount || 0,
+    refundCount: outcomes.refunds.length || config.refundCount || 0,
+    reviewCount: reviewSource ? reviewRows.length : config.reviewCount || 0,
+    csvReviewFilePath: reviewSource?.filePath || config.csvReviewFilePath || null,
+    manifestPath: config.manifestPath || null,
+    orderCreateDelayMs: orderDelayMs,
+    requiredScopes: REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES,
+  };
+}
+
+async function markMockDatasetStageRunning(context, stage) {
+  await updateMockDatasetState(context, {
+    stages: {
+      [stage]: {
+        status: "running",
+        startedAt: new Date().toISOString(),
+      },
+    },
+  });
+  await recordJobLog({
+    shop: context.shop,
+    jobId: context.jobId,
+    event: `mock_dataset.${stage}.started`,
+    message: `Mock dataset stage started: ${stage}.`,
+    data: { stage, runId: context.runId },
+  });
+}
+
+async function markMockDatasetStageComplete(context, stage, data = {}) {
+  await updateMockDatasetState(context, {
+    ...data,
+    stages: {
+      [stage]: {
+        status: "completed",
+        completedAt: new Date().toISOString(),
+        ...data,
+      },
+    },
+  });
+  await recordJobLog({
+    shop: context.shop,
+    jobId: context.jobId,
+    event: `mock_dataset.${stage}.completed`,
+    message: `Mock dataset stage completed: ${stage}.`,
+    data,
+  });
+}
+
+async function updateProgressForStage(context, stage, completed, total, source, data = {}) {
+  const [start, end] = STAGE_PROGRESS[stage] || [0, 99];
+  const ratio = total > 0 ? completed / total : 1;
+  await updateProgress(context, start + Math.floor((end - start) * ratio), source, {
+    stage,
+    completed,
+    total,
+    ...data,
+  });
+}
+
+async function updateMockDatasetState(context, patch = {}) {
+  const existingSource = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop: context.shop, sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY } },
+  }).catch(() => null);
+  const existingConfig = existingSource?.config || {};
+  const config = mergeMockDatasetConfig(existingConfig, patch);
+  await prisma.productPulseSource.upsert({
+    where: { shop_sourceKey: { shop: context.shop, sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY } },
+    create: {
+      shop: context.shop,
+      sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY,
+      category: "testing",
+      name: "Shopify mock dataset",
+      connected: true,
+      active: true,
+      available: true,
+      health: "connected",
+      coverageWeight: 0,
+      connectedAt: context.createdAt,
+      lastSyncedAt: new Date(),
+      config,
+    },
+    update: {
+      connected: true,
+      active: true,
+      available: true,
+      health: "connected",
+      lastSyncedAt: new Date(),
+      config,
+    },
+  });
+  return config;
+}
+
+function mergeMockDatasetConfig(existingConfig, patch) {
+  const next = {
+    ...existingConfig,
+    ...patch,
+  };
+  if (existingConfig.stages || patch.stages) {
+    next.stages = { ...(existingConfig.stages || {}) };
+    for (const [stage, stagePatch] of Object.entries(patch.stages || {})) {
+      next.stages[stage] = {
+        ...(existingConfig.stages?.[stage] || {}),
+        ...stagePatch,
+      };
+    }
+  }
+  return next;
 }
 
 function buildProductPhaseSummary(product, orders, outcomes, reviewRows) {
@@ -1475,7 +2013,7 @@ async function getShopInfo(admin) {
         currencyCode
       }
     }
-  `);
+  `, undefined, "Fetch mock dataset shop info");
   return {
     currencyCode: data?.shop?.currencyCode || "USD",
   };
@@ -1491,7 +2029,7 @@ async function getPrimaryLocation(admin) {
         }
       }
     }
-  `).catch(() => null);
+  `, undefined, "Fetch mock dataset primary location").catch(() => null);
   return data?.locations?.nodes?.[0] || null;
 }
 
@@ -1499,14 +2037,59 @@ async function updateProgress(context, progress, source, data = null) {
   await context.onProgress(progress, source, data);
 }
 
-async function shopifyGraphql(admin, query, variables) {
-  const response = await admin.graphql(query, variables ? { variables } : undefined);
-  const json = await response.json();
-  const errors = json.errors || [];
-  if (errors.length) {
-    throw new Error(errors.map((error) => error.message).join("; "));
+async function shopifyGraphql(admin, query, variables, label = "Shopify GraphQL") {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await admin.graphql(query, variables ? { variables } : undefined);
+      if (response?.ok === false) throw response;
+      const json = await response.json();
+      const errors = json.errors || [];
+      if (errors.length) {
+        throw new Error(`${label}: ${errors.map((error) => error.message).join("; ")}`);
+      }
+      return json.data;
+    } catch (error) {
+      lastError = await normalizeShopifyGraphqlError(error, label, attempt);
+      if (attempt < 3 && isTransientShopifyGraphqlError(lastError)) {
+        await wait(2000 * attempt);
+        continue;
+      }
+      throw lastError;
+    }
   }
-  return json.data;
+  throw lastError;
+}
+
+async function normalizeShopifyGraphqlError(error, label, attempt) {
+  if (error && typeof error.text === "function") {
+    const body = await error.text().catch(() => "");
+    const message = [
+      `${label} failed on attempt ${attempt}`,
+      `HTTP ${error.status || "unknown"}`,
+      body ? body.replace(/\s+/g, " ").slice(0, 600) : null,
+    ].filter(Boolean).join(": ");
+    const next = new Error(message);
+    next.status = error.status;
+    return next;
+  }
+  if (error instanceof Error) {
+    error.message = error.message?.startsWith(label) ? error.message : `${label} failed on attempt ${attempt}: ${error.message}`;
+    return error;
+  }
+  return new Error(`${label} failed on attempt ${attempt}: ${String(error)}`);
+}
+
+function isTransientShopifyGraphqlError(error) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || "").toLowerCase();
+  return status === 429
+    || status >= 500
+    || message.includes("status: 520")
+    || message.includes("http 520")
+    || message.includes("throttled")
+    || message.includes("timeout")
+    || message.includes("temporarily unavailable");
 }
 
 function assertNoUserErrors(errors, label) {
