@@ -27,6 +27,7 @@ import {
 import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
 import {
   SHOPIFY_MOCK_DATASET_KIND,
+  SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS,
   SHOPIFY_MOCK_DATASET_STAGE_LABELS,
   getMissingShopifyMockDatasetScopes,
   normalizeShopifyMockDatasetStage,
@@ -149,7 +150,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
         stage,
         stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
         expectedProducts: 10,
-        expectedOrders: 120,
+        expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? 120,
       },
     },
   });
@@ -160,7 +161,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
     jobId: job.id,
     event: "mock_dataset.queued",
     message: `Shopify mock dataset stage queued: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
-    data: { stage, expectedProducts: 10, expectedOrders: 120 },
+    data: { stage, expectedProducts: 10, expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? 120 },
   });
 
   return {

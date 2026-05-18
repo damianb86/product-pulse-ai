@@ -2258,6 +2258,10 @@ export function SettingsScreen({ data = {}, actionData }) {
                 <strong>{mockDataset?.config?.generatedAt ? formatWatchReportTimestamp(mockDataset.config.generatedAt) : "Never"}</strong>
                 Last run
               </span>
+              <span>
+                <strong>{mockDataset?.config?.evolutionOrderCount || 0}</strong>
+                Recent evolution orders
+              </span>
             </div>
 
             <div className="ppSettingsMockDatasetActions">
@@ -2294,6 +2298,26 @@ export function SettingsScreen({ data = {}, actionData }) {
                 );
               })}
             </div>
+
+            <Form method="post" className="ppSettingsMockEvolutionCard">
+              <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
+              <input type="hidden" name="stage" value="evolution" />
+              <DashboardIcon type="chart-line" tone={mockDataset?.config?.stages?.evolution?.status === "completed" ? "green" : "purple"} size="small" />
+              <div>
+                <strong>Create recent evolution batch</strong>
+                <p>
+                  Adds a small, recent two-week set of GEN orders, returns, refunds and CSV reviews so Watchlist change reports can detect what changed since the previous diagnosis.
+                </p>
+                <small>
+                  {mockDataset?.config?.stages?.evolution?.status === "completed"
+                    ? `Completed ${formatWatchReportTimestamp(mockDataset.config.stages.evolution.completedAt)}`
+                    : "Creates or reuses 26 recent evolution orders and rewrites the CSV with new reviews."}
+                </small>
+              </div>
+              <button className="ppPrimaryButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
+                {pendingMockDatasetStage === "evolution" ? "Starting..." : "Run evolution batch"}
+              </button>
+            </Form>
           </section>
         </div>
       </ScreenShell>

@@ -13,6 +13,7 @@ export const SHOPIFY_MOCK_DATASET_STAGES = [
   "orders",
   "outcomes",
   "reviews",
+  "evolution",
   "manifest",
 ];
 export const SHOPIFY_MOCK_DATASET_STAGE_LABELS = {
@@ -21,6 +22,7 @@ export const SHOPIFY_MOCK_DATASET_STAGE_LABELS = {
   orders: "Create orders",
   outcomes: "Create returns and refunds",
   reviews: "Generate CSV reviews",
+  evolution: "Create recent evolution batch",
   manifest: "Finalize report",
 };
 export const REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES = [
@@ -36,8 +38,19 @@ export const REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES = [
 
 const GENERATED_TAG = "productpulse-gen";
 const GENERATED_ORDER_TAG = "productpulse-gen-order";
+const GENERATED_EVOLUTION_ORDER_TAG = "productpulse-gen-evolution-order";
 const GENERATED_REVIEW_SOURCE = "ProductPulse mock reviews";
 const DEFAULT_ORDER_COUNT = 120;
+const DEFAULT_EVOLUTION_ORDER_COUNT = 26;
+export const SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS = {
+  all: DEFAULT_ORDER_COUNT,
+  products: 0,
+  orders: DEFAULT_ORDER_COUNT,
+  outcomes: DEFAULT_ORDER_COUNT,
+  reviews: 0,
+  evolution: DEFAULT_EVOLUTION_ORDER_COUNT,
+  manifest: DEFAULT_ORDER_COUNT,
+};
 const MIN_ORDER_CREATE_DELAY_MS = 12_500;
 const GENERATED_PRODUCTS_PAGE_SIZE = 25;
 const GENERATED_PRODUCT_VARIANTS_PAGE_SIZE = 10;
@@ -54,6 +67,7 @@ const STAGE_PROGRESS = {
   orders: [25, 70],
   outcomes: [70, 86],
   reviews: [86, 93],
+  evolution: [35, 95],
   manifest: [93, 100],
 };
 const SHOPIFY_SCOPE_READ_EQUIVALENTS = {
@@ -577,6 +591,44 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
   } else {
     reviewRows = buildReviewRows(products, createdAt);
     reviewSource = await getStoredMockDatasetReviewSource(shop);
+  }
+
+  let evolution = existingConfig.evolutionBatch || null;
+  if (shouldRunMockDatasetStage(requestedStage, "evolution")) {
+    await markMockDatasetStageRunning(context, "evolution");
+    await updateProgress(context, 35, "Creating recent evolution orders, outcomes and CSV review updates.");
+    evolution = await createMockEvolutionBatch(context, products, location, shopInfo.currencyCode, {
+      baseCreatedAt: createdAt,
+      orderDelayMs,
+    });
+    reviewRows = buildReviewRows(products, createdAt);
+    const evolutionReviewRows = buildEvolutionReviewRows(products, evolution, reviewRows.length + 2);
+    const combinedReviewRows = [...reviewRows, ...evolutionReviewRows];
+    reviewSource = await saveMockCsvReviewSource({ shop, runId: `${runId}-evolution`, rows: combinedReviewRows });
+    const report = await saveMockEvolutionReport({
+      shop,
+      runId,
+      products,
+      evolution,
+      reviewRows: evolutionReviewRows,
+      reviewSource,
+    });
+    await markMockDatasetStageComplete(context, "evolution", {
+      evolutionBatch: {
+        ...evolution,
+        reportPath: report.reportPath,
+        expectedChanges: report.expectedChanges,
+      },
+      evolutionOrderCount: evolution.orders.length,
+      evolutionReturnCount: evolution.returns.length,
+      evolutionRefundCount: evolution.refunds.length,
+      evolutionReviewCount: evolutionReviewRows.length,
+      reviewCount: combinedReviewRows.length,
+      csvReviewFilePath: reviewSource.filePath,
+      csvReviewFileName: reviewSource.fileName,
+      csvReviewChecksum: reviewSource.checksum,
+    });
+    reviewRows = combinedReviewRows;
   }
 
   let summary = await getCurrentMockDatasetSummary(shop, {
@@ -1572,6 +1624,414 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
   return { returns, refunds };
 }
 
+async function createMockEvolutionBatch(context, products, location, currencyCode, { baseCreatedAt, orderDelayMs }) {
+  const batchId = "recent-watchlist-evolution-v1";
+  const createdAt = new Date();
+  const plans = buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId);
+  const orders = await loadOrCreateMockEvolutionOrders(context, plans, location, currencyCode, orderDelayMs);
+  const ordersWithOutcomes = await fetchGeneratedEvolutionOrders(context, products, plans, currencyCode, { includeOutcomes: true });
+  const outcomes = await createEvolutionReturnsAndRefunds(context, ordersWithOutcomes, plans, currencyCode);
+  const scenarios = buildEvolutionScenarioDocs(products, plans, outcomes);
+
+  await updateMockDatasetState(context, {
+    evolutionBatch: {
+      batchId,
+      generatedAt: createdAt.toISOString(),
+      baseDatasetGeneratedAt: baseCreatedAt?.toISOString?.() || null,
+      orderCount: orders.length,
+      returnCount: outcomes.returns.length,
+      refundCount: outcomes.refunds.length,
+      scenarios,
+    },
+  });
+
+  return {
+    batchId,
+    generatedAt: createdAt.toISOString(),
+    orders,
+    returns: outcomes.returns,
+    refunds: outcomes.refunds,
+    scenarios,
+  };
+}
+
+async function loadOrCreateMockEvolutionOrders(context, plans, location, currencyCode, orderDelayMs) {
+  const existingOrders = await fetchGeneratedEvolutionOrders(context, [], plans, currencyCode);
+  const existingByIndex = new Map(existingOrders.map((order) => [order.plan?.evolutionIndex, order]).filter(([index]) => Number.isInteger(index)));
+  const orders = [];
+  let createdCount = 0;
+  let reusedCount = 0;
+
+  for (let index = 0; index < plans.length; index += 1) {
+    const plan = plans[index];
+    const existing = existingByIndex.get(plan.evolutionIndex);
+    if (existing) {
+      orders.push(existing);
+      reusedCount += 1;
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.evolution_order_reused",
+        message: `Reused recent evolution order ${index + 1} of ${plans.length}.`,
+        data: { orderName: existing.name, evolutionIndex: plan.evolutionIndex + 1, productKeys: plan.items.map((item) => item.productKey) },
+      });
+    } else {
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.evolution_order_create_started",
+        message: `Creating recent evolution order ${index + 1} of ${plans.length}.`,
+        data: {
+          evolutionIndex: plan.evolutionIndex + 1,
+          processedAt: plan.processedAt,
+          productKeys: plan.items.map((item) => item.productKey),
+          outcomes: plan.outcomes.map((outcome) => `${outcome.type}:${outcome.productKey}`),
+        },
+      });
+      const createdOrder = await createMockOrder(context, plan, location, currencyCode);
+      orders.push(createdOrder);
+      createdCount += 1;
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.evolution_order_created",
+        message: `Created recent evolution order ${index + 1} of ${plans.length}.`,
+        data: { orderName: createdOrder.name, orderId: createdOrder.id, evolutionIndex: plan.evolutionIndex + 1 },
+      });
+      if (index < plans.length - 1 && orderDelayMs > 0) await wait(orderDelayMs);
+    }
+
+    await updateProgressForStage(context, "evolution", index + 1, plans.length + 8, `Prepared ${index + 1} of ${plans.length} recent evolution orders.`, {
+      evolutionCreatedOrders: createdCount,
+      evolutionReusedOrders: reusedCount,
+    });
+  }
+
+  return orders;
+}
+
+async function fetchGeneratedEvolutionOrders(context, products, plans, currencyCode, { includeOutcomes = false } = {}) {
+  const orders = [];
+  let cursor = null;
+  let page = 0;
+  const ordersFirst = includeOutcomes ? GENERATED_ORDERS_WITH_OUTCOMES_PAGE_SIZE : GENERATED_ORDERS_PAGE_SIZE;
+  const productsByVariantId = new Map((products || []).flatMap((product) => (
+    (product.variants || []).map((variant) => [variant.id, { product, variant }])
+  )));
+
+  do {
+    page += 1;
+    const data = await shopifyGraphql(context.admin, buildGeneratedOrdersQuery(includeOutcomes), {
+      query: `tag:${GENERATED_EVOLUTION_ORDER_TAG}`,
+      after: cursor,
+      ordersFirst,
+      lineItemsFirst: GENERATED_ORDER_LINE_ITEMS_PAGE_SIZE,
+      fulfillmentsFirst: GENERATED_ORDER_FULFILLMENTS_PAGE_SIZE,
+      fulfillmentLineItemsFirst: GENERATED_ORDER_FULFILLMENT_LINE_ITEMS_PAGE_SIZE,
+      ...(includeOutcomes ? {
+        returnsFirst: GENERATED_ORDER_RETURNS_PAGE_SIZE,
+        returnLineItemsFirst: GENERATED_ORDER_RETURN_LINE_ITEMS_PAGE_SIZE,
+        refundLineItemsFirst: GENERATED_ORDER_REFUND_LINE_ITEMS_PAGE_SIZE,
+      } : {}),
+    }, includeOutcomes ? "Fetch existing recent evolution orders with outcomes" : "Fetch existing recent evolution orders");
+    const nodes = data?.orders?.nodes || [];
+    orders.push(...nodes);
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.evolution_orders_page_loaded",
+      message: `Loaded recent evolution orders page ${page}.`,
+      data: {
+        page,
+        count: nodes.length,
+        totalLoaded: orders.length,
+        includeOutcomes,
+        ordersFirst,
+        cost: getGraphqlCostSummary(data),
+      },
+    });
+    cursor = data?.orders?.pageInfo?.hasNextPage ? data.orders.pageInfo.endCursor : null;
+  } while (cursor);
+
+  const plansByIndex = new Map(plans.map((plan) => [plan.evolutionIndex, plan]));
+  return orders
+    .map((order) => normalizeExistingEvolutionOrder(order, plansByIndex, productsByVariantId, currencyCode))
+    .filter(Boolean);
+}
+
+function normalizeExistingEvolutionOrder(order, plansByIndex, productsByVariantId, currencyCode) {
+  const plan = plansByIndex.get(getEvolutionOrderIndex(order));
+  if (!plan) return null;
+  const lineItems = (order.lineItems?.nodes || []).map((lineItem) => {
+    const matched = productsByVariantId.get(lineItem.variant?.id);
+    const planItem = plan.items.find((item) => item.variantId === lineItem.variant?.id) || plan.items[0];
+    const fulfillmentLineItem = (order.fulfillments || [])
+      .flatMap((fulfillment) => fulfillment.fulfillmentLineItems?.nodes || [])
+      .find((item) => item.lineItem?.id === lineItem.id);
+    return {
+      id: lineItem.id,
+      title: lineItem.title,
+      quantity: lineItem.quantity,
+      variantId: lineItem.variant?.id,
+      fulfillmentLineItemId: fulfillmentLineItem?.id || null,
+      productKey: matched?.product?.key || planItem.productKey,
+      productTitle: matched?.product?.title || planItem.productTitle,
+      handle: matched?.product?.handle || planItem.handle,
+      sku: matched?.variant?.sku || planItem.sku,
+      variantTitle: matched?.variant?.title || planItem.variantTitle,
+      unitPrice: Number(matched?.variant?.price || planItem.unitPrice || 0),
+    };
+  });
+  const lineItemsById = new Map(lineItems.map((lineItem) => [lineItem.id, lineItem]));
+  const existingReturns = getConnectionNodes(order.returns).flatMap((itemReturn) => (
+    getConnectionNodes(itemReturn.returnLineItems)
+      .map((returnLineItem) => {
+        const lineItemId = returnLineItem.fulfillmentLineItem?.lineItem?.id;
+        const lineItem = lineItemsById.get(lineItemId);
+        if (!lineItem) return null;
+        return {
+          id: itemReturn.id,
+          returnLineItemId: returnLineItem.id,
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          returnReason: returnLineItem.returnReason || null,
+          note: returnLineItem.returnReasonNote || returnLineItem.customerNote || null,
+          theme: "shopify-existing",
+        };
+      })
+      .filter(Boolean)
+  ));
+  const existingRefunds = (order.refunds || []).flatMap((refund) => (
+    getConnectionNodes(refund.refundLineItems)
+      .map((refundLineItem) => {
+        const lineItemId = refundLineItem.lineItem?.id;
+        const lineItem = lineItemsById.get(lineItemId);
+        if (!lineItem) return null;
+        return {
+          id: refund.id,
+          refundLineItemId: refundLineItem.id,
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          note: refund.note || null,
+          theme: "shopify-existing",
+          quantity: refundLineItem.quantity || 1,
+        };
+      })
+      .filter(Boolean)
+  ));
+
+  return {
+    id: order.id,
+    name: order.name,
+    processedAt: order.processedAt,
+    lineItems,
+    plan: { ...plan, currencyCode },
+    existingOutcomes: {
+      returns: existingReturns,
+      refunds: existingRefunds,
+    },
+  };
+}
+
+function getEvolutionOrderIndex(order) {
+  const tagIndex = (order.tags || [])
+    .map((tag) => String(tag || "").match(/^ppgen-evolution-order-(\d+)$/i)?.[1])
+    .find(Boolean);
+  const noteIndex = String(order.note || "").match(/ProductPulse recent evolution order\s+(\d+)/i)?.[1];
+  const index = Number(tagIndex || noteIndex || 0);
+  return Number.isFinite(index) && index > 0 ? index - 1 : null;
+}
+
+async function createEvolutionReturnsAndRefunds(context, orders, plans, currencyCode) {
+  const returns = collectExistingOutcomesFromOrders(orders).returns;
+  const refunds = collectExistingOutcomesFromOrders(orders).refunds;
+  const outcomeKeys = new Set([
+    ...returns.map((outcome) => `return:${outcome.orderId}:${outcome.lineItemId}`),
+    ...refunds.map((outcome) => `refund:${outcome.orderId}:${outcome.lineItemId}`),
+  ]);
+  const planByIndex = new Map(plans.map((plan) => [plan.evolutionIndex, plan]));
+
+  for (let orderIndex = 0; orderIndex < orders.length; orderIndex += 1) {
+    const order = orders[orderIndex];
+    const plan = planByIndex.get(order.plan?.evolutionIndex);
+    if (!plan) continue;
+    for (const plannedOutcome of plan.outcomes) {
+      const lineItem = order.lineItems.find((item) => item.productKey === plannedOutcome.productKey);
+      if (!lineItem) continue;
+      const outcomeKey = `${plannedOutcome.type}:${order.id}:${lineItem.id}`;
+      if (outcomeKeys.has(outcomeKey)) continue;
+      if (plannedOutcome.type === "return") {
+        const result = await createReturn(context, order, lineItem, plannedOutcome);
+        if (result?.id) {
+          outcomeKeys.add(outcomeKey);
+          returns.push({
+            orderId: order.id,
+            orderName: order.name,
+            lineItemId: lineItem.id,
+            productKey: lineItem.productKey,
+            productTitle: lineItem.productTitle,
+            returnReason: plannedOutcome.returnReason,
+            note: plannedOutcome.note,
+            theme: plannedOutcome.theme,
+            id: result.id,
+          });
+        }
+      }
+      if (plannedOutcome.type === "refund") {
+        const result = await createRefund(context, order, lineItem, plannedOutcome, currencyCode);
+        if (result?.id) {
+          outcomeKeys.add(outcomeKey);
+          refunds.push({
+            orderId: order.id,
+            orderName: order.name,
+            lineItemId: lineItem.id,
+            productKey: lineItem.productKey,
+            productTitle: lineItem.productTitle,
+            note: plannedOutcome.note,
+            theme: plannedOutcome.theme,
+            quantity: plannedOutcome.quantity || 1,
+            id: result.id,
+          });
+        }
+      }
+    }
+    await updateProgressForStage(context, "evolution", plans.length + orderIndex + 1, plans.length + orders.length + 4, `Prepared recent returns and refunds for ${orderIndex + 1} of ${orders.length} evolution orders.`);
+  }
+
+  await recordJobLog({
+    shop: context.shop,
+    jobId: context.jobId,
+    event: "mock_dataset.evolution_outcomes_completed",
+    message: "Recent evolution returns and refunds are ready.",
+    data: { returnCount: returns.length, refundCount: refunds.length },
+  });
+
+  return { returns: dedupeOutcomes(returns), refunds: dedupeOutcomes(refunds) };
+}
+
+function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
+  const byKey = new Map(products.map((product) => [product.key, product]));
+  const specs = [
+    { key: "night-watch-print", daysAgo: 14, count: 1 },
+    { key: "premium-keyboard", daysAgo: 13, count: 2 },
+    { key: "puzzle-calm", daysAgo: 12, count: 2 },
+    { key: "travel-mug-leak", daysAgo: 11, count: 1, outcome: "return", note: "Other: New gasket batch leaked immediately during commute.", reason: "OTHER", theme: "leak" },
+    { key: "soft-yoga-mat", daysAgo: 10, count: 1 },
+    { key: "ceramic-dinner-set", daysAgo: 9, count: 1 },
+    { key: "linen-shirt-fit", daysAgo: 8, count: 1, variantHint: "M", outcome: "return", note: "Medium White still runs small after one cold wash.", reason: "SIZE_TOO_SMALL", theme: "fit" },
+    { key: "smart-planter", daysAgo: 8, count: 1, outcome: "refund", note: "Compatibility refund: buyer only has 5 GHz Wi-Fi and missed the setup limitation.", theme: "compatibility" },
+    { key: "travel-mug-leak", daysAgo: 7, count: 1, outcome: "return", note: "Other: Lid seal failed near a laptop and customer asked for a return.", reason: "OTHER", theme: "leak" },
+    { key: "earbuds-color", daysAgo: 7, count: 1, variantHint: "Rose", outcome: "return", note: "Rose variant still looks copper compared with current PDP photos.", reason: "COLOR", theme: "color" },
+    { key: "desk-fan-mismatch", daysAgo: 6, count: 1 },
+    { key: "night-watch-print", daysAgo: 6, count: 1, outcome: "return", note: "Other: The darker print made the hallway feel frightening after installation.", reason: "OTHER", theme: "fear" },
+    { key: "premium-keyboard", daysAgo: 6, count: 1 },
+    { key: "travel-mug-leak", daysAgo: 5, count: 2, outcome: "refund", note: "Partial refund after second leak report on the updated gasket batch.", theme: "leak" },
+    { key: "ceramic-dinner-set", daysAgo: 5, count: 1 },
+    { key: "linen-shirt-fit", daysAgo: 5, count: 1 },
+    { key: "puzzle-calm", daysAgo: 4, count: 1 },
+    { key: "travel-mug-leak", daysAgo: 4, count: 1, outcome: "return", note: "Other: Third recent leak note; customer says the leakproof promise is unsafe for commuting.", reason: "OTHER", theme: "leak" },
+    { key: "soft-yoga-mat", daysAgo: 4, count: 1 },
+    { key: "night-watch-print", daysAgo: 3, count: 1, outcome: "return", note: "Other: Buyer says the room feels too dark and heavy with the print installed.", reason: "OTHER", theme: "fear" },
+    { key: "smart-planter", daysAgo: 3, count: 1, outcome: "return", note: "Not as described: app language and 2.4 GHz Wi-Fi requirements were missed before purchase.", reason: "NOT_AS_DESCRIBED", theme: "compatibility" },
+    { key: "ceramic-dinner-set", daysAgo: 2, count: 1 },
+    { key: "desk-fan-mismatch", daysAgo: 2, count: 1 },
+    { key: "linen-shirt-fit", daysAgo: 1, count: 1 },
+    { key: "premium-keyboard", daysAgo: 1, count: 2 },
+    { key: "earbuds-color", daysAgo: 1, count: 1 },
+  ];
+
+  return specs.map((spec, index) => {
+    const product = byKey.get(spec.key);
+    if (!product) throw new Error(`Missing generated product for evolution batch: ${spec.key}`);
+    const variant = pickVariantForEvolution(product, index, spec.variantHint);
+    const processedAt = new Date(createdAt.getTime() - spec.daysAgo * 24 * 60 * 60 * 1000 + (index % 5) * 90 * 60 * 1000);
+    const items = [{
+      productKey: product.key,
+      productTitle: product.title,
+      handle: product.handle,
+      variantId: variant.id,
+      variantTitle: variant.title,
+      sku: variant.sku,
+      quantity: spec.count,
+      unitPrice: Number(variant.price || 0),
+    }];
+    const outcomes = spec.outcome ? [{
+      type: spec.outcome,
+      productKey: spec.key,
+      returnReason: spec.reason || "OTHER",
+      note: spec.note,
+      theme: spec.theme,
+      quantity: 1,
+    }] : [];
+    return {
+      index: 1000 + index,
+      evolutionIndex: index,
+      phase: "evolution",
+      processedAt: processedAt.toISOString(),
+      currencyCode,
+      note: `ProductPulse recent evolution order ${index + 1}. ${batchId}. Designed for Watchlist change-report testing.`,
+      tags: [GENERATED_EVOLUTION_ORDER_TAG, `ppgen-evolution-order-${index + 1}`, batchId],
+      items,
+      outcomes,
+      total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+    };
+  });
+}
+
+function pickVariantForEvolution(product, index, hint) {
+  const variants = product.variants || [];
+  if (!variants.length) throw new Error(`Product ${product.title} has no variants after creation.`);
+  if (hint) {
+    const normalizedHint = String(hint).toLowerCase();
+    const matched = variants.find((variant) => String(variant.title || "").toLowerCase().includes(normalizedHint)
+      || String(variant.sku || "").toLowerCase().includes(normalizedHint));
+    if (matched) return matched;
+  }
+  return variants[index % variants.length];
+}
+
+function buildEvolutionScenarioDocs(products, plans, outcomes) {
+  return products.map((product) => {
+    const productPlans = plans.filter((plan) => plan.items.some((item) => item.productKey === product.key));
+    const productReturns = outcomes.returns.filter((outcome) => outcome.productKey === product.key);
+    const productRefunds = outcomes.refunds.filter((outcome) => outcome.productKey === product.key);
+    return {
+      productKey: product.key,
+      title: product.title,
+      handle: product.handle,
+      expectedWatchlistChange: getEvolutionExpectedChange(product.key),
+      newOrders: productPlans.length,
+      newUnits: productPlans.flatMap((plan) => plan.items).filter((item) => item.productKey === product.key).reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+      newReturns: productReturns.length,
+      newRefunds: productRefunds.length,
+      newThemes: [...new Set([...productReturns, ...productRefunds].map((outcome) => outcome.theme).filter(Boolean))],
+    };
+  });
+}
+
+function getEvolutionExpectedChange(productKey) {
+  const changes = {
+    "night-watch-print": "Worsens: fresh subjective fear returns should increase risk and keep description/expectation guidance relevant.",
+    "puzzle-calm": "Improves/stays healthy: positive recent sales and reviews should not create new risk actions.",
+    "travel-mug-leak": "Worsens sharply: new leak returns and a refund should surface as an emerging gasket/lid issue.",
+    "soft-yoga-mat": "Stabilizes: recent sales without new returns should soften the forecast.",
+    "earbuds-color": "Small new variant issue: Rose color mismatch should remain variant/media-specific.",
+    "smart-planter": "New compatibility friction: Wi-Fi/app-language notes should surface before becoming severe.",
+    "linen-shirt-fit": "Ongoing fit issue: Medium White should continue to show variant-specific sizing friction.",
+    "ceramic-dinner-set": "Improves: new sales without damage refunds should show packaging risk cooling.",
+    "desk-fan-mismatch": "Source-integrity issue grows through reviews, not orders or returns.",
+    "premium-keyboard": "Improves momentum with clean orders and positive reviews; should remain low risk.",
+  };
+  return changes[productKey] || "Recent evolution added for watchlist testing.";
+}
+
+
 function collectExistingOutcomesFromOrders(orders) {
   return orders.reduce((accumulator, order) => {
     accumulator.returns.push(...(order.existingOutcomes?.returns || []));
@@ -1894,6 +2354,137 @@ function getReviewText(product, index, negative, progress, phase) {
   return options[index % options.length];
 }
 
+function buildEvolutionReviewRows(products, evolution, startSourceRow = 2) {
+  const productByKey = new Map(products.map((product) => [product.key, product]));
+  let sourceRow = startSourceRow;
+  const generatedAt = new Date(evolution?.generatedAt || Date.now());
+  const specs = [
+    {
+      key: "night-watch-print",
+      daysAgo: 5,
+      rating: 2,
+      title: "Still too dark for a hallway",
+      body: "The print quality is good, but the mood felt darker and heavier than the page suggested. After hanging it for a few days, the faces and shadows made the hallway feel unsettling instead of classic.",
+      phase: "evolution_worsening",
+    },
+    {
+      key: "night-watch-print",
+      daysAgo: 2,
+      rating: 1,
+      title: "Frightening once installed",
+      body: "This is not damaged, but it is much more frightening in a real room than I expected. The listing should clearly warn that the artwork is intense, dark, and not neutral wall decor.",
+      phase: "evolution_worsening",
+    },
+    {
+      key: "travel-mug-leak",
+      daysAgo: 10,
+      rating: 1,
+      title: "New lid gasket still leaks",
+      body: "I bought this after seeing the leakproof claim and the updated gasket still leaked inside my commute bag. The liquid came out near the button and made me nervous about carrying it near a laptop.",
+      phase: "evolution_spike",
+    },
+    {
+      key: "travel-mug-leak",
+      daysAgo: 4,
+      rating: 1,
+      title: "Do not trust it in a backpack",
+      body: "The mug looks nice, but the lid failed twice in one week. This feels like a specific gasket or seal issue, not just normal user error, and the product page should stop calling it leakproof.",
+      phase: "evolution_spike",
+    },
+    {
+      key: "smart-planter",
+      daysAgo: 3,
+      rating: 2,
+      title: "Setup requirements need to be obvious",
+      body: "The planter is attractive, but I missed that it needs 2.4 GHz Wi-Fi and that the app is English only. These requirements should be shown before checkout because they completely change whether the product works for a buyer.",
+      phase: "evolution_new_issue",
+    },
+    {
+      key: "desk-fan-mismatch",
+      daysAgo: 6,
+      rating: 2,
+      title: "Reviews still look mismatched",
+      body: "I bought a desk fan, but the recent review feed still talks about snowboards, bindings, mountain conditions, and boots. That makes it hard to trust the rating even if the actual fan is fine.",
+      phase: "evolution_source_integrity",
+    },
+    {
+      key: "desk-fan-mismatch",
+      daysAgo: 1,
+      rating: 2,
+      title: "Wrong product language in review feed",
+      body: "The product title says mini fan, yet the visible review text mentions boards and powder days. Please fix the source mapping before using these reviews as evidence against the fan.",
+      phase: "evolution_source_integrity",
+    },
+    {
+      key: "linen-shirt-fit",
+      daysAgo: 2,
+      rating: 2,
+      title: "Medium White still runs small",
+      body: "The Medium White shirt is tight in the shoulders after a cold wash. I like the fabric, but the fit note needs to be more direct and variant-specific so customers size up before ordering.",
+      phase: "evolution_ongoing",
+    },
+    {
+      key: "ceramic-dinner-set",
+      daysAgo: 2,
+      rating: 5,
+      title: "Packaging looked much better",
+      body: "The plates arrived safely with better separators and no chips. The glaze is beautiful, and this recent delivery makes me more confident that the shipping damage problem is being handled.",
+      phase: "evolution_improving",
+    },
+    {
+      key: "puzzle-calm",
+      daysAgo: 3,
+      rating: 5,
+      title: "Still a very clear gift purchase",
+      body: "The page made the piece count, finished size, reference poster, and resealable bag easy to understand. No surprises, and the recipient finished it without missing pieces.",
+      phase: "evolution_healthy",
+    },
+    {
+      key: "premium-keyboard",
+      daysAgo: 1,
+      rating: 5,
+      title: "Momentum feels deserved",
+      body: "The keyboard feels premium and the switch options were clear before ordering. I bought a second unit because the build quality, accessories, and delivery matched the page exactly.",
+      phase: "evolution_improving",
+    },
+    {
+      key: "soft-yoga-mat",
+      daysAgo: 4,
+      rating: 4,
+      title: "Great for stretching, not balance",
+      body: "As long as you read it as a soft floor-work mat, it is comfortable and useful. The page could still separate stretching from balance flows more clearly, but my recent order was fine.",
+      phase: "evolution_stabilizing",
+    },
+    {
+      key: "earbuds-color",
+      daysAgo: 1,
+      rating: 3,
+      title: "Rose still needs real-life photos",
+      body: "The earbuds sound fine, but Rose is warmer and more copper than expected. This feels like a media and variant expectation issue rather than a general electronics quality problem.",
+      phase: "evolution_variant_media",
+    },
+  ];
+
+  return specs.map((spec) => {
+    const product = productByKey.get(spec.key);
+    if (!product) return null;
+    const reviewDate = new Date(generatedAt.getTime() - spec.daysAgo * 24 * 60 * 60 * 1000);
+    return {
+      source_row: sourceRow++,
+      product_handle: product.handle,
+      shopify_product_id: product.id,
+      rating: spec.rating,
+      review_title: spec.title,
+      review_body: spec.body,
+      review_date: reviewDate.toISOString(),
+      reviewer_name: `Evolution Reviewer ${sourceRow - startSourceRow}`,
+      review_status: "published",
+      source_product_id: product.key,
+      scenario_phase: spec.phase,
+    };
+  }).filter(Boolean);
+}
+
 async function saveMockCsvReviewSource({ shop, runId, rows }) {
   const storageRoot = process.env.PRODUCT_PULSE_CSV_STORAGE_DIR
     || path.join(process.cwd(), ".cache", "product-pulse", "csv-reviews");
@@ -2008,6 +2599,56 @@ async function saveMockDatasetManifest({ shop, runId, createdAt, products, order
   return { summary, manifestPath };
 }
 
+async function saveMockEvolutionReport({ shop, runId, products, evolution, reviewRows, reviewSource }) {
+  const storageRoot = process.env.PRODUCT_PULSE_MOCK_DATASET_DIR
+    || path.join(process.cwd(), ".cache", "product-pulse", "mock-datasets");
+  const shopDir = path.join(storageRoot, sanitizeStorageSegment(shop || "unknown-shop"));
+  const reportPath = path.join(shopDir, `${runId}.evolution-report.json`);
+  const reviewCountsByProduct = reviewRows.reduce((counts, row) => ({
+    ...counts,
+    [row.source_product_id]: (counts[row.source_product_id] || 0) + 1,
+  }), {});
+  const negativeReviewCountsByProduct = reviewRows.reduce((counts, row) => {
+    if (Number(row.rating || 0) > 2) return counts;
+    return {
+      ...counts,
+      [row.source_product_id]: (counts[row.source_product_id] || 0) + 1,
+    };
+  }, {});
+  const expectedChanges = products.map((product) => {
+    const scenario = (evolution.scenarios || []).find((item) => item.productKey === product.key) || {};
+    return {
+      productKey: product.key,
+      title: product.title,
+      handle: product.handle,
+      summary: scenario.expectedWatchlistChange || getEvolutionExpectedChange(product.key),
+      newOrders: scenario.newOrders || 0,
+      newUnits: scenario.newUnits || 0,
+      newReturns: scenario.newReturns || 0,
+      newRefunds: scenario.newRefunds || 0,
+      newCsvReviews: reviewCountsByProduct[product.key] || 0,
+      newNegativeCsvReviews: negativeReviewCountsByProduct[product.key] || 0,
+      expectedThemes: scenario.newThemes || [],
+    };
+  });
+  const report = {
+    runId,
+    batchId: evolution.batchId,
+    generatedAt: evolution.generatedAt,
+    csvReviewFilePath: reviewSource?.filePath || null,
+    csvReviewRowCount: reviewSource?.rowCount || null,
+    orderCount: evolution.orders.length,
+    returnCount: evolution.returns.length,
+    refundCount: evolution.refunds.length,
+    reviewCount: reviewRows.length,
+    expectedChanges,
+  };
+
+  await mkdir(shopDir, { recursive: true });
+  await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
+  return { reportPath, expectedChanges };
+}
+
 async function getStoredMockDatasetConfig(shop) {
   const source = await prisma.productPulseSource.findUnique({
     where: { shop_sourceKey: { shop, sourceKey: SHOPIFY_MOCK_DATASET_SOURCE_KEY } },
@@ -2047,6 +2688,11 @@ async function getCurrentMockDatasetSummary(shop, { runId, createdAt, products, 
     reviewCount: reviewSource ? reviewRows.length : config.reviewCount || 0,
     csvReviewFilePath: reviewSource?.filePath || config.csvReviewFilePath || null,
     manifestPath: config.manifestPath || null,
+    evolutionBatch: config.evolutionBatch || null,
+    evolutionOrderCount: config.evolutionOrderCount || 0,
+    evolutionReturnCount: config.evolutionReturnCount || 0,
+    evolutionRefundCount: config.evolutionRefundCount || 0,
+    evolutionReviewCount: config.evolutionReviewCount || 0,
     orderCreateDelayMs: orderDelayMs,
     requiredScopes: REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES,
   };
