@@ -913,6 +913,43 @@ async function fetchGeneratedOrders(admin, products, orderPlans, currencyCode) {
               }
             }
           }
+          refunds {
+            id
+            note
+            createdAt
+            processedAt
+            refundLineItems(first: 30) {
+              nodes {
+                id
+                quantity
+                lineItem {
+                  id
+                }
+              }
+            }
+          }
+          returns(first: 30) {
+            nodes {
+              id
+              createdAt
+              returnLineItems(first: 30) {
+                nodes {
+                  ... on ReturnLineItem {
+                    id
+                    quantity
+                    returnReason
+                    returnReasonNote
+                    customerNote
+                    fulfillmentLineItem {
+                      lineItem {
+                        id
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -949,6 +986,49 @@ function normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, cu
       unitPrice: Number(matched?.variant?.price || planItem.unitPrice || 0),
     };
   });
+  const lineItemsById = new Map(lineItems.map((lineItem) => [lineItem.id, lineItem]));
+  const existingReturns = getConnectionNodes(order.returns).flatMap((itemReturn) => (
+    getConnectionNodes(itemReturn.returnLineItems)
+      .map((returnLineItem) => {
+        const lineItemId = returnLineItem.fulfillmentLineItem?.lineItem?.id;
+        const lineItem = lineItemsById.get(lineItemId);
+        if (!lineItem) return null;
+        return {
+          id: itemReturn.id,
+          returnLineItemId: returnLineItem.id,
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          returnReason: returnLineItem.returnReason || null,
+          note: returnLineItem.returnReasonNote || returnLineItem.customerNote || null,
+          theme: "shopify-existing",
+        };
+      })
+      .filter(Boolean)
+  ));
+  const existingRefunds = (order.refunds || []).flatMap((refund) => (
+    getConnectionNodes(refund.refundLineItems)
+      .map((refundLineItem) => {
+        const lineItemId = refundLineItem.lineItem?.id;
+        const lineItem = lineItemsById.get(lineItemId);
+        if (!lineItem) return null;
+        return {
+          id: refund.id,
+          refundLineItemId: refundLineItem.id,
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          note: refund.note || null,
+          theme: "shopify-existing",
+          quantity: refundLineItem.quantity || 1,
+        };
+      })
+      .filter(Boolean)
+  ));
   return {
     id: order.id,
     name: order.name,
@@ -956,6 +1036,10 @@ function normalizeExistingMockOrder(order, plansByEmail, productsByVariantId, cu
     transactions: order.transactions || [],
     lineItems,
     plan: { ...plan, currencyCode },
+    existingOutcomes: {
+      returns: existingReturns,
+      refunds: existingRefunds,
+    },
   };
 }
 
@@ -1321,8 +1405,30 @@ async function createMockOrder(context, plan, location, currencyCode) {
 }
 
 async function createMockReturnsAndRefunds(context, orders, currencyCode, { existingOutcomes = {}, onOutcome } = {}) {
-  const returns = Array.isArray(existingOutcomes.returns) ? [...existingOutcomes.returns] : [];
-  const refunds = Array.isArray(existingOutcomes.refunds) ? [...existingOutcomes.refunds] : [];
+  const existingShopifyOutcomes = collectExistingOutcomesFromOrders(orders);
+  const returns = dedupeOutcomes([
+    ...(Array.isArray(existingOutcomes.returns) ? existingOutcomes.returns : []),
+    ...existingShopifyOutcomes.returns,
+  ]);
+  const refunds = dedupeOutcomes([
+    ...(Array.isArray(existingOutcomes.refunds) ? existingOutcomes.refunds : []),
+    ...existingShopifyOutcomes.refunds,
+  ]);
+  if (existingShopifyOutcomes.returns.length || existingShopifyOutcomes.refunds.length) {
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.outcomes_reused",
+      message: "Reused existing mock returns and refunds already present on generated Shopify orders.",
+      data: {
+        detectedReturns: existingShopifyOutcomes.returns.length,
+        detectedRefunds: existingShopifyOutcomes.refunds.length,
+        reusableReturns: returns.length,
+        reusableRefunds: refunds.length,
+      },
+    });
+    await onOutcome?.({ returns, refunds });
+  }
   const usedLineItems = new Set([...returns, ...refunds].map((outcome) => outcome.lineItemId).filter(Boolean));
   const returnTargets = new Map(Object.entries({
     "travel-mug-leak": 8,
@@ -1401,6 +1507,26 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
   }
 
   return { returns, refunds };
+}
+
+function collectExistingOutcomesFromOrders(orders) {
+  return orders.reduce((accumulator, order) => {
+    accumulator.returns.push(...(order.existingOutcomes?.returns || []));
+    accumulator.refunds.push(...(order.existingOutcomes?.refunds || []));
+    return accumulator;
+  }, { returns: [], refunds: [] });
+}
+
+function dedupeOutcomes(outcomes) {
+  const seen = new Set();
+  return outcomes.filter((outcome) => {
+    const key = outcome.id
+      ? `id:${outcome.id}`
+      : `line:${outcome.orderId || ""}:${outcome.lineItemId || ""}:${outcome.returnReason || ""}:${outcome.note || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getReturnReasonForLineItem(lineItem, order, productReturnCount) {
@@ -2090,6 +2216,12 @@ function isTransientShopifyGraphqlError(error) {
     || message.includes("throttled")
     || message.includes("timeout")
     || message.includes("temporarily unavailable");
+}
+
+function getConnectionNodes(connection) {
+  if (Array.isArray(connection?.nodes)) return connection.nodes;
+  if (Array.isArray(connection)) return connection;
+  return [];
 }
 
 function assertNoUserErrors(errors, label) {
