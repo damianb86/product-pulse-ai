@@ -48,11 +48,20 @@ const MOCK_PRODUCTS = [
       { options: { Size: "18x24" }, price: "89.00", sku: "GEN-NW-18X24" },
       { options: { Size: "24x36" }, price: "129.00", sku: "GEN-NW-24X36" },
     ],
-    story: "A legitimate art print that intentionally creates subjective negative reactions. Returns and reviews mention fear, unsettling artwork and surprise.",
+    story: "A legitimate art print that intentionally creates subjective negative reactions. The first half of the history behaves normally, then a recent paid campaign brings shoppers who did not understand the visual mood. Returns and reviews mention fear, unsettling faces and surprise, but they do not describe a physical defect.",
+    orderPattern: "Low baseline demand for the first 150 days, a campaign-driven spike in the last third of the window, then moderate demand after negative subjective reactions start appearing.",
+    returnRefundPattern: "Recent returns use Other with free-form notes like fear, scary, unsettling and take it away. Refunds should be rare because the product is not broken.",
+    reviewPattern: "Older reviews are art-positive. Recent reviews become longer, more emotional and subjective, with fear/unease language that should not be treated as objective product failure from a single signal.",
+    stressCase: "Tests whether subjective language from Other return notes is analyzed without over-escalating one emotional complaint into multiple duplicate issues.",
     expectedFindings: [
       "Subjective negative sentiment from return notes and reviews.",
       "Other return reasons with free-form notes should be analyzed.",
       "Expectation-setting note should be suggested, not a defect-only conclusion.",
+    ],
+    expectedActions: [
+      "Add expectation-setting note.",
+      "Add product FAQ explaining mood, framing and room-fit expectations.",
+      "Avoid QA/supplier escalation unless evidence volume becomes very high.",
     ],
     themes: ["fear", "unsettling", "dark", "unexpected"],
     reviewProfile: { count: 38, negativeRate: 0.45, average: 3.1 },
@@ -74,11 +83,19 @@ const MOCK_PRODUCTS = [
     tags: ["GEN", GENERATED_TAG, "puzzle", "family", "complete-description"],
     options: [{ name: "Edition", values: ["Standard"] }],
     variants: [{ options: { Edition: "Standard" }, price: "24.00", sku: "GEN-PUZZLE-CALM" }],
-    story: "A well-built control product with clear copy, low returns and positive reviews.",
+    story: "A well-built control product with clear copy, stable demand, low returns and positive reviews. It is the clean baseline product in the dataset and should make unnecessary recommendations look suspicious.",
+    orderPattern: "Stable orders across the full 300-day window with small gift-season bumps and repeat multi-unit orders.",
+    returnRefundPattern: "Very low return/refund activity, mostly isolated and not thematically repeated.",
+    reviewPattern: "Consistently positive reviews that mention clear piece count, finished size and included poster. A tiny number of neutral reviews should not move risk materially.",
+    stressCase: "Tests whether the app avoids manufacturing content rewrite actions when a product is already clear and customer sentiment is positive.",
     expectedFindings: [
       "Low product risk.",
       "Positive or neutral sentiment should dominate.",
       "The app should avoid unnecessary rewrite actions.",
+    ],
+    expectedActions: [
+      "No urgent action.",
+      "Optional baseline/watchlist only if momentum is high.",
     ],
     themes: ["relaxing", "clear", "complete", "gift"],
     reviewProfile: { count: 34, negativeRate: 0.06, average: 4.7 },
@@ -103,11 +120,21 @@ const MOCK_PRODUCTS = [
       { options: { Color: "Steel" }, price: "36.00", sku: "GEN-MUG-STL" },
       { options: { Color: "Midnight" }, price: "38.00", sku: "GEN-MUG-MID" },
     ],
-    story: "A high-risk product: the copy over-promises leakproof behavior and orders generate repeated returns/refunds for leaking lids.",
+    story: "A high-risk product where sales initially grow because the listing says leakproof, then return/refund pressure rises after customers use it during commutes. The underlying issue is a promise mismatch plus possible lid QA problem.",
+    orderPattern: "Strong early and mid-window demand, then slower recent demand as negative reviews accumulate.",
+    returnRefundPattern: "Returns start in the middle of the window and intensify recently. Refunds are partial and full, often before a formal return, with notes about leaking lids, bags and electronics.",
+    reviewPattern: "Early reviews are positive about insulation. Later reviews become long, specific and angry about leakage, wet bags and the word leakproof being misleading.",
+    stressCase: "Tests whether repeated returns plus refunds plus claim mismatch can push Product Risk high, without double-counting the same leak signal into many duplicated issues.",
     expectedFindings: [
       "High return/refund pressure.",
       "Repeated language around leaks, lid, bag and spills.",
       "Recommendation should clarify limits or trigger QA/supplier review.",
+    ],
+    expectedActions: [
+      "Rewrite product description or remove/qualify leakproof claim.",
+      "Supplier / QA review.",
+      "Add internal risk tags.",
+      "Consider status/availability change only if confidence is high.",
     ],
     themes: ["leak", "lid", "spill", "bag"],
     reviewProfile: { count: 46, negativeRate: 0.62, average: 2.4 },
@@ -132,11 +159,20 @@ const MOCK_PRODUCTS = [
       { options: { Color: "Sage" }, price: "42.00", sku: "GEN-MAT-SAGE" },
       { options: { Color: "Charcoal" }, price: "42.00", sku: "GEN-MAT-CHAR" },
     ],
-    story: "A product with expectation mismatch around softness: some buyers love the cushion, some return it because it is too soft for balance work.",
+    story: "A polarizing product with a deliberately subjective softness tradeoff. Some customers love the cushion; others return it because it is too soft for balance work. The product is not objectively broken.",
+    orderPattern: "Steady orders with a January fitness bump and a mild recent decline.",
+    returnRefundPattern: "Small but repeated returns using Other or Not as described language around too soft, unstable and balance poses.",
+    reviewPattern: "Mixed sentiment throughout the year. Positive reviews praise cushion; negative reviews are subjective and should only gain severity when repeated.",
+    stressCase: "Tests subjective-only issue handling: one or two softness comments should remain low confidence, repeated comments should become a medium-risk expectation mismatch.",
     expectedFindings: [
       "Medium risk from repeated but subjective softness feedback.",
       "Confidence should rise only with multiple signals.",
       "Recommendation should add expectation guidance, not overstate defect.",
+    ],
+    expectedActions: [
+      "Add expectation-setting note.",
+      "Add specs/details block about firmness and intended use.",
+      "Avoid high-risk QA action unless returns accelerate.",
     ],
     themes: ["soft", "cushion", "balance", "too thick"],
     reviewProfile: { count: 40, negativeRate: 0.28, average: 3.8 },
@@ -162,11 +198,20 @@ const MOCK_PRODUCTS = [
       { options: { Color: "Rose" }, price: "59.00", sku: "GEN-BUD-ROS" },
       { options: { Color: "Blue" }, price: "59.00", sku: "GEN-BUD-BLU" },
     ],
-    story: "A variant-specific issue: the Rose color looks different in person and generates color returns.",
+    story: "A variant-specific appearance issue. The product is healthy overall, but the Rose variant looks copper in person and produces concentrated color returns and negative reviews.",
+    orderPattern: "Healthy launch, then Rose becomes the popular variant after a promotion. Black and Blue remain stable and low risk.",
+    returnRefundPattern: "Returns are concentrated on Rose with Color reason. Partial refunds are uncommon; most customers return the variant.",
+    reviewPattern: "Review sentiment is split by variant: positive for sound and battery, negative for Rose color accuracy and product photos.",
+    stressCase: "Tests whether variant concentration is detected instead of marking the whole product as equally defective.",
     expectedFindings: [
       "Variant concentration should identify the Rose variant.",
       "Color/appearance should appear in customer language and return reasons.",
       "Recommended action should focus on media or variant clarity.",
+    ],
+    expectedActions: [
+      "Reorder product media or add contextual media recommendation.",
+      "Update Rose variant guidance / alt text.",
+      "Fix variant names/options only if current label is ambiguous.",
     ],
     themes: ["rose", "color", "photo", "different"],
     reviewProfile: { count: 36, negativeRate: 0.34, average: 3.5 },
@@ -191,11 +236,20 @@ const MOCK_PRODUCTS = [
       { options: { Kit: "Basil" }, price: "74.00", sku: "GEN-PLANT-BASIL" },
       { options: { Kit: "Mixed Herbs" }, price: "82.00", sku: "GEN-PLANT-MIX" },
     ],
-    story: "Compatibility/product expectation issue around app language and 2.4 GHz Wi-Fi.",
+    story: "A compatibility clarity problem. The kit works, but buyers miss that the app is English-only and setup requires 2.4 GHz Wi-Fi. The issue is strongest early, then improves once clearer reviews appear.",
+    orderPattern: "Moderate seasonal demand around spring planting, with mixed kit variants.",
+    returnRefundPattern: "Refunds and returns cluster around app setup and Wi-Fi compatibility, not physical damage.",
+    reviewPattern: "Long setup reviews mention app language, 5 GHz Wi-Fi, router configuration and unclear setup expectations.",
+    stressCase: "Tests whether compatibility details trigger FAQ/spec guidance rather than generic description rewrite.",
     expectedFindings: [
       "Compatibility questions should trigger FAQ/spec guidance.",
       "Reviews mention app setup, language and Wi-Fi confusion.",
       "Not primarily a defect; PDP clarity should be recommended.",
+    ],
+    expectedActions: [
+      "Add product FAQ.",
+      "Add specs/details block.",
+      "Rewrite meta/SEO only if SEO fields are weak.",
     ],
     themes: ["wifi", "app", "language", "setup"],
     reviewProfile: { count: 31, negativeRate: 0.33, average: 3.6 },
@@ -225,11 +279,20 @@ const MOCK_PRODUCTS = [
       { options: { Size: "L", Color: "Navy" }, price: "48.00", sku: "GEN-SHIRT-L-NVY" },
       { options: { Size: "XL", Color: "Navy" }, price: "48.00", sku: "GEN-SHIRT-XL-NVY" },
     ],
-    story: "Size M runs small and should produce variant-level fit signals.",
+    story: "A variant and sizing problem. Size M in White runs small while other variants are mostly fine, so the app should find concentration rather than broad product failure.",
+    orderPattern: "Seasonal apparel demand rises in the recent warm-weather phase. Size M White is overrepresented in recent orders.",
+    returnRefundPattern: "Returns concentrate on Size M / White with Size too small notes. Other sizes have lower return activity.",
+    reviewPattern: "Reviews mention shoulders, sleeves, shrink after wash and confusion with relaxed fit wording.",
+    stressCase: "Tests variant-specific return-rate math with multi-variant products and quantities, ensuring return rates never exceed 100%.",
     expectedFindings: [
       "Fit/size return reasons concentrated on one variant.",
       "Recommendation should add sizing guidance or fix variant names/options.",
       "Variant score should be non-zero because there are multiple variants.",
+    ],
+    expectedActions: [
+      "Add specs/details block with fit guidance.",
+      "Fix variant names/options if Shopify option labels are too terse.",
+      "Pause affected variant only if risk and confidence are high.",
     ],
     themes: ["small", "fit", "sleeves", "size"],
     reviewProfile: { count: 42, negativeRate: 0.4, average: 3.2 },
@@ -254,11 +317,20 @@ const MOCK_PRODUCTS = [
       { options: { Finish: "Aurora Blue" }, price: "118.00", sku: "GEN-DINNER-BLU" },
       { options: { Finish: "Warm White" }, price: "112.00", sku: "GEN-DINNER-WHT" },
     ],
-    story: "Operational damage pattern: customers like the product, but refunds and reviews mention broken pieces on arrival.",
+    story: "An operational damage pattern. Customers generally like the dinner set, but a mid-window packaging problem causes broken bowls and refund pressure. Recent reviews should show partial recovery after packaging improves.",
+    orderPattern: "Holiday/gift-season spike, then steady smaller demand.",
+    returnRefundPattern: "Refunds are more important than returns because customers receive broken pieces and support issues partial refunds. The issue should contribute financially but not be confused with buyer dislike.",
+    reviewPattern: "Positive product sentiment coexists with damage complaints; recent reviews say packaging improved.",
+    stressCase: "Tests whether refunds are processed as product evidence with lower weight than returns and whether sentiment separates product appeal from fulfillment damage.",
     expectedFindings: [
       "Refund pressure and QA/fulfillment review should be visible.",
       "Sentiment should separate product appeal from damage complaints.",
       "Supplier/QA or packaging review should be a strong operational action.",
+    ],
+    expectedActions: [
+      "Supplier / QA review.",
+      "Create internal support note.",
+      "Add workflow tags such as qa-review-needed.",
     ],
     themes: ["broken", "cracked", "packaging", "arrived damaged"],
     reviewProfile: { count: 35, negativeRate: 0.36, average: 3.4 },
@@ -282,11 +354,20 @@ const MOCK_PRODUCTS = [
       { options: { Color: "White" }, price: "19.00", sku: "GEN-FAN-WHT" },
       { options: { Color: "Graphite" }, price: "21.00", sku: "GEN-FAN-GPH" },
     ],
-    story: "Reviews intentionally include references to a snowboard and boots to test source/review mismatch detection.",
+    story: "A data integrity trap. The Shopify product and orders are normal for a desk fan, but the CSV review feed intentionally mixes in snowboard/boot language as if reviews were mapped to the wrong product.",
+    orderPattern: "Low, steady desk accessory orders with no major return pattern.",
+    returnRefundPattern: "Minimal returns/refunds; the risk should come from review source integrity, not native Shopify order evidence.",
+    reviewPattern: "Older reviews sound like a fan. Recent CSV reviews abruptly mention snowboard, boots, bindings and snow conditions.",
+    stressCase: "Tests whether the app identifies source/review mismatch and avoids rewriting the product description based on unrelated review text.",
     expectedFindings: [
       "Review/source mismatch should be detected.",
       "The app should recommend source integrity verification instead of rewriting good fan copy.",
       "Customer language should not overfit unrelated product words.",
+    ],
+    expectedActions: [
+      "Fix source/review mismatch.",
+      "Open evidence or check review feed integrity.",
+      "Avoid customer-facing PDP rewrite unless native product data also supports it.",
     ],
     themes: ["snowboard", "boots", "wrong product", "desk fan"],
     reviewProfile: { count: 30, negativeRate: 0.42, average: 3.0 },
@@ -311,11 +392,20 @@ const MOCK_PRODUCTS = [
       { options: { Switch: "Tactile" }, price: "149.00", sku: "GEN-KBD-TAC" },
       { options: { Switch: "Linear" }, price: "149.00", sku: "GEN-KBD-LIN" },
     ],
-    story: "Commercially strong product with rising sales and good reviews. It should test momentum without high risk.",
+    story: "A commercially important product with rising sales, high momentum and mostly positive reviews. It should enter the app through momentum even without high risk.",
+    orderPattern: "Slow launch, then accelerating recent sales with occasional multi-unit purchases.",
+    returnRefundPattern: "Very low returns/refunds; maybe a rare price/value complaint but no repeated defect.",
+    reviewPattern: "Recent reviews are longer and enthusiastic about build quality, switches and included accessories. A few customers mention price but not enough to create high risk.",
+    stressCase: "Tests momentum-based inclusion and Watchlist suggestions without contaminating Product Risk.",
     expectedFindings: [
       "High momentum / low risk.",
       "Add to Watchlist or baseline scan should be reasonable.",
       "No aggressive PDP rewrite should be recommended.",
+    ],
+    expectedActions: [
+      "Add to Watchlist.",
+      "Create baseline scan or run full diagnosis if QuickScan only.",
+      "No urgent customer-facing fix.",
     ],
     themes: ["premium", "solid", "switches", "fast shipping"],
     reviewProfile: { count: 44, negativeRate: 0.1, average: 4.5 },
@@ -595,25 +685,15 @@ function buildOrderPlans(products, currencyCode) {
   const start = Date.now() - 300 * 24 * 60 * 60 * 1000;
   const step = (300 * 24 * 60 * 60 * 1000) / DEFAULT_ORDER_COUNT;
   const byKey = new Map(products.map((product) => [product.key, product]));
-  const keyCycle = [
-    "premium-keyboard",
-    "travel-mug-leak",
-    "linen-shirt-fit",
-    "puzzle-calm",
-    "night-watch-print",
-    "earbuds-color",
-    "ceramic-dinner-set",
-    "soft-yoga-mat",
-    "smart-planter",
-    "desk-fan-mismatch",
-  ];
 
   return Array.from({ length: DEFAULT_ORDER_COUNT }, (_, index) => {
+    const progress = index / Math.max(1, DEFAULT_ORDER_COUNT - 1);
     const date = new Date(start + index * step + (index % 9) * 60 * 60 * 1000);
-    const primary = byKey.get(keyCycle[index % keyCycle.length]);
-    const secondary = index % 5 === 0 ? byKey.get(keyCycle[(index + 3) % keyCycle.length]) : null;
-    const tertiary = index % 13 === 0 ? byKey.get(keyCycle[(index + 6) % keyCycle.length]) : null;
-    const items = [primary, secondary, tertiary].filter(Boolean).map((product, itemIndex) => {
+    const primary = byKey.get(getPrimaryProductKeyForOrder(index, progress));
+    const bundledProducts = getSecondaryProductKeysForOrder(index, progress)
+      .map((key) => byKey.get(key))
+      .filter(Boolean);
+    const items = [primary, ...bundledProducts].filter(Boolean).map((product, itemIndex) => {
       const variant = pickVariantForOrder(product, index + itemIndex);
       return {
         productKey: product.key,
@@ -622,22 +702,94 @@ function buildOrderPlans(products, currencyCode) {
         variantId: variant.id,
         variantTitle: variant.title,
         sku: variant.sku,
-        quantity: getOrderQuantity(product.key, index),
+        quantity: getOrderQuantity(product.key, index, progress),
         unitPrice: Number(variant.price || 0),
       };
     });
     const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     return {
       index,
+      phase: getOrderPhase(progress),
       processedAt: date.toISOString(),
       email: `productpulse.mock.${index + 1}@example.com`,
       currencyCode,
-      note: `ProductPulse generated order ${index + 1}. Controlled mock dataset for diagnostics.`,
+      note: `ProductPulse generated order ${index + 1}. ${getOrderPhase(progress)} phase. Controlled mock dataset for diagnostics.`,
       tags: ["productpulse-gen-order", `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
       items,
       total,
     };
   });
+}
+
+function getOrderPhase(progress) {
+  if (progress < 0.25) return "baseline";
+  if (progress < 0.5) return "growth";
+  if (progress < 0.75) return "friction";
+  return "current";
+}
+
+function getPrimaryProductKeyForOrder(index, progress) {
+  const phaseCycles = {
+    baseline: [
+      "puzzle-calm",
+      "premium-keyboard",
+      "puzzle-calm",
+      "smart-planter",
+      "ceramic-dinner-set",
+      "soft-yoga-mat",
+      "desk-fan-mismatch",
+      "puzzle-calm",
+      "earbuds-color",
+      "premium-keyboard",
+    ],
+    growth: [
+      "travel-mug-leak",
+      "linen-shirt-fit",
+      "earbuds-color",
+      "travel-mug-leak",
+      "night-watch-print",
+      "smart-planter",
+      "soft-yoga-mat",
+      "travel-mug-leak",
+      "ceramic-dinner-set",
+      "linen-shirt-fit",
+    ],
+    friction: [
+      "travel-mug-leak",
+      "ceramic-dinner-set",
+      "linen-shirt-fit",
+      "earbuds-color",
+      "travel-mug-leak",
+      "night-watch-print",
+      "desk-fan-mismatch",
+      "ceramic-dinner-set",
+      "soft-yoga-mat",
+      "smart-planter",
+    ],
+    current: [
+      "premium-keyboard",
+      "premium-keyboard",
+      "night-watch-print",
+      "linen-shirt-fit",
+      "travel-mug-leak",
+      "earbuds-color",
+      "premium-keyboard",
+      "puzzle-calm",
+      "night-watch-print",
+      "premium-keyboard",
+    ],
+  };
+  const cycle = phaseCycles[getOrderPhase(progress)];
+  return cycle[index % cycle.length];
+}
+
+function getSecondaryProductKeysForOrder(index, progress) {
+  const phase = getOrderPhase(progress);
+  const keys = [];
+  if (index % 9 === 0) keys.push(phase === "current" ? "premium-keyboard" : "puzzle-calm");
+  if (index % 14 === 0) keys.push(phase === "friction" ? "travel-mug-leak" : "soft-yoga-mat");
+  if (index % 22 === 0) keys.push(phase === "growth" ? "smart-planter" : "ceramic-dinner-set");
+  return [...new Set(keys)];
 }
 
 function pickVariantForOrder(product, index) {
@@ -654,10 +806,11 @@ function pickVariantForOrder(product, index) {
   return variants[index % variants.length];
 }
 
-function getOrderQuantity(productKey, index) {
+function getOrderQuantity(productKey, index, progress) {
   if (productKey === "puzzle-calm" && index % 4 === 0) return 2;
-  if (productKey === "premium-keyboard" && index > 75 && index % 6 === 0) return 2;
-  if (productKey === "ceramic-dinner-set" && index % 7 === 0) return 2;
+  if (productKey === "premium-keyboard" && progress > 0.7 && index % 4 === 0) return 2;
+  if (productKey === "ceramic-dinner-set" && progress > 0.42 && progress < 0.72 && index % 5 === 0) return 2;
+  if (productKey === "linen-shirt-fit" && progress > 0.68 && index % 8 === 0) return 2;
   return 1;
 }
 
@@ -789,61 +942,125 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode) {
   const usedLineItems = new Set();
   const returns = [];
   const refunds = [];
+  const returnTargets = new Map(Object.entries({
+    "travel-mug-leak": 8,
+    "night-watch-print": 6,
+    "linen-shirt-fit": 6,
+    "earbuds-color": 5,
+    "soft-yoga-mat": 4,
+    "smart-planter": 3,
+    "desk-fan-mismatch": 1,
+  }));
+  const refundTargets = new Map(Object.entries({
+    "ceramic-dinner-set": 7,
+    "travel-mug-leak": 5,
+    "smart-planter": 4,
+    "earbuds-color": 2,
+    "linen-shirt-fit": 2,
+  }));
+  const returnCounts = new Map();
+  const refundCounts = new Map();
   const returnCandidates = orders.flatMap((order) => order.lineItems.map((lineItem) => ({ order, lineItem })));
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (returns.length >= 28) break;
+    if (returns.length >= 36) break;
     if (!lineItem.fulfillmentLineItemId || usedLineItems.has(lineItem.id)) continue;
-    const reason = getReturnReasonForLineItem(lineItem, returns.length);
+    const target = returnTargets.get(lineItem.productKey) || 0;
+    const productReturnCount = returnCounts.get(lineItem.productKey) || 0;
+    if (productReturnCount >= target) continue;
+    const reason = getReturnReasonForLineItem(lineItem, order, productReturnCount);
     if (!reason) continue;
     usedLineItems.add(lineItem.id);
     const result = await createReturn(context, order, lineItem, reason);
-    if (result?.id) returns.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, ...reason, id: result.id });
+    if (result?.id) {
+      returnCounts.set(lineItem.productKey, productReturnCount + 1);
+      returns.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, ...reason, id: result.id });
+    }
   }
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (refunds.length >= 18) break;
+    if (refunds.length >= 24) break;
     if (usedLineItems.has(lineItem.id)) continue;
-    const reason = getRefundReasonForLineItem(lineItem, refunds.length);
+    const target = refundTargets.get(lineItem.productKey) || 0;
+    const productRefundCount = refundCounts.get(lineItem.productKey) || 0;
+    if (productRefundCount >= target) continue;
+    const reason = getRefundReasonForLineItem(lineItem, order, productRefundCount);
     if (!reason) continue;
     usedLineItems.add(lineItem.id);
     const result = await createRefund(context, order, lineItem, reason, currencyCode);
-    if (result?.id) refunds.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, ...reason, id: result.id });
+    if (result?.id) {
+      refundCounts.set(lineItem.productKey, productRefundCount + 1);
+      refunds.push({ orderId: order.id, orderName: order.name, lineItemId: lineItem.id, ...reason, id: result.id });
+    }
   }
 
   return { returns, refunds };
 }
 
-function getReturnReasonForLineItem(lineItem, count) {
-  if (lineItem.productKey === "travel-mug-leak" && count % 2 === 0) {
-    return { returnReason: "OTHER", note: "Other: The lid leaks inside my bag and I am afraid to use it near electronics.", theme: "leak" };
+function getReturnReasonForLineItem(lineItem, order, productReturnCount) {
+  const phase = order.plan?.phase || "baseline";
+  if (lineItem.productKey === "travel-mug-leak" && phase !== "baseline") {
+    const notes = [
+      "Other: The lid leaks inside my bag and I am afraid to use it near electronics.",
+      "Other: It says leakproof, but coffee came out during my commute and soaked my papers.",
+      "Other: The seal failed after two uses. I do not trust it in a backpack.",
+    ];
+    return { returnReason: productReturnCount % 3 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: "leak" };
   }
-  if (lineItem.productKey === "night-watch-print" && count % 3 === 0) {
-    return { returnReason: "OTHER", note: "Other: It scares me more than nothing. The faces feel unsettling in the room.", theme: "fear" };
+  if (lineItem.productKey === "night-watch-print" && ["friction", "current"].includes(phase)) {
+    const notes = [
+      "Other: It scares me more than nothing. The faces feel unsettling in the room.",
+      "Other: The print is not damaged, but the scene feels too dark and intense for our hallway.",
+      "Other: I expected museum decor, not something that makes the room feel frightening.",
+    ];
+    return { returnReason: "OTHER", note: notes[productReturnCount % notes.length], theme: "fear" };
   }
-  if (lineItem.productKey === "linen-shirt-fit" && lineItem.variantTitle?.includes("M")) {
-    return { returnReason: "SIZE_TOO_SMALL", note: "Medium runs small around shoulders and sleeves.", theme: "fit" };
+  if (lineItem.productKey === "linen-shirt-fit" && lineItem.variantTitle?.includes("M") && phase !== "baseline") {
+    const notes = [
+      "Medium runs small around shoulders and sleeves.",
+      "The fit copy says relaxed, but the Medium White shirt is tight after washing.",
+      "I ordered my usual Medium and could not button the chest comfortably.",
+    ];
+    return { returnReason: "SIZE_TOO_SMALL", note: notes[productReturnCount % notes.length], theme: "fit" };
   }
-  if (lineItem.productKey === "earbuds-color" && lineItem.variantTitle?.toLowerCase().includes("rose")) {
+  if (lineItem.productKey === "earbuds-color" && lineItem.variantTitle?.toLowerCase().includes("rose") && phase !== "baseline") {
     return { returnReason: "COLOR", note: "Rose color looks copper and not like the product images.", theme: "color" };
   }
-  if (lineItem.productKey === "soft-yoga-mat" && count % 4 === 0) {
+  if (lineItem.productKey === "soft-yoga-mat" && productReturnCount < 4) {
     return { returnReason: "OTHER", note: "Too soft for balance poses; expected a firmer yoga surface.", theme: "softness" };
+  }
+  if (lineItem.productKey === "smart-planter" && ["growth", "friction"].includes(phase)) {
+    return { returnReason: "NOT_AS_DESCRIBED", note: "Setup requirements were not clear; I only have 5 GHz Wi-Fi and the app language confused me.", theme: "compatibility" };
+  }
+  if (lineItem.productKey === "desk-fan-mismatch" && phase === "current") {
+    return { returnReason: "WRONG_ITEM", note: "The product is a fan, but the review context and support note I saw referred to a snowboard.", theme: "source-mismatch" };
   }
   return null;
 }
 
-function getRefundReasonForLineItem(lineItem, count) {
-  if (lineItem.productKey === "ceramic-dinner-set") {
-    return { note: "Refunded because one bowl arrived cracked. Packaging needs QA review.", theme: "damage", quantity: Math.min(1, lineItem.quantity) };
+function getRefundReasonForLineItem(lineItem, order, productRefundCount) {
+  const phase = order.plan?.phase || "baseline";
+  if (lineItem.productKey === "ceramic-dinner-set" && ["growth", "friction", "current"].includes(phase)) {
+    const notes = [
+      "Refunded because one bowl arrived cracked. Packaging needs QA review.",
+      "Partial refund issued after customer sent photos of chipped plates from shipping damage.",
+      "Refunded damaged set component; buyer liked the design but packaging failed.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "damage", quantity: Math.min(1, lineItem.quantity) };
   }
-  if (lineItem.productKey === "travel-mug-leak" && count % 3 === 0) {
+  if (lineItem.productKey === "travel-mug-leak" && ["friction", "current"].includes(phase)) {
     return { note: "Partial refund for leaking lid reported before return was requested.", theme: "leak", quantity: 1 };
   }
-  if (lineItem.productKey === "smart-planter" && count % 4 === 0) {
+  if (lineItem.productKey === "smart-planter" && ["growth", "friction"].includes(phase)) {
     return { note: "Refunded after app compatibility confusion with 5 GHz Wi-Fi.", theme: "compatibility", quantity: 1 };
+  }
+  if (lineItem.productKey === "earbuds-color" && lineItem.variantTitle?.toLowerCase().includes("rose") && phase === "friction") {
+    return { note: "Goodwill refund for Rose color mismatch after customer kept the earbuds.", theme: "color", quantity: 1 };
+  }
+  if (lineItem.productKey === "linen-shirt-fit" && lineItem.variantTitle?.includes("M") && phase === "current") {
+    return { note: "Partial refund for Medium White fit complaint after wash shrinkage.", theme: "fit", quantity: 1 };
   }
   return null;
 }
@@ -941,105 +1158,143 @@ function buildReviewRows(products, createdAt) {
     const rows = [];
     const count = product.reviewProfile.count;
     for (let index = 0; index < count; index += 1) {
+      const progress = index / Math.max(1, count - 1);
       const ageDays = Math.round(295 - (index / Math.max(1, count - 1)) * 285);
       const date = new Date(createdAt.getTime() - ageDays * 24 * 60 * 60 * 1000);
-      const negative = shouldMakeNegativeReview(product, index);
-      const rating = getReviewRating(product, index, negative);
-      const text = getReviewText(product, index, negative);
+      const phase = getOrderPhase(progress);
+      const negative = shouldMakeNegativeReview(product, index, progress);
+      const rating = getReviewRating(product, index, negative, progress);
+      const text = getReviewText(product, index, negative, progress, phase);
       rows.push({
         source_row: sourceRow++,
         product_handle: product.handle,
         shopify_product_id: product.id,
         rating,
-        review_title: negative ? getNegativeReviewTitle(product) : getPositiveReviewTitle(product),
+        review_title: negative ? getNegativeReviewTitle(product, progress) : getPositiveReviewTitle(product, progress),
         review_body: text,
         review_date: date.toISOString(),
         reviewer_name: `Mock Reviewer ${sourceRow - 2}`,
         review_status: "published",
         source_product_id: product.key,
+        scenario_phase: phase,
       });
     }
     return rows;
   });
 }
 
-function shouldMakeNegativeReview(product, index) {
+function shouldMakeNegativeReview(product, index, progress) {
+  if (product.key === "puzzle-calm") return index === 11 || index === 27;
+  if (product.key === "premium-keyboard") return progress < 0.25 && index % 9 === 0;
+  if (product.key === "night-watch-print") return progress > 0.52 ? index % 2 === 0 || index % 5 === 0 : index % 13 === 0;
+  if (product.key === "travel-mug-leak") return progress > 0.35 ? index % 2 === 0 || index % 3 === 0 : index % 8 === 0;
+  if (product.key === "soft-yoga-mat") return index % 4 === 0 || (progress > 0.65 && index % 5 === 0);
+  if (product.key === "earbuds-color") return progress > 0.25 && progress < 0.78 ? index % 2 === 0 : index % 11 === 0;
+  if (product.key === "smart-planter") return progress > 0.18 && progress < 0.7 ? index % 2 === 0 || index % 5 === 0 : index % 10 === 0;
+  if (product.key === "linen-shirt-fit") return progress > 0.42 ? index % 2 === 0 || index % 6 === 0 : index % 10 === 0;
+  if (product.key === "ceramic-dinner-set") return progress > 0.35 && progress < 0.78 ? index % 2 === 0 : index % 12 === 0;
+  if (product.key === "desk-fan-mismatch") return progress > 0.68 ? true : index % 10 === 0;
   const threshold = Math.round(product.reviewProfile.count * product.reviewProfile.negativeRate);
-  if (product.key === "premium-keyboard" && index > product.reviewProfile.count - 10) return false;
-  if (product.key === "travel-mug-leak" && index > 8) return index % 2 === 0 || index % 5 === 0;
   return index < threshold;
 }
 
-function getReviewRating(product, index, negative) {
+function getReviewRating(product, index, negative, progress) {
   if (!negative) return index % 7 === 0 ? 4 : 5;
-  if (product.key === "travel-mug-leak" || product.key === "night-watch-print") return index % 3 === 0 ? 1 : 2;
+  if (product.key === "travel-mug-leak" && progress > 0.55) return index % 3 === 0 ? 1 : 2;
+  if (product.key === "night-watch-print" && progress > 0.65) return index % 3 === 0 ? 1 : 2;
+  if (product.key === "desk-fan-mismatch" && progress > 0.68) return index % 4 === 0 ? 1 : 2;
   return index % 2 === 0 ? 2 : 3;
 }
 
-function getNegativeReviewTitle(product) {
+function getNegativeReviewTitle(product, progress) {
   const titles = {
-    "night-watch-print": "It feels unsettling",
-    "travel-mug-leak": "The lid leaks",
-    "soft-yoga-mat": "Too soft for balance",
-    "earbuds-color": "Color does not match",
-    "smart-planter": "Setup was confusing",
-    "linen-shirt-fit": "Sizing runs small",
-    "ceramic-dinner-set": "Arrived broken",
-    "desk-fan-mismatch": "Wrong review feed",
+    "night-watch-print": progress > 0.6 ? "Beautiful but too unsettling for my room" : "Darker than expected",
+    "travel-mug-leak": progress > 0.55 ? "Leakproof claim failed in my bag" : "Lid seal is questionable",
+    "soft-yoga-mat": "Too soft for balance work",
+    "earbuds-color": "Rose color does not match the photos",
+    "smart-planter": "Wi-Fi and app requirements were not clear",
+    "linen-shirt-fit": "Medium White runs small",
+    "ceramic-dinner-set": progress > 0.78 ? "Packaging seems improved now" : "Arrived broken despite looking beautiful",
+    "desk-fan-mismatch": progress > 0.68 ? "This review seems attached to the wrong product" : "Fan is smaller than expected",
   };
   return titles[product.key] || "Not what I expected";
 }
 
-function getPositiveReviewTitle(product) {
+function getPositiveReviewTitle(product, progress) {
   if (product.key === "premium-keyboard") return "Excellent build quality";
   if (product.key === "puzzle-calm") return "Clear listing and great gift";
+  if (product.key === "ceramic-dinner-set" && progress > 0.78) return "Arrived safely after packaging change";
   return "Good product overall";
 }
 
-function getReviewText(product, index, negative) {
+function getReviewText(product, index, negative, progress, phase) {
   if (!negative) {
     const positives = {
-      "puzzle-calm": "Everything was clear: piece count, poster and finished size. Relaxing puzzle and no surprises.",
-      "premium-keyboard": "Solid aluminum build, switches feel premium and the listing explained exactly what was included.",
-      "soft-yoga-mat": "Very cushioned and comfortable for stretching. The soft feel is exactly what I wanted.",
-      "ceramic-dinner-set": "The glaze is beautiful and the set looks premium when it arrives safely.",
+      "night-watch-print": phase === "baseline"
+        ? "The print is dramatic in exactly the way I wanted for a reading room. The dark contrast and large figures make it feel like a museum piece, and the listing was accurate about the matte finish and no frame."
+        : "Print quality and shipping were good. The mood is intense, but for a gallery wall that is what I wanted. I would still suggest showing it in a real room so shoppers understand the scale and darkness.",
+      "puzzle-calm": phase === "growth"
+        ? "We ordered two copies for a family weekend and both were complete. The box, reference poster, piece count and finished size matched the page, which made it easy to buy without checking support notes."
+        : "Everything was clear before checkout: the 500-piece count, reference poster, resealable bag and finished size were all exactly as described. It made a calm gift and there were no surprises when we opened the box.",
+      "premium-keyboard": progress > 0.65
+        ? "This keyboard feels like the listing promised: heavy aluminum frame, clean RGB, clear switch choice and no missing accessories. I bought a second one for the office because the first order was exactly right."
+        : "Solid aluminum build, switches feel premium and the listing explained exactly what was included.",
+      "soft-yoga-mat": "Very cushioned and comfortable for stretching. The soft feel is exactly what I wanted because I use it for floor work, not fast balance transitions.",
+      "earbuds-color": "Sound quality and battery are strong for the price. I ordered Black and the product matched the photos, so my experience was very different from the color complaints I see about Rose.",
+      "smart-planter": progress > 0.7
+        ? "After reading the setup notes carefully, the planter worked well on my 2.4 GHz network. The herbs sprouted evenly and the LED schedule was easy once the app connected."
+        : "The planter looks nice on the counter and the seed pods were labeled clearly. Setup took a little time, but the kit itself felt complete.",
+      "linen-shirt-fit": "The Navy large fit as expected and the linen blend is breathable. I checked the measurements before ordering, washed cold and hung it dry, and it kept the shape well.",
+      "ceramic-dinner-set": progress > 0.78
+        ? "The set arrived safely this time. The glaze is still beautiful and the newer packaging had extra separators around the bowls, which made the delivery feel much more reliable."
+        : "The glaze is beautiful and the set looks premium when it arrives safely.",
+      "desk-fan-mismatch": phase === "baseline"
+        ? "The fan is small, quiet and useful on a desk. The USB cable was in the box and the airflow was enough for a keyboard area."
+        : "The actual fan works for a small workspace. My concern is not the fan itself; it is that later reviews on the listing do not always seem to describe this product.",
     };
     return positives[product.key] || `The product matched the listing. ${product.themes[0]} and ${product.themes[1]} were as expected.`;
   }
   const negativeTexts = {
     "night-watch-print": [
-      "The artwork scares me more than I expected. It feels dark and unsettling in a bedroom.",
-      "I thought it would look museum-like, but the faces feel creepy and intense.",
-      "The print is not defective, but the mood is too frightening for our room.",
+      "The artwork scares me more than I expected. It feels dark and unsettling in a bedroom, especially at night. The print quality is fine, but the listing did not prepare me for how intense the faces and shadows feel in a small room.",
+      "I thought it would look museum-like and elegant, but the scene feels creepy and heavy in person. This is not a damaged item; it is an expectation problem because the PDP did not explain the dramatic mood clearly enough.",
+      "The print is not defective, but the mood is too frightening for our room. I wish the description had said this is a very dark, commanding image rather than simple classic wall decor.",
     ],
     "travel-mug-leak": [
-      "The lid leaks into my bag. Calling it leakproof is not accurate.",
-      "Coffee spilled near my laptop because the seal failed during commute.",
-      "The mug looks nice but the cap drips every time I tilt it.",
+      "The lid leaks into my bag. Calling it leakproof is not accurate because I used it upright in a normal commute and still found coffee around my notebook. The insulation is fine, but the seal claim is the reason I bought it.",
+      "Coffee spilled near my laptop because the seal failed during commute. I tightened the cap twice and it still dripped from the button area, so this feels like either a lid defect or a misleading product promise.",
+      "The mug looks nice but the cap drips every time I tilt it. If the product is only splash-resistant, the description should say that clearly before people trust it with electronics.",
+      "I bought two mugs because the page said leakproof in any bag. One leaked from the push button and the other leaked around the rim after a week. The problem is specific and repeatable enough that I would pause that claim until the lid is checked.",
     ],
     "soft-yoga-mat": [
-      "It is too soft for balance poses. I expected more firmness for yoga.",
-      "The cushion is thick but unstable for transitions.",
+      "It is too soft for balance poses. I expected more firmness for yoga flows, and my hands sink into the mat when I transition quickly. For stretching it may be good, but the listing should separate cushion use from balance practice.",
+      "The cushion is thick but unstable for transitions. This is a personal preference issue, not necessarily a defect, but several buyers may be surprised if they expect a firm yoga surface.",
+      "My knees love the cushion, but standing poses feel wobbly. I would not call it a bad mat, but the PDP should be very direct that this is a soft floor-work mat rather than a firm studio mat.",
     ],
     "earbuds-color": [
-      "The Rose color looks copper in person and not like the product photo.",
-      "Color is different from the pictures, so I returned the Rose variant.",
+      "The Rose color looks copper in person and not like the product photo. The earbuds work, but I bought the Rose variant specifically for the soft pink color shown on the page.",
+      "Color is different from the pictures, so I returned the Rose variant. Black might be fine, but the Rose image needs a real-life photo next to the current render.",
+      "Rose is much warmer and more metallic than the image. The sound is acceptable, so this feels like a variant-media problem instead of a whole-product electronics problem.",
     ],
     "smart-planter": [
-      "Setup was confusing because the app and Wi-Fi requirements were not obvious enough.",
-      "The app is English only and I missed that before buying.",
+      "Setup was confusing because the app and Wi-Fi requirements were not obvious enough. I only saw the 2.4 GHz note after the product arrived, and my router defaults to 5 GHz.",
+      "The app is English only and I missed that before buying. The planter itself seems fine, but compatibility and language requirements should be in a visible FAQ before checkout.",
+      "The device kept failing setup until support told me to split the router bands. That detail matters more than the marketing copy, so it should be in the top of the description or a compatibility FAQ.",
     ],
     "linen-shirt-fit": [
-      "Medium runs small in the shoulders and sleeves.",
-      "I usually wear M, but this fit like a small.",
+      "Medium runs small in the shoulders and sleeves, especially in White. The page says relaxed, so I expected a looser shirt, not something that pulled across the chest.",
+      "I usually wear M, but this fit like a small after one cold wash. A size chart or fit warning would have saved the return.",
+      "The White Medium was the only variant I tried, and it fit much tighter than the Navy large my partner ordered. This feels variant-specific, so a broad description rewrite would be less useful than a sizing note.",
     ],
     "ceramic-dinner-set": [
-      "One bowl arrived cracked and the box did not protect the set enough.",
-      "Beautiful product but packaging damage made it unusable.",
+      "One bowl arrived cracked and the box did not protect the set enough. The glaze is beautiful, so this feels like a packaging or fulfillment problem rather than a product design problem.",
+      "Beautiful product but packaging damage made it unusable. Support offered a partial refund, but I would rather see stronger separators between plates and bowls.",
+      "Two plates had chips on the rim even though the outer box looked normal. I still like the design, but this should trigger packaging QA, not a claim that customers dislike the dinner set.",
     ],
     "desk-fan-mismatch": [
-      "This review talks about snowboard bindings and boots, not a fan. Something is mismatched.",
-      "I bought this little desk fan, but reviews mention snow conditions and boards.",
+      "This review talks about snowboard bindings and boots, not a fan. Something is mismatched in the review feed because the text mentions snow conditions, edge hold and bindings while this product is clearly a USB desk fan.",
+      "I bought this little desk fan, but several reviews mention boards, boots and mountain conditions. The product may be fine, but I do not trust the rating data because it looks attached to another listing.",
+      "The listing says desk fan, but the review examples mention a snowboard, powder days and bindings. Please fix the review feed before using this text to rewrite the PDP.",
     ],
   };
   const options = negativeTexts[product.key] || [`The product had issues with ${product.themes.join(", ")}.`];
@@ -1117,22 +1372,25 @@ async function saveMockDatasetManifest({ shop, runId, createdAt, products, order
     handle: product.handle,
     shopifyProductId: product.id,
     story: product.story,
+    orderPattern: product.orderPattern,
+    returnRefundPattern: product.returnRefundPattern,
+    reviewPattern: product.reviewPattern,
+    stressCase: product.stressCase,
     expectedFindings: product.expectedFindings,
+    expectedActions: product.expectedActions,
     variants: product.variants.map((variant) => ({
       id: variant.id,
       title: variant.title,
       sku: variant.sku,
       price: variant.price,
     })),
+    phaseSummary: buildProductPhaseSummary(product, orders, outcomes, reviewRows),
+    outcomeThemes: buildProductOutcomeThemes(product, orders, outcomes),
     orderUnits: orders.flatMap((order) => order.lineItems)
       .filter((lineItem) => lineItem.productKey === product.key)
       .reduce((sum, lineItem) => sum + Number(lineItem.quantity || 0), 0),
-    returns: outcomes.returns.filter((item) => item.theme && orders.some((order) => (
-      order.id === item.orderId && order.lineItems.some((lineItem) => lineItem.productKey === product.key)
-    ))).length,
-    refunds: outcomes.refunds.filter((item) => orders.some((order) => (
-      order.id === item.orderId && order.lineItems.some((lineItem) => lineItem.productKey === product.key)
-    ))).length,
+    returns: outcomes.returns.filter((outcome) => outcomeBelongsToProduct(outcome, product.key, orders)).length,
+    refunds: outcomes.refunds.filter((outcome) => outcomeBelongsToProduct(outcome, product.key, orders)).length,
     reviews: reviewRows.filter((row) => row.source_product_id === product.key).length,
     expectedThemes: product.themes,
   }));
@@ -1155,6 +1413,49 @@ async function saveMockDatasetManifest({ shop, runId, createdAt, products, order
   await mkdir(shopDir, { recursive: true });
   await writeFile(manifestPath, JSON.stringify(summary, null, 2), "utf8");
   return { summary, manifestPath };
+}
+
+function buildProductPhaseSummary(product, orders, outcomes, reviewRows) {
+  return ["baseline", "growth", "friction", "current"].map((phase) => {
+    const phaseLineItems = orders.flatMap((order) => (
+      order.plan?.phase === phase
+        ? order.lineItems.map((lineItem) => ({ order, lineItem }))
+        : []
+    )).filter(({ lineItem }) => lineItem.productKey === product.key);
+    const phaseReviews = reviewRows.filter((row) => row.source_product_id === product.key && row.scenario_phase === phase);
+    const phaseReturns = outcomes.returns.filter((outcome) => outcomeBelongsToProductPhase(outcome, product.key, orders, phase));
+    const phaseRefunds = outcomes.refunds.filter((outcome) => outcomeBelongsToProductPhase(outcome, product.key, orders, phase));
+    return {
+      phase,
+      orders: new Set(phaseLineItems.map(({ order }) => order.id)).size,
+      units: phaseLineItems.reduce((sum, { lineItem }) => sum + Number(lineItem.quantity || 0), 0),
+      returns: phaseReturns.length,
+      refunds: phaseRefunds.length,
+      reviews: phaseReviews.length,
+      negativeReviews: phaseReviews.filter((row) => Number(row.rating || 0) <= 2).length,
+    };
+  });
+}
+
+function buildProductOutcomeThemes(product, orders, outcomes) {
+  const themes = [...outcomes.returns, ...outcomes.refunds]
+    .filter((outcome) => outcomeBelongsToProduct(outcome, product.key, orders))
+    .map((outcome) => outcome.theme || "unclassified");
+  return themes.reduce((counts, theme) => ({
+    ...counts,
+    [theme]: (counts[theme] || 0) + 1,
+  }), {});
+}
+
+function outcomeBelongsToProductPhase(outcome, productKey, orders, phase) {
+  return orders.some((order) => order.id === outcome.orderId
+    && order.plan?.phase === phase
+    && order.lineItems.some((lineItem) => lineItem.id === outcome.lineItemId && lineItem.productKey === productKey));
+}
+
+function outcomeBelongsToProduct(outcome, productKey, orders) {
+  return orders.some((order) => order.id === outcome.orderId
+    && order.lineItems.some((lineItem) => lineItem.id === outcome.lineItemId && lineItem.productKey === productKey));
 }
 
 async function getShopInfo(admin) {
