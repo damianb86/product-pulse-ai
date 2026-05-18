@@ -25,6 +25,11 @@ import {
   getProductScoreHistoryForShop,
 } from "./product-pulse-history.server";
 import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
+import {
+  SHOPIFY_MOCK_DATASET_KIND,
+  getMissingShopifyMockDatasetScopes,
+  runShopifyMockDatasetJob,
+} from "./product-pulse-shopify-mock-dataset.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -32,6 +37,7 @@ const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
+const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
 
 if (!global.productPulseJobWorkers) {
   global.productPulseJobWorkers = activeWorkers;
@@ -39,6 +45,10 @@ if (!global.productPulseJobWorkers) {
 
 if (!global.productPulseDiagnosisQueueWorkers) {
   global.productPulseDiagnosisQueueWorkers = activeDiagnosisQueueWorkers;
+}
+
+if (!global.productPulseMockDatasetWorkers) {
+  global.productPulseMockDatasetWorkers = activeMockDatasetWorkers;
 }
 
 export async function startFastProductScan(input, adminArg, scopesArg) {
@@ -91,6 +101,67 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     status: "success",
     suppressBanner: true,
     message: "QuickScan started. ProductPulse is checking native Shopify product, order, refund and return signals.",
+    job: formatJob(job),
+  };
+}
+
+export async function startShopifyMockDataset(input, adminArg, scopesArg) {
+  const { shop, admin, scopes } = normalizeStartArgs(input, adminArg, scopesArg);
+  const missingScopes = getMissingShopifyMockDatasetScopes(scopes);
+  if (missingScopes.length) {
+    return {
+      status: "validation_error",
+      message: `Shopify mock dataset generation needs these scopes before it can create products, orders, returns and refunds: ${missingScopes.join(", ")}. Reauthorize the app after updating Shopify app scopes.`,
+      missingScopes,
+    };
+  }
+
+  const activeJob = await getActiveShopifyMockDatasetJob(shop);
+  if (activeJob) {
+    ensureShopifyMockDatasetWorker(activeJob, { admin, scopes });
+    await recordJobLog({
+      shop,
+      jobId: activeJob.id,
+      event: "mock_dataset.already_running",
+      message: "Mock dataset request reused the active background job.",
+      data: { status: activeJob.status, source: activeJob.source },
+    });
+    return {
+      status: "success",
+      suppressBanner: true,
+      message: "A Shopify mock dataset job is already running.",
+      job: formatJob(activeJob),
+    };
+  }
+
+  const job = await prisma.catalogSignalJob.create({
+    data: {
+      shop,
+      kind: SHOPIFY_MOCK_DATASET_KIND,
+      source: "Queued Shopify mock dataset generation",
+      status: "Queued",
+      progress: 0,
+      payload: {
+        queuedAt: new Date().toISOString(),
+        expectedProducts: 10,
+        expectedOrders: 120,
+      },
+    },
+  });
+
+  ensureShopifyMockDatasetWorker(job, { admin, scopes });
+  await recordJobLog({
+    shop,
+    jobId: job.id,
+    event: "mock_dataset.queued",
+    message: "Shopify mock dataset generation queued as a persistent background job.",
+    data: { expectedProducts: 10, expectedOrders: 120 },
+  });
+
+  return {
+    status: "success",
+    suppressBanner: true,
+    message: "Mock dataset generation started. ProductPulse is creating GEN products, historical orders, returns, refunds and CSV reviews.",
     job: formatJob(job),
   };
 }
@@ -352,6 +423,7 @@ export async function getRecentJobsForShop(shop) {
   });
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
+    if (job.kind === SHOPIFY_MOCK_DATASET_KIND) ensureShopifyMockDatasetWorker(job);
   });
   if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
     ensureProductDiagnosisQueueWorker(shop);
@@ -372,6 +444,7 @@ export async function getJobMonitorForShop(shop) {
 
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
+    if (job.kind === SHOPIFY_MOCK_DATASET_KIND) ensureShopifyMockDatasetWorker(job);
   });
   if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
     ensureProductDiagnosisQueueWorker(shop);
@@ -1720,6 +1793,17 @@ async function getActiveProductDiagnosisJobs(shop) {
   });
 }
 
+async function getActiveShopifyMockDatasetJob(shop) {
+  return prisma.catalogSignalJob.findFirst({
+    where: {
+      shop,
+      kind: SHOPIFY_MOCK_DATASET_KIND,
+      status: { in: ["Queued", "Running"] },
+    },
+    orderBy: { startedAt: "desc" },
+  });
+}
+
 async function getActiveProductDiagnosisJobForSnapshot(shop, snapshot) {
   const jobs = await getActiveProductDiagnosisJobs(shop);
   return findActiveProductDiagnosisJobForSnapshot(snapshot, jobs);
@@ -1791,6 +1875,96 @@ function ensureFastProductScanWorker(job, options = {}) {
         jobId: job.id,
         event: "quick_scan.worker_stopped",
         message: "QuickScan worker stopped.",
+      });
+    }
+  }, 0);
+}
+
+function ensureShopifyMockDatasetWorker(job, options = {}) {
+  if (!job?.id || activeMockDatasetWorkers.has(job.id) || !isActiveStatus(job.status)) return;
+
+  activeMockDatasetWorkers.add(job.id);
+  setTimeout(async () => {
+    try {
+      const claimed = await prisma.catalogSignalJob.updateMany({
+        where: {
+          id: job.id,
+          kind: SHOPIFY_MOCK_DATASET_KIND,
+          status: { in: ["Queued", "Running"] },
+        },
+        data: {
+          status: "Running",
+          progress: Math.max(Number(job.progress || 0), 2),
+          startedAt: job.startedAt || new Date(),
+          source: "Running Shopify mock dataset generation",
+        },
+      });
+      if (claimed.count !== 1) return;
+
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        event: "mock_dataset.worker_started",
+        message: "Shopify mock dataset worker started or rehydrated from an active persisted job.",
+        data: { status: job.status, source: job.source },
+      });
+
+      const admin = options.admin || await getOfflineAdmin(job.shop);
+      const summary = await runShopifyMockDatasetJob({
+        shop: job.shop,
+        admin,
+        jobId: job.id,
+        onProgress: async (progress, source, data = null) => {
+          await prisma.catalogSignalJob.updateMany({
+            where: {
+              id: job.id,
+              kind: SHOPIFY_MOCK_DATASET_KIND,
+              status: { in: ["Queued", "Running"] },
+            },
+            data: {
+              status: "Running",
+              progress: Math.min(99, Math.max(0, Number(progress || 0))),
+              source,
+              payload: {
+                ...(job.payload || {}),
+                ...(data || {}),
+              },
+            },
+          });
+        },
+      });
+
+      await prisma.catalogSignalJob.updateMany({
+        where: {
+          id: job.id,
+          kind: SHOPIFY_MOCK_DATASET_KIND,
+          status: { in: ["Queued", "Running"] },
+        },
+        data: {
+          status: "Completed",
+          progress: 100,
+          source: `Mock dataset created: ${summary.productCount} products, ${summary.orderCount} orders, ${summary.reviewCount} reviews.`,
+          payload: summary,
+          finishedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        level: "error",
+        event: "mock_dataset.worker_failed",
+        message: "Shopify mock dataset worker failed.",
+        data: { error: serializeError(error), payload: job.payload },
+      });
+      await markJobFailed(job.id, error, "Shopify mock dataset failed");
+    } finally {
+      activeMockDatasetWorkers.delete(job.id);
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        event: "mock_dataset.worker_stopped",
+        message: "Shopify mock dataset worker stopped.",
       });
     }
   }, 0);
@@ -3457,6 +3631,7 @@ function formatJob(job) {
 function getJobDisplayName(kind) {
   if (kind === FAST_PRODUCT_SCAN_KIND) return "Fast product scan";
   if (kind === PRODUCT_DIAGNOSIS_KIND) return "AI Product Diagnosis";
+  if (kind === SHOPIFY_MOCK_DATASET_KIND) return "Shopify mock dataset";
   return kind;
 }
 
@@ -3474,10 +3649,18 @@ function getJobProductHandle(job) {
 
 function getJobDisplayTitle(job, productTitle) {
   if (job.kind === PRODUCT_DIAGNOSIS_KIND && productTitle) return productTitle;
+  if (job.kind === SHOPIFY_MOCK_DATASET_KIND) return "Shopify mock dataset";
   return getJobDisplayName(job.kind);
 }
 
 function getJobDisplaySubtitle(job, productTitle) {
+  if (job.kind === SHOPIFY_MOCK_DATASET_KIND) {
+    if (job.status === "Queued") return "Queued controlled Shopify test data";
+    if (job.status === "Running") return "Creating GEN products, orders, returns, refunds and CSV reviews";
+    if (job.status === "Completed") return "Controlled Shopify mock dataset created";
+    if (job.status === "Failed") return "Shopify mock dataset generation failed";
+    return "Controlled Shopify test data";
+  }
   if (job.kind !== PRODUCT_DIAGNOSIS_KIND || !productTitle) return job.errorMessage || job.source;
   if (job.status === "Queued") return "Queued AI product diagnostics";
   if (job.status === "Running") return "Running AI product diagnostics";

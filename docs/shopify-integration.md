@@ -6,13 +6,14 @@
 - Shopify CLI commands stay in `package.json` for validation, build, app dev and deploy preparation.
 
 ## Scopes
-- Configured scopes: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `read_returns`, `read_inventory`, `write_inventory`, `read_locations`.
+- Configured scopes: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `write_orders`, `read_returns`, `write_returns`, `read_inventory`, `write_inventory`, `read_locations`.
 - `read_products` is needed for product titles, handles, variants, tags and collections.
 - `read_orders` is needed for order/refund signals.
 - `read_all_orders` is needed to read historical orders beyond Shopify's standard recent-order window. Shopify requires protected access approval in the Partner Dashboard before this scope can be used in production.
 - `read_returns` is needed for return reasons and return-quality signals.
 - `write_products` is needed for merchant-confirmed product description, tag and catalog updates.
-- Do not request `read_customers` or `write_orders` for the current app surface.
+- `write_orders` and `write_returns` are needed for the Settings mock dataset generator, which creates controlled test orders, refunds and returns in Shopify for repeatable diagnostics QA.
+- Do not request `read_customers` for the current app surface.
 
 ## Admin GraphQL Patterns
 - Run Admin GraphQL only from server loaders/actions.
@@ -53,5 +54,5 @@ Writes are disabled in MVP. Future gated writes:
 - Logs and test fixtures must not include real merchant data.
 
 ## Validation Status
-- Shopify access-scope docs were used to verify that Product/Variant/Collection data requires `read_products`, Order data requires `read_orders`, historical order access requires `read_all_orders`, and Return data requires `read_returns`.
+- Shopify access-scope docs were used to verify that Product/Variant/Collection data requires `read_products`, Order data requires `read_orders`, historical order access requires `read_all_orders`, Order creation requires `write_orders`, and Return creation requires `write_returns`.
 - Live Shopify CLI validation may require an interactive Shopify login in local or configured CI credentials.

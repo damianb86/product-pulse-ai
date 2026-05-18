@@ -23,11 +23,11 @@ Set real local values in `.env`:
 SHOPIFY_API_KEY=
 SHOPIFY_API_SECRET=
 SHOPIFY_APP_URL=
-SCOPES=read_products,write_products,read_orders,read_all_orders,read_returns,read_inventory,write_inventory,read_locations
+SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,read_returns,write_returns,read_inventory,write_inventory,read_locations
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
 ```
 
-The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. This scope is protected by Shopify: request access in the Partner Dashboard before installing or reauthorizing the app on a store.
+The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `write_orders` and `write_returns` for the Settings mock dataset generator, which creates controlled Shopify test orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
 
 The local Shopify CLI project is configured for `qorve-dev.myshopify.com` in `.shopify/project.json`, which is intentionally ignored by Git.
 

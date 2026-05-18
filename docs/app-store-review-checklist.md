@@ -18,6 +18,7 @@
 - The app requests product, order, historical order, return and inventory scopes needed by the current product diagnostics workflow.
 - Order/return data purpose is documented as product quality intelligence.
 - `read_orders` and `read_all_orders` are used only for product-level order/refund aggregates. `read_all_orders` requires Shopify protected-scope approval before production use.
+- `write_orders` and `write_returns` are used by the Settings mock dataset generator to create controlled QA test orders, refunds and returns; they should be disclosed as development/testing support scopes if enabled in production.
 - No customer scopes are requested.
 - Product writes use merchant-confirmed `write_products` actions only.
 

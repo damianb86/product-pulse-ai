@@ -14993,6 +14993,94 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
+.ppSettingsMockDatasetCard {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(var(--pp-pulse-blue-rgb), 0.1), transparent 32%),
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.06), rgba(var(--pp-info-cyan-rgb), 0.035)),
+    var(--pp-cloud-white);
+}
+
+.ppSettingsMockDatasetCard .ppSettingsCardHeader p strong {
+  color: var(--pp-pulse-blue);
+  font-weight: 850;
+}
+
+.ppSettingsMockDatasetGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(260px, 1.1fr);
+  gap: 18px;
+  padding: 15px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.ppSettingsMockDatasetGrid strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+}
+
+.ppSettingsMockDatasetGrid p {
+  margin: 6px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppSettingsMockDatasetGrid ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ppSettingsMockDatasetMeta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppSettingsMockDatasetMeta span {
+  display: grid;
+  gap: 3px;
+  min-height: 68px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppSettingsMockDatasetMeta strong {
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.ppSettingsMockDatasetActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.ppSettingsMockDatasetActions p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppSettingsMockDatasetButton {
+  min-width: 210px;
+  justify-content: center;
+}
+
 .ppProductsToolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -16983,6 +17071,9 @@ s-page[inline-size="large-500"] {
   .ppProductsToolbar,
   .ppProductsFilters,
   .ppProductsSelectFilters,
+  .ppSettingsMockDatasetGrid,
+  .ppSettingsMockDatasetActions,
+  .ppSettingsMockDatasetMeta,
   .ppProductDetailLayout,
   .ppProductDetailHeader,
   .ppProductTitleRow,

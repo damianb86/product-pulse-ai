@@ -1918,11 +1918,14 @@ export function SettingsScreen({ data = {}, actionData }) {
   const normalizedMomentumThreshold = normalizeClientMomentumThreshold(settings.momentum?.minimumScore);
   const normalizedQueueLimit = normalizeClientQueueLimit(settings.diagnosis?.maxQueuedPerSubmission);
   const normalizedLookbackDays = normalizeClientLookbackDays(settings.analysis?.lookbackDays);
+  const mockDataset = actionData?.mockDataset || data.mockDataset || null;
   const [riskThresholds, setRiskThresholds] = useState(normalizedSettingsRisk);
   const [momentumThreshold, setMomentumThreshold] = useState(normalizedMomentumThreshold);
   const [queueLimit, setQueueLimit] = useState(normalizedQueueLimit);
   const [lookbackDays, setLookbackDays] = useState(normalizedLookbackDays);
   const isSaving = navigation.state === "submitting";
+  const isStartingMockDataset = navigation.state === "submitting"
+    && navigation.formData?.get("_action") === "start-shopify-mock-dataset";
   const settingsDirty = riskThresholds.minimumScore !== normalizedSettingsRisk.minimumScore
     || riskThresholds.mediumThreshold !== normalizedSettingsRisk.mediumThreshold
     || riskThresholds.highThreshold !== normalizedSettingsRisk.highThreshold
@@ -1948,6 +1951,10 @@ export function SettingsScreen({ data = {}, actionData }) {
   useEffect(() => () => {
     getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
   }, []);
+
+  useEffect(() => {
+    announceProductPulseJobs(actionData);
+  }, [actionData]);
 
   const handleSaveSettings = () => {
     if (!formRef.current || isSaving) return;
@@ -2062,6 +2069,66 @@ export function SettingsScreen({ data = {}, actionData }) {
 
               <AnalysisLookbackSlider value={lookbackDays} onChange={setLookbackDays} />
             </section>
+          </section>
+        </Form>
+
+        <Form method="post" className="ppSettingsForm">
+          <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
+          <section className="ppSettingsCard ppSettingsMockDatasetCard" aria-labelledby="settings-mock-dataset-title">
+            <div className="ppSettingsCardHeader">
+              <DashboardIcon type="product" tone="purple" />
+              <div>
+                <span>Testing dataset</span>
+                <h2 id="settings-mock-dataset-title">Create Shopify mock dataset</h2>
+                <p>
+                  Generate 10 controlled <strong>GEN</strong> products, historical Shopify orders, returns, refunds and a normalized CSV review source for end-to-end diagnostic testing.
+                </p>
+              </div>
+            </div>
+
+            <div className="ppSettingsMockDatasetGrid">
+              <div>
+                <strong>What ProductPulse creates</strong>
+                <p>
+                  Product stories are intentional: some listings are healthy, others include title, content, variant, refund, return and sentiment problems that should be detected by the app.
+                </p>
+              </div>
+              <ul>
+                <li>10 Shopify products with HTML descriptions, SEO, tags and variants.</li>
+                <li>120 historical test orders distributed across roughly 300 days.</li>
+                <li>Selected full or partial returns and refunds, including Other notes.</li>
+                <li>Hundreds of normalized CSV reviews linked to the generated products.</li>
+              </ul>
+            </div>
+
+            <div className="ppSettingsMockDatasetMeta">
+              <span>
+                <strong>{mockDataset?.config?.productCount || 0}</strong>
+                Last GEN products
+              </span>
+              <span>
+                <strong>{mockDataset?.config?.orderCount || 0}</strong>
+                Last generated orders
+              </span>
+              <span>
+                <strong>{mockDataset?.config?.reviewCount || 0}</strong>
+                Last CSV reviews
+              </span>
+              <span>
+                <strong>{mockDataset?.config?.generatedAt ? formatWatchReportTimestamp(mockDataset.config.generatedAt) : "Never"}</strong>
+                Last run
+              </span>
+            </div>
+
+            <div className="ppSettingsMockDatasetActions">
+              <p>
+                Shopify limits development and trial stores to 5 created orders per minute, so the job runs in the background and can take around 20 minutes.
+              </p>
+              <button className="ppPrimaryButton ppSettingsMockDatasetButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
+                <s-icon type="wand" size="small"></s-icon>
+                {isStartingMockDataset ? "Starting..." : "Create mock dataset"}
+              </button>
+            </div>
           </section>
         </Form>
       </ScreenShell>

@@ -51,9 +51,10 @@
 - Product writes are future-gated for tags, product copy and metafields; MVP stores draft actions internally.
 
 ## Scopes
-- Request: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `read_returns`, `read_inventory`, `write_inventory`, `read_locations`.
+- Request: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `write_orders`, `read_returns`, `write_returns`, `read_inventory`, `write_inventory`, `read_locations`.
 - `read_all_orders` is required for full historical order analysis and must be approved in the Shopify Partner Dashboard before production use.
-- Do not request in MVP: `read_customers`, `write_orders`.
+- `write_orders` and `write_returns` are required only for the controlled Shopify mock dataset generator in Settings.
+- Do not request in MVP: `read_customers`.
 
 ## Webhooks
 - Required: `app/uninstalled`, `app/scopes_update`.

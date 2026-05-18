@@ -6,6 +6,7 @@
 - Product writes are intentionally stored as draft actions in MVP because production write flows require careful review, merchant confirmation and optional `write_products`.
 - Order data access is limited to the business need of product-level return/refund quality intelligence.
 - ProductPulse requests `read_all_orders` so QuickScan and deep diagnosis can analyze historical order windows configured by the merchant. This requires Shopify protected-scope approval before production use.
+- ProductPulse requests `write_orders` and `write_returns` for the controlled Shopify mock dataset generator exposed from Settings.
 - CSV reviews are handled as imported review signal rows in future implementation; this MVP includes fixtures and validation shape.
 - The AI provider is not configured yet. All AI output contracts are documented and tested with mocks/placeholders.
 - Billing is modeled as credits in app data but real Shopify billing is not activated in MVP.
