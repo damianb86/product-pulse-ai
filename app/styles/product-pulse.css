@@ -12762,6 +12762,14 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeReportHeader .ppDashboardIcon s-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  transform: scale(1.875);
+  transform-origin: center;
+}
+
+.ppWatchChangeReportHeader .ppDashboardIcon svg {
   width: 30px;
   height: 30px;
 }
@@ -12886,9 +12894,24 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeReportMeta .ppDashboardIcon s-icon,
-.ppWatchChangeReportMeta .ppDashboardIcon svg {
-  width: 24px;
-  height: 24px;
+.ppWatchChangedCard .ppDashboardIcon s-icon,
+.ppWatchChangeReportInsightHeader .ppDashboardIcon s-icon,
+.ppWatchChangeReportSectionHeader .ppDashboardIcon s-icon,
+.ppWatchChangeReportSnapshot .ppDashboardIcon s-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  transform: scale(1.75);
+  transform-origin: center;
+}
+
+.ppWatchChangeReportMeta .ppDashboardIcon svg,
+.ppWatchChangedCard .ppDashboardIcon svg,
+.ppWatchChangeReportInsightHeader .ppDashboardIcon svg,
+.ppWatchChangeReportSectionHeader .ppDashboardIcon svg,
+.ppWatchChangeReportSnapshot .ppDashboardIcon svg {
+  width: 28px;
+  height: 28px;
   transform: none;
 }
 
@@ -13013,13 +13036,6 @@ s-page[inline-size="large-500"] {
   height: 42px;
 }
 
-.ppWatchChangedCard .ppDashboardIcon s-icon,
-.ppWatchChangedCard .ppDashboardIcon svg {
-  width: 24px;
-  height: 24px;
-  transform: none;
-}
-
 .ppWatchChangedCard > div {
   min-width: 0;
 }
@@ -13137,13 +13153,6 @@ s-page[inline-size="large-500"] {
   height: 42px;
 }
 
-.ppWatchChangeReportInsightHeader .ppDashboardIcon s-icon,
-.ppWatchChangeReportInsightHeader .ppDashboardIcon svg {
-  width: 24px;
-  height: 24px;
-  transform: none;
-}
-
 .ppWatchChangeReportInsight h3,
 .ppWatchChangeReportInsight p,
 .ppWatchChangeReportInsight ul {
@@ -13237,13 +13246,6 @@ s-page[inline-size="large-500"] {
 .ppWatchChangeReportSectionHeader .ppDashboardIcon {
   width: 42px;
   height: 42px;
-}
-
-.ppWatchChangeReportSectionHeader .ppDashboardIcon s-icon,
-.ppWatchChangeReportSectionHeader .ppDashboardIcon svg {
-  width: 24px;
-  height: 24px;
-  transform: none;
 }
 
 .ppWatchChangeReportSectionHeader h3 {
@@ -13381,13 +13383,6 @@ s-page[inline-size="large-500"] {
 .ppWatchChangeReportSnapshot .ppDashboardIcon {
   width: 42px;
   height: 42px;
-}
-
-.ppWatchChangeReportSnapshot .ppDashboardIcon s-icon,
-.ppWatchChangeReportSnapshot .ppDashboardIcon svg {
-  width: 24px;
-  height: 24px;
-  transform: none;
 }
 
 .ppWatchChangeReportSnapshot h3 {
