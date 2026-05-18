@@ -3205,7 +3205,12 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
   const canRecommendCustomerFacingCopy = !sourceIntegrityMode;
-  const primaryPdpDescriptionAction = Boolean(canRecommendCustomerFacingCopy && hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction && pdpCopy);
+  const lowRiskMonitoringOnly = isLowRiskMonitoringOnlyDiagnosis(deterministic);
+  const materialCustomerProblemEvidence = hasMaterialCustomerProblemEvidence(deterministic);
+  const criticalContentIssue = hasCriticalContentIssue(contentIssues);
+  const canRecommendCustomerFacingFix = canRecommendCustomerFacingCopy
+    && (!lowRiskMonitoringOnly || materialCustomerProblemEvidence || criticalContentIssue);
+  const primaryPdpDescriptionAction = Boolean(canRecommendCustomerFacingFix && hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction && pdpCopy);
   const shopperGuidanceForDescription = primaryPdpDescriptionAction ? pdpCopy : "";
   const descriptionDraftForRewrite = shouldRewriteDescription ? buildEnhancedDescriptionDraft({
     title: snapshot.productTitle,
@@ -3244,7 +3249,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (contentIssues.length > 0 && canRecommendCustomerFacingCopy) {
+  if (contentIssues.length > 0 && canRecommendCustomerFacingFix) {
     if (shouldRewriteDescription) {
       const descriptionDraft = buildEnhancedDescriptionDraft({
         title: snapshot.productTitle,
@@ -3353,7 +3358,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (canRecommendCustomerFacingCopy && faqNeed.shouldRecommend && faqItems.length) {
+  if (canRecommendCustomerFacingFix && faqNeed.shouldRecommend && faqItems.length) {
     recommendations.push({
       id: "create-product-faq",
       label: getFaqActionLabel(mainIssue),
@@ -3744,7 +3749,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (supportNote && (hasActionableMainIssue || contentIssues.length > 0)) {
+  if (supportNote && (hasActionableMainIssue || (contentIssues.length > 0 && !lowRiskMonitoringOnly))) {
     recommendations.push({
       id: "copy-support-note",
       label: "Create internal note",
@@ -3756,7 +3761,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const tags = getRecommendedRiskTags({ mainIssue, deterministic });
-  if (tags.length && deterministic.metrics.signalCount >= 2) {
+  if (tags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly) {
     recommendations.push({
       id: "apply-risk-tags",
       label: "Add internal risk tags",
@@ -3768,7 +3773,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const workflowTags = getRecommendedWorkflowTags({ mainIssue, deterministic });
-  if (workflowTags.length && deterministic.metrics.signalCount >= 2) {
+  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly) {
     recommendations.push({
       id: "add-workflow-tags",
       label: "Add workflow tags",
@@ -4020,17 +4025,18 @@ function mergeRecommendationRelationship(preferred = {}, skipped = {}) {
 function prioritizeRecommendationActions(actions = [], { deterministic = {}, mainIssue = "", recipeSignals = {} } = {}) {
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
   const refundOperationalMode = isRefundDrivenOperationalDiagnosis(deterministic);
+  const monitoringOnlyMode = isLowRiskMonitoringOnlyDiagnosis(deterministic);
   return [...actions]
     .map((action, index) => ({
       action,
       index,
-      score: getServerRecommendationPriorityScore(action, { sourceIntegrityMode, refundOperationalMode, mainIssue }),
+      score: getServerRecommendationPriorityScore(action, { sourceIntegrityMode, refundOperationalMode, monitoringOnlyMode, mainIssue }),
     }))
     .sort((first, second) => second.score - first.score || first.index - second.index)
     .map((item) => item.action);
 }
 
-function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false } = {}) {
+function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false, monitoringOnlyMode = false } = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   let score = 0;
   if (/description|pdp|expectation|faq|spec/.test(normalized)) score += 60;
@@ -4046,7 +4052,46 @@ function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode
     if (/supplier|qa/.test(normalized)) score += 120;
     if (/pricing|price|compare-at/.test(normalized)) score -= 80;
   }
+  if (monitoringOnlyMode) {
+    if (/watchlist|baseline/.test(normalized)) score += 160;
+    if (/description|pdp|expectation|faq|spec|supplier|qa|variant|pricing|price|compare-at|media|image|alt text|template/.test(normalized)) score -= 120;
+    if (/seo|meta|handle|classification|metafield|tag|collection|workflow|internal|evidence/.test(normalized)) score -= 30;
+  }
   return score;
+}
+
+function isLowRiskMonitoringOnlyDiagnosis(deterministic = {}) {
+  const contentIssues = getActionableContentIssues(deterministic.metrics || {});
+  const riskScore = Number(deterministic.riskScore || 0);
+  return riskScore < 50
+    && !hasMaterialCustomerProblemEvidence(deterministic)
+    && !hasCriticalContentIssue(contentIssues);
+}
+
+function hasMaterialCustomerProblemEvidence(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const textSentiment = metrics.textInsights?.sentiment || {};
+  const negativeTextSignals = Number(textSentiment.negative || 0);
+  const negativeTextRatio = Number(textSentiment.negativeRatio || 0);
+  return Number(metrics.returnUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || Number(metrics.refundUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || Number(metrics.negativeReviewCount || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || (negativeTextSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE && negativeTextRatio >= 0.35);
+}
+
+function hasCriticalContentIssue(contentIssues = []) {
+  return (Array.isArray(contentIssues) ? contentIssues : []).some((issue) => {
+    const code = normalizeContentIssueCode(issue?.code);
+    const severity = String(issue?.severity || "").toLowerCase();
+    return severity === "high" || [
+      "missing_description",
+      "title_description_mismatch",
+      "description_variant_mismatch",
+      "wrong_product_description",
+      "incoherent_description",
+      "generic_title",
+    ].includes(code);
+  });
 }
 
 function getRecommendationRecipeSignals(deterministic = {}) {
@@ -4055,11 +4100,9 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const mainIssue = normalizeIssueCode(deterministic.mainIssue);
   const contentIssues = getActionableContentIssues(metrics);
   const contentAdvisories = Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : metrics.contentAdvisories || [];
-  const hasCustomerEvidence = Number(metrics.customerSignalCount || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || Number(metrics.returnUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || Number(metrics.refundUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || Number(metrics.negativeReviewCount || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE;
+  const hasCustomerEvidence = hasMaterialCustomerProblemEvidence(deterministic);
   const hasActionableEvidence = hasCustomerEvidence || contentIssues.length > 0;
+  const lowRiskMonitoringOnly = isLowRiskMonitoringOnlyDiagnosis(deterministic);
   const variantCount = Number(metrics.variantCount || product.variants?.length || 0);
   const affectedVariantCount = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants.length : 0;
   const hasVariantConcentration = hasAffectedVariantConcentration(metrics);
@@ -4088,19 +4131,19 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The product title is generic, misleading, or clearly disconnected from the product content.",
     },
     seoTitle: {
-      shouldRecommend: Boolean(metrics.seoTitleNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.seoTitleNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
       reason: "The SEO title is missing, duplicated, too long, too generic or weak for the product keywords.",
     },
     metaDescription: {
-      shouldRecommend: Boolean(metrics.metaDescriptionNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.metaDescriptionNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
       reason: "The meta description is missing, too short, too long or unclear for search-result shoppers.",
     },
     handle: {
-      shouldRecommend: Boolean(metrics.handleNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.handleNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
       reason: "The product URL handle is confusing, inconsistent with the title, or missing useful product keywords.",
     },
     specs: {
-      shouldRecommend: Boolean(!sourceIntegrityMode && metrics.specsBlockRecommended && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && metrics.specsBlockRecommended && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
       reason: "A compact specs/details block would clarify dimensions, compatibility, materials, care, included items or product limits.",
     },
     variants: {
@@ -4131,7 +4174,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The product should be grouped for internal review or quality workflow tracking.",
     },
     media: {
-      shouldRecommend: Boolean(mediaIssue && (hasActionableEvidence || mainIssue === "color_expectation")),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && mediaIssue && (hasActionableEvidence || mainIssue === "color_expectation")),
       reason: Number(metrics.mediaWithoutAltCount || 0) > 0
         ? `${metrics.mediaWithoutAltCount} product media item${Number(metrics.mediaWithoutAltCount) === 1 ? "" : "s"} need clearer alt text.`
         : "Customer expectations may depend on images, scale, color, material or visual context.",
@@ -4141,19 +4184,19 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The current media sequence may not put the clearest context, scale, color or format image first.",
     },
     contextualMedia: {
-      shouldRecommend: Boolean((Number(metrics.mediaCount || 0) === 0 || ["color_expectation", "subjective_negative_reaction"].includes(mainIssue)) && (hasActionableEvidence || mainIssue === "color_expectation")),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && (Number(metrics.mediaCount || 0) === 0 || ["color_expectation", "subjective_negative_reaction"].includes(mainIssue)) && (hasActionableEvidence || mainIssue === "color_expectation")),
       reason: "Customers may need an additional contextual image showing scale, packaging, color, material or real use.",
     },
     classification: {
-      shouldRecommend: Boolean(metrics.classificationNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.classificationNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
       reason: "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
     },
     structuredMetafields: {
-      shouldRecommend: Boolean(hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
       reason: "Structured product metadata can preserve warnings, QA status, SEO notes or risk flags for themes and reporting.",
     },
     template: {
-      shouldRecommend: Boolean(metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
       reason: "The product may need a richer template to display FAQ, specs or warning content beyond plain description text.",
     },
     sourceMismatch: {
@@ -4183,7 +4226,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh full diagnosis.",
     },
     qa: {
-      shouldRecommend: Boolean(!sourceIntegrityMode && hasActionableEvidence && !subjectiveExpectationOnly && (
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && hasActionableEvidence && !subjectiveExpectationOnly && (
         ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
         || (highRiskOperationalIssue && operationalQualityTextSignals)
         || (refundInsights.shouldSurface && operationalQualityTextSignals)
@@ -6677,16 +6720,18 @@ function buildReturnTextAnalysisItem(item = {}) {
 function buildReviewTextAnalysisItem(review = {}) {
   const text = [review.title, review.body].filter(Boolean).join(" - ");
   if (!text.trim()) return null;
+  const rating = Number(review.rating || 0);
+  const sentiment = classifyCustomerSentiment(text, rating);
   return {
     key: getReviewTextCacheKey(review),
     source: review.sourceType || "reviews",
     sourceLabel: review.sourceLabel || "Reviews",
     text,
     analysisText: text,
-    rating: Number(review.rating || 0),
-    issueCode: classifyIssueText(text),
-    sentiment: classifyCustomerSentiment(text, Number(review.rating || 0)),
-    emotion: classifyCustomerEmotion(text, Number(review.rating || 0)),
+    rating,
+    issueCode: classifyIssueText(text, { sentiment, rating }),
+    sentiment,
+    emotion: classifyCustomerEmotion(text, rating),
     subjectiveNegative: isSubjectiveNegativeText(text),
     createdAt: review.createdAt,
     updatedAt: review.updatedAt || review.createdAt,
@@ -7265,6 +7310,7 @@ function buildIssueSignalCountsFromAnalysis({ customerTextCache = {}, refundText
     ...(Array.isArray(customerTextCache.reviewItems) ? customerTextCache.reviewItems : []),
   ];
   customerItems.forEach((item) => {
+    if (!shouldCountTextAnalysisItemAsIssueSignal(item)) return;
     const issue = normalizeIssueCode(item.issueCode) || classifyIssueText(item.analysisText || item.text || "");
     if (!issue) return;
     counts[issue] = (counts[issue] || 0) + Math.max(1, Number(item.quantity || 1));
@@ -7278,6 +7324,20 @@ function buildIssueSignalCountsFromAnalysis({ customerTextCache = {}, refundText
   });
   if (Object.keys(counts).length) return counts;
   return buildIssueSignalCounts(fallback);
+}
+
+function shouldCountTextAnalysisItemAsIssueSignal(item = {}) {
+  const source = String(item.source || "").toLowerCase();
+  if (source === "returns" || source === "shopify_return_note") return true;
+  const rating = Number(item.rating || 0);
+  const sentiment = String(item.sentiment || "").toLowerCase();
+  const text = item.analysisText || item.text || "";
+  return Boolean(
+    (rating > 0 && rating <= 2)
+    || sentiment === "negative"
+    || item.subjectiveNegative
+    || containsIssueLanguage(text)
+  );
 }
 
 function normalizeCachedAnalysisItems(items = []) {
@@ -7844,8 +7904,16 @@ function isActionableRepeatedLanguageIssue(item = {}) {
   const normalized = normalizeText(item.term || item.label || item.phrase).replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   if (!isUsefulRepeatedLanguageTerm(normalized)) return false;
   const tokens = normalized.split(" ").filter(Boolean);
-  if (tokens.length === 1 && CUSTOMER_TEXT_POSITIVE_DESCRIPTOR_WORDS.has(tokens[0])) return false;
+  if (tokens.every((token) => CUSTOMER_TEXT_POSITIVE_DESCRIPTOR_WORDS.has(token))) return false;
+  const dominantSentiment = String(item.dominantSentiment || "").toLowerCase();
+  const negativeCount = Number(item.sentiments?.negative || 0);
+  if (dominantSentiment === "positive" && negativeCount === 0) return false;
+  if (!hasRepeatedLanguageProblemCue(normalized) && negativeCount === 0) return false;
   return true;
+}
+
+function hasRepeatedLanguageProblemCue(value = "") {
+  return /\b(too|not|missing|wrong|different|small|large|tight|loose|runs|leak|leaking|broken|break|broke|damaged|damage|cracked|chip|chipped|confusing|confusion|unclear|failed|failure|unsafe|scary|fear|frightening|creepy|heavy|wobbly|unstable|refund|returned|disappointed|poor|cheap|doesn|doesnt|didn|didnt|mismatch|mismatched|compatibility|incompatible|delayed|late|lost)\b/i.test(String(value || ""));
 }
 
 const CUSTOMER_TEXT_STOP_WORDS = new Set([
@@ -7974,21 +8042,37 @@ const CUSTOMER_TEXT_SHORT_SIGNAL_WORDS = new Set([
 ]);
 
 const CUSTOMER_TEXT_POSITIVE_DESCRIPTOR_WORDS = new Set([
+  "accurate",
   "beautiful",
+  "build",
+  "clear",
+  "complete",
   "comfortable",
   "cute",
   "excellent",
+  "fast",
+  "finished",
+  "gift",
   "good",
   "great",
   "happy",
+  "included",
+  "includes",
+  "listing",
   "love",
   "loved",
   "lovely",
+  "matched",
+  "matches",
+  "matching",
   "nice",
   "perfect",
+  "premium",
   "pretty",
   "quality",
   "recommend",
+  "shipping",
+  "solid",
   "satisfied",
   "satisfaction",
 ]);
@@ -8019,15 +8103,24 @@ function getMainIssueFromCounts(counts, fallback) {
   return normalizeIssueCode(fallback) || "product_quality";
 }
 
-function classifyIssueText(text) {
+function classifyIssueText(text, context = {}) {
   const normalized = normalizeText(text);
-  if (/(fit|size|sizing|small|large|tight|loose|waist|chest|shoulder|length)/.test(normalized)) return "fit_sizing";
+  const sentiment = String(context.sentiment || "").toLowerCase();
+  const rating = Number(context.rating || 0);
+  const positiveContext = sentiment === "positive" || rating >= 4;
+  const explicitIssue = containsIssueLanguage(normalized) || isObjectiveSafetyText(normalized) || isSubjectiveNegativeText(normalized);
+  if (positiveContext && !explicitIssue) return "product_quality";
+  if (/(too small|too large|doesn t fit|doesnt fit|does not fit|didn t fit|didnt fit|not fit|wrong size|runs small|runs large|fit issue|fit problem|sizing issue|tight|loose|waist|chest|shoulder|sleeve|length)/.test(normalized)
+    || (!positiveContext && /(fit|size|sizing|small|large)/.test(normalized) && explicitIssue)) return "fit_sizing";
   if (isObjectiveSafetyText(normalized)) return "safety_concern";
   if (isSubjectiveNegativeText(normalized)) return "subjective_negative_reaction";
-  if (/(color|colour|pictured|photo|image|shade|looks different)/.test(normalized)) return "color_expectation";
-  if (/(break|broken|defect|damage|damaged|quality|thin|poor|cheap|durability|durable|soft|softness|rough|scratchy|stiff|material|fabric|texture)/.test(normalized)) return "quality_defect";
-  if (/(compatible|compatibility|fit with|works with)/.test(normalized)) return "compatibility";
-  if (/(shipping|delivery|late|arrived)/.test(normalized)) return "shipping_delivery";
+  if (/(wrong color|different color|not as pictured|not pictured|picture|pictured|photo|image|shade|looks different|looked different|color mismatch|colour mismatch)/.test(normalized)
+    || (!positiveContext && /(color|colour)/.test(normalized) && explicitIssue)) return "color_expectation";
+  if (/(break|broken|defect|defective|damage|damaged|poor quality|cheap|durability|leak|leaking|spill|spilled|crack|cracked|chip|chipped|tear|ripped|malfunction|failed|failure|rough|scratchy|stiff|thin material|bad material|bad fabric)/.test(normalized)
+    || (!positiveContext && /(quality|soft|softness|material|fabric|texture|build)/.test(normalized) && explicitIssue)) return "quality_defect";
+  if (/(not compatible|incompatible|compatibility issue|doesn t work with|doesnt work with|won t work with|wont work with|does not work with|fit with)/.test(normalized)) return "compatibility";
+  if (/(late|delayed|lost package|lost shipment|shipping problem|delivery problem|arrived damaged|damaged in transit)/.test(normalized)
+    || (!positiveContext && /(shipping|delivery|arrived)/.test(normalized) && explicitIssue)) return "shipping_delivery";
   return "product_quality";
 }
 
@@ -10075,7 +10168,7 @@ function getTrendTone(values, fallbackScore = 0) {
 }
 
 function containsIssueLanguage(text) {
-  return /(too small|too large|doesn.?t fit|broken|poor quality|defect|thin|softness|not soft|rough|scratchy|stiff|color|not as pictured|disappointed|return)/i.test(String(text || ""));
+  return /(too small|too large|doesn.?t fit|does not fit|didn.?t fit|not fit|wrong size|runs small|runs large|broken|break|broke|poor quality|defect|defective|thin|softness|not soft|rough|scratchy|stiff|wrong color|different color|color mismatch|not as pictured|looks different|leak|leaking|spill|spilled|crack|cracked|chip|chipped|damaged|damage|unsafe|danger|hazard|not compatible|incompatible|late|delayed|lost|disappointed|return|refund|not worth|wobbly|unstable|confusing|unclear|missing)/i.test(String(text || ""));
 }
 
 function getNodes(connection) {
@@ -10185,6 +10278,8 @@ export const __productPulseDiagnosisTestHooks = {
   getReturnReasonValue,
   getNodes,
   buildCustomerTextInsights,
+  buildCustomerTextAnalysisItems,
+  buildIssueSignalCountsFromAnalysis,
   calculateDeterministicDiagnosis,
   buildMonthlyOrderActivity,
   buildReturnRatePrediction,

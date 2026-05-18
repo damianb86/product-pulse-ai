@@ -1793,6 +1793,94 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.granularIssues.map((issue) => issue.issue)).not.toContain('Repeated customer language: "beautiful"');
   });
 
+  it("keeps positive control-product language out of merchant-facing issues", () => {
+    const reviews = Array.from({ length: 6 }, (_, index) => ({
+      title: "Clear listing and great gift",
+      body: "The finished size matched the page, the 500-piece count was clear, and the included reference poster made it a complete gift.",
+      rating: 5,
+      sourceType: "csv_review",
+      createdAt: `2026-05-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({ returns: [], reviews });
+
+    const issueLabels = insights.granularIssues.map((issue) => issue.issue);
+    expect(issueLabels).not.toContain('Repeated customer language: "clear"');
+    expect(issueLabels).not.toContain('Repeated customer language: "clear listing"');
+    expect(issueLabels).not.toContain('Repeated customer language: "finished size"');
+
+    const cachedItems = __productPulseDiagnosisTestHooks.buildCustomerTextAnalysisItems({ returns: [], reviews });
+    const counts = __productPulseDiagnosisTestHooks.buildIssueSignalCountsFromAnalysis({
+      customerTextCache: {
+        returnItems: cachedItems.returnTexts,
+        reviewItems: cachedItems.reviewTexts,
+      },
+      fallback: { returns: [], refunds: [], reviews: [] },
+    });
+
+    expect(counts.fit_sizing || 0).toBe(0);
+    expect(counts.quality_defect || 0).toBe(0);
+    expect(counts.shipping_delivery || 0).toBe(0);
+  });
+
+  it("prioritizes monitoring over PDP fixes for low-risk high-momentum control products", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 36,
+      confidence: 76,
+      issueSignalCounts: {},
+      product: {
+        title: "GEN Calm Forest Puzzle 500 Pieces",
+        description: "Clear, complete puzzle listing. A 500-piece illustrated forest puzzle with a finished size of 18 x 24 inches. Includes reference poster, resealable bag and sturdy storage box.",
+        media: [],
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Standard", sku: "GEN-PUZZLE-CALM" }],
+      },
+      metrics: {
+        productMomentumScore: 85,
+        customerSignalCount: 0,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        signalCount: 1,
+        mediaCount: 0,
+        contentIssueCount: 1,
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Puzzle details"],
+          reasons: ["A specs FAQ could be added, but customers are not signaling a problem."],
+        },
+        contentAnalysis: {
+          issues: [
+            { code: "missing_specifications", label: "Missing product specifications", severity: "medium", evidence: "Optional recommended age and material details could be added." },
+          ],
+          advisories: [{ code: "missing_media_context", label: "Missing media context", severity: "low" }],
+        },
+        textInsights: {
+          sentiment: { positive: 32, neutral: 2, negative: 0, total: 34, negativeRatio: 0 },
+          repeatedLanguage: [
+            { term: "clear", count: 34, dominantSentiment: "positive", sentiments: { positive: 34, neutral: 0, negative: 0 }, sources: ["csv_review"] },
+          ],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/4",
+        productTitle: "GEN Calm Forest Puzzle 500 Pieces",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations[0]?.id).toBe("add-to-watchlist");
+    expect(recommendations.map((item) => item.id)).not.toContain("rewrite-product-description");
+    expect(recommendations.map((item) => item.id)).not.toContain("add-product-description-guidance");
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+    expect(recommendations.map((item) => item.id)).not.toContain("improve-product-media");
+    expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
+  });
+
   it("matches issue rows to issue-relevant actions instead of positional SEO actions", () => {
     const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
       deterministic: {
