@@ -3116,6 +3116,21 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
   const riskScore = latestDiagnosis?.riskScore ?? snapshot.riskScore;
   const confidence = latestDiagnosis?.confidence ?? snapshot.confidence;
   const primaryIssue = latestDiagnosis?.likelyCause || snapshot.primaryIssue;
+  const monthlySummary = metrics.monthlyOrderActivity?.summary || {};
+  const hasMonthlyOrderUnits = Number(monthlySummary.totalOrderUnits || 0) > 0;
+  const normalizedSoldUnits = Math.max(
+    Number(metrics.soldUnits || 0),
+    Number(monthlySummary.totalOrderUnits || 0),
+    Number(metrics.returnUnits || 0),
+    Number(metrics.refundUnits || 0),
+  );
+  const normalizedReturnRate = hasMonthlyOrderUnits ? Number(monthlySummary.returnRate || 0) : Number(metrics.returnRate || 0);
+  const normalizedRefundRate = hasMonthlyOrderUnits ? Number(monthlySummary.refundRate || 0) : Number(metrics.refundRate || 0);
+  const variantCount = Number(metrics.variantCount || 0)
+    || (Array.isArray(metrics.variants) ? metrics.variants.length : 0)
+    || (Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants.length : 0);
+  const skuCount = Number(metrics.skuCount || 0)
+    || (Array.isArray(metrics.variants) ? metrics.variants.filter((variant) => variant?.sku).length : 0);
 
   return {
     id: snapshot.productGid,
@@ -3148,8 +3163,8 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     canDiagnose: true,
     canResolve: true,
     metrics: {
-      returnRate: metrics.returnRate || 0,
-      refundRate: metrics.refundRate || 0,
+      returnRate: normalizedReturnRate,
+      refundRate: normalizedRefundRate,
       reviewRating: metrics.reviewRating || metrics.avgRating || 0,
       avgRating: metrics.avgRating || metrics.reviewRating || 0,
       reviewCount: metrics.reviewCount || 0,
@@ -3176,7 +3191,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       refundUnits: metrics.refundUnits || 0,
       recentSignalUnits: metrics.recentSignalUnits || 0,
       windowDays: metrics.windowDays || 60,
-      soldUnits: metrics.soldUnits || 0,
+      soldUnits: normalizedSoldUnits,
       storeAvgReturnRate: metrics.storeAvgReturnRate || 0,
       storeAvgRefundRate: metrics.storeAvgRefundRate || 0,
       lastSignalAt: metrics.lastSignalAt || null,
@@ -3188,8 +3203,29 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       tags: Array.isArray(metrics.tags) ? metrics.tags : [],
       collections: Array.isArray(metrics.collections) ? metrics.collections : [],
       topReturnReasons: Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [],
+      topReturnReasonDetails: Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails : [],
+      topRefundReasons: Array.isArray(metrics.topRefundReasons) ? metrics.topRefundReasons : [],
+      topRefundReasonDetails: Array.isArray(metrics.topRefundReasonDetails) ? metrics.topRefundReasonDetails : [],
       affectedVariants: Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [],
+      affectedVariantDetails: Array.isArray(metrics.affectedVariantDetails) ? metrics.affectedVariantDetails : [],
+      variantCount,
+      skuCount,
+      optionNames: Array.isArray(metrics.optionNames) ? metrics.optionNames : [],
+      variants: Array.isArray(metrics.variants) ? metrics.variants : [],
+      media: Array.isArray(metrics.media) ? metrics.media : [],
       textInsights: metrics.textInsights || null,
+      refundInsights: metrics.refundInsights || null,
+      reviewSourceStats: metrics.reviewSourceStats || null,
+      judgeMeReviewCount: metrics.judgeMeReviewCount || 0,
+      judgeMeNegativeReviewCount: metrics.judgeMeNegativeReviewCount || 0,
+      judgeMeAverageRating: metrics.judgeMeAverageRating || 0,
+      csvReviewCount: metrics.csvReviewCount || 0,
+      csvNegativeReviewCount: metrics.csvNegativeReviewCount || 0,
+      csvAverageRating: metrics.csvAverageRating || 0,
+      faqNeed: metrics.faqNeed || null,
+      seoTitle: metrics.seoTitle || "",
+      seoDescription: metrics.seoDescription || "",
+      templateSuffix: metrics.templateSuffix || "",
       checkedSources: Array.isArray(diagnosisReport.checkedSources) ? diagnosisReport.checkedSources : [],
       aiModels: diagnosisReport.aiModels || null,
       orderAccessDenied: Boolean(metrics.orderAccessDenied),
@@ -4259,6 +4295,7 @@ export const __productPulseJobsTestHooks = {
   buildManualProductRiskSnapshotPayload,
   buildProductPulseFaqHtml,
   buildUpdatedProductDescriptionHtml,
+  formatSnapshotForDiagnosis,
   getSignalLifecycleBars,
   normalizeFaqItemsForApply,
   getFaqApplyVariant,

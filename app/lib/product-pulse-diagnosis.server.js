@@ -1648,11 +1648,14 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const judgeMeReviews = (judgeMeData.reviews || []).map((review) => normalizeReviewSource(review, "judgeme_review", "Judge.me reviews"));
   const csvReviews = (csvReviewData.reviews || []).map((review) => normalizeReviewSource(review, "csv_review", "CSV reviews"));
   const reviews = [...judgeMeReviews, ...csvReviews];
-  const soldUnits = preferFreshNumber(sumBy(sales, "quantity"), snapshotMetrics.soldUnits);
+  const rawSoldUnits = preferFreshNumber(sumBy(sales, "quantity"), snapshotMetrics.soldUnits);
   const salesAmount = roundCurrency(preferFreshNumber(sumBy(sales, "amount"), snapshotMetrics.salesAmount));
   const returnUnits = preferFreshNumber(sumBy(returns, "quantity"), snapshotMetrics.returnUnits);
   const refundUnits = preferFreshNumber(sumBy(refunds, "quantity"), snapshotMetrics.refundUnits);
   const refundAmount = roundCurrency(preferFreshNumber(sumBy(refunds, "amount"), snapshotMetrics.refundAmount));
+  const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
+  const monthlyOrderUnits = Number(monthlyOrderActivity?.summary?.totalOrderUnits || 0);
+  const soldUnits = Math.max(rawSoldUnits, monthlyOrderUnits, returnUnits, refundUnits);
   const returnRate = calculateUnitRatePercent(returnUnits, soldUnits, snapshotMetrics.returnRate);
   const refundRate = calculateUnitRatePercent(refundUnits, soldUnits, snapshotMetrics.refundRate);
   const reviewCount = reviews.length;
@@ -1662,12 +1665,9 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
   const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDate(review.createdAt, 30)).length;
   const topReturnReasons = countTopValues(returns.flatMap((item) => [item.reason, item.reasonNote, item.customerNote]).filter(Boolean), 4);
-  const topRefundReasons = countTopValues(refunds.flatMap((item) => [
-    item.reason,
-    item.reasonLabel,
-    ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
-    normalizeRefundReasonLabel(item.restockType),
-  ]).filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 4);
+  const topRefundReasons = countTopValues(refunds
+    .map(getRefundReasonText)
+    .filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 4);
   const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const productContentState = resolveProductContentAnalysisState({
     product,
@@ -1694,8 +1694,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     windowDays,
   });
   const refundInsights = refundTextState.refundInsights;
-  const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
-  const returnRatePrediction = buildReturnRatePrediction({ sales, returns, windowDays });
+  const returnRatePrediction = buildReturnRatePrediction({ sales, returns, refunds, windowDays });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
@@ -6168,16 +6167,29 @@ function getRefundNoteText(item = {}) {
 }
 
 function getRefundReasonText(item = {}) {
-  const reasons = [
+  const primaryReasons = [
     ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
     item.reasonLabel,
     item.reason,
-    normalizeRefundReasonLabel(item.restockType),
   ]
     .map((value) => String(value || "").replace(/\s+/g, " ").trim())
     .filter((value) => value && !isDefaultCustomerLanguageTerm(value));
+  const restockReason = normalizeRefundReasonLabel(item.restockType);
+  const reasons = primaryReasons.length
+    ? primaryReasons
+    : [restockReason].filter((value) => value && !isDefaultCustomerLanguageTerm(value));
 
-  return uniqueBy(reasons, (value) => normalizeText(value)).join(" - ");
+  const uniqueReasons = uniqueBy(reasons, (value) => normalizeText(value));
+  const compactReasons = uniqueReasons.filter((reason, index) => {
+    const normalized = normalizeText(reason);
+    return !uniqueReasons.some((otherReason, otherIndex) => {
+      if (otherIndex === index) return false;
+      const otherNormalized = normalizeText(otherReason);
+      return otherNormalized.length > normalized.length && otherNormalized.includes(normalized);
+    });
+  });
+
+  return compactReasons.join(" - ");
 }
 
 function normalizeRefundReasonLabel(value) {
@@ -6289,7 +6301,14 @@ function getReturnCustomerLanguageText(item) {
 }
 
 function getRefundOperationalText(item) {
-  return [getRefundNoteText(item), getRefundReasonText(item)].filter(Boolean).join(" - ");
+  const reasonText = getRefundReasonText(item);
+  const restockText = normalizeRefundReasonLabel(item?.restockType);
+  const includeRestock = restockText && !normalizeText(reasonText).includes(normalizeText(restockText));
+  return [
+    getRefundNoteText(item),
+    reasonText,
+    includeRestock ? restockText : "",
+  ].filter(Boolean).join(" - ");
 }
 
 function getCustomerAnalysisText(item) {
@@ -6629,11 +6648,9 @@ function buildRefundTextAnalysisItem(item = {}) {
 }
 
 function summarizeRefundOperationalAnalysisItems({ refundTexts = [], refunds = [], refundRate = 0, soldUnits = 0, refundUnits = 0, refundAmount = 0 }) {
-  const refundReasons = countTopValues(refunds.flatMap((item) => [
-    getRefundReasonText(item),
-    ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
-    normalizeRefundReasonLabel(item.restockType),
-  ]).filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 5);
+  const refundReasons = countTopValues(refunds
+    .map(getRefundReasonText)
+    .filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 5);
   const sentiment = summarizeSentiment(refundTexts);
   const repeatedLanguage = extractRepeatedLanguage(refundTexts).slice(0, 5);
   const issueCounts = countTopValues(refundTexts.map((item) => item.issueCode).filter(Boolean), 5);
@@ -8760,6 +8777,7 @@ function buildMonthlyOrderActivity({
 function buildReturnRatePrediction({
   sales = [],
   returns = [],
+  refunds = [],
   windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
   now = new Date(),
 } = {}) {
@@ -8789,6 +8807,17 @@ function buildReturnRatePrediction({
     bucket.orderIds.add(orderKey);
     bucket.returnOrderIds.add(orderKey);
     bucket.returnedUnits += getOperationalEventQuantity(event);
+  });
+
+  refunds.forEach((event, index) => {
+    const weekKey = getOperationalEventWeekKey(event, orderWeekById);
+    const bucket = buckets.get(weekKey);
+    if (!bucket) return;
+    const orderKey = event.orderId || event.id || `refund:${index}:${weekKey}`;
+    if (!bucket.orderIds.has(orderKey)) {
+      bucket.orderIds.add(orderKey);
+      bucket.orderUnits += Math.max(getOperationalEventQuantity(event), 1);
+    }
   });
 
   const rawPoints = [...buckets.values()].map(normalizeReturnRateWeekBucket);

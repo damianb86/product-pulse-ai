@@ -5856,6 +5856,12 @@ function getProductCheckedItems(product) {
   const sources = product.sourceCoverage || [];
   const items = [];
   const windowDays = metrics.windowDays || 0;
+  const monthlySummary = metrics.monthlyOrderActivity?.summary || {};
+  const variantCount = Number(metrics.variantCount ?? (Array.isArray(metrics.variants) ? metrics.variants.length : 0))
+    || Number(metrics.affectedVariants?.length || 0);
+  const analyzedUnits = Number(monthlySummary.totalOrderUnits ?? metrics.soldUnits ?? 0);
+  const returnRate = monthlySummary.returnRate ?? metrics.returnRate ?? 0;
+  const refundRate = monthlySummary.refundRate ?? metrics.refundRate ?? 0;
   const productMeta = [
     metrics.productType,
     metrics.vendor,
@@ -5867,16 +5873,16 @@ function getProductCheckedItems(product) {
     items.push({
       icon: "product",
       label: "Shopify product data",
-      value: `${metrics.variantCount ?? metrics.affectedVariants?.length ?? 0} variants`,
+      value: `${formatInteger(variantCount)} variant${variantCount === 1 ? "" : "s"}`,
       detail: productMeta || "Product metadata stored",
     });
   }
 
-  if (sources.some((source) => String(source).toLowerCase().includes("order")) || Number(metrics.soldUnits || 0) > 0) {
+  if (sources.some((source) => String(source).toLowerCase().includes("order")) || analyzedUnits > 0) {
     items.push({
       icon: "package",
       label: "Units sold analyzed",
-      value: formatInteger(metrics.soldUnits || 0),
+      value: formatInteger(analyzedUnits),
       detail: `${windowDays || 0} day Shopify order window`,
     });
   }
@@ -5886,7 +5892,7 @@ function getProductCheckedItems(product) {
       icon: "return",
       label: "Returns analyzed",
       value: formatInteger(metrics.returnUnits || 0),
-      detail: `${metrics.returnRate || 0}% return rate`,
+      detail: `${formatPercent(returnRate)} return rate`,
     });
   }
 
@@ -5895,7 +5901,7 @@ function getProductCheckedItems(product) {
       icon: "cash-dollar",
       label: "Refunds analyzed",
       value: formatInteger(metrics.refundUnits || 0),
-      detail: `${formatMoney(metrics.refundAmount || 0)} refunded`,
+      detail: `${formatMoney(metrics.refundAmount || 0)} refunded, ${formatPercent(refundRate)} refund rate`,
     });
   }
 
@@ -5936,6 +5942,16 @@ function getProductCheckedItems(product) {
   }
 
   return items;
+}
+
+function formatCheckedEvidenceSummaryItem(item = {}) {
+  const label = String(item.label || "").toLowerCase();
+  const value = String(item.value || "").trim();
+  if (!value) return "";
+  if (label.includes("units sold")) return `${value} units sold`;
+  if (label.includes("returns")) return `${value} return${value === "1" ? "" : "s"}`;
+  if (label.includes("refund")) return `${value} refund${value === "1" ? "" : "s"}`;
+  return value;
 }
 
 function getRecommendedActionMode(action, index) {
@@ -7366,7 +7382,7 @@ function ProductEvidenceSummaryPanel({ detail, onSelectEvidence }) {
   const checkedItems = detail.checkedItems.length
     ? detail.checkedItems
     : [{ icon: "product", label: "Shopify product data", value: "0 variants", detail: "No product-specific checks stored yet." }];
-  const checkedSummary = checkedItems.slice(0, 3).map((item) => item.value).join(", ");
+  const checkedSummary = checkedItems.slice(0, 3).map(formatCheckedEvidenceSummaryItem).filter(Boolean).join(", ");
 
   return (
     <div className="ppProductEvidenceSummaryPanel">
@@ -9535,10 +9551,18 @@ function EvidenceBarList({ rows = [], tone = "violet", emptyLabel = "No rows sto
 }
 
 function EvidencePhraseList({ phrases = [], tone = "red", emptyLabel = "No repeated phrases stored" }) {
-  const rows = phrases.length ? phrases : [{ term: emptyLabel, count: 0 }];
+  if (!phrases.length) {
+    return (
+      <div className="ppEvidencePhraseListEmpty">
+        <strong>{emptyLabel}</strong>
+        <span>No repeated phrase was detected for this source.</span>
+      </div>
+    );
+  }
+
   return (
     <div className={`ppEvidencePhraseList ppEvidencePhraseList-${tone}`}>
-      {rows.map((phrase) => (
+      {phrases.map((phrase) => (
         <div key={phrase.term}>
           <strong>{quoteSourceText(phrase.term)}</strong>
           <span>{formatInteger(phrase.count || 0)}</span>

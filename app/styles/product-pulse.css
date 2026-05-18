@@ -6035,6 +6035,28 @@ s-page[inline-size="large-500"] {
   font-weight: 880;
 }
 
+.ppEvidencePhraseListEmpty {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px dashed var(--pp-slate-300);
+  border-radius: 12px;
+  background: rgba(var(--pp-slate-100-rgb), 0.72);
+}
+
+.ppEvidencePhraseListEmpty strong {
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppEvidencePhraseListEmpty span {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .ppEvidencePhraseList-violet strong {
   color: var(--pp-insight-violet);
 }

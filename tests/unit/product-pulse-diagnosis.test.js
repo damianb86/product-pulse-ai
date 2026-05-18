@@ -1366,6 +1366,27 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
   });
 
+  it("uses refund-only Shopify events as denominator evidence without counting them as returns", () => {
+    const prediction = __productPulseDiagnosisTestHooks.buildReturnRatePrediction({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 60,
+      sales: [
+        { id: "line-1", orderId: "order-1", createdAt: "2026-05-01T10:00:00.000Z", quantity: 10, amount: 480 },
+      ],
+      returns: [
+        { id: "return-1", orderId: "order-1", createdAt: "2026-05-02T10:00:00.000Z", quantity: 6 },
+      ],
+      refunds: [
+        { id: "refund-1", orderId: "order-3", createdAt: "2026-05-03T10:00:00.000Z", quantity: 1, amount: 48 },
+      ],
+    });
+
+    expect(prediction.summary.totalOrderUnits).toBe(11);
+    expect(prediction.summary.totalReturnedUnits).toBe(6);
+    expect(prediction.summary.totalReturnRate).toBeCloseTo(54.55, 2);
+    expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
+  });
+
   it("matches CSV reviews by Shopify numeric ID or product handle", () => {
     const snapshot = {
       productGid: "gid://shopify/Product/98765",

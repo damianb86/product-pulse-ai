@@ -215,4 +215,54 @@ describe("ProductPulse product job helpers", () => {
     expect(snapshot.metrics.collections).toEqual(["New arrivals"]);
     expect(snapshot.metrics.descriptionWordCount).toBeGreaterThan(0);
   });
+
+  it("preserves persisted evidence metrics when formatting stored product snapshots", () => {
+    const detail = productPulseJobsTestHooks.formatSnapshotForDiagnosis({
+      productGid: "gid://shopify/Product/linen",
+      productTitle: "GEN Linen Breeze Shirt",
+      handle: "gen-linen-shirt-fit-9fe68b03",
+      riskScore: 72,
+      confidence: 97,
+      primaryIssue: "Fit & sizing",
+      updatedAt: "2026-05-18T12:00:00.000Z",
+      sourceCoverage: ["Shopify products", "Shopify orders", "Shopify returns", "Shopify refunds"],
+      metrics: {
+        soldUnits: 10,
+        returnUnits: 6,
+        refundUnits: 1,
+        returnRate: 60,
+        refundRate: 10,
+        monthlyOrderActivity: {
+          summary: {
+            totalOrderUnits: 11,
+            returnRate: 54.55,
+            refundRate: 9.09,
+          },
+        },
+        variantCount: 4,
+        skuCount: 4,
+        optionNames: ["Size", "Color"],
+        variants: [{ title: "M / White", sku: "GEN-SHIRT-M-WHT" }],
+        affectedVariants: ["M / White"],
+        affectedVariantDetails: [{ label: "M / White", count: 7 }],
+        topRefundReasons: ["Refund Discrepancy - No restock"],
+        topRefundReasonDetails: [{ label: "Refund Discrepancy - No restock", count: 1 }],
+        refundInsights: {
+          total: 1,
+          sentiment: { total: 1, negative: 1, neutral: 0, positive: 0 },
+          repeatedLanguage: [],
+        },
+      },
+    });
+
+    expect(detail.metrics.soldUnits).toBe(11);
+    expect(detail.metrics.returnRate).toBe(54.55);
+    expect(detail.metrics.refundRate).toBe(9.09);
+    expect(detail.metrics.variantCount).toBe(4);
+    expect(detail.metrics.skuCount).toBe(4);
+    expect(detail.metrics.optionNames).toEqual(["Size", "Color"]);
+    expect(detail.metrics.affectedVariantDetails).toEqual([{ label: "M / White", count: 7 }]);
+    expect(detail.metrics.topRefundReasonDetails).toEqual([{ label: "Refund Discrepancy - No restock", count: 1 }]);
+    expect(detail.metrics.refundInsights.sentiment.negative).toBe(1);
+  });
 });
