@@ -2416,9 +2416,13 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
     scoredDeterministic.issueSignalCounts[issue.issueCode] = Math.max(scoredDeterministic.issueSignalCounts[issue.issueCode] || 0, 1);
   });
 
+  const sourceIntegritySignals = getSourceMismatchSignals(scoredDeterministic);
+  const sourceIntegrityMode = isSourceIntegrityDiagnosis(scoredDeterministic, sourceIntegritySignals);
   const aiMainIssue = normalizeIssueCode(ai.classification?.main_issue) || scoredDeterministic.mainIssue;
   const contentShouldLead = contentAnalysis.issues.some((issue) => issue.severity === "high") && scoredDeterministic.metrics.customerSignalCount <= 1;
-  const mainIssue = contentShouldLead
+  const mainIssue = sourceIntegrityMode
+    ? "review_feed_integrity"
+    : contentShouldLead
     ? "product_content"
     : scoredDeterministic.issueSignalCounts[aiMainIssue] ? aiMainIssue : scoredDeterministic.mainIssue;
   scoredDeterministic.metrics.faqNeed = analyzeFaqOpportunity({
@@ -5301,8 +5305,10 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     : buildFallbackClusters(deterministic, mainIssue);
   const firstAction = recommendations[0]?.label || "Review product signals";
   const contentIssues = deterministic.metrics.contentAnalysis?.issues || [];
+  const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
+  const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, sourceMismatchSignals);
   const granularTextIssues = buildGranularTextIssues({ deterministic, ai, recommendations });
-  const mappedIssues = clusters.slice(0, 5).map((cluster, index) => {
+  let mappedIssues = clusters.slice(0, 5).map((cluster, index) => {
     const issueCode = normalizeIssueCode(cluster.issue_category || cluster.issue || mainIssue) || mainIssue;
     const trend = getIssueTrend(deterministic, issueCode);
     const severity = cluster.severity || getSeverityLabel(deterministic.riskScore);
@@ -5325,11 +5331,19 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
       ].filter(Boolean).slice(0, 4) : deterministic.metrics.topReturnReasons,
       trend,
       trendTone: getTrendTone(trend, deterministic.riskScore),
-      action: recommendations[index]?.label || firstAction,
+      action: getIssueSuggestedActionLabel(issueCode, recommendations, recommendations[index]?.label || firstAction),
     };
   });
 
+  if (sourceIntegrityMode) {
+    mappedIssues = mappedIssues.filter((issue) => isSourceIntegrityIssueCode(issue.issueCode) || normalizeIssueCode(issue.issueCode) === "product_content");
+    if (!mappedIssues.some((issue) => isSourceIntegrityIssueCode(issue.issueCode))) {
+      mappedIssues.unshift(buildSourceIntegrityIssue(deterministic, recommendations, sourceMismatchSignals));
+    }
+  }
+
   granularTextIssues.forEach((issue) => {
+    if (sourceIntegrityMode && !isSourceIntegrityIssueCode(issue.issueCode) && normalizeIssueCode(issue.issueCode) !== "product_content") return;
     if (mappedIssues.some((item) => item.issue === issue.issue)) return;
     mappedIssues.push(issue);
   });
@@ -5346,7 +5360,7 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
       evidence: contentIssues.map((issue) => issue.evidence || issue.detail || issue.label).filter(Boolean).slice(0, 4),
       trend: [],
       trendTone: "orange",
-      action: "Rewrite product description",
+      action: getIssueSuggestedActionLabel("product_content", recommendations, "Update product description"),
     });
   }
 
@@ -5361,6 +5375,86 @@ function buildFinalIssues({ deterministic, ai, mainIssue, recommendations }) {
     .filter((issue) => isMerchantFacingIssueSupported(issue, deterministic))
     .reduce(mergeRelatedMerchantIssues, [])
     .slice(0, 10);
+}
+
+function isSourceIntegrityIssueCode(value) {
+  const issueCode = normalizeIssueCode(value);
+  return issueCode === "review_feed_integrity" || issueCode === "source_integrity";
+}
+
+function buildSourceIntegrityIssue(deterministic, recommendations, sourceMismatchSignals = []) {
+  const metrics = deterministic.metrics || {};
+  const contentIssues = [
+    ...(Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : []),
+  ].filter((issue) => /\b(source integrity|review feed|feed mismatch|metadata mismatch|review mismatch|wrong product|wrong sku)\b/i.test(`${issue.code || ""} ${issue.label || ""} ${issue.evidence || ""}`));
+  const issueCode = "review_feed_integrity";
+  const trend = getIssueTrend(deterministic, issueCode);
+  const signals = Math.max(
+    Number(metrics.negativeReviewCount || 0),
+    sourceMismatchSignals.length,
+    contentIssues.length,
+    Number(deterministic.issueSignalCounts?.[issueCode] || 0),
+    MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE,
+  );
+
+  return {
+    issue: "Review feed mismatch",
+    issueCode,
+    severity: signals >= 6 ? "High" : "Medium",
+    tone: signals >= 6 ? "red" : "orange",
+    confidence: Math.max(50, Math.min(92, Number(deterministic.confidence || 70))),
+    signals,
+    sourceTypes: ["reviews", "source_integrity", "product_content"],
+    evidence: [
+      "Customer evidence appears to reference a different product, SKU, variant or feed item.",
+      ...sourceMismatchSignals.slice(0, 3).map((value) => `Mismatch signal: "${truncateText(value, 160)}"`),
+      ...contentIssues.slice(0, 2).map((issue) => issue.evidence || issue.detail || issue.label).filter(Boolean),
+    ].filter(Boolean).slice(0, 5),
+    trend,
+    trendTone: "orange",
+    action: getIssueSuggestedActionLabel(issueCode, recommendations, "Fix source/review mismatch"),
+  };
+}
+
+function getIssueSuggestedActionLabel(issueCode, recommendations = [], fallback = "Review product signals") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  const preferredPatterns = getIssueActionPreferredPatterns(normalizedIssue);
+  const avoidPatterns = [/seo|meta|handle|workflow tag|risk tag|watchlist|collection|monitoring|baseline|internal note/i];
+  const preferred = findRecommendedActionLabel(recommendations, preferredPatterns, avoidPatterns);
+  if (preferred) return preferred;
+
+  if (["quality_defect", "product_quality", "product_content", "fit_sizing", "compatibility", "color_expectation", "subjective_negative_reaction"].includes(normalizedIssue)) {
+    const customerFacing = findRecommendedActionLabel(
+      recommendations,
+      [/description|pdp|expectation|quality note|fit note|faq|spec|details/i],
+      avoidPatterns,
+    );
+    if (customerFacing) return customerFacing;
+  }
+
+  return fallback;
+}
+
+function getIssueActionPreferredPatterns(issueCode) {
+  if (isSourceIntegrityIssueCode(issueCode)) return [/source.*mismatch|source integrity|review feed integrity|feed mismatch/i];
+  if (issueCode === "refund_impact" || issueCode === "shipping_delivery") return [/supplier|qa|refund impact|description|quality note|packaging|shipping/i];
+  if (issueCode === "fit_sizing") return [/fit note|fit faq|faq|description|spec/i];
+  if (issueCode === "product_content") return [/description|spec|details|faq/i];
+  if (issueCode === "quality_defect" || issueCode === "product_quality" || issueCode === "durability" || issueCode === "safety_concern") return [/supplier|qa|description|quality note|expectation|faq|spec/i];
+  if (issueCode === "negative_sentiment") return [/sentiment evidence|description|quality note|expectation/i];
+  if (issueCode === "repeated_language") return [/repeated language|description|quality note|expectation/i];
+  return [/description|pdp|evidence/i];
+}
+
+function findRecommendedActionLabel(recommendations = [], preferredPatterns = [], avoidPatterns = []) {
+  const candidates = (Array.isArray(recommendations) ? recommendations : []).filter((action) => {
+    const text = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.shopifyField || ""}`.toLowerCase();
+    if (!preferredPatterns.some((pattern) => pattern.test(text))) return false;
+    return !avoidPatterns.some((pattern) => pattern.test(text));
+  });
+  return candidates[0]?.label || "";
 }
 
 function buildRefundOperationalIssue(deterministic, recommendations) {
@@ -5488,7 +5582,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
 
 function getFilteredAiRepeatedLanguage(ai) {
   return (Array.isArray(ai?.classification?.repeated_language) ? ai.classification.repeated_language : [])
-    .filter((item) => isUsefulRepeatedLanguageTerm(item?.term));
+    .filter((item) => isActionableRepeatedLanguageIssue(item));
 }
 
 function isMerchantFacingIssueSupported(issue, deterministic) {
@@ -7590,7 +7684,7 @@ function buildDeterministicTextIssues({ sentiment, returnsSummary, reviewsSummar
     }
   }
 
-  repeatedLanguage.slice(0, 3).forEach((item) => {
+  repeatedLanguage.filter(isActionableRepeatedLanguageIssue).slice(0, 3).forEach((item) => {
     if (item.count < 2) return;
     issues.push({
       issueCode: item.issueCode || "repeated_language",
@@ -7746,6 +7840,14 @@ function isUsefulRepeatedLanguageTerm(value) {
   return tokens.some((token) => !CUSTOMER_TEXT_STOP_WORDS.has(token) && (token.length >= 4 || CUSTOMER_TEXT_SHORT_SIGNAL_WORDS.has(token)));
 }
 
+function isActionableRepeatedLanguageIssue(item = {}) {
+  const normalized = normalizeText(item.term || item.label || item.phrase).replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!isUsefulRepeatedLanguageTerm(normalized)) return false;
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length === 1 && CUSTOMER_TEXT_POSITIVE_DESCRIPTOR_WORDS.has(tokens[0])) return false;
+  return true;
+}
+
 const CUSTOMER_TEXT_STOP_WORDS = new Set([
   "about",
   "above",
@@ -7869,6 +7971,26 @@ const CUSTOMER_TEXT_SHORT_SIGNAL_WORDS = new Set([
   "bad",
   "fit",
   "red",
+]);
+
+const CUSTOMER_TEXT_POSITIVE_DESCRIPTOR_WORDS = new Set([
+  "beautiful",
+  "comfortable",
+  "cute",
+  "excellent",
+  "good",
+  "great",
+  "happy",
+  "love",
+  "loved",
+  "lovely",
+  "nice",
+  "perfect",
+  "pretty",
+  "quality",
+  "recommend",
+  "satisfied",
+  "satisfaction",
 ]);
 
 const DEFAULT_CUSTOMER_LANGUAGE_PHRASES = new Set([
@@ -9675,6 +9797,15 @@ function truncateText(value, maxLength = 160) {
 function normalizeIssueCode(value) {
   const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
   if (!normalized) return "";
+  if (normalized.includes("source_integrity")
+    || normalized.includes("source_mismatch")
+    || normalized.includes("review_feed")
+    || normalized.includes("feed_integrity")
+    || normalized.includes("feed_mismatch")
+    || normalized.includes("review_mismatch")
+    || normalized.includes("wrong_product")
+    || normalized.includes("wrong_sku")
+  ) return "review_feed_integrity";
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("size")) return "fit_sizing";
   if (normalized.includes("color")) return "color_expectation";
   if (normalized.includes("safety") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("hazard") || normalized.includes("peligro")) return "safety_concern";
@@ -9705,6 +9836,8 @@ function getHumanIssueLabel(issue) {
     repeated_language: "Repeated customer language",
     return_rate_anomaly: "Return rate anomaly",
     refund_impact: "Refund impact",
+    review_feed_integrity: "Review feed mismatch",
+    source_integrity: "Source integrity",
   };
   return labels[issue] || capitalize(String(issue || "Product quality").replace(/_/g, " "));
 }

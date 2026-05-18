@@ -4217,7 +4217,7 @@ function getRecommendedActionDisplayScore(action = {}, product = {}) {
   if (/expectation|fit note|quality note|faq|spec|details|correct-product-description|description/.test(normalized)) score += 8;
   if (sourceIntegrityAction) score += 150;
   if (productSourceIntegrity && !sourceIntegrityAction && /description|pdp|expectation|faq|fit|variant|option|price|pricing|compare-at/.test(normalized)) score -= 120;
-  if (refundOperationalAction) score += 72;
+  if (refundOperationalAction) score += 116;
   if (broadVariantAction) score -= 80;
   if (refundOnlyPricingAction) score -= 70;
   if (/tag|collection|workflow|monitoring|baseline|connect-missing-source|internal note/.test(normalized)) score -= 10;

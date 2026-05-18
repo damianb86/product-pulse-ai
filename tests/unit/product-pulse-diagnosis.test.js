@@ -1735,6 +1735,95 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).not.toContain("draft-fit-note");
   });
 
+  it("keeps source mismatch as the visible issue when mismatched reviews contain product-problem language", () => {
+    const deterministic = {
+      mainIssue: "review_feed_integrity",
+      riskScore: 53,
+      confidence: 80,
+      evidenceSnippets: [
+        { text: "Review feed mismatch: customer talks about snowboard bindings, not this desk fan." },
+        { text: "Wrong product signal: boots and boards are mentioned for a mini fan." },
+      ],
+      issueSignalCounts: { fit_sizing: 20, review_feed_integrity: 2 },
+      metrics: {
+        signalCount: 36,
+        negativeReviewCount: 23,
+        topReturnReasons: [],
+        contentAnalysis: {
+          issues: [
+            { code: "review_feed_metadata_mismatch", label: "Review feed metadata mismatch", severity: "high", evidence: "Reviews mention snowboards and boots for a desk fan." },
+            { code: "short_description", label: "Short product description", severity: "medium", evidence: "Description is too short." },
+          ],
+        },
+        textInsights: { repeatedLanguage: [{ term: "desk", count: 19, sources: ["csv_review"] }] },
+      },
+    };
+
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic,
+      mainIssue: "review_feed_integrity",
+      recommendations: [{ id: "fix-source-review-mismatch", label: "Fix source/review mismatch" }],
+      ai: {
+        classification: {
+          clusters: [
+            { issue_category: "fit_sizing", human_name: "Fit & sizing", signals: 20, source_types: ["reviews"] },
+            { issue_category: "negative_sentiment", human_name: "Negative customer sentiment cluster", signals: 23, source_types: ["reviews"] },
+          ],
+        },
+      },
+    });
+
+    expect(issues[0]?.issueCode).toBe("review_feed_integrity");
+    expect(issues[0]?.action).toBe("Fix source/review mismatch");
+    expect(issues.map((issue) => issue.issueCode)).not.toContain("fit_sizing");
+    expect(issues.map((issue) => issue.issueCode)).not.toContain("negative_sentiment");
+  });
+
+  it("does not turn repeated positive descriptor words into merchant-facing issues", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [],
+      reviews: [
+        { title: "Broken but beautiful", body: "The glaze is beautiful, but one bowl arrived broken.", rating: 1, sourceType: "csv_review", createdAt: "2026-05-01T00:00:00.000Z" },
+        { title: "Beautiful, cracked", body: "Beautiful dinnerware, still cracked in the box.", rating: 1, sourceType: "csv_review", createdAt: "2026-05-02T00:00:00.000Z" },
+        { title: "Beautiful but damaged", body: "Beautiful set, but packaging did not protect it.", rating: 1, sourceType: "csv_review", createdAt: "2026-05-03T00:00:00.000Z" },
+      ],
+    });
+
+    expect(insights.repeatedLanguage.map((item) => item.term)).toContain("beautiful");
+    expect(insights.granularIssues.map((issue) => issue.issue)).not.toContain('Repeated customer language: "beautiful"');
+  });
+
+  it("matches issue rows to issue-relevant actions instead of positional SEO actions", () => {
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic: {
+        mainIssue: "quality_defect",
+        riskScore: 60,
+        confidence: 90,
+        issueSignalCounts: { quality_defect: 10 },
+        metrics: {
+          signalCount: 10,
+          topReturnReasons: [],
+          contentAnalysis: { issues: [] },
+          textInsights: {},
+        },
+      },
+      mainIssue: "quality_defect",
+      recommendations: [
+        { id: "rewrite-meta-description", label: "Rewrite meta description" },
+        { id: "rewrite-product-description", label: "Update product description" },
+      ],
+      ai: {
+        classification: {
+          clusters: [
+            { issue_category: "quality_defect", human_name: "Product quality", signals: 10, source_types: ["reviews", "returns"] },
+          ],
+        },
+      },
+    });
+
+    expect(issues[0]?.action).toBe("Update product description");
+  });
+
   it("keeps subjective softness feedback out of QA and variant actions without concentration", () => {
     const deterministic = {
       mainIssue: "quality_defect",
