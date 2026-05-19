@@ -1663,7 +1663,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const refundRate = calculateUnitRatePercent(refundUnits, soldUnits, snapshotMetrics.refundRate);
   const reviewCount = reviews.length;
   const avgRating = roundRate(reviewCount ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviewCount : 0, 1);
-  const negativeReviews = reviews.filter((review) => Number(review.rating || 0) <= 2 || containsIssueLanguage(review.body));
+  const negativeReviews = reviews.filter(isNegativeReviewSignal);
   const negativeReviewCount = negativeReviews.length;
   const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
   const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDate(review.createdAt, 30)).length;
@@ -1762,7 +1762,6 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   });
   const customerSignalCount = Math.max(
     returnUnits + refundUnits + negativeReviewCount,
-    Number(snapshotMetrics.signalCount || 0),
     customerIssueSignalTotal,
   );
   const signalCount = customerSignalCount + deterministicContent.issues.length;
@@ -1791,14 +1790,15 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     reviewSourceStats,
   };
   const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
+  const scoreSentiment = getScoreSentimentInputs(textInsights, refundInsights);
   const scoreModel = calculateProductScoreModel({
     ...scoringMetrics,
     salesAmount,
     storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
     storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
     storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate,
-    sentimentTotal: textInsights?.sentiment?.total || 0,
-    sentimentNegativeCount: textInsights?.sentiment?.negative || 0,
+    sentimentTotal: scoreSentiment.total,
+    sentimentNegativeCount: scoreSentiment.negative,
     subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
     subjectiveNegativeRatio: textInsights?.subjectiveNegativity?.ratio || 0,
     variantCount: product.variants?.length || Number(snapshotMetrics.variantCount || 0),
@@ -2152,7 +2152,7 @@ function buildReconstructedRiskHistoryPoint({
   const refundAmount = roundCurrency(sumBy(refunds, "amount"));
   const returnRate = calculateUnitRatePercent(returnUnits, soldUnits);
   const refundRate = calculateUnitRatePercent(refundUnits, soldUnits);
-  const negativeReviews = reviews.filter((review) => Number(review.rating || 0) <= 2 || containsIssueLanguage(review.body));
+  const negativeReviews = reviews.filter(isNegativeReviewSignal);
   const reviewCount = reviews.length;
   const avgRating = roundRate(reviewCount ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviewCount : 0, 1);
   const negativeReviewCount = negativeReviews.length;
@@ -2178,6 +2178,7 @@ function buildReconstructedRiskHistoryPoint({
   const signalCount = customerSignalCount + contentIssueCount;
   const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
   const recentSignalUnits = countRecentSignalEventsFrom(signalEvents, 30, periodEnd);
+  const scoreSentiment = getScoreSentimentInputs(textInsights, refundInsights);
   const scoreModel = calculateProductScoreModel({
     soldUnits,
     salesAmount,
@@ -2204,8 +2205,8 @@ function buildReconstructedRiskHistoryPoint({
     storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
     storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
     storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate,
-    sentimentTotal: textInsights?.sentiment?.total || 0,
-    sentimentNegativeCount: textInsights?.sentiment?.negative || 0,
+    sentimentTotal: scoreSentiment.total,
+    sentimentNegativeCount: scoreSentiment.negative,
     subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
     subjectiveNegativeRatio: textInsights?.subjectiveNegativity?.ratio || 0,
     variantCount: product?.variants?.length || Number(snapshotMetrics.variantCount || 0),
@@ -4408,14 +4409,20 @@ function prioritizeRecommendationActions(actions = [], { deterministic = {}, mai
     .map((item) => item.action);
 }
 
-function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false, monitoringOnlyMode = false } = {}) {
+function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false, monitoringOnlyMode = false, mainIssue = "" } = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  const normalizedMainIssue = normalizeIssueCode(mainIssue);
   let score = 0;
   if (/description|pdp|expectation|faq|spec/.test(normalized)) score += 60;
   if (/source.*mismatch|source integrity/.test(normalized)) score += 55;
   if (/supplier|qa/.test(normalized)) score += 50;
   if (/seo|meta|handle|media|image|alt text/.test(normalized)) score += 30;
   if (/tag|collection|workflow|internal|evidence/.test(normalized)) score -= 10;
+  if (normalizedMainIssue === "color_expectation") {
+    if (/media|image|alt text|contextual/.test(normalized)) score += 70;
+    if (/expectation|faq|description|pdp/.test(normalized)) score += 20;
+    if (/supplier|qa|variant|inventory|status/.test(normalized)) score -= 45;
+  }
   if (sourceIntegrityMode) {
     if (/source.*mismatch|source integrity/.test(normalized)) score += 220;
     if (/description|pdp|expectation|faq|spec|variant|pricing|price|compare-at/.test(normalized)) score -= 120;
@@ -4484,7 +4491,6 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     || mainIssue === "color_expectation"
     || contentAdvisories.some((item) => ["missing_media_context", "missing_media_alt_text"].includes(normalizeContentIssueCode(item.code)));
   const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
-  const operationalQualitySignals = hasOperationalQualitySignals(deterministic);
   const operationalQualityTextSignals = hasOperationalQualityTextSignals(deterministic);
   const refundInsights = metrics.refundInsights || {};
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
@@ -4495,6 +4501,9 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const staleAnalysis = isStaleDiagnosis(metrics.lastAnalyzedAt || metrics.lastDiagnosisAt || metrics.latestDiagnosisAt);
   const hasVariantNamingProblem = Boolean(metrics.variantNamingAdvisory)
     || contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "unclear_variant_names");
+  const variantConcentrationNeedsOptionFix = hasVariantConcentration
+    && affectedVariantCount > 0
+    && ["fit_sizing", "quality_defect", "durability", "safety_concern"].includes(mainIssue);
   const hasPricingContext = valueSignals.length >= 2;
 
   return {
@@ -4520,7 +4529,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     },
     variants: {
       shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && (
-        hasVariantConcentration
+        variantConcentrationNeedsOptionFix
         || (hasVariantNamingProblem && !subjectiveExpectationOnly)
       ) && (hasCustomerEvidence || hasVariantNamingProblem)),
       reason: hasVariantConcentration && affectedVariantCount
@@ -4602,7 +4611,6 @@ function getRecommendationRecipeSignals(deterministic = {}) {
         ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
         || (highRiskOperationalIssue && operationalQualityTextSignals)
         || (refundInsights.shouldSurface && operationalQualityTextSignals)
-        || (Number(metrics.returnRate || 0) >= 15 && operationalQualitySignals)
       )),
       reason: refundInsights.shouldSurface
         ? "Refund pressure or refund notes point to an operational quality review."
@@ -4687,12 +4695,6 @@ function hasAffectedVariantConcentration(metrics = {}) {
   const affectedCount = Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants.length : variants.length;
   if (variantCount > 1 && affectedCount >= variantCount && strongestRatio < 0.85) return false;
   return strongestRatio >= 0.65;
-}
-
-function hasOperationalQualitySignals(deterministic = {}) {
-  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
-  if (["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue)) return true;
-  return hasOperationalQualityTextSignals(deterministic);
 }
 
 function hasOperationalQualityTextSignals(deterministic = {}) {
@@ -6990,7 +6992,7 @@ function buildReviewSourceStats(reviews = []) {
 function addReviewToStats(stats, review) {
   stats.reviewCount += 1;
   stats.ratingSum = Number(stats.ratingSum || 0) + Number(review.rating || 0);
-  const negative = Number(review.rating || 0) <= 2 || containsIssueLanguage(review.body);
+  const negative = isNegativeReviewSignal(review);
   if (negative) stats.negativeReviewCount += 1;
   if (negative && isRecentDate(review.createdAt, 30)) stats.recentNegativeReviewCount += 1;
 }
@@ -7000,6 +7002,30 @@ function finalizeReviewStats(stats) {
   stats.negativeReviewRate = roundRate(stats.reviewCount ? (stats.negativeReviewCount / stats.reviewCount) * 100 : 0);
   delete stats.ratingSum;
   return stats;
+}
+
+function isNegativeReviewSignal(review = {}) {
+  const rating = Number(review.rating || 0);
+  const text = [review.title, review.body].filter(Boolean).join(" ");
+  return isNegativeReviewTextSignal({
+    rating,
+    sentiment: classifyCustomerSentiment(text, rating),
+    subjectiveNegative: isSubjectiveNegativeText(text),
+    text,
+  });
+}
+
+function isNegativeReviewTextSignal({ rating = 0, sentiment = "", subjectiveNegative = false, text = "" } = {}) {
+  const normalizedSentiment = String(sentiment || "").toLowerCase();
+  if (Number(rating || 0) > 0 && Number(rating || 0) <= 2) return true;
+  if (Number(rating || 0) >= 4) {
+    return normalizedSentiment === "negative" && containsExplicitCustomerProblemLanguage(text);
+  }
+  return Boolean(
+    normalizedSentiment === "negative"
+    || subjectiveNegative
+    || containsExplicitCustomerProblemLanguage(text)
+  );
 }
 
 function buildSignalEvents({ returns, refunds, negativeReviews }) {
@@ -7710,12 +7736,12 @@ function shouldCountTextAnalysisItemAsIssueSignal(item = {}) {
   const rating = Number(item.rating || 0);
   const sentiment = String(item.sentiment || "").toLowerCase();
   const text = item.analysisText || item.text || "";
-  return Boolean(
-    (rating > 0 && rating <= 2)
-    || sentiment === "negative"
-    || item.subjectiveNegative
-    || containsIssueLanguage(text)
-  );
+  return isNegativeReviewTextSignal({
+    rating,
+    sentiment,
+    subjectiveNegative: item.subjectiveNegative,
+    text,
+  });
 }
 
 function normalizeCachedAnalysisItems(items = []) {
@@ -8017,6 +8043,15 @@ function summarizeSentiment(items) {
     total,
     dominant: counts.negative > 0 && counts.negative === counts.positive ? "mixed" : dominant,
     negativeRatio: total ? roundRate(counts.negative / total, 2) : 0,
+  };
+}
+
+function getScoreSentimentInputs(textInsights = {}, refundInsights = {}) {
+  const customerSentiment = textInsights?.sentiment || {};
+  const refundSentiment = refundInsights?.sentiment || {};
+  return {
+    total: Number(customerSentiment.total || 0) + Number(refundSentiment.total || 0),
+    negative: Number(customerSentiment.negative || 0) + Number(refundSentiment.negative || 0),
   };
 }
 
@@ -9158,13 +9193,14 @@ function calculateRiskScoreBreakdown({ snapshot, metrics }) {
     };
   }
 
+  const scoreSentiment = getScoreSentimentInputs(metrics.textInsights, metrics.refundInsights);
   return calculateProductScoreModel({
     ...metrics,
     storeReturnBaseline: snapshot.metrics?.storeAvgReturnRate,
     storeRefundBaseline: snapshot.metrics?.storeAvgRefundRate,
     storeNegativeReviewBaseline: snapshot.metrics?.storeAvgNegativeReviewRate,
-    sentimentTotal: metrics.textInsights?.sentiment?.total || 0,
-    sentimentNegativeCount: metrics.textInsights?.sentiment?.negative || 0,
+    sentimentTotal: scoreSentiment.total,
+    sentimentNegativeCount: scoreSentiment.negative,
     subjectiveNegativeCount: metrics.textInsights?.subjectiveNegativity?.count || 0,
     subjectiveNegativeRatio: metrics.textInsights?.subjectiveNegativity?.ratio || 0,
     affectedVariantCount: metrics.affectedVariants?.length || 0,
@@ -10547,6 +10583,10 @@ function getTrendTone(values, fallbackScore = 0) {
 
 function containsIssueLanguage(text) {
   return /(too small|too large|doesn.?t fit|does not fit|didn.?t fit|not fit|wrong size|runs small|runs large|broken|break|broke|poor quality|defect|defective|thin|softness|not soft|rough|scratchy|stiff|wrong color|different color|color mismatch|not as pictured|looks different|leak|leaking|spill|spilled|crack|cracked|chip|chipped|damaged|damage|unsafe|danger|hazard|not compatible|incompatible|late|delayed|lost|disappointed|return|refund|not worth|wobbly|unstable|confusing|unclear|missing)/i.test(String(text || ""));
+}
+
+function containsExplicitCustomerProblemLanguage(text) {
+  return /(too small|too large|doesn.?t fit|does not fit|didn.?t fit|not fit|wrong size|runs small|runs large|broken|break|broke|poor quality|defect|defective|not soft|rough|scratchy|stiff|wrong color|different color|color mismatch|not as pictured|looks different|leak|leaking|spill|spilled|crack|cracked|chip|chipped|damaged|damage|unsafe|danger|hazard|not compatible|incompatible|late|delayed|lost|disappointed|not worth|wobbly|unstable|confusing|unclear|misleading|doesn.?t work|does not work|failed|failure)/i.test(String(text || ""));
 }
 
 function getNodes(connection) {

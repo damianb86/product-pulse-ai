@@ -229,9 +229,9 @@ function calculateRiskComponents(metrics, options = {}) {
     severityScale: number(options.refundSeverityScale) || 0.045,
   });
   const highRefundPressure = metrics.soldUnits > 10 && metrics.refundRate > 0.2 && metrics.refundUnits >= 3
-    ? clamp(5 + (metrics.refundRate - 0.2) * 28, 0, 15)
+    ? clamp(7 + (metrics.refundRate - 0.2) * 34 + Math.log1p(metrics.refundUnits) * 1.1, 0, 20)
     : 0;
-  const refund_score = clamp(Math.max(refundRateScore, highRefundPressure), 0, 15);
+  const refund_score = clamp(Math.max(refundRateScore, highRefundPressure), 0, 20);
   const reviews_score = calculateReviewRisk(metrics, options);
   const sentiment_score = calculateSentimentRisk(metrics, options);
   const content_gap_score = clamp(Math.max(
