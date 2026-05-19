@@ -1815,7 +1815,15 @@ describe("ProductPulse screens", () => {
       ...defaultView.startHere,
       evidence: [
         { source: "Shopify product", quote: "Active product in Shopify", weight: "2 variants, 2 SKUs, 4 tags" },
-        { source: "AI evidence synthesis", quote: "Variant scope needs review before broad product changes.", weight: "Generated from deterministic metrics and stored snippets." },
+        {
+          source: "AI evidence synthesis",
+          quote: "Cross-source reading: Stored AI synthesis says variant evidence should guide action without broad product changes.",
+          weight: "Generated from deterministic metrics and stored snippets.",
+          points: [
+            "Customer language: Stored AI reading highlights expectation-setting language without restating panel metrics.",
+            "Variant scope: Stored AI variant interpretation says Aurora Blue should be reviewed before broad product changes.",
+          ],
+        },
       ],
       metrics: {
         ...defaultView.startHere.metrics,
@@ -1852,6 +1860,10 @@ describe("ProductPulse screens", () => {
     const tabs = screen.getAllByRole("tab");
     expect(tabs[0]).toHaveAttribute("aria-label", "AI evidence synthesis");
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    const synthesisSection = screen.getByRole("heading", { name: "Technical synthesis" }).closest("section");
+    expect(within(synthesisSection).getByText(/Stored AI synthesis says variant evidence should guide action/)).toBeInTheDocument();
+    expect(within(synthesisSection).getByText(/Stored AI reading highlights expectation-setting language/)).toBeInTheDocument();
+    expect(synthesisSection.textContent).not.toMatch(/Product Risk is|customer-language signals|affected variant.*stored|\$/);
 
     fireEvent.click(screen.getByRole("tab", { name: "Shopify product" }));
     const variantSection = screen.getByRole("heading", { name: "Variant intelligence" }).closest("section");
@@ -1864,7 +1876,9 @@ describe("ProductPulse screens", () => {
     expect(within(variantSection).getByText("2 refund signals · $118")).toBeInTheDocument();
     expect(within(variantSection).getByText("1 return signal")).toBeInTheDocument();
     expect(within(variantSection).getByText("1 review signal")).toBeInTheDocument();
-    expect(within(variantSection).getByText(/1 affected variant is stored: Aurora Blue/)).toBeInTheDocument();
+    expect(within(variantSection).getByText(/Stored AI variant interpretation says Aurora Blue should be reviewed/)).toBeInTheDocument();
+    expect(within(variantSection).queryByText(/Variant evidence appears concentrated/)).not.toBeInTheDocument();
+    expect(within(variantSection).queryByText(/affected variant is stored/)).not.toBeInTheDocument();
   });
 
   it("renders the full product evidence report with raw evidence relationships", () => {

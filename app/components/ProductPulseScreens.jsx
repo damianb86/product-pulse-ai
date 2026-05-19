@@ -3989,15 +3989,26 @@ function getProductEvidenceSources(product) {
   product.evidence.forEach((item) => {
     const title = getCanonicalEvidenceSourceTitle(item.source);
     const points = getEvidencePoints(item, product);
+    const persistedPoints = getStoredEvidencePoints(item);
     const current = groups.get(title) || {
       title,
       points: [],
+      persistedPoints: [],
+      persistedRecords: [],
       sourceTitles: [],
     };
 
     current.sourceTitles.push(item.source);
     points.forEach((point) => {
       if (point && !current.points.includes(point)) current.points.push(point);
+    });
+    persistedPoints.forEach((point) => {
+      if (point && !current.persistedPoints.includes(point)) current.persistedPoints.push(point);
+    });
+    getStoredEvidenceRecords(item).forEach((record) => {
+      if (record.body && !current.persistedRecords.some((stored) => stableEvidenceRecordKey(stored) === stableEvidenceRecordKey(record))) {
+        current.persistedRecords.push(record);
+      }
     });
     groups.set(title, current);
   });
@@ -4010,6 +4021,8 @@ function getProductEvidenceSources(product) {
       tone: getEvidenceSourceTone(group.title, group.points),
       cards: getEvidenceSourceCards(group.title, group.points, product),
       points: group.points,
+      persistedPoints: group.persistedPoints,
+      persistedRecords: group.persistedRecords,
       priority: getEvidenceSourcePriority(group.title),
       sourceTitles: group.sourceTitles,
     }))
@@ -4061,15 +4074,60 @@ function getEvidenceSourceTone(source, points = []) {
   return "neutral";
 }
 
+function getStoredEvidencePoints(item = {}) {
+  return getStoredEvidenceRecords(item).map(formatStoredEvidenceRecordPoint).filter(Boolean);
+}
+
+function getStoredEvidenceRecords(item = {}) {
+  const values = [
+    item.quote,
+    item.summary,
+    item.body,
+    ...(Array.isArray(item.points) ? item.points : []),
+    ...(Array.isArray(item.details) ? item.details : []),
+  ];
+  return values
+    .map((value) => formatStoredEvidenceRecord(value))
+    .filter((record) => record.body);
+}
+
+function formatStoredEvidenceRecord(value) {
+  if (typeof value === "string" || typeof value === "number") return { body: String(value || "").trim() };
+  if (!value || typeof value !== "object") return { body: "" };
+  const label = value.title || value.label || value.section || value.sectionKey || value.section_key || value.key || "";
+  const body = value.body || value.text || value.summary || value.detail || value.value || "";
+  const normalizedBody = String(body || "").trim();
+  if (!normalizedBody) return { body: "" };
+  return {
+    title: String(label || "").trim(),
+    body: normalizedBody,
+    sectionKey: value.sectionKey || value.section_key || value.key || "",
+    sourceTitle: value.sourceTitle || value.source_title || value.source || value.providerTitle || value.provider_title || "",
+    sourceKey: value.sourceKey || value.source_key || value.providerKey || value.provider_key || "",
+  };
+}
+
+function formatStoredEvidenceRecordPoint(record = {}) {
+  return record.title ? `${record.title}: ${record.body}` : record.body;
+}
+
+function stableEvidenceRecordKey(record = {}) {
+  return [
+    record.title,
+    record.body,
+    record.sectionKey,
+    record.sourceTitle,
+    record.sourceKey,
+  ].map((value) => String(value || "").toLowerCase().trim()).join("|");
+}
+
 function getEvidencePoints(item, product) {
   const metrics = product.metrics || {};
   const textInsights = metrics.textInsights || {};
   const normalized = String(item.source || "").toLowerCase();
   const points = [
-    item.quote,
+    ...getStoredEvidencePoints(item),
     item.weight,
-    ...(Array.isArray(item.points) ? item.points : []),
-    ...(Array.isArray(item.details) ? item.details : []),
   ].filter(Boolean);
 
   if (normalized.includes("return")) {
@@ -9414,12 +9472,12 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
 }
 
 function ReviewEvidencePanel({ source, product, reportHref }) {
-  const aiContext = getAiEvidenceContextSection(product, "reviews");
+  const aiContext = getAiEvidenceContextSection(product, "reviews", { sourceTitle: source.title });
   const reviewStats = getReviewEvidenceStats(source, product);
-  const emotionRows = getReviewEmotionRows(product.metrics?.textInsights || {});
+  const emotionRows = getReviewEmotionRows(product.metrics?.textInsights || {}, source.title);
   const repeatedLanguage = getReviewRepeatedLanguage(product.metrics?.textInsights || {}, source.title);
   const repeatedLanguageTone = getEvidencePhraseTone(repeatedLanguage, reviewStats.negativeCount ? "red" : "teal");
-  const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points, reviewStats);
+  const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points, reviewStats, source.title);
   const insights = [
     { label: "Average rating / negative rate", value: reviewStats.negativeRateLabel, detail: "Product-level rating pressure", tone: reviewStats.negativeCount ? "red" : "teal" },
     { label: "Evidence", value: formatInteger(reviewStats.totalAnalyzed || reviewStats.reviewCount), detail: "Reviews analyzed", tone: "blue" },
@@ -9799,7 +9857,7 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
 }
 
 function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
-  const sections = getAiEvidenceTechnicalSections(product, source);
+  const sections = getPersistedAiEvidenceSections(source);
 
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppAiEvidenceSynthesisReport">
@@ -9819,7 +9877,7 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
           <Link to={reportHref}>View full report <s-icon type="chevron-right" size="small"></s-icon></Link>
         </div>
         <div className="ppEvidenceFindingStream ppEvidenceFindingStream-compact">
-          {sections.map((section, index) => (
+          {sections.length ? sections.map((section, index) => (
             <div className={`ppEvidenceFinding ppEvidenceFinding-${section.tone || "default"}`} key={section.title}>
               <span className="ppEvidenceFindingIndex">{String(index + 1).padStart(2, "0")}</span>
               <div>
@@ -9827,7 +9885,7 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
                 <p>{renderAnalysisText(section.body)}</p>
               </div>
             </div>
-          ))}
+          )) : <EmptyProductDetailState message="No stored AI synthesis text is available for this diagnosis." />}
         </div>
       </section>
 
@@ -9851,34 +9909,142 @@ function EvidenceAiContextBlock({ section, compact = false }) {
   );
 }
 
-function getAiEvidenceContextSection(product = {}, sourceKind = "") {
-  const sectionTitleByKind = {
-    "customer-language": "Customer language",
-    reviews: "Customer language",
-    returns: "Refund and return evidence",
-    refunds: "Refund and return evidence",
-    variants: "Variant scope",
+function getAiEvidenceContextSection(product = {}, sourceKind = "", options = {}) {
+  const sectionKeysByKind = {
+    "customer-language": ["customer-language"],
+    reviews: ["customer-language"],
+    returns: ["post-purchase"],
+    refunds: ["post-purchase"],
+    variants: ["variant-scope"],
   };
-  const title = sectionTitleByKind[sourceKind];
-  if (!title) return null;
+  const sectionKeys = sectionKeysByKind[sourceKind];
+  if (!sectionKeys) return null;
   const aiSource = getAiEvidenceSynthesisSource(product);
   if (!aiSource.available) return null;
-  const sections = getAiEvidenceTechnicalSections(product, aiSource);
-  return sections.find((section) => section.title === title) || null;
+  const sections = getPersistedAiEvidenceSections(aiSource);
+  const matchingSections = sections.filter((section) => sectionKeys.includes(section.key));
+  const requestedSourceKey = normalizeEvidenceProviderKey(options.sourceKey || options.sourceTitle || "");
+  if (requestedSourceKey) {
+    return matchingSections.find((section) => normalizeEvidenceProviderKey(section.sourceKey || section.sourceTitle) === requestedSourceKey) || null;
+  }
+  return matchingSections.find((section) => !section.sourceKey && !section.sourceTitle) || matchingSections[0] || null;
 }
 
 function getAiEvidenceSynthesisSource(product = {}) {
   const item = getEvidenceList(product.evidence).find((evidence) => isAiEvidenceSynthesisSource(evidence.source));
   if (!item) return { title: "AI evidence synthesis", points: [], summary: "", tone: "insight", icon: "wand", available: false };
+  const persistedRecords = getStoredEvidenceRecords(item);
+  const persistedPoints = getStoredEvidencePoints(item);
   const points = getEvidencePoints(item, product);
   return {
     title: "AI evidence synthesis",
     points,
-    summary: item.quote || points[0] || "",
+    persistedPoints,
+    persistedRecords,
+    summary: persistedPoints[0] || points[0] || "",
     tone: "insight",
     icon: "wand",
     available: true,
   };
+}
+
+function getPersistedAiEvidenceSections(source = {}) {
+  const records = getEvidenceList(source.persistedRecords).length
+    ? getEvidenceList(source.persistedRecords)
+    : getEvidenceList(source.persistedPoints).map((point) => {
+        const parsed = parseEvidencePoint(point);
+        return { title: parsed.label, body: parsed.body, tone: parsed.tone };
+      });
+  return records
+    .map((record, index) => {
+      const body = String(record.body || "").trim();
+      if (!body || isAiEvidenceMetadataText(body)) return null;
+      const explicitKey = normalizePersistedAiSectionKey(record.sectionKey);
+      const title = getPersistedAiEvidenceSectionTitle(record.title, body, index, explicitKey);
+      const key = explicitKey || getPersistedAiEvidenceSectionKey(title, body);
+      return {
+        title,
+        body,
+        key,
+        sourceTitle: String(record.sourceTitle || "").trim(),
+        sourceKey: normalizeEvidenceProviderKey(record.sourceKey || record.sourceTitle || ""),
+        tone: getPersistedAiEvidenceSectionTone(key, record.tone),
+      };
+    })
+    .filter(Boolean)
+    .filter((section, index, sections) => sections.findIndex((item) => (
+      item.key === section.key
+      && item.body === section.body
+      && item.sourceKey === section.sourceKey
+    )) === index)
+    .slice(0, 8);
+}
+
+function isAiEvidenceMetadataText(value = "") {
+  const normalized = String(value || "").toLowerCase().trim();
+  return normalized === "generated from deterministic metrics and stored snippets."
+    || normalized.includes("total signals in current diagnosis")
+    || normalized.startsWith("last signal captured");
+}
+
+function getPersistedAiEvidenceSectionTitle(label = "", body = "", index = 0, explicitKey = "") {
+  const key = explicitKey || getPersistedAiEvidenceSectionKeyFromText(label) || getPersistedAiEvidenceSectionKeyFromText(body);
+  if (key === "cross-source") return "Cross-source reading";
+  if (key === "customer-language") return "Customer language";
+  if (key === "post-purchase") return "Refund and return evidence";
+  if (key === "variant-scope") return "Variant scope";
+  if (key === "catalog-context") return "PDP and catalog context";
+  if (key === "operational") return "Operational interpretation";
+  return label ? String(label).trim() : index === 0 ? "Stored synthesis" : "Additional synthesis";
+}
+
+function normalizePersistedAiSectionKey(value = "") {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  if (!normalized) return "";
+  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer-language";
+  if (normalized.includes("refund") || normalized.includes("return") || normalized.includes("post_purchase") || normalized.includes("postpurchase")) return "post-purchase";
+  if (normalized.includes("variant") || normalized.includes("sku") || normalized.includes("option")) return "variant-scope";
+  if (normalized.includes("pdp") || normalized.includes("catalog") || normalized.includes("content") || normalized.includes("description") || normalized.includes("shopify_product")) return "catalog-context";
+  if (normalized.includes("operational") || normalized.includes("risk") || normalized.includes("confidence") || normalized.includes("exposure") || normalized.includes("triage")) return "operational";
+  if (normalized.includes("cross") || normalized.includes("source")) return "cross-source";
+  return "";
+}
+
+function getPersistedAiEvidenceSectionKey(title = "", body = "") {
+  const explicitKey = getPersistedAiEvidenceSectionKeyFromText(title);
+  if (explicitKey) return explicitKey;
+  return getPersistedAiEvidenceSectionKeyFromText(body) || "stored-synthesis";
+}
+
+function getPersistedAiEvidenceSectionKeyFromText(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (/\bcross\b/.test(normalized) || normalized.includes("source agreement") || normalized.includes("source reading")) return "cross-source";
+  if (/\bcustomer\b/.test(normalized) || /\blanguage\b/.test(normalized) || /\breviews?\b/.test(normalized) || /\bsentiment\b/.test(normalized)) return "customer-language";
+  if (/\brefunds?\b/.test(normalized) || /\breturns?\b/.test(normalized) || normalized.includes("post-purchase") || normalized.includes("post purchase")) return "post-purchase";
+  if (/\bvariants?\b/.test(normalized) || /\bskus?\b/.test(normalized) || /\boptions?\b/.test(normalized)) return "variant-scope";
+  if (/\bpdp\b/.test(normalized) || /\bcatalog\b/.test(normalized) || /\bcontent\b/.test(normalized) || /\bdescription\b/.test(normalized) || normalized.includes("shopify product")) return "catalog-context";
+  if (/\boperational\b/.test(normalized) || /\brisk\b/.test(normalized) || /\bconfidence\b/.test(normalized) || /\bexposure\b/.test(normalized) || /\btriage\b/.test(normalized)) return "operational";
+  return "";
+}
+
+function getPersistedAiEvidenceSectionTone(key = "", fallbackTone = "default") {
+  if (key === "customer-language" || key === "variant-scope" || key === "catalog-context") return "insight";
+  if (key === "post-purchase") return "negative";
+  if (key === "operational") return "default";
+  return fallbackTone || "default";
+}
+
+function normalizeEvidenceProviderKey(value = "") {
+  const normalized = String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (!normalized) return "";
+  if (normalized.includes("csv")) return "csv_reviews";
+  if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme_reviews";
+  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatme_reviews";
+  if (normalized.includes("review")) return normalized;
+  return normalized;
 }
 
 function VariantEvidenceCell({ evidence }) {
@@ -10085,60 +10251,6 @@ function normalizeVariantEvidenceKey(value = "") {
     .trim();
 }
 
-function getAiEvidenceTechnicalSections(product = {}, source = {}) {
-  const metrics = product.metrics || {};
-  const textInsights = metrics.textInsights || {};
-  const sentiment = getCombinedCustomerLanguageSentiment(metrics);
-  const reviewSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
-  const refundSentiment = normalizeEvidenceSentiment(metrics.refundInsights?.sentiment);
-  const variantNames = getEvidenceList(metrics.affectedVariants);
-  const contentIssues = getContentIssueLabels(metrics.contentAnalysis?.issues || []);
-  const sourceSummary = source.points?.[0] || source.summary || "";
-  const sections = [];
-
-  if (sourceSummary) {
-    sections.push({
-      title: "Cross-source reading",
-      body: sourceSummary,
-      tone: "insight",
-    });
-  }
-
-  sections.push({
-    title: "Customer language",
-    body: `${formatInteger(sentiment.total)} customer-language signals are stored across reviews, return notes and refund notes: ${formatInteger(sentiment.negative)} negative, ${formatInteger(sentiment.neutral)} neutral and ${formatInteger(sentiment.positive)} positive. Reviews alone show ${formatInteger(reviewSentiment.negative)} negative out of ${formatInteger(reviewSentiment.total)} analyzed rows, so refund-note tone should be interpreted as operational friction rather than review sentiment.`,
-    tone: sentiment.negative ? "negative" : "positive",
-  });
-
-  sections.push({
-    title: "Refund and return evidence",
-    body: `${formatInteger(metrics.refundUnits || 0)} refunded units and ${formatMoney(metrics.refundAmount || 0)} refunded value are stored against ${formatInteger(metrics.soldUnits || 0)} sold units. Refund-note sentiment is ${formatInteger(refundSentiment.negative)} negative, ${formatInteger(refundSentiment.neutral)} neutral and ${formatInteger(refundSentiment.positive)} positive, which explains the operational pressure even when return units are ${formatInteger(metrics.returnUnits || 0)}.`,
-    tone: Number(metrics.refundUnits || metrics.returnUnits || 0) ? "negative" : "neutral",
-  });
-
-  sections.push({
-    title: "PDP and catalog context",
-    body: `${formatInteger(metrics.descriptionWordCount || 0)} clean description words were captured. Content quality is ${metrics.contentQualityScore ? `${metrics.contentQualityScore}/100` : "not scored"}${contentIssues.length ? `, with stored gaps: ${contentIssues.slice(0, 4).join(", ")}.` : "."} This is useful for deciding whether the next action should change customer-facing content or stay operational.`,
-    tone: contentIssues.length ? "insight" : "positive",
-  });
-
-  sections.push({
-    title: "Variant scope",
-    body: variantNames.length
-      ? `${formatInteger(variantNames.length)} affected variant${variantNames.length === 1 ? "" : "s"} ${variantNames.length === 1 ? "is" : "are"} stored: ${variantNames.join(", ")}. Variant-level signals are available, but sold-units-by-variant should be treated as incomplete unless Shopify order-line data is present in the full report.`
-      : "No variant-specific issue is stored for this diagnosis. Treat the finding as product-level unless the full report shows SKU-specific order, return, refund or review evidence.",
-    tone: variantNames.length ? "insight" : "neutral",
-  });
-
-  sections.push({
-    title: "Operational interpretation",
-    body: `Product Risk is ${formatInteger(product.riskScore || 0)}, Diagnosis Confidence is ${formatInteger(product.confidence || 0)}%, and Financial Exposure is ${formatMoney(metrics.estimatedImpact || product.estimatedImpact || 0)}. This synthesis should be read as an audit trail for why the recommended action was prioritized, not as accounting or a raw export.`,
-    tone: "default",
-  });
-
-  return sections;
-}
-
 function EvidenceSourceReportHeader({ source, title, summary, eyebrow = "" }) {
   return (
     <div className="ppEvidenceActiveHeader ppEvidenceReportActiveHeader">
@@ -10176,21 +10288,15 @@ function EvidenceSourceStatCard({ icon = "info", label, value, detail, tone = "b
 function getReviewEvidenceStats(source = {}, product = {}) {
   const metrics = product.metrics || {};
   const textInsights = metrics.textInsights || {};
-  const isCsv = String(source?.title || source || "").toLowerCase().includes("csv");
-  const reviewCount = Number(isCsv
-    ? metrics.csvReviewCount || metrics.csvReviewRatingCount || metrics.reviewCount || 0
-    : metrics.reviewCount || metrics.judgeMeReviewCount || metrics.csvReviewCount || metrics.csvReviewRatingCount || 0);
-  const averageRating = Number(isCsv
-    ? metrics.csvAverageRating || metrics.csvReviewRating || metrics.avgRating || metrics.reviewRating || 0
-    : metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating || metrics.csvReviewRating || 0);
-  const negativeCount = Number(isCsv
-    ? metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || metrics.negativeReviewCount || 0
-    : metrics.negativeReviewCount || metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || 0);
-  const negativeRate = Number(isCsv
-    ? metrics.csvNegativeRatingRate || metrics.negativeReviewRate || (reviewCount ? (negativeCount / reviewCount) * 100 : 0)
-    : metrics.negativeReviewRate || (reviewCount ? (negativeCount / reviewCount) * 100 : 0));
-  const recentNegativeCount = Number(metrics.recentNegativeReviewCount || negativeCount || 0);
-  const storedSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
+  const sourceTitle = source?.title || source || "";
+  const sourceSummary = getReviewSourceSummary(textInsights, sourceTitle);
+  const sourceStats = getReviewSourceStats(metrics, sourceTitle);
+  const reviewCount = Number(sourceStats.reviewCount || 0);
+  const averageRating = Number(sourceStats.avgRating || sourceStats.averageRating || 0);
+  const negativeCount = Number(sourceStats.negativeReviewCount || 0);
+  const negativeRate = Number(sourceStats.negativeReviewRate || (reviewCount ? (negativeCount / reviewCount) * 100 : 0));
+  const recentNegativeCount = Number(sourceStats.recentNegativeReviewCount || negativeCount || 0);
+  const storedSentiment = normalizeEvidenceSentiment(sourceSummary?.sentiment || (!isSpecificReviewSource(sourceTitle) ? textInsights.reviews?.sentiment : null));
   const sentiment = storedSentiment.total
     ? storedSentiment
     : {
@@ -10240,6 +10346,56 @@ function isReviewScopedEvidenceItem(item = {}) {
   return sources.some((source) => source.includes("review") || source.includes("csv") || source.includes("judgeme"));
 }
 
+function isSpecificReviewSource(sourceTitle = "") {
+  const normalized = normalizeEvidenceProviderKey(sourceTitle);
+  return ["csv_reviews", "judgeme_reviews", "chatme_reviews"].includes(normalized);
+}
+
+function getReviewStatsKey(sourceTitle = "") {
+  const normalized = normalizeEvidenceProviderKey(sourceTitle);
+  if (normalized === "csv_reviews") return "csv";
+  if (normalized === "judgeme_reviews") return "judgeMe";
+  if (normalized === "chatme_reviews") return "chatMe";
+  return "total";
+}
+
+function getReviewSourceStats(metrics = {}, sourceTitle = "") {
+  const stats = metrics.reviewSourceStats || {};
+  const statsKey = getReviewStatsKey(sourceTitle);
+  if (stats[statsKey]) return stats[statsKey];
+  if (statsKey === "csv") {
+    return {
+      reviewCount: metrics.csvReviewCount || metrics.csvReviewRatingCount || 0,
+      negativeReviewCount: metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || 0,
+      avgRating: metrics.csvAverageRating || metrics.csvReviewRating || 0,
+      negativeReviewRate: metrics.csvNegativeRatingRate || 0,
+      recentNegativeReviewCount: metrics.csvRecentNegativeReviewCount || 0,
+    };
+  }
+  if (statsKey === "judgeMe") {
+    return {
+      reviewCount: metrics.judgeMeReviewCount || 0,
+      negativeReviewCount: metrics.judgeMeNegativeReviewCount || 0,
+      avgRating: metrics.judgeMeAverageRating || 0,
+      negativeReviewRate: 0,
+      recentNegativeReviewCount: 0,
+    };
+  }
+  return stats.total || {
+    reviewCount: metrics.reviewCount || 0,
+    negativeReviewCount: metrics.negativeReviewCount || 0,
+    avgRating: metrics.avgRating || metrics.reviewRating || 0,
+    negativeReviewRate: metrics.negativeReviewRate || 0,
+    recentNegativeReviewCount: metrics.recentNegativeReviewCount || 0,
+  };
+}
+
+function getReviewSourceSummary(textInsights = {}, sourceTitle = "") {
+  const bySource = textInsights.reviews?.bySource || textInsights.reviewSources || {};
+  const sourceKey = getReviewStatsKey(sourceTitle);
+  return bySource[sourceKey] || bySource[normalizeEvidenceProviderKey(sourceTitle)] || null;
+}
+
 function normalizePhraseSentiments(item = {}) {
   const sentiments = item.sentiments && typeof item.sentiments === "object" ? item.sentiments : {};
   const dominant = String(item.dominantSentiment || item.sentiment || "").toLowerCase();
@@ -10285,12 +10441,14 @@ function looksLikePositiveRecoveryReviewText(text = "", rating = 0) {
   return (Number(rating || 0) >= 4 || hasStrongRecovery) && hasRecovery && !hasUnresolvedProblem;
 }
 
-function getReviewEmotionRows(textInsights = {}) {
-  const reviewSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment || textInsights.sentiment);
-  const reviewEmotions = getEvidenceList(textInsights.reviews?.emotions);
+function getReviewEmotionRows(textInsights = {}, sourceTitle = "") {
+  const sourceSummary = getReviewSourceSummary(textInsights, sourceTitle);
+  const specificSource = isSpecificReviewSource(sourceTitle);
+  const reviewSentiment = normalizeEvidenceSentiment(sourceSummary?.sentiment || (!specificSource ? textInsights.reviews?.sentiment || textInsights.sentiment : null));
+  const reviewEmotions = getEvidenceList(sourceSummary?.emotions || (!specificSource ? textInsights.reviews?.emotions : []));
   const aiKnownEmotions = getEvidenceList(textInsights.aiKnownEmotions);
-  const fallbackEmotions = getEvidenceList(textInsights.emotions);
-  let sourceRows = reviewEmotions.length ? reviewEmotions : aiKnownEmotions.length ? aiKnownEmotions : fallbackEmotions;
+  const fallbackEmotions = getEvidenceList(!specificSource ? textInsights.emotions : []);
+  let sourceRows = reviewEmotions.length ? reviewEmotions : !specificSource && aiKnownEmotions.length ? aiKnownEmotions : fallbackEmotions;
 
   if (reviewSentiment.total && reviewSentiment.positive > reviewSentiment.negative) {
     const negativeEmotionTotal = sourceRows
@@ -10324,12 +10482,25 @@ function getReviewEmotionRows(textInsights = {}) {
 }
 
 function getReviewRepeatedLanguage(textInsights = {}, sourceTitle = "") {
-  const sourceKey = String(sourceTitle || "").toLowerCase().includes("csv") ? "csv" : "review";
+  const sourceSummary = getReviewSourceSummary(textInsights, sourceTitle);
+  if (sourceSummary?.repeatedLanguage?.length) {
+    return dedupePhraseRows(sourceSummary.repeatedLanguage.map((item) => ({
+      term: item.term || item.label || item.phrase || "",
+      count: Number(item.count || item.signals || 0),
+      sentiments: normalizePhraseSentiments(item),
+      dominantSentiment: item.dominantSentiment || item.sentiment || getDominantPhraseSentiment(normalizePhraseSentiments(item)),
+    })).filter((item) => item.term)).slice(0, 6);
+  }
+  const sourceKey = normalizeEvidenceProviderKey(sourceTitle);
+  const specificSource = isSpecificReviewSource(sourceTitle);
   const rows = [
-    ...getEvidenceList(textInsights.reviews?.repeatedLanguage),
+    ...getEvidenceList(!specificSource ? textInsights.reviews?.repeatedLanguage : []),
     ...getEvidenceList(textInsights.repeatedLanguage).filter((item) => {
       const sources = getEvidenceList(item.sources).join(" ").toLowerCase();
-      return sourceKey === "csv" ? sources.includes("csv") : sources.includes("review");
+      if (sourceKey === "csv_reviews") return sources.includes("csv");
+      if (sourceKey === "judgeme_reviews") return sources.includes("judgeme") || sources.includes("judge");
+      if (sourceKey === "chatme_reviews") return sources.includes("chatme");
+      return sources.includes("review");
     }),
   ].map((item) => ({
     term: item.term || item.label || item.phrase || "",
@@ -10340,8 +10511,14 @@ function getReviewRepeatedLanguage(textInsights = {}, sourceTitle = "") {
   return dedupePhraseRows(rows).slice(0, 6);
 }
 
-function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}) {
-  const examples = getEvidenceList(textInsights.reviews?.examples)
+function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}, sourceTitle = "") {
+  const sourceSummary = getReviewSourceSummary(textInsights, sourceTitle);
+  const sourceKey = normalizeEvidenceProviderKey(sourceTitle);
+  const specificSource = isSpecificReviewSource(sourceTitle);
+  const sourceExamples = getEvidenceList(sourceSummary?.examples).length
+    ? getEvidenceList(sourceSummary.examples)
+    : getEvidenceList(textInsights.reviews?.examples).filter((example) => !specificSource || reviewExampleMatchesSource(example, sourceKey));
+  const examples = sourceExamples
     .map((example) => ({
       title: example.title || example.summary || truncateText(example.text || example.body || "Review example", 56),
       text: example.text || example.body || example.note || "Review text was captured but no excerpt is stored.",
@@ -10367,6 +10544,11 @@ function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}) 
       date: "",
       tags: [/negative|bad|poor/i.test(point.body || "") ? "Negative" : "Evidence"].filter(Boolean),
     }));
+}
+
+function reviewExampleMatchesSource(example = {}, sourceKey = "") {
+  const normalized = normalizeEvidenceProviderKey(example.source || example.sourceLabel || example.provider || "");
+  return normalized && normalized === sourceKey;
 }
 
 function getRefundReasonRows(metrics = {}) {

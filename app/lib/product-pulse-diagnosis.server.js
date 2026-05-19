@@ -2445,6 +2445,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
     refundUnits: scoredDeterministic.metrics.refundUnits,
   });
   const issueLabel = ai.classification?.main_issue_label || getHumanIssueLabel(mainIssue);
+  const aiEvidenceSynthesisSections = normalizeAiEvidenceSynthesisSections(ai.report?.evidence_synthesis_sections);
   const mainFinding = {
     title: ai.report?.main_finding_title || `${issueLabel} signals need review`,
     detail: buildMainFindingDetail(ai.report?.main_finding_detail, scoredDeterministic, contentAnalysis),
@@ -2453,7 +2454,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const adjustedMainFinding = adjustMainFindingForSignalStrength(mainFinding, scoredDeterministic);
   const recommendations = buildFinalRecommendations({ snapshot, deterministic: scoredDeterministic, ai, mainIssue });
   const issues = buildFinalIssues({ deterministic: scoredDeterministic, ai, mainIssue, recommendations });
-  const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, judgeMeData, csvReviewData, shopifyData });
+  const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, aiEvidenceSynthesisSections, judgeMeData, csvReviewData, shopifyData });
   const incrementalDiagnosis = buildPersistedIncrementalDiagnosisState({
     runtimeState: scoredDeterministic.metrics.incrementalDiagnosis,
     aiContentGaps: ai.contentGaps,
@@ -2465,6 +2466,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
     diagnosisReport: {
       mainFinding: adjustedMainFinding,
       evidenceSummary: adjustedMainFinding.summary,
+      evidenceSynthesisSections: aiEvidenceSynthesisSections,
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
       aiUsage: ai.aiUsage,
@@ -6378,7 +6380,7 @@ function getIssueTrend(deterministic, issueCode) {
   return [];
 }
 
-function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, shopifyData }) {
+function buildFinalEvidence({ deterministic, ai, aiEvidenceSynthesisSections = [], judgeMeData, csvReviewData, shopifyData }) {
   const textInsights = deterministic.metrics.textInsights || {};
   const aiKnownEmotions = normalizeAiKnownEmotions(ai, textInsights);
   const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
@@ -6520,15 +6522,103 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, sho
     });
   }
 
-  if (ai.report?.evidence_summary) {
-    evidence.push({
-      source: "AI evidence synthesis",
-      quote: ai.report.evidence_summary,
-      weight: "Generated from deterministic metrics and stored snippets.",
-    });
+  const aiEvidence = buildAiEvidenceSynthesisEntry(ai, aiEvidenceSynthesisSections);
+  if (aiEvidence) {
+    evidence.unshift(aiEvidence);
   }
 
   return evidence.slice(0, 8);
+}
+
+function buildAiEvidenceSynthesisEntry(ai = {}, sections = []) {
+  const summary = String(ai.report?.evidence_summary || "").trim();
+  if (!summary && !sections.length) return null;
+  return {
+    source: "AI evidence synthesis",
+    quote: summary,
+    weight: "Generated from deterministic metrics and stored snippets.",
+    points: sections.map((section) => ({
+      section_key: section.sectionKey,
+      source_key: section.sourceKey,
+      source_title: section.sourceTitle,
+      title: section.title,
+      body: section.body,
+    })),
+  };
+}
+
+function normalizeAiEvidenceSynthesisSections(sections = []) {
+  return (Array.isArray(sections) ? sections : [])
+    .map((section, index) => normalizeAiEvidenceSynthesisSection(section, index))
+    .filter(Boolean)
+    .filter((section, index, allSections) => allSections.findIndex((item) => item.sectionKey === section.sectionKey && item.body === section.body) === index)
+    .slice(0, 8);
+}
+
+function normalizeAiEvidenceSynthesisSection(section, index = 0) {
+  if (typeof section === "string") {
+    const [rawLabel, ...rest] = section.split(":");
+    const body = (rest.length ? rest.join(":") : section).trim();
+    if (!body) return null;
+    const sectionKey = normalizeAiEvidenceSynthesisSectionKey(rest.length ? rawLabel : "");
+    return {
+      sectionKey,
+      title: getAiEvidenceSynthesisSectionTitle(sectionKey, rest.length ? rawLabel : "", index),
+      body,
+    };
+  }
+  if (!section || typeof section !== "object") return null;
+  const body = String(section.body || section.text || section.summary || section.detail || "").replace(/\s+/g, " ").trim();
+  if (!body) return null;
+  const rawKey = section.section_key || section.sectionKey || section.key || section.section || section.title || section.label || "";
+  const sourceTitle = String(section.source_title || section.sourceTitle || section.provider_title || section.providerTitle || "").replace(/\s+/g, " ").trim();
+  const sourceKey = normalizeAiEvidenceProviderKey(section.source_key || section.sourceKey || section.provider_key || section.providerKey || sourceTitle);
+  const sectionKey = normalizeAiEvidenceSynthesisSectionKey(rawKey);
+  return {
+    sectionKey,
+    sourceKey,
+    sourceTitle,
+    title: getAiEvidenceSynthesisSectionTitle(sectionKey, section.title || section.label || "", index),
+    body,
+  };
+}
+
+function normalizeAiEvidenceSynthesisSectionKey(value = "") {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer_language";
+  if (normalized.includes("refund") || normalized.includes("return") || normalized.includes("post_purchase") || normalized.includes("postpurchase")) return "post_purchase";
+  if (normalized.includes("variant") || normalized.includes("sku") || normalized.includes("option")) return "variant_scope";
+  if (normalized.includes("pdp") || normalized.includes("catalog") || normalized.includes("content") || normalized.includes("description") || normalized.includes("shopify_product")) return "pdp_catalog";
+  if (normalized.includes("operational") || normalized.includes("risk") || normalized.includes("confidence") || normalized.includes("impact") || normalized.includes("exposure")) return "operational_interpretation";
+  if (normalized.includes("cross") || normalized.includes("source")) return "cross_source";
+  return "stored_synthesis";
+}
+
+function getAiEvidenceSynthesisSectionTitle(sectionKey = "", fallback = "", index = 0) {
+  if (sectionKey === "cross_source") return "Cross-source reading";
+  if (sectionKey === "customer_language") return "Customer language";
+  if (sectionKey === "post_purchase") return "Refund and return evidence";
+  if (sectionKey === "pdp_catalog") return "PDP and catalog context";
+  if (sectionKey === "variant_scope") return "Variant scope";
+  if (sectionKey === "operational_interpretation") return "Operational interpretation";
+  const fallbackTitle = String(fallback || "").trim();
+  return fallbackTitle || (index === 0 ? "Stored synthesis" : "Additional synthesis");
+}
+
+function normalizeAiEvidenceProviderKey(value = "") {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  if (!normalized) return "";
+  if (normalized.includes("csv")) return "csv_reviews";
+  if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme_reviews";
+  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatme_reviews";
+  if (normalized.includes("review")) return normalized;
+  return normalized;
 }
 
 function buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, csvReviewData }) {
@@ -7013,11 +7103,13 @@ function buildReviewSourceStats(reviews = []) {
   const stats = {
     judgeMe: { ...empty },
     csv: { ...empty },
+    chatMe: { ...empty },
     total: { ...empty },
   };
 
   reviews.forEach((review) => {
-    const key = review.sourceType === "csv_review" ? "csv" : "judgeMe";
+    const sourceType = String(review.sourceType || "").toLowerCase();
+    const key = sourceType.includes("csv") ? "csv" : sourceType.includes("chatme") || sourceType.includes("chat_me") ? "chatMe" : "judgeMe";
     addReviewToStats(stats[key], review);
     addReviewToStats(stats.total, review);
   });
@@ -7184,7 +7276,10 @@ function summarizeCustomerTextAnalysisItems({ returnTexts = [], reviewTexts = []
   const sentiment = summarizeSentiment(allTexts);
   const emotions = summarizeEmotionCounts(allTexts);
   const returnsSummary = summarizeTextSource(returnTexts);
-  const reviewsSummary = summarizeTextSource(reviewTexts);
+  const reviewsSummary = {
+    ...summarizeTextSource(reviewTexts),
+    bySource: summarizeReviewTextSources(reviewTexts),
+  };
   const subjectiveNegativity = summarizeSubjectiveNegativity(allTexts);
   const otherReturnClassifications = summarizeOtherReturnClassifications(returnTexts);
   const repeatedLanguage = extractRepeatedLanguage(allTexts);
@@ -7207,6 +7302,48 @@ function summarizeCustomerTextAnalysisItems({ returnTexts = [], reviewTexts = []
     repeatedLanguage,
     granularIssues,
   };
+}
+
+function summarizeReviewTextSources(reviewTexts = []) {
+  const groups = new Map();
+  reviewTexts.forEach((item) => {
+    const key = getReviewSourceGroupKey(item.source, item.sourceLabel);
+    if (!key) return;
+    const current = groups.get(key) || {
+      key,
+      source: item.source || "",
+      sourceLabel: item.sourceLabel || getReviewSourceLabelForKey(key),
+      items: [],
+    };
+    current.items.push(item);
+    if (item.sourceLabel) current.sourceLabel = item.sourceLabel;
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.values()).reduce((acc, group) => {
+    acc[group.key] = {
+      ...summarizeTextSource(group.items),
+      source: group.source,
+      sourceLabel: group.sourceLabel,
+    };
+    return acc;
+  }, {});
+}
+
+function getReviewSourceGroupKey(source = "", sourceLabel = "") {
+  const normalized = `${source} ${sourceLabel}`.toLowerCase();
+  if (normalized.includes("csv")) return "csv";
+  if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeMe";
+  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatMe";
+  if (normalized.includes("review")) return normalizeText(sourceLabel || source).replace(/[^a-z0-9]+/g, "_") || "reviews";
+  return "";
+}
+
+function getReviewSourceLabelForKey(key = "") {
+  if (key === "csv") return "CSV reviews";
+  if (key === "judgeMe") return "Judge.me reviews";
+  if (key === "chatMe") return "ChatMe reviews";
+  return "Reviews";
 }
 
 function buildIncrementalCustomerTextInsights({ returns = [], reviews = [], previousCache = {}, cutoffAt = null, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {

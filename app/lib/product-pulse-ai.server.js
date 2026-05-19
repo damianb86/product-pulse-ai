@@ -176,6 +176,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     main_finding_title: input?.deterministic?.mainIssueLabel || "Product issue needs review",
     main_finding_detail: input?.deterministic?.evidenceSummary || "ProductPulse found deterministic signals that should be reviewed.",
     evidence_summary: input?.deterministic?.evidenceSummary || "",
+    evidence_synthesis_sections: [],
     recommendation_copy: {},
   });
 
@@ -502,6 +503,10 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "If emergent customer sentiments are present, mention them only when they are grounded in the evidence and useful to the merchant.",
     "If product content is missing, incoherent, too short, contradictory, or clearly about the wrong product, include that in the finding or recommendations when relevant.",
     "When you quote exact customer wording, return-note text, refund-note text, review text, product-description text, title text, tag text, collection text, SKU/variant names, or any other source excerpt, wrap the exact excerpt in double quotation marks. Do not present exact source text without quotation marks.",
+    "For evidence_synthesis_sections, write qualitative interpretation for the UI tabs. Do not restate concrete counts, rates, scores, amounts, or dates unless a specific number is essential to understand the issue; those values are already visible in the product panels.",
+    "Each evidence_synthesis_sections item should guide the merchant on how to read that tab: what the evidence relationship suggests, what to compare next, and how cautiously to interpret the data. Use only the supplied evidence and avoid inventing new facts.",
+    "When review evidence comes from multiple providers, create separate evidence_synthesis_sections entries for each review provider. Set source_title and source_key for provider-specific review sections, and do not reuse the same body across CSV, Judge.me, ChatMe, or any other external review provider.",
+    "Only write a provider-specific section from that provider's own review evidence. Do not mix CSV review text into Judge.me sections, do not mix Judge.me review text into CSV sections, and do not use the aggregate Customer Language section as a substitute for a provider tab.",
     "Do not put low-priority metadata coverage suggestions, such as product type/tags/collections not being repeated in the description, in the main finding unless they create a real buyer-facing contradiction.",
     "For subjective negative reactions, avoid overstating risk from a single customer. Explain it as a monitor/review signal unless repeated evidence supports action.",
     "Respect deterministic.signalRelevance. If it says reviewSignals level is weak, do not lead the main finding with review language. If customerEvidence level is isolated, treat that signal as evidence to monitor, not as a confirmed issue. If it is emerging, describe it as early evidence with limited confidence. Give priority to returns, refunds, repeated customer language, product content issues, and multi-source agreement.",
@@ -513,6 +518,52 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
       main_finding_title: "Sizing and fit expectations are not being met",
       main_finding_detail: "1-3 paragraphs separated by \\n\\n, grounded in evidence and covering each relevant discovery area",
       evidence_summary: "1-2 sentence source agreement summary",
+      evidence_synthesis_sections: [
+        {
+          section_key: "cross_source",
+          title: "Cross-source reading",
+          body: "Qualitative interpretation of how the tabs should be read together, with minimal concrete numbers.",
+        },
+        {
+          section_key: "customer_language",
+          title: "Customer language",
+          body: "Qualitative interpretation of customer language evidence for the Customer Language and Reviews tabs.",
+        },
+        {
+          section_key: "customer_language",
+          source_key: "csv_reviews",
+          source_title: "CSV reviews",
+          title: "Customer language",
+          body: "Qualitative interpretation specific to CSV review evidence only.",
+        },
+        {
+          section_key: "customer_language",
+          source_key: "judgeme_reviews",
+          source_title: "Judge.me reviews",
+          title: "Customer language",
+          body: "Qualitative interpretation specific to Judge.me review evidence only.",
+        },
+        {
+          section_key: "post_purchase",
+          title: "Refund and return evidence",
+          body: "Qualitative interpretation of returns and refunds as post-purchase evidence.",
+        },
+        {
+          section_key: "pdp_catalog",
+          title: "PDP and catalog context",
+          body: "Qualitative interpretation of product content, metadata, media, and catalog setup.",
+        },
+        {
+          section_key: "variant_scope",
+          title: "Variant scope",
+          body: "Qualitative interpretation of whether variant-level evidence suggests a SKU-specific or product-wide action.",
+        },
+        {
+          section_key: "operational_interpretation",
+          title: "Operational interpretation",
+          body: "Qualitative guidance for reading risk, confidence, impact, and action priority together.",
+        },
+      ],
       issue_names: [{ code: "fit_sizing.runs_small", label: "Runs small" }],
       recommendation_copy: {
         pdp_copy: "merchant-ready product page copy",
