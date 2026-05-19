@@ -4049,6 +4049,19 @@ function formatEvidenceEmotionLabel(value) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function getEvidenceEmotionPolarity(item = {}) {
+  const explicit = String(item.polarity || "").toLowerCase();
+  if (["positive", "neutral", "negative"].includes(explicit)) return explicit;
+  const code = String(item.code || item.normalizedLabel || item.label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  if (["satisfaction", "trust", "relief", "delight"].includes(code)) return "positive";
+  if (["uncertainty", "indifference"].includes(code)) return "neutral";
+  if (!code || code.includes("none")) return "neutral";
+  return "negative";
+}
+
 function getEvidenceIcon(source) {
   const normalized = source.toLowerCase();
   if (normalized.includes("return")) return "return";
@@ -9209,7 +9222,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
   const reviewStats = getReviewEvidenceStats(source, product);
   const emotionRows = getReviewEmotionRows(product.metrics?.textInsights || {});
   const repeatedLanguage = getReviewRepeatedLanguage(product.metrics?.textInsights || {}, source.title);
-  const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points);
+  const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points, reviewStats);
   const insights = [
     { label: "Average rating / negative rate", value: reviewStats.negativeRateLabel, detail: "Product-level rating pressure", tone: reviewStats.negativeCount ? "red" : "teal" },
     { label: "Evidence", value: formatInteger(reviewStats.totalAnalyzed || reviewStats.reviewCount), detail: "Reviews analyzed", tone: "blue" },
@@ -9259,7 +9272,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
             </div>
           </div>
           <div className="ppEvidenceReviewExampleGrid">
-            {examples.slice(0, 4).map((example, index) => (
+            {examples.length ? examples.slice(0, 4).map((example, index) => (
               <article key={`${example.title}-${example.text}-${index}`} className="ppEvidenceReviewExample">
                 <div className="ppEvidenceReviewStars" aria-label={`${formatInteger(example.rating)} star review`}>
                   {Array.from({ length: 5 }, (_, starIndex) => (
@@ -9274,7 +9287,13 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
                   <em>Evidence #{index + 1}</em>
                 </div>
               </article>
-            ))}
+            )) : (
+              <div className="ppEvidenceReviewEmptyState">
+                <s-icon type="star" size="small"></s-icon>
+                <strong>No negative review examples</strong>
+                <span>{reviewStats.reviewCount ? "Stored reviews in this source are not currently negative." : "No review rows are stored for this source."}</span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -9591,7 +9610,19 @@ function getSentimentDonutRows(sentiment = {}) {
 }
 
 function getReviewEmotionRows(textInsights = {}) {
-  const rows = getEvidenceList(textInsights.reviews?.emotions?.length ? textInsights.reviews.emotions : textInsights.emotions)
+  const reviewSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment || textInsights.sentiment);
+  const reviewEmotions = getEvidenceList(textInsights.reviews?.emotions);
+  const aiKnownEmotions = getEvidenceList(textInsights.aiKnownEmotions);
+  const fallbackEmotions = getEvidenceList(textInsights.emotions);
+  let sourceRows = reviewEmotions.length ? reviewEmotions : aiKnownEmotions.length ? aiKnownEmotions : fallbackEmotions;
+
+  if (reviewSentiment.total && reviewSentiment.negative === 0 && reviewSentiment.positive > 0) {
+    const positiveAiRows = aiKnownEmotions.filter((item) => getEvidenceEmotionPolarity(item) === "positive");
+    const nonNegativeRows = sourceRows.filter((item) => getEvidenceEmotionPolarity(item) !== "negative");
+    sourceRows = positiveAiRows.length ? positiveAiRows : nonNegativeRows;
+  }
+
+  const rows = sourceRows
     .map((item) => ({
       label: item.label || item.normalizedLabel || item.code || "Emotion",
       count: Number(item.count || item.signals || 0),
@@ -9617,7 +9648,7 @@ function getReviewRepeatedLanguage(textInsights = {}, sourceTitle = "") {
   return dedupePhraseRows(rows).slice(0, 6);
 }
 
-function getReviewExampleRows(textInsights = {}, points = []) {
+function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}) {
   const examples = getEvidenceList(textInsights.reviews?.examples)
     .map((example) => ({
       title: example.title || example.summary || truncateText(example.text || example.body || "Review example", 56),
@@ -9630,6 +9661,7 @@ function getReviewExampleRows(textInsights = {}, points = []) {
       ].filter(Boolean),
     }));
   if (examples.length) return examples;
+  if (Number(reviewStats.negativeCount || 0) <= 0) return [];
 
   return points
     .map((point) => parseEvidencePoint(point))

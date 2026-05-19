@@ -1823,6 +1823,22 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(counts.shipping_delivery || 0).toBe(0);
   });
 
+  it("does not let AI emotion labels contradict positive review sentiment", () => {
+    const signals = __productPulseDiagnosisTestHooks.normalizeAiClassifiedSignals([
+      {
+        source: "csv_review",
+        text: "Clear listing and great gift. Everything matched the product page.",
+        issue_category: "product_quality",
+        sentiment: "positive",
+        known_emotion: "anger",
+        severity: "low",
+      },
+    ]);
+
+    expect(signals[0]?.sentiment).toBe("positive");
+    expect(signals[0]?.emotion).toBe("satisfaction");
+  });
+
   it("keeps positive recovery reviews positive when they mention resolved damage context", () => {
     const cachedItems = __productPulseDiagnosisTestHooks.buildCustomerTextAnalysisItems({
       returns: [],

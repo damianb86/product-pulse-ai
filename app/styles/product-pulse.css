@@ -6145,6 +6145,46 @@ s-page[inline-size="large-500"] {
   gap: 10px;
 }
 
+.ppEvidenceReviewEmptyState {
+  grid-column: 1 / -1;
+  min-height: 178px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 24px;
+  border: 1px dashed rgba(148, 163, 184, 0.48);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.94), rgba(245, 247, 255, 0.92));
+  color: var(--pp-slate-600);
+  text-align: center;
+}
+
+.ppEvidenceReviewEmptyState s-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceReviewEmptyState strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.ppEvidenceReviewEmptyState span {
+  max-width: 360px;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .ppEvidenceReviewStars {
   display: flex;
   align-items: center;

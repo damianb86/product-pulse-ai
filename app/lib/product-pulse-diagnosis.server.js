@@ -3071,6 +3071,7 @@ function normalizeAiClassifiedSignals(signals = []) {
       const source = String(signal.source || "").trim().toLowerCase();
       const sourceGroup = getAiSignalSourceGroup(source);
       const text = String(signal.text || signal.evidence || "").replace(/\s+/g, " ").trim();
+      const rawEmotion = normalizeEmotionCode(signal.known_emotion) || "none";
       return {
         source,
         sourceGroup,
@@ -3078,12 +3079,21 @@ function normalizeAiClassifiedSignals(signals = []) {
         issueCode,
         issueDetail: signal.issue_detail || "",
         sentiment,
-        emotion: normalizeEmotionCode(signal.known_emotion) || "none",
+        emotion: normalizeAiEmotionForSentiment(rawEmotion, sentiment),
         severity: normalizeSeverity(signal.severity || "medium"),
         productRelated: signal.product_related !== false,
       };
     })
     .filter((signal) => signal.productRelated && signal.issueCode && signal.text);
+}
+
+function normalizeAiEmotionForSentiment(emotionCode = "none", sentiment = "neutral") {
+  const code = normalizeEmotionCode(emotionCode) || "none";
+  if (code === "none") return code;
+  const polarity = getEmotionPolarity(code);
+  if (sentiment === "positive" && polarity === "negative") return "satisfaction";
+  if (sentiment === "negative" && polarity === "positive") return "frustration";
+  return code;
 }
 
 function normalizeAiSignalIssueCode(value) {
@@ -6549,15 +6559,29 @@ function buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, 
   }
 
   if (entries.length && reviewInsights.sentiment?.total) {
+    const reviewEmotionText = formatReviewEvidenceEmotionCounts(textInsights, reviewInsights);
     entries[0].points = [
       `Review sentiment: ${reviewInsights.sentiment.negative} negative, ${reviewInsights.sentiment.neutral} neutral, ${reviewInsights.sentiment.positive} positive`,
-      reviewInsights.emotions?.length ? `Review emotions: ${formatEmotionCounts(reviewInsights.emotions)}` : "",
+      reviewEmotionText ? `Review emotions: ${reviewEmotionText}` : "",
       ...((reviewInsights.repeatedLanguage || []).slice(0, 3).map((item) => `Repeated review language: "${item.term}" (${item.count})`)),
       ...(entries[0].points || []),
     ].filter(Boolean);
   }
 
   return entries;
+}
+
+function formatReviewEvidenceEmotionCounts(textInsights = {}, reviewInsights = {}) {
+  const sentiment = reviewInsights.sentiment || {};
+  const sourceEmotions = Array.isArray(reviewInsights.emotions) ? reviewInsights.emotions : [];
+  const aiKnownEmotions = Array.isArray(textInsights.aiKnownEmotions) ? textInsights.aiKnownEmotions : [];
+  let rows = sourceEmotions;
+  if (Number(sentiment.total || 0) && Number(sentiment.negative || 0) === 0 && Number(sentiment.positive || 0) > 0) {
+    const positiveAiRows = aiKnownEmotions.filter((item) => getEmotionPolarity(normalizeEmotionCode(item.code || item.label)) === "positive");
+    const nonNegativeRows = sourceEmotions.filter((item) => getEmotionPolarity(normalizeEmotionCode(item.code || item.label)) !== "negative");
+    rows = positiveAiRows.length ? positiveAiRows : nonNegativeRows;
+  }
+  return formatEmotionCounts(rows);
 }
 
 function getReviewEvidenceLabel(metrics = {}) {
@@ -10742,6 +10766,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildSourceEventCache,
   buildIncrementalSinceDate,
   buildDiagnosisSourceFingerprint,
+  normalizeAiClassifiedSignals,
   classifyIssueText,
   getCsvReviewMatchConfidence,
   isShopifyQueryCostLimitError,
