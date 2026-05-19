@@ -1836,7 +1836,25 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     ]);
 
     expect(signals[0]?.sentiment).toBe("positive");
-    expect(signals[0]?.emotion).toBe("satisfaction");
+    expect(["delight", "satisfaction", "trust", "relief"]).toContain(signals[0]?.emotion);
+  });
+
+  it("corrects AI-classified positive recovery reviews before counting issue signals", () => {
+    const signals = __productPulseDiagnosisTestHooks.normalizeAiClassifiedSignals([
+      {
+        source: "csv_review",
+        text: "Packaging looked much better this time. The plates arrived safely with better separators and no chips. The shipping damage problem is being handled.",
+        issue_category: "quality_defect",
+        sentiment: "negative",
+        known_emotion: "anger",
+        severity: "medium",
+      },
+    ]);
+    const counts = __productPulseDiagnosisTestHooks.countAiSignalsByIssue(signals);
+
+    expect(signals[0]?.sentiment).toBe("positive");
+    expect(["relief", "trust", "satisfaction"]).toContain(signals[0]?.emotion);
+    expect(counts.quality_defect || 0).toBe(0);
   });
 
   it("keeps positive recovery reviews positive when they mention resolved damage context", () => {
@@ -1852,6 +1870,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
 
     expect(cachedItems.reviewTexts[0]?.sentiment).toBe("positive");
+    expect(["relief", "trust", "satisfaction"]).toContain(cachedItems.reviewTexts[0]?.emotion);
   });
 
   it("prioritizes monitoring over PDP fixes for low-risk high-momentum control products", () => {

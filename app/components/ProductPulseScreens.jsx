@@ -9222,6 +9222,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
   const reviewStats = getReviewEvidenceStats(source, product);
   const emotionRows = getReviewEmotionRows(product.metrics?.textInsights || {});
   const repeatedLanguage = getReviewRepeatedLanguage(product.metrics?.textInsights || {}, source.title);
+  const repeatedLanguageTone = getEvidencePhraseTone(repeatedLanguage, reviewStats.negativeCount ? "red" : "teal");
   const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points, reviewStats);
   const insights = [
     { label: "Average rating / negative rate", value: reviewStats.negativeRateLabel, detail: "Product-level rating pressure", tone: reviewStats.negativeCount ? "red" : "teal" },
@@ -9258,7 +9259,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
               <p>Top repeated phrases</p>
             </div>
           </div>
-          <EvidencePhraseList phrases={repeatedLanguage} tone="red" emptyLabel="No repeated review phrases stored" />
+          <EvidencePhraseList phrases={repeatedLanguage} tone={repeatedLanguageTone} emptyLabel="No repeated review phrases stored" />
           <Link className="ppEvidenceSectionLink" to={reportHref}>See all phrases <s-icon type="chevron-right" size="small"></s-icon></Link>
         </section>
       </div>
@@ -9609,6 +9610,68 @@ function getSentimentDonutRows(sentiment = {}) {
   ];
 }
 
+function uniqueByEvidenceLabel(items = []) {
+  const seen = new Set();
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const key = String(item.label || item.normalizedLabel || item.code || "").toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isReviewScopedEvidenceItem(item = {}) {
+  const sources = getEvidenceList(item.sources || item.sourceTypes || item.source)
+    .map((source) => String(source || "").toLowerCase());
+  if (!sources.length) return true;
+  return sources.some((source) => source.includes("review") || source.includes("csv") || source.includes("judgeme"));
+}
+
+function normalizePhraseSentiments(item = {}) {
+  const sentiments = item.sentiments && typeof item.sentiments === "object" ? item.sentiments : {};
+  const dominant = String(item.dominantSentiment || item.sentiment || "").toLowerCase();
+  const count = Math.max(1, Number(item.count || item.signals || 0));
+  return {
+    positive: Number(sentiments.positive || 0) || (dominant === "positive" ? count : 0),
+    neutral: Number(sentiments.neutral || 0) || (dominant === "neutral" ? count : 0),
+    negative: Number(sentiments.negative || 0) || (dominant === "negative" ? count : 0),
+  };
+}
+
+function getDominantPhraseSentiment(sentiments = {}) {
+  return Object.entries(sentiments)
+    .sort((first, second) => Number(second[1] || 0) - Number(first[1] || 0))[0]?.[0] || "neutral";
+}
+
+function getEvidencePhraseTone(phrases = [], fallbackTone = "red") {
+  const totals = (Array.isArray(phrases) ? phrases : []).reduce((acc, phrase) => {
+    const sentiments = normalizePhraseSentiments(phrase);
+    acc.positive += Number(sentiments.positive || 0);
+    acc.negative += Number(sentiments.negative || 0);
+    return acc;
+  }, { positive: 0, negative: 0 });
+  if (totals.positive > totals.negative) return "teal";
+  if (totals.negative > totals.positive) return "red";
+  return fallbackTone;
+}
+
+function normalizeTextForEvidenceHeuristics(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[^a-z0-9']+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikePositiveRecoveryReviewText(text = "", rating = 0) {
+  const normalized = normalizeTextForEvidenceHeuristics(text);
+  const hasRecovery = /\b(arrived safely|arrived intact|better packaging|better separators|packaging looked much better|no chips?|no damage|no cracks?|problem is being handled|issue is being handled|resolved|fixed|improved|more confident)\b/.test(normalized);
+  const hasStrongRecovery = /\b(arrived safely|arrived intact|better separators|no chips?|no damage|no cracks?|more confident|problem is being handled|issue is being handled)\b/.test(normalized);
+  const hasUnresolvedProblem = /\b(still broken|still cracked|still damaged|still missing|still a problem|still an issue|arrived broken|arrived damaged|arrived cracked|not fixed|not resolved|not improved|no improvement|continues? to|keeps? (breaking|leaking|failing)|doesn t work|doesnt work|not working|unusable|unsafe|dangerous|failed|leaks?|leaking)\b/.test(normalized);
+  return (Number(rating || 0) >= 4 || hasStrongRecovery) && hasRecovery && !hasUnresolvedProblem;
+}
+
 function getReviewEmotionRows(textInsights = {}) {
   const reviewSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment || textInsights.sentiment);
   const reviewEmotions = getEvidenceList(textInsights.reviews?.emotions);
@@ -9616,8 +9679,22 @@ function getReviewEmotionRows(textInsights = {}) {
   const fallbackEmotions = getEvidenceList(textInsights.emotions);
   let sourceRows = reviewEmotions.length ? reviewEmotions : aiKnownEmotions.length ? aiKnownEmotions : fallbackEmotions;
 
-  if (reviewSentiment.total && reviewSentiment.negative === 0 && reviewSentiment.positive > 0) {
-    const positiveAiRows = aiKnownEmotions.filter((item) => getEvidenceEmotionPolarity(item) === "positive");
+  if (reviewSentiment.total && reviewSentiment.positive > reviewSentiment.negative) {
+    const negativeEmotionTotal = sourceRows
+      .filter((item) => getEvidenceEmotionPolarity(item) === "negative")
+      .reduce((total, item) => total + Number(item.count || item.signals || 0), 0);
+    if (negativeEmotionTotal > reviewSentiment.negative) {
+      const positiveAiRows = aiKnownEmotions.filter((item) => getEvidenceEmotionPolarity(item) === "positive" && isReviewScopedEvidenceItem(item));
+      const cappedNegativeRows = sourceRows.filter((item) => getEvidenceEmotionPolarity(item) === "negative" && Number(item.count || item.signals || 0) <= reviewSentiment.negative);
+      const nonNegativeRows = sourceRows.filter((item) => getEvidenceEmotionPolarity(item) !== "negative");
+      sourceRows = uniqueByEvidenceLabel([
+        ...positiveAiRows,
+        ...nonNegativeRows,
+        ...cappedNegativeRows,
+      ]);
+    }
+  } else if (reviewSentiment.total && reviewSentiment.negative === 0 && reviewSentiment.positive > 0) {
+    const positiveAiRows = aiKnownEmotions.filter((item) => getEvidenceEmotionPolarity(item) === "positive" && isReviewScopedEvidenceItem(item));
     const nonNegativeRows = sourceRows.filter((item) => getEvidenceEmotionPolarity(item) !== "negative");
     sourceRows = positiveAiRows.length ? positiveAiRows : nonNegativeRows;
   }
@@ -9644,6 +9721,8 @@ function getReviewRepeatedLanguage(textInsights = {}, sourceTitle = "") {
   ].map((item) => ({
     term: item.term || item.label || item.phrase || "",
     count: Number(item.count || item.signals || 0),
+    sentiments: normalizePhraseSentiments(item),
+    dominantSentiment: item.dominantSentiment || item.sentiment || getDominantPhraseSentiment(normalizePhraseSentiments(item)),
   })).filter((item) => item.term);
   return dedupePhraseRows(rows).slice(0, 6);
 }
@@ -9659,7 +9738,8 @@ function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}) 
         example.emotion ? formatEvidenceEmotionLabel(example.emotion) : "",
         example.sentiment ? startCase(example.sentiment) : "",
       ].filter(Boolean),
-    }));
+    }))
+    .filter((example) => !looksLikePositiveRecoveryReviewText(`${example.title} ${example.text}`, example.rating));
   if (examples.length) return examples;
   if (Number(reviewStats.negativeCount || 0) <= 0) return [];
 
@@ -9724,9 +9804,20 @@ function dedupePhraseRows(rows = []) {
     const term = String(row.term || "").replace(/^["“]+|["”]+$/g, "").trim();
     if (!term) return;
     const key = term.toLowerCase();
+    const current = byTerm.get(key);
+    const sentiments = normalizePhraseSentiments(row);
+    const currentSentiments = current ? normalizePhraseSentiments(current) : { positive: 0, neutral: 0, negative: 0 };
+    const nextSentiments = {
+      positive: Math.max(currentSentiments.positive, sentiments.positive),
+      neutral: Math.max(currentSentiments.neutral, sentiments.neutral),
+      negative: Math.max(currentSentiments.negative, sentiments.negative),
+    };
     byTerm.set(key, {
+      ...(current || {}),
       term,
-      count: Math.max(Number(row.count || 0), Number(byTerm.get(key)?.count || 0)),
+      count: Math.max(Number(row.count || 0), Number(current?.count || 0)),
+      sentiments: nextSentiments,
+      dominantSentiment: getDominantPhraseSentiment(nextSentiments),
     });
   });
   return [...byTerm.values()].sort((first, second) => second.count - first.count);

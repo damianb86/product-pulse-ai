@@ -6119,6 +6119,14 @@ s-page[inline-size="large-500"] {
   color: var(--pp-insight-violet);
 }
 
+.ppEvidencePhraseList-teal strong {
+  color: var(--pp-signal-teal);
+}
+
+.ppEvidencePhraseList-blue strong {
+  color: var(--pp-pulse-blue);
+}
+
 .ppEvidenceReviewExampleGrid,
 .ppEvidenceRefundNoteGrid,
 .ppEvidenceMiniInsightGrid {

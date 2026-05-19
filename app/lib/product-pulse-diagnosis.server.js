@@ -3067,10 +3067,10 @@ function normalizeAiClassifiedSignals(signals = []) {
   return (Array.isArray(signals) ? signals : [])
     .map((signal) => {
       const issueCode = normalizeAiSignalIssueCode(signal.issue_category || signal.issue || signal.issue_detail);
-      const sentiment = normalizeAiSentiment(signal.sentiment);
       const source = String(signal.source || "").trim().toLowerCase();
       const sourceGroup = getAiSignalSourceGroup(source);
       const text = String(signal.text || signal.evidence || "").replace(/\s+/g, " ").trim();
+      const sentiment = normalizeSentimentForPositiveRecovery(normalizeAiSentiment(signal.sentiment), text);
       const rawEmotion = normalizeEmotionCode(signal.known_emotion) || "none";
       return {
         source,
@@ -3079,7 +3079,7 @@ function normalizeAiClassifiedSignals(signals = []) {
         issueCode,
         issueDetail: signal.issue_detail || "",
         sentiment,
-        emotion: normalizeAiEmotionForSentiment(rawEmotion, sentiment),
+        emotion: normalizeAiEmotionForSentiment(rawEmotion, sentiment, text),
         severity: normalizeSeverity(signal.severity || "medium"),
         productRelated: signal.product_related !== false,
       };
@@ -3087,11 +3087,14 @@ function normalizeAiClassifiedSignals(signals = []) {
     .filter((signal) => signal.productRelated && signal.issueCode && signal.text);
 }
 
-function normalizeAiEmotionForSentiment(emotionCode = "none", sentiment = "neutral") {
+function normalizeAiEmotionForSentiment(emotionCode = "none", sentiment = "neutral", text = "") {
   const code = normalizeEmotionCode(emotionCode) || "none";
   if (code === "none") return code;
   const polarity = getEmotionPolarity(code);
-  if (sentiment === "positive" && polarity === "negative") return "satisfaction";
+  if (sentiment === "positive" && polarity === "negative") {
+    const recoveredEmotion = classifyCustomerEmotion(text, 5);
+    return recoveredEmotion && getEmotionPolarity(recoveredEmotion) === "positive" ? recoveredEmotion : "satisfaction";
+  }
   if (sentiment === "negative" && polarity === "positive") return "frustration";
   return code;
 }
@@ -3122,6 +3125,7 @@ function isOperationalRefundSignalSource(source = "") {
 
 function countAiSignalsByIssue(signals = []) {
   return signals.reduce((counts, signal) => {
+    if (String(signal.sentiment || "").toLowerCase() === "positive") return counts;
     const issue = normalizeIssueCode(signal.issueCode);
     if (!issue) return counts;
     counts[issue] = (counts[issue] || 0) + 1;
@@ -7772,18 +7776,31 @@ function normalizeCachedAnalysisItems(items = []) {
   if (!Array.isArray(items)) return [];
   return items
     .filter((item) => item && typeof item === "object" && item.key)
-    .map((item) => ({
-      ...item,
-      key: String(item.key),
-      text: String(item.text || ""),
-      analysisText: String(item.analysisText || item.text || ""),
-      issueCode: normalizeIssueCode(item.issueCode) || classifyIssueText(item.analysisText || item.text || ""),
-      sentiment: ["positive", "neutral", "negative"].includes(item.sentiment) ? item.sentiment : classifyCustomerSentiment(item.analysisText || item.text || "", item.rating),
-      emotion: normalizeEmotionCode(item.emotion) || "none",
-      subjectiveNegative: Boolean(item.subjectiveNegative),
-      createdAt: toIso(item.createdAt),
-      updatedAt: toIso(item.updatedAt || item.createdAt),
-    }));
+    .map((item) => {
+      const text = String(item.text || "");
+      const analysisText = String(item.analysisText || item.text || "");
+      const rating = Number(item.rating || 0);
+      const currentSentiment = ["positive", "neutral", "negative"].includes(item.sentiment)
+        ? item.sentiment
+        : classifyCustomerSentiment(analysisText || text, rating);
+      const sentiment = normalizeSentimentForPositiveRecovery(currentSentiment, analysisText || text, rating);
+      const rawEmotion = normalizeEmotionCode(item.emotion) || classifyCustomerEmotion(analysisText || text, rating);
+      const emotion = sentiment === "positive" && getEmotionPolarity(rawEmotion) === "negative"
+        ? classifyCustomerEmotion(analysisText || text, Math.max(rating, 5))
+        : rawEmotion;
+      return {
+        ...item,
+        key: String(item.key),
+        text,
+        analysisText,
+        issueCode: normalizeIssueCode(item.issueCode) || classifyIssueText(analysisText || text, { sentiment, rating }),
+        sentiment,
+        emotion: normalizeEmotionCode(emotion) || "none",
+        subjectiveNegative: sentiment === "positive" ? false : Boolean(item.subjectiveNegative),
+        createdAt: toIso(item.createdAt),
+        updatedAt: toIso(item.updatedAt || item.createdAt),
+      };
+    });
 }
 
 function trimAnalysisItemsForCache(items = []) {
@@ -8016,6 +8033,7 @@ function summarizeTextSource(items) {
         text: truncateText(item.text, 180),
         sentiment: item.sentiment,
         emotion: item.emotion,
+        rating: item.rating,
         issueCode: item.issueCode,
         reason: item.reason || "",
         variant: item.variant || "",
@@ -8279,11 +8297,29 @@ function maskResolvedNegativeCustomerLanguage(normalized) {
 }
 
 function hasPositiveRecoveryCustomerLanguage(normalized) {
-  return /\b(arrived safely|arrived intact|better packaging|better separators|packaging looked much better|no chips?|no damage|no cracks?|problem is being handled|issue is being handled|resolved|fixed|improved|more confident|beautiful)\b/.test(normalized);
+  return /\b(arrived safely|arrived intact|better packaging|better separators|packaging looked much better|no chips?|no damage|no cracks?|problem is being handled|issue is being handled|resolved|fixed|improved|more confident)\b/.test(normalized);
 }
 
 function hasUnresolvedNegativeCustomerLanguage(normalized) {
-  return /\b(still broken|still cracked|still damaged|still missing|arrived broken|arrived damaged|arrived cracked|not fixed|not resolved|continues? to|keeps? (breaking|leaking|failing)|doesn t work|doesnt work|not working|unusable|unsafe|dangerous|failed|leaks?|leaking)\b/.test(normalized);
+  return /\b(still broken|still cracked|still damaged|still missing|still a problem|still an issue|arrived broken|arrived damaged|arrived cracked|not fixed|not resolved|not improved|no improvement|continues? to|keeps? (breaking|leaking|failing)|doesn t work|doesnt work|not working|unusable|unsafe|dangerous|failed|leaks?|leaking)\b/.test(normalized);
+}
+
+function normalizeSentimentForPositiveRecovery(sentiment = "neutral", text = "", rating = 0) {
+  const normalizedSentiment = normalizeAiSentiment(sentiment);
+  const normalized = normalizeText(text);
+  if (
+    normalizedSentiment === "negative"
+    && Number(rating || 0) >= 4
+    && hasPositiveRecoveryCustomerLanguage(normalized)
+    && !hasUnresolvedNegativeCustomerLanguage(normalized)
+  ) return "positive";
+  if (
+    normalizedSentiment === "negative"
+    && hasPositiveRecoveryCustomerLanguage(normalized)
+    && !hasUnresolvedNegativeCustomerLanguage(normalized)
+    && /\b(arrived safely|arrived intact|no chips?|no damage|no cracks?|more confident|reliable|handled)\b/.test(normalized)
+  ) return "positive";
+  return normalizedSentiment;
 }
 
 function classifyCustomerSentiment(text, rating = 0) {
@@ -8306,14 +8342,24 @@ function classifyCustomerSentiment(text, rating = 0) {
 
 function classifyCustomerEmotion(text, rating = 0) {
   const normalized = normalizeText(text);
-  if (/(scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/.test(normalized)) return "fear";
-  if (/(angry|mad|furious|rage|annoyed|irritated|enojado|enojo|furioso|bronca)/.test(normalized)) return "anger";
-  if (/(confusing|confused|unclear|don t understand|doesnt understand|hard to use|no entiendo|confuso|confundido)/.test(normalized)) return "confusion";
-  if (/(disappointed|let down|not as expected|expected better|decepcion|decepcionado)/.test(normalized)) return "disappointment";
-  if (/(regret|waste|wish i hadn|shouldn t have|arrepent|arrepentido)/.test(normalized)) return "regret";
-  if (/(trust|fake|misleading|dishonest|not real|engaño|enganoso|desconf)/.test(normalized)) return "distrust";
-  if (/(frustrated|frustrating|problem|issue|return|refund|doesn t work|doesnt work|frustra|frustrante)/.test(normalized)) return "frustration";
-  if (/(not sure|maybe|uncertain|unsure|doubt|duda|incierto)/.test(normalized)) return "uncertainty";
+  const ratingNumber = Number(rating || 0);
+  if (
+    ratingNumber >= 4
+    && hasPositiveRecoveryCustomerLanguage(normalized)
+    && !hasUnresolvedNegativeCustomerLanguage(normalized)
+  ) {
+    if (/\b(confident|confidence|reliable|trust|handled|being handled|resolved|fixed)\b/.test(normalized)) return "trust";
+    return "relief";
+  }
+  const emotionText = maskResolvedNegativeCustomerLanguage(normalized);
+  if (/(scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/.test(emotionText)) return "fear";
+  if (/(angry|mad|furious|rage|annoyed|irritated|enojado|enojo|furioso|bronca)/.test(emotionText)) return "anger";
+  if (/(confusing|confused|unclear|don t understand|doesnt understand|hard to use|no entiendo|confuso|confundido)/.test(emotionText)) return "confusion";
+  if (/(disappointed|let down|not as expected|expected better|decepcion|decepcionado)/.test(emotionText)) return "disappointment";
+  if (/(regret|waste|wish i hadn|shouldn t have|arrepent|arrepentido)/.test(emotionText)) return "regret";
+  if (/(trust|fake|misleading|dishonest|not real|engaño|enganoso|desconf)/.test(emotionText)) return "distrust";
+  if (/(frustrated|frustrating|problem|issue|return|refund|doesn t work|doesnt work|frustra|frustrante)/.test(emotionText)) return "frustration";
+  if (/(not sure|maybe|uncertain|unsure|doubt|duda|incierto)/.test(emotionText)) return "uncertainty";
   if (rating >= 4 && /(love|great|excellent|perfect|beautiful|happy|encanta|excelente|perfecto)/.test(normalized)) return "delight";
   if (rating >= 4 && /(works|good|satisfied|quality|recom|bien|satisfecho)/.test(normalized)) return "satisfaction";
   if (rating >= 4 && /(relief|solved|easy|finally|alivio|resolvio|facil)/.test(normalized)) return "relief";
@@ -10627,11 +10673,13 @@ function getTrendTone(values, fallbackScore = 0) {
 }
 
 function containsIssueLanguage(text) {
-  return /(too small|too large|doesn.?t fit|does not fit|didn.?t fit|not fit|wrong size|runs small|runs large|broken|break|broke|poor quality|defect|defective|thin|softness|not soft|rough|scratchy|stiff|wrong color|different color|color mismatch|not as pictured|looks different|leak|leaking|spill|spilled|crack|cracked|chip|chipped|damaged|damage|unsafe|danger|hazard|not compatible|incompatible|late|delayed|lost|disappointed|return|refund|not worth|wobbly|unstable|confusing|unclear|missing)/i.test(String(text || ""));
+  const normalized = maskResolvedNegativeCustomerLanguage(normalizeText(text));
+  return /(too small|too large|doesn.?t fit|does not fit|didn.?t fit|not fit|wrong size|runs small|runs large|broken|break|broke|poor quality|defect|defective|thin|softness|not soft|rough|scratchy|stiff|wrong color|different color|color mismatch|not as pictured|looks different|leak|leaking|spill|spilled|crack|cracked|chip|chipped|damaged|damage|unsafe|danger|hazard|not compatible|incompatible|late|delayed|lost|disappointed|return|refund|not worth|wobbly|unstable|confusing|unclear|missing)/i.test(normalized);
 }
 
 function containsExplicitCustomerProblemLanguage(text) {
-  return /(too small|too large|doesn.?t fit|does not fit|didn.?t fit|not fit|wrong size|runs small|runs large|broken|break|broke|poor quality|defect|defective|not soft|rough|scratchy|stiff|wrong color|different color|color mismatch|not as pictured|looks different|leak|leaking|spill|spilled|crack|cracked|chip|chipped|damaged|damage|unsafe|danger|hazard|not compatible|incompatible|late|delayed|lost|disappointed|not worth|wobbly|unstable|confusing|unclear|misleading|doesn.?t work|does not work|failed|failure)/i.test(String(text || ""));
+  const normalized = maskResolvedNegativeCustomerLanguage(normalizeText(text));
+  return /(too small|too large|doesn.?t fit|does not fit|didn.?t fit|not fit|wrong size|runs small|runs large|broken|break|broke|poor quality|defect|defective|not soft|rough|scratchy|stiff|wrong color|different color|color mismatch|not as pictured|looks different|leak|leaking|spill|spilled|crack|cracked|chip|chipped|damaged|damage|unsafe|danger|hazard|not compatible|incompatible|late|delayed|lost|disappointed|not worth|wobbly|unstable|confusing|unclear|misleading|doesn.?t work|does not work|failed|failure)/i.test(normalized);
 }
 
 function getNodes(connection) {
@@ -10767,6 +10815,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildIncrementalSinceDate,
   buildDiagnosisSourceFingerprint,
   normalizeAiClassifiedSignals,
+  countAiSignalsByIssue,
   classifyIssueText,
   getCsvReviewMatchConfidence,
   isShopifyQueryCostLimitError,
