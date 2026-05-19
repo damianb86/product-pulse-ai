@@ -507,23 +507,32 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
+  const candidateTableRows = data.candidateProductTable?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
+  const candidateRows = useMemo(() => candidateTableRows || [], [candidateTableRows]);
+  const allVisibleRows = useMemo(() => [...productRows, ...candidateRows], [productRows, candidateRows]);
   const productCount = data.productTable?.total ?? productRows.length;
+  const candidateCount = data.candidateProductTable?.total ?? candidateRows.length;
   const totalAllProducts = data.productTable?.totalAll ?? productCount;
+  const candidateTotalAllProducts = data.candidateProductTable?.totalAll ?? candidateCount;
   const filterOptions = data.productTable?.filterOptions || {};
-  const analysisFilterOptions = filterOptions.analysis || [
-    { value: "all", label: "All" },
-    { value: "quickscan", label: "QuickScan" },
-    { value: "full", label: "Full diagnostic" },
-  ];
+  const candidateFilters = filters.candidates || {};
+  const candidateFilterOptions = data.candidateProductTable?.filterOptions || filterOptions;
   const page = data.productTable?.page || 1;
   const rowsPerPage = data.productTable?.rowsPerPage || Number(filters.rows || 25);
   const totalPages = data.productTable?.totalPages || 1;
+  const candidatePage = data.candidateProductTable?.page || 1;
+  const candidateRowsPerPage = data.candidateProductTable?.rowsPerPage || Number(candidateFilters.rows || 25);
+  const candidateTotalPages = data.candidateProductTable?.totalPages || 1;
   const activeScanJob = data.productTable?.activeScanJob || null;
-  const activeDiagnosisJobs = data.productTable?.activeDiagnosisJobs || [];
+  const activeDiagnosisJobs = [
+    ...(data.productTable?.activeDiagnosisJobs || []),
+    ...(data.candidateProductTable?.activeDiagnosisJobs || []),
+  ];
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
   const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
+  const pendingCandidateAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-shopify-product-candidate";
   const pendingWatchlistAction = navigation.state === "submitting" && ["add-to-watchlist", "add-selected-to-watchlist", "remove-from-watchlist"].includes(String(navigation.formData?.get("_action") || ""));
   const pendingBulkWatchlistAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-selected-to-watchlist";
   const pendingDeleteAnalysis = navigation.state === "submitting" && navigation.formData?.get("_action") === "delete-product-analysis";
@@ -531,15 +540,18 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
   const quickScanCsvAvailable = isQuickScanCsvReviewSourceAvailable(data);
   const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
-  const visibleProductKeys = productRows.map(getProductActionKey);
+  const [localCandidateSortConfig, setLocalCandidateSortConfig] = useState(null);
+  const candidateSortConfig = localCandidateSortConfig || (candidateFilters.sort ? { key: candidateFilters.sort, direction: candidateFilters.direction || "desc" } : null);
   const selectedProductRows = useMemo(
-    () => productRows.filter((product) => selectedProducts.has(getProductActionKey(product))),
-    [productRows, selectedProducts],
+    () => allVisibleRows.filter((product) => selectedProducts.has(getProductActionKey(product))),
+    [allVisibleRows, selectedProducts],
   );
   const selectedCount = selectedProducts.size;
-  const allVisibleSelected = visibleProductKeys.length > 0 && visibleProductKeys.every((key) => selectedProducts.has(key));
-  const hasVisibleSelection = visibleProductKeys.some((key) => selectedProducts.has(key));
   const currentSearchQuery = filters.query || "";
+  const currentCandidateSearchQuery = candidateFilters.query || "";
+  const [candidateSearchOpen, setCandidateSearchOpen] = useState(Boolean(currentCandidateSearchQuery));
+  const [candidateSearchValue, setCandidateSearchValue] = useState(currentCandidateSearchQuery);
+  const candidateTableSearchInputRef = useRef(null);
   const normalizedShopifyProductSearchQuery = shopifyProductSearchQuery.trim();
   const shopifyProductSearchData = shopifyProductSearchFetcher.data || {};
   const shopifyProductSearchResponseQuery = String(shopifyProductSearchData.query || "");
@@ -554,20 +566,25 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const shopifyProductSearchError = shopifyProductSearchHasFreshResponse && shopifyProductSearchData.status === "validation_error"
     ? shopifyProductSearchData.message
     : "";
-  const submitProductFilters = (overrides = {}) => {
-    submit(buildProductFilterFormData(filters, { rows: String(rowsPerPage), ...overrides }), { method: "get", replace: true });
+  const submitProductFilters = (overrides = {}, table = "main") => {
+    const rowCount = table === "candidates" ? candidateRowsPerPage : rowsPerPage;
+    submit(buildProductFilterFormData(filters, { rows: String(rowCount), ...overrides }, table), { method: "get", replace: true });
   };
 
   useEffect(() => {
-    const hasProductDiagnosisJobs = activeDiagnosisJobs.length > 0 || productRows.some((product) => product.diagnosisJob);
+    const hasProductDiagnosisJobs = activeDiagnosisJobs.length > 0 || allVisibleRows.some((product) => product.diagnosisJob);
     if ((!activeScanJob && !hasProductDiagnosisJobs) || !persistProductJobs) return undefined;
     const interval = window.setInterval(() => revalidator.revalidate(), PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
-  }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, productRows, revalidator]);
+  }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, revalidator]);
 
   useEffect(() => {
     setLocalSortConfig(null);
   }, [filters.sort, filters.direction]);
+
+  useEffect(() => {
+    setLocalCandidateSortConfig(null);
+  }, [candidateFilters.sort, candidateFilters.direction]);
 
   useEffect(() => {
     setSearchValue(currentSearchQuery);
@@ -575,10 +592,21 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   }, [currentSearchQuery]);
 
   useEffect(() => {
+    setCandidateSearchValue(currentCandidateSearchQuery);
+    setCandidateSearchOpen(Boolean(currentCandidateSearchQuery));
+  }, [currentCandidateSearchQuery]);
+
+  useEffect(() => {
     if (!searchOpen) return;
     productTableSearchInputRef.current?.focus();
     productTableSearchInputRef.current?.select();
   }, [searchOpen]);
+
+  useEffect(() => {
+    if (!candidateSearchOpen) return;
+    candidateTableSearchInputRef.current?.focus();
+    candidateTableSearchInputRef.current?.select();
+  }, [candidateSearchOpen]);
 
   useEffect(() => {
     if (searchValue === currentSearchQuery) return undefined;
@@ -594,7 +622,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     currentSearchQuery,
     filters.risk,
     filters.status,
-    filters.analysis,
     filters.issue,
     filters.source,
     filters.vendor,
@@ -604,6 +631,32 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     filters.direction,
     filters,
     rowsPerPage,
+    submit,
+  ]);
+
+  useEffect(() => {
+    if (candidateSearchValue === currentCandidateSearchQuery) return undefined;
+    const timeout = window.setTimeout(() => {
+      submit(
+        buildProductFilterFormData(filters, { rows: String(candidateRowsPerPage), query: candidateSearchValue, page: "1" }, "candidates"),
+        { method: "get", replace: true },
+      );
+    }, 260);
+    return () => window.clearTimeout(timeout);
+  }, [
+    candidateSearchValue,
+    currentCandidateSearchQuery,
+    candidateFilters.risk,
+    candidateFilters.status,
+    candidateFilters.issue,
+    candidateFilters.source,
+    candidateFilters.vendor,
+    candidateFilters.collection,
+    candidateFilters.rows,
+    candidateFilters.sort,
+    candidateFilters.direction,
+    filters,
+    candidateRowsPerPage,
     submit,
   ]);
 
@@ -632,6 +685,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
       setSelectedProducts(new Set());
       setAnalysisConfirmation(null);
       setShopifyProductSearchOpen(false);
+    }
+    if (actionData?.status === "success" && actionData?.action?.id === "add-shopify-product-candidate") {
+      setShopifyProductSearchOpen(false);
+      setShopifyProductSearchQuery("");
     }
     if (["add-watched-product", "add-watched-products", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistConfirmation(null);
@@ -686,25 +743,41 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     submit(formData, { method: "post" });
   };
 
-  const handleSort = (key) => {
-    const nextDirection = sortConfig?.key === key && sortConfig.direction === "desc" ? "asc" : "desc";
-    setLocalSortConfig({ key, direction: nextDirection });
-    submitProductFilters({ sort: key, direction: nextDirection, page: "1" });
+  const handleSort = (key, table = "main") => {
+    const currentSortConfig = table === "candidates" ? candidateSortConfig : sortConfig;
+    const nextDirection = currentSortConfig?.key === key && currentSortConfig.direction === "desc" ? "asc" : "desc";
+    if (table === "candidates") {
+      setLocalCandidateSortConfig({ key, direction: nextDirection });
+    } else {
+      setLocalSortConfig({ key, direction: nextDirection });
+    }
+    submitProductFilters({ sort: key, direction: nextDirection, page: "1" }, table);
   };
 
-  const handleFilterChange = (event) => {
+  const handleFilterChange = (event, table = "main") => {
     const target = event.target;
     if (!target?.name) return;
-    submitProductFilters({ [target.name]: target.value, page: "1" });
+    submitProductFilters({ [target.name]: target.value, page: "1" }, table);
   };
 
-  const handleToggleAllVisible = () => {
+  const getRowsSelectionState = (rows) => {
+    const keys = rows.map(getProductActionKey);
+    return {
+      keys,
+      selectedCount: rows.filter((product) => selectedProducts.has(getProductActionKey(product))).length,
+      allSelected: keys.length > 0 && keys.every((key) => selectedProducts.has(key)),
+      hasSelection: keys.some((key) => selectedProducts.has(key)),
+    };
+  };
+
+  const handleToggleRows = (rows) => {
+    const selectionState = getRowsSelectionState(rows);
     setSelectedProducts((current) => {
       const next = new Set(current);
-      if (allVisibleSelected) {
-        visibleProductKeys.forEach((key) => next.delete(key));
+      if (selectionState.allSelected) {
+        selectionState.keys.forEach((key) => next.delete(key));
       } else {
-        visibleProductKeys.forEach((key) => next.add(key));
+        selectionState.keys.forEach((key) => next.add(key));
       }
       return next;
     });
@@ -798,12 +871,344 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     });
   };
 
+  const handleAddShopifyProductCandidate = (product) => {
+    if (pendingCandidateAdd || !product?.id) return;
+    const formData = new FormData();
+    formData.set("_action", "add-shopify-product-candidate");
+    formData.set("productId", product.id);
+    submit(formData, { method: "post" });
+  };
+
   const handleConfirmAnalysis = () => {
     if (!analysisConfirmation?.products?.length || pendingBulkAnalyze) return;
     const formData = new FormData();
     formData.set("_action", "bulk-diagnose");
     analysisConfirmation.products.forEach((productId) => formData.append("productId", productId));
     submit(formData, { method: "post" });
+  };
+
+  const renderProductFilters = ({ table = "main", tableFilters = {}, tableFilterOptions = {}, includeActions = false }) => (
+    <s-section padding="none">
+      <div className={`ppProductsToolbar ${table === "candidates" ? "ppProductsCandidatesToolbar" : ""}`.trim()}>
+        <div className="ppProductsFilters" aria-label={table === "candidates" ? "Candidate filters" : "Product filters"}>
+          <div className="ppProductsFilterPills">
+            <ProductFilterPillGroup
+              name="risk"
+              label="Risk"
+              value={tableFilters.risk || "all"}
+              options={tableFilterOptions.risks}
+              onChange={(value) => submitProductFilters({ risk: value, page: "1" }, table)}
+            />
+            <ProductFilterPillGroup
+              name="status"
+              label="Status"
+              value={tableFilters.status || "all"}
+              options={tableFilterOptions.statuses}
+              onChange={(value) => submitProductFilters({ status: value, page: "1" }, table)}
+            />
+          </div>
+          <div className="ppProductsSelectFilters" onChange={(event) => handleFilterChange(event, table)}>
+            <ProductFilterSelect name="issue" label="Issue type" value={tableFilters.issue || "all"} options={tableFilterOptions.issues} />
+            <ProductFilterSelect name="source" label="Source" value={tableFilters.source || "all"} options={tableFilterOptions.sources} />
+            <ProductFilterSearchInput name="vendor" label="Vendor" value={tableFilters.vendor || ""} options={tableFilterOptions.vendors} scope={table} />
+            <ProductFilterSearchInput name="collection" label="Collection" value={tableFilters.collection || ""} options={tableFilterOptions.collections} scope={table} />
+          </div>
+        </div>
+        {includeActions && (
+          <div className="ppProductsSecondaryActions">
+            <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
+              <s-icon type="wand" size="small"></s-icon>
+              {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
+            </button>
+            {selectedCount > 0 && (
+              <button className="ppSecondaryActionButton ppProductsWatchlistBulkButton" type="button" disabled={pendingBulkWatchlistAdd} onClick={handleAddSelectedToWatchlist}>
+                <s-icon type="binoculars" size="small"></s-icon>
+                {pendingBulkWatchlistAdd ? "Adding..." : "Add to Watchlist"}
+              </button>
+            )}
+            <Link className="ppSecondaryActionButton" to="/app/products">
+              <s-icon type="x" size="small"></s-icon>
+              Clear filters
+            </Link>
+          </div>
+        )}
+      </div>
+    </s-section>
+  );
+
+  const renderProductTable = ({
+    table = "main",
+    title,
+    description,
+    rows,
+    count,
+    totalAll,
+    currentPage,
+    pageSize,
+    pages,
+    tableSortConfig,
+    searchState,
+    emptyTitle,
+    emptyDescription,
+    tableTestId,
+    showFindProduct = false,
+  }) => {
+    const selectionState = getRowsSelectionState(rows);
+    const productLabel = table === "candidates" ? "candidates" : "products";
+
+    return (
+      <s-section className={`ppProductsTableSection ${table === "candidates" ? "ppProductsCandidatesSection" : ""}`.trim()} padding="none">
+        <div className="ppProductsTableHeading">
+          <div>
+            <h2>{title}</h2>
+            <p>{description}</p>
+          </div>
+        </div>
+        <div className="ppProductsTableStatus">
+          {selectionState.selectedCount > 0 && rows.length > 0 && (
+            <div className="ppSelectionPill">
+              <span>{selectionState.selectedCount}</span>
+              selected
+              <button type="button" aria-label={`Clear selected ${productLabel}`} onClick={() => setSelectedProducts(new Set())}>
+                <s-icon type="x" size="small"></s-icon>
+              </button>
+            </div>
+          )}
+          <span>
+            {rows.length > 0
+              ? `${rows.length} of ${count} ${productLabel}${totalAll !== count ? ` (${totalAll} stored)` : ""}`
+              : table === "candidates" ? "No candidates in this view" : "No full diagnostics in this view"}
+          </span>
+          <div className="ppProductsTableTools">
+            {showFindProduct && (
+              <button
+                className="ppTableFindProductButton"
+                type="button"
+                onClick={() => setShopifyProductSearchOpen(true)}
+              >
+                <span className="ppShopifyTinyIcon" aria-hidden="true">S</span>
+                Find Shopify product
+              </button>
+            )}
+            {!searchState.open && (
+              <button
+                className="ppTableSearchButton"
+                type="button"
+                aria-label={`Search ${productLabel}`}
+                aria-expanded={searchState.open}
+                onClick={() => searchState.setOpen(true)}
+              >
+                <s-icon type="search" size="small"></s-icon>
+              </button>
+            )}
+            {searchState.open && (
+              <div className="ppTableSearchControl">
+                <s-icon type="search" size="small"></s-icon>
+                <input
+                  ref={searchState.inputRef}
+                  aria-label={`Search ${productLabel}`}
+                  value={searchState.value}
+                  onChange={(event) => searchState.setValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") searchState.setOpen(false);
+                  }}
+                  placeholder={`Search ${productLabel}`}
+                  type="search"
+                />
+                <button type="button" aria-label={`Close ${productLabel} search`} onClick={() => searchState.setOpen(false)}>
+                  <s-icon type="x" size="small"></s-icon>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="ppProductsTableWrap">
+          <table className="ppProductsTable" data-testid={tableTestId}>
+            <thead>
+              <tr>
+                <th aria-label={`Select ${productLabel}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectionState.allSelected}
+                    aria-checked={selectionState.hasSelection && !selectionState.allSelected ? "mixed" : selectionState.allSelected}
+                    aria-label={`Select all visible ${productLabel}`}
+                    onChange={() => handleToggleRows(rows)}
+                  />
+                </th>
+                <th>Product</th>
+                <th>
+                  <SortableHeader
+                    active={tableSortConfig?.key === "riskScore"}
+                    direction={tableSortConfig?.direction}
+                    label="Product risk"
+                    onSort={() => handleSort("riskScore", table)}
+                  />
+                </th>
+                <th>Trend</th>
+                <th>Momentum</th>
+                <th>Status</th>
+                <th>Evidence</th>
+                <th>Main suspected issue</th>
+                <th>Sources</th>
+                <th>
+                  <SortableHeader
+                    active={tableSortConfig?.key === "lastAnalysis"}
+                    direction={tableSortConfig?.direction}
+                    label="Last analysis"
+                    onSort={() => handleSort("lastAnalysis", table)}
+                  />
+                </th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr className="ppProductsEmptyRow">
+                  <td colSpan="11">
+                    <div className="ppProductsEmptyState">
+                      <DashboardIcon type="search" tone="blue" />
+                      <div>
+                        <h2>{emptyTitle}</h2>
+                        <p>{emptyDescription}</p>
+                      </div>
+                      <FastScanButton
+                        pending={fastScanRunning}
+                        onStart={handleStartFastScan}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {rows.map((product) => {
+                const actionKey = getProductActionKey(product);
+                const selected = selectedProducts.has(actionKey);
+                const diagnosisState = getProductDiagnosisState(product, pendingAnalyzeIds);
+                const rowClassName = [
+                  diagnosisState ? "isDiagnosing" : "",
+                  product.resolvedAt ? "isResolved" : "",
+                ].filter(Boolean).join(" ");
+
+                return (
+                  <tr className={rowClassName} key={actionKey}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        aria-label={`Select ${product.title}`}
+                        onChange={() => handleToggleProduct(product)}
+                      />
+                    </td>
+                    <td>
+                      <Link className="ppProductsProductCell" to={product.href}>
+                        <span className="ppProductImageWrap">
+                          <ProductArt
+                            variant={product.variant}
+                            label={product.title}
+                            imageUrl={product.imageUrl}
+                            imageAlt={product.imageAlt}
+                          />
+                          {diagnosisState && (
+                            <span className="ppProductDiagnosisLoader" aria-label={`${diagnosisState.label} for ${product.title}`}>
+                              <span aria-hidden="true" />
+                            </span>
+                          )}
+                        </span>
+                        <span className="ppProductsProductText">
+                          <span>{product.title}</span>
+                          {diagnosisState && <small>{diagnosisState.label}</small>}
+                          {product.resolvedAt && (
+                            <small className="ppResolvedProductMarker">
+                              <s-icon type="check" size="small"></s-icon>
+                              {product.resolvedLabel || "Resolved"}
+                            </small>
+                          )}
+                        </span>
+                      </Link>
+                    </td>
+                    <td>
+                      <div className="ppRiskScoreCell">
+                        <s-badge tone={product.riskTone}>{product.risk}</s-badge>
+                        <span>{product.riskScore}</span>
+                      </div>
+                    </td>
+                    <td><ProductRiskTrendCell product={product} /></td>
+                    <td><ProductMomentumCell product={product} onWatchlistToggle={handleRequestWatchlistToggle} /></td>
+                    <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
+                    <td>
+                      <ProductSignalCell product={product} />
+                    </td>
+                    <td>{product.issue}</td>
+                    <td><ProductSourceIconGroup sources={product.sources} overflow={product.sourceOverflow} /></td>
+                    <td>{product.lastAnalysis}</td>
+                    <td>
+                      <div className="ppTableAction">
+                        <button
+                          className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary ppAnalyzeIconOnly"
+                          type="button"
+                          aria-label={`Analyze ${product.title}`}
+                          disabled={pendingBulkAnalyze}
+                          onClick={() => handleAnalyzeProduct(product)}
+                        >
+                          <s-icon type="wand" size="small"></s-icon>
+                        </button>
+                        <ProductActionMenu
+                          product={product}
+                          open={openActionProduct === actionKey}
+                          onToggle={() => setOpenActionProduct((current) => (current === actionKey ? null : actionKey))}
+                          onClose={() => setOpenActionProduct(null)}
+                          onWatchlistToggle={handleRequestWatchlistToggle}
+                          onDeleteAnalysis={handleRequestDeleteAnalysis}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {rows.length > 0 && (
+          <div className="ppProductsPagination">
+            <label className="ppRowsSelect">
+              Rows per page
+              <select value={pageSize} onChange={(event) => submitProductFilters({ rows: event.target.value, page: "1" }, table)}>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+            <div className="ppPageControls" aria-label={`${title} pagination`}>
+              {currentPage > 1 ? (
+                <Link to={buildProductFilterHref(filters, { rows: pageSize, page: currentPage - 1 }, table)} aria-label="Previous page">
+                  <s-icon type="chevron-left" size="small"></s-icon>
+                </Link>
+              ) : (
+                <button type="button" aria-label="Previous page" disabled>
+                  <s-icon type="chevron-left" size="small"></s-icon>
+                </button>
+              )}
+              {getVisiblePages(currentPage, pages).map((pageNumber) => (
+                <Link
+                  className={pageNumber === currentPage ? "isActive" : ""}
+                  to={buildProductFilterHref(filters, { rows: pageSize, page: pageNumber }, table)}
+                  key={pageNumber}
+                >
+                  {pageNumber}
+                </Link>
+              ))}
+              {currentPage < pages ? (
+                <Link to={buildProductFilterHref(filters, { rows: pageSize, page: currentPage + 1 }, table)} aria-label="Next page">
+                  <s-icon type="chevron-right" size="small"></s-icon>
+                </Link>
+              ) : (
+                <button type="button" aria-label="Next page" disabled>
+                  <s-icon type="chevron-right" size="small"></s-icon>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </s-section>
+    );
   };
 
   return (
@@ -823,300 +1228,70 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           </div>
           <ActionBanner actionData={actionData} />
 
-          <s-section padding="none">
-            <div className="ppProductsToolbar">
-              <div className="ppProductsFilters" aria-label="Product filters">
-                <div className="ppProductsFilterPills">
-                  <ProductFilterPillGroup
-                    name="analysis"
-                    label="Analysis"
-                    value={filters.analysis || "all"}
-                    options={analysisFilterOptions}
-                    onChange={(value) => submitProductFilters({ analysis: value, page: "1" })}
-                  />
-                  <ProductFilterPillGroup
-                    name="risk"
-                    label="Risk"
-                    value={filters.risk || "all"}
-                    options={filterOptions.risks}
-                    onChange={(value) => submitProductFilters({ risk: value, page: "1" })}
-                  />
-                  <ProductFilterPillGroup
-                    name="status"
-                    label="Status"
-                    value={filters.status || "all"}
-                    options={filterOptions.statuses}
-                    onChange={(value) => submitProductFilters({ status: value, page: "1" })}
-                  />
-                </div>
-                <div className="ppProductsSelectFilters" onChange={handleFilterChange}>
-                  <ProductFilterSelect name="issue" label="Issue type" value={filters.issue || "all"} options={filterOptions.issues} />
-                  <ProductFilterSelect name="source" label="Source" value={filters.source || "all"} options={filterOptions.sources} />
-                  <ProductFilterSearchInput name="vendor" label="Vendor" value={filters.vendor || ""} options={filterOptions.vendors} />
-                  <ProductFilterSearchInput name="collection" label="Collection" value={filters.collection || ""} options={filterOptions.collections} />
-                </div>
-              </div>
-              <div className="ppProductsSecondaryActions">
-                <button className="ppPrimaryButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
-                  <s-icon type="wand" size="small"></s-icon>
-                  {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
-                </button>
-                {selectedCount > 0 && (
-                  <button className="ppSecondaryActionButton ppProductsWatchlistBulkButton" type="button" disabled={pendingBulkWatchlistAdd} onClick={handleAddSelectedToWatchlist}>
-                    <s-icon type="binoculars" size="small"></s-icon>
-                    {pendingBulkWatchlistAdd ? "Adding..." : "Add to Watchlist"}
-                  </button>
-                )}
-                <Link className="ppSecondaryActionButton" to="/app/products">
-                  <s-icon type="x" size="small"></s-icon>
-                  Clear filters
-                </Link>
-              </div>
-            </div>
-          </s-section>
+          {renderProductFilters({
+            table: "main",
+            tableFilters: filters,
+            tableFilterOptions: filterOptions,
+            includeActions: true,
+          })}
 
-          <s-section className="ppProductsTableSection" padding="none">
-            <div className="ppProductsTableStatus">
-              {selectedCount > 0 && productRows.length > 0 && (
-              <div className="ppSelectionPill">
-                <span>{selectedCount}</span>
-                selected
-                <button type="button" aria-label="Clear selected products" onClick={() => setSelectedProducts(new Set())}>
-                  <s-icon type="x" size="small"></s-icon>
-                </button>
-              </div>
-              )}
-              <span>{productRows.length > 0 ? `${productRows.length} of ${productCount} products${totalAllProducts !== productCount ? ` (${totalAllProducts} scanned)` : ""}` : "No products in ProductPulse yet"}</span>
-              <div className="ppProductsTableTools">
-                <button
-                  className="ppTableFindProductButton"
-                  type="button"
-                  onClick={() => setShopifyProductSearchOpen(true)}
-                >
-                  <span className="ppShopifyTinyIcon" aria-hidden="true">S</span>
-                  Find Shopify product
-                </button>
-                {!searchOpen && (
-                  <button
-                    className="ppTableSearchButton"
-                    type="button"
-                    aria-label="Search products"
-                    aria-expanded={searchOpen}
-                    onClick={() => setSearchOpen(true)}
-                  >
-                    <s-icon type="search" size="small"></s-icon>
-                  </button>
-                )}
-                {searchOpen && (
-                  <div className="ppTableSearchControl">
-                    <s-icon type="search" size="small"></s-icon>
-                    <input
-                      ref={productTableSearchInputRef}
-                      aria-label="Search products"
-                      value={searchValue}
-                      onChange={(event) => setSearchValue(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") setSearchOpen(false);
-                      }}
-                      placeholder="Search products"
-                      type="search"
-                    />
-                    <button type="button" aria-label="Close product search" onClick={() => setSearchOpen(false)}>
-                      <s-icon type="x" size="small"></s-icon>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="ppProductsTableWrap">
-            <table className="ppProductsTable" data-testid="products-table">
-              <thead>
-                <tr>
-                  <th aria-label="Select products">
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      aria-checked={hasVisibleSelection && !allVisibleSelected ? "mixed" : allVisibleSelected}
-                      aria-label="Select all visible products"
-                      onChange={handleToggleAllVisible}
-                    />
-                  </th>
-                  <th>Product</th>
-                  <th>
-                    <SortableHeader
-                      active={sortConfig?.key === "riskScore"}
-                      direction={sortConfig?.direction}
-                      label="Product risk"
-                      onSort={() => handleSort("riskScore")}
-                    />
-                  </th>
-                  <th>Trend</th>
-                  <th>Momentum</th>
-                  <th>Status</th>
-                  <th>Analysis</th>
-                  <th>Evidence</th>
-                  <th>Main suspected issue</th>
-                  <th>Sources</th>
-                  <th>
-                    <SortableHeader
-                      active={sortConfig?.key === "lastAnalysis"}
-                      direction={sortConfig?.direction}
-                      label="Last analysis"
-                      onSort={() => handleSort("lastAnalysis")}
-                    />
-                  </th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productRows.length === 0 && (
-                  <tr className="ppProductsEmptyRow">
-                    <td colSpan="12">
-                      <div className="ppProductsEmptyState">
-                        <DashboardIcon type="search" tone="blue" />
-                        <div>
-                          <h2>No scanned products yet</h2>
-                          <p>Run a quick catalog scan to look for early product quality signals across your store.</p>
-                        </div>
-                        <FastScanButton
-                          pending={fastScanRunning}
-                          onStart={handleStartFastScan}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {productRows.map((product) => {
-                  const actionKey = getProductActionKey(product);
-                  const selected = selectedProducts.has(actionKey);
-                  const diagnosisState = getProductDiagnosisState(product, pendingAnalyzeIds);
+          {renderProductTable({
+            table: "main",
+            title: "Full diagnostics",
+            description: "Products with completed or running deep AI diagnosis.",
+            rows: productRows,
+            count: productCount,
+            totalAll: totalAllProducts,
+            currentPage: page,
+            pageSize: rowsPerPage,
+            pages: totalPages,
+            tableSortConfig: sortConfig,
+            tableTestId: "products-table",
+            showFindProduct: true,
+            searchState: {
+              open: searchOpen,
+              value: searchValue,
+              inputRef: productTableSearchInputRef,
+              setOpen: setSearchOpen,
+              setValue: setSearchValue,
+            },
+            emptyTitle: "No full diagnostics yet",
+            emptyDescription: "Run product diagnosis from Candidates or find a Shopify product to start a deep analysis.",
+          })}
 
-                  const rowClassName = [
-                    diagnosisState ? "isDiagnosing" : "",
-                    product.resolvedAt ? "isResolved" : "",
-                  ].filter(Boolean).join(" ");
-
-                  return (
-                    <tr className={rowClassName} key={actionKey}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          aria-label={`Select ${product.title}`}
-                          onChange={() => handleToggleProduct(product)}
-                        />
-                      </td>
-                      <td>
-                        <Link className="ppProductsProductCell" to={product.href}>
-                          <span className="ppProductImageWrap">
-                            <ProductArt
-                              variant={product.variant}
-                              label={product.title}
-                              imageUrl={product.imageUrl}
-                              imageAlt={product.imageAlt}
-                            />
-                            {diagnosisState && (
-                              <span className="ppProductDiagnosisLoader" aria-label={`${diagnosisState.label} for ${product.title}`}>
-                                <span aria-hidden="true" />
-                              </span>
-                            )}
-                          </span>
-                          <span className="ppProductsProductText">
-                            <span>{product.title}</span>
-                            {diagnosisState && <small>{diagnosisState.label}</small>}
-                            {product.resolvedAt && (
-                              <small className="ppResolvedProductMarker">
-                                <s-icon type="check" size="small"></s-icon>
-                                {product.resolvedLabel || "Resolved"}
-                              </small>
-                            )}
-                          </span>
-                        </Link>
-                      </td>
-                      <td>
-                        <div className="ppRiskScoreCell">
-                          <s-badge tone={product.riskTone}>{product.risk}</s-badge>
-                          <span>{product.riskScore}</span>
-                        </div>
-                      </td>
-                      <td><ProductRiskTrendCell product={product} /></td>
-                      <td><ProductMomentumCell product={product} onWatchlistToggle={handleRequestWatchlistToggle} /></td>
-                      <td><s-badge tone={product.statusTone}>{product.status}</s-badge></td>
-                      <td><ProductAnalysisStatusBadge product={product} showLabel={false} /></td>
-                      <td>
-                        <ProductSignalCell product={product} />
-                      </td>
-                      <td>{product.issue}</td>
-                      <td><ProductSourceIconGroup sources={product.sources} overflow={product.sourceOverflow} /></td>
-                      <td>{product.lastAnalysis}</td>
-                      <td>
-                        <div className="ppTableAction">
-                          <button
-                            className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary ppAnalyzeIconOnly"
-                            type="button"
-                            aria-label={`Analyze ${product.title}`}
-                            disabled={pendingBulkAnalyze}
-                            onClick={() => handleAnalyzeProduct(product)}
-                          >
-                            <s-icon type="wand" size="small"></s-icon>
-                          </button>
-                          <ProductActionMenu
-                            product={product}
-                            open={openActionProduct === actionKey}
-                            onToggle={() => setOpenActionProduct((current) => (current === actionKey ? null : actionKey))}
-                            onClose={() => setOpenActionProduct(null)}
-                            onWatchlistToggle={handleRequestWatchlistToggle}
-                            onDeleteAnalysis={handleRequestDeleteAnalysis}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="ppProductsCandidateDivider">
+            <span>Candidate products</span>
+            <p>QuickScan-only products worth reviewing before spending a deep-diagnosis run.</p>
           </div>
-          {productRows.length > 0 && (
-            <div className="ppProductsPagination">
-              <label className="ppRowsSelect">
-                Rows per page
-                <select value={rowsPerPage} onChange={(event) => submitProductFilters({ rows: event.target.value, page: "1" })}>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                </select>
-              </label>
-              <div className="ppPageControls" aria-label="Pagination">
-                {page > 1 ? (
-                  <Link to={buildProductFilterHref(filters, { rows: rowsPerPage, page: page - 1 })} aria-label="Previous page">
-                    <s-icon type="chevron-left" size="small"></s-icon>
-                  </Link>
-                ) : (
-                  <button type="button" aria-label="Previous page" disabled>
-                    <s-icon type="chevron-left" size="small"></s-icon>
-                  </button>
-                )}
-                {getVisiblePages(page, totalPages).map((pageNumber) => (
-                  <Link
-                    className={pageNumber === page ? "isActive" : ""}
-                    to={buildProductFilterHref(filters, { rows: rowsPerPage, page: pageNumber })}
-                    key={pageNumber}
-                  >
-                    {pageNumber}
-                  </Link>
-                ))}
-                {page < totalPages ? (
-                  <Link to={buildProductFilterHref(filters, { rows: rowsPerPage, page: page + 1 })} aria-label="Next page">
-                    <s-icon type="chevron-right" size="small"></s-icon>
-                  </Link>
-                ) : (
-                  <button type="button" aria-label="Next page" disabled>
-                    <s-icon type="chevron-right" size="small"></s-icon>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          </s-section>
+
+          {renderProductFilters({
+            table: "candidates",
+            tableFilters: candidateFilters,
+            tableFilterOptions: candidateFilterOptions,
+          })}
+
+          {renderProductTable({
+            table: "candidates",
+            title: "Candidates",
+            description: "Products captured by QuickScan or added manually, without a completed deep diagnosis yet.",
+            rows: candidateRows,
+            count: candidateCount,
+            totalAll: candidateTotalAllProducts,
+            currentPage: candidatePage,
+            pageSize: candidateRowsPerPage,
+            pages: candidateTotalPages,
+            tableSortConfig: candidateSortConfig,
+            tableTestId: "products-candidates-table",
+            searchState: {
+              open: candidateSearchOpen,
+              value: candidateSearchValue,
+              inputRef: candidateTableSearchInputRef,
+              setOpen: setCandidateSearchOpen,
+              setValue: setCandidateSearchValue,
+            },
+            emptyTitle: "No candidates yet",
+            emptyDescription: "Run QuickScan or add a Shopify product as a candidate without starting a diagnosis.",
+          })}
         </div>
       </ScreenShell>
       {fastScanRunning && (
@@ -1139,8 +1314,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           pending={shopifyProductSearchPending}
           error={shopifyProductSearchError}
           onAnalyze={handleAnalyzeShopifyProduct}
+          onAddCandidate={handleAddShopifyProductCandidate}
           onCancel={() => setShopifyProductSearchOpen(false)}
           onQueryChange={setShopifyProductSearchQuery}
+          actionLabel="Run diagnostics"
         />
       )}
       {analysisConfirmation && (
@@ -3016,6 +3193,8 @@ function ShopifyProductSearchModal({
   actionIcon = "wand",
   addedProductIds = [],
   addedActionLabel = "Added",
+  onAddCandidate,
+  candidateActionLabel = "Add to Candidates",
 }) {
   const normalizedQuery = query.trim();
   const hasQuery = normalizedQuery.length >= 2;
@@ -3099,15 +3278,29 @@ function ShopifyProductSearchModal({
                         {[product.status, product.detail, product.sku ? `SKU ${product.sku}` : ""].filter(Boolean).join(" - ")}
                       </small>
                     </div>
-                    <button
-                      className="ppShopifyProductResultAction"
-                      type="button"
-                      disabled={alreadyAdded}
-                      onClick={() => onAnalyze(product)}
-                    >
-                      <s-icon type={alreadyAdded ? "check" : actionIcon} size="small"></s-icon>
-                      {alreadyAdded ? addedActionLabel : actionLabel}
-                    </button>
+                    <div className="ppShopifyProductResultActions">
+                      <ShopifyProductResultActionButton
+                        className="ppShopifyProductResultRunAction"
+                        disabled={alreadyAdded}
+                        icon={alreadyAdded ? "check" : actionIcon}
+                        label={alreadyAdded ? addedActionLabel : actionLabel}
+                        tooltip={alreadyAdded ? "This product is already in the current workflow." : "Run diagnostics and move this product into Full diagnostics while the job runs."}
+                        iconOnly={Boolean(onAddCandidate)}
+                        onClick={() => onAnalyze(product)}
+                      />
+                      {onAddCandidate && (
+                        <ShopifyProductResultActionButton
+                          className="ppShopifyProductResultCandidateAction"
+                          disabled={alreadyAdded || getProductSearchStatus(product).tone !== "catalog"}
+                          icon="plus"
+                          label={candidateActionLabel}
+                          tooltip={getProductSearchStatus(product).tone === "catalog"
+                            ? "Add this product to Candidates without running any scan."
+                            : "This product is already stored in ProductPulse."}
+                          onClick={() => onAddCandidate(product)}
+                        />
+                      )}
+                    </div>
                   </article>
                 );
               })}
@@ -3120,6 +3313,43 @@ function ShopifyProductSearchModal({
         </div>
       </section>
     </div>
+  );
+}
+
+function ShopifyProductResultActionButton({
+  className = "",
+  disabled = false,
+  icon,
+  label,
+  tooltip,
+  iconOnly = false,
+  onClick,
+}) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        className={`ppShopifyProductResultAction ${iconOnly ? "ppShopifyProductResultActionIconOnly" : ""} ${className}`.trim()}
+        type="button"
+        ref={triggerRef}
+        disabled={disabled}
+        aria-label={iconOnly ? label : undefined}
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onClick={onClick}
+      >
+        <s-icon type={icon} size="small"></s-icon>
+        {!iconOnly && <span>{label}</span>}
+      </button>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppProductPulseSearchStatusPopover" width={236} placement="top-center">
+        <strong>{label}</strong>
+        {tooltip && <small>{tooltip}</small>}
+      </FloatingTablePopover>
+    </>
   );
 }
 
@@ -3228,12 +3458,12 @@ function ProductFilterSelect({ name, label, value, options }) {
   );
 }
 
-function ProductFilterSearchInput({ name, label, value, options }) {
+function ProductFilterSearchInput({ name, label, value, options, scope = "" }) {
   const normalizedOptions = Array.isArray(options) && options.length ? options.filter((option) => option.value !== "all") : [];
   const matchingOption = normalizedOptions.find((option) => option.value === value || option.label === value);
   const normalizedValue = !value || value === "all" ? "" : matchingOption?.label || value;
   const [draftValue, setDraftValue] = useState(normalizedValue);
-  const listId = `pp-products-${name}-options`;
+  const listId = `pp-products-${scope ? `${scope}-` : ""}${name}-options`;
 
   useEffect(() => {
     setDraftValue(normalizedValue);
@@ -3269,12 +3499,50 @@ function SortableHeader({ active, direction, label, onSort }) {
   );
 }
 
-function buildProductFilterFormData(current = {}, overrides = {}) {
-  const values = {
+const PRODUCT_FILTER_DEFAULTS = {
+  query: "",
+  risk: "all",
+  status: "all",
+  issue: "all",
+  source: "all",
+  vendor: "all",
+  collection: "all",
+  page: "1",
+  rows: "25",
+  sort: "",
+  direction: "desc",
+};
+
+function buildProductFilterFormData(current = {}, overrides = {}, table = "main") {
+  const mainValues = {
+    ...PRODUCT_FILTER_DEFAULTS,
+    ...current,
+  };
+  delete mainValues.candidates;
+  const candidateValues = {
+    ...PRODUCT_FILTER_DEFAULTS,
+    ...(current.candidates || {}),
+  };
+  const targetValues = table === "candidates" ? candidateValues : mainValues;
+  Object.assign(targetValues, overrides);
+
+  const formData = new FormData();
+  appendProductFilterFormValues(formData, mainValues);
+  appendProductFilterFormValues(formData, candidateValues, "candidate");
+
+  return formData;
+}
+
+function appendProductFilterFormValues(formData, values = {}, prefix = "") {
+  const getParamName = (name) => {
+    if (!prefix) return name === "query" ? "q" : name;
+    if (name === "query") return `${prefix}Q`;
+    return `${prefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+  };
+  const normalizedValues = {
     query: "",
     risk: "all",
     status: "all",
-    analysis: "all",
     issue: "all",
     source: "all",
     vendor: "all",
@@ -3283,27 +3551,23 @@ function buildProductFilterFormData(current = {}, overrides = {}) {
     rows: "25",
     sort: "",
     direction: "desc",
-    ...current,
-    ...overrides,
+    ...values,
   };
-  const formData = new FormData();
 
-  if (values.query) formData.set("q", values.query);
-  ["analysis", "risk", "status", "issue", "source", "vendor", "collection"].forEach((name) => {
-    if (values[name] && values[name] !== "all") formData.set(name, values[name]);
+  if (normalizedValues.query) formData.set(getParamName("query"), normalizedValues.query);
+  ["risk", "status", "issue", "source", "vendor", "collection"].forEach((name) => {
+    if (normalizedValues[name] && normalizedValues[name] !== "all") formData.set(getParamName(name), normalizedValues[name]);
   });
-  if (String(values.page || "1") !== "1") formData.set("page", String(values.page));
-  if (String(values.rows || "25") !== "25") formData.set("rows", String(values.rows));
-  if (values.sort) {
-    formData.set("sort", values.sort);
-    formData.set("direction", values.direction === "asc" ? "asc" : "desc");
+  if (String(normalizedValues.page || "1") !== "1") formData.set(getParamName("page"), String(normalizedValues.page));
+  if (String(normalizedValues.rows || "25") !== "25") formData.set(getParamName("rows"), String(normalizedValues.rows));
+  if (normalizedValues.sort) {
+    formData.set(getParamName("sort"), normalizedValues.sort);
+    formData.set(getParamName("direction"), normalizedValues.direction === "asc" ? "asc" : "desc");
   }
-
-  return formData;
 }
 
-function buildProductFilterHref(current = {}, overrides = {}) {
-  const params = new URLSearchParams(buildProductFilterFormData(current, overrides));
+function buildProductFilterHref(current = {}, overrides = {}, table = "main") {
+  const params = new URLSearchParams(buildProductFilterFormData(current, overrides, table));
   const query = params.toString();
   return query ? `/app/products?${query}` : "/app/products";
 }

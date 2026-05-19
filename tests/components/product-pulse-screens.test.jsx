@@ -111,8 +111,9 @@ describe("ProductPulse screens", () => {
   it("renders products table and analysis actions", () => {
     renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
     const table = screen.getByTestId("products-table");
-    expect(within(table).getByText("No scanned products yet")).toBeInTheDocument();
+    expect(within(table).getByText("No full diagnostics yet")).toBeInTheDocument();
     expect(within(table).queryByText("Credits")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("products-candidates-table")).getByText("No candidates yet")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Run quick scan/ }).length).toBeGreaterThan(1);
     expect(screen.getByRole("button", { name: "Find Shopify product" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Find Shopify product" }));
@@ -489,20 +490,17 @@ describe("ProductPulse screens", () => {
       },
     };
     renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
-    expect(screen.getByRole("button", { name: /Run quick scan/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Run quick scan/ }).length).toBeGreaterThan(0);
     expect(screen.getByText("Linen Shirt").closest("a")).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByAltText("Linen product")).toHaveAttribute("src", "https://cdn.example.com/linen-shirt.jpg");
     expect(screen.getByText("Diagnosis running")).toBeInTheDocument();
-    const analysisButton = screen.getByRole("button", { name: /Fast Analysis completed/ });
-    fireEvent.mouseEnter(analysisButton);
-    expect(await screen.findByText("Fast Analysis completed")).toBeInTheDocument();
-    expect(screen.getByText(/Only the fast Shopify scan has run/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analyze Linen Shirt" })).toBeInTheDocument();
     expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
-    fireEvent.click(screen.getByRole("button", { name: "Product risk" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Product risk" })[0]);
     expect(screen.getByText("↓")).toBeInTheDocument();
-    expect(screen.getByText("Evidence")).toBeInTheDocument();
-    expect(screen.getByText("Momentum")).toBeInTheDocument();
+    expect(screen.getAllByText("Evidence").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Momentum").length).toBeGreaterThan(0);
     const trendLink = screen.getByRole("link", { name: "Rising risk trend for Linen Shirt" });
     expect(within(trendLink).getByText("Rising")).toBeInTheDocument();
     expect(screen.getByText("Hot 86")).toBeInTheDocument();

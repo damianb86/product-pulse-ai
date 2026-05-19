@@ -190,13 +190,14 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+  const activeDiagnosisProductKeys = getActiveDiagnosisProductKeySet(activeDiagnosisJobs);
   const [latestDiagnosisByProductGid, resolvedActionsByProductGid] = await Promise.all([
     getLatestCompletedDiagnosisMap(shop, snapshots),
     getResolvedProductActionsMap(shop, snapshots),
   ]);
-  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid);
+  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
   const filteredSnapshots = sortProductSnapshots(
-    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid),
+    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys),
     filters,
     resolvedActionsByProductGid,
   );
@@ -232,6 +233,42 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
     settings,
     activeScanJob: activeJob ? formatJob(activeJob) : null,
     activeDiagnosisJobs: activeDiagnosisJobs.map(formatJob),
+  };
+}
+
+export async function addShopifyProductCandidateForShop(shop, admin, productId) {
+  const normalizedProductId = String(productId || "").trim();
+  if (!normalizedProductId) {
+    return { status: "validation_error", message: "Choose a Shopify product before adding it to Candidates." };
+  }
+
+  const existingSnapshot = await findProductRiskSnapshot(shop, normalizedProductId);
+  if (existingSnapshot) {
+    return {
+      status: "success",
+      message: `${existingSnapshot.productTitle || "This product"} is already stored in ProductPulse.`,
+      action: {
+        id: "add-shopify-product-candidate",
+        productGid: existingSnapshot.productGid,
+        handle: existingSnapshot.handle,
+        alreadyStored: true,
+      },
+    };
+  }
+
+  const snapshot = await createManualProductRiskSnapshot(shop, admin, normalizedProductId);
+  if (!snapshot) {
+    return { status: "validation_error", message: "ProductPulse could not find that Shopify product." };
+  }
+
+  return {
+    status: "success",
+    message: `${snapshot.productTitle || "Product"} was added to Candidates without running a diagnosis.`,
+    action: {
+      id: "add-shopify-product-candidate",
+      productGid: snapshot.productGid,
+      handle: snapshot.handle,
+    },
   };
 }
 
@@ -2489,13 +2526,28 @@ function getProductDiagnosisJobKeys(job) {
   ].filter(Boolean).map(String);
 }
 
+function getActiveDiagnosisProductKeySet(jobs = []) {
+  const keys = new Set();
+  jobs.forEach((job) => {
+    getProductDiagnosisJobKeys(job).forEach((key) => keys.add(key));
+  });
+  return keys;
+}
+
 function isPreferredProductDiagnosisJob(candidate, current) {
   if (candidate.status === "Running" && current.status !== "Running") return true;
   if (candidate.status !== "Running" && current.status === "Running") return false;
   return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime();
 }
 
-function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map(), settings = undefined, latestDiagnosisByProductGid = new Map()) {
+function filterProductSnapshots(
+  snapshots,
+  filters = {},
+  resolvedActionsByProductGid = new Map(),
+  settings = undefined,
+  latestDiagnosisByProductGid = new Map(),
+  activeDiagnosisProductKeys = new Set(),
+) {
   const query = String(filters.query || "").trim().toLowerCase();
 
   return snapshots.filter((snapshot) => {
@@ -2517,7 +2569,7 @@ function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProduc
     ].filter(Boolean).join(" ").toLowerCase();
 
     if (query && !searchable.includes(query)) return false;
-    if (filters.analysis && filters.analysis !== "all" && getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid) !== filters.analysis) return false;
+    if (filters.analysis && filters.analysis !== "all" && getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid, activeDiagnosisProductKeys) !== filters.analysis) return false;
     if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore, settings) !== filters.risk) return false;
     if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore, isResolved, settings) !== filters.status) return false;
     if (filters.issue && filters.issue !== "all" && slugifyFilterValue(snapshot.primaryIssue) !== filters.issue) return false;
@@ -2552,7 +2604,13 @@ function sortProductSnapshots(snapshots, filters = {}, resolvedActionsByProductG
   });
 }
 
-function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = new Map(), settings = undefined, latestDiagnosisByProductGid = new Map()) {
+function getProductTableFilterOptions(
+  snapshots,
+  resolvedActionsByProductGid = new Map(),
+  settings = undefined,
+  latestDiagnosisByProductGid = new Map(),
+  activeDiagnosisProductKeys = new Set(),
+) {
   const issues = new Map();
   const sources = new Map();
   const vendors = new Map();
@@ -2563,7 +2621,7 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
   snapshots.forEach((snapshot) => {
     const metrics = snapshot.metrics || {};
     const isResolved = resolvedActionsByProductGid.has(snapshot.productGid);
-    const analysisDepth = getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid);
+    const analysisDepth = getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
     if (analysisCounts[analysisDepth] !== undefined) analysisCounts[analysisDepth] += 1;
     addFilterOption(issues, snapshot.primaryIssue);
     addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved, settings), getStatusFilterValue(snapshot.riskScore, isResolved, settings));
@@ -2592,7 +2650,8 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
   };
 }
 
-function getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid = new Map()) {
+function getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid = new Map(), activeDiagnosisProductKeys = new Set()) {
+  if (activeDiagnosisProductKeys?.has(snapshot.productGid) || activeDiagnosisProductKeys?.has(snapshot.handle)) return "full";
   return getProductAnalysisState(snapshot, latestDiagnosisByProductGid.get(snapshot.productGid)).depth;
 }
 
