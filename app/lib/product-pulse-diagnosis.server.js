@@ -6449,13 +6449,18 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, sho
   buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, csvReviewData }).forEach((entry) => evidence.push(entry));
 
   if (textInsights.sentiment?.total || textInsights.repeatedLanguage?.length || ai.classification?.sentiment_summary?.summary) {
+    const refundInsights = deterministic.metrics.refundInsights || {};
+    const customerLanguageTotal = Number(textInsights.sentiment?.total || 0) + Number(refundInsights.sentiment?.total || 0);
+    const customerLanguageNegative = Number(textInsights.sentiment?.negative || 0) + Number(refundInsights.sentiment?.negative || 0);
+    const customerLanguageNeutral = Number(textInsights.sentiment?.neutral || 0) + Number(refundInsights.sentiment?.neutral || 0);
+    const customerLanguagePositive = Number(textInsights.sentiment?.positive || 0) + Number(refundInsights.sentiment?.positive || 0);
     evidence.push({
       source: "Customer language analysis",
       quote: ai.classification?.sentiment_summary?.summary || `Dominant sentiment: ${textInsights.sentiment?.dominant || "neutral"}`,
-      weight: `${textInsights.sentiment?.total || 0} customer text signal${textInsights.sentiment?.total === 1 ? "" : "s"} analyzed`,
+      weight: `${customerLanguageTotal || 0} customer text signal${customerLanguageTotal === 1 ? "" : "s"} analyzed across reviews, returns and refund notes`,
       points: [
-        textInsights.sentiment?.total
-          ? `${textInsights.sentiment.negative} negative, ${textInsights.sentiment.neutral} neutral, ${textInsights.sentiment.positive} positive text signals`
+        customerLanguageTotal
+          ? `${customerLanguageNegative} negative, ${customerLanguageNeutral} neutral, ${customerLanguagePositive} positive customer-language signals`
           : "",
         textInsights.returns?.sentiment?.total
           ? `Returns sentiment: ${textInsights.returns.sentiment.negative} negative, ${textInsights.returns.sentiment.neutral} neutral, ${textInsights.returns.sentiment.positive} positive`
@@ -6463,11 +6468,14 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, sho
         textInsights.reviews?.sentiment?.total
           ? `Reviews sentiment: ${textInsights.reviews.sentiment.negative} negative, ${textInsights.reviews.sentiment.neutral} neutral, ${textInsights.reviews.sentiment.positive} positive`
           : "",
-        deterministic.metrics.refundInsights?.noteCount
-          ? `Refund-note patterns: ${deterministic.metrics.refundInsights.noteCount} operational note${deterministic.metrics.refundInsights.noteCount === 1 ? "" : "s"} analyzed separately from customer sentiment`
+        refundInsights.sentiment?.total
+          ? `Refund-note sentiment: ${refundInsights.sentiment.negative} negative, ${refundInsights.sentiment.neutral} neutral, ${refundInsights.sentiment.positive} positive`
           : "",
-        deterministic.metrics.refundInsights?.reasonCount
-          ? `Refund reason/context patterns: ${deterministic.metrics.refundInsights.reasonCount} operational signal${deterministic.metrics.refundInsights.reasonCount === 1 ? "" : "s"} analyzed separately from customer sentiment`
+        refundInsights.noteCount
+          ? `Refund-note patterns: ${refundInsights.noteCount} operational note${refundInsights.noteCount === 1 ? "" : "s"} analyzed as customer language`
+          : "",
+        refundInsights.reasonCount
+          ? `Refund reason/context patterns: ${refundInsights.reasonCount} operational signal${refundInsights.reasonCount === 1 ? "" : "s"} analyzed as customer language`
           : "",
         textInsights.emotions?.length
           ? `Known emotion taxonomy: ${formatEmotionCounts(textInsights.emotions)}`
@@ -6480,6 +6488,7 @@ function buildFinalEvidence({ deterministic, ai, judgeMeData, csvReviewData, sho
           : "",
         ...((Array.isArray(textInsights.otherReturnClassifications) ? textInsights.otherReturnClassifications : []).slice(0, 5).map((item) => `"Other" return notes classified as ${item.label} ${item.count} time${item.count === 1 ? "" : "s"}`)),
         ...((textInsights.repeatedLanguage || []).slice(0, 5).map((item) => `"${item.term}" repeated ${item.count} time${item.count === 1 ? "" : "s"} across ${item.sources.join(" and ")}`)),
+        ...((refundInsights.repeatedLanguage || []).slice(0, 4).map((item) => `Refund-note language: "${item.term}" repeated ${item.count} time${item.count === 1 ? "" : "s"}`)),
         ...getFilteredAiRepeatedLanguage(ai).slice(0, 3).map((item) => `AI repeated-language finding: "${item.term}" - ${item.explanation || item.sentiment || "review"}`),
         ...aiEmergentSentiments.slice(0, 4).map((item) => `Emergent sentiment: ${item.label} (${item.signals} signal${item.signals === 1 ? "" : "s"}) - ${item.merchantSummary}`),
       ].filter(Boolean),

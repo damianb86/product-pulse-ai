@@ -3901,20 +3901,44 @@ function getMainFindingParagraphs(value) {
 function getProductEvidenceSources(product) {
   if (!product.evidence?.length) return [];
 
-  return product.evidence
-    .map((item) => {
-      const points = getEvidencePoints(item, product);
-      return {
-        icon: getEvidenceIcon(item.source),
-        title: `${item.source}`,
-        summary: getEvidenceSourceSummary(item.source, points, product),
-        tone: getEvidenceSourceTone(item.source, points),
-        cards: getEvidenceSourceCards(item.source, points, product),
-        points,
-        priority: getEvidenceSourcePriority(item.source),
-      };
-    })
+  const groups = new Map();
+
+  product.evidence.forEach((item) => {
+    const title = getCanonicalEvidenceSourceTitle(item.source);
+    const points = getEvidencePoints(item, product);
+    const current = groups.get(title) || {
+      title,
+      points: [],
+      sourceTitles: [],
+    };
+
+    current.sourceTitles.push(item.source);
+    points.forEach((point) => {
+      if (point && !current.points.includes(point)) current.points.push(point);
+    });
+    groups.set(title, current);
+  });
+
+  return [...groups.values()]
+    .map((group) => ({
+      icon: getEvidenceIcon(group.title),
+      title: group.title,
+      summary: getEvidenceSourceSummary(group.title, group.points, product),
+      tone: getEvidenceSourceTone(group.title, group.points),
+      cards: getEvidenceSourceCards(group.title, group.points, product),
+      points: group.points,
+      priority: getEvidenceSourcePriority(group.title),
+      sourceTitles: group.sourceTitles,
+    }))
     .sort((first, second) => first.priority - second.priority);
+}
+
+function getCanonicalEvidenceSourceTitle(source = "") {
+  const normalized = String(source || "").toLowerCase().trim();
+  if (normalized === "shopify product" || normalized === "product content" || normalized === "variants") {
+    return "Shopify product";
+  }
+  return String(source || "Evidence source");
 }
 
 function getEvidenceSourceSummary(source, points = [], product = {}) {
@@ -4087,6 +4111,9 @@ function getEvidenceIcon(source) {
   if (normalized.includes("order") || normalized.includes("sales")) return "cash-dollar";
   if (normalized.includes("support")) return "question-circle";
   if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) return "note";
+  if (normalized.includes("ai evidence")) return "wand";
+  if (normalized.includes("product")) return "product";
+  if (normalized.includes("variant")) return "duplicate";
   if (normalized.includes("content") || normalized.includes("description")) return "note";
   return "duplicate";
 }
@@ -9011,6 +9038,12 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
       {sourceReportKind === "orders" && (
         <OrdersEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
       )}
+      {sourceReportKind === "shopify-product" && (
+        <ShopifyProductEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
+      )}
+      {sourceReportKind === "ai-synthesis" && (
+        <AiEvidenceSynthesisPanel source={activeSource} product={product} reportHref={reportHref} />
+      )}
       {sourceReportKind === "generic" && (
         <GenericEvidenceSourceReportPanel source={activeSource} product={product} reportHref={reportHref} cards={activeCards} />
       )}
@@ -9024,6 +9057,8 @@ function getEvidenceSourceReportKind(source = "") {
   if (isShopifyReturnsEvidenceSource(source)) return "returns";
   if (isShopifyOrdersEvidenceSource(source)) return "orders";
   if (isReviewEvidenceSource(source)) return "reviews";
+  if (isShopifyProductEvidenceSource(source)) return "shopify-product";
+  if (isAiEvidenceSynthesisSource(source)) return "ai-synthesis";
   return "generic";
 }
 
@@ -9051,6 +9086,14 @@ function isShopifyOrdersEvidenceSource(source = "") {
   return normalized.includes("order") || normalized.includes("sales");
 }
 
+function isShopifyProductEvidenceSource(source = "") {
+  return String(source || "").toLowerCase().trim() === "shopify product";
+}
+
+function isAiEvidenceSynthesisSource(source = "") {
+  return String(source || "").toLowerCase().includes("ai evidence synthesis");
+}
+
 function EvidenceObservabilityHeader({ detail }) {
   return (
     <div className="ppEvidenceObservabilityHeader">
@@ -9069,14 +9112,19 @@ function EvidenceObservabilityHeader({ detail }) {
 function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
   const metrics = product.metrics || {};
   const textInsights = metrics.textInsights || {};
-  const sentiment = normalizeEvidenceSentiment(textInsights.sentiment);
-  const topEmotion = getTopEvidenceEmotion(textInsights.emotions);
+  const sentiment = getCombinedCustomerLanguageSentiment(metrics);
+  const topEmotion = getTopCustomerLanguageEmotion(metrics);
   const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
   const emergentEmotion = getTopEvidenceEmotion(textInsights.aiEmergentSentiments);
-  const themes = getCustomerLanguageThemes(textInsights, source.points);
-  const signalBreakdown = getCustomerLanguageSignalBreakdown(textInsights);
-  const signalRows = getCustomerLanguageSignalRows(textInsights, themes);
-  const recurringThemeCount = Math.max(themes.length, Number(textInsights.repeatedLanguage?.length || 0), Number(textInsights.returns?.repeatedLanguage?.length || 0));
+  const themes = getCustomerLanguageThemes(textInsights, source.points, metrics);
+  const signalBreakdown = getCustomerLanguageSignalBreakdown(metrics);
+  const signalRows = getCustomerLanguageSignalRows(textInsights, themes, metrics);
+  const recurringThemeCount = Math.max(
+    themes.filter((theme) => Number(theme.count || 0) > 0).length,
+    Number(textInsights.repeatedLanguage?.length || 0),
+    Number(textInsights.returns?.repeatedLanguage?.length || 0),
+    Number(metrics.refundInsights?.repeatedLanguage?.length || 0),
+  );
   const aiConfidence = getCustomerLanguageAiConfidenceLabel({ textInsights, sentiment, source });
 
   return (
@@ -9084,10 +9132,10 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
       <EvidenceSourceReportHeader source={source} title="Customer language analysis" summary="AI analyzes customer language to uncover sentiment, emotions and recurring themes." />
 
       <div className="ppEvidenceHeroMetricStrip">
-        <EvidenceSourceStatCard icon="note" label="Text signals" value={formatInteger(sentiment.total)} detail="Signals detected" tone="blue" />
+        <EvidenceSourceStatCard icon="note" label="Text signals" value={formatInteger(sentiment.total)} detail="Reviews, return notes and refund notes" tone="blue" />
         <EvidenceSourceStatCard icon="alert-circle" label="Negative language" value={formatInteger(sentiment.negative)} detail={`${formatInteger(sentiment.neutral)} neutral / ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > 0 ? "red" : "teal"} />
-        <EvidenceSourceStatCard icon="target" label="Dominant emotion" value={formatEvidenceEmotionValue(topEmotion)} detail="Deterministic taxonomy" tone="violet" />
-        <EvidenceSourceStatCard icon="wand" label="AI emotions" value={formatEvidenceEmotionValue(topAiEmotion || emergentEmotion)} detail="Known AI labels" tone="violet" />
+        <EvidenceSourceStatCard icon="target" label="Dominant emotion" value={formatEvidenceEmotionLabelOnly(topEmotion)} detail={topEmotion?.count ? `Detected in ${formatInteger(topEmotion.count)} signals` : "No dominant emotion stored"} tone="violet" />
+        <EvidenceSourceStatCard icon="wand" label="AI emotions" value={formatEvidenceEmotionLabelOnly(topAiEmotion || emergentEmotion)} detail={(topAiEmotion || emergentEmotion)?.count ? `${formatInteger((topAiEmotion || emergentEmotion).count)} AI-labeled signals` : "No AI emotion label stored"} tone="violet" />
       </div>
 
       <section className="ppEvidenceReportSectionCard">
@@ -9100,7 +9148,7 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
         </div>
 
         <div className="ppCustomerSnapshotGrid">
-          <EvidenceSourceStatCard compact icon="target" label="Top emotion" value={formatEvidenceEmotionValue(topEmotion)} detail={`Detected in ${formatInteger(topEmotion?.count || 0)} signals`} tone="red" />
+          <EvidenceSourceStatCard compact icon="target" label="Top emotion" value={formatEvidenceEmotionLabelOnly(topEmotion)} detail={`Detected in ${formatInteger(topEmotion?.count || 0)} signals`} tone="red" />
           <EvidenceSourceStatCard compact icon="chart-line" label="Overall sentiment" value={getDominantSentimentLabel(sentiment)} detail={`${formatInteger(sentiment.negative)} negative · ${formatInteger(sentiment.neutral)} neutral · ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > sentiment.positive ? "red" : sentiment.positive > sentiment.negative ? "teal" : "blue"} />
           <EvidenceSourceStatCard compact icon="note" label="Recurring themes" value={formatInteger(recurringThemeCount)} detail="Themes found" tone="blue" />
           <EvidenceSourceStatCard compact icon="shield-check-mark" label="AI confidence" value={aiConfidence} detail="Signal quality" tone={aiConfidence === "High" ? "teal" : aiConfidence === "Medium" ? "amber" : "blue"} />
@@ -9134,7 +9182,7 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
                 <th>Signal type</th>
                 <th>What it means</th>
                 <th>Count</th>
-                <th>Trend</th>
+                <th>Source detail</th>
               </tr>
             </thead>
             <tbody>
@@ -9541,6 +9589,252 @@ function GenericEvidenceSourceReportPanel({ source, product, reportHref, cards =
       )}
     </div>
   );
+}
+
+function ShopifyProductEvidencePanel({ source, product, reportHref }) {
+  const metrics = product.metrics || {};
+  const visibleCards = getEvidenceSourceCards(source.title, source.points, product);
+  const heroCards = visibleCards.slice(0, 4);
+  const detailCards = visibleCards.slice(4, 10);
+  const contentRows = getShopifyProductContentRows(metrics);
+  const variantRows = getShopifyProductVariantRows(metrics);
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppShopifyProductEvidenceReport">
+      <EvidenceSourceReportHeader
+        source={source}
+        title="Shopify product"
+        eyebrow="Product data"
+        summary="Product metadata, PDP content and variant context are reviewed together so catalog findings do not repeat across separate tabs."
+      />
+
+      <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+        {heroCards.map((card) => (
+          <EvidenceSourceStatCard key={`${source.title}-${card.label}-${card.value}`} icon={card.icon} label={card.label} value={card.value} detail={card.detail} tone={card.tone || "blue"} trend={card.trend} />
+        ))}
+      </div>
+
+      <div className="ppEvidenceBottomReportGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <div className="ppEvidenceReportSectionHeaderRow">
+            <div>
+              <h4>Product content</h4>
+              <p>What the PDP currently communicates before checkout</p>
+            </div>
+          </div>
+          <div className="ppEvidenceMiniInsightGrid">
+            {contentRows.map((item) => (
+              <EvidenceMiniInsight key={item.label} label={item.label} value={item.value} detail={item.detail} tone={item.tone} />
+            ))}
+          </div>
+        </section>
+
+        <section className="ppEvidenceReportSectionCard">
+          <div className="ppEvidenceReportSectionHeaderRow">
+            <div>
+              <h4>Variant intelligence</h4>
+              <p>Variant-level evidence available from Shopify, refunds and language signals</p>
+            </div>
+            <Link to={reportHref}>View full report <s-icon type="chevron-right" size="small"></s-icon></Link>
+          </div>
+          <div className="ppEvidenceSignalTableWrap">
+            <table className="ppEvidenceSignalTable">
+              <thead>
+                <tr>
+                  <th>Variant</th>
+                  <th>Evidence</th>
+                  <th>SKU / price</th>
+                  <th>Interpretation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variantRows.map((row) => (
+                  <tr key={row.variant}>
+                    <td><span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><s-icon type="product" size="small"></s-icon></span>{row.variant}</td>
+                    <td>{row.evidence}</td>
+                    <td>{row.skuPrice}</td>
+                    <td>{row.interpretation}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      {detailCards.length > 0 && (
+        <div className="ppEvidenceMetricGrid">
+          {detailCards.map((card) => (
+            <EvidenceMetricCard card={card} key={`${source.title}-detail-${card.label}-${card.value}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
+  const sections = getAiEvidenceTechnicalSections(product, source);
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppAiEvidenceSynthesisReport">
+      <EvidenceSourceReportHeader
+        source={source}
+        title="AI evidence synthesis"
+        eyebrow="Synthesis"
+        summary="Technical interpretation of the stored product diagnosis across reviews, refunds, orders, product content and variants."
+      />
+
+      <section className="ppEvidenceReportSectionCard">
+        <div className="ppEvidenceReportSectionHeaderRow">
+          <div>
+            <h4>Technical synthesis</h4>
+            <p>How the evidence fits together</p>
+          </div>
+          <Link to={reportHref}>View full report <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </div>
+        <div className="ppEvidenceFindingStream ppEvidenceFindingStream-compact">
+          {sections.map((section, index) => (
+            <div className={`ppEvidenceFinding ppEvidenceFinding-${section.tone || "default"}`} key={section.title}>
+              <span className="ppEvidenceFindingIndex">{String(index + 1).padStart(2, "0")}</span>
+              <div>
+                <strong>{section.title}</strong>
+                <p>{renderAnalysisText(section.body)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="ppEvidenceMetricGrid">
+        <EvidenceMetricCard card={{ label: "Signal count", value: formatInteger(product.metrics?.signalCount || source.points.length), detail: "Total stored diagnostic evidence for this product.", icon: "duplicate", tone: "blue" }} />
+        <EvidenceMetricCard card={{ label: "Model confidence", value: `${formatInteger(product.confidence || 0)}%`, detail: "Diagnosis confidence stored with the current product snapshot.", icon: "shield-check-mark", tone: Number(product.confidence || 0) >= 80 ? "teal" : "amber" }} />
+        <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(product.metrics?.estimatedImpact || product.estimatedImpact || 0), detail: "Business exposure is shown separately from Product Risk.", icon: "cash-dollar", tone: "violet" }} />
+        <EvidenceMetricCard card={{ label: "Freshness", value: product.metrics?.lastSignalAt ? formatProductAnalysisDate(product.metrics.lastSignalAt) : detailLastAnalysis(product), detail: "Most recent stored signal or diagnosis timestamp.", icon: "calendar", tone: "blue" }} />
+      </div>
+    </div>
+  );
+}
+
+function getShopifyProductContentRows(metrics = {}) {
+  const contentIssues = getContentIssueLabels(metrics.contentAnalysis?.issues || []);
+  return [
+    {
+      label: "Description",
+      value: `${formatInteger(metrics.descriptionWordCount || 0)} words`,
+      detail: metrics.hasDescription ? "Clean HTML-stripped PDP copy was captured." : "No usable PDP description was captured.",
+      tone: metrics.hasDescription ? "teal" : "red",
+    },
+    {
+      label: "Content quality",
+      value: metrics.contentQualityScore ? `${metrics.contentQualityScore}/100` : "Not scored",
+      detail: contentIssues.length ? contentIssues.slice(0, 3).join(", ") : "No deterministic content gap stored.",
+      tone: contentIssues.length ? "amber" : "teal",
+    },
+    {
+      label: "Catalog metadata",
+      value: metrics.productType || "Not stored",
+      detail: `${metrics.vendor || "Vendor not stored"} · ${formatInteger(getEvidenceList(metrics.tags).length)} tags`,
+      tone: "blue",
+    },
+    {
+      label: "Media",
+      value: `${formatInteger(metrics.mediaCount || 0)} items`,
+      detail: Number(metrics.mediaWithoutAltCount || 0) ? `${formatInteger(metrics.mediaWithoutAltCount)} missing alt text` : "No missing alt-text signal stored.",
+      tone: Number(metrics.mediaWithoutAltCount || 0) ? "amber" : "blue",
+    },
+  ];
+}
+
+function getShopifyProductVariantRows(metrics = {}) {
+  const affectedCounts = new Map(getEvidenceList(metrics.affectedVariantDetails).map((item) => [String(item.label || item.variant || "").toLowerCase(), Number(item.count || 0)]));
+  const refundExamples = getEvidenceList(metrics.refundInsights?.examples);
+  const variants = getEvidenceList(metrics.variants).length
+    ? getEvidenceList(metrics.variants)
+    : getEvidenceList(metrics.affectedVariants).map((title) => ({ title }));
+
+  const rows = variants.map((variant) => {
+    const title = variant.title || variant.name || variant.label || "Variant";
+    const key = String(title).toLowerCase();
+    const refundSignals = refundExamples.filter((example) => String(example.variant || "").toLowerCase() === key);
+    const affectedSignals = affectedCounts.get(key) || refundSignals.length || 0;
+    const refundAmount = refundSignals.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const evidence = affectedSignals
+      ? `${formatInteger(affectedSignals)} stored signal${affectedSignals === 1 ? "" : "s"}${refundAmount ? ` · ${formatMoney(refundAmount)} refunded` : ""}`
+      : "No variant-specific issue stored";
+    return {
+      variant: title,
+      evidence,
+      skuPrice: [variant.sku, variant.price ? formatMoney(variant.price) : ""].filter(Boolean).join(" · ") || "SKU/price not stored",
+      interpretation: affectedSignals
+        ? "Signals mention this variant, so product-level actions should avoid treating every option as equally affected."
+        : "This variant is available in Shopify, but no variant-specific risk pattern is stored.",
+      tone: affectedSignals ? "amber" : "blue",
+    };
+  });
+
+  if (rows.length) return rows;
+  return [{
+    variant: "No variants stored",
+    evidence: "0 variant-specific signals",
+    skuPrice: "No SKU stored",
+    interpretation: "Variant analysis needs Shopify variant data and product-matched returns, refunds or reviews.",
+    tone: "blue",
+  }];
+}
+
+function getAiEvidenceTechnicalSections(product = {}, source = {}) {
+  const metrics = product.metrics || {};
+  const textInsights = metrics.textInsights || {};
+  const sentiment = getCombinedCustomerLanguageSentiment(metrics);
+  const reviewSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
+  const refundSentiment = normalizeEvidenceSentiment(metrics.refundInsights?.sentiment);
+  const variantNames = getEvidenceList(metrics.affectedVariants);
+  const contentIssues = getContentIssueLabels(metrics.contentAnalysis?.issues || []);
+  const sourceSummary = source.points?.[0] || source.summary || "";
+  const sections = [];
+
+  if (sourceSummary) {
+    sections.push({
+      title: "Cross-source reading",
+      body: sourceSummary,
+      tone: "insight",
+    });
+  }
+
+  sections.push({
+    title: "Customer language",
+    body: `${formatInteger(sentiment.total)} customer-language signals are stored across reviews, return notes and refund notes: ${formatInteger(sentiment.negative)} negative, ${formatInteger(sentiment.neutral)} neutral and ${formatInteger(sentiment.positive)} positive. Reviews alone show ${formatInteger(reviewSentiment.negative)} negative out of ${formatInteger(reviewSentiment.total)} analyzed rows, so refund-note tone should be interpreted as operational friction rather than review sentiment.`,
+    tone: sentiment.negative ? "negative" : "positive",
+  });
+
+  sections.push({
+    title: "Refund and return evidence",
+    body: `${formatInteger(metrics.refundUnits || 0)} refunded units and ${formatMoney(metrics.refundAmount || 0)} refunded value are stored against ${formatInteger(metrics.soldUnits || 0)} sold units. Refund-note sentiment is ${formatInteger(refundSentiment.negative)} negative, ${formatInteger(refundSentiment.neutral)} neutral and ${formatInteger(refundSentiment.positive)} positive, which explains the operational pressure even when return units are ${formatInteger(metrics.returnUnits || 0)}.`,
+    tone: Number(metrics.refundUnits || metrics.returnUnits || 0) ? "negative" : "neutral",
+  });
+
+  sections.push({
+    title: "PDP and catalog context",
+    body: `${formatInteger(metrics.descriptionWordCount || 0)} clean description words were captured. Content quality is ${metrics.contentQualityScore ? `${metrics.contentQualityScore}/100` : "not scored"}${contentIssues.length ? `, with stored gaps: ${contentIssues.slice(0, 4).join(", ")}.` : "."} This is useful for deciding whether the next action should change customer-facing content or stay operational.`,
+    tone: contentIssues.length ? "insight" : "positive",
+  });
+
+  sections.push({
+    title: "Variant scope",
+    body: variantNames.length
+      ? `${formatInteger(variantNames.length)} affected variant${variantNames.length === 1 ? "" : "s"} are stored: ${variantNames.join(", ")}. Variant-level signals are available, but sold-units-by-variant should be treated as incomplete unless Shopify order-line data is present in the full report.`
+      : "No variant-specific issue is stored for this diagnosis. Treat the finding as product-level unless the full report shows SKU-specific order, return, refund or review evidence.",
+    tone: variantNames.length ? "insight" : "neutral",
+  });
+
+  sections.push({
+    title: "Operational interpretation",
+    body: `Product Risk is ${formatInteger(product.riskScore || 0)}, Diagnosis Confidence is ${formatInteger(product.confidence || 0)}%, and Financial Exposure is ${formatMoney(metrics.estimatedImpact || product.estimatedImpact || 0)}. This synthesis should be read as an audit trail for why the recommended action was prioritized, not as accounting or a raw export.`,
+    tone: "default",
+  });
+
+  return sections;
 }
 
 function EvidenceSourceReportHeader({ source, title, summary, eyebrow = "" }) {
@@ -9986,6 +10280,31 @@ function normalizeEvidenceSentiment(sentiment = {}) {
   };
 }
 
+function combineEvidenceSentiments(items = []) {
+  const totals = items
+    .map(normalizeEvidenceSentiment)
+    .filter((item) => Number(item.total || 0) > 0)
+    .reduce((acc, item) => {
+      acc.total += item.total;
+      acc.negative += item.negative;
+      acc.neutral += item.neutral;
+      acc.positive += item.positive;
+      return acc;
+    }, { total: 0, negative: 0, neutral: 0, positive: 0, dominant: "" });
+  totals.dominant = getDominantSentimentLabel(totals).toLowerCase();
+  return totals;
+}
+
+function getCombinedCustomerLanguageSentiment(metrics = {}) {
+  const textInsights = metrics.textInsights || {};
+  const reviewSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
+  const returnSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
+  const refundSentiment = normalizeEvidenceSentiment(metrics.refundInsights?.sentiment);
+  const sourceSentiments = [reviewSentiment, returnSentiment, refundSentiment].filter((item) => item.total > 0);
+  if (sourceSentiments.length) return combineEvidenceSentiments(sourceSentiments);
+  return normalizeEvidenceSentiment(textInsights.sentiment);
+}
+
 function getTopEvidenceEmotion(items = []) {
   const list = getEvidenceList(items)
     .map((item) => ({
@@ -9999,9 +10318,19 @@ function getTopEvidenceEmotion(items = []) {
   return list[0];
 }
 
-function formatEvidenceEmotionValue(item) {
-  if (!item?.label) return "None stored";
-  return item.count ? `${item.label} ${formatInteger(item.count)}` : item.label;
+function getTopCustomerLanguageEmotion(metrics = {}) {
+  const textInsights = metrics.textInsights || {};
+  const candidates = [
+    ...getEvidenceList(textInsights.aiKnownEmotions),
+    ...getEvidenceList(textInsights.emotions),
+    ...getEvidenceList(textInsights.reviews?.emotions),
+    ...getEvidenceList(textInsights.returns?.emotions),
+  ];
+  return getTopEvidenceEmotion(uniqueByEvidenceLabel(candidates));
+}
+
+function formatEvidenceEmotionLabelOnly(item) {
+  return item?.label || "None stored";
 }
 
 function getDominantSentimentLabel(sentiment = {}) {
@@ -10020,7 +10349,7 @@ function getCustomerLanguageAiConfidenceLabel({ textInsights = {}, sentiment = {
   return "Low";
 }
 
-function getCustomerLanguageThemes(textInsights = {}, points = []) {
+function getCustomerLanguageThemes(textInsights = {}, points = [], metrics = {}) {
   const byLabel = new Map();
   const addTheme = (label, count = 1) => {
     const cleanLabel = String(label || "").replace(/^["“]+|["”]+$/g, "").trim();
@@ -10028,7 +10357,7 @@ function getCustomerLanguageThemes(textInsights = {}, points = []) {
     const key = cleanLabel.toLowerCase();
     byLabel.set(key, {
       label: cleanLabel,
-      count: (byLabel.get(key)?.count || 0) + Math.max(1, Number(count || 1)),
+      count: Math.max(Number(byLabel.get(key)?.count || 0), Math.max(1, Number(count || 1))),
     });
   };
 
@@ -10036,6 +10365,7 @@ function getCustomerLanguageThemes(textInsights = {}, points = []) {
   getEvidenceList(textInsights.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
   getEvidenceList(textInsights.returns?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
   getEvidenceList(textInsights.reviews?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
+  getEvidenceList(metrics.refundInsights?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
   getEvidenceList(textInsights.emotions).forEach((item) => addTheme(item.label || item.code, item.count));
   getEvidenceList(textInsights.aiKnownEmotions).forEach((item) => addTheme(item.label || item.code, item.count || item.signals));
   getEvidenceList(textInsights.aiEmergentSentiments).forEach((item) => addTheme(item.label || item.normalizedLabel, item.count || item.signals));
@@ -10047,12 +10377,44 @@ function getCustomerLanguageThemes(textInsights = {}, points = []) {
     if (quoted) addTheme(quoted[1], 1);
   });
 
-  const themes = [...byLabel.values()].sort((first, second) => second.count - first.count).slice(0, 5);
+  const themes = filterOverlappingEvidenceThemes([...byLabel.values()]).slice(0, 5);
   return themes.length ? themes : [{ label: "No recurring theme stored", count: 0 }];
 }
 
-function getCustomerLanguageSignalBreakdown(textInsights = {}) {
-  const sentiment = normalizeEvidenceSentiment(textInsights.sentiment);
+function filterOverlappingEvidenceThemes(themes = []) {
+  const normalizedThemes = themes
+    .map((theme) => ({
+      ...theme,
+      count: Number(theme.count || 0),
+      words: normalizeEvidenceText(theme.label).split(" ").filter(Boolean),
+    }))
+    .filter((theme) => theme.label && theme.words.length)
+    .sort((first, second) => {
+      if (second.count !== first.count) return second.count - first.count;
+      const firstNegated = isNegatedEvidencePhrase(first.label) ? 1 : 0;
+      const secondNegated = isNegatedEvidencePhrase(second.label) ? 1 : 0;
+      if (secondNegated !== firstNegated) return secondNegated - firstNegated;
+      return first.words.length - second.words.length;
+    });
+  const selected = [];
+  normalizedThemes.forEach((theme) => {
+    const isNestedDuplicate = selected.some((current) => {
+      if (current.count !== theme.count || isNegatedEvidencePhrase(theme.label)) return false;
+      const currentText = ` ${normalizeEvidenceText(current.label)} `;
+      const themeText = ` ${normalizeEvidenceText(theme.label)} `;
+      return themeText.includes(currentText) || currentText.includes(themeText);
+    });
+    if (!isNestedDuplicate) selected.push(theme);
+  });
+  return selected.map((theme) => ({ label: theme.label, count: theme.count }));
+}
+
+function isNegatedEvidencePhrase(value = "") {
+  return /^(not|no|never|without|doesn't|doesnt|didn't|didnt|isn't|isnt|can't|cant)\b/i.test(String(value || "").trim());
+}
+
+function getCustomerLanguageSignalBreakdown(metrics = {}) {
+  const sentiment = getCombinedCustomerLanguageSentiment(metrics);
   const other = Math.max(0, sentiment.total - sentiment.negative - sentiment.neutral - sentiment.positive);
   return {
     total: sentiment.total,
@@ -10065,10 +10427,12 @@ function getCustomerLanguageSignalBreakdown(textInsights = {}) {
   };
 }
 
-function getCustomerLanguageSignalRows(textInsights = {}, themes = []) {
+function getCustomerLanguageSignalRows(textInsights = {}, themes = [], metrics = {}) {
   const returnsSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
   const reviewsSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
+  const refundSentiment = normalizeEvidenceSentiment(metrics.refundInsights?.sentiment);
   const emergent = getTopEvidenceEmotion(textInsights.aiEmergentSentiments);
+  const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
   const subjective = textInsights.subjectiveNegativity || {};
   const insightCount = themes.filter((theme) => Number(theme.count || 0) > 0).length;
 
@@ -10076,16 +10440,24 @@ function getCustomerLanguageSignalRows(textInsights = {}, themes = []) {
     {
       type: "Emergent emotion",
       meaning: "New sentiment clusters",
-      count: emergent ? formatEvidenceEmotionValue(emergent) : "None stored",
-      trend: emergent ? `${formatInteger(emergent.count)} text signals` : "-",
+      count: emergent ? formatEvidenceEmotionLabelOnly(emergent) : "None stored",
+      trend: emergent ? `${formatInteger(emergent.count)} signals` : "No emergent cluster stored",
       icon: "alert-circle",
       tone: emergent?.polarity === "negative" ? "red" : "violet",
+    },
+    {
+      type: "AI emotion taxonomy",
+      meaning: "AI-labeled emotion pattern",
+      count: topAiEmotion ? formatEvidenceEmotionLabelOnly(topAiEmotion) : "None stored",
+      trend: topAiEmotion ? `${formatInteger(topAiEmotion.count)} labeled signals` : "No AI emotion label stored",
+      icon: "wand",
+      tone: topAiEmotion?.polarity === "negative" ? "red" : "violet",
     },
     {
       type: "Subjective reactions",
       meaning: "Direct customer reactions",
       count: formatInteger(subjective.count || 0),
-      trend: subjective.total ? `${formatInteger(subjective.total)} text signals` : "-",
+      trend: subjective.total ? `${formatInteger(subjective.total)} text signals` : "No subjective signal stored",
       icon: "return",
       tone: "blue",
     },
@@ -10093,7 +10465,7 @@ function getCustomerLanguageSignalRows(textInsights = {}, themes = []) {
       type: "Customer insight",
       meaning: "Product-related insights",
       count: formatInteger(insightCount),
-      trend: insightCount ? `From ${formatInteger(insightCount)} insight groups` : "-",
+      trend: insightCount ? `Top: ${themes[0]?.label || "stored themes"}` : "No recurring theme stored",
       icon: "lightbulb",
       tone: "violet",
     },
@@ -10101,15 +10473,23 @@ function getCustomerLanguageSignalRows(textInsights = {}, themes = []) {
       type: "Returns sentiment",
       meaning: "Sentiment in return notes",
       count: returnsSentiment.total ? `${formatInteger(returnsSentiment.negative)} negative` : "0",
-      trend: returnsSentiment.total ? `${formatInteger(returnsSentiment.total)} return text signals` : "-",
+      trend: returnsSentiment.total ? `${formatInteger(returnsSentiment.total)} return-note signals` : "No return notes stored",
       icon: "return",
       tone: returnsSentiment.negative ? "red" : "blue",
+    },
+    {
+      type: "Refund-note sentiment",
+      meaning: "Sentiment in refund and restock notes",
+      count: refundSentiment.total ? `${formatInteger(refundSentiment.negative)} negative` : "0",
+      trend: refundSentiment.total ? `${formatInteger(refundSentiment.total)} refund-note signals` : "No refund notes stored",
+      icon: "cash-dollar",
+      tone: refundSentiment.negative ? "red" : "blue",
     },
     {
       type: "Reviews sentiment",
       meaning: "Sentiment in reviews",
       count: reviewsSentiment.total ? `${formatInteger(reviewsSentiment.negative)} negative` : "0",
-      trend: reviewsSentiment.total ? `${formatInteger(reviewsSentiment.total)} review text signals` : "-",
+      trend: reviewsSentiment.total ? `${formatInteger(reviewsSentiment.total)} review text signals` : "No review text stored",
       icon: "star",
       tone: reviewsSentiment.negative ? "amber" : "blue",
     },
@@ -11201,11 +11581,14 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Source health", metrics.csvReviewCount || metrics.csvReviewRatingCount ? "Available" : "No CSV data", "CSV can be disabled from Connect", "check-circle", "blue");
     add("Last imported", metrics.csvImportedAt ? formatProductAnalysisDate(metrics.csvImportedAt) : "Stored import", "Normalized file is stored by shop", "calendar", "blue");
   } else if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) {
-    add("Text signals", formatInteger(textInsights.sentiment?.total), "Customer language analyzed across sources", "note", "blue");
-    add("Negative language", formatInteger(textInsights.sentiment?.negative), `${formatInteger(textInsights.sentiment?.neutral)} neutral / ${formatInteger(textInsights.sentiment?.positive)} positive`, "alert-circle", Number(textInsights.sentiment?.negative || 0) > 0 ? "red" : "teal");
-    add("Dominant emotion", getTopEmotionLabel(textInsights.emotions), "Deterministic emotion taxonomy", "lightbulb", "violet");
-    add("AI emotions", getTopEmotionLabel(textInsights.aiKnownEmotions), "Known AI sentiment labels", "wand", "violet");
-    add("Emergent emotion", getTopEmotionLabel(textInsights.aiEmergentSentiments), "New sentiment clusters suggested by AI", "target", "violet");
+    const combinedSentiment = getCombinedCustomerLanguageSentiment(metrics);
+    const topCustomerEmotion = getTopCustomerLanguageEmotion(metrics);
+    const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
+    add("Text signals", formatInteger(combinedSentiment.total), "Reviews, return notes and refund notes analyzed together", "note", "blue");
+    add("Negative language", formatInteger(combinedSentiment.negative), `${formatInteger(combinedSentiment.neutral)} neutral / ${formatInteger(combinedSentiment.positive)} positive`, "alert-circle", Number(combinedSentiment.negative || 0) > 0 ? "red" : "teal");
+    add("Dominant emotion", formatEvidenceEmotionLabelOnly(topCustomerEmotion), topCustomerEmotion?.count ? `${formatInteger(topCustomerEmotion.count)} labeled signals` : "No dominant emotion stored", "lightbulb", "violet");
+    add("AI emotions", formatEvidenceEmotionLabelOnly(topAiEmotion), topAiEmotion?.count ? `${formatInteger(topAiEmotion.count)} AI-labeled signals` : "No AI emotion label stored", "wand", "violet");
+    add("Emergent emotion", formatEvidenceEmotionLabelOnly(getTopEvidenceEmotion(textInsights.aiEmergentSentiments)), "New sentiment clusters suggested by AI", "target", "violet");
     add("Subjective reactions", formatInteger(textInsights.subjectiveNegativity?.count), `${formatInteger(textInsights.subjectiveNegativity?.total)} customer text signals`, "view", "amber");
   } else if (normalized.includes("order") || normalized.includes("sales")) {
     const activity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
@@ -11335,7 +11718,7 @@ function getEvidenceMetricPopoverBody({ source, label, value, detail, metrics = 
     return `${sourceName} shows ${valueText}. ${detailText}. Reviews contribute through rating pressure, negative review rate and language patterns when enough product-matched rows exist.`;
   }
   if (metricName.includes("emotion") || metricName.includes("sentiment") || metricName.includes("language")) {
-    const total = textInsights.sentiment?.total || metrics.textInsights?.sentiment?.total || 0;
+    const total = getCombinedCustomerLanguageSentiment(metrics).total || textInsights.sentiment?.total || metrics.textInsights?.sentiment?.total || 0;
     return `${sourceName} shows ${valueText}. ${detailText}. ProductPulse analyzed ${formatInteger(total)} customer text signal${Number(total) === 1 ? "" : "s"} to understand tone, emotion and repeated language.`;
   }
   if (metricName.includes("variant") || metricName.includes("scope") || metricName.includes("sku")) {

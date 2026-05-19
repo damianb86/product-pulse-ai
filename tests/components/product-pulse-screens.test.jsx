@@ -1749,14 +1749,15 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Text signals")).toBeInTheDocument();
     expect(screen.getByText("Negative language")).toBeInTheDocument();
     expect(screen.getByText("Dominant emotion")).toBeInTheDocument();
-    expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fear").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2 (AI-labeled|labeled|signals)/).length).toBeGreaterThan(0);
     expect(screen.getByText("AI emotions")).toBeInTheDocument();
     expect(screen.getByText("Snapshot overview")).toBeInTheDocument();
     expect(screen.getByText("Top themes")).toBeInTheDocument();
     expect(screen.getByText("Signal breakdown")).toBeInTheDocument();
     expect(screen.getByText("All signals by type")).toBeInTheDocument();
     expect(screen.getByText("Emergent emotion")).toBeInTheDocument();
-    expect(screen.getAllByText("Superstitious discomfort 2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Superstitious discomfort").length).toBeGreaterThan(0);
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
   });
 
