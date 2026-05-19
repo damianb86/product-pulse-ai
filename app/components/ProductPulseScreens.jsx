@@ -505,6 +505,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [quickScanCsvWarning, setQuickScanCsvWarning] = useState(false);
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
+  const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
   const productTableRows = data.productTable?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const productCount = data.productTable?.total ?? productRows.length;
@@ -525,6 +526,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
   const pendingWatchlistAction = navigation.state === "submitting" && ["add-to-watchlist", "add-selected-to-watchlist", "remove-from-watchlist"].includes(String(navigation.formData?.get("_action") || ""));
   const pendingBulkWatchlistAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-selected-to-watchlist";
+  const pendingDeleteAnalysis = navigation.state === "submitting" && navigation.formData?.get("_action") === "delete-product-analysis";
   const pendingAnalyzeIds = pendingBulkAnalyze ? Array.from(navigation.formData?.getAll("productId") || []).map(String) : [];
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
   const quickScanCsvAvailable = isQuickScanCsvReviewSourceAvailable(data);
@@ -634,6 +636,18 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     if (["add-watched-product", "add-watched-products", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistConfirmation(null);
       setOpenActionProduct(null);
+    }
+    if (actionData?.status === "success" && actionData?.action?.id === "delete-product-analysis") {
+      setDeleteAnalysisConfirmation(null);
+      setOpenActionProduct(null);
+      const deletedKey = String(actionData.action.productGid || actionData.action.handle || "");
+      if (deletedKey) {
+        setSelectedProducts((current) => {
+          const next = new Set(current);
+          next.delete(deletedKey);
+          return next;
+        });
+      }
     }
     if (actionData?.status === "success" && actionData?.action?.id === "add-watched-products") {
       setSelectedProducts(new Set());
@@ -765,6 +779,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     });
   };
 
+  const handleRequestDeleteAnalysis = (product) => {
+    if (!product) return;
+    setOpenActionProduct(null);
+    setDeleteAnalysisConfirmation({ product });
+  };
+
   const handleAnalyzeShopifyProduct = (product) => {
     if (pendingBulkAnalyze || !product?.id) return;
     setShopifyProductSearchOpen(false);
@@ -873,7 +893,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   type="button"
                   onClick={() => setShopifyProductSearchOpen(true)}
                 >
-                  <s-icon type="search" size="small"></s-icon>
                   <span className="ppShopifyTinyIcon" aria-hidden="true">S</span>
                   Find Shopify product
                 </button>
@@ -1047,6 +1066,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                             onToggle={() => setOpenActionProduct((current) => (current === actionKey ? null : actionKey))}
                             onClose={() => setOpenActionProduct(null)}
                             onWatchlistToggle={handleRequestWatchlistToggle}
+                            onDeleteAnalysis={handleRequestDeleteAnalysis}
                           />
                         </div>
                       </td>
@@ -1137,6 +1157,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           confirmation={watchlistConfirmation}
           pending={pendingWatchlistAction}
           onCancel={() => setWatchlistConfirmation(null)}
+        />
+      )}
+      {deleteAnalysisConfirmation && (
+        <DeleteProductAnalysisConfirmModal
+          confirmation={deleteAnalysisConfirmation}
+          pending={pendingDeleteAnalysis}
+          onCancel={() => setDeleteAnalysisConfirmation(null)}
         />
       )}
       {quickScanConfirmation && (
@@ -2833,6 +2860,55 @@ function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
   );
 }
 
+function DeleteProductAnalysisConfirmModal({ confirmation, pending, onCancel }) {
+  const product = confirmation.product || {};
+  const productId = getProductActionKey(product);
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal ppDeleteAnalysisConfirmModal" role="dialog" aria-modal="true" aria-labelledby="delete-product-analysis-title">
+        <div className="ppAnalysisConfirmHeader">
+          <span className="ppAnalysisConfirmIcon ppDeleteAnalysisConfirmIcon" aria-hidden="true">
+            <ProductPulseGlyph type="trash" />
+          </span>
+          <div>
+            <span>Delete local analysis</span>
+            <h2 id="delete-product-analysis-title">Delete product analysis?</h2>
+            <p>
+              ProductPulse will remove this product from the local analysis database. This does not delete or modify the Shopify product.
+            </p>
+          </div>
+        </div>
+
+        <div className="ppAnalysisConfirmProducts">
+          <span>Product</span>
+          <ul>
+            <li>{product.title || "Selected product"}</li>
+          </ul>
+        </div>
+
+        <div className="ppActionConfirmNotice ppDeleteAnalysisNotice">
+          <s-icon type="info" size="small"></s-icon>
+          <p>
+            Stored diagnostics, recommendations, action states, score history, Watchlist tracking and related ProductPulse jobs for this product will be removed.
+            To analyze it again, use <strong>Find Shopify product</strong> from the Products table and run a new diagnosis.
+          </p>
+        </div>
+
+        <Form method="post" className="ppAnalysisConfirmFooter">
+          <input type="hidden" name="_action" value="delete-product-analysis" />
+          <input type="hidden" name="productId" value={productId || ""} />
+          <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className="ppSecondaryButton ppDeleteAnalysisConfirmButton" type="submit" disabled={pending || !productId}>
+            <ProductPulseGlyph type="trash" />
+            {pending ? "Deleting..." : "Delete analysis"}
+          </button>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
 function RecommendedActionConfirmModal({ confirmation, product, pending, onCancel }) {
   const action = confirmation.action || {};
   const application = confirmation.application || getRecommendedActionApplication(action, product);
@@ -4062,6 +4138,7 @@ function getEvidencePoints(item, product) {
 
 function getEvidenceSourcePriority(source) {
   const normalized = String(source || "").toLowerCase();
+  if (normalized.includes("ai evidence synthesis")) return -1;
   if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) return 0;
   if (normalized.includes("return")) return 1;
   if (normalized.includes("review") || normalized.includes("judge")) return 2;
@@ -8120,6 +8197,17 @@ function ProductPulseGlyph({ type }) {
   if (type === "pause") {
     return <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>;
   }
+  if (type === "trash") {
+    return (
+      <svg className="ppTrashIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4.5 6.5h15" />
+        <path d="M9.5 6.5V4.8c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2v1.7" />
+        <path d="M7.2 6.5l.7 12.1c.1 1 .8 1.8 1.9 1.8h4.4c1.1 0 1.8-.8 1.9-1.8l.7-12.1" />
+        <path d="M10.4 10.1v6.4" />
+        <path d="M13.6 10.1v6.4" />
+      </svg>
+    );
+  }
   return <s-icon type={type}></s-icon>;
 }
 
@@ -8859,10 +8947,32 @@ function getSourceGlyph(key) {
   return glyphs[key] || "S";
 }
 
-function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle }) {
+function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle, onDeleteAnalysis }) {
   const triggerRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const handle = product.handle || product.href?.split("/").filter(Boolean).pop() || product.title;
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (target instanceof Node && triggerRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(".ppActionMenu")) return;
+      onClose?.();
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
 
   const handleCopy = async () => {
     try {
@@ -8887,7 +8997,7 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
         <s-icon type="menu-horizontal" size="small"></s-icon>
       </button>
       {open && (
-        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={220} estimatedHeight={190} placement="bottom-end" role="menu">
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={232} estimatedHeight={248} placement="bottom-end" role="menu">
           <Link role="menuitem" to={product.href} onClick={onClose}>
             <s-icon type="view" size="small"></s-icon>
             View diagnostics
@@ -8924,6 +9034,15 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
               </button>
             </Form>
           )}
+          <button
+            className="ppActionMenuDanger"
+            role="menuitem"
+            type="button"
+            onClick={() => onDeleteAnalysis?.(product)}
+          >
+            <ProductPulseGlyph type="trash" />
+            Delete analysis
+          </button>
         </FloatingTablePopover>
       )}
     </span>
@@ -9112,6 +9231,7 @@ function EvidenceObservabilityHeader({ detail }) {
 function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
   const metrics = product.metrics || {};
   const textInsights = metrics.textInsights || {};
+  const aiContext = getAiEvidenceContextSection(product, "customer-language");
   const sentiment = getCombinedCustomerLanguageSentiment(metrics);
   const topEmotion = getTopCustomerLanguageEmotion(metrics);
   const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
@@ -9130,6 +9250,7 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppCustomerLanguageReport">
       <EvidenceSourceReportHeader source={source} title="Customer language analysis" summary="AI analyzes customer language to uncover sentiment, emotions and recurring themes." />
+      <EvidenceAiContextBlock section={aiContext} />
 
       <div className="ppEvidenceHeroMetricStrip">
         <EvidenceSourceStatCard icon="note" label="Text signals" value={formatInteger(sentiment.total)} detail="Reviews, return notes and refund notes" tone="blue" />
@@ -9208,6 +9329,7 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
 function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
   const metrics = product.metrics || {};
   const textInsights = metrics.textInsights || {};
+  const aiContext = getAiEvidenceContextSection(product, "returns");
   const returnsSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
   const topReasons = getReturnReasonRows(metrics);
   const topReason = topReasons[0] || { label: "No reason stored", count: 0, share: 0 };
@@ -9217,6 +9339,7 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppShopifyReturnsReport">
       <EvidenceSourceReportHeader source={source} title="Shopify returns" summary={`Return behavior is contributing to the product risk model${Number(metrics.returnRate || 0) ? ` with a ${formatPercent(metrics.returnRate)} return rate.` : "."}`} />
+      <EvidenceAiContextBlock section={aiContext} />
 
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
         <EvidenceSourceStatCard icon="return" label="Total returns" value={formatInteger(metrics.returnUnits || 0)} detail={`${formatPercent(metrics.returnRate || 0)} return rate`} tone="blue" />
@@ -9284,6 +9407,7 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
 }
 
 function ReviewEvidencePanel({ source, product, reportHref }) {
+  const aiContext = getAiEvidenceContextSection(product, "reviews");
   const reviewStats = getReviewEvidenceStats(source, product);
   const emotionRows = getReviewEmotionRows(product.metrics?.textInsights || {});
   const repeatedLanguage = getReviewRepeatedLanguage(product.metrics?.textInsights || {}, source.title);
@@ -9298,6 +9422,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppReviewEvidenceReport">
       <EvidenceSourceReportHeader source={source} title={source.title || "Judge.me reviews"} eyebrow="Reviews" summary="Review evidence connects rating pressure, negative language and customer-reported expectations." />
+      <EvidenceAiContextBlock section={aiContext} />
 
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
         <EvidenceSourceStatCard icon="star" label="Total reviews" value={formatInteger(reviewStats.reviewCount)} detail={`${formatInteger(reviewStats.negativeCount)} negative reviews`} tone="blue" />
@@ -9390,6 +9515,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
 function RefundEvidencePanel({ source, product, reportHref }) {
   const metrics = product.metrics || {};
   const refundInsights = metrics.refundInsights || {};
+  const aiContext = getAiEvidenceContextSection(product, "refunds");
   const refundSentiment = normalizeEvidenceSentiment(refundInsights.sentiment);
   const reasonRows = getRefundReasonRows(metrics);
   const repeatedLanguage = getRefundRepeatedLanguage(metrics);
@@ -9399,6 +9525,7 @@ function RefundEvidencePanel({ source, product, reportHref }) {
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppRefundEvidenceReport">
       <EvidenceSourceReportHeader source={source} title="Shopify refunds" eyebrow="Refunds" summary={`Refund pressure is tracked separately from returns to highlight financial impact${Number(metrics.refundAmount || 0) ? ` (${formatMoney(metrics.refundAmount)})` : "."}`} />
+      <EvidenceAiContextBlock section={aiContext} />
 
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
         <EvidenceSourceStatCard icon="star" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail={`${formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} refund rate`} tone="blue" />
@@ -9596,8 +9723,8 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
   const visibleCards = getEvidenceSourceCards(source.title, source.points, product);
   const heroCards = visibleCards.slice(0, 4);
   const detailCards = visibleCards.slice(4, 10);
-  const contentRows = getShopifyProductContentRows(metrics);
   const variantRows = getShopifyProductVariantRows(metrics);
+  const variantAiContext = getAiEvidenceContextSection(product, "variants");
 
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppShopifyProductEvidenceReport">
@@ -9614,21 +9741,7 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
         ))}
       </div>
 
-      <div className="ppEvidenceBottomReportGrid">
-        <section className="ppEvidenceReportSectionCard">
-          <div className="ppEvidenceReportSectionHeaderRow">
-            <div>
-              <h4>Product content</h4>
-              <p>What the PDP currently communicates before checkout</p>
-            </div>
-          </div>
-          <div className="ppEvidenceMiniInsightGrid">
-            {contentRows.map((item) => (
-              <EvidenceMiniInsight key={item.label} label={item.label} value={item.value} detail={item.detail} tone={item.tone} />
-            ))}
-          </div>
-        </section>
-
+      <div className="ppEvidenceBottomReportGrid ppEvidenceBottomReportGrid-single">
         <section className="ppEvidenceReportSectionCard">
           <div className="ppEvidenceReportSectionHeaderRow">
             <div>
@@ -9637,23 +9750,28 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
             </div>
             <Link to={reportHref}>View full report <s-icon type="chevron-right" size="small"></s-icon></Link>
           </div>
+          <EvidenceAiContextBlock section={variantAiContext} compact />
           <div className="ppEvidenceSignalTableWrap">
             <table className="ppEvidenceSignalTable">
               <thead>
                 <tr>
                   <th>Variant</th>
-                  <th>Evidence</th>
-                  <th>SKU / price</th>
-                  <th>Interpretation</th>
+                  <th>Shopify data</th>
+                  <th>Affected signals</th>
+                  <th>Refunds</th>
+                  <th>Returns</th>
+                  <th>Reviews / language</th>
                 </tr>
               </thead>
               <tbody>
                 {variantRows.map((row) => (
-                  <tr key={row.variant}>
+                  <tr key={row.key}>
                     <td><span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><s-icon type="product" size="small"></s-icon></span>{row.variant}</td>
-                    <td>{row.evidence}</td>
-                    <td>{row.skuPrice}</td>
-                    <td>{row.interpretation}</td>
+                    <td><VariantEvidenceCell evidence={row.shopifyData} /></td>
+                    <td><VariantEvidenceCell evidence={row.affectedSignals} /></td>
+                    <td><VariantEvidenceCell evidence={row.refunds} /></td>
+                    <td><VariantEvidenceCell evidence={row.returns} /></td>
+                    <td><VariantEvidenceCell evidence={row.reviews} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -9716,71 +9834,248 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
   );
 }
 
-function getShopifyProductContentRows(metrics = {}) {
-  const contentIssues = getContentIssueLabels(metrics.contentAnalysis?.issues || []);
-  return [
-    {
-      label: "Description",
-      value: `${formatInteger(metrics.descriptionWordCount || 0)} words`,
-      detail: metrics.hasDescription ? "Clean HTML-stripped PDP copy was captured." : "No usable PDP description was captured.",
-      tone: metrics.hasDescription ? "teal" : "red",
-    },
-    {
-      label: "Content quality",
-      value: metrics.contentQualityScore ? `${metrics.contentQualityScore}/100` : "Not scored",
-      detail: contentIssues.length ? contentIssues.slice(0, 3).join(", ") : "No deterministic content gap stored.",
-      tone: contentIssues.length ? "amber" : "teal",
-    },
-    {
-      label: "Catalog metadata",
-      value: metrics.productType || "Not stored",
-      detail: `${metrics.vendor || "Vendor not stored"} · ${formatInteger(getEvidenceList(metrics.tags).length)} tags`,
-      tone: "blue",
-    },
-    {
-      label: "Media",
-      value: `${formatInteger(metrics.mediaCount || 0)} items`,
-      detail: Number(metrics.mediaWithoutAltCount || 0) ? `${formatInteger(metrics.mediaWithoutAltCount)} missing alt text` : "No missing alt-text signal stored.",
-      tone: Number(metrics.mediaWithoutAltCount || 0) ? "amber" : "blue",
-    },
-  ];
+function EvidenceAiContextBlock({ section, compact = false }) {
+  if (!section?.body) return null;
+  return (
+    <aside className={`ppEvidenceAiContextBlock${compact ? " ppEvidenceAiContextBlock-compact" : ""}`}>
+      <span><s-icon type="wand" size="small"></s-icon>AI synthesis</span>
+      <p>{renderAnalysisText(section.body)}</p>
+    </aside>
+  );
+}
+
+function getAiEvidenceContextSection(product = {}, sourceKind = "") {
+  const sectionTitleByKind = {
+    "customer-language": "Customer language",
+    reviews: "Customer language",
+    returns: "Refund and return evidence",
+    refunds: "Refund and return evidence",
+    variants: "Variant scope",
+  };
+  const title = sectionTitleByKind[sourceKind];
+  if (!title) return null;
+  const aiSource = getAiEvidenceSynthesisSource(product);
+  if (!aiSource.available) return null;
+  const sections = getAiEvidenceTechnicalSections(product, aiSource);
+  return sections.find((section) => section.title === title) || null;
+}
+
+function getAiEvidenceSynthesisSource(product = {}) {
+  const item = getEvidenceList(product.evidence).find((evidence) => isAiEvidenceSynthesisSource(evidence.source));
+  if (!item) return { title: "AI evidence synthesis", points: [], summary: "", tone: "insight", icon: "wand", available: false };
+  const points = getEvidencePoints(item, product);
+  return {
+    title: "AI evidence synthesis",
+    points,
+    summary: item.quote || points[0] || "",
+    tone: "insight",
+    icon: "wand",
+    available: true,
+  };
+}
+
+function VariantEvidenceCell({ evidence }) {
+  const details = getEvidenceList(evidence?.details).slice(0, 2);
+  return (
+    <div className={`ppVariantEvidenceCell ppVariantEvidenceCell-${evidence?.tone || "neutral"}`}>
+      <strong>{evidence?.summary || "No variant-specific evidence"}</strong>
+      {details.map((detail, index) => (
+        <small key={`${detail}-${index}`}>{renderAnalysisText(detail)}</small>
+      ))}
+    </div>
+  );
 }
 
 function getShopifyProductVariantRows(metrics = {}) {
-  const affectedCounts = new Map(getEvidenceList(metrics.affectedVariantDetails).map((item) => [String(item.label || item.variant || "").toLowerCase(), Number(item.count || 0)]));
+  const affectedDetails = getEvidenceList(metrics.affectedVariantDetails);
   const refundExamples = getEvidenceList(metrics.refundInsights?.examples);
-  const variants = getEvidenceList(metrics.variants).length
-    ? getEvidenceList(metrics.variants)
-    : getEvidenceList(metrics.affectedVariants).map((title) => ({ title }));
+  const returnExamples = getEvidenceList(metrics.textInsights?.returns?.examples);
+  const reviewExamples = getEvidenceList(metrics.textInsights?.reviews?.examples);
+  const variantCandidates = getShopifyProductVariantCandidates(metrics, [
+    ...refundExamples,
+    ...returnExamples,
+    ...reviewExamples,
+  ]);
 
-  const rows = variants.map((variant) => {
-    const title = variant.title || variant.name || variant.label || "Variant";
-    const key = String(title).toLowerCase();
-    const refundSignals = refundExamples.filter((example) => String(example.variant || "").toLowerCase() === key);
-    const affectedSignals = affectedCounts.get(key) || refundSignals.length || 0;
-    const refundAmount = refundSignals.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    const evidence = affectedSignals
-      ? `${formatInteger(affectedSignals)} stored signal${affectedSignals === 1 ? "" : "s"}${refundAmount ? ` · ${formatMoney(refundAmount)} refunded` : ""}`
-      : "No variant-specific issue stored";
+  const rows = variantCandidates.map((variant, index) => {
+    const title = getVariantDisplayTitle(variant);
+    const refundSignals = refundExamples.filter((example) => matchesVariantEvidence(example, variant));
+    const returnSignals = returnExamples.filter((example) => matchesVariantEvidence(example, variant));
+    const reviewSignals = reviewExamples.filter((example) => matchesVariantEvidence(example, variant));
+    const affectedSignals = getAffectedVariantSignalCount(affectedDetails, variant)
+      || refundSignals.length
+      || returnSignals.length
+      || reviewSignals.length
+      || 0;
+    const hasVariantEvidence = Boolean(affectedSignals || refundSignals.length || returnSignals.length || reviewSignals.length);
     return {
+      key: `${normalizeVariantEvidenceKey(title) || "variant"}-${variant.id || variant.sku || index}`,
       variant: title,
-      evidence,
-      skuPrice: [variant.sku, variant.price ? formatMoney(variant.price) : ""].filter(Boolean).join(" · ") || "SKU/price not stored",
-      interpretation: affectedSignals
-        ? "Signals mention this variant, so product-level actions should avoid treating every option as equally affected."
-        : "This variant is available in Shopify, but no variant-specific risk pattern is stored.",
-      tone: affectedSignals ? "amber" : "blue",
+      shopifyData: getVariantShopifyDataCell(variant),
+      affectedSignals: getVariantAffectedSignalsCell({ affectedSignals, affectedDetails, variant, metrics }),
+      refunds: getVariantRefundEvidenceCell(refundSignals),
+      returns: getVariantTextEvidenceCell(returnSignals, "return"),
+      reviews: getVariantTextEvidenceCell(reviewSignals, "review"),
+      tone: hasVariantEvidence ? "amber" : "blue",
     };
   });
 
   if (rows.length) return rows;
   return [{
+    key: "no-variants-stored",
     variant: "No variants stored",
-    evidence: "0 variant-specific signals",
-    skuPrice: "No SKU stored",
-    interpretation: "Variant analysis needs Shopify variant data and product-matched returns, refunds or reviews.",
+    shopifyData: buildVariantEvidenceCell("No Shopify variant data", ["No variant title, SKU or price is stored for this product."], "neutral"),
+    affectedSignals: buildVariantEvidenceCell("0 affected signals", ["Variant analysis needs Shopify variant data and product-matched returns, refunds or reviews."], "neutral"),
+    refunds: buildVariantEvidenceCell("No refund evidence", [], "neutral"),
+    returns: buildVariantEvidenceCell("No return evidence", [], "neutral"),
+    reviews: buildVariantEvidenceCell("No review evidence", [], "neutral"),
     tone: "blue",
   }];
+}
+
+function getShopifyProductVariantCandidates(metrics = {}, evidenceExamples = []) {
+  const variants = [];
+  const seen = new Set();
+  const addVariant = (variant) => {
+    const normalizedVariant = typeof variant === "string" ? { title: variant } : variant;
+    const title = getVariantDisplayTitle(normalizedVariant);
+    const key = normalizeVariantEvidenceKey(title || normalizedVariant?.sku || normalizedVariant?.id);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    variants.push(normalizedVariant);
+  };
+
+  getEvidenceList(metrics.variants).forEach(addVariant);
+  getEvidenceList(metrics.affectedVariantDetails).forEach((item) => addVariant({ title: item.label || item.variant || item.name, count: item.count }));
+  getEvidenceList(metrics.affectedVariants).forEach(addVariant);
+  evidenceExamples.forEach((item) => {
+    const title = item.variant || item.variantTitle || item.variantName || item.variantLabel;
+    if (title) addVariant({ title, sku: item.sku || item.variantSku, id: item.variantId });
+  });
+
+  return variants;
+}
+
+function getVariantDisplayTitle(variant = {}) {
+  if (typeof variant === "string") return variant;
+  return variant.title || variant.name || variant.label || getVariantOptionsLabel(variant) || variant.sku || "Variant";
+}
+
+function getVariantOptionsLabel(variant = {}) {
+  const rawOptions = variant.selectedOptions || variant.options;
+  const selectedOptions = Array.isArray(rawOptions)
+    ? rawOptions
+    : rawOptions && typeof rawOptions === "object"
+      ? Object.entries(rawOptions).map(([name, value]) => ({ name, value }))
+      : [];
+  const optionValues = selectedOptions.map((option) => {
+    if (typeof option === "string") return option;
+    return option.value || option.name || option.label;
+  }).filter(Boolean);
+  return optionValues.join(" / ");
+}
+
+function getVariantShopifyDataCell(variant = {}) {
+  const sku = variant.sku || variant.variantSku || "";
+  const price = variant.price || variant.unitPrice || variant.amount;
+  const optionText = getVariantOptionsLabel(variant);
+  const details = [
+    optionText ? `Options: ${optionText}` : "",
+    variant.id ? `Variant ID: ${String(variant.id).split("/").pop()}` : "",
+  ].filter(Boolean);
+  const summary = [sku ? `SKU ${sku}` : "", price ? formatMoney(price) : ""].filter(Boolean).join(" · ") || "SKU / price not stored";
+  return buildVariantEvidenceCell(summary, details, sku || price ? "blue" : "neutral");
+}
+
+function getVariantAffectedSignalsCell({ affectedSignals = 0, affectedDetails = [], variant = {}, metrics = {} }) {
+  const detail = affectedDetails.find((item) => matchesVariantEvidence(item, variant));
+  const count = Number(affectedSignals || detail?.count || 0);
+  const details = [
+    detail?.detail || detail?.evidence || detail?.reason || "",
+    Number(metrics.variantConcentration || 0) ? `${formatPercent(metrics.variantConcentration)} affected-scope concentration` : "",
+  ].filter(Boolean);
+  if (!count) return buildVariantEvidenceCell("No affected-scope signal", details, "neutral");
+  return buildVariantEvidenceCell(`${formatInteger(count)} stored signal${count === 1 ? "" : "s"}`, details, "amber");
+}
+
+function getVariantRefundEvidenceCell(refundSignals = []) {
+  if (!refundSignals.length) return buildVariantEvidenceCell("No refund evidence", [], "neutral");
+  const quantity = sumVariantEvidenceUnits(refundSignals);
+  const amount = refundSignals.reduce((sum, item) => sum + Number(item.amount || item.refundAmount || 0), 0);
+  const details = refundSignals.map((item) => formatVariantEvidenceExample(item, "refund")).filter(Boolean);
+  const summary = `${formatInteger(quantity)} refund signal${quantity === 1 ? "" : "s"}${amount ? ` · ${formatMoney(amount)}` : ""}`;
+  return buildVariantEvidenceCell(summary, details, "red");
+}
+
+function getVariantTextEvidenceCell(items = [], kind = "signal") {
+  if (!items.length) return buildVariantEvidenceCell(`No ${kind} evidence`, [], "neutral");
+  const quantity = sumVariantEvidenceUnits(items);
+  const details = items.map((item) => formatVariantEvidenceExample(item, kind)).filter(Boolean);
+  return buildVariantEvidenceCell(`${formatInteger(quantity)} ${kind} signal${quantity === 1 ? "" : "s"}`, details, kind === "review" ? "violet" : "amber");
+}
+
+function sumVariantEvidenceUnits(items = []) {
+  return items.reduce((sum, item) => sum + Math.max(1, Number(item.quantity || item.count || item.units || 1)), 0);
+}
+
+function formatVariantEvidenceExample(item = {}, kind = "signal") {
+  const reason = item.reasonText || item.reason || item.issueCode || item.adjustmentReason || "";
+  const rating = item.rating ? `${item.rating}/5` : "";
+  const sentiment = item.sentiment ? startCase(item.sentiment) : "";
+  const text = item.noteText || item.text || item.analysisText || "";
+  const prefix = [rating, sentiment, reason ? startCase(reason) : ""].filter(Boolean).join(" · ");
+  const body = text ? quoteSourceText(summarizeEvidencePoint(text)) : "";
+  return [prefix || startCase(kind), body].filter(Boolean).join(": ");
+}
+
+function buildVariantEvidenceCell(summary, details = [], tone = "neutral") {
+  return { summary, details: getEvidenceList(details), tone };
+}
+
+function getAffectedVariantSignalCount(affectedDetails = [], variant = {}) {
+  const detail = affectedDetails.find((item) => matchesVariantEvidence(item, variant));
+  return Number(detail?.count || 0);
+}
+
+function matchesVariantEvidence(item = {}, variant = {}) {
+  const itemKeys = getVariantEvidenceKeys(item);
+  const variantKeys = getVariantEvidenceKeys(variant);
+  if (!itemKeys.length || !variantKeys.length) return false;
+  return itemKeys.some((itemKey) => variantKeys.some((variantKey) => (
+    itemKey === variantKey
+      || variantKey.split(/[^a-z0-9]+/).includes(itemKey)
+      || itemKey.split(/[^a-z0-9]+/).includes(variantKey)
+      || (itemKey.length > 2 && variantKey.includes(itemKey))
+      || (variantKey.length > 2 && itemKey.includes(variantKey))
+  )));
+}
+
+function getVariantEvidenceKeys(value = {}) {
+  if (typeof value === "string") return [normalizeVariantEvidenceKey(value)].filter(Boolean);
+  const keys = [
+    value.id,
+    value.variantId,
+    value.sku,
+    value.variantSku,
+    value.title,
+    value.variant,
+    value.variantTitle,
+    value.variantName,
+    value.variantLabel,
+    value.label,
+    value.name,
+    getVariantOptionsLabel(value),
+  ];
+  return [...new Set(keys.map(normalizeVariantEvidenceKey).filter(Boolean))];
+}
+
+function normalizeVariantEvidenceKey(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/^gid:\/\/shopify\/productvariant\//, "")
+    .replace(/\bdefault title\b/g, "default variant")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getAiEvidenceTechnicalSections(product = {}, source = {}) {
@@ -9823,7 +10118,7 @@ function getAiEvidenceTechnicalSections(product = {}, source = {}) {
   sections.push({
     title: "Variant scope",
     body: variantNames.length
-      ? `${formatInteger(variantNames.length)} affected variant${variantNames.length === 1 ? "" : "s"} are stored: ${variantNames.join(", ")}. Variant-level signals are available, but sold-units-by-variant should be treated as incomplete unless Shopify order-line data is present in the full report.`
+      ? `${formatInteger(variantNames.length)} affected variant${variantNames.length === 1 ? "" : "s"} ${variantNames.length === 1 ? "is" : "are"} stored: ${variantNames.join(", ")}. Variant-level signals are available, but sold-units-by-variant should be treated as incomplete unless Shopify order-line data is present in the full report.`
       : "No variant-specific issue is stored for this diagnosis. Treat the finding as product-level unless the full report shows SKU-specific order, return, refund or review evidence.",
     tone: variantNames.length ? "insight" : "neutral",
   });

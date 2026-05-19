@@ -6,6 +6,7 @@ import { getCsvReviewSourceStatusForShop } from "../lib/product-pulse-csv.server
 import {
   getProductsQueueForShop,
   recordProductDetailActionForShop,
+  deleteProductAnalysisForShop,
   runSelectedProductDiagnosesForShop,
   searchShopifyProductsForDiagnosis,
   startFastProductScan,
@@ -95,6 +96,10 @@ export const action = async ({ request }) => {
 
   if (formData.get("_action") === "remove-from-watchlist") {
     return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
+  }
+
+  if (formData.get("_action") === "delete-product-analysis") {
+    return deleteProductAnalysisForShop(session.shop, String(formData.get("productId") || ""));
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

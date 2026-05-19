@@ -529,7 +529,16 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("menuitem", { name: /View diagnostics/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByRole("menuitem", { name: "Copy handle" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Add to Watchlist" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete analysis" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Mark for review" })).not.toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menuitem", { name: "Delete analysis" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete analysis" }));
+    const deleteDialog = screen.getByRole("dialog", { name: "Delete product analysis?" });
+    expect(within(deleteDialog).getByText(/does not delete or modify the Shopify product/i)).toBeInTheDocument();
+    expect(within(deleteDialog).getByText(/Find Shopify product/)).toBeInTheDocument();
+    expect(within(deleteDialog).getByRole("button", { name: "Delete analysis" })).toBeInTheDocument();
   });
 
   it("shows remove from Watchlist in product row actions when already watched", () => {
@@ -1796,6 +1805,63 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Order velocity")).toBeInTheDocument();
     expect(screen.getByText("Sales by channel")).toBeInTheDocument();
     expect(screen.getByText("Order insights")).toBeInTheDocument();
+  });
+
+  it("puts AI evidence synthesis first and expands Shopify variant evidence", () => {
+    const product = {
+      ...defaultView.startHere,
+      evidence: [
+        { source: "Shopify product", quote: "Active product in Shopify", weight: "2 variants, 2 SKUs, 4 tags" },
+        { source: "AI evidence synthesis", quote: "Variant scope needs review before broad product changes.", weight: "Generated from deterministic metrics and stored snippets." },
+      ],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        variantCount: 2,
+        skuCount: 2,
+        variants: [
+          { title: "Aurora Blue", sku: "GEN-BLUE", price: 118, selectedOptions: [{ name: "Color", value: "Aurora Blue" }] },
+          { title: "Warm White", sku: "GEN-WHITE", price: 112, selectedOptions: [{ name: "Color", value: "Warm White" }] },
+        ],
+        affectedVariants: ["Aurora Blue"],
+        affectedVariantDetails: [{ label: "Aurora Blue", count: 3 }],
+        refundInsights: {
+          ...(defaultView.startHere.metrics.refundInsights || {}),
+          examples: [
+            { variant: "Aurora Blue", amount: 60, quantity: 1, reasonText: "Customer request", text: "Refund connected to Aurora Blue color mismatch." },
+            { variant: "Aurora Blue", amount: 58, quantity: 1, reasonText: "Not as described", text: "Aurora Blue looked darker than expected." },
+          ],
+        },
+        textInsights: {
+          ...(defaultView.startHere.metrics.textInsights || {}),
+          returns: {
+            sentiment: { total: 1, negative: 1, neutral: 0, positive: 0 },
+            examples: [{ variant: "Aurora Blue", text: "Aurora Blue color was not as pictured.", sentiment: "negative", reason: "Color" }],
+          },
+          reviews: {
+            sentiment: { total: 1, negative: 1, neutral: 0, positive: 0 },
+            examples: [{ variant: "Aurora Blue", text: "The Aurora Blue variant looks muted.", sentiment: "negative", rating: 2 }],
+          },
+        },
+      },
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAttribute("aria-label", "AI evidence synthesis");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Shopify product" }));
+    const variantSection = screen.getByRole("heading", { name: "Variant intelligence" }).closest("section");
+    expect(within(variantSection).queryByRole("heading", { name: "Product content" })).not.toBeInTheDocument();
+    expect(within(variantSection).queryByText("Interpretation")).not.toBeInTheDocument();
+    expect(within(variantSection).getByText("Shopify data")).toBeInTheDocument();
+    expect(within(variantSection).getByText("Refunds")).toBeInTheDocument();
+    expect(within(variantSection).getByText("Returns")).toBeInTheDocument();
+    expect(within(variantSection).getByText("Reviews / language")).toBeInTheDocument();
+    expect(within(variantSection).getByText("2 refund signals · $118")).toBeInTheDocument();
+    expect(within(variantSection).getByText("1 return signal")).toBeInTheDocument();
+    expect(within(variantSection).getByText("1 review signal")).toBeInTheDocument();
+    expect(within(variantSection).getByText(/1 affected variant is stored: Aurora Blue/)).toBeInTheDocument();
   });
 
   it("renders the full product evidence report with raw evidence relationships", () => {

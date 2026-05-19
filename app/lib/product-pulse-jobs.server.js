@@ -789,6 +789,85 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
   };
 }
 
+export async function deleteProductAnalysisForShop(shop, productId) {
+  const snapshot = await findProductRiskSnapshot(shop, productId);
+  if (!snapshot) {
+    return {
+      status: "validation_error",
+      message: "ProductPulse could not find a stored analysis for that product.",
+    };
+  }
+
+  const productGid = snapshot.productGid;
+  const productTitle = snapshot.productTitle;
+  const productJobIds = await getProductAnalysisJobIdsForDeletion(shop, snapshot, productId);
+
+  const deleted = await prisma.$transaction(async (tx) => {
+    const actions = await tx.productAction.deleteMany({ where: { shop, productGid } });
+    const diagnoses = await tx.productDiagnosis.deleteMany({ where: { shop, productGid } });
+    const scoreHistory = await tx.productScoreHistory.deleteMany({ where: { shop, productGid } });
+    const watchActivities = await tx.productWatchActivity.deleteMany({ where: { shop, productGid } });
+    const watchlistItems = await tx.productWatchlistItem.deleteMany({ where: { shop, productGid } });
+    const snapshots = await tx.productRiskSnapshot.deleteMany({ where: { shop, productGid } });
+    const jobLogs = productJobIds.length
+      ? await tx.productPulseJobLog.deleteMany({ where: { shop, jobId: { in: productJobIds } } })
+      : { count: 0 };
+    const jobs = productJobIds.length
+      ? await tx.catalogSignalJob.deleteMany({ where: { shop, id: { in: productJobIds } } })
+      : { count: 0 };
+
+    return {
+      actions: actions.count,
+      diagnoses: diagnoses.count,
+      scoreHistory: scoreHistory.count,
+      watchActivities: watchActivities.count,
+      watchlistItems: watchlistItems.count,
+      snapshots: snapshots.count,
+      jobLogs: jobLogs.count,
+      jobs: jobs.count,
+    };
+  });
+
+  const deletedRecords = Object.values(deleted).reduce((sum, count) => sum + Number(count || 0), 0);
+
+  return {
+    status: "success",
+    message: `${productTitle} analysis was deleted from ProductPulse. To analyze it again, use Find Shopify product and run a new diagnosis.`,
+    action: {
+      id: "delete-product-analysis",
+      productGid,
+      handle: snapshot.handle,
+      deletedRecords,
+    },
+    deleted,
+  };
+}
+
+async function getProductAnalysisJobIdsForDeletion(shop, snapshot, productId) {
+  const keys = new Set([
+    snapshot?.productGid,
+    snapshot?.handle,
+    productId,
+  ].filter(Boolean).map(String));
+
+  if (!keys.size) return [];
+
+  const jobs = await prisma.catalogSignalJob.findMany({
+    where: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+    },
+    select: {
+      id: true,
+      payload: true,
+    },
+  });
+
+  return jobs
+    .filter((job) => getProductDiagnosisJobKeys(job).some((key) => keys.has(key)))
+    .map((job) => job.id);
+}
+
 function getSyntheticProductActionForRecord(actionId, payloadOverride = {}) {
   const id = String(actionId || "").trim();
   const label = String(payloadOverride.label || "").trim();

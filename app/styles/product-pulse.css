@@ -5146,6 +5146,48 @@ s-page[inline-size="large-500"] {
   line-height: 1.55;
 }
 
+.ppEvidenceAiContextBlock {
+  display: grid;
+  gap: 7px;
+  padding: 13px 14px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.18);
+  border-left: 3px solid var(--pp-insight-violet);
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.1), rgba(var(--pp-pulse-blue-rgb), 0.055));
+}
+
+.ppEvidenceAiContextBlock span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ppEvidenceAiContextBlock p {
+  margin: 0;
+  color: var(--pp-slate-800);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.5;
+}
+
+.ppEvidenceAiContextBlock-compact {
+  margin: 14px 0 4px;
+  padding: 11px 12px;
+}
+
+.ppEvidenceAiContextBlock-compact p {
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
 .ppEvidenceFindingStream {
   display: grid;
   gap: 9px;
@@ -5713,6 +5755,10 @@ s-page[inline-size="large-500"] {
   margin-top: 4px;
 }
 
+.ppShopifyProductEvidenceReport .ppEvidenceSignalTable {
+  min-width: 1040px;
+}
+
 .ppEvidenceSignalTable th,
 .ppEvidenceSignalTable td {
   padding: 13px 12px;
@@ -5771,6 +5817,46 @@ s-page[inline-size="large-500"] {
 .ppEvidenceSignalTypeIcon.ppEvidenceMetricCard-violet {
   background: var(--pp-violet-soft);
   color: var(--pp-insight-violet);
+}
+
+.ppVariantEvidenceCell {
+  min-width: 132px;
+  display: grid;
+  gap: 4px;
+}
+
+.ppVariantEvidenceCell strong {
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.ppVariantEvidenceCell small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ppVariantEvidenceCell-red strong {
+  color: var(--pp-risk-red);
+}
+
+.ppVariantEvidenceCell-amber strong {
+  color: #92400e;
+}
+
+.ppVariantEvidenceCell-violet strong {
+  color: var(--pp-insight-violet);
+}
+
+.ppVariantEvidenceCell-neutral strong {
+  color: var(--pp-slate-600);
 }
 
 .ppEvidenceTableFooter {
@@ -5981,6 +6067,10 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceBottomReportGrid {
   grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
+}
+
+.ppEvidenceBottomReportGrid-single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .ppEvidenceReportSectionCard h4 span {
@@ -12693,6 +12783,38 @@ s-page[inline-size="large-500"] {
   background: var(--pp-red-soft);
 }
 
+.ppDeleteAnalysisConfirmIcon {
+  background: linear-gradient(135deg, var(--pp-risk-red), #fb7185);
+}
+
+.ppDeleteAnalysisConfirmIcon .ppTrashIcon {
+  color: var(--pp-cloud-white);
+}
+
+.ppDeleteAnalysisNotice {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.18);
+  background: rgba(var(--pp-risk-red-rgb), 0.07);
+}
+
+.ppDeleteAnalysisNotice s-icon {
+  color: var(--pp-risk-red);
+}
+
+.ppDeleteAnalysisConfirmButton {
+  color: var(--pp-risk-red);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.25);
+}
+
+.ppDeleteAnalysisConfirmButton:hover {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.45);
+  background: var(--pp-red-soft);
+}
+
+.ppDeleteAnalysisConfirmButton .ppTrashIcon {
+  width: 14px;
+  height: 14px;
+}
+
 .ppActionConfirmMeta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -16265,15 +16387,42 @@ s-page[inline-size="large-500"] {
   height: 15px;
 }
 
+.ppActionMenu .ppTrashIcon {
+  width: 15px;
+  height: 15px;
+}
+
 .ppActionMenu a:hover,
 .ppActionMenu button:hover:not(:disabled) {
   background: var(--pp-slate-100);
   color: var(--pp-pulse-blue);
 }
 
+.ppActionMenu .ppActionMenuDanger {
+  margin-top: 4px;
+  border-top: 1px solid var(--pp-slate-200);
+  border-radius: 0 0 6px 6px;
+  color: var(--pp-risk-red);
+}
+
+.ppActionMenu .ppActionMenuDanger:hover:not(:disabled) {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
 .ppActionMenu button:disabled {
   color: var(--pp-slate-500);
   cursor: default;
+}
+
+.ppTrashIcon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .ppProductsPagination {
