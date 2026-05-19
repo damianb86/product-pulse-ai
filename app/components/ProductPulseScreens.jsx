@@ -3917,6 +3917,13 @@ function getProductRiskDisplay(score, trendValues = [], riskTone = "info", hasRi
   };
 }
 
+function getProductRiskTableTrendLabel(values = []) {
+  const trendState = getProductRiskTrendState(values);
+  if (trendState === "improving") return "Falling";
+  if (trendState === "rising") return "Rising";
+  return "Stable";
+}
+
 function getEvidenceLabel(evidenceSources, sourceCoverage) {
   if (evidenceSources.length >= 4) return "Strong evidence";
   if (evidenceSources.length > 1) return `${evidenceSources.length} evidence sources`;
@@ -8460,15 +8467,15 @@ function ProductArt({ variant, label, size = "small", imageUrl, imageAlt }) {
 
 function ProductRiskTrendCell({ product }) {
   const values = getProductRiskTrendValues(product);
-  const display = getProductRiskDisplay(product.riskScore || 0, values, product.riskTone || "info", true);
   const href = product.href || `/app/products/${product.handle || product.slug || product.id}`;
   const trendValues = values.length >= 2
     ? values
     : [Number(product.riskScore || 0), Number(product.riskScore || 0)];
+  const trendLabel = getProductRiskTableTrendLabel(trendValues);
 
   return (
-    <Link className="ppRiskTrendCell" to={href} aria-label={`${display.label} risk trend for ${product.title}`}>
-      <span>{display.label}</span>
+    <Link className="ppRiskTrendCell" to={href} aria-label={`${trendLabel} risk trend for ${product.title}`}>
+      <span>{trendLabel}</span>
       <MiniTrend tone="table" values={trendValues} />
     </Link>
   );

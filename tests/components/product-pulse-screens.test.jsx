@@ -424,6 +424,7 @@ describe("ProductPulse screens", () => {
           risk: "High",
           riskTone: "critical",
           riskScore: 84,
+          riskTrend: [62, 70, 84],
           status: "Needs attention",
           statusTone: "critical",
           signals: 184,
@@ -502,6 +503,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("↓")).toBeInTheDocument();
     expect(screen.getByText("Evidence")).toBeInTheDocument();
     expect(screen.getByText("Momentum")).toBeInTheDocument();
+    const trendLink = screen.getByRole("link", { name: "Rising risk trend for Linen Shirt" });
+    expect(within(trendLink).getByText("Rising")).toBeInTheDocument();
     expect(screen.getByText("Hot 86")).toBeInTheDocument();
     expect(screen.getByText("+68% 30d · Top 12%")).toBeInTheDocument();
     expect(screen.getByText("Strong · 3 sources")).toBeInTheDocument();
