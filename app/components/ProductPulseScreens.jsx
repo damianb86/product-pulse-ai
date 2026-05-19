@@ -1460,13 +1460,14 @@ function WatchlistProductRow({ product }) {
 
 function WatchChangeReportModal({ product, report, onClose }) {
   if (typeof document === "undefined") return null;
-  const sections = Array.isArray(report?.sections) ? report.sections : [];
-  const visibleSections = getVisibleWatchReportSections(sections);
-  const sourceInsights = Array.isArray(report?.sourceInsights) ? report.sourceInsights : [];
+  const isBaselineReport = report?.status === "baseline";
+  const sections = isBaselineReport ? [] : (Array.isArray(report?.sections) ? report.sections : []);
+  const visibleSections = isBaselineReport ? [] : getVisibleWatchReportSections(sections);
+  const sourceInsights = isBaselineReport ? [] : (Array.isArray(report?.sourceInsights) ? report.sourceInsights : []);
   const current = report?.current || {};
-  const changedCards = getWatchReportChangeCards(report, visibleSections);
+  const changedCards = isBaselineReport ? [] : getWatchReportChangeCards(report, visibleSections);
   const hasVisibleChanges = changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0;
-  const effectiveStatus = !hasVisibleChanges && report?.status !== "baseline" ? "unchanged" : report?.status;
+  const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
   const statusLabel = getWatchReportStatusLabel(effectiveStatus);
 
@@ -1513,7 +1514,23 @@ function WatchChangeReportModal({ product, report, onClose }) {
             </div>
           </div>
 
-          {changedCards.length ? (
+          {isBaselineReport ? (
+            <section className="ppWatchBaselinePanel" aria-label="No previous Watchlist data">
+              <DashboardIcon type="calendar" tone="blue" />
+              <div>
+                <h3>No previous Watchlist data</h3>
+                <p>
+                  This was the first Watchlist run for {product.title}. ProductPulse saved the current diagnosis as the baseline.
+                  Future Watchlist runs will compare new reviews, returns, refunds, product risk, momentum and evidence against this point.
+                </p>
+                <div className="ppWatchBaselinePills">
+                  <span>Baseline captured</span>
+                  <span>No comparison yet</span>
+                  <span>Changes start next run</span>
+                </div>
+              </div>
+            </section>
+          ) : changedCards.length ? (
             <section className="ppWatchChangedPanel" aria-label="Watchlist fields that changed">
               <div className="ppWatchChangedPanelTitle">
                 <h3>What changed</h3>

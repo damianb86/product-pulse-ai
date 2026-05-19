@@ -797,13 +797,12 @@ function buildWatchChangeReport({
   const previousRunAt = previous?.capturedAt || previousReport?.currentRunAt || previousReport?.createdAt || null;
 
   if (!previous) {
-    const sourceInsights = buildWatchEvidenceChangeInsights(null, current);
     return {
       id: `watch-report-${snapshot.productGid || "product"}-${createdAt.getTime()}`,
       status: "baseline",
       title: "Watch baseline captured",
-      headline: "First Watchlist comparison point stored",
-      summary: "This is the first stored Watchlist report for this product. Future runs will compare against this baseline.",
+      headline: "No previous Watchlist data",
+      summary: "This is the first Watchlist run for this product. ProductPulse saved the current diagnosis as the baseline for future comparisons.",
       source,
       noChangesReused,
       changeCount: 0,
@@ -811,22 +810,9 @@ function buildWatchChangeReport({
       currentRunAt: current.capturedAt,
       previous: null,
       current,
-      narrative: "ProductPulse captured the first Watchlist baseline for this product. Future Watchlist runs will compare new product risk, returns, refunds, reviews, source language and momentum against this stored point.",
-      sourceInsights,
-      sections: [{
-        id: "baseline",
-        title: "Baseline",
-        tone: "blue",
-        changes: [{
-          id: "baseline-captured",
-          label: "Current diagnosis baseline",
-          from: "No previous Watchlist run",
-          to: `${current.riskLabel} risk (${current.riskScore})`,
-          delta: "Baseline",
-          direction: "neutral",
-          detail: "ProductPulse will use this snapshot to explain future Watchlist changes.",
-        }],
-      }],
+      narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, momentum and evidence against this stored point.",
+      sourceInsights: [],
+      sections: [],
       changes: [],
     };
   }

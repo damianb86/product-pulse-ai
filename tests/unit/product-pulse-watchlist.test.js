@@ -80,7 +80,9 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.status).toBe("baseline");
     expect(report.changeCount).toBe(0);
     expect(report.current.riskScore).toBe(63);
-    expect(report.sections[0].title).toBe("Baseline");
+    expect(report.headline).toBe("No previous Watchlist data");
+    expect(report.sections).toHaveLength(0);
+    expect(report.sourceInsights).toHaveLength(0);
   });
 
   it("reports only meaningful watchlist changes against the previous run", () => {

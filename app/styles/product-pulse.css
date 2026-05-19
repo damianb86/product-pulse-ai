@@ -13555,6 +13555,70 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
+.ppWatchBaselinePanel {
+  min-height: 176px;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 24px 28px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.20);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(var(--pp-pulse-blue-rgb), 0.14), transparent 34%),
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(124, 92, 255, 0.05)),
+    var(--pp-cloud-white);
+}
+
+.ppWatchBaselinePanel .ppDashboardIcon {
+  width: 68px;
+  height: 68px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 14px 30px rgba(var(--pp-pulse-blue-rgb), 0.14);
+}
+
+.ppWatchBaselinePanel h3,
+.ppWatchBaselinePanel p {
+  margin: 0;
+}
+
+.ppWatchBaselinePanel h3 {
+  color: var(--pp-slate-950);
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppWatchBaselinePanel p {
+  max-width: 820px;
+  margin-top: 7px;
+  color: var(--pp-slate-600);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.ppWatchBaselinePills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ppWatchBaselinePills span {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.07);
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 850;
+}
+
 .ppWatchChangedPanel {
   display: grid;
   gap: 10px;
