@@ -985,6 +985,7 @@ function buildWatchReturnInsight(previous, current, previousReturns = {}, curren
   const rateDelta = Number(current?.returnRatePercent || currentReturns.rate || 0) - Number(previous?.returnRatePercent || previousReturns.rate || 0);
   if (!newItems.length && Math.abs(unitDelta) < 1 && Math.abs(rateDelta) < 0.2) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReturns.items);
+  const sentimentLabel = newItems.length ? "New return sentiment" : "Current return sentiment";
   const reasons = countWatchTerms(newItems.map((item) => item.reason || item.issueCode).filter(Boolean));
   const repeated = extractWatchRepeatedLanguage(newItems);
   return {
@@ -997,7 +998,7 @@ function buildWatchReturnInsight(previous, current, previousReturns = {}, curren
       : `Return pressure moved from ${formatNumberWithSuffix(previous?.returnRatePercent || previousReturns.rate || 0, "%")} to ${formatNumberWithSuffix(current?.returnRatePercent || currentReturns.rate || 0, "%")}.`,
     bullets: [
       reasons.length ? `Top new return reason language: ${formatWatchCountList(reasons, 3)}.` : "",
-      sentiment.total ? `New return sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      sentiment.total ? `${sentimentLabel}: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
       repeated.length ? `Repeated new return language: ${formatWatchCountList(repeated, 4)}.` : "",
       newItems[0]?.text ? `Representative note: "${truncateWatchText(newItems[0].text, 150)}"` : "",
     ].filter(Boolean),
@@ -1010,6 +1011,7 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
   const reviewDelta = Number(current?.reviewCount || currentReviews.total || 0) - Number(previous?.reviewCount || previousReviews.total || 0);
   if (!newItems.length && Math.abs(negativeDelta) < 1 && Math.abs(reviewDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReviews.items);
+  const sentimentLabel = newItems.length ? "New review sentiment" : "Current review sentiment";
   const repeated = extractWatchRepeatedLanguage(newItems);
   const ratings = countWatchTerms(newItems.map((item) => Number(item.rating || 0) ? `${Number(item.rating)} star` : "").filter(Boolean));
   return {
@@ -1021,7 +1023,7 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
       ? `${newItems.length} new review text signal${newItems.length === 1 ? "" : "s"} were added to the watched product evidence.`
       : `Stored review volume changed from ${previous?.reviewCount || previousReviews.total || 0} to ${current?.reviewCount || currentReviews.total || 0}.`,
     bullets: [
-      sentiment.total ? `New review sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      sentiment.total ? `${sentimentLabel}: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
       ratings.length ? `New review ratings: ${formatWatchCountList(ratings, 4)}.` : "",
       repeated.length ? `Repeated new review language: ${formatWatchCountList(repeated, 4)}.` : "",
       newItems[0]?.text ? `Representative review: "${truncateWatchText(newItems[0].text, 150)}"` : "",
@@ -1034,6 +1036,7 @@ function buildWatchRefundInsight(previous, current, previousRefunds = {}, curren
   const unitDelta = Number(current?.refundUnits || currentRefunds.totalUnits || 0) - Number(previous?.refundUnits || previousRefunds.totalUnits || 0);
   if (!newItems.length && Math.abs(unitDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentRefunds.items);
+  const sentimentLabel = newItems.length ? "New refund-note sentiment" : "Current refund-note sentiment";
   const reasons = countWatchTerms(newItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]).filter(Boolean));
   const repeated = extractWatchRepeatedLanguage(newItems);
   return {
@@ -1046,7 +1049,7 @@ function buildWatchRefundInsight(previous, current, previousRefunds = {}, curren
       : `Refunded units changed from ${previous?.refundUnits || previousRefunds.totalUnits || 0} to ${current?.refundUnits || currentRefunds.totalUnits || 0}.`,
     bullets: [
       reasons.length ? `Top new refund reason language: ${formatWatchCountList(reasons, 3)}.` : "",
-      sentiment.total ? `New refund-note sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      sentiment.total ? `${sentimentLabel}: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
       repeated.length ? `Repeated new refund-note language: ${formatWatchCountList(repeated, 4)}.` : "",
       newItems[0]?.text ? `Representative refund note: "${truncateWatchText(newItems[0].text, 150)}"` : "",
     ].filter(Boolean),
@@ -1246,13 +1249,17 @@ function numericWatchChange({ id, label, previous, current, suffix = "", thresho
 }
 
 function moneyWatchChange({ id, label, previous, current, threshold = 1, detail }) {
-  const change = numericWatchChange({ id, label, previous, current, threshold, detail });
+  const previousNumber = Number(previous);
+  const currentNumber = Number(current);
+  if (!Number.isFinite(previousNumber) || !Number.isFinite(currentNumber)) return null;
+  const dynamicThreshold = Math.max(Number(threshold || 0), 5, Math.abs(previousNumber) * 0.01);
+  const change = numericWatchChange({ id, label, previous: previousNumber, current: currentNumber, threshold: dynamicThreshold, detail });
   if (!change) return null;
   return {
     ...change,
-    from: formatMoney(previous),
-    to: formatMoney(current),
-    delta: `${Number(current) - Number(previous) > 0 ? "+" : ""}${formatMoney(Number(current) - Number(previous))}`,
+    from: formatMoney(previousNumber),
+    to: formatMoney(currentNumber),
+    delta: `${currentNumber - previousNumber > 0 ? "+" : ""}${formatMoney(currentNumber - previousNumber)}`,
   };
 }
 
@@ -1612,6 +1619,7 @@ function getNewWatchEvidenceItems(previousItems = [], currentItems = [], { since
 
   return (Array.isArray(currentItems) ? currentItems : []).filter((item) => {
     if (!item?.key || previousKeys.has(item.key)) return false;
+    if (hasPreviousItemBaseline) return true;
 
     const itemDate = parseWatchDate(item.createdAt || item.updatedAt || item.processedAt || item.date);
     if (cutoff) {
@@ -1777,4 +1785,5 @@ export const __productPulseWatchlistTestHooks = {
   buildWatchChangeReport,
   buildWatchlistTrend,
   formatWatchlistRow,
+  getNewWatchEvidenceItems,
 };

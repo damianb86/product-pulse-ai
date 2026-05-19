@@ -1497,7 +1497,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     })).toBe(false);
   });
 
-  it("only flags title and description mismatch when product categories are clearly disconnected", () => {
+  it("surfaces title and description mismatch as a semantic advisory when product categories are clearly disconnected", () => {
     const connected = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
       title: "Rembrandt Night Watch Canvas Print",
       description: "Museum-inspired wall art printed on canvas with a dark palette and framed finish for a living room or gallery wall.",
@@ -1514,7 +1514,8 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
 
     expect(connected.issues.map((issue) => issue.code)).not.toContain("title_description_mismatch");
-    expect(disconnected.issues.map((issue) => issue.code)).toContain("title_description_mismatch");
+    expect(disconnected.issues.map((issue) => issue.code)).not.toContain("title_description_mismatch");
+    expect(disconnected.advisories.map((advisory) => advisory.code)).toContain("title_description_mismatch");
   });
 
   it("recommends product FAQs only when buyer uncertainty has enough evidence", () => {
@@ -1820,6 +1821,21 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(counts.fit_sizing || 0).toBe(0);
     expect(counts.quality_defect || 0).toBe(0);
     expect(counts.shipping_delivery || 0).toBe(0);
+  });
+
+  it("keeps positive recovery reviews positive when they mention resolved damage context", () => {
+    const cachedItems = __productPulseDiagnosisTestHooks.buildCustomerTextAnalysisItems({
+      returns: [],
+      reviews: [{
+        title: "Packaging improved",
+        body: "Packaging looked much better this time. The plates arrived safely with better separators and no chips. The glaze was beautiful, and the shipping damage problem is being handled.",
+        rating: 5,
+        sourceType: "csv_review",
+        createdAt: "2026-05-17T00:00:00.000Z",
+      }],
+    });
+
+    expect(cachedItems.reviewTexts[0]?.sentiment).toBe("positive");
   });
 
   it("prioritizes monitoring over PDP fixes for low-risk high-momentum control products", () => {

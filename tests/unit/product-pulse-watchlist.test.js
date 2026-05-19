@@ -306,6 +306,96 @@ describe("ProductPulse watchlist helpers", () => {
     expect(reviewInsight?.summary).toContain("1 new review text signal");
   });
 
+  it("uses stored evidence keys instead of review dates when comparing two item-level reports", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-19T02:00:00.000Z",
+      riskScore: 56,
+      riskLabel: "Medium",
+      confidence: 79,
+      negativeReviewCount: 0,
+      reviewCount: 7,
+      signalCount: 10,
+      evidenceDetails: {
+        reviews: {
+          total: 7,
+          negative: 0,
+          items: [{ key: "review-old", text: "Matches the photos.", sentiment: "positive", rating: 5, createdAt: "2026-05-01T00:00:00.000Z" }],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 58,
+        confidence: 80,
+        primaryIssue: "Color expectations",
+        metrics: {
+          negativeReviewCount: 1,
+          reviewCount: 8,
+          signalCount: 11,
+          incrementalDiagnosis: {
+            cache: {
+              customerText: {
+                reviewItems: [
+                  { key: "review-old", text: "Matches the photos.", sentiment: "positive", rating: 5, createdAt: "2026-05-01T00:00:00.000Z" },
+                  {
+                    key: "review-new-but-backdated",
+                    text: "The rose color looked copper in person.",
+                    analysisText: "The rose color looked copper in person.",
+                    sentiment: "negative",
+                    rating: 3,
+                    createdAt: "2026-05-18T02:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-19T02:05:00.000Z"),
+    });
+
+    const reviewInsight = report.sourceInsights.find((insight) => insight.id === "review-evidence");
+    expect(reviewInsight?.metric).toBe("1 new review");
+    expect(reviewInsight?.bullets.join(" ")).toContain("New review sentiment: 1 negative, 0 neutral, 0 positive");
+  });
+
+  it("does not report tiny financial-exposure drift as a meaningful Watchlist change", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-19T02:00:00.000Z",
+      riskScore: 59,
+      riskLabel: "Medium",
+      confidence: 79,
+      estimatedImpact: 802,
+      marginAtRisk: 360.9,
+      revenueAtRisk: 802,
+      primaryIssue: "Product quality",
+      signalCount: 21,
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 59,
+        confidence: 79,
+        primaryIssue: "Product quality",
+        metrics: {
+          estimatedImpact: 804.16,
+          marginAtRisk: 363.06,
+          revenueAtRisk: 806.81,
+          signalCount: 21,
+        },
+      },
+      createdAt: new Date("2026-05-19T02:05:00.000Z"),
+    });
+
+    expect(report.status).toBe("unchanged");
+    expect(report.changes).toEqual([]);
+  });
+
   it("reports no meaningful changes when the current snapshot matches the previous run", () => {
     const previousSummary = {
       capturedAt: "2026-05-16T10:00:00.000Z",

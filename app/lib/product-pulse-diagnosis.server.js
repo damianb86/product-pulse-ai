@@ -8248,13 +8248,34 @@ function customerLanguageTokens(value) {
     .filter((token) => !CUSTOMER_TEXT_STOP_WORDS.has(token));
 }
 
+function maskResolvedNegativeCustomerLanguage(normalized) {
+  return String(normalized || "")
+    .replace(/\b(no|without|free from)\s+(chips?|damage|damaged|cracks?|cracked|breakage|broken|defects?|issues?|problems?)\b/g, " ")
+    .replace(/\b(arrived safely|arrived intact|better packaging|better separators|packaging looked much better|problem is being handled|issue is being handled|handled well|resolved|fixed|improved|more confident)\b/g, " ");
+}
+
+function hasPositiveRecoveryCustomerLanguage(normalized) {
+  return /\b(arrived safely|arrived intact|better packaging|better separators|packaging looked much better|no chips?|no damage|no cracks?|problem is being handled|issue is being handled|resolved|fixed|improved|more confident|beautiful)\b/.test(normalized);
+}
+
+function hasUnresolvedNegativeCustomerLanguage(normalized) {
+  return /\b(still broken|still cracked|still damaged|still missing|arrived broken|arrived damaged|arrived cracked|not fixed|not resolved|continues? to|keeps? (breaking|leaking|failing)|doesn t work|doesnt work|not working|unusable|unsafe|dangerous|failed|leaks?|leaking)\b/.test(normalized);
+}
+
 function classifyCustomerSentiment(text, rating = 0) {
   const normalized = normalizeText(text);
-  const negativeMatches = countRegexMatches(normalized, /(bad|poor|cheap|thin|broken|defect|damage|damaged|disappointed|return|refund|small|large|tight|loose|wrong|issue|problem|unhappy|terrible|awful|not fit|doesn t fit|doesnt fit|not as pictured|late|scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/g);
+  const sentimentText = maskResolvedNegativeCustomerLanguage(normalized);
+  const negativeMatches = countRegexMatches(sentimentText, /(bad|poor|cheap|thin|broken|defect|damage|damaged|disappointed|return|refund|small|large|tight|loose|wrong|issue|problem|unhappy|terrible|awful|not fit|doesn t fit|doesnt fit|not as pictured|late|scare|scary|scared|fear|afraid|fright|unsafe|danger|dangerous|creepy|asusta|asustado|miedo|temor|peligro|peligroso|terror)/g);
   const positiveMatches = countRegexMatches(normalized, /(great|good|love|loved|perfect|excellent|happy|quality|comfortable|recommend|works well|beautiful)/g);
-  if (rating > 0 && rating <= 2) return "negative";
+  const ratingNumber = Number(rating || 0);
+  if (ratingNumber > 0 && ratingNumber <= 2) return "negative";
+  if (
+    ratingNumber >= 4
+    && hasPositiveRecoveryCustomerLanguage(normalized)
+    && !hasUnresolvedNegativeCustomerLanguage(normalized)
+  ) return "positive";
   if (negativeMatches > positiveMatches) return "negative";
-  if (rating >= 4 && positiveMatches >= negativeMatches) return "positive";
+  if (ratingNumber >= 4 && positiveMatches >= negativeMatches) return "positive";
   if (positiveMatches > negativeMatches) return "positive";
   return "neutral";
 }
