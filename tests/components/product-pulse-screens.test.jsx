@@ -115,8 +115,8 @@ describe("ProductPulse screens", () => {
     expect(within(table).queryByText("Credits")).not.toBeInTheDocument();
     expect(within(screen.getByTestId("products-candidates-table")).getByText("No candidates yet")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Run quick scan/ }).length).toBeGreaterThan(1);
-    expect(screen.getByRole("button", { name: "Find Shopify product" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Find Shopify product" }));
+    expect(screen.getAllByRole("button", { name: "Find Shopify product" })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Find Shopify product" })[0]);
     expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
     expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
@@ -349,12 +349,69 @@ describe("ProductPulse screens", () => {
     });
 
     renderWithAction(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />, action);
-    fireEvent.click(screen.getByRole("button", { name: "Find Shopify product" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Find Shopify product" })[0]);
     fireEvent.change(screen.getByPlaceholderText("Search by title, handle, product ID or SKU"), { target: { value: "denim" } });
 
     await waitFor(() => expect(screen.getByText("Vintage Denim Jacket")).toBeInTheDocument());
     await new Promise((resolve) => { window.setTimeout(resolve, 450); });
     expect(action).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the Shopify search modal open while adding multiple candidates", async () => {
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      if (formData.get("_action") === "add-shopify-product-candidate") {
+        return {
+          status: "success",
+          message: "Product was added to Candidates without running a diagnosis.",
+          action: {
+            id: "add-shopify-product-candidate",
+            productGid: String(formData.get("productId") || ""),
+          },
+        };
+      }
+      return {
+        status: "success",
+        query: String(formData.get("query") || ""),
+        products: [
+          {
+            id: "gid://shopify/Product/123",
+            title: "Vintage Denim Jacket",
+            handle: "vintage-denim-jacket",
+            status: "ACTIVE",
+            detail: "Qorve / Outerwear",
+            sku: "VDJ-1",
+            imageUrl: null,
+            imageAlt: null,
+            variant: "shirt",
+            existingSnapshot: false,
+          },
+          {
+            id: "gid://shopify/Product/456",
+            title: "Denim Tote",
+            handle: "denim-tote",
+            status: "ACTIVE",
+            detail: "Qorve / Bags",
+            sku: "DT-1",
+            imageUrl: null,
+            imageAlt: null,
+            variant: "bag",
+            existingSnapshot: false,
+          },
+        ],
+      };
+    });
+
+    renderWithAction(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />, action);
+    fireEvent.click(screen.getAllByRole("button", { name: "Find Shopify product" })[0]);
+    fireEvent.change(screen.getByPlaceholderText("Search by title, handle, product ID or SKU"), { target: { value: "denim" } });
+
+    await waitFor(() => expect(screen.getByText("Vintage Denim Jacket")).toBeInTheDocument());
+    fireEvent.click(screen.getAllByRole("button", { name: "Add to Candidates" })[0]);
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
+    expect(screen.getByText("Denim Tote")).toBeInTheDocument();
   });
 
   it("renders settings controls for thresholds and queue limits", () => {
@@ -1797,6 +1854,10 @@ describe("ProductPulse screens", () => {
             maxOrders: 8,
           },
         },
+        orderGeography: [
+          { label: "Texas, United States", count: 8, share: 66.7, detail: "8 orders · 66.7%" },
+          { label: "Canada", count: 4, share: 33.3, detail: "4 orders · 33.3%" },
+        ],
       },
     };
 
@@ -1806,9 +1867,14 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Order velocity")).toBeInTheDocument();
     expect(screen.getByText("Sales by channel")).toBeInTheDocument();
     expect(screen.getByText("Order insights")).toBeInTheDocument();
+    const geographySection = screen.getByRole("heading", { name: "Geography" }).closest("section");
+    expect(within(geographySection).getByText("By order origin")).toBeInTheDocument();
+    expect(within(geographySection).getByText("Texas, United States")).toBeInTheDocument();
+    expect(within(geographySection).getByText("Canada")).toBeInTheDocument();
+    expect(within(geographySection).getByText("8 orders · 66.7%")).toBeInTheDocument();
   });
 
-  it("puts AI evidence synthesis first and expands Shopify variant evidence", () => {
+  it("puts AI evidence synthesis first and expands Shopify variant evidence", async () => {
     const product = {
       ...defaultView.startHere,
       evidence: [
@@ -1830,6 +1896,47 @@ describe("ProductPulse screens", () => {
         variants: [
           { title: "Aurora Blue", sku: "GEN-BLUE", price: 118, selectedOptions: [{ name: "Color", value: "Aurora Blue" }] },
           { title: "Warm White", sku: "GEN-WHITE", price: 112, selectedOptions: [{ name: "Color", value: "Warm White" }] },
+        ],
+        variantInsights: [
+          {
+            variantTitle: "Aurora Blue",
+            sku: "GEN-BLUE",
+            price: 118,
+            selectedOptions: [{ name: "Color", value: "Aurora Blue" }],
+            signalCount: 4,
+            sales: { units: 5, amount: 590 },
+            returns: {
+              units: 1,
+              rate: 20,
+              examples: [{ variant: "Aurora Blue", text: "Aurora Blue color was not as pictured.", sentiment: "negative", reason: "Color", quantity: 1 }],
+            },
+            refunds: {
+              units: 2,
+              amount: 118,
+              examples: [
+                { variant: "Aurora Blue", amount: 60, quantity: 1, reasonText: "Customer request", text: "Refund connected to Aurora Blue color mismatch." },
+                { variant: "Aurora Blue", amount: 58, quantity: 1, reasonText: "Not as described", text: "Aurora Blue looked darker than expected." },
+              ],
+            },
+            reviews: {
+              count: 1,
+              negativeCount: 1,
+              averageRating: 2,
+              sources: [{ label: "CSV reviews", count: 1 }],
+              examples: [{ variant: "Aurora Blue", text: "The Aurora Blue variant looks muted.", sentiment: "negative", rating: 2, sourceLabel: "CSV reviews" }],
+            },
+          },
+          {
+            variantTitle: "Warm White",
+            sku: "GEN-WHITE",
+            price: 112,
+            selectedOptions: [{ name: "Color", value: "Warm White" }],
+            signalCount: 0,
+            sales: { units: 8, amount: 896 },
+            returns: { units: 0, examples: [] },
+            refunds: { units: 0, amount: 0, examples: [] },
+            reviews: { count: 0, negativeCount: 0, examples: [] },
+          },
         ],
         affectedVariants: ["Aurora Blue"],
         affectedVariantDetails: [{ label: "Aurora Blue", count: 3 }],
@@ -1868,15 +1975,112 @@ describe("ProductPulse screens", () => {
     expect(within(variantSection).queryByRole("heading", { name: "Product content" })).not.toBeInTheDocument();
     expect(within(variantSection).queryByText("Interpretation")).not.toBeInTheDocument();
     expect(within(variantSection).getByText("Shopify data")).toBeInTheDocument();
+    expect(within(variantSection).getByText("Sales")).toBeInTheDocument();
     expect(within(variantSection).getByText("Refunds")).toBeInTheDocument();
     expect(within(variantSection).getByText("Returns")).toBeInTheDocument();
     expect(within(variantSection).getByText("Reviews / language")).toBeInTheDocument();
+    expect(within(variantSection).getByText("5 sold units")).toBeInTheDocument();
+    expect(within(variantSection).getByText("8 sold units")).toBeInTheDocument();
     expect(within(variantSection).getByText("2 refund signals · $118")).toBeInTheDocument();
     expect(within(variantSection).getByText("1 return signal")).toBeInTheDocument();
-    expect(within(variantSection).getByText("1 review signal")).toBeInTheDocument();
+    expect(within(variantSection).getByText("1 negative review · 1 total")).toBeInTheDocument();
+    expect(within(variantSection).queryByText(/Aurora Blue color was not as pictured/)).not.toBeInTheDocument();
+    fireEvent.click(within(variantSection).getByLabelText("View details for Aurora Blue return evidence"));
+    const hiddenReturnExample = await screen.findByText(/Aurora Blue color was not as pictured/);
+    expect(hiddenReturnExample).toBeVisible();
     expect(within(variantSection).getByText(/Stored AI variant interpretation says Aurora Blue should be reviewed/)).toBeInTheDocument();
     expect(within(variantSection).queryByText(/Variant evidence appears concentrated/)).not.toBeInTheDocument();
     expect(within(variantSection).queryByText(/affected variant is stored/)).not.toBeInTheDocument();
+  });
+
+  it("keeps review provider data and AI synthesis scoped to each provider tab", () => {
+    const product = {
+      ...defaultView.startHere,
+      evidence: [
+        {
+          source: "AI evidence synthesis",
+          quote: "Cross-source reading: Aggregate AI synthesis belongs only in the synthesis overview.",
+          points: [
+            {
+              section_key: "customer_language",
+              source_key: "csv_reviews",
+              source_title: "CSV reviews",
+              title: "Customer language",
+              body: "CSV-only synthesis says imported review wording points to expectation friction.",
+            },
+            {
+              section_key: "customer_language",
+              source_key: "judgeme_reviews",
+              source_title: "Judge.me reviews",
+              title: "Customer language",
+              body: "Judge-only synthesis says storefront reviews read more like packaging feedback.",
+            },
+          ],
+        },
+        {
+          source: "CSV reviews",
+          quote: "2 negative reviews out of 3",
+          weight: "CSV average rating",
+          points: ["Review text: \"CSV review seam issue was repeated.\""],
+        },
+        {
+          source: "Judge.me reviews",
+          quote: "1 negative review out of 4",
+          weight: "Judge.me average rating",
+          points: ["Review text: \"Judge.me packaging note mentioned dents.\""],
+        },
+      ],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        reviewSourceStats: {
+          csv: { reviewCount: 3, negativeReviewCount: 2, avgRating: 2.4, negativeReviewRate: 67, recentNegativeReviewCount: 1 },
+          judgeMe: { reviewCount: 4, negativeReviewCount: 1, avgRating: 4.2, negativeReviewRate: 25, recentNegativeReviewCount: 1 },
+          total: { reviewCount: 7, negativeReviewCount: 3, avgRating: 3.4, negativeReviewRate: 43, recentNegativeReviewCount: 2 },
+        },
+        csvReviewCount: 3,
+        csvNegativeReviewCount: 2,
+        csvAverageRating: 2.4,
+        judgeMeReviewCount: 4,
+        judgeMeNegativeReviewCount: 1,
+        judgeMeAverageRating: 4.2,
+        textInsights: {
+          reviews: {
+            bySource: {
+              csv: {
+                sentiment: { total: 3, negative: 2, neutral: 1, positive: 0 },
+                emotions: [{ label: "Frustration", count: 2 }],
+                repeatedLanguage: [{ term: "seam issue", count: 2, sources: ["csv_review"], sentiments: { negative: 2 } }],
+                examples: [{ source: "csv_review", sourceLabel: "CSV reviews", title: "CSV fit note", text: "CSV review seam issue was repeated.", sentiment: "negative", rating: 2 }],
+              },
+              judgeMe: {
+                sentiment: { total: 4, negative: 1, neutral: 1, positive: 2 },
+                emotions: [{ label: "Concern", count: 1 }],
+                repeatedLanguage: [{ term: "packaging dents", count: 1, sources: ["judgeme_review"], sentiments: { negative: 1 } }],
+                examples: [{ source: "judgeme_review", sourceLabel: "Judge.me reviews", title: "Judge packaging note", text: "Judge.me packaging note mentioned dents.", sentiment: "negative", rating: 2 }],
+              },
+            },
+          },
+        },
+      },
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "CSV reviews" }));
+    expect(screen.getByRole("heading", { name: "CSV reviews" })).toBeInTheDocument();
+    expect(screen.getByText(/CSV-only synthesis says imported review wording/)).toBeInTheDocument();
+    expect(screen.queryByText(/Judge-only synthesis/)).not.toBeInTheDocument();
+    expect(screen.getByText("CSV review seam issue was repeated.")).toBeInTheDocument();
+    expect(screen.queryByText("Judge.me packaging note mentioned dents.")).not.toBeInTheDocument();
+    expect(screen.getByText("2 negative reviews")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Judge.me reviews" }));
+    expect(screen.getByRole("heading", { name: "Judge.me reviews" })).toBeInTheDocument();
+    expect(screen.getByText(/Judge-only synthesis says storefront reviews/)).toBeInTheDocument();
+    expect(screen.queryByText(/CSV-only synthesis/)).not.toBeInTheDocument();
+    expect(screen.getByText("Judge.me packaging note mentioned dents.")).toBeInTheDocument();
+    expect(screen.queryByText("CSV review seam issue was repeated.")).not.toBeInTheDocument();
+    expect(screen.getByText("1 negative reviews")).toBeInTheDocument();
   });
 
   it("renders the full product evidence report with raw evidence relationships", () => {

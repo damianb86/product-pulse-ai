@@ -126,6 +126,16 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(queryModes).toEqual(["updated_at", "partially_refunded", "refunded"]);
   });
 
+  it("requests Shopify order geography for sales extraction", () => {
+    const query = __productPulseDiagnosisTestHooks.buildDiagnosisSalesQuery();
+
+    expect(query).toContain("shippingAddress");
+    expect(query).toContain("billingAddress");
+    expect(query).toContain("countryCodeV2");
+    expect(query).toContain("provinceCode");
+    expect(query).toContain("city");
+  });
+
   it("can normalize order-level refunded line items when refundLineItems are missing", () => {
     expect(__productPulseDiagnosisTestHooks.shouldUseDiagnosisOrderLevelRefundFallback({
       displayFinancialStatus: "REFUNDED",
@@ -519,6 +529,142 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.otherReturnClassifications[0]).toMatchObject({ issueCode: "quality_defect", count: 1 });
     expect(insights.granularIssues).toEqual([]);
     expect(issues).toEqual([]);
+  });
+
+  it("persists sales, returns, refunds, and review evidence by variant", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/variant-insights",
+      productTitle: "GEN Dinner Set",
+      handle: "gen-dinner-set",
+      riskScore: 0,
+      metrics: {},
+    };
+    const product = {
+      id: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      description: "Dinner set available in Aurora Blue and Warm White.",
+      variants: [
+        { id: "gid://shopify/ProductVariant/blue", title: "Aurora Blue", sku: "GEN-BLUE", price: 118, selectedOptions: [{ name: "Color", value: "Aurora Blue" }] },
+        { id: "gid://shopify/ProductVariant/white", title: "Warm White", sku: "GEN-WHITE", price: 112, selectedOptions: [{ name: "Color", value: "Warm White" }] },
+      ],
+      options: [{ name: "Color" }],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: [
+          { id: "sale-blue", orderId: "order-blue", quantity: 5, amount: 590, createdAt: daysAgo(20), variantId: "gid://shopify/ProductVariant/blue", variantTitle: "Aurora Blue", sku: "GEN-BLUE", countryCode: "US", provinceCode: "TX", city: "Austin" },
+          { id: "sale-white", orderId: "order-white", quantity: 8, amount: 896, createdAt: daysAgo(18), variantId: "gid://shopify/ProductVariant/white", variantTitle: "Warm White", sku: "GEN-WHITE", countryCode: "CA", provinceCode: "ON", city: "Toronto" },
+        ],
+        returns: [
+          { id: "return-blue", quantity: 1, reason: "OTHER", reasonNote: "Aurora Blue color was not as pictured.", createdAt: daysAgo(10), variantId: "gid://shopify/ProductVariant/blue", variantTitle: "Aurora Blue", sku: "GEN-BLUE" },
+        ],
+        refunds: [
+          { id: "refund-blue", quantity: 2, amount: 118, reason: "Not as described", note: "Refund connected to Aurora Blue color mismatch.", createdAt: daysAgo(8), variantId: "gid://shopify/ProductVariant/blue", variantTitle: "Aurora Blue", sku: "GEN-BLUE" },
+        ],
+        orderAccessDenied: false,
+      },
+      judgeMeData: {
+        connected: true,
+        matchConfidence: 1,
+        reviews: [
+          { id: "review-blue", rating: 2, title: "Aurora Blue looks muted", body: "The Aurora Blue variant looks darker than expected.", createdAt: daysAgo(7) },
+          { id: "review-white", rating: 5, title: "Warm White is great", body: "Warm White matched the photos.", createdAt: daysAgo(6) },
+        ],
+      },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    const blue = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Aurora Blue");
+    const white = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Warm White");
+
+    expect(blue).toMatchObject({
+      sku: "GEN-BLUE",
+      sales: { units: 5, amount: 590 },
+      returns: { units: 1 },
+      refunds: { units: 2, amount: 118 },
+      reviews: { count: 1, negativeCount: 1 },
+      signalCount: 4,
+    });
+    expect(blue.reviews.examples[0]?.text).toContain("Aurora Blue");
+    expect(white).toMatchObject({
+      sku: "GEN-WHITE",
+      sales: { units: 8, amount: 896 },
+      returns: { units: 0 },
+      refunds: { units: 0, amount: 0 },
+      reviews: { count: 1, negativeCount: 0 },
+      signalCount: 0,
+    });
+    expect(deterministic.metrics.affectedVariants).toContain("Aurora Blue");
+    expect(deterministic.metrics.orderGeography).toEqual([
+      expect.objectContaining({ label: "Canada", count: 1, share: 50 }),
+      expect.objectContaining({ label: "Texas, United States", count: 1, share: 50 }),
+    ]);
+  });
+
+  it("matches reviews to variant values without treating option names as variant evidence", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/variants",
+      productTitle: "GEN Buds",
+      handle: "gen-buds",
+      metrics: {},
+    };
+    const product = {
+      id: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      description: "Wireless earbuds with multiple color variants, charging case, Bluetooth pairing, silicone tips, and product care guidance for daily listening.",
+      descriptionHtml: "<p>Wireless earbuds with multiple color variants, charging case, Bluetooth pairing, silicone tips, and product care guidance for daily listening.</p>",
+      variants: [
+        { id: "gid://shopify/ProductVariant/black", title: "Black", sku: "GEN-BUD-BLK", selectedOptions: [{ name: "Color", value: "Black" }] },
+        { id: "gid://shopify/ProductVariant/rose", title: "Rose", sku: "GEN-BUD-ROS", selectedOptions: [{ name: "Color", value: "Rose" }] },
+        { id: "gid://shopify/ProductVariant/blue", title: "Blue", sku: "GEN-BUD-BLU", selectedOptions: [{ name: "Color", value: "Blue" }] },
+      ],
+      options: [{ name: "Color" }],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: [],
+        returns: [],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: {
+        connected: true,
+        matchConfidence: 1,
+        reviews: [
+          { id: "rose-negative", rating: 1, title: "Rose color mismatch", body: "Rose color does not match the product photos.", createdAt: daysAgo(3) },
+          { id: "rose-positive", rating: 5, title: "Rose is perfect", body: "Rose looks beautiful and matches what I expected.", createdAt: daysAgo(2) },
+          { id: "black-positive", rating: 5, title: "Black is great", body: "The Black color is perfect and sounds good.", createdAt: daysAgo(1) },
+        ],
+      },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    const black = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Black");
+    const rose = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Rose");
+    const blue = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Blue");
+
+    expect(black.reviews).toMatchObject({ count: 1, negativeCount: 0, positiveCount: 1 });
+    expect(rose.reviews).toMatchObject({ count: 2, negativeCount: 1, positiveCount: 1 });
+    expect(blue.reviews).toMatchObject({ count: 0, negativeCount: 0, positiveCount: 0 });
+    expect(rose.reviews.examples.map((example) => example.sentiment)).toEqual(expect.arrayContaining(["negative", "positive"]));
   });
 
   it("merges repeated evidence for the same issue into one merchant-facing issue", () => {
@@ -1929,6 +2075,70 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).not.toContain("add-product-description-guidance");
     expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
     expect(recommendations.map((item) => item.id)).not.toContain("improve-product-media");
+    expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
+  });
+
+  it("treats low-risk rising mock products with minor PDP gaps as watchlist candidates", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 21,
+      confidence: 68,
+      issueSignalCounts: { quality_defect: 2, product_content: 4 },
+      product: {
+        title: "GEN Atlas Pro Mechanical Keyboard",
+        description: "Premium mechanical keyboard. Aluminum case, hot-swappable switches, RGB backlight and detachable USB-C cable. Choose tactile or linear switch feel before checkout.",
+        media: [],
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Tactile", sku: "GEN-KBD-TAC" },
+          { id: "gid://shopify/ProductVariant/2", title: "Linear", sku: "GEN-KBD-LIN" },
+        ],
+      },
+      metrics: {
+        productMomentumScore: 76,
+        customerSignalCount: 2,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        signalCount: 6,
+        mediaCount: 0,
+        contentIssueCount: 4,
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Switch guidance"],
+          reasons: ["Repeated review language points to a possible expectation gap."],
+        },
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short product description", severity: "medium", evidence: "The description has 21 words." },
+            { code: "missing_specifications", label: "Missing product specifications", severity: "medium", evidence: "No layout, dimensions or compatibility details are provided." },
+            { code: "missing_customer_guidance", label: "Missing customer guidance", severity: "medium", evidence: "Switch feel is not explained." },
+          ],
+          advisories: [{ code: "missing_media_context", label: "Missing media context", severity: "low" }],
+        },
+        textInsights: {
+          sentiment: { positive: 42, neutral: 0, negative: 2, total: 44, negativeRatio: 0.045 },
+          repeatedLanguage: [
+            { term: "excellent", count: 42, dominantSentiment: "positive", sentiments: { positive: 42, neutral: 0, negative: 0 }, sources: ["csv_review"] },
+            { term: "not what i expected", count: 2, dominantSentiment: "negative", sentiments: { positive: 0, neutral: 0, negative: 2 }, sources: ["csv_review"] },
+          ],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/5",
+        productTitle: "GEN Atlas Pro Mechanical Keyboard",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations[0]?.id).toBe("add-to-watchlist");
+    expect(recommendations.map((item) => item.id)).not.toContain("draft-quality-note");
+    expect(recommendations.map((item) => item.id)).not.toContain("rewrite-product-description");
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
     expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
   });
 

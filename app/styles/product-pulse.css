@@ -5756,7 +5756,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppShopifyProductEvidenceReport .ppEvidenceSignalTable {
-  min-width: 1040px;
+  min-width: 1220px;
 }
 
 .ppEvidenceSignalTable th,
@@ -5775,14 +5775,16 @@ s-page[inline-size="large-500"] {
 .ppEvidenceSignalTable td {
   color: var(--pp-slate-700);
   font-weight: 720;
+  vertical-align: top;
 }
 
-.ppEvidenceSignalTable td:first-child {
+.ppEvidenceSignalNameCell {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   color: var(--pp-slate-800);
   font-weight: 850;
+  line-height: 1.25;
 }
 
 .ppEvidenceSignalTypeIcon {
@@ -5825,7 +5827,15 @@ s-page[inline-size="large-500"] {
   gap: 4px;
 }
 
+.ppVariantEvidenceCellMain {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
 .ppVariantEvidenceCell strong {
+  min-width: 0;
   color: var(--pp-slate-800);
   font-size: 12px;
   font-weight: 850;
@@ -5841,6 +5851,65 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.ppVariantEvidencePopoverButton {
+  width: 19px;
+  height: 19px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-500);
+  cursor: pointer;
+}
+
+.ppVariantEvidencePopoverButton[aria-expanded="true"] {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.32);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
+}
+
+.ppVariantEvidenceFloatingPopover {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 22px 54px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppVariantEvidencePopoverContent {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.ppVariantEvidencePopoverContent > strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.ppVariantEvidencePopoverContent > div {
+  display: grid;
+  gap: 8px;
+  max-height: min(260px, 45vh);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.ppVariantEvidencePopoverContent p {
+  margin: 0;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.4;
 }
 
 .ppVariantEvidenceCell-red strong {
@@ -12528,7 +12597,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppShopifyProductSearchModal {
-  width: min(760px, 100%);
+  width: min(980px, calc(100vw - 32px));
 }
 
 .ppShopifyProductSearchControl {
@@ -12664,9 +12733,19 @@ s-page[inline-size="large-500"] {
 }
 
 .ppShopifyProductResultCandidateAction {
+  min-height: 36px;
+  padding-inline: 9px;
   border-color: rgba(var(--pp-insight-violet-rgb), 0.24);
   background: rgba(var(--pp-insight-violet-rgb), 0.08);
   color: var(--pp-insight-violet);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.ppShopifyProductResultActionIconOnly s-icon,
+.ppShopifyProductResultActionIconOnly svg {
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
 }
 
 .ppShopifyProductResultAction:hover {

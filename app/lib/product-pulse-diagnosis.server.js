@@ -24,7 +24,7 @@ const RECONSTRUCTED_RISK_HISTORY_MAX_WEEKLY_POINTS = 58;
 const RECONSTRUCTED_RISK_HISTORY_MAX_MONTHLY_POINTS = 24;
 const RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS = 370;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
-const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 1;
+const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 2;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
@@ -43,6 +43,59 @@ const DIAGNOSIS_RETURN_QUERY_PLANS = [
   { label: "low-cost", ordersFirst: 5, returnsFirst: 2, returnLineItemsFirst: 10, includeVariantProduct: true },
   { label: "minimal", ordersFirst: 4, returnsFirst: 2, returnLineItemsFirst: 8, includeVariantProduct: false },
 ];
+const US_STATE_NAMES = {
+  AL: "Alabama",
+  AK: "Alaska",
+  AZ: "Arizona",
+  AR: "Arkansas",
+  CA: "California",
+  CO: "Colorado",
+  CT: "Connecticut",
+  DE: "Delaware",
+  DC: "District of Columbia",
+  FL: "Florida",
+  GA: "Georgia",
+  HI: "Hawaii",
+  ID: "Idaho",
+  IL: "Illinois",
+  IN: "Indiana",
+  IA: "Iowa",
+  KS: "Kansas",
+  KY: "Kentucky",
+  LA: "Louisiana",
+  ME: "Maine",
+  MD: "Maryland",
+  MA: "Massachusetts",
+  MI: "Michigan",
+  MN: "Minnesota",
+  MS: "Mississippi",
+  MO: "Missouri",
+  MT: "Montana",
+  NE: "Nebraska",
+  NV: "Nevada",
+  NH: "New Hampshire",
+  NJ: "New Jersey",
+  NM: "New Mexico",
+  NY: "New York",
+  NC: "North Carolina",
+  ND: "North Dakota",
+  OH: "Ohio",
+  OK: "Oklahoma",
+  OR: "Oregon",
+  PA: "Pennsylvania",
+  RI: "Rhode Island",
+  SC: "South Carolina",
+  SD: "South Dakota",
+  TN: "Tennessee",
+  TX: "Texas",
+  UT: "Utah",
+  VT: "Vermont",
+  VA: "Virginia",
+  WA: "Washington",
+  WV: "West Virginia",
+  WI: "Wisconsin",
+  WY: "Wyoming",
+};
 
 export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
   const settings = await getProductPulseSettings(shop);
@@ -557,12 +610,67 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
   if (!admin?.graphql) return [];
   const events = [];
   let cursor = null;
+  let includeGeography = true;
   const querySinceDate = normalizeShopifySinceDate(sinceDate, windowDays);
 
   for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
-    const data = await shopifyGraphql(
-      admin,
-      `#graphql
+    let data = null;
+    try {
+      data = await shopifyGraphql(
+        admin,
+        buildDiagnosisSalesQuery({ includeGeography }),
+        {
+          after: cursor,
+          query: `created_at:>=${querySinceDate}`,
+          ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
+          lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
+        },
+      );
+    } catch (error) {
+      if (includeGeography && isShopifyOrderGeographyAccessError(error)) {
+        includeGeography = false;
+        cursor = null;
+        events.length = 0;
+        page = -1;
+        continue;
+      }
+      throw error;
+    }
+
+    (data?.orders?.nodes || []).forEach((order) => {
+      const geography = getOrderAddressGeography(order);
+      getNodes(order.lineItems).forEach((lineItem) => {
+        if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
+        events.push({
+          id: lineItem.id,
+          orderId: order.id,
+          createdAt: toIso(order.createdAt),
+          quantity: Number(lineItem.quantity || 0),
+          amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
+          title: lineItem.title || product.title,
+          sku: lineItem.sku || lineItem.variant?.sku || "",
+          variantId: lineItem.variant?.id || null,
+          variantTitle: lineItem.variant?.title || "",
+          selectedOptions: lineItem.variant?.selectedOptions || [],
+          geography,
+          country: geography?.country || "",
+          countryCode: geography?.countryCode || "",
+          province: geography?.province || "",
+          provinceCode: geography?.provinceCode || "",
+          city: geography?.city || "",
+        });
+      });
+    });
+
+    if (!data?.orders?.pageInfo?.hasNextPage) break;
+    cursor = data.orders.pageInfo.endCursor;
+  }
+
+  return events;
+}
+
+function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
+  return `#graphql
       query ProductPulseDiagnosisSales($after: String, $query: String!, $ordersFirst: Int!, $lineItemsFirst: Int!) {
         orders(first: $ordersFirst, after: $after, query: $query) {
           pageInfo {
@@ -572,6 +680,22 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
           nodes {
             id
             createdAt
+            ${includeGeography ? `
+            shippingAddress {
+              country
+              countryCodeV2
+              province
+              provinceCode
+              city
+            }
+            billingAddress {
+              country
+              countryCodeV2
+              province
+              provinceCode
+              city
+            }
+            ` : ""}
             lineItems(first: $lineItemsFirst) {
               nodes {
                 id
@@ -601,38 +725,34 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
             }
           }
         }
-      }`,
-      {
-        after: cursor,
-        query: `created_at:>=${querySinceDate}`,
-        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
-        lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
-      },
-    );
+      }`;
+}
 
-    (data?.orders?.nodes || []).forEach((order) => {
-      getNodes(order.lineItems).forEach((lineItem) => {
-        if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
-        events.push({
-          id: lineItem.id,
-          orderId: order.id,
-          createdAt: toIso(order.createdAt),
-          quantity: Number(lineItem.quantity || 0),
-          amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
-          title: lineItem.title || product.title,
-          sku: lineItem.sku || lineItem.variant?.sku || "",
-          variantId: lineItem.variant?.id || null,
-          variantTitle: lineItem.variant?.title || "",
-          selectedOptions: lineItem.variant?.selectedOptions || [],
-        });
-      });
-    });
+function getOrderAddressGeography(order = {}) {
+  return normalizeOrderAddressGeography(order.shippingAddress)
+    || normalizeOrderAddressGeography(order.billingAddress)
+    || null;
+}
 
-    if (!data?.orders?.pageInfo?.hasNextPage) break;
-    cursor = data.orders.pageInfo.endCursor;
-  }
+function normalizeOrderAddressGeography(address = {}) {
+  if (!address || typeof address !== "object") return null;
+  const countryCode = normalizeGeographyCode(address.countryCodeV2 || address.countryCode || address.country_code);
+  const provinceCode = normalizeGeographyCode(address.provinceCode || address.province_code || address.stateCode || address.state_code);
+  const country = truncateText(address.country || address.countryName || "", 80);
+  const province = truncateText(address.province || address.state || address.region || "", 80);
+  const city = truncateText(address.city || "", 80);
+  if (!countryCode && !country && !provinceCode && !province && !city) return null;
+  return {
+    country,
+    countryCode,
+    province,
+    provinceCode,
+    city,
+  };
+}
 
-  return events;
+function normalizeGeographyCode(value = "") {
+  return String(value || "").trim().toUpperCase();
 }
 
 async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
@@ -1657,6 +1777,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const refundUnits = preferFreshNumber(sumBy(refunds, "quantity"), snapshotMetrics.refundUnits);
   const refundAmount = roundCurrency(preferFreshNumber(sumBy(refunds, "amount"), snapshotMetrics.refundAmount));
   const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
+  const orderGeography = buildOrderGeographyRows(sales);
   const monthlyOrderUnits = Number(monthlyOrderActivity?.summary?.totalOrderUnits || 0);
   const soldUnits = Math.max(rawSoldUnits, monthlyOrderUnits, returnUnits, refundUnits);
   const returnRate = calculateUnitRatePercent(returnUnits, soldUnits, snapshotMetrics.returnRate);
@@ -1671,7 +1792,9 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const topRefundReasons = countTopValues(refunds
     .map(getRefundReasonText)
     .filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 4);
-  const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
+  const variantInsights = buildDiagnosisVariantInsights({ product, sales, returns, refunds, reviews });
+  const affectedVariants = buildAffectedVariantDetailsFromInsights(variantInsights)
+    || countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const productContentState = resolveProductContentAnalysisState({
     product,
     previousCache: previousIncrementalCache.productContent,
@@ -1905,6 +2028,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundAmount,
       refundInsights,
       monthlyOrderActivity,
+      orderGeography,
       returnRatePrediction,
       productMomentum,
       productMomentumScore: productMomentum.score,
@@ -1963,6 +2087,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       topRefundReasonDetails: topRefundReasons,
       affectedVariants: affectedVariants.map((item) => item.label),
       affectedVariantDetails: affectedVariants,
+      variantInsights,
       reviewCount,
       negativeReviewCount,
       negativeReviewRate,
@@ -2158,7 +2283,9 @@ function buildReconstructedRiskHistoryPoint({
   const negativeReviewCount = negativeReviews.length;
   const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
   const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDateFrom(review.createdAt, 30, periodEnd)).length;
-  const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
+  const variantInsights = buildDiagnosisVariantInsights({ product, sales, returns, refunds, reviews });
+  const affectedVariants = buildAffectedVariantDetailsFromInsights(variantInsights)
+    || countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const textInsights = buildCustomerTextInsights({ returns, reviews });
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
   const reviewSourceStats = buildReviewSourceStats(reviews);
@@ -2201,6 +2328,7 @@ function buildReconstructedRiskHistoryPoint({
     sourceCoverage,
     signalEvents,
     affectedVariants,
+    variantInsights,
     reviewSourceStats,
     storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
     storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
@@ -2259,6 +2387,9 @@ function buildReconstructedRiskHistoryPoint({
       customerSignalCount,
       contentIssueCount,
       recentSignalUnits,
+      affectedVariants: affectedVariants.map((item) => item.label),
+      affectedVariantDetails: affectedVariants,
+      variantInsights,
       marginAtRisk: scoreModel.impactFactors.marginAtRisk,
       revenueAtRisk: scoreModel.impactFactors.revenueAtRisk,
       estimatedImpact: scoreModel.impactFactors.estimatedImpact,
@@ -2426,8 +2557,11 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(scoredDeterministic, sourceIntegritySignals);
   const aiMainIssue = normalizeIssueCode(ai.classification?.main_issue) || scoredDeterministic.mainIssue;
   const contentShouldLead = contentAnalysis.issues.some((issue) => issue.severity === "high") && scoredDeterministic.metrics.customerSignalCount <= 1;
+  const monitoringContentOnly = isLowRiskMonitoringOnlyDiagnosis(scoredDeterministic) && contentAnalysis.issues.length > 0;
   const mainIssue = sourceIntegrityMode
     ? "review_feed_integrity"
+    : monitoringContentOnly
+    ? "product_content"
     : contentShouldLead
     ? "product_content"
     : scoredDeterministic.issueSignalCounts[aiMainIssue] ? aiMainIssue : scoredDeterministic.mainIssue;
@@ -2814,6 +2948,7 @@ function compareMaterialDiagnosisMetrics(previousMetrics = {}, currentMetrics = 
     "topReturnReasonDetails",
     "topRefundReasonDetails",
     "affectedVariantDetails",
+    "orderGeography",
     "sourceCoverage",
     "reviewSourceStats",
   ].forEach((key) => {
@@ -2924,6 +3059,8 @@ function buildAiDeterministicInput(deterministic) {
       topReturnReasons: deterministic.metrics.topReturnReasons,
       topRefundReasons: deterministic.metrics.topRefundReasons,
       affectedVariants: deterministic.metrics.affectedVariants,
+      variantInsights: deterministic.metrics.variantInsights,
+      orderGeography: deterministic.metrics.orderGeography,
       windowDays: deterministic.metrics.windowDays,
       orderAccessDenied: deterministic.metrics.orderAccessDenied,
       incrementalDiagnosis: sanitizeIncrementalDiagnosisForAi(deterministic.metrics.incrementalDiagnosis),
@@ -3342,11 +3479,16 @@ function buildRuleRecommendationCandidates(deterministic) {
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, issue);
   const faqNeed = deterministic.metrics?.faqNeed || {};
   const recipeSignals = getRecommendationRecipeSignals(deterministic);
+  const contentIssues = getActionableContentIssues(deterministic.metrics || {});
+  const lowRiskMonitoringOnly = isLowRiskMonitoringOnlyDiagnosis(deterministic);
+  const canSurfaceCustomerFacingCandidate = !lowRiskMonitoringOnly
+    || hasMaterialCustomerProblemEvidence(deterministic)
+    || hasCriticalContentIssue(contentIssues);
   const candidates = [];
   if (issue === "fit_sizing" && hasActionableMainIssue) {
     candidates.push({ id: "draft-fit-note", type: "PDP copy", reason: "Fit or size language appears in returns/reviews." });
   }
-  if (faqNeed.shouldRecommend) {
+  if (faqNeed.shouldRecommend && canSurfaceCustomerFacingCandidate) {
     candidates.push({
       id: "create-product-faq",
       type: "FAQ",
@@ -3363,8 +3505,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (deterministic.metrics.topReturnReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
   if (deterministic.metrics.refundInsights?.shouldSurface) candidates.push({ id: "review-refund-impact", type: "Workflow", reason: "Refund rate, refund value or refund notes indicate operational refund pressure." });
   if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Connected negative review text is available." });
-  if (deterministic.metrics.contentIssueCount > 0) {
-    const contentIssues = Array.isArray(deterministic.metrics.contentIssues) ? deterministic.metrics.contentIssues : [];
+  if (deterministic.metrics.contentIssueCount > 0 && canSurfaceCustomerFacingCandidate) {
     const currentDescription = deterministic.product?.description || "";
     if (shouldRecommendFullDescriptionRewrite({ contentIssues, currentDescription })) {
       candidates.push({ id: "rewrite-product-description", type: "PDP copy", reason: "Product content analysis found missing, short or incoherent product copy." });
@@ -3398,7 +3539,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.watchlist.shouldRecommend) candidates.push({ id: "add-to-watchlist", type: "Watchlist", reason: recipeSignals.watchlist.reason });
   if (recipeSignals.fullDiagnosis.shouldRecommend) candidates.push({ id: "run-full-diagnosis", type: "Diagnosis", reason: recipeSignals.fullDiagnosis.reason });
   if (recipeSignals.qa.shouldRecommend) candidates.push({ id: "recommend-qa-review", type: "Operational QA", reason: recipeSignals.qa.reason });
-  if (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
+  if (!lowRiskMonitoringOnly && (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0)) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
 }
 
@@ -3950,7 +4091,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
+  if (!lowRiskMonitoringOnly && deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
     const reviewLabel = getReviewEvidenceLabel(deterministic.metrics);
     reviewSections.push({
       key: "reviews",
@@ -4138,7 +4279,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (supportNote && (hasActionableMainIssue || (contentIssues.length > 0 && !lowRiskMonitoringOnly))) {
+  if (supportNote && !lowRiskMonitoringOnly && (hasActionableMainIssue || contentIssues.length > 0)) {
     recommendations.push({
       id: "copy-support-note",
       label: "Create internal note",
@@ -4468,9 +4609,20 @@ function hasMaterialCustomerProblemEvidence(deterministic = {}) {
   const textSentiment = metrics.textInsights?.sentiment || {};
   const negativeTextSignals = Number(textSentiment.negative || 0);
   const negativeTextRatio = Number(textSentiment.negativeRatio || 0);
+  const negativeReviewCount = Number(metrics.negativeReviewCount || 0);
+  const reviewCount = Number(metrics.reviewCount || 0);
+  const negativeReviewRate = Number.isFinite(Number(metrics.negativeReviewRate))
+    ? Number(metrics.negativeReviewRate)
+    : reviewCount > 0 ? (negativeReviewCount / reviewCount) * 100 : 0;
+  const materialNegativeReviewPressure = negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    && (
+      negativeReviewCount >= 4
+      || negativeReviewRate >= 20
+      || (reviewCount > 0 && reviewCount <= 5 && negativeReviewRate >= 40)
+    );
   return Number(metrics.returnUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
     || Number(metrics.refundUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || Number(metrics.negativeReviewCount || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || materialNegativeReviewPressure
     || (negativeTextSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE && negativeTextRatio >= 0.35);
 }
 
@@ -4615,7 +4767,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The product is commercially important but currently has limited problem evidence, so a baseline can help monitor future changes.",
     },
     watchlist: {
-      shouldRecommend: Boolean(productMomentumScore >= 80 && Number(deterministic.riskScore || 0) < 70),
+      shouldRecommend: Boolean(productMomentumScore >= 75 && Number(deterministic.riskScore || 0) < 70),
       reason: "Momentum is high enough that this product should be watched periodically even if risk is not currently high.",
     },
     fullDiagnosis: {
@@ -7133,6 +7285,290 @@ function finalizeReviewStats(stats) {
   return stats;
 }
 
+function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [], refunds = [], reviews = [] } = {}) {
+  const rows = new Map();
+  const order = [];
+  const productVariants = Array.isArray(product.variants) ? product.variants : [];
+
+  const ensureRow = (variant = {}, source = "shopify") => {
+    const normalized = normalizeDiagnosisVariantInsightIdentity(variant);
+    if (!normalized.key) return null;
+    if (!rows.has(normalized.key)) {
+      rows.set(normalized.key, {
+        key: normalized.key,
+        variantId: normalized.id,
+        variantTitle: normalized.title,
+        sku: normalized.sku,
+        price: normalized.price,
+        selectedOptions: normalized.selectedOptions,
+        source,
+        sales: { units: 0, amount: 0, examples: [] },
+        returns: { units: 0, reasons: [], examples: [] },
+        refunds: { units: 0, amount: 0, reasons: [], examples: [] },
+        reviews: { count: 0, negativeCount: 0, positiveCount: 0, neutralCount: 0, averageRating: 0, ratingSum: 0, sources: {}, examples: [] },
+      });
+      order.push(normalized.key);
+    }
+    const row = rows.get(normalized.key);
+    row.variantId ||= normalized.id;
+    row.variantTitle ||= normalized.title;
+    row.sku ||= normalized.sku;
+    row.price ||= normalized.price;
+    if (!row.selectedOptions?.length && normalized.selectedOptions.length) row.selectedOptions = normalized.selectedOptions;
+    return row;
+  };
+
+  productVariants.forEach((variant) => ensureRow(variant, "shopify"));
+
+  sales.forEach((event) => {
+    const row = ensureRow(event, "sales");
+    if (!row) return;
+    const quantity = Number(event.quantity || 0);
+    const amount = Number(event.amount || 0);
+    row.sales.units += quantity;
+    row.sales.amount += amount;
+    if (row.sales.examples.length < 3) {
+      row.sales.examples.push({
+        quantity,
+        amount: roundCurrency(amount),
+        createdAt: event.createdAt || null,
+      });
+    }
+  });
+
+  returns.forEach((event) => {
+    const row = ensureRow(event, "returns");
+    if (!row) return;
+    const quantity = Math.max(1, Number(event.quantity || 1));
+    const reason = [event.reason, event.reasonNote, event.customerNote].filter(Boolean).join(" - ");
+    row.returns.units += quantity;
+    if (reason) row.returns.reasons.push(reason);
+    if (row.returns.examples.length < 3) {
+      row.returns.examples.push({
+        quantity,
+        reason: event.reason || "",
+        reasonText: getReturnCustomerLanguageText(event) || reason,
+        text: getReturnCustomerLanguageText(event) || reason,
+        sentiment: classifyCustomerSentiment(getReturnCustomerLanguageText(event) || reason),
+        createdAt: event.createdAt || null,
+        variant: row.variantTitle,
+        variantId: row.variantId,
+        sku: row.sku,
+      });
+    }
+  });
+
+  refunds.forEach((event) => {
+    const row = ensureRow(event, "refunds");
+    if (!row) return;
+    const quantity = Math.max(1, Number(event.quantity || 1));
+    const amount = Number(event.amount || 0);
+    const reason = getRefundOperationalText(event) || getRefundReasonText(event) || event.reasonLabel || event.reason || "";
+    row.refunds.units += quantity;
+    row.refunds.amount += amount;
+    if (reason) row.refunds.reasons.push(reason);
+    if (row.refunds.examples.length < 3) {
+      row.refunds.examples.push({
+        quantity,
+        amount: roundCurrency(amount),
+        reason: event.reasonLabel || event.reason || event.restockType || "",
+        reasonText: reason,
+        text: getRefundOperationalText(event) || event.note || reason,
+        noteText: event.note || "",
+        sentiment: classifyCustomerSentiment(getRefundOperationalText(event) || event.note || reason),
+        createdAt: event.createdAt || event.processedAt || null,
+        variant: row.variantTitle,
+        variantId: row.variantId,
+        sku: row.sku,
+      });
+    }
+  });
+
+  reviews.forEach((review) => {
+    const row = matchReviewToDiagnosisVariantInsight(review, rows, productVariants);
+    if (!row) return;
+    const rating = Number(review.rating || 0);
+    const text = [review.title, review.body].filter(Boolean).join(" - ");
+    const sentiment = classifyCustomerSentiment(text, rating);
+    const negative = isNegativeReviewSignal(review);
+    const positive = !negative && (sentiment === "positive" || rating >= 4);
+    row.reviews.count += 1;
+    row.reviews.ratingSum += rating;
+    if (negative) row.reviews.negativeCount += 1;
+    else if (positive) row.reviews.positiveCount += 1;
+    else row.reviews.neutralCount += 1;
+    const sourceLabel = review.sourceLabel || "Reviews";
+    row.reviews.sources[sourceLabel] = (row.reviews.sources[sourceLabel] || 0) + 1;
+    const storedNegativeExamples = row.reviews.examples.filter((example) => example.sentiment === "negative").length;
+    const storedPositiveExamples = row.reviews.examples.filter((example) => example.sentiment === "positive").length;
+    const storedNeutralExamples = row.reviews.examples.filter((example) => example.sentiment === "neutral").length;
+    const shouldStoreExample = row.reviews.examples.length < 4 && (
+      (negative && storedNegativeExamples < 2)
+      || (positive && storedPositiveExamples < 2)
+      || (!negative && !positive && storedNeutralExamples < 1)
+      || row.reviews.examples.length < 1
+    );
+    if (shouldStoreExample) {
+      row.reviews.examples.push({
+        title: review.title || "",
+        text: truncateText(text || review.body || "", 180),
+        rating,
+        sentiment,
+        source: review.sourceType || "",
+        sourceLabel,
+        createdAt: review.createdAt || null,
+        variant: row.variantTitle,
+        variantId: row.variantId,
+        sku: row.sku,
+      });
+    }
+  });
+
+  return order
+    .map((key) => finalizeDiagnosisVariantInsight(rows.get(key)))
+    .filter((row) => row.variantTitle || row.sku || row.variantId)
+    .slice(0, 80);
+}
+
+function finalizeDiagnosisVariantInsight(row = {}) {
+  const soldUnits = Number(row.sales?.units || 0);
+  const returnUnits = Number(row.returns?.units || 0);
+  const refundUnits = Number(row.refunds?.units || 0);
+  const reviewCount = Number(row.reviews?.count || 0);
+  const negativeReviewCount = Number(row.reviews?.negativeCount || 0);
+  const signalCount = returnUnits + refundUnits + negativeReviewCount;
+  const reviewSources = Object.entries(row.reviews?.sources || {}).map(([label, count]) => ({ label, count }));
+  return {
+    key: row.key,
+    variantId: row.variantId || null,
+    variantTitle: row.variantTitle || row.sku || "Variant",
+    sku: row.sku || "",
+    price: row.price || null,
+    selectedOptions: row.selectedOptions || [],
+    sales: {
+      units: soldUnits,
+      amount: roundCurrency(row.sales?.amount || 0),
+      examples: row.sales?.examples || [],
+    },
+    returns: {
+      units: returnUnits,
+      rate: calculateUnitRatePercent(returnUnits, soldUnits),
+      topReasons: countTopValues(row.returns?.reasons || [], 3),
+      examples: row.returns?.examples || [],
+    },
+    refunds: {
+      units: refundUnits,
+      amount: roundCurrency(row.refunds?.amount || 0),
+      rate: calculateUnitRatePercent(refundUnits, soldUnits),
+      topReasons: countTopValues(row.refunds?.reasons || [], 3),
+      examples: row.refunds?.examples || [],
+    },
+    reviews: {
+      count: reviewCount,
+      negativeCount: negativeReviewCount,
+      positiveCount: Number(row.reviews?.positiveCount || 0),
+      neutralCount: Number(row.reviews?.neutralCount || 0),
+      negativeRate: roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0),
+      averageRating: roundRate(reviewCount ? Number(row.reviews?.ratingSum || 0) / reviewCount : 0, 1),
+      sources: reviewSources,
+      examples: row.reviews?.examples || [],
+    },
+    signalCount,
+    hasVariantEvidence: Boolean(soldUnits || signalCount || reviewCount),
+  };
+}
+
+function buildAffectedVariantDetailsFromInsights(variantInsights = []) {
+  const rows = (Array.isArray(variantInsights) ? variantInsights : [])
+    .map((item) => ({
+      label: item.variantTitle || item.sku || "",
+      count: Number(item.signalCount || 0),
+      returnUnits: Number(item.returns?.units || 0),
+      refundUnits: Number(item.refunds?.units || 0),
+      negativeReviewCount: Number(item.reviews?.negativeCount || 0),
+      detail: [
+        Number(item.returns?.units || 0) ? `${item.returns.units} return unit${Number(item.returns.units) === 1 ? "" : "s"}` : "",
+        Number(item.refunds?.units || 0) ? `${item.refunds.units} refunded unit${Number(item.refunds.units) === 1 ? "" : "s"}` : "",
+        Number(item.reviews?.negativeCount || 0) ? `${item.reviews.negativeCount} negative review${Number(item.reviews.negativeCount) === 1 ? "" : "s"}` : "",
+      ].filter(Boolean).join(" · "),
+    }))
+    .filter((item) => item.label && item.count > 0)
+    .sort((first, second) => second.count - first.count)
+    .slice(0, 4);
+  return rows.length ? rows : null;
+}
+
+function normalizeDiagnosisVariantInsightIdentity(value = {}) {
+  const selectedOptions = normalizeDiagnosisVariantSelectedOptions(value.selectedOptions || value.options);
+  const optionLabel = selectedOptions.map((option) => option.value || option.name).filter(Boolean).join(" / ");
+  const rawTitle = value.title || value.variantTitle || value.variant || value.variantName || value.label || "";
+  const title = isGenericVariantTitle(rawTitle) ? optionLabel || rawTitle : rawTitle || optionLabel;
+  const sku = String(value.sku || value.variantSku || "").trim();
+  const id = value.variantId || value.id || null;
+  const keyId = value.variantId || (/productvariant/i.test(String(value.id || "")) ? value.id : "");
+  const key = normalizeDiagnosisVariantKey(keyId)
+    || normalizeDiagnosisVariantKey(sku)
+    || normalizeDiagnosisVariantKey(title)
+    || normalizeDiagnosisVariantKey(optionLabel);
+  return {
+    key,
+    id,
+    title: title || sku || "Variant",
+    sku,
+    price: value.price || value.unitPrice || value.amount || null,
+    selectedOptions,
+  };
+}
+
+function normalizeDiagnosisVariantSelectedOptions(rawOptions) {
+  if (Array.isArray(rawOptions)) {
+    return rawOptions.map((option) => (
+      typeof option === "string"
+        ? { name: "", value: option }
+        : { name: option.name || option.label || "", value: option.value || option.name || option.label || "" }
+    )).filter((option) => option.value || option.name);
+  }
+  if (rawOptions && typeof rawOptions === "object") {
+    return Object.entries(rawOptions).map(([name, value]) => ({ name, value: String(value || "") })).filter((option) => option.value);
+  }
+  return [];
+}
+
+function normalizeDiagnosisVariantKey(value = "") {
+  return normalizeText(String(value || "").replace(/^gid:\/\/shopify\/productvariant\//i, "")).trim();
+}
+
+function matchReviewToDiagnosisVariantInsight(review = {}, rows = new Map(), productVariants = []) {
+  const direct = normalizeDiagnosisVariantInsightIdentity(review);
+  if (direct.key && rows.has(direct.key) && (review.variantId || review.variantTitle || review.variant || review.sku)) return rows.get(direct.key);
+  const text = normalizeText([review.title, review.body].filter(Boolean).join(" "));
+  if (!text) return null;
+  const candidates = Array.from(rows.values());
+  const matched = candidates.find((row) => diagnosisReviewMentionsVariant(text, row))
+    || productVariants.map((variant) => normalizeDiagnosisVariantInsightIdentity(variant)).find((variant) => diagnosisReviewMentionsVariant(text, variant));
+  if (!matched) return null;
+  return rows.get(matched.key) || null;
+}
+
+function diagnosisReviewMentionsVariant(normalizedText, variant = {}) {
+  return getDiagnosisVariantReviewTerms(variant).some((term) => containsNormalizedPhrase(normalizedText, term));
+}
+
+function getDiagnosisVariantReviewTerms(variant = {}) {
+  const selectedOptions = normalizeDiagnosisVariantSelectedOptions(variant.selectedOptions);
+  const values = [
+    variant.sku,
+    variant.variantTitle,
+    variant.title,
+    variant.variant,
+    variant.variantName,
+    ...(selectedOptions || []).map((option) => option.value),
+  ];
+  return [...new Set(values
+    .map((value) => normalizeText(value))
+    .filter((value) => value && value !== "default title" && value !== "default variant" && value.length >= 3))];
+}
+
 function isNegativeReviewSignal(review = {}) {
   const rating = Number(review.rating || 0);
   const text = [review.title, review.body].filter(Boolean).join(" ");
@@ -7776,6 +8212,12 @@ function trimSourceEventForCache(item = {}, type) {
       name: truncateText(option?.name || "", 80),
       value: truncateText(option?.value || "", 120),
     })) : [],
+    geography: normalizeSalesEventGeography(item),
+    country: item.country || item.geography?.country || "",
+    countryCode: normalizeGeographyCode(item.countryCode || item.geography?.countryCode),
+    province: item.province || item.geography?.province || "",
+    provinceCode: normalizeGeographyCode(item.provinceCode || item.geography?.provinceCode),
+    city: item.city || item.geography?.city || "",
   };
 
   if (type === "sales") return base;
@@ -8032,6 +8474,10 @@ function buildDiagnosisSourceFingerprint({
       "sku",
       "quantity",
       "amount",
+      "countryCode",
+      "provinceCode",
+      "country",
+      "province",
       "createdAt",
       "updatedAt",
     ]),
@@ -9643,6 +10089,144 @@ function countTopValues(values, limit) {
     .map(([label, count]) => ({ label, count }));
 }
 
+function buildOrderGeographyRows(sales = []) {
+  const orders = new Map();
+
+  (Array.isArray(sales) ? sales : []).forEach((event, index) => {
+    const orderKey = event.orderId || event.id || `sale:${index}`;
+    const geography = normalizeSalesEventGeography(event);
+    const current = orders.get(orderKey) || { geography: null, units: 0, amount: 0 };
+    current.units += Number(event.quantity || 0);
+    current.amount += Number(event.amount || 0);
+    if (!current.geography || isMoreSpecificGeography(geography, current.geography)) {
+      current.geography = geography;
+    }
+    orders.set(orderKey, current);
+  });
+
+  const totalOrders = orders.size;
+  if (!totalOrders) return [];
+
+  const groups = new Map();
+  orders.forEach((order) => {
+    const region = getOrderGeographyRegion(order.geography);
+    const current = groups.get(region.key) || {
+      key: region.key,
+      label: region.label,
+      country: region.country,
+      countryCode: region.countryCode,
+      province: region.province,
+      provinceCode: region.provinceCode,
+      cityCounts: new Map(),
+      orders: 0,
+      units: 0,
+      amount: 0,
+    };
+    current.orders += 1;
+    current.units += Number(order.units || 0);
+    current.amount += Number(order.amount || 0);
+    if (order.geography?.city) {
+      current.cityCounts.set(order.geography.city, (current.cityCounts.get(order.geography.city) || 0) + 1);
+    }
+    groups.set(region.key, current);
+  });
+
+  return [...groups.values()]
+    .map((group) => {
+      const share = roundRate((group.orders / totalOrders) * 100, 1);
+      const topCities = [...group.cityCounts.entries()]
+        .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
+        .slice(0, 2)
+        .map(([city, count]) => `${city}${count > 1 ? ` (${count})` : ""}`);
+      return {
+        key: group.key,
+        label: group.label,
+        count: group.orders,
+        orders: group.orders,
+        units: group.units,
+        amount: roundCurrency(group.amount),
+        share,
+        percent: share,
+        detail: [
+          `${group.orders} order${group.orders === 1 ? "" : "s"}`,
+          `${share}%`,
+          topCities.length ? topCities.join(", ") : "",
+        ].filter(Boolean).join(" · "),
+        country: group.country,
+        countryCode: group.countryCode,
+        province: group.province,
+        provinceCode: group.provinceCode,
+      };
+    })
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .slice(0, 12);
+}
+
+function normalizeSalesEventGeography(event = {}) {
+  return normalizeOrderAddressGeography(event.geography)
+    || normalizeOrderAddressGeography(event.shippingAddress)
+    || normalizeOrderAddressGeography(event.billingAddress)
+    || normalizeOrderAddressGeography(event)
+    || null;
+}
+
+function isMoreSpecificGeography(candidate = null, current = null) {
+  if (!candidate) return false;
+  if (!current) return true;
+  const score = (item) => ["countryCode", "country", "provinceCode", "province", "city"]
+    .reduce((total, key) => total + (item?.[key] ? 1 : 0), 0);
+  return score(candidate) > score(current);
+}
+
+function getOrderGeographyRegion(geography = null) {
+  if (!geography) {
+    return {
+      key: "unknown",
+      label: "Unknown location",
+      country: "",
+      countryCode: "",
+      province: "",
+      provinceCode: "",
+    };
+  }
+  const countryCode = normalizeGeographyCode(geography.countryCode);
+  const provinceCode = normalizeGeographyCode(geography.provinceCode);
+  const country = geography.country || getCountryLabel(countryCode);
+  const isUnitedStates = countryCode === "US" || normalizeText(country) === "united states" || normalizeText(country) === "united states of america";
+  if (isUnitedStates && (provinceCode || geography.province)) {
+    const stateLabel = US_STATE_NAMES[provinceCode] || geography.province || provinceCode;
+    return {
+      key: `US-${provinceCode || normalizeText(stateLabel)}`,
+      label: `${stateLabel}, United States`,
+      country: "United States",
+      countryCode: "US",
+      province: stateLabel,
+      provinceCode,
+    };
+  }
+  const countryLabel = country || countryCode || "Unknown location";
+  return {
+    key: `COUNTRY-${countryCode || normalizeText(countryLabel)}`,
+    label: countryLabel,
+    country: countryLabel === "Unknown location" ? "" : countryLabel,
+    countryCode,
+    province: "",
+    provinceCode: "",
+  };
+}
+
+function getCountryLabel(countryCode = "") {
+  if (countryCode === "US") return "United States";
+  if (countryCode && Intl?.DisplayNames) {
+    try {
+      return new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode) || countryCode;
+    } catch {
+      return countryCode;
+    }
+  }
+  return countryCode || "";
+}
+
 function buildMonthlyOrderActivity({
   sales = [],
   returns = [],
@@ -10845,6 +11429,12 @@ function isShopifyOrderAccessDenied(error) {
   return message.includes("access_denied") || message.includes("not approved to access the order object") || message.includes("order object");
 }
 
+function isShopifyOrderGeographyAccessError(error) {
+  const message = `${error?.message || ""} ${JSON.stringify(error?.graphqlErrors || [])}`.toLowerCase();
+  return (message.includes("shippingaddress") || message.includes("billingaddress") || message.includes("countrycodev2") || message.includes("provincecode"))
+    && (message.includes("access") || message.includes("protected customer data") || message.includes("denied") || message.includes("not approved") || message.includes("doesn") || message.includes("undefinedfield"));
+}
+
 function isMissingReturnReasonDefinitionError(error) {
   const message = `${error?.message || ""} ${JSON.stringify(error?.graphqlErrors || [])}`.toLowerCase();
   return message.includes("returnreasondefinition") && message.includes("doesn") && message.includes("returnlineitem");
@@ -10922,6 +11512,7 @@ function toIso(value) {
 }
 
 export const __productPulseDiagnosisTestHooks = {
+  buildDiagnosisSalesQuery,
   buildDiagnosisRefundsQuery,
   buildDiagnosisReturnsQuery,
   buildRefundOrderQueries,
@@ -10936,6 +11527,8 @@ export const __productPulseDiagnosisTestHooks = {
   getNodes,
   buildCustomerTextInsights,
   buildCustomerTextAnalysisItems,
+  buildDiagnosisVariantInsights,
+  buildOrderGeographyRows,
   buildIssueSignalCountsFromAnalysis,
   calculateDeterministicDiagnosis,
   buildMonthlyOrderActivity,

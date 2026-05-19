@@ -3407,6 +3407,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       topRefundReasonDetails: Array.isArray(metrics.topRefundReasonDetails) ? metrics.topRefundReasonDetails : [],
       affectedVariants: Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [],
       affectedVariantDetails: Array.isArray(metrics.affectedVariantDetails) ? metrics.affectedVariantDetails : [],
+      variantInsights: Array.isArray(metrics.variantInsights) ? metrics.variantInsights : [],
       variantCount,
       skuCount,
       optionNames: Array.isArray(metrics.optionNames) ? metrics.optionNames : [],

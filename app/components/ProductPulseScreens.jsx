@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Form, Link, useFetcher, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
@@ -499,6 +499,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [searchValue, setSearchValue] = useState(filters.query || "");
   const [shopifyProductSearchOpen, setShopifyProductSearchOpen] = useState(false);
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
+  const [addedCandidateProductIds, setAddedCandidateProductIds] = useState(() => new Set());
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const productTableSearchInputRef = useRef(null);
   const [quickScanConfirmation, setQuickScanConfirmation] = useState(false);
@@ -686,9 +687,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
       setAnalysisConfirmation(null);
       setShopifyProductSearchOpen(false);
     }
-    if (actionData?.status === "success" && actionData?.action?.id === "add-shopify-product-candidate") {
-      setShopifyProductSearchOpen(false);
-      setShopifyProductSearchQuery("");
+    if (actionData?.status === "success" && actionData?.action?.id === "add-shopify-product-candidate" && actionData.action.productGid) {
+      setAddedCandidateProductIds((current) => {
+        const next = new Set(current);
+        next.add(actionData.action.productGid);
+        return next;
+      });
     }
     if (["add-watched-product", "add-watched-products", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistConfirmation(null);
@@ -1282,6 +1286,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
             pages: candidateTotalPages,
             tableSortConfig: candidateSortConfig,
             tableTestId: "products-candidates-table",
+            showFindProduct: true,
             searchState: {
               open: candidateSearchOpen,
               value: candidateSearchValue,
@@ -1318,6 +1323,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           onCancel={() => setShopifyProductSearchOpen(false)}
           onQueryChange={setShopifyProductSearchQuery}
           actionLabel="Run diagnostics"
+          addedProductIds={addedCandidateProductIds}
         />
       )}
       {analysisConfirmation && (
@@ -4099,6 +4105,34 @@ function formatProductAnalysisDate(value) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
+function getMostRecentProductDateValue(product, extraValues = []) {
+  const metrics = product?.metrics || {};
+  const candidates = [
+    ...extraValues,
+    product?.lastAnalysis,
+    product?.analysisCompletedAt,
+    metrics.latestDiagnosisAt,
+    metrics.lastDiagnosisAt,
+    metrics.lastAnalyzedAt,
+    metrics.lastSignalAt,
+  ];
+
+  return candidates.reduce((latest, value) => {
+    if (!value || value === "Not analyzed") return latest;
+    const date = value instanceof Date
+      ? value
+      : new Date(String(value).includes("T") ? value : `${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return latest;
+    if (!latest || date.getTime() > latest.date.getTime()) return { value, date };
+    return latest;
+  }, null)?.value || null;
+}
+
+function detailEvidenceFreshness(product, extraValues = []) {
+  const value = getMostRecentProductDateValue(product, extraValues);
+  return value ? formatProductAnalysisDate(value) : detailLastAnalysis(product);
+}
+
 function getBadgeToneFromRiskTone(tone) {
   if (tone === "critical") return "critical";
   if (tone === "success") return "success";
@@ -4356,7 +4390,10 @@ function getStoredEvidenceRecords(item = {}) {
 }
 
 function formatStoredEvidenceRecord(value) {
-  if (typeof value === "string" || typeof value === "number") return { body: String(value || "").trim() };
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = parseEvidencePoint(value);
+    return { title: parsed.label, body: parsed.body, tone: parsed.tone };
+  }
   if (!value || typeof value !== "object") return { body: "" };
   const label = value.title || value.label || value.section || value.sectionKey || value.section_key || value.key || "";
   const body = value.body || value.text || value.summary || value.detail || value.value || "";
@@ -9976,7 +10013,7 @@ function OrdersEvidencePanel({ source, product, reportHref }) {
         </section>
         <section className="ppEvidenceReportSectionCard">
           <h4>Geography</h4>
-          <p>By sold units</p>
+          <p>By order origin</p>
           <EvidenceBarList rows={geographyRows} tone="blue" emptyLabel="No geography data stored" />
         </section>
       </div>
@@ -10086,6 +10123,7 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
                 <tr>
                   <th>Variant</th>
                   <th>Shopify data</th>
+                  <th>Sales</th>
                   <th>Affected signals</th>
                   <th>Refunds</th>
                   <th>Returns</th>
@@ -10095,12 +10133,18 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
               <tbody>
                 {variantRows.map((row) => (
                   <tr key={row.key}>
-                    <td><span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><s-icon type="product" size="small"></s-icon></span>{row.variant}</td>
+                    <td>
+                      <div className="ppEvidenceSignalNameCell">
+                        <span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><s-icon type="product" size="small"></s-icon></span>
+                        <span>{row.variant}</span>
+                      </div>
+                    </td>
                     <td><VariantEvidenceCell evidence={row.shopifyData} /></td>
-                    <td><VariantEvidenceCell evidence={row.affectedSignals} /></td>
-                    <td><VariantEvidenceCell evidence={row.refunds} /></td>
-                    <td><VariantEvidenceCell evidence={row.returns} /></td>
-                    <td><VariantEvidenceCell evidence={row.reviews} /></td>
+                    <td><VariantEvidenceCell evidence={row.sales} compactDetails /></td>
+                    <td><VariantEvidenceCell evidence={row.affectedSignals} compactDetails /></td>
+                    <td><VariantEvidenceCell evidence={row.refunds} compactDetails popoverLabel={`${row.variant} refund evidence`} /></td>
+                    <td><VariantEvidenceCell evidence={row.returns} compactDetails popoverLabel={`${row.variant} return evidence`} /></td>
+                    <td><VariantEvidenceCell evidence={row.reviews} compactDetails popoverLabel={`${row.variant} review evidence`} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -10157,7 +10201,7 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
         <EvidenceMetricCard card={{ label: "Signal count", value: formatInteger(product.metrics?.signalCount || source.points.length), detail: "Total stored diagnostic evidence for this product.", icon: "duplicate", tone: "blue" }} />
         <EvidenceMetricCard card={{ label: "Model confidence", value: `${formatInteger(product.confidence || 0)}%`, detail: "Diagnosis confidence stored with the current product snapshot.", icon: "shield-check-mark", tone: Number(product.confidence || 0) >= 80 ? "teal" : "amber" }} />
         <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(product.metrics?.estimatedImpact || product.estimatedImpact || 0), detail: "Business exposure is shown separately from Product Risk.", icon: "cash-dollar", tone: "violet" }} />
-        <EvidenceMetricCard card={{ label: "Freshness", value: product.metrics?.lastSignalAt ? formatProductAnalysisDate(product.metrics.lastSignalAt) : detailLastAnalysis(product), detail: "Most recent stored signal or diagnosis timestamp.", icon: "calendar", tone: "blue" }} />
+        <EvidenceMetricCard card={{ label: "Freshness", value: detailEvidenceFreshness(product), detail: "Most recent stored signal or diagnosis timestamp.", icon: "calendar", tone: "blue" }} />
       </div>
     </div>
   );
@@ -10311,24 +10355,90 @@ function normalizeEvidenceProviderKey(value = "") {
   return normalized;
 }
 
-function VariantEvidenceCell({ evidence }) {
-  const details = getEvidenceList(evidence?.details).slice(0, 2);
+function VariantEvidenceCell({ evidence, compactDetails = false, popoverLabel = "variant evidence" }) {
+  const details = getEvidenceList(evidence?.details);
+  const visibleDetails = compactDetails ? [] : details.slice(0, 2);
+  const popoverDetails = compactDetails ? details : details.slice(2);
   return (
     <div className={`ppVariantEvidenceCell ppVariantEvidenceCell-${evidence?.tone || "neutral"}`}>
-      <strong>{evidence?.summary || "No variant-specific evidence"}</strong>
-      {details.map((detail, index) => (
+      <div className="ppVariantEvidenceCellMain">
+        <strong>{evidence?.summary || "No variant-specific evidence"}</strong>
+        {popoverDetails.length ? <VariantEvidenceDetailsPopover details={popoverDetails} label={popoverLabel} /> : null}
+      </div>
+      {visibleDetails.map((detail, index) => (
         <small key={`${detail}-${index}`}>{renderAnalysisText(detail)}</small>
       ))}
     </div>
   );
 }
 
+function VariantEvidenceDetailsPopover({ details = [], label = "variant evidence" }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const reactId = useId();
+  const popoverId = `variant-evidence-${reactId}-${normalizeVariantEvidenceKey(label || "details").replace(/[^a-z0-9]+/g, "-") || "details"}`;
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+    const handlePointerDown = (event) => {
+      if (triggerRef.current?.contains(event.target)) return;
+      if (event.target?.closest?.(".ppVariantEvidenceFloatingPopover")) return;
+      setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        className="ppVariantEvidencePopoverButton"
+        type="button"
+        ref={triggerRef}
+        aria-label={`View details for ${label}`}
+        aria-expanded={open}
+        aria-controls={open ? popoverId : undefined}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <s-icon type="info" size="small"></s-icon>
+      </button>
+      <FloatingTablePopover
+        anchorRef={triggerRef}
+        open={open}
+        className="ppVariantEvidenceFloatingPopover"
+        width={380}
+        estimatedHeight={220}
+        placement="bottom-end"
+        role="dialog"
+      >
+        <div id={popoverId} className="ppVariantEvidencePopoverContent">
+          <strong>{startCase(label)}</strong>
+          <div>
+            {details.map((detail, index) => (
+              <p key={`${detail}-${index}`}>{renderAnalysisText(detail)}</p>
+            ))}
+          </div>
+        </div>
+      </FloatingTablePopover>
+    </>
+  );
+}
+
 function getShopifyProductVariantRows(metrics = {}) {
   const affectedDetails = getEvidenceList(metrics.affectedVariantDetails);
+  const variantInsights = getEvidenceList(metrics.variantInsights);
   const refundExamples = getEvidenceList(metrics.refundInsights?.examples);
   const returnExamples = getEvidenceList(metrics.textInsights?.returns?.examples);
   const reviewExamples = getEvidenceList(metrics.textInsights?.reviews?.examples);
   const variantCandidates = getShopifyProductVariantCandidates(metrics, [
+    ...variantInsights,
     ...refundExamples,
     ...returnExamples,
     ...reviewExamples,
@@ -10336,23 +10446,33 @@ function getShopifyProductVariantRows(metrics = {}) {
 
   const rows = variantCandidates.map((variant, index) => {
     const title = getVariantDisplayTitle(variant);
-    const refundSignals = refundExamples.filter((example) => matchesVariantEvidence(example, variant));
-    const returnSignals = returnExamples.filter((example) => matchesVariantEvidence(example, variant));
-    const reviewSignals = reviewExamples.filter((example) => matchesVariantEvidence(example, variant));
+    const insight = getVariantInsightForVariant(variantInsights, variant);
+    const refundSignals = getEvidenceList(insight?.refunds?.examples).length
+      ? getEvidenceList(insight.refunds.examples)
+      : refundExamples.filter((example) => matchesVariantEvidence(example, variant));
+    const returnSignals = getEvidenceList(insight?.returns?.examples).length
+      ? getEvidenceList(insight.returns.examples)
+      : returnExamples.filter((example) => matchesVariantEvidence(example, variant));
+    const reviewSignals = getEvidenceList(insight?.reviews?.examples).length
+      ? getEvidenceList(insight.reviews.examples)
+      : reviewExamples.filter((example) => matchesVariantEvidence(example, variant));
     const affectedSignals = getAffectedVariantSignalCount(affectedDetails, variant)
-      || refundSignals.length
-      || returnSignals.length
+      || Number(insight?.signalCount || 0)
+      || sumVariantEvidenceUnits(refundSignals)
+      || sumVariantEvidenceUnits(returnSignals)
+      || Number(insight?.reviews?.negativeCount || 0)
       || reviewSignals.length
       || 0;
-    const hasVariantEvidence = Boolean(affectedSignals || refundSignals.length || returnSignals.length || reviewSignals.length);
+    const hasVariantEvidence = Boolean(affectedSignals || Number(insight?.sales?.units || 0) || refundSignals.length || returnSignals.length || reviewSignals.length);
     return {
       key: `${normalizeVariantEvidenceKey(title) || "variant"}-${variant.id || variant.sku || index}`,
       variant: title,
-      shopifyData: getVariantShopifyDataCell(variant),
-      affectedSignals: getVariantAffectedSignalsCell({ affectedSignals, affectedDetails, variant, metrics }),
-      refunds: getVariantRefundEvidenceCell(refundSignals),
-      returns: getVariantTextEvidenceCell(returnSignals, "return"),
-      reviews: getVariantTextEvidenceCell(reviewSignals, "review"),
+      shopifyData: getVariantShopifyDataCell({ ...variant, ...getVariantShopifyFieldsFromInsight(insight) }),
+      sales: getVariantSalesEvidenceCell(insight),
+      affectedSignals: getVariantAffectedSignalsCell({ affectedSignals, affectedDetails, variant, metrics, insight }),
+      refunds: getVariantRefundEvidenceCell(refundSignals, insight?.refunds),
+      returns: getVariantTextEvidenceCell(returnSignals, "return", insight?.returns),
+      reviews: getVariantReviewEvidenceCell(reviewSignals, insight?.reviews),
       tone: hasVariantEvidence ? "amber" : "blue",
     };
   });
@@ -10362,6 +10482,7 @@ function getShopifyProductVariantRows(metrics = {}) {
     key: "no-variants-stored",
     variant: "No variants stored",
     shopifyData: buildVariantEvidenceCell("No Shopify variant data", ["No variant title, SKU or price is stored for this product."], "neutral"),
+    sales: buildVariantEvidenceCell("No sales evidence", [], "neutral"),
     affectedSignals: buildVariantEvidenceCell("0 affected signals", ["Variant analysis needs Shopify variant data and product-matched returns, refunds or reviews."], "neutral"),
     refunds: buildVariantEvidenceCell("No refund evidence", [], "neutral"),
     returns: buildVariantEvidenceCell("No return evidence", [], "neutral"),
@@ -10383,6 +10504,13 @@ function getShopifyProductVariantCandidates(metrics = {}, evidenceExamples = [])
   };
 
   getEvidenceList(metrics.variants).forEach(addVariant);
+  getEvidenceList(metrics.variantInsights).forEach((item) => addVariant({
+    id: item.variantId,
+    title: item.variantTitle,
+    sku: item.sku,
+    price: item.price,
+    selectedOptions: item.selectedOptions,
+  }));
   getEvidenceList(metrics.affectedVariantDetails).forEach((item) => addVariant({ title: item.label || item.variant || item.name, count: item.count }));
   getEvidenceList(metrics.affectedVariants).forEach(addVariant);
   evidenceExamples.forEach((item) => {
@@ -10395,7 +10523,7 @@ function getShopifyProductVariantCandidates(metrics = {}, evidenceExamples = [])
 
 function getVariantDisplayTitle(variant = {}) {
   if (typeof variant === "string") return variant;
-  return variant.title || variant.name || variant.label || getVariantOptionsLabel(variant) || variant.sku || "Variant";
+  return variant.title || variant.variantTitle || variant.name || variant.label || getVariantOptionsLabel(variant) || variant.sku || "Variant";
 }
 
 function getVariantOptionsLabel(variant = {}) {
@@ -10435,20 +10563,77 @@ function getVariantAffectedSignalsCell({ affectedSignals = 0, affectedDetails = 
   return buildVariantEvidenceCell(`${formatInteger(count)} stored signal${count === 1 ? "" : "s"}`, details, "amber");
 }
 
-function getVariantRefundEvidenceCell(refundSignals = []) {
-  if (!refundSignals.length) return buildVariantEvidenceCell("No refund evidence", [], "neutral");
-  const quantity = sumVariantEvidenceUnits(refundSignals);
-  const amount = refundSignals.reduce((sum, item) => sum + Number(item.amount || item.refundAmount || 0), 0);
+function getVariantSalesEvidenceCell(insight = null) {
+  const units = Number(insight?.sales?.units || 0);
+  const amount = Number(insight?.sales?.amount || 0);
+  if (!units && !amount) return buildVariantEvidenceCell("No sales evidence", [], "neutral");
+  const details = [
+    amount ? `${formatMoney(amount)} sales amount` : "",
+    Number(insight?.returns?.rate || 0) ? `${formatPercent(insight.returns.rate)} return rate for this variant` : "",
+    Number(insight?.refunds?.rate || 0) ? `${formatPercent(insight.refunds.rate)} refund rate for this variant` : "",
+  ].filter(Boolean);
+  return buildVariantEvidenceCell(`${formatInteger(units)} sold unit${units === 1 ? "" : "s"}`, details, "teal");
+}
+
+function getVariantRefundEvidenceCell(refundSignals = [], refundSummary = null) {
+  const quantity = Number(refundSummary?.units || 0) || sumVariantEvidenceUnits(refundSignals);
+  const amount = Number(refundSummary?.amount || 0) || refundSignals.reduce((sum, item) => sum + Number(item.amount || item.refundAmount || 0), 0);
+  if (!quantity && !amount) return buildVariantEvidenceCell("No refund evidence", [], "neutral");
   const details = refundSignals.map((item) => formatVariantEvidenceExample(item, "refund")).filter(Boolean);
+  getEvidenceList(refundSummary?.topReasons).slice(0, 2).forEach((item) => {
+    if (item?.label) details.push(`Top refund reason: ${item.label}${item.count ? ` (${formatInteger(item.count)})` : ""}`);
+  });
   const summary = `${formatInteger(quantity)} refund signal${quantity === 1 ? "" : "s"}${amount ? ` · ${formatMoney(amount)}` : ""}`;
   return buildVariantEvidenceCell(summary, details, "red");
 }
 
-function getVariantTextEvidenceCell(items = [], kind = "signal") {
-  if (!items.length) return buildVariantEvidenceCell(`No ${kind} evidence`, [], "neutral");
-  const quantity = sumVariantEvidenceUnits(items);
+function getVariantTextEvidenceCell(items = [], kind = "signal", sourceSummary = null) {
+  const quantity = Number(sourceSummary?.units || 0) || sumVariantEvidenceUnits(items);
+  if (!quantity && !items.length) return buildVariantEvidenceCell(`No ${kind} evidence`, [], "neutral");
   const details = items.map((item) => formatVariantEvidenceExample(item, kind)).filter(Boolean);
+  getEvidenceList(sourceSummary?.topReasons).slice(0, 2).forEach((item) => {
+    if (item?.label) details.push(`Top ${kind} reason: ${item.label}${item.count ? ` (${formatInteger(item.count)})` : ""}`);
+  });
   return buildVariantEvidenceCell(`${formatInteger(quantity)} ${kind} signal${quantity === 1 ? "" : "s"}`, details, kind === "review" ? "violet" : "amber");
+}
+
+function getVariantReviewEvidenceCell(items = [], reviewSummary = null) {
+  const reviewCount = Number(reviewSummary?.count || 0);
+  const negativeCount = Number(reviewSummary?.negativeCount || 0);
+  const positiveCount = Number(reviewSummary?.positiveCount || 0);
+  const quantity = reviewCount || sumVariantEvidenceUnits(items);
+  if (!quantity && !items.length) return buildVariantEvidenceCell("No review evidence", [], "neutral");
+  const details = items.map((item) => formatVariantEvidenceExample(item, "review")).filter(Boolean);
+  getEvidenceList(reviewSummary?.sources).slice(0, 2).forEach((item) => {
+    if (item?.label) details.push(`${item.label}: ${formatInteger(item.count || 0)} review${Number(item.count || 0) === 1 ? "" : "s"}`);
+  });
+  const rating = Number(reviewSummary?.averageRating || 0);
+  if (rating) details.push(`${formatDecimal(rating, 1)} average rating for this variant`);
+  const summary = negativeCount && positiveCount
+    ? `${formatInteger(negativeCount)} negative · ${formatInteger(positiveCount)} positive`
+    : negativeCount
+    ? `${formatInteger(negativeCount)} negative review${negativeCount === 1 ? "" : "s"} · ${formatInteger(reviewCount)} total`
+    : positiveCount
+    ? `${formatInteger(positiveCount)} positive review${positiveCount === 1 ? "" : "s"}`
+    : `${formatInteger(quantity)} review signal${quantity === 1 ? "" : "s"}`;
+  return buildVariantEvidenceCell(summary, details, "violet");
+}
+
+function getVariantInsightForVariant(variantInsights = [], variant = {}) {
+  return getEvidenceList(variantInsights).find((item) => matchesVariantEvidence(item, variant)) || null;
+}
+
+function getVariantShopifyFieldsFromInsight(insight = null) {
+  if (!insight) return {};
+  return {
+    id: insight.variantId,
+    variantId: insight.variantId,
+    title: insight.variantTitle,
+    variantTitle: insight.variantTitle,
+    sku: insight.sku,
+    price: insight.price,
+    selectedOptions: insight.selectedOptions,
+  };
 }
 
 function sumVariantEvidenceUnits(items = []) {
@@ -10969,7 +11154,7 @@ function getOrderChannelRows(metrics = {}, orderCount = 0) {
 }
 
 function getOrderGeographyRows(metrics = {}, orderCount = 0) {
-  const rawRows = getEvidenceList(metrics.salesByCountry || metrics.orderGeography || metrics.geography || metrics.countries);
+  const rawRows = getEvidenceList(metrics.orderGeography || metrics.salesByCountry || metrics.geography || metrics.countries);
   if (rawRows.length) {
     return rawRows.map((row) => ({
       label: row.label || row.country || row.name || "Region",
