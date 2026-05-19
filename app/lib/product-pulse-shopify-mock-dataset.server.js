@@ -2906,13 +2906,19 @@ async function shopifyGraphql(admin, query, variables, label = "Shopify GraphQL"
 async function normalizeShopifyGraphqlError(error, label, attempt) {
   if (error && typeof error.text === "function") {
     const body = await error.text().catch(() => "");
+    const status = Number(error.status || 0);
+    const authMessage = status === 401
+      ? "Shopify rejected the Admin API credentials. Reauthorize the app and rerun this stage; background mock dataset jobs require a valid offline Admin API token."
+      : null;
     const message = [
       `${label} failed on attempt ${attempt}`,
       `HTTP ${error.status || "unknown"}`,
+      authMessage,
       body ? body.replace(/\s+/g, " ").slice(0, 600) : null,
     ].filter(Boolean).join(": ");
     const next = new Error(message);
     next.status = error.status;
+    if (status === 401) next.code = "SHOPIFY_UNAUTHORIZED";
     return next;
   }
   if (error instanceof Error) {

@@ -1972,7 +1972,16 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
         data: { status: job.status, source: job.source, stage },
       });
 
-      const admin = options.admin || await getOfflineAdmin(job.shop);
+      const adminContext = await getBackgroundShopifyAdmin(job.shop);
+      const admin = adminContext.admin;
+      const scopes = admin.productPulseScopes || options.scopes || "";
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        event: "mock_dataset.admin_client_resolved",
+        message: `Shopify mock dataset worker is using ${adminContext.source} Admin API credentials.`,
+        data: { source: adminContext.source, hasScopes: Boolean(scopes) },
+      });
       const summary = await runShopifyMockDatasetJob({
         shop: job.shop,
         admin,
@@ -2228,6 +2237,10 @@ async function runProductDiagnosisJob(job) {
 async function getOfflineAdmin(shop) {
   const { admin, session } = await unauthenticated.admin(shop);
   return Object.assign(admin, { productPulseScopes: session.scope });
+}
+
+async function getBackgroundShopifyAdmin(shop) {
+  return { admin: await getOfflineAdmin(shop), source: "offline" };
 }
 
 async function updateProductDiagnosisJob(jobId, data) {
