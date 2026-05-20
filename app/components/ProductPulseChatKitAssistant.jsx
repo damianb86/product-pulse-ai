@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatKit, useChatKit } from "@openai/chatkit-react";
-import {
-  getMessageFromChatKitClientToolCall,
-  PRODUCT_PULSE_CHATKIT_CLIENT_TOOL_NAME,
-} from "../ai/chatkit/clientTool";
-import { mapAiChatTurnToChatKitToolOutput } from "../ai/chatkit/widgets";
 
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 let chatKitBrowserScriptPromise;
@@ -16,6 +11,9 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const [conversationId, setConversationId] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const chatKitMethodsRef = useRef(null);
+  const conversationIdRef = useRef("");
+  const pageContextRef = useRef(pageContext || { type: "unknown" });
+  const backendSessionRef = useRef(null);
   const normalizedPageContext = useMemo(() => pageContext || { type: "unknown" }, [pageContext]);
   const pageContextKey = useMemo(() => JSON.stringify(normalizedPageContext), [normalizedPageContext]);
   const enabled = Boolean(config?.enabled);
@@ -40,65 +38,61 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     };
   }, [enabled]);
 
-  const requestClientSecret = useCallback(async () => {
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
+
+  useEffect(() => {
+    pageContextRef.current = normalizedPageContext;
+    backendSessionRef.current = null;
     setStatusMessage("");
+  }, [normalizedPageContext, pageContextKey]);
+
+  const ensureBackendSession = useCallback(async () => {
+    const requestedConversationId = conversationIdRef.current || undefined;
+    const requestedPageContext = pageContextRef.current || { type: "unknown" };
+    const cacheKey = JSON.stringify({
+      conversationId: requestedConversationId || "",
+      pageContext: requestedPageContext,
+    });
+    if (backendSessionRef.current?.cacheKey === cacheKey) {
+      return backendSessionRef.current;
+    }
+
     const response = await fetch("/api/ai/chatkit/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationId: conversationId || undefined,
-        pageContext: normalizedPageContext,
+        conversationId: requestedConversationId,
+        pageContext: requestedPageContext,
       }),
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok || !body.client_secret) {
+    if (!response.ok || !body.enabled) {
       const message = body.message || "ChatKit is unavailable.";
       setStatusMessage(message);
       throw new Error(message);
     }
-    if (body.conversationId) setConversationId(body.conversationId);
-    return body.client_secret;
-  }, [conversationId, normalizedPageContext]);
-
-  const handleClientTool = useCallback(async (toolCall) => {
-    if (toolCall.name !== PRODUCT_PULSE_CHATKIT_CLIENT_TOOL_NAME) {
-      return {
-        ok: false,
-        error: "Unsupported ProductPulse ChatKit client tool.",
-      };
+    if (body.conversationId) {
+      conversationIdRef.current = body.conversationId;
+      setConversationId(body.conversationId);
     }
-
-    const message = getMessageFromChatKitClientToolCall(toolCall);
-    if (!message) {
-      return {
-        ok: false,
-        error: "The ProductPulse chat tool needs a message.",
-      };
-    }
-
-    const response = await fetch("/api/ai/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conversationId: conversationId || undefined,
-        message,
-        pageContext: normalizedPageContext,
-        userIntentMetadata: {
-          source: "chatkit",
-          clientToolName: toolCall.name,
-        },
+    const session = {
+      cacheKey: JSON.stringify({
+        conversationId: body.conversationId || requestedConversationId || "",
+        pageContext: requestedPageContext,
       }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: body.message || "ProductPulse AI chat is unavailable.",
-      };
-    }
-    if (body.conversationId) setConversationId(body.conversationId);
-    return mapAiChatTurnToChatKitToolOutput(body);
-  }, [conversationId, normalizedPageContext]);
+      conversationId: body.conversationId || requestedConversationId || "",
+      pageContext: body.pageContext || requestedPageContext,
+    };
+    backendSessionRef.current = session;
+    return session;
+  }, []);
+
+  const chatKitBackendFetch = useCallback(async (input, init = {}) => {
+    const session = await ensureBackendSession();
+    return fetch(input, attachChatKitMetadata(init, session));
+  }, [ensureBackendSession]);
 
   const handleWidgetAction = useCallback(async (action, widgetItem) => {
     const response = await fetch("/api/ai/chatkit/action", {
@@ -128,9 +122,10 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
 
   const chatKit = useChatKit({
     api: {
-      getClientSecret: requestClientSecret,
+      url: config?.apiUrl || "/api/ai/chatkit/message",
+      domainKey: config?.domainKey || "product-pulse-custom-backend",
+      fetch: chatKitBackendFetch,
     },
-    onClientTool: handleClientTool,
     widgets: {
       onAction: handleWidgetAction,
     },
@@ -180,6 +175,13 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     thread: {
       autoScroll: true,
     },
+    onThreadChange: (event) => {
+      const nextThreadId = event?.threadId || "";
+      if (nextThreadId) {
+        conversationIdRef.current = nextThreadId;
+        setConversationId(nextThreadId);
+      }
+    },
     onError: (event) => {
       setStatusMessage(event?.error?.message || "ChatKit reported an error.");
     },
@@ -200,7 +202,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
           <div className="ppChatKitPanelHeader">
             <div>
               <strong>AI Assistant</strong>
-              <span>{enabled ? "ChatKit" : "Unavailable"}</span>
+              <span>{enabled ? "Backend AI" : "Unavailable"}</span>
             </div>
             <button type="button" className="ppChatKitIconButton" onClick={() => setIsOpen(false)} aria-label="Close AI Assistant">
               x
@@ -250,6 +252,40 @@ function loadChatKitBrowserScript() {
     if (!existing) document.head.appendChild(script);
   });
   return chatKitBrowserScriptPromise;
+}
+
+function attachChatKitMetadata(init, session) {
+  const headers = new Headers(init?.headers || {});
+  headers.set("Content-Type", "application/json");
+  const body = parseJsonBody(init?.body);
+  const metadata = body && typeof body.metadata === "object" && body.metadata !== null
+    ? body.metadata
+    : {};
+  return {
+    ...init,
+    credentials: "same-origin",
+    headers,
+    body: JSON.stringify({
+      ...body,
+      metadata: {
+        ...metadata,
+        source: "chatkit_custom_backend",
+        conversationId: session.conversationId || undefined,
+        pageContext: session.pageContext || { type: "unknown" },
+      },
+    }),
+  };
+}
+
+function parseJsonBody(body) {
+  if (!body) return {};
+  if (typeof body !== "string") return {};
+  try {
+    const parsed = JSON.parse(body);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 function getStarterPrompts(pageContext) {

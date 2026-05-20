@@ -1,7 +1,4 @@
-import crypto from "node:crypto";
 import { z } from "zod";
-import OpenAI from "openai";
-import type { ChatSession } from "openai/resources/beta/chatkit/threads";
 import { createAiToolContextFromAuthenticatedRequest } from "../context.server";
 import type { AiToolContext } from "../domain/types";
 import {
@@ -32,28 +29,16 @@ export type AiChatKitSessionRequest = z.infer<typeof aiChatKitSessionRequestSche
 export interface AiChatKitSessionResponse {
   enabled: boolean;
   conversationId: string;
-  client_secret?: string;
-  chatKitSessionId?: string;
-  expiresAt?: number;
+  apiUrl?: string;
+  domainKey?: string;
   pageContext: AiPageContext;
   warnings: string[];
   message?: string;
 }
 
-export interface OpenAiChatKitSessionsClient {
-  beta: {
-    chatkit: {
-      sessions: {
-        create: (body: Record<string, unknown>) => Promise<ChatSession>;
-      };
-    };
-  };
-}
-
 export interface CreateAiChatKitSessionDependencies {
   config?: AiChatKitConfig;
   env?: NodeJS.ProcessEnv;
-  chatKitClient?: OpenAiChatKitSessionsClient;
   conversationStore?: AiConversationStore;
   toolRegistry?: AiToolRegistry;
   now?: () => Date;
@@ -100,7 +85,7 @@ export async function createAiChatKitSession(
     createdAt: context.createdAt || now().toISOString(),
   };
 
-  if (!config.enabled || !config.workflowId) {
+  if (!config.enabled) {
     await conversationStore.addMessage({
       context: chatContext,
       conversationId: conversation.id,
@@ -124,47 +109,14 @@ export async function createAiChatKitSession(
     };
   }
 
-  const client = dependencies.chatKitClient || createOpenAiChatKitClient(env);
-  const session = await client.beta.chatkit.sessions.create({
-    user: createChatKitUserId(context),
-    workflow: {
-      id: config.workflowId,
-      ...(config.workflowVersion ? { version: config.workflowVersion } : {}),
-      tracing: { enabled: config.debug },
-      state_variables: buildStateVariables(context, conversation.id, pageContextValidation.pageContext),
-    },
-    chatkit_configuration: {
-      automatic_thread_titling: { enabled: true },
-      file_upload: { enabled: false },
-      history: {
-        enabled: true,
-        recent_threads: config.recentThreadCount,
-      },
-    },
-    expires_after: {
-      anchor: "created_at",
-      seconds: config.sessionTtlSeconds,
-    },
-    rate_limits: {
-      max_requests_per_1_minute: config.rateLimitPerMinute,
-    },
-  });
-
   return {
     enabled: true,
     conversationId: conversation.id,
-    client_secret: session.client_secret,
-    chatKitSessionId: session.id,
-    expiresAt: session.expires_at,
+    apiUrl: config.apiUrl,
+    domainKey: config.domainKey,
     pageContext: pageContextValidation.pageContext,
     warnings: pageContextValidation.warnings,
   };
-}
-
-export function createOpenAiChatKitClient(env: NodeJS.ProcessEnv = process.env): OpenAiChatKitSessionsClient {
-  const apiKey = String(env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) throw new Error("OPENAI_API_KEY is required to create a ChatKit session.");
-  return new OpenAI({ apiKey }) as unknown as OpenAiChatKitSessionsClient;
 }
 
 export async function validateChatKitPageContextForShop(
@@ -203,27 +155,4 @@ export async function validateChatKitPageContextForShop(
     },
     warnings: [],
   };
-}
-
-function createChatKitUserId(context: AiToolContext): string {
-  const stableUser = context.userId || context.sessionId || "anonymous";
-  return `pp_${sha256(`${context.shop}:${stableUser}`).slice(0, 32)}`;
-}
-
-function buildStateVariables(
-  context: AiToolContext,
-  conversationId: string,
-  pageContext: AiPageContext,
-): Record<string, string | boolean | number> {
-  return {
-    product_pulse_scope: sha256(context.shop).slice(0, 32),
-    product_pulse_conversation_id: conversationId,
-    product_pulse_page_type: pageContext.type,
-    product_pulse_page_ref: pageContext.entityId || pageContext.entityHandle || "",
-    product_pulse_backend: "phase2_orchestrator",
-  };
-}
-
-function sha256(value: string): string {
-  return crypto.createHash("sha256").update(value).digest("hex");
 }

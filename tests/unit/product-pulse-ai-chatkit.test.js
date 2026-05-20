@@ -18,11 +18,13 @@ const {
   createAiChatKitSessionFromRequest,
 } = await import("../../app/ai/chatkit/session.server");
 const {
+  handleChatKitMessage,
+} = await import("../../app/ai/chatkit/message.server");
+const {
   chatKitActionRequestSchema,
   handleChatKitAction,
 } = await import("../../app/ai/chatkit/actions.server");
 const {
-  mapAiChatTurnToChatKitToolOutput,
   mapAiPresentationBlocksToChatKitWidgets,
 } = await import("../../app/ai/chatkit/widgets");
 const {
@@ -48,7 +50,6 @@ describe("ProductPulse ChatKit integration", () => {
       },
     });
     const store = new InMemoryConversationStore();
-    const sessionCreate = vi.fn().mockResolvedValue(chatKitSession());
 
     const result = await createAiChatKitSessionFromRequest({
       request: new Request("https://example.test/api/ai/chatkit/session", { method: "POST" }),
@@ -60,45 +61,38 @@ describe("ProductPulse ChatKit integration", () => {
       dependencies: {
         config: enabledConfig(),
         conversationStore: store,
-        chatKitClient: chatKitClient(sessionCreate),
         toolRegistry: createRegistry(),
       },
     });
 
     expect(result.enabled).toBe(true);
-    expect(result.client_secret).toBe("client-secret");
+    expect(result.client_secret).toBeUndefined();
+    expect(result.apiUrl).toBe("/api/ai/chatkit/message");
+    expect(result.domainKey).toBe("product-pulse-custom-backend");
     expect(store.contexts[0].shop).toBe("auth-shop.myshopify.com");
-    expect(sessionCreate).toHaveBeenCalledTimes(1);
-    const openAiInput = sessionCreate.mock.calls[0][0];
-    expect(openAiInput.user).toMatch(/^pp_/);
-    expect(openAiInput.workflow.state_variables.product_pulse_scope).toHaveLength(32);
-    expect(JSON.stringify(openAiInput)).not.toContain("auth-shop.myshopify.com");
+    expect(JSON.stringify(result)).not.toContain("auth-shop.myshopify.com");
   });
 
-  it("returns a disabled response without creating an OpenAI session when misconfigured", async () => {
+  it("returns a disabled response without requiring AI_CHATKIT_WORKFLOW_ID when OpenAI is not configured", async () => {
     const store = new InMemoryConversationStore();
-    const sessionCreate = vi.fn();
 
     const result = await createAiChatKitSession(baseContext, {}, {
       config: {
         ...enabledConfig(),
         enabled: false,
-        workflowId: null,
-        disabledReason: "ChatKit requires AI_CHATKIT_WORKFLOW_ID on the server.",
+        apiKeyConfigured: false,
+        disabledReason: "ChatKit requires OPENAI_API_KEY on the server.",
       },
       conversationStore: store,
-      chatKitClient: chatKitClient(sessionCreate),
       toolRegistry: createRegistry(),
     });
 
     expect(result.enabled).toBe(false);
-    expect(result.message).toContain("AI_CHATKIT_WORKFLOW_ID");
-    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(result.message).toContain("OPENAI_API_KEY");
     expect(store.messages[0].role).toBe("system");
   });
 
   it("sanitizes unverified product page context before creating a session", async () => {
-    const sessionCreate = vi.fn().mockResolvedValue(chatKitSession());
     const registry = createRegistry({ productFound: false });
 
     const result = await createAiChatKitSession(baseContext, {
@@ -109,7 +103,6 @@ describe("ProductPulse ChatKit integration", () => {
     }, {
       config: enabledConfig(),
       conversationStore: new InMemoryConversationStore(),
-      chatKitClient: chatKitClient(sessionCreate),
       toolRegistry: registry,
     });
 
@@ -120,6 +113,75 @@ describe("ProductPulse ChatKit integration", () => {
       expect.objectContaining({ shop: baseContext.shop }),
       { productRef: "gid://shopify/Product/other-shop" },
     );
+  });
+
+  it("routes ChatKit custom backend messages through the existing orchestrator", async () => {
+    const store = new InMemoryConversationStore();
+    const orchestrator = {
+      runAiChatTurnWithContext: vi.fn().mockResolvedValue({
+        conversationId: "conversation-1",
+        messageId: "message-2",
+        userMessageId: "message-1",
+        assistantText: "This product is high risk.",
+        blocks: [{ type: "summary", title: "Summary", text: "Returns mention sizing." }],
+        suggestedReplies: [],
+        referencedEntities: [],
+        followUpQuestions: [],
+        warnings: [],
+        metadata: {
+          model: "gpt-test",
+          toolCallCount: 1,
+          blockedToolCallCount: 0,
+          openAiResponseId: "resp-1",
+          usage: null,
+          pageContext: { type: "product" },
+        },
+      }),
+    };
+    store.conversations.push({
+      id: "conversation-1",
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      title: "ProductPulse AI assistant",
+      createdAt: "2026-05-20T12:00:00.000Z",
+      updatedAt: "2026-05-20T12:00:00.000Z",
+    });
+
+    const response = await handleChatKitMessage(baseContext, JSON.stringify({
+      type: "threads.create",
+      metadata: {
+        conversationId: "conversation-1",
+        pageContext: { type: "product", entityId: "core-linen-trouser" },
+        shop: "evil.myshopify.com",
+      },
+      params: {
+        input: {
+          content: [{ type: "input_text", text: "Explain this product" }],
+          attachments: [],
+          inference_options: {},
+        },
+      },
+    }), {
+      conversationStore: store,
+      orchestrator,
+      toolRegistry: createRegistry(),
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    });
+
+    const text = await response.text();
+    expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+    expect(orchestrator.runAiChatTurnWithContext).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: baseContext.shop }),
+      expect.objectContaining({
+        conversationId: "conversation-1",
+        message: "Explain this product",
+        userIntentMetadata: expect.objectContaining({ source: "chatkit_custom_backend" }),
+      }),
+    );
+    expect(text).toContain("\"thread.created\"");
+    expect(text).toContain("\"assistant_message\"");
+    expect(text).toContain("\"widget\"");
+    expect(text).not.toContain("evil.myshopify.com");
   });
 
   it("converts neutral presentation blocks into ChatKit widgets", () => {
@@ -167,33 +229,6 @@ describe("ProductPulse ChatKit integration", () => {
     expect(JSON.stringify(widgets)).toContain("open_evidence");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
-  });
-
-  it("converts orchestrator responses into ChatKit client tool output", () => {
-    const output = mapAiChatTurnToChatKitToolOutput({
-      conversationId: "conversation-1",
-      messageId: "message-2",
-      userMessageId: "message-1",
-      assistantText: "This product is high risk.",
-      blocks: [{ type: "summary", title: "Summary", text: "Returns mention sizing." }],
-      suggestedReplies: ["Show evidence"],
-      referencedEntities: [],
-      followUpQuestions: [],
-      warnings: [],
-      metadata: {
-        model: "gpt-test",
-        toolCallCount: 1,
-        blockedToolCallCount: 0,
-        openAiResponseId: "resp-1",
-        usage: null,
-        pageContext: { type: "product" },
-      },
-    });
-
-    expect(output.ok).toBe(true);
-    expect(output.conversationId).toBe("conversation-1");
-    expect(output.widgets).toHaveLength(1);
-    expect(output.metadata.toolCallCount).toBe(1);
   });
 
   it("rejects unsafe or unknown ChatKit actions", async () => {
@@ -279,44 +314,11 @@ function enabledConfig() {
   return {
     enabled: true,
     apiKeyConfigured: true,
-    workflowId: "wf_product_pulse",
-    workflowVersion: null,
+    apiUrl: "/api/ai/chatkit/message",
+    domainKey: "product-pulse-custom-backend",
     debug: false,
-    sessionTtlSeconds: 600,
-    rateLimitPerMinute: 10,
     recentThreadCount: 10,
     disabledReason: null,
-  };
-}
-
-function chatKitClient(sessionCreate) {
-  return {
-    beta: {
-      chatkit: {
-        sessions: {
-          create: sessionCreate,
-        },
-      },
-    },
-  };
-}
-
-function chatKitSession() {
-  return {
-    id: "cksess_1",
-    object: "chatkit.session",
-    client_secret: "client-secret",
-    expires_at: 1810000000,
-    status: "active",
-    user: "pp_user",
-    max_requests_per_1_minute: 10,
-    rate_limits: { max_requests_per_1_minute: 10 },
-    workflow: { id: "wf_product_pulse" },
-    chatkit_configuration: {
-      automatic_thread_titling: { enabled: true },
-      file_upload: { enabled: false, max_file_size: null, max_files: null },
-      history: { enabled: true, recent_threads: 10 },
-    },
   };
 }
 
@@ -351,6 +353,10 @@ class InMemoryConversationStore {
     this.contexts = [];
   }
 
+  async getConversation(context, conversationId) {
+    return this.conversations.find((conversation) => conversation.id === conversationId && conversation.shop === context.shop) || null;
+  }
+
   async getOrCreateConversation(context, input = {}) {
     this.contexts.push(context);
     const existing = input.conversationId
@@ -364,6 +370,20 @@ class InMemoryConversationStore {
       title: input.titleSeed || null,
     };
     this.conversations.push(conversation);
+    return conversation;
+  }
+
+  async listConversations(context, input = {}) {
+    const conversations = this.conversations
+      .filter((conversation) => conversation.shop === context.shop)
+      .slice(0, input.limit || 20);
+    return { conversations, hasMore: false, after: null };
+  }
+
+  async updateConversationTitle(context, conversationId, title) {
+    const conversation = await this.getConversation(context, conversationId);
+    if (!conversation) return null;
+    conversation.title = title;
     return conversation;
   }
 
@@ -381,6 +401,14 @@ class InMemoryConversationStore {
 
   async listRecentMessages() {
     return [];
+  }
+
+  async listMessages(context, conversationId) {
+    return {
+      messages: this.messages.filter((message) => message.conversationId === conversationId),
+      hasMore: false,
+      after: null,
+    };
   }
 
   async recordToolCall() {}

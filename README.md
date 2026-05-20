@@ -25,6 +25,8 @@ SHOPIFY_API_SECRET=
 SHOPIFY_APP_URL=
 SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,read_returns,write_returns,read_inventory,write_inventory,read_locations
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
+OPENAI_API_KEY=
+AI_CHAT_MODEL=gpt-5.4-mini
 ```
 
 The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `write_orders` and `write_returns` for the Settings mock dataset generator, which creates controlled Shopify test orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
@@ -80,6 +82,22 @@ For local testing:
 ```bash
 npm run watchlist:cron:force
 ```
+
+## AI ChatKit
+
+The embedded assistant uses OpenAI ChatKit for the UI and the ProductPulse backend for orchestration. It does not require an Agent Builder workflow or `AI_CHATKIT_WORKFLOW_ID`.
+
+Relevant env vars:
+
+```bash
+OPENAI_API_KEY=
+AI_CHAT_MODEL=gpt-5.4-mini
+AI_CHATKIT_ENABLED=true
+AI_CHATKIT_API_URL=/api/ai/chatkit/message
+AI_CHATKIT_DOMAIN_KEY=product-pulse-custom-backend
+```
+
+The browser receives only safe ChatKit config. OpenAI inference runs server-side through the existing `/api/ai/chatkit/message` adapter and `AiChatOrchestrator`.
 
 ## Documentation
 - `docs/product-brief.md`

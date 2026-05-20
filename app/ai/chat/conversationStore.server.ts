@@ -43,10 +43,17 @@ export interface AiToolCallRecordInput {
 }
 
 export interface AiConversationStore {
+  getConversation(context: AiToolContext, conversationId: string): Promise<StoredAiConversation | null>;
   getOrCreateConversation(
     context: AiToolContext,
     input: { conversationId?: string | null; titleSeed?: string; metadata?: unknown },
   ): Promise<StoredAiConversation>;
+  listConversations(context: AiToolContext, input: { limit: number; after?: string | null; order?: "asc" | "desc" }): Promise<{
+    conversations: StoredAiConversation[];
+    hasMore: boolean;
+    after: string | null;
+  }>;
+  updateConversationTitle(context: AiToolContext, conversationId: string, title: string): Promise<StoredAiConversation | null>;
   addMessage(input: {
     context: AiToolContext;
     conversationId: string;
@@ -56,6 +63,11 @@ export interface AiConversationStore {
     openAiResponseId?: string | null;
   }): Promise<StoredAiConversationMessage>;
   listRecentMessages(context: AiToolContext, conversationId: string, limit: number): Promise<StoredAiConversationMessage[]>;
+  listMessages(context: AiToolContext, conversationId: string, input: { limit: number; after?: string | null; order?: "asc" | "desc" }): Promise<{
+    messages: StoredAiConversationMessage[];
+    hasMore: boolean;
+    after: string | null;
+  }>;
   recordToolCall(input: AiToolCallRecordInput): Promise<void>;
   touchConversation(context: AiToolContext, conversationId: string): Promise<void>;
 }
@@ -65,6 +77,15 @@ export class PrismaAiConversationStore implements AiConversationStore {
 
   constructor(db: AiConversationDbClient = prisma as unknown as AiConversationDbClient) {
     this.db = db;
+  }
+
+  async getConversation(context: AiToolContext, conversationId: string): Promise<StoredAiConversation | null> {
+    const normalizedId = optionalString(conversationId);
+    if (!normalizedId) return null;
+    const row = await this.db.aiConversation.findFirst({
+      where: { id: normalizedId, shop: context.shop },
+    });
+    return row ? mapConversation(row) : null;
   }
 
   async getOrCreateConversation(
@@ -88,6 +109,42 @@ export class PrismaAiConversationStore implements AiConversationStore {
       },
     });
     return mapConversation(created);
+  }
+
+  async listConversations(
+    context: AiToolContext,
+    input: { limit: number; after?: string | null; order?: "asc" | "desc" },
+  ): Promise<{ conversations: StoredAiConversation[]; hasMore: boolean; after: string | null }> {
+    const take = Math.max(1, Math.min(50, input.limit));
+    const rows = await this.db.aiConversation.findMany({
+      where: {
+        shop: context.shop,
+        ...(input.after ? { id: { lt: input.after } } : {}),
+      },
+      orderBy: { updatedAt: input.order === "asc" ? "asc" : "desc" },
+      take: take + 1,
+    });
+    const pageRows = rows.slice(0, take);
+    return {
+      conversations: pageRows.map(mapConversation),
+      hasMore: rows.length > take,
+      after: rows.length > take ? pageRows[pageRows.length - 1]?.id || null : null,
+    };
+  }
+
+  async updateConversationTitle(
+    context: AiToolContext,
+    conversationId: string,
+    title: string,
+  ): Promise<StoredAiConversation | null> {
+    const existing = await this.getConversation(context, conversationId);
+    if (!existing) return null;
+    const rows = await this.db.aiConversation.updateMany({
+      where: { id: existing.id, shop: context.shop },
+      data: { title: truncate(title, 80) },
+    });
+    if (!rows.count) return null;
+    return this.getConversation(context, existing.id);
   }
 
   async addMessage(input: {
@@ -123,6 +180,29 @@ export class PrismaAiConversationStore implements AiConversationStore {
       take: Math.max(0, Math.min(24, limit)),
     });
     return rows.map(mapMessage).reverse();
+  }
+
+  async listMessages(
+    context: AiToolContext,
+    conversationId: string,
+    input: { limit: number; after?: string | null; order?: "asc" | "desc" },
+  ): Promise<{ messages: StoredAiConversationMessage[]; hasMore: boolean; after: string | null }> {
+    const take = Math.max(1, Math.min(50, input.limit));
+    const rows = await this.db.aiConversationMessage.findMany({
+      where: {
+        shop: context.shop,
+        conversationId,
+        ...(input.after ? { id: { gt: input.after } } : {}),
+      },
+      orderBy: { createdAt: input.order === "asc" ? "asc" : "desc" },
+      take: take + 1,
+    });
+    const pageRows = rows.slice(0, take);
+    return {
+      messages: pageRows.map(mapMessage),
+      hasMore: rows.length > take,
+      after: rows.length > take ? pageRows[pageRows.length - 1]?.id || null : null,
+    };
   }
 
   async recordToolCall(input: AiToolCallRecordInput): Promise<void> {

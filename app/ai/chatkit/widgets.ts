@@ -1,37 +1,5 @@
 import type { Widgets } from "@openai/chatkit";
 import type { AiPresentationBlock } from "../presentation/blocks";
-import type { AiAssistantResponse } from "../chat/responseSchema";
-import type { AiChatTurnResult } from "../chat/aiChatOrchestrator.server";
-
-export const PRODUCT_PULSE_CHATKIT_CLIENT_TOOL_NAME = "product_pulse_chat_turn";
-
-export interface ProductPulseChatKitToolOutput {
-  ok: true;
-  conversationId?: string;
-  assistantText: string;
-  widgets: Widgets.WidgetRoot[];
-  suggestedReplies: string[];
-  referencedEntities: AiAssistantResponse["referencedEntities"];
-  warnings: string[];
-  metadata?: Record<string, unknown>;
-}
-
-export function mapAiChatTurnToChatKitToolOutput(result: AiChatTurnResult): ProductPulseChatKitToolOutput {
-  return {
-    ok: true,
-    conversationId: result.conversationId,
-    assistantText: result.assistantText,
-    widgets: mapAiPresentationBlocksToChatKitWidgets(result.blocks),
-    suggestedReplies: result.suggestedReplies,
-    referencedEntities: result.referencedEntities,
-    warnings: result.warnings,
-    metadata: {
-      toolCallCount: result.metadata.toolCallCount,
-      blockedToolCallCount: result.metadata.blockedToolCallCount,
-      pageContext: result.metadata.pageContext,
-    },
-  };
-}
 
 export function mapAiPresentationBlocksToChatKitWidgets(blocks: AiPresentationBlock[]): Widgets.WidgetRoot[] {
   return blocks.map(mapAiPresentationBlockToChatKitWidget);

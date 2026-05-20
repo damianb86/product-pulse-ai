@@ -10,6 +10,7 @@ export {
 } from "./tools/registry.server";
 export { AiChatOrchestrator } from "./chat/aiChatOrchestrator.server";
 export { createAiChatKitSession } from "./chatkit/session.server";
+export { handleChatKitMessage } from "./chatkit/message.server";
 export { PRODUCT_PULSE_AI_TOOL_NAMES } from "./tools/productPulseTools.server";
 export {
   AI_ACTION_PROPOSAL_TOOL_NAME,

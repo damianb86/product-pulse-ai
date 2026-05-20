@@ -1,11 +1,9 @@
 export interface AiChatKitConfig {
   enabled: boolean;
   apiKeyConfigured: boolean;
-  workflowId: string | null;
-  workflowVersion: string | null;
+  apiUrl: string;
+  domainKey: string;
   debug: boolean;
-  sessionTtlSeconds: number;
-  rateLimitPerMinute: number;
   recentThreadCount: number;
   disabledReason: string | null;
 }
@@ -13,25 +11,24 @@ export interface AiChatKitConfig {
 export interface AiChatKitClientConfig {
   enabled: boolean;
   debug: boolean;
+  apiUrl: string;
+  domainKey: string;
   disabledReason: string | null;
 }
 
 export function getAiChatKitConfig(env: NodeJS.ProcessEnv = process.env): AiChatKitConfig {
   const apiKeyConfigured = Boolean(normalizeString(env.OPENAI_API_KEY));
-  const workflowId = normalizeString(env.AI_CHATKIT_WORKFLOW_ID || env.OPENAI_CHATKIT_WORKFLOW_ID);
   const explicitlyDisabled = isDisabled(env.AI_CHATKIT_ENABLED);
   const debug = isEnabled(env.AI_CHATKIT_DEBUG);
-  const enabled = !explicitlyDisabled && apiKeyConfigured && Boolean(workflowId);
-  const disabledReason = getDisabledReason({ explicitlyDisabled, apiKeyConfigured, workflowId });
+  const enabled = !explicitlyDisabled && apiKeyConfigured;
+  const disabledReason = getDisabledReason({ explicitlyDisabled, apiKeyConfigured });
 
   return {
     enabled,
     apiKeyConfigured,
-    workflowId,
-    workflowVersion: normalizeString(env.AI_CHATKIT_WORKFLOW_VERSION),
+    apiUrl: normalizeString(env.AI_CHATKIT_API_URL) || "/api/ai/chatkit/message",
+    domainKey: normalizeString(env.AI_CHATKIT_DOMAIN_KEY) || "product-pulse-custom-backend",
     debug,
-    sessionTtlSeconds: normalizeInteger(env.AI_CHATKIT_SESSION_TTL_SECONDS, 600, 60, 3600),
-    rateLimitPerMinute: normalizeInteger(env.AI_CHATKIT_RATE_LIMIT_PER_MINUTE, 10, 1, 60),
     recentThreadCount: normalizeInteger(env.AI_CHATKIT_HISTORY_RECENT_THREADS, 10, 0, 50),
     disabledReason,
   };
@@ -42,6 +39,8 @@ export function getAiChatKitClientConfig(env: NodeJS.ProcessEnv = process.env): 
   return {
     enabled: config.enabled,
     debug: config.debug,
+    apiUrl: config.apiUrl,
+    domainKey: config.domainKey,
     disabledReason: config.disabledReason,
   };
 }
@@ -49,11 +48,9 @@ export function getAiChatKitClientConfig(env: NodeJS.ProcessEnv = process.env): 
 function getDisabledReason(input: {
   explicitlyDisabled: boolean;
   apiKeyConfigured: boolean;
-  workflowId: string | null;
 }): string | null {
   if (input.explicitlyDisabled) return "ChatKit is disabled by AI_CHATKIT_ENABLED.";
   if (!input.apiKeyConfigured) return "ChatKit requires OPENAI_API_KEY on the server.";
-  if (!input.workflowId) return "ChatKit requires AI_CHATKIT_WORKFLOW_ID on the server.";
   return null;
 }
 
