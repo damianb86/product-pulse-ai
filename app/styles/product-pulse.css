@@ -3351,25 +3351,25 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductInsight-withArea {
-  grid-template-columns: minmax(0, 1fr) 86px;
-  align-items: center;
-  gap: 10px;
-  min-height: 118px;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: 12px;
+  padding: 14px;
 }
 
-.ppProductInsightAreaBody {
+.ppProductInsightAreaHeader {
   min-width: 0;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 12px;
-  align-items: center;
+  align-items: start;
 }
 
 .ppProductInsightAreaCopy {
   min-width: 0;
   display: grid;
-  gap: 5px;
-  align-content: center;
+  gap: 3px;
+  align-content: start;
 }
 
 .ppProductInsightAreaTitle {
@@ -3377,25 +3377,64 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  overflow: hidden;
+  overflow: visible;
   color: var(--pp-slate-600);
   font-size: 11px;
   font-weight: 760;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+.ppProductInsightAreaTitleText {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ppProductInsightAreaTitle .ppInsightInfoWrap {
   flex: 0 0 auto;
+  z-index: 80;
+}
+
+.ppProductInsightAreaMeta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 10.5px;
+  font-weight: 680;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductInsightAreaMain {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  align-items: end;
+  gap: 10px;
+}
+
+.ppProductInsightAreaStats {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  align-content: end;
 }
 
 .ppProductInsightAreaValue {
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 2px 5px;
   flex-wrap: nowrap;
+}
+
+.ppProductInsightAreaValue-stacked {
+  display: grid;
+  gap: 1px;
+  align-items: start;
 }
 
 .ppProductInsightAreaValue strong {
@@ -3407,8 +3446,21 @@ s-page[inline-size="large-500"] {
   overflow-wrap: normal;
 }
 
+.ppProductInsightAreaValue-stacked strong {
+  max-width: 100%;
+}
+
+.ppProductInsightAreaValue-longText strong {
+  overflow: visible;
+  color: var(--pp-slate-900);
+  font-size: 17px;
+  line-height: 1.12;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .ppProductInsightAreaValue small {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--pp-slate-500);
@@ -3418,12 +3470,25 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
+.ppProductInsightAreaValue-stacked small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 10.6px;
+  font-weight: 650;
+  line-height: 1.18;
+  text-overflow: clip;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .ppProductInsightAreaFootnote {
   min-width: 0;
   display: grid;
   grid-template-columns: 6px minmax(0, 1fr);
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .ppProductInsightAreaFootnote::before {
@@ -3439,6 +3504,8 @@ s-page[inline-size="large-500"] {
   min-width: 0;
   display: -webkit-box;
   overflow: hidden;
+  font-size: 10.4px;
+  line-height: 1.22;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -3496,12 +3563,36 @@ s-page[inline-size="large-500"] {
   color: var(--pp-insight-violet);
 }
 
+.ppProductInsightAreaTrend-blue {
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductInsightAreaTrend-maroon {
+  color: var(--pp-high-risk-text);
+}
+
 .ppProductInsightAreaTrend-orange {
   color: var(--pp-warning-amber);
 }
 
 .ppProductInsightAreaTrend-green {
   color: var(--pp-success-green);
+}
+
+.ppProductInsightAreaTrend-primary {
+  color: var(--pp-primary-green);
+}
+
+.ppProductInsightAreaTrend-dark {
+  color: var(--pp-dark-cta);
+}
+
+.ppProductInsightAreaTrend-discovery {
+  color: var(--pp-discovery-blue);
+}
+
+.ppProductInsightAreaTrend-slate {
+  color: var(--pp-slate-500);
 }
 
 .ppProductInsightAreaTrend-neutral {
@@ -3588,27 +3679,60 @@ s-page[inline-size="large-500"] {
 }
 
 .ppInsightTooltip {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 70;
-  width: 238px;
+  position: fixed;
+  top: var(--pp-tooltip-top, 16px);
+  left: var(--pp-tooltip-left, 16px);
+  z-index: 120;
+  width: var(--pp-tooltip-width, min(320px, calc(100vw - 40px)));
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
   display: none;
-  padding: 9px 10px;
+  gap: 9px;
+  padding: 12px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 8px;
   background: var(--pp-midnight-ink);
   color: var(--pp-cloud-white);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 550;
-  line-height: 1.35;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: left;
   box-shadow: 0 16px 38px rgba(var(--pp-shadow-rgb), 0.24);
 }
 
 .ppInsightInfoWrap:hover .ppInsightTooltip,
 .ppInsightInfoWrap:focus .ppInsightTooltip,
 .ppInsightInfoWrap:focus-visible .ppInsightTooltip {
+  display: grid;
+}
+
+.ppInsightTooltipSection {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ppInsightTooltipLabel {
   display: block;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 9.5px;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.ppInsightTooltipText {
+  display: block;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11.5px;
+  font-weight: 560;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .ppProductInsight strong {
@@ -3639,6 +3763,21 @@ s-page[inline-size="large-500"] {
 
 .ppProductInsight-withArea strong {
   color: var(--pp-slate-900);
+}
+
+.ppProductInsight-withArea .ppProductInsightAreaValue-longText strong {
+  overflow: visible;
+  font-size: 17px;
+  line-height: 1.12;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.ppProductInsight-withArea .ppProductInsightAreaValue-stacked small {
+  color: var(--pp-slate-600);
+  font-size: 10.6px;
+  font-weight: 650;
+  line-height: 1.18;
 }
 
 .ppProductInsight-withArea.ppProductInsight-red .ppProductInsightAreaFootnote {
@@ -19151,6 +19290,19 @@ s-page[inline-size="large-500"] {
 
   .ppEvidenceSourceRail button {
     min-width: 186px;
+  }
+
+  .ppRiskSnapshot .ppProductInsight .ppInsightTooltip {
+    position: fixed;
+    inset: auto 16px 18px;
+    width: auto;
+    max-height: min(70vh, 420px);
+    overflow-y: auto;
+  }
+
+  .ppRiskSnapshot .ppProductInsight:nth-child(n) .ppInsightTooltip {
+    right: 16px;
+    left: 16px;
   }
 
   .ppAnalyticsPanelRiskMargin,

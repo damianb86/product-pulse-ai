@@ -1034,7 +1034,7 @@ describe("ProductPulse screens", () => {
     expect(container.querySelector(".ppProductReturnPredictionPanel")).not.toBeInTheDocument();
   });
 
-  it("shows product risk level and renders area trend cards for risk and momentum", () => {
+  it("shows product risk level and renders historical insight cards", () => {
     const product = {
       ...defaultView.startHere,
       riskScore: 50,
@@ -1054,10 +1054,30 @@ describe("ProductPulse screens", () => {
     const riskSnapshot = container.querySelector(".ppRiskSnapshot");
 
     expect(riskSnapshot).toBeInTheDocument();
-    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea")).toHaveLength(2);
-    expect(riskSnapshot.querySelectorAll(".ppProductInsightAreaTrend")).toHaveLength(2);
+    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea")).toHaveLength(10);
+    expect(riskSnapshot.querySelectorAll(".ppProductInsightAreaTrend")).toHaveLength(10);
+    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea .ppInsightInfoWrap")).toHaveLength(10);
     expect(within(riskSnapshot).getByText("Emerging")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Improving")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Return pressure")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Refund leakage")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Evidence strength")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Customer signals")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Negative review pressure")).toBeInTheDocument();
+    [
+      /how severe the product problem is over time/i,
+      /commercial strength from sales velocity/i,
+      /how reliable the diagnosis is/i,
+      /money at risk from refunds/i,
+      /customer-friction index/i,
+      /sales value is leaking into refunds/i,
+      /broad and useful the product evidence is/i,
+      /volume of customer-facing signals/i,
+      /share of connected reviews that are negative/i,
+      /strongest issue category currently detected/i,
+    ].forEach((tooltipCopy) => {
+      expect(within(riskSnapshot).getByText(tooltipCopy)).toBeInTheDocument();
+    });
   });
 
   it("lets product detail remove an already watched product", () => {

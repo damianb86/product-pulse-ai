@@ -3528,10 +3528,28 @@ function formatProductRiskHistory(scoreHistory = []) {
         negativeReviewRate: toNullableNumber(metrics.negativeReviewRate),
         marginAtRisk: toNullableNumber(metrics.marginAtRisk),
         revenueAtRisk: toNullableNumber(metrics.revenueAtRisk),
+        financialExposure: toNullableNumber(metrics.financialExposure),
+        salesAmount: toNullableNumber(metrics.salesAmount),
+        refundAmount: toNullableNumber(metrics.refundAmount),
+        soldUnits: toNullableNumber(metrics.soldUnits),
+        returnUnits: toNullableNumber(metrics.returnUnits),
+        refundUnits: toNullableNumber(metrics.refundUnits),
+        reviewCount: toNullableNumber(metrics.reviewCount),
+        negativeReviewCount: toNullableNumber(metrics.negativeReviewCount),
+        customerSignalCount: toNullableNumber(metrics.customerSignalCount),
+        evidenceStrengthScore: toNullableNumber(metrics.evidenceStrengthScore),
+        productMomentumScore: toNullableNumber(metrics.productMomentumScore),
         signalCount: toNullableNumber(metrics.signalsCount || metrics.signalCount || metrics.issueCount),
+        sourceCount: getHistorySourceCount(metrics.sourceCoverage),
       };
     })
     .filter(Boolean);
+}
+
+function getHistorySourceCount(sourceCoverage) {
+  if (Array.isArray(sourceCoverage)) return sourceCoverage.length;
+  if (sourceCoverage && typeof sourceCoverage === "object") return Object.keys(sourceCoverage).length;
+  return null;
 }
 
 function toNullableNumber(value) {

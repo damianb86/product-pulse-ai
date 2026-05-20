@@ -3791,7 +3791,19 @@ function getProductDetailModel(product) {
     confidence: product.confidence || 0,
     confidenceLabel: getConfidenceLabel(product.confidence || 0, hasRiskSnapshot),
     signalCount: metrics.signalCount || 0,
+    sourceCoverage,
+    sourceCount: sourceCoverage.length,
     returnRate: metrics.returnRate || 0,
+    refundRate: metrics.refundRate || 0,
+    negativeReviewRate: metrics.negativeReviewRate || 0,
+    returnUnits: metrics.returnUnits || 0,
+    refundUnits: metrics.refundUnits || 0,
+    refundAmount: metrics.refundAmount || 0,
+    salesAmount: metrics.salesAmount || 0,
+    reviewCount: metrics.reviewCount || 0,
+    negativeReviewCount: metrics.negativeReviewCount || 0,
+    customerSignalCount: Number(metrics.customerSignalCount || 0)
+      || (Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) + Number(metrics.negativeReviewCount || 0)),
     estimatedImpact: getEstimatedImpactValue(metrics),
     marginAtRisk: getEstimatedMarginValue(metrics),
     revenueAtRisk: getEstimatedRevenueValue(metrics),
@@ -4171,6 +4183,188 @@ function getFinancialExposureRangeLabel(detail = {}) {
     return `${formatMoney(low)} - ${formatMoney(high)}`;
   }
   return "No range available";
+}
+
+function getProductDetailInsightCards(detail = {}) {
+  const history = Array.isArray(detail.riskHistory) ? detail.riskHistory : [];
+  const returnPressure = calculateReturnPressureIndex(detail);
+  const refundLeakage = calculateRefundLeakageRate(detail);
+  const sourceCount = Math.max(0, Number(detail.sourceCount || detail.sourceCoverage?.length || detail.evidenceSources?.length || 0));
+  const customerSignalCount = getCustomerSignalCount(detail);
+  const momentumScore = detail.productMomentum ? Number(detail.productMomentum.score || 0) : 0;
+
+  return [
+    {
+      title: "Product risk",
+      meta: "Risk score history",
+      value: detail.riskScoreLabel,
+      detail: `${formatInteger(detail.riskScore)} / 100`,
+      footnote: detail.riskTrendLabel,
+      tone: detail.riskTone,
+      sparkline: getInsightSeries(history, (entry) => entry.riskScore, detail.riskScore),
+      icon: "alert-circle",
+      chartStyle: "area",
+      chartTone: "purple",
+    },
+    {
+      title: "Financial exposure",
+      meta: "Revenue exposure trend",
+      value: formatMoney(detail.estimatedImpact),
+      detail: `${formatMoney(detail.marginAtRisk)} margin at risk`,
+      footnote: getFinancialExposureFootnote(detail),
+      tone: "red",
+      sparkline: getInsightSeries(history, (entry) => firstFiniteNumber(entry.financialExposure, entry.revenueAtRisk, entry.marginAtRisk), detail.estimatedImpact),
+      icon: "cash-dollar",
+      chartStyle: "area",
+      chartTone: "red",
+    },
+    {
+      title: "Return pressure",
+      meta: "Returns + refunds + reviews",
+      value: `${formatInteger(returnPressure)} / 100`,
+      detail: `${formatPercent(detail.returnRate)} return · ${formatPercent(detail.refundRate)} refund`,
+      footnote: "Blended customer pressure index",
+      tone: returnPressure >= 55 ? "orange" : "blue",
+      sparkline: getInsightSeries(history, calculateReturnPressureIndex, returnPressure),
+      icon: "shopify-returns",
+      chartStyle: "area",
+      chartTone: "orange",
+    },
+    {
+      title: "Product Momentum",
+      meta: "Commercial trend",
+      value: detail.productMomentum ? detail.productMomentum.tier : "Needs diagnosis",
+      detail: detail.productMomentum ? `${formatInteger(momentumScore)} / 100` : "Momentum unavailable",
+      footnote: detail.productMomentum
+        ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
+        : "Run diagnosis to calculate sales strength",
+      tone: detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral",
+      sparkline: getInsightSeries(history, (entry) => entry.productMomentumScore, momentumScore),
+      icon: "wand",
+      chartStyle: "area",
+      chartTone: "blue",
+    },
+    {
+      title: "Diagnosis confidence",
+      meta: "Evidence reliability",
+      value: detail.confidenceLabel,
+      detail: `${formatInteger(detail.confidence)}%`,
+      footnote: `Based on ${formatInteger(detail.signalCount)} signals`,
+      tone: "green",
+      sparkline: getInsightSeries(history, (entry) => entry.confidence, detail.confidence),
+      icon: "shield-check-mark",
+      chartStyle: "area",
+      chartTone: "green",
+    },
+    {
+      title: "Refund leakage",
+      meta: "Refunds vs revenue",
+      value: formatPercent(refundLeakage),
+      detail: `${formatCompactMoney(detail.refundAmount)} refunded`,
+      footnote: `${formatCompactMoney(detail.salesAmount)} sales in window`,
+      tone: refundLeakage >= 8 ? "red" : "blue",
+      sparkline: getInsightSeries(history, calculateRefundLeakageRate, refundLeakage),
+      icon: "shopify-refunds",
+      chartStyle: "area",
+      chartTone: "maroon",
+    },
+    {
+      title: "Evidence strength",
+      meta: "Source breadth trend",
+      value: formatInteger(sourceCount),
+      detail: `${sourceCount === 1 ? "source" : "sources"} · ${formatInteger(detail.signalCount)} stored signals`,
+      footnote: detail.evidenceLabel || "Evidence coverage",
+      tone: sourceCount >= 3 ? "green" : "blue",
+      sparkline: getInsightSeries(history, (entry) => entry.sourceCount, sourceCount),
+      icon: "ai-evidence-synthesis",
+      chartStyle: "area",
+      chartTone: "primary",
+    },
+    {
+      title: "Customer signals",
+      meta: "Returns, refunds, reviews",
+      value: formatInteger(customerSignalCount),
+      detail: "customer signals",
+      footnote: `${formatInteger(detail.returnUnits)} returns · ${formatInteger(detail.refundUnits)} refunds · ${formatInteger(detail.negativeReviewCount)} negative reviews`,
+      tone: customerSignalCount > 0 ? "blue" : "neutral",
+      sparkline: getInsightSeries(history, getCustomerSignalCount, customerSignalCount),
+      icon: "customer-language-analysis",
+      chartStyle: "area",
+      chartTone: "dark",
+    },
+    {
+      title: "Negative review pressure",
+      meta: "Review sentiment trend",
+      value: formatPercent(detail.negativeReviewRate),
+      detail: `${formatInteger(detail.negativeReviewCount)} negative reviews`,
+      footnote: `${formatInteger(detail.reviewCount)} total reviews`,
+      tone: Number(detail.negativeReviewRate || 0) >= 12 ? "red" : "blue",
+      sparkline: getInsightSeries(history, (entry) => entry.negativeReviewRate, detail.negativeReviewRate),
+      icon: "csv-reviews",
+      chartStyle: "area",
+      chartTone: "discovery",
+    },
+    {
+      title: "Main issue",
+      meta: "Issue signal intensity",
+      value: detail.issueCategory,
+      detail: detail.issueDetail === detail.issueCategory ? "" : detail.issueDetail,
+      footnote: `${formatInteger(detail.signalCount)} related signals`,
+      tone: detail.issueTone,
+      sparkline: getInsightSeries(history, (entry) => entry.signalCount, detail.signalCount),
+      icon: "product",
+      chartStyle: "area",
+      chartTone: "slate",
+    },
+  ];
+}
+
+function getInsightSeries(history = [], selector, fallbackValue = 0) {
+  const values = (Array.isArray(history) ? history : [])
+    .map((entry) => {
+      const raw = typeof selector === "function" ? selector(entry) : entry?.[selector];
+      if (raw === null || raw === undefined || raw === "") return null;
+      return Number(raw);
+    })
+    .filter((value) => Number.isFinite(value));
+  if (values.length >= 2) return values;
+  const fallback = Number(fallbackValue || 0);
+  const safeFallback = Number.isFinite(fallback) ? fallback : 0;
+  if (values.length === 1) return [values[0], values[0]];
+  return [safeFallback, safeFallback];
+}
+
+function calculateReturnPressureIndex(source = {}) {
+  const returnRate = Number(source.returnRate || 0);
+  const refundRate = Number(source.refundRate || 0);
+  const negativeReviewRate = Number(source.negativeReviewRate || 0);
+  return Math.round(clampNumber((returnRate * 0.45) + (refundRate * 0.35) + (negativeReviewRate * 0.20), 0, 100));
+}
+
+function calculateRefundLeakageRate(source = {}) {
+  const refundAmount = Number(source.refundAmount || 0);
+  const salesAmount = Number(source.salesAmount || 0);
+  if (salesAmount > 0 && refundAmount >= 0) return clampPercentValue((refundAmount / salesAmount) * 100);
+  return clampPercentValue(source.refundRate || 0);
+}
+
+function getCustomerSignalCount(source = {}) {
+  const explicit = Number(source.customerSignalCount);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const returnUnits = Number(source.returnUnits || 0);
+  const refundUnits = Number(source.refundUnits || 0);
+  const negativeReviewCount = Number(source.negativeReviewCount || 0);
+  const total = returnUnits + refundUnits + negativeReviewCount;
+  if (total > 0) return total;
+  return Number(source.signalCount || 0);
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
 }
 
 function getEstimatedMarginValue(metrics = {}) {
@@ -7377,54 +7571,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
         <div className="ppProductSummaryGrid" aria-label="Product signal summary">
           <div className="ppRiskSnapshot">
-            <ProductInsightMetric
-              title="Product risk"
-              value={detail.riskScoreLabel}
-              detail={`${detail.riskScore} / 100`}
-              footnote={detail.riskTrendLabel}
-              tone={detail.riskTone}
-              sparkline={detail.riskTrend}
-              icon="alert-circle"
-              chartStyle="area"
-              chartTone="purple"
-            />
-            <ProductInsightMetric
-              title="Product Momentum"
-              value={detail.productMomentum ? detail.productMomentum.tier : "Needs deep diagnosis"}
-              detail={detail.productMomentum ? `${detail.productMomentum.score} / 100` : "Commercial momentum unavailable"}
-              footnote={detail.productMomentum
-                ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
-                : "Run product diagnosis to calculate recent sales strength."}
-              tone={detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral"}
-              sparkline={detail.productMomentum?.inputs.weeklyUnitsLast4Weeks || []}
-              icon="wand"
-              chartStyle="area"
-              chartTone="purple"
-            />
-            <ProductInsightMetric
-              title="Diagnosis confidence"
-              value={detail.confidenceLabel}
-              detail={`${detail.confidence}%`}
-              footnote={`Based on ${detail.signalCount} signals`}
-              tone="green"
-              progress={detail.confidence}
-              icon="shield-check-mark"
-            />
-            <ProductInsightMetric
-              title="Financial exposure"
-              value={formatMoney(detail.estimatedImpact)}
-              detail={`${formatMoney(detail.marginAtRisk)} margin at risk`}
-              footnote={getFinancialExposureFootnote(detail)}
-              tone="red"
-              icon="cash-dollar"
-            />
-            <ProductInsightMetric
-              title="Main issue"
-              value={detail.issueCategory}
-              detail={detail.issueDetail}
-              tone={detail.issueTone}
-              icon="product"
-            />
+            {getProductDetailInsightCards(detail).map((card, index) => (
+              <ProductInsightMetric key={`${card.id || card.title || "insight"}-${index}`} {...card} />
+            ))}
           </div>
         </div>
 
@@ -9856,30 +10005,52 @@ function ProductDetailActionsMenu({
   );
 }
 
-function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline, icon, chartStyle = "line", chartTone }) {
+function shouldStackInsightAreaDetail(detail) {
+  const text = String(detail || "").trim();
+  if (!text) return false;
+  if (/[A-Za-z]/.test(text)) return true;
+  return text.length > 12;
+}
+
+function hasLongInsightAreaValueText(value) {
+  const text = String(value || "").trim();
+  if (!text || text.length <= 6) return false;
+  return /[A-Za-z]/.test(text);
+}
+
+function ProductInsightMetric({ title, value, detail, footnote, meta, tone = "neutral", progress, sparkline, icon, chartStyle = "line", chartTone }) {
   const trendValues = Array.isArray(sparkline) ? sparkline : [];
-  const helpText = getInsightMetricHelp(title);
+  const helpContent = getInsightMetricHelp(title);
   const metricIcon = icon || getInsightMetricIcon(title);
   const usesAreaChart = chartStyle === "area";
+  const stacksAreaDetail = usesAreaChart && shouldStackInsightAreaDetail(detail);
+  const areaValueHasLongText = usesAreaChart && hasLongInsightAreaValueText(value);
+  const areaValueClassName = [
+    "ppProductInsightAreaValue",
+    stacksAreaDetail ? "ppProductInsightAreaValue-stacked" : "",
+    areaValueHasLongText ? "ppProductInsightAreaValue-longText" : "",
+  ].filter(Boolean).join(" ");
 
   if (usesAreaChart) {
     return (
       <div className={`ppProductInsight ppProductInsight-${tone} ppProductInsight-withArea`}>
-        <div className="ppProductInsightAreaBody">
+        <div className="ppProductInsightAreaHeader">
           <span className="ppProductInsightIcon" aria-hidden="true">
             <ProductPulseGlyph type={metricIcon} />
           </span>
           <span className="ppProductInsightAreaCopy">
             <span className="ppProductInsightAreaTitle">
-              {title}
-              <button className="ppInsightInfoWrap" type="button" aria-label={`What ${title} means`}>
-                <s-icon type="info" size="small" color="subdued"></s-icon>
-                <span className="ppInsightTooltip" role="tooltip">{helpText}</span>
-              </button>
+              <span className="ppProductInsightAreaTitleText">{title}</span>
+              <InsightInfoButton help={helpContent} title={title} />
             </span>
-            <span className="ppProductInsightAreaValue">
+            {meta && <span className="ppProductInsightAreaMeta">{renderAnalysisText(meta)}</span>}
+          </span>
+        </div>
+        <div className="ppProductInsightAreaMain">
+          <span className="ppProductInsightAreaStats">
+            <span className={areaValueClassName}>
               <strong>{value}</strong>
-              <small>{renderAnalysisText(detail)}</small>
+              {detail && <small>{renderAnalysisText(detail)}</small>}
             </span>
             {footnote && (
               <em className="ppProductInsightAreaFootnote">
@@ -9888,8 +10059,8 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
               </em>
             )}
           </span>
+          <ProductInsightAreaTrend tone={chartTone || tone} values={trendValues} />
         </div>
-        <ProductInsightAreaTrend tone={chartTone || tone} values={trendValues} />
       </div>
     );
   }
@@ -9902,10 +10073,7 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
         </span>
         <span>
           {title}
-          <button className="ppInsightInfoWrap" type="button" aria-label={`What ${title} means`}>
-            <s-icon type="info" size="small" color="subdued"></s-icon>
-            <span className="ppInsightTooltip" role="tooltip">{helpText}</span>
-          </button>
+          <InsightInfoButton help={helpContent} title={title} />
         </span>
       </div>
       <strong>{value}</strong>
@@ -9923,6 +10091,75 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
         </em>
       )}
     </div>
+  );
+}
+
+function InsightInfoButton({ title, help }) {
+  const [tooltipStyle, setTooltipStyle] = useState(null);
+
+  const updateTooltipPosition = (event) => {
+    if (typeof window === "undefined") return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const sideGap = 16;
+    const viewportWidth = window.innerWidth || 0;
+    const viewportHeight = window.innerHeight || 0;
+    const tooltipWidth = Math.min(320, Math.max(220, viewportWidth - (sideGap * 2)));
+    const maxLeft = Math.max(sideGap, viewportWidth - sideGap - tooltipWidth);
+    const left = Math.min(Math.max(rect.left, sideGap), maxLeft);
+    const estimatedHeight = 238;
+    let top = rect.bottom + 8;
+
+    if (viewportHeight && top + estimatedHeight > viewportHeight - sideGap) {
+      top = Math.max(sideGap, rect.top - estimatedHeight - 8);
+    }
+
+    setTooltipStyle({
+      "--pp-tooltip-left": `${Math.round(left)}px`,
+      "--pp-tooltip-top": `${Math.round(top)}px`,
+      "--pp-tooltip-width": `${Math.round(tooltipWidth)}px`,
+    });
+  };
+
+  return (
+    <button
+      className="ppInsightInfoWrap"
+      type="button"
+      aria-label={`What ${title} means`}
+      onClick={updateTooltipPosition}
+      onFocus={updateTooltipPosition}
+      onPointerEnter={updateTooltipPosition}
+    >
+      <s-icon type="info" size="small" color="subdued"></s-icon>
+      <InsightMetricTooltip help={help} style={tooltipStyle} />
+    </button>
+  );
+}
+
+function InsightMetricTooltip({ help, style }) {
+  if (!help || typeof help === "string") {
+    return (
+      <span className="ppInsightTooltip" role="tooltip" style={style}>
+        <span className="ppInsightTooltipText">{help || "Product-specific signal summary calculated from stored evidence."}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="ppInsightTooltip" role="tooltip" style={style}>
+      <span className="ppInsightTooltipSection">
+        <span className="ppInsightTooltipLabel">What it shows</span>
+        <span className="ppInsightTooltipText">{help.what}</span>
+      </span>
+      <span className="ppInsightTooltipSection">
+        <span className="ppInsightTooltipLabel">Why it matters</span>
+        <span className="ppInsightTooltipText">{help.why}</span>
+      </span>
+      <span className="ppInsightTooltipSection">
+        <span className="ppInsightTooltipLabel">How to read the graph</span>
+        <span className="ppInsightTooltipText">{help.graph}</span>
+      </span>
+    </span>
   );
 }
 
@@ -9957,19 +10194,77 @@ function ProductInsightAreaTrend({ tone = "blue", values = [] }) {
 function getInsightMetricHelp(title) {
   switch (title) {
     case "Product risk":
-      return "Severity of the product problem only. Financial impact is not included in this score.";
+      return {
+        what: "Shows how severe the product problem is over time, separate from financial impact.",
+        why: "It is the fastest way to understand whether the product itself needs attention before looking at money or operational context.",
+        graph: "Read it left to right. A rising line means product risk is increasing; a falling line means the product is improving.",
+      };
     case "Product Momentum":
-      return "Current commercial strength from recent sales velocity, growth, catalog share, trend consistency and sales recency. It does not measure product risk.";
+      return {
+        what: "Shows the product's commercial strength from sales velocity, growth, catalog share, trend consistency and recent activity.",
+        why: "It separates commercial traction from quality risk, so a strong seller with quality issues is easier to spot.",
+        graph: "Read it left to right. A rising line means momentum is building; a falling line means commercial traction is cooling.",
+      };
     case "Diagnosis confidence":
-      return "Reliability of the diagnosis based on source coverage, effective sample size, product match quality, source agreement, freshness and confidence caps.";
+      return {
+        what: "Shows how reliable the diagnosis is based on source coverage, sample size, product match quality, source agreement and freshness.",
+        why: "It helps decide whether the diagnosis is ready for action or still needs more connected evidence.",
+        graph: "Read it left to right. A rising line means the evidence behind the diagnosis is getting stronger.",
+      };
     case "Financial exposure":
-      return "Estimated observed and projected financial exposure from refunds, return processing, returned-unit margin loss and review conversion drag.";
+      return {
+        what: "Shows estimated money at risk from refunds, return handling, returned-unit margin loss and review conversion drag.",
+        why: "It turns product signals into business impact, making it clearer which problems deserve priority.",
+        graph: "Read it left to right. Higher points mean more financial exposure, so a downward line is usually healthier.",
+      };
+    case "Return pressure":
+      return {
+        what: "Blends return rate, refund rate and negative review pressure into one customer-friction index.",
+        why: "It captures friction that may be split across different sources, so operational issues are easier to detect early.",
+        graph: "Read it left to right. A rising line means more pressure is building around returns, refunds or dissatisfaction.",
+      };
+    case "Refund leakage":
+      return {
+        what: "Shows how much sales value is leaking into refunds, using refund amount as a share of product revenue when available.",
+        why: "It highlights when revenue is being lost after purchase, even if order volume still looks healthy.",
+        graph: "Read it left to right. A rising line means refunds are taking a larger share of sales.",
+      };
+    case "Evidence strength":
+      return {
+        what: "Shows how broad and useful the product evidence is, combining connected source coverage with the amount of stored signal data.",
+        why: "It tells the user how much trust to place in the diagnosis and whether more data sources would improve it.",
+        graph: "Read it left to right. A rising line means the diagnosis is supported by more complete evidence.",
+      };
+    case "Customer signals":
+      return {
+        what: "Shows the volume of customer-facing signals behind the diagnosis, including returns, refunds and negative reviews when available.",
+        why: "It gives scale to the issue, so one-off noise is easier to separate from repeated customer friction.",
+        graph: "Read it left to right. A rising line means more customers are generating signals that deserve attention.",
+      };
+    case "Negative review pressure":
+      return {
+        what: "Shows the share of connected reviews that are negative, which can reveal quality or expectation issues before operational data is complete.",
+        why: "It works as an early warning signal when customers complain before returns or refunds fully appear.",
+        graph: "Read it left to right. A rising line means sentiment pressure is increasing.",
+      };
     case "Main issue":
-      return "The strongest issue category found in the product's current signals, such as returns, refunds, variants or expectation mismatch.";
+      return {
+        what: "Shows the strongest issue category currently detected, such as returns, refunds, variants or expectation mismatch.",
+        why: "It explains what ProductPulse believes is driving the diagnosis, instead of only showing a score.",
+        graph: "The graph tracks the intensity of signals behind that issue over time. A rising line means the main issue is gaining weight.",
+      };
     case "Recommended fix":
-      return "The safest next action ProductPulse can recommend from deterministic evidence before any deeper AI review.";
+      return {
+        what: "Shows the safest next action ProductPulse can recommend from deterministic evidence before deeper AI review.",
+        why: "It gives a practical next step when the evidence is strong enough to suggest one.",
+        graph: "If a graph is available, read it left to right to see whether the need for this action is growing or cooling.",
+      };
     default:
-      return "Product-specific signal summary calculated from the evidence stored for this product.";
+      return {
+        what: "Shows a product-specific signal summary calculated from stored evidence.",
+        why: "It adds context that helps explain the product diagnosis.",
+        graph: "Read it left to right to understand whether this signal is increasing, cooling or staying stable over time.",
+      };
   }
 }
 
@@ -9983,6 +10278,16 @@ function getInsightMetricIcon(title) {
       return "shield-check-mark";
     case "Financial exposure":
       return "cash-dollar";
+    case "Return pressure":
+      return "shopify-returns";
+    case "Refund leakage":
+      return "shopify-refunds";
+    case "Evidence strength":
+      return "ai-evidence-synthesis";
+    case "Customer signals":
+      return "customer-language-analysis";
+    case "Negative review pressure":
+      return "csv-reviews";
     case "Main issue":
       return "product";
     default:
