@@ -1,0 +1,143 @@
+.ppChatKitAssistant {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.ppChatKitLauncher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px 0 10px;
+  border: 1px solid rgba(20, 92, 84, 0.22);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #113f3a;
+  box-shadow: 0 14px 40px rgba(20, 30, 35, 0.18);
+  cursor: pointer;
+}
+
+.ppChatKitLauncher span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #1f7a6f;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.ppChatKitLauncher strong {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.ppChatKitPanel {
+  position: absolute;
+  right: 0;
+  bottom: 58px;
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  height: min(680px, calc(100vh - 120px));
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid rgba(20, 30, 35, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(20, 30, 35, 0.22);
+}
+
+.ppChatKitPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(20, 30, 35, 0.08);
+  background: #fbfcfb;
+}
+
+.ppChatKitPanelHeader strong,
+.ppChatKitPanelHeader span {
+  display: block;
+  letter-spacing: 0;
+}
+
+.ppChatKitPanelHeader strong {
+  color: #172322;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ppChatKitPanelHeader span {
+  margin-top: 2px;
+  color: #66706e;
+  font-size: 12px;
+}
+
+.ppChatKitIconButton {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid rgba(20, 30, 35, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #33413f;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ppChatKitSurface {
+  display: block;
+  flex: 1;
+  min-height: 0;
+}
+
+.ppChatKitStatus,
+.ppChatKitDisabled {
+  margin: 12px;
+  border-radius: 8px;
+  background: #f5f7f6;
+  color: #3d4b49;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ppChatKitStatus {
+  padding: 10px 12px;
+}
+
+.ppChatKitDisabled {
+  display: grid;
+  flex: 1;
+  min-height: 180px;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .ppChatKitAssistant {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .ppChatKitPanel {
+    right: -8px;
+    width: calc(100vw - 32px);
+    height: min(640px, calc(100vh - 96px));
+  }
+
+  .ppChatKitLauncher strong {
+    display: none;
+  }
+}

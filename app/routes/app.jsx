@@ -2,6 +2,8 @@ import { Outlet, useLoaderData, useLocation, useRouteError } from "react-router"
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
+import { getAiChatKitClientConfig } from "../ai/chatkit/config.server";
+import { ProductPulseChatKitAssistant } from "../components/ProductPulseChatKitAssistant";
 import { ProductPulseJobMonitor } from "../components/ProductPulseJobMonitor";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
 import { getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
@@ -15,14 +17,16 @@ export const loader = async ({ request }) => {
   return {
     apiKey,
     developmentMode,
+    chatKit: getAiChatKitClientConfig(),
     jobMonitor: await getJobMonitorForShop(session.shop),
   };
 };
 
 export default function App() {
-  const { apiKey, developmentMode, jobMonitor } = useLoaderData();
+  const { apiKey, developmentMode, chatKit, jobMonitor } = useLoaderData();
   const location = useLocation();
   const activeSection = getActiveNavSection(location.pathname);
+  const aiPageContext = getAiPageContext(location);
 
   return (
     <AppProvider embedded apiKey={apiKey}>
@@ -37,6 +41,7 @@ export default function App() {
       </s-app-nav>
       <Outlet />
       <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
+      <ProductPulseChatKitAssistant config={chatKit} pageContext={aiPageContext} />
     </AppProvider>
   );
 }
@@ -50,6 +55,47 @@ function getActiveNavSection(pathname) {
   if (pathname.startsWith("/app/settings")) return "settings";
   if (pathname.startsWith("/app/help")) return "help";
   return "";
+}
+
+function getAiPageContext(location) {
+  const pathname = location.pathname;
+  const searchParams = new URLSearchParams(location.search);
+  const filters = getSafeFilterContext(searchParams);
+
+  if (pathname === "/app" || pathname === "/app/") return { type: "dashboard", filters };
+  if (pathname.startsWith("/app/products/")) {
+    const segments = pathname.split("/").filter(Boolean);
+    const productRef = segments[2] ? safeDecodePathSegment(segments[2]) : "";
+    return {
+      type: "product",
+      entityId: productRef || undefined,
+      entityHandle: productRef && !productRef.startsWith("gid://") ? productRef : undefined,
+      filters,
+    };
+  }
+  if (pathname.startsWith("/app/products")) return { type: "products", filters };
+  if (pathname.startsWith("/app/watchlist")) return { type: "watchlist", filters };
+  if (pathname.startsWith("/app/analytics")) return { type: "analytics", filters };
+  if (pathname.startsWith("/app/connect")) return { type: "connect", filters };
+  if (pathname.startsWith("/app/settings")) return { type: "settings", filters };
+  return { type: "unknown", filters };
+}
+
+function getSafeFilterContext(searchParams) {
+  const filters = {};
+  ["q", "risk", "status", "issue", "source", "vendor", "collection", "sort", "direction"].forEach((key) => {
+    const value = searchParams.get(key);
+    if (value) filters[key] = value.slice(0, 180);
+  });
+  return filters;
+}
+
+function safeDecodePathSegment(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return "";
+  }
 }
 
 // Shopify needs React Router to catch some thrown responses, so that their headers are included in the response.

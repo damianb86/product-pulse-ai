@@ -1,10 +1,12 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import appStylesheet from "./styles/product-pulse.css?url";
+import chatKitStylesheet from "./styles/product-pulse-chatkit.css?url";
 
 export const links = () => [
   { rel: "preconnect", href: "https://cdn.shopify.com/" },
   { rel: "stylesheet", href: "https://cdn.shopify.com/static/fonts/inter/v4/styles.css" },
   { rel: "stylesheet", href: appStylesheet },
+  { rel: "stylesheet", href: chatKitStylesheet },
 ];
 
 export default function App() {
@@ -16,6 +18,7 @@ export default function App() {
         <Meta />
         <Links />
         <script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script>
+        <script src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js" async></script>
       </head>
       <body>
         <Outlet />
