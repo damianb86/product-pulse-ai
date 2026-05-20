@@ -46,12 +46,31 @@ const metricTableBlockSchema = z.object({
   }).strict()).max(12),
 }).strict();
 
+const actionProposalBlockSchema = z.object({
+  type: z.literal("action_proposal"),
+  proposalId: z.string().max(320),
+  actionName: z.string().max(160),
+  title: z.string().max(220),
+  summary: z.string().max(800),
+  targetType: z.string().max(80),
+  targetId: z.string().max(320),
+  targetLabel: z.string().max(220).nullable().optional(),
+  reason: z.string().max(500).nullable().optional(),
+  expectedResult: z.string().max(600).nullable().optional(),
+  risks: z.array(z.string().max(280)).max(6).default([]),
+  confirmationLevel: z.enum(["low", "medium", "high"]),
+  sideEffectLevel: z.enum(["low", "medium", "high"]),
+  reversible: z.boolean(),
+  expiresAt: z.string().max(80),
+}).strict();
+
 export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   textBlockSchema,
   productReferenceBlockSchema,
   diagnosisSummaryBlockSchema,
   evidenceListBlockSchema,
   metricTableBlockSchema,
+  actionProposalBlockSchema,
 ]);
 
 export type AiPresentationBlock = z.infer<typeof aiPresentationBlockSchema>;

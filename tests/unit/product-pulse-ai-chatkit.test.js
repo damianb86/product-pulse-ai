@@ -143,11 +143,30 @@ describe("ProductPulse ChatKit integration", () => {
         title: "Metrics",
         rows: [{ label: "Return rate", value: "12%", detail: "Above store baseline" }],
       },
+      {
+        type: "action_proposal",
+        proposalId: "proposal-1",
+        actionName: "product_pulse_add_to_watchlist",
+        title: "Add to ProductPulse watchlist",
+        summary: "Add Core Linen Trouser to the app watchlist.",
+        targetType: "product",
+        targetId: "gid://shopify/Product/1",
+        targetLabel: "Core Linen Trouser",
+        reason: "High risk",
+        expectedResult: "ProductPulse will create a watchlist row. Shopify product data will not be changed.",
+        risks: ["The watchlist has a small product limit."],
+        confirmationLevel: "low",
+        sideEffectLevel: "low",
+        reversible: true,
+        expiresAt: "2026-05-20T12:15:00.000Z",
+      },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "ListView", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "ListView", "Card", "Card"]);
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence");
+    expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
+    expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
   });
 
   it("converts orchestrator responses into ChatKit client tool output", () => {

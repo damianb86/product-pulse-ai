@@ -5,6 +5,15 @@ import type { AiToolRegistry } from "../tools/registry.server";
 import { createAiToolRegistry } from "../tools/registry.server";
 import { toOpenAiToolAdapterResult } from "../tools/adapters/openAiToolAdapter";
 import { sanitizeJsonSchemaForOpenAi } from "../tools/adapters/jsonSchema";
+import {
+  AI_ACTION_PROPOSAL_TOOL_NAME,
+  createAiActionRegistry,
+  type AiActionRegistry,
+} from "../actions/registry.server";
+import {
+  aiActionProposalToPresentationBlock,
+  aiActionProposalToSafeSummary,
+} from "../actions/presentation";
 import { getAiChatConfig, hasOpenAiApiKey, type AiChatConfig } from "./config.server";
 import {
   buildStructuredMessageContent,
@@ -28,6 +37,11 @@ import {
 } from "./openAiClient.server";
 
 const MAX_USER_MESSAGE_LENGTH = 3000;
+
+const actionProposalToolInputSchema = z.object({
+  actionName: z.string().trim().min(1).max(160),
+  input: z.record(z.string(), z.unknown()).optional(),
+}).strict();
 
 export interface RunAiChatTurnInput {
   request: Request;
@@ -61,6 +75,7 @@ export interface AiChatTurnResult extends AiAssistantResponse {
 export interface AiChatOrchestratorDependencies {
   openAiClient?: OpenAiResponsesClient;
   toolRegistry?: AiToolRegistry;
+  actionRegistry?: AiActionRegistry;
   conversationStore?: AiConversationStore;
   config?: AiChatConfig;
   env?: NodeJS.ProcessEnv;
@@ -81,6 +96,7 @@ interface ToolCallExecutionSummary {
 export class AiChatOrchestrator {
   private openAiClient?: OpenAiResponsesClient;
   private toolRegistry: AiToolRegistry;
+  private actionRegistry: AiActionRegistry;
   private conversationStore: AiConversationStore;
   private config: AiChatConfig;
   private env: NodeJS.ProcessEnv;
@@ -89,6 +105,7 @@ export class AiChatOrchestrator {
   constructor(dependencies: AiChatOrchestratorDependencies = {}) {
     this.openAiClient = dependencies.openAiClient;
     this.toolRegistry = dependencies.toolRegistry || createAiToolRegistry();
+    this.actionRegistry = dependencies.actionRegistry || createAiActionRegistry();
     this.conversationStore = dependencies.conversationStore || new PrismaAiConversationStore();
     this.config = dependencies.config || getAiChatConfig(dependencies.env);
     this.env = dependencies.env || process.env;
@@ -158,9 +175,11 @@ export class AiChatOrchestrator {
       this.config.maxRecentMessages,
     );
     const adapter = toOpenAiToolAdapterResult(this.toolRegistry);
+    const actionProposalTool = buildActionProposalOpenAiToolDefinition();
     const instructions = buildAiChatInstructions({
       pageContext,
       toolNames: adapter.tools.map((tool) => tool.name),
+      actionNames: this.actionRegistry.listAiActions().map((definition) => definition.actionName),
     });
     const inputItems = buildOpenAiInputItems({
       messages: recentMessages,
@@ -176,7 +195,7 @@ export class AiChatOrchestrator {
         userMessageId: userMessage.id,
         instructions,
         inputItems,
-        tools: adapter.tools,
+        tools: [...adapter.tools, actionProposalTool],
         openAiNameToInternalName: adapter.openAiNameToInternalName,
       });
       const assistantResponse = await this.parseOrRecoverAssistantResponse({
@@ -304,7 +323,9 @@ export class AiChatOrchestrator {
       status: "started",
     });
 
-    const result = await this.toolRegistry.executeAiTool(internalToolName, input.chatContext, rawArguments);
+    const result = internalToolName === AI_ACTION_PROPOSAL_TOOL_NAME
+      ? await this.executeActionProposalTool(input.chatContext, rawArguments)
+      : await this.toolRegistry.executeAiTool(internalToolName, input.chatContext, rawArguments);
     const durationMs = Date.now() - startedAt;
     const output = compactToolExecutionResult(result, this.config.maxToolResultCharacters);
     await this.conversationStore.recordToolCall({
@@ -329,6 +350,55 @@ export class AiChatOrchestrator {
       status: result.ok ? "success" : "error",
       resultCount: result.metadata.resultCount,
       durationMs,
+    };
+  }
+
+  private async executeActionProposalTool(
+    context: AiToolContext,
+    rawArguments: unknown,
+  ): Promise<AiToolExecutionResult> {
+    const parsed = actionProposalToolInputSchema.safeParse(rawArguments || {});
+    if (!parsed.success) {
+      return {
+        ok: false,
+        toolName: AI_ACTION_PROPOSAL_TOOL_NAME,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Action proposal input failed validation.",
+          retryable: false,
+          validationIssues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        metadata: { resultCount: 0 },
+      };
+    }
+
+    const result = await this.actionRegistry.createAiActionProposal(
+      context,
+      parsed.data.actionName,
+      parsed.data.input || {},
+    );
+    if (!result.ok) {
+      return {
+        ok: false,
+        toolName: AI_ACTION_PROPOSAL_TOOL_NAME,
+        error: result.error,
+        metadata: { resultCount: 0 },
+      };
+    }
+
+    const block = aiActionProposalToPresentationBlock(result.data.proposal);
+    return {
+      ok: true,
+      toolName: AI_ACTION_PROPOSAL_TOOL_NAME,
+      data: {
+        proposal: aiActionProposalToSafeSummary(result.data.proposal),
+        block,
+        instruction: "Include this action_proposal block in the final response. Do not claim the action has executed.",
+      },
+      metadata: { resultCount: 1 },
     };
   }
 
@@ -535,6 +605,16 @@ function truncateText(value: string, maxCharacters: number): string {
 
 function normalizeUsage(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function buildActionProposalOpenAiToolDefinition(): Record<string, unknown> {
+  return {
+    type: "function",
+    name: AI_ACTION_PROPOSAL_TOOL_NAME,
+    description: "Create a pending ProductPulse internal action proposal for explicit user confirmation. This does not execute the action.",
+    parameters: sanitizeJsonSchemaForOpenAi(z.toJSONSchema(actionProposalToolInputSchema)),
+    strict: false,
+  };
 }
 
 function getSafeOpenAiErrorCode(error: unknown): string {

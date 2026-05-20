@@ -21,6 +21,12 @@ const {
 const {
   PRODUCT_PULSE_AI_TOOL_NAMES,
 } = await import("../../app/ai/tools/productPulseTools.server");
+const {
+  AI_ACTION_PROPOSAL_TOOL_NAME,
+} = await import("../../app/ai/actions/registry.server");
+const {
+  PRODUCT_PULSE_AI_ACTION_NAMES,
+} = await import("../../app/ai/actions/productPulseActions.server");
 
 const baseContext = {
   shop: "shop-a.myshopify.com",
@@ -200,6 +206,71 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(firstRequest.instructions).toContain("type=product");
   });
 
+  it("lets the model create internal action proposals but not execute actions", async () => {
+    const store = new InMemoryConversationStore();
+    const proposal = actionProposalFixture();
+    const actionRegistry = {
+      listAiActions: vi.fn().mockReturnValue([
+        { actionName: PRODUCT_PULSE_AI_ACTION_NAMES.addToWatchlist },
+      ]),
+      createAiActionProposal: vi.fn().mockResolvedValue({
+        ok: true,
+        data: { proposal },
+      }),
+    };
+    const openAiCreate = vi.fn()
+      .mockResolvedValueOnce(openAiToolCallResponse({
+        name: AI_ACTION_PROPOSAL_TOOL_NAME,
+        arguments: {
+          actionName: PRODUCT_PULSE_AI_ACTION_NAMES.addToWatchlist,
+          input: { productRef: "core-linen-trouser" },
+        },
+      }))
+      .mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+        assistantText: "I created a confirmation card. Confirm it to add the product to the ProductPulse watchlist.",
+        blocks: [{
+          type: "action_proposal",
+          proposalId: proposal.id,
+          actionName: proposal.actionName,
+          title: proposal.title,
+          summary: proposal.summary,
+          targetType: proposal.targetType,
+          targetId: proposal.targetId,
+          targetLabel: proposal.targetLabel,
+          reason: proposal.reason,
+          expectedResult: proposal.expectedResult,
+          risks: proposal.risks,
+          confirmationLevel: proposal.confirmationLevel,
+          sideEffectLevel: proposal.sideEffectLevel,
+          reversible: proposal.reversible,
+          expiresAt: proposal.expiresAt,
+        }],
+      })));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate, actionRegistry });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Add this product to the watchlist.",
+    });
+
+    expect(actionRegistry.createAiActionProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: baseContext.shop }),
+      PRODUCT_PULSE_AI_ACTION_NAMES.addToWatchlist,
+      { productRef: "core-linen-trouser" },
+    );
+    expect(result.blocks[0].type).toBe("action_proposal");
+    expect(store.toolCalls.find((call) => (
+      call.toolName === AI_ACTION_PROPOSAL_TOOL_NAME && call.status === "success"
+    ))).toMatchObject({
+      status: "success",
+      resultCount: 1,
+    });
+    const secondOpenAiRequest = openAiCreate.mock.calls[1][0];
+    const toolOutputForModel = JSON.stringify(secondOpenAiRequest.input);
+    expect(toolOutputForModel).toContain("action_proposal");
+    expect(toolOutputForModel).not.toContain(baseContext.shop);
+    expect(toolOutputForModel).not.toContain("user-1");
+  });
+
   it("returns a persisted safe response without OpenAI when configuration is missing", async () => {
     const store = new InMemoryConversationStore();
     const orchestrator = new AiChatOrchestrator({
@@ -216,9 +287,10 @@ describe("ProductPulse AI chat orchestrator", () => {
   });
 });
 
-function createTestOrchestrator({ registry, store, openAiCreate, config = {} } = {}) {
+function createTestOrchestrator({ registry, actionRegistry, store, openAiCreate, config = {} } = {}) {
   return new AiChatOrchestrator({
     toolRegistry: registry || createRegistryWithRepositories(),
+    actionRegistry,
     conversationStore: store || new InMemoryConversationStore(),
     openAiClient: {
       responses: {
@@ -328,6 +400,39 @@ function validAssistantResponse(overrides = {}) {
     followUpQuestions: [],
     warnings: [],
     ...overrides,
+  };
+}
+
+function actionProposalFixture() {
+  return {
+    id: "proposal-1",
+    shop: baseContext.shop,
+    userId: baseContext.userId,
+    conversationId: "conversation-1",
+    actionName: PRODUCT_PULSE_AI_ACTION_NAMES.addToWatchlist,
+    category: "watchlist",
+    targetType: "product",
+    targetId: "gid://shopify/Product/1",
+    targetLabel: "Core Linen Trouser",
+    proposedInput: { productRef: "core-linen-trouser" },
+    title: "Add to ProductPulse watchlist",
+    summary: "Add Core Linen Trouser to the app watchlist.",
+    reason: "High risk",
+    expectedResult: "ProductPulse will create a watchlist row. Shopify product data will not be changed.",
+    risks: ["The watchlist has a small product limit."],
+    confirmationLevel: "low",
+    sideEffectLevel: "low",
+    reversible: true,
+    requiresEntityOwnershipCheck: true,
+    status: "pending",
+    result: undefined,
+    safeError: null,
+    createdAt: "2026-05-20T12:00:00.000Z",
+    updatedAt: "2026-05-20T12:00:00.000Z",
+    expiresAt: "2026-05-20T12:15:00.000Z",
+    confirmedAt: null,
+    cancelledAt: null,
+    executedAt: null,
   };
 }
 

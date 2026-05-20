@@ -47,6 +47,8 @@ export function mapAiPresentationBlockToChatKitWidget(block: AiPresentationBlock
       return evidenceListWidget(block);
     case "metric_table":
       return metricTableWidget(block);
+    case "action_proposal":
+      return actionProposalWidget(block);
     case "summary":
     default:
       return summaryWidget(block);
@@ -137,6 +139,36 @@ function metricTableWidget(block: Extract<AiPresentationBlock, { type: "metric_t
       ...(metric.detail ? [caption(metric.detail)] : []),
     ], { justify: "between", align: "start" })),
   ], { status: { text: "Metrics", icon: "chart" } });
+}
+
+function actionProposalWidget(block: Extract<AiPresentationBlock, { type: "action_proposal" }>): Widgets.Card {
+  const levelLabel = block.confirmationLevel === "high"
+    ? "High confirmation"
+    : block.confirmationLevel === "medium"
+    ? "Confirmation required"
+    : "Confirm action";
+  return card([
+    title(block.title),
+    badge(levelLabel, block.confirmationLevel === "high" ? "danger" : block.confirmationLevel === "medium" ? "warning" : "info"),
+    text(block.summary),
+    ...(block.targetLabel ? [caption(`Target: ${block.targetLabel}`)] : []),
+    ...(block.reason ? [caption(`Reason: ${block.reason}`)] : []),
+    ...(block.expectedResult ? [text(block.expectedResult)] : []),
+    ...(block.risks.length ? [
+      divider(),
+      ...block.risks.map((risk) => row([icon("info"), text(risk)])),
+    ] : []),
+    caption(block.reversible ? "This internal app action can be reversed later." : "This internal app action is not reversible from the assistant."),
+    row([
+      button("Confirm", "confirm_ai_action", { proposalId: block.proposalId }, "check"),
+      button("Cancel", "cancel_ai_action", { proposalId: block.proposalId }, "empty-circle"),
+    ]),
+  ], {
+    status: {
+      text: "Action proposal",
+      icon: block.confirmationLevel === "high" ? "info" : "check-circle",
+    },
+  });
 }
 
 function card(children: Widgets.WidgetComponent[], options: Partial<Widgets.Card> = {}): Widgets.Card {

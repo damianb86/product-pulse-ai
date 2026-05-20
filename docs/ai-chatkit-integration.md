@@ -121,6 +121,12 @@ For product pages, the server verifies the referenced product through `product_p
 
 Widgets are presentation-only. They do not mutate Shopify or ProductPulse data.
 
+Phase 4 adds:
+
+- `action_proposal` -> `Card` with Confirm and Cancel buttons
+
+The action proposal widget is still presentation-only. Confirm and Cancel send only a `proposalId` to the backend. The backend reloads the stored proposal and never trusts widget payload fields for action input.
+
 ## Actions
 
 `POST /api/ai/chatkit/action`
@@ -138,6 +144,8 @@ Allowed actions:
 - `open_watchlist`
 - `show_more_evidence`
 - `refine_query`
+- `confirm_ai_action`
+- `cancel_ai_action`
 
 Security rules:
 
@@ -145,16 +153,17 @@ Security rules:
 - Unknown actions are rejected.
 - Payloads cannot include `shop`, `storeId`, `merchantId`, or equivalent tenant identifiers.
 - Product navigation actions re-check product ownership through the Phase 1 read-only registry before returning a URL.
-- No write actions are implemented.
+- Confirmation actions pass only `proposalId` into the Phase 4 internal action registry.
+- Confirmed internal actions can mutate ProductPulse app-owned data only. They cannot mutate Shopify resources.
 
 Intentionally rejected examples:
 
 - `apply_change`
 - `update_product`
 - `edit_description`
-- `add_to_watchlist`
-- `remove_from_watchlist`
-- `run_diagnosis`
+- direct `add_to_watchlist`
+- direct `remove_from_watchlist`
+- direct `run_diagnosis`
 - any Shopify mutation-like action
 
 ## Error Handling
@@ -195,7 +204,7 @@ npm test -- --run tests/unit/product-pulse-ai-chatkit.test.js tests/components/p
 - Non-mutating navigation actions only.
 - No streaming adapter changes beyond ChatKit's hosted UI behavior.
 - No custom conversation-history UI yet.
-- No write actions or confirmation flows.
+- Internal ProductPulse action confirmations only; no Shopify write actions.
 - No direct self-hosted ChatKit backend protocol implementation in Node yet.
 
 ## Future Steps

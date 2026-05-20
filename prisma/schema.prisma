@@ -138,6 +138,67 @@ model AiConversationToolCall {
   @@index([messageId])
 }
 
+model AiActionProposal {
+  id                           String             @id @default(cuid())
+  shop                         String
+  userId                       String?
+  conversationId               String?
+  actionName                   String
+  category                     String
+  targetType                   String
+  targetId                     String
+  targetLabel                  String?
+  proposedInput                Json
+  title                        String
+  summary                      String
+  reason                       String?
+  expectedResult               String?
+  risks                        Json?
+  confirmationLevel            String
+  sideEffectLevel              String
+  reversible                   Boolean            @default(false)
+  requiresEntityOwnershipCheck Boolean            @default(true)
+  status                       String             @default("pending")
+  result                       Json?
+  safeError                    Json?
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
+  expiresAt                    DateTime
+  confirmedAt                  DateTime?
+  cancelledAt                  DateTime?
+  executedAt                   DateTime?
+  auditLogs                    AiActionAuditLog[]
+
+  @@index([shop, status, expiresAt])
+  @@index([shop, conversationId, createdAt])
+  @@index([shop, actionName, createdAt])
+  @@index([shop, targetType, targetId])
+}
+
+model AiActionAuditLog {
+  id             String            @id @default(cuid())
+  shop           String
+  userId         String?
+  conversationId String?
+  proposalId     String?
+  proposal       AiActionProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  actionName     String
+  targetType     String?
+  targetId       String?
+  eventType      String
+  validatedInput Json?
+  status         String
+  durationMs     Int?
+  safeSummary    String?
+  safeError      Json?
+  createdAt      DateTime          @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, proposalId, createdAt])
+  @@index([shop, actionName, createdAt])
+  @@index([proposalId])
+}
+
 model ProductPulseJobLog {
   id        String   @id @default(cuid())
   shop      String

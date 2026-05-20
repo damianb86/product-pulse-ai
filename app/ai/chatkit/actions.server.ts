@@ -3,8 +3,10 @@ import { createAiToolContextFromAuthenticatedRequest } from "../context.server";
 import type { AiToolContext } from "../domain/types";
 import { createAiToolRegistry, type AiToolRegistry } from "../tools/registry.server";
 import { PRODUCT_PULSE_AI_TOOL_NAMES } from "../tools/productPulseTools.server";
+import { createAiActionRegistry, type AiActionRegistry } from "../actions/registry.server";
 
 const safeActionPayloadSchema = z.object({
+  proposalId: z.string().trim().min(1).max(320).optional(),
   productRef: z.string().trim().min(1).max(320).optional(),
   productGid: z.string().trim().min(1).max(320).optional(),
   handle: z.string().trim().min(1).max(180).optional(),
@@ -53,6 +55,7 @@ export const noopChatKitActionLogger: ChatKitActionLogger = {
 
 export interface HandleChatKitActionDependencies {
   toolRegistry?: AiToolRegistry;
+  actionRegistry?: AiActionRegistry;
   logger?: ChatKitActionLogger;
 }
 
@@ -81,7 +84,12 @@ export async function handleChatKitAction(
     status: "started",
   }));
 
-  const result = await dispatchSafeAction(context, input, dependencies.toolRegistry || createAiToolRegistry());
+  const result = await dispatchSafeAction(
+    context,
+    input,
+    dependencies.toolRegistry || createAiToolRegistry(),
+    dependencies.actionRegistry || createAiActionRegistry(),
+  );
   await safeLog(() => logger.logActionAttempt({
     context,
     actionType,
@@ -96,8 +104,13 @@ async function dispatchSafeAction(
   context: AiToolContext,
   input: ChatKitActionRequest,
   toolRegistry: AiToolRegistry,
+  actionRegistry: AiActionRegistry,
 ): Promise<ChatKitActionResult> {
   switch (input.action.type) {
+    case "confirm_ai_action":
+      return confirmAiAction(context, input.action.payload || {}, actionRegistry);
+    case "cancel_ai_action":
+      return cancelAiAction(context, input.action.payload || {}, actionRegistry);
     case "open_product":
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "product");
     case "open_evidence":
@@ -117,6 +130,68 @@ async function dispatchSafeAction(
         message: "That assistant action is not available yet.",
       };
   }
+}
+
+async function confirmAiAction(
+  context: AiToolContext,
+  payload: z.infer<typeof safeActionPayloadSchema>,
+  actionRegistry: AiActionRegistry,
+): Promise<ChatKitActionResult> {
+  if (!payload.proposalId) {
+    return {
+      status: "error",
+      code: "VALIDATION_ERROR",
+      message: "The assistant action is missing a proposal ID.",
+    };
+  }
+
+  const result = await actionRegistry.confirmAiActionProposal(context, payload.proposalId);
+  if (!result.ok) {
+    return {
+      status: "error",
+      code: result.error.code,
+      message: result.error.message,
+    };
+  }
+
+  return {
+    status: "success",
+    action: {
+      type: "send_message",
+      message: `Confirmed: ${result.data.execution.safeMessage}`,
+    },
+  };
+}
+
+async function cancelAiAction(
+  context: AiToolContext,
+  payload: z.infer<typeof safeActionPayloadSchema>,
+  actionRegistry: AiActionRegistry,
+): Promise<ChatKitActionResult> {
+  if (!payload.proposalId) {
+    return {
+      status: "error",
+      code: "VALIDATION_ERROR",
+      message: "The assistant action is missing a proposal ID.",
+    };
+  }
+
+  const result = await actionRegistry.cancelAiActionProposal(context, payload.proposalId);
+  if (!result.ok) {
+    return {
+      status: "error",
+      code: result.error.code,
+      message: result.error.message,
+    };
+  }
+
+  return {
+    status: "success",
+    action: {
+      type: "send_message",
+      message: `Cancelled: ${result.data.proposal.title}.`,
+    },
+  };
 }
 
 async function productNavigationAction(

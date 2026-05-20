@@ -4,7 +4,7 @@
 
 The AI chat orchestrator is the backend-only Phase 2 layer for ProductPulse AI chat. It receives a user message, authenticates the Shopify embedded app request, creates a server-side AI context, exposes Phase 1 read-only ProductPulse tools to OpenAI, executes requested tools through the internal registry, and returns a UI-neutral structured response.
 
-It does not render UI, stream responses, integrate ChatKit widgets, create Polaris chat components, perform Shopify mutations, apply actions, or run autonomous workflows.
+It does not render UI, stream responses, integrate ChatKit widgets, create Polaris chat components, perform Shopify mutations, or run autonomous workflows. Phase 4 adds internal action proposal support on top of this orchestrator, but confirmed execution remains backend-only.
 
 ## Main Modules
 
@@ -98,8 +98,19 @@ Blocks are UI-neutral and can later be rendered by either a custom Polaris chat 
 - `diagnosis_summary`
 - `evidence_list`
 - `metric_table`
+- `action_proposal`
 
 No HTML, Polaris component descriptors, or ChatKit widget descriptors are returned.
+
+## Internal Action Proposals
+
+Phase 4 adds one controlled model-facing proposal tool:
+
+- `product_pulse_propose_internal_action`
+
+This tool can create a pending server-stored proposal for a supported ProductPulse internal action. It cannot execute the action. The proposal is rendered as an `action_proposal` neutral block and later as a ChatKit confirmation card.
+
+Actual execution only happens through backend confirmation handling. The backend reloads the proposal by `proposalId`, checks shop ownership, status, expiry, entity ownership, and stored validated input, then runs the action executor. The model does not receive authority to run mutations directly.
 
 If the model returns invalid structured output, the orchestrator retries once. If the retry also fails, it returns a safe text-only fallback.
 
@@ -180,7 +191,6 @@ A custom Polaris chat drawer can call `POST /api/ai/chat`, render `assistantText
 ## Current Limitations
 
 - Non-streaming only.
-- No action confirmation flow.
 - No Shopify mutations.
 - No embeddings or long-term memory.
 - No conversation summarization yet; only recent-message trimming is implemented.
