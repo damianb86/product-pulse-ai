@@ -6,9 +6,13 @@ import {
 } from "../ai/chatkit/clientTool";
 import { mapAiChatTurnToChatKitToolOutput } from "../ai/chatkit/widgets";
 
+const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
+let chatKitBrowserScriptPromise;
+
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const [chatKitScriptReady, setChatKitScriptReady] = useState(false);
   const [conversationId, setConversationId] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const chatKitMethodsRef = useRef(null);
@@ -18,7 +22,23 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
 
   useEffect(() => {
     setIsMounted(true);
-  }, []);
+    if (!enabled) {
+      setChatKitScriptReady(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    loadChatKitBrowserScript()
+      .then(() => {
+        if (!cancelled) setChatKitScriptReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setStatusMessage("ChatKit could not load. Refresh the page and try again.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
 
   const requestClientSecret = useCallback(async () => {
     setStatusMessage("");
@@ -191,7 +211,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
             <div className="ppChatKitDisabled" role="status">
               {config?.disabledReason || "ChatKit is not configured."}
             </div>
-          ) : isMounted ? (
+          ) : isMounted && chatKitScriptReady ? (
             <ChatKit control={chatKit.control} className="ppChatKitSurface" />
           ) : (
             <div className="ppChatKitDisabled" role="status">Loading assistant...</div>
@@ -210,6 +230,26 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       </button>
     </aside>
   );
+}
+
+function loadChatKitBrowserScript() {
+  if (typeof document === "undefined") return Promise.resolve();
+  const existing = document.querySelector(`script[src="${CHATKIT_BROWSER_SCRIPT_SRC}"]`);
+  if (existing?.dataset.productPulseLoaded === "true") return Promise.resolve();
+  if (chatKitBrowserScriptPromise) return chatKitBrowserScriptPromise;
+
+  chatKitBrowserScriptPromise = new Promise((resolve, reject) => {
+    const script = existing || document.createElement("script");
+    script.src = CHATKIT_BROWSER_SCRIPT_SRC;
+    script.async = true;
+    script.addEventListener("load", () => {
+      script.dataset.productPulseLoaded = "true";
+      resolve();
+    }, { once: true });
+    script.addEventListener("error", reject, { once: true });
+    if (!existing) document.head.appendChild(script);
+  });
+  return chatKitBrowserScriptPromise;
 }
 
 function getStarterPrompts(pageContext) {

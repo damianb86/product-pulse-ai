@@ -18,7 +18,6 @@ export default function App() {
         <Meta />
         <Links />
         <script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script>
-        <script src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js" async></script>
       </head>
       <body>
         <Outlet />

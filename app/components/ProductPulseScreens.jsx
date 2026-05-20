@@ -8277,7 +8277,7 @@ function ProductEvidenceSummaryPanel({ detail, onSelectEvidence }) {
       <div className="ppEvidenceSummaryList">
         {evidenceRows.map((source, index) => (
           <EvidenceSummaryCompactRow
-            key={source.title}
+            key={`${source.key || source.id || source.title || "source"}-${index}`}
             source={source}
             onSelect={() => onSelectEvidence(index)}
           />
@@ -10021,7 +10021,7 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
             role="tab"
             aria-selected={index === selectedEvidenceIndex}
             aria-label={source.title}
-            key={source.title}
+            key={`${source.key || source.id || source.title || "source"}-${index}`}
             onClick={() => onSelectEvidence(index)}
           >
             <span className={`ppEvidenceTabIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">

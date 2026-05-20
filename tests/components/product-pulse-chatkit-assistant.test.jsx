@@ -32,16 +32,18 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(screen.queryByTestId("chatkit")).not.toBeInTheDocument();
   });
 
-  it("mounts ChatKit inside the assistant drawer when enabled", () => {
+  it("mounts ChatKit inside the assistant drawer when enabled", async () => {
     render(
       <ProductPulseChatKitAssistant
         config={{ enabled: true, disabledReason: null }}
         pageContext={{ type: "product", entityId: "core-linen-trouser" }}
       />,
     );
+    const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
+    fireEvent.load(script);
 
     fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
 
-    expect(screen.getByTestId("chatkit")).toHaveClass("ppChatKitSurface");
+    expect(await screen.findByTestId("chatkit")).toHaveClass("ppChatKitSurface");
   });
 });
