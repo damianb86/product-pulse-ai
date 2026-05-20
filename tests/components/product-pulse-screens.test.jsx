@@ -653,8 +653,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText(/Fit runs small around waist and inseam/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Deep analysis completed/ })).toBeInTheDocument();
-    expect(screen.getByText("Re-run product diagnosis")).toBeInTheDocument();
-    const watchButton = screen.getByRole("button", { name: "Add product to Watchlist" });
+    expect(screen.getByText("Re-analyze")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
+    const watchButton = screen.getByRole("menuitem", { name: "Add to Watchlist" });
     expect(watchButton).toBeInTheDocument();
     fireEvent.click(watchButton);
     expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
@@ -785,6 +786,7 @@ describe("ProductPulse screens", () => {
           },
           inputs: {
             unitsLast30Days: 42,
+            unitsPrevious30Days: 25,
             revenueLast30Days: 3240,
             weeklyUnitsLast4Weeks: [4, 8, 12, 18],
           },
@@ -812,9 +814,54 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("86")).toBeInTheDocument();
     expect(within(panel).getByText("/100")).toBeInTheDocument();
     expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
+    expect(within(panel).getByText("Last 4 weeks")).toBeInTheDocument();
+    expect(within(panel).getByText(/Hot because 42 units in the last 30 days vs 25 before/)).toBeInTheDocument();
     expect(within(panel).getByText("Current velocity")).toBeInTheDocument();
+    expect(within(panel).getByText("Recent units and revenue vs catalog")).toBeInTheDocument();
     expect(within(panel).getByText("High confidence")).toBeInTheDocument();
     expect(within(panel).getByText("42 units · $3,240 revenue in the last 30 days")).toBeInTheDocument();
+  });
+
+  it("renders momentum weekly bars as empty tracks for zero weeks and a visible spike", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productMomentum: {
+          score: 95,
+          tier: "Hot",
+          direction: "New spike",
+          confidence: 74,
+          confidenceLabel: "Medium confidence",
+          components: {
+            currentVelocityScore: 98,
+            growthScore: 100,
+            catalogShareScore: 100,
+            trendConsistencyScore: 70,
+            recencyScore: 100,
+          },
+          inputs: {
+            unitsLast30Days: 15,
+            unitsPrevious30Days: 0,
+            revenueLast30Days: 1535,
+            weeklyUnitsLast4Weeks: [0, 0, 0, 15],
+          },
+          display: {
+            growthLabel: "+100%",
+            catalogPositionLabel: "Top 2%",
+            trendLabel: "Sales increasing over the last 4 weeks",
+          },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const bars = container.querySelector(".ppProductMomentumTrendBars");
+    const visibleBars = bars.querySelectorAll("i");
+
+    expect(within(bars).getByText("15")).toBeInTheDocument();
+    expect(visibleBars).toHaveLength(1);
+    expect(visibleBars[0]).toHaveStyle({ height: "100%" });
+    expect(visibleBars[0]).toHaveStyle({ width: "100%" });
   });
 
   it("renders monthly order activity for product diagnosis", () => {
@@ -877,7 +924,7 @@ describe("ProductPulse screens", () => {
 
     expect(orderPanel).toBeInTheDocument();
     expect(within(orderPanel).getByText("Monthly order activity")).toBeInTheDocument();
-    expect(within(orderPanel).getByText("365-day Shopify order window")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("365-day window")).toBeInTheDocument();
     expect(within(orderPanel).getAllByText("Total orders").length).toBeGreaterThan(0);
     expect(within(orderPanel).getAllByText("Returned orders").length).toBeGreaterThan(0);
     expect(within(orderPanel).getAllByText("Refunded orders").length).toBeGreaterThan(0);
@@ -932,7 +979,59 @@ describe("ProductPulse screens", () => {
     expect(within(predictionPanel).getByText("Last 30 days")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Next 3 months")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Medium confidence")).toBeInTheDocument();
-    expect(within(predictionPanel).getByText(/reduce the projected return-rate path/)).toBeInTheDocument();
+    expect(within(predictionPanel).getByText(/pull the forecast downward/)).toBeInTheDocument();
+  });
+
+  it("shows a full-diagnosis prompt instead of commercial charts for QuickScan-only products", () => {
+    const product = {
+      ...defaultView.startHere,
+      analysisDepth: "quickscan",
+      analysisLabel: "QuickScan only",
+      recommendedActions: [],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        latestDiagnosisId: null,
+        lastDetailedDiagnosisAt: null,
+        monthlyOrderActivity: {
+          months: [{ key: "2026-05", label: "May 2026", orders: 4, orderUnits: 5, revenue: 650 }],
+          summary: { totalOrders: 4, totalOrderUnits: 5, totalRevenue: 650 },
+        },
+        returnRatePrediction: {
+          observedPoints: [{ key: "2026-05-04", label: "May 4", orders: 4, returnedOrders: 1 }],
+          summary: { totalOrders: 4, totalReturnedOrders: 1 },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    expect(container.querySelector(".ppProductDeepDiagnosisPlaceholder")).toBeInTheDocument();
+    expect(screen.getByText("Commercial charts are not available yet")).toBeInTheDocument();
+    expect(container.querySelector(".ppProductOrderActivityPanel")).not.toBeInTheDocument();
+    expect(container.querySelector(".ppProductReturnPredictionPanel")).not.toBeInTheDocument();
+  });
+
+  it("hides return prediction when orders exist but no returns are stored", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        monthlyOrderActivity: {
+          months: [
+            { key: "2026-05", label: "May 2026", shortLabel: "May", orders: 4, orderUnits: 5, revenue: 650 },
+          ],
+          summary: { totalOrders: 4, totalOrderUnits: 5, totalRevenue: 650, maxOrders: 4 },
+        },
+        returnRatePrediction: {
+          observedPoints: [{ key: "2026-05-04", label: "May 4", orders: 4, orderUnits: 5, returnedOrders: 0, returnedUnits: 0 }],
+          forecastPoints: [{ key: "2026-06-01", label: "Jun 1", predictedReturnRate: 0 }],
+          summary: { totalOrders: 4, totalOrderUnits: 5, totalReturnedOrders: 0, totalReturnedUnits: 0 },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    expect(container.querySelector(".ppProductOrderActivityPanel")).toBeInTheDocument();
+    expect(container.querySelector(".ppProductReturnPredictionPanel")).not.toBeInTheDocument();
   });
 
   it("shows product risk level first and the trend label below the sparkline", () => {
@@ -961,7 +1060,8 @@ describe("ProductPulse screens", () => {
 
   it("lets product detail remove an already watched product", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={{ ...defaultView.startHere, isWatched: true }} />);
-    const watchButton = screen.getByRole("button", { name: "Remove product from Watchlist" });
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
+    const watchButton = screen.getByRole("menuitem", { name: "Remove from Watchlist" });
     expect(watchButton).toBeInTheDocument();
     fireEvent.click(watchButton);
     expect(screen.getByRole("heading", { name: "Remove watched product" })).toBeInTheDocument();
@@ -993,6 +1093,9 @@ describe("ProductPulse screens", () => {
     const faqDialog = screen.getByRole("dialog", { name: "Add sizing FAQ" });
     expect(within(faqDialog).getByRole("group", { name: "How to apply Add sizing FAQ" })).toBeInTheDocument();
     expect(within(faqDialog).getByRole("button", { name: /Collapsible FAQ/ })).toHaveClass("isSelected");
+    const faqPreviewItem = within(faqDialog).getByText("How does this trouser fit?").closest(".ppActionFaqPreviewItem");
+    expect(faqPreviewItem).toBeInTheDocument();
+    expect(faqPreviewItem?.querySelector("p")).toHaveTextContent("This trouser has a closer fit around the waist and inseam.");
 
     fireEvent.click(within(faqDialog).getByRole("button", { name: /Product metafield/ }));
     await waitFor(() => expect(within(faqDialog).getByRole("button", { name: /Product metafield/ })).toHaveClass("isSelected"));
@@ -1879,7 +1982,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("All signals by type")).toBeInTheDocument();
     expect(screen.getByText("Customer themes")).toBeInTheDocument();
     expect(screen.getAllByText(/Superstitious discomfort/i).length).toBeGreaterThan(0);
-    expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
+    expect(screen.getByText(/View all sources/)).toBeInTheDocument();
   });
 
   it("renders specialized Shopify orders evidence with sales context", () => {
@@ -2102,6 +2205,10 @@ describe("ProductPulse screens", () => {
             bySource: {
               csv: {
                 sentiment: { total: 3, negative: 2, neutral: 1, positive: 0 },
+                sentimentTrend: [
+                  { label: "Jan 2026", positive: 0, neutral: 1, negative: 1, total: 2 },
+                  { label: "Feb 2026", positive: 0, neutral: 0, negative: 1, total: 1 },
+                ],
                 emotions: [{ label: "Frustration", count: 2 }],
                 repeatedLanguage: [{ term: "seam issue", count: 2, sources: ["csv_review"], sentiments: { negative: 2 } }],
                 examples: [
@@ -2111,6 +2218,10 @@ describe("ProductPulse screens", () => {
               },
               judgeMe: {
                 sentiment: { total: 4, negative: 1, neutral: 1, positive: 2 },
+                sentimentTrend: [
+                  { label: "Mar 2026", positive: 1, neutral: 1, negative: 0, total: 2 },
+                  { label: "Apr 2026", positive: 1, neutral: 0, negative: 1, total: 2 },
+                ],
                 emotions: [{ label: "Concern", count: 1 }],
                 repeatedLanguage: [{ term: "packaging dents", count: 1, sources: ["judgeme_review"], sentiments: { negative: 1 } }],
                 examples: [{ source: "judgeme_review", sourceLabel: "Judge.me reviews", title: "Judge packaging note", text: "Judge.me packaging note mentioned dents.", sentiment: "negative", rating: 2 }],
@@ -2131,6 +2242,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("CSV review seam issue was repeated.")).toHaveLength(1);
     expect(screen.queryByText("Judge.me packaging note mentioned dents.")).not.toBeInTheDocument();
     expect(screen.getByText("2 negative reviews")).toBeInTheDocument();
+    expect(screen.getByText("Review sentiment over time")).toBeInTheDocument();
+    expect(screen.getByText("Jan 2026")).toBeInTheDocument();
+    expect(screen.getAllByText("Feb 2026").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Last 30 days").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "Judge.me reviews" }));
@@ -2140,6 +2254,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Judge.me packaging note mentioned dents.")).toBeInTheDocument();
     expect(screen.queryByText("CSV review seam issue was repeated.")).not.toBeInTheDocument();
     expect(screen.getByText("1 negative reviews")).toBeInTheDocument();
+    expect(screen.getByText("Mar 2026")).toBeInTheDocument();
+    expect(screen.getAllByText("Apr 2026").length).toBeGreaterThan(0);
   });
 
   it("renders the full product evidence report with raw evidence relationships", () => {
@@ -2256,7 +2372,7 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={snapshotProduct} />);
-    expect(screen.getByText(/Last analyzed May 12, 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/Analyzed May 12, 2026/)).toBeInTheDocument();
     expect(screen.getByAltText("Snapshot product")).toHaveAttribute("src", "https://cdn.example.com/product.jpg");
     expect(screen.getByRole("button", { name: "Review evidence for Fit runs small around waist and inseam" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create action draft for Fit runs small around waist and inseam" })).not.toBeInTheDocument();
@@ -2301,7 +2417,8 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText(/View all detected issues/)).not.toBeInTheDocument();
     expect(screen.queryByText(/View all actions/)).not.toBeInTheDocument();
     expect(screen.queryByText("Runs small in chest")).not.toBeInTheDocument();
-    expect(screen.getByText("0 variants")).toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /Shopify product/ }));
+    expect(screen.getAllByText(/0 variants/).length).toBeGreaterThan(0);
     expect(screen.getByText("Run product diagnosis").closest("button")).toBeDisabled();
   });
 
@@ -2336,7 +2453,7 @@ describe("ProductPulse screens", () => {
   it("locks recommended actions until a full product diagnosis runs", () => {
     const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);
-    expect(screen.getByText(/QuickScan product signals/)).toBeInTheDocument();
+    expect(screen.getByText(/Analyzed May 7, 2026/)).toBeInTheDocument();
     expect(screen.getByText("Run product diagnosis")).toBeInTheDocument();
     const emptyRecommendedActions = screen.getByText("Recommended actions will appear after you run the full product diagnosis for this product.").closest(".ppProductDetailEmpty-recommended");
     expect(emptyRecommendedActions).toBeInTheDocument();

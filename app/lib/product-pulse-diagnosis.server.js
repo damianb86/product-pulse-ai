@@ -3998,7 +3998,13 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.specs.shouldRecommend) {
-    const specsBlock = buildSpecsDetailsBlock({ product: deterministic.product, contentIssues, mainIssue });
+    const specsBlock = buildSpecsDetailsBlock({
+      product: deterministic.product,
+      contentIssues,
+      mainIssue,
+      deterministic,
+      aiSpecsBlock: copy.specs_details_block || copy.specs_block || "",
+    });
     recommendations.push({
       id: "add-specs-details-block",
       label: "Add specs/details block",
@@ -5562,20 +5568,220 @@ function isGenericVariantTitle(value = "") {
   return /^default title$/i.test(String(value || "").trim());
 }
 
-function buildSpecsDetailsBlock({ product = {}, contentIssues = [], mainIssue = "" } = {}) {
+function buildSpecsDetailsBlock({ product = {}, contentIssues = [], mainIssue = "", deterministic = {}, aiSpecsBlock = "" } = {}) {
+  const normalizedAiBlock = normalizeSpecsDetailsBlock(aiSpecsBlock);
+  if (normalizedAiBlock) return normalizedAiBlock;
+
+  const context = buildSpecsDetailsContext({ product, contentIssues, mainIssue, deterministic });
+  const items = buildTechnicalSpecItems(context);
+  return [
+    "Technical details to confirm before buying:",
+    ...items.map((item) => `- ${item.label}: ${item.detail}`),
+  ].join("\n");
+}
+
+function normalizeSpecsDetailsBlock(value = "") {
+  const text = String(value || "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return "";
+  const normalized = normalizeText(text);
+  const metadataOnly = [
+    "product type",
+    "brand vendor",
+    "available options",
+    "variants skus",
+  ].filter((needle) => normalized.includes(needle)).length >= 3;
+  const hasTechnicalDetail = /\b(voltage|capacity|dimension|height|width|length|weight|temperature|timer|alarm|power|battery|material|care|compatib|clean|water|humidity|condensation|range|included|limit|setup|firmware|connectivity|size chart|loft|seal|leak|heat|brew)\b/i.test(text);
+  if (metadataOnly && !hasTechnicalDetail) return "";
+  return text;
+}
+
+function buildSpecsDetailsContext({ product = {}, contentIssues = [], mainIssue = "", deterministic = {} } = {}) {
+  const metrics = deterministic.metrics || {};
+  const sourceText = [
+    product.title,
+    product.productType,
+    product.description,
+    stripHtml(product.descriptionHtml || ""),
+    ...(Array.isArray(product.tags) ? product.tags : []),
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    getHumanIssueLabel(mainIssue),
+    ...contentIssues.flatMap((issue) => [issue.code, issue.label, issue.evidence]),
+    ...(Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets : []).map((item) => item.text || item.body || item.quote || item.summary || ""),
+    ...(Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails : []).map((item) => `${item.label || ""} ${item.detail || ""}`),
+    ...(Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : []),
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []).map((item) => `${item.term || item.label || item.phrase || ""}`),
+  ].filter(Boolean).join(" ");
   const variants = Array.isArray(product.variants) ? product.variants : [];
-  const optionNames = Array.isArray(product.options) ? product.options.map((option) => option.name).filter(Boolean) : [];
-  const issueLabel = getHumanIssueLabel(mainIssue);
-  const lines = [
-    "Product details to confirm before buying:",
-    product.productType ? `- Product type: ${product.productType}` : "",
-    product.vendor ? `- Brand/vendor: ${product.vendor}` : "",
-    optionNames.length ? `- Available options: ${optionNames.join(", ")}` : "",
-    variants.length ? `- Variants/SKUs: ${variants.slice(0, 5).map((variant) => [variant.title, variant.sku].filter(Boolean).join(" / ")).filter(Boolean).join("; ")}` : "",
-    contentIssues.length ? `- Clarify: ${contentIssues.slice(0, 3).map((issue) => issue.label).filter(Boolean).join(", ")}` : "",
-    issueLabel && issueLabel !== "No issue" ? `- Buyer expectation note: ${issueLabel}` : "",
-  ].filter(Boolean);
-  return lines.join("\n");
+  return {
+    product,
+    mainIssue: normalizeIssueCode(mainIssue),
+    text: sourceText,
+    normalizedText: normalizeText(sourceText),
+    variantLabels: uniqueBy(
+      variants.map((variant) => String(variant.title || variant.sku || "").trim()).filter(Boolean),
+      normalizeText,
+    ).slice(0, 4),
+  };
+}
+
+function buildTechnicalSpecItems(context = {}) {
+  const text = context.normalizedText || "";
+  const issue = context.mainIssue || "";
+  let items = [];
+
+  if (/\b(coffee|brew|brewer|alarm clock|small appliance|appliance|kettle|heater|heat)\b/.test(text)) {
+    items = [
+      ["Power input", "[confirm voltage, plug type, and whether an adapter is required]"],
+      ["Brew capacity", "[confirm water tank capacity and maximum cup size]"],
+      ["Brew temperature range", "[confirm target brew temperature or safe operating range]"],
+      ["Timer and alarm behavior", "[confirm scheduling accuracy, alarm volume, backup behavior, and what happens after power loss]"],
+      ["Water and condensation guidance", "[confirm required surface, clearance, and expected condensation or humidity]"],
+      ["Cleaning and removable parts", "[confirm which tank, tray, filter, or cup components are washable]"],
+    ];
+  } else if (/\b(pillow|bedding|cooling|loft|sleep|insert)\b/.test(text)) {
+    items = [
+      ["Dimensions and loft", "[confirm length, width, height/loft, and whether loft varies by option]"],
+      ["Cooling insert details", "[confirm insert material, expected cooling duration, and whether it should be aired out before use]"],
+      ["Cover material and care", "[confirm cover fabric, wash instructions, and insert cleaning limits]"],
+      ["Comfort guidance", "[confirm which sleep positions each loft is intended for]"],
+      ["Odor or airing guidance", "[confirm any first-use airing instructions]"],
+    ];
+  } else if (/\b(inflatable|standing desk|desk|furniture|riser|pump)\b/.test(text)) {
+    items = [
+      ["Inflated dimensions", "[confirm height, width, depth, and usable work surface]"],
+      ["Maximum supported weight", "[confirm safe laptop/monitor weight limit]"],
+      ["Inflation and deflation", "[confirm pump type, inflation time, and pressure guidance]"],
+      ["Stability limits", "[confirm approved surfaces, typing limits, and items not recommended for use]"],
+      ["Packed size and included items", "[confirm packed dimensions and whether pump/patch kit are included]"],
+    ];
+  } else if (/\b(safe|lock|security|voice|keypad)\b/.test(text)) {
+    items = [
+      ["Unlock methods", "[confirm voice, keypad, key, app, or backup access methods]"],
+      ["Voice setup requirements", "[confirm training steps, quiet-room requirement, and supported languages/phrases]"],
+      ["Power and battery", "[confirm battery type, expected battery life, and low-battery behavior]"],
+      ["Interior dimensions", "[confirm usable internal height, width, depth, and shelf layout]"],
+      ["Security limits", "[confirm false-open protections, reset process, and emergency access]"],
+    ];
+  } else if (/\b(luggage|tag|tracking|qr|bluetooth|gps|travel)\b/.test(text)) {
+    items = [
+      ["Tracking method", "[confirm whether updates are GPS, Bluetooth, QR scan-based, or network-assisted]"],
+      ["Compatibility", "[confirm supported phones, operating systems, and app/account requirements]"],
+      ["Battery", "[confirm battery type, battery life, and replacement or charging steps]"],
+      ["QR privacy controls", "[confirm which owner details are visible after scan and how to edit them]"],
+      ["Range and limitations", "[confirm Bluetooth range, delayed-update behavior, and travel limitations]"],
+    ];
+  } else if (/\b(shirt|apparel|linen|fit|size|sizing|sleeve|shoulder)\b/.test(text) || issue === "fit_sizing") {
+    items = [
+      ["Fit measurements", "[confirm chest, shoulder, sleeve, body length, and garment measurements by size]"],
+      ["Fit guidance", "[confirm whether the style runs relaxed, fitted, small, or oversized]"],
+      ["Material composition", "[confirm fabric blend and whether it may shrink]"],
+      ["Care instructions", "[confirm wash, dry, ironing, and shrinkage guidance]"],
+      ["Variant-specific notes", "[confirm whether color or size variants fit differently]"],
+    ];
+  } else if (/\b(mat|yoga|fitness|cushion|balance|thick|firm)\b/.test(text)) {
+    items = [
+      ["Dimensions", "[confirm length, width, thickness, and weight]"],
+      ["Firmness level", "[confirm cushion/firmness rating and intended workout style]"],
+      ["Material and grip", "[confirm surface material, underside grip, and floor compatibility]"],
+      ["Care", "[confirm cleaning method and drying guidance]"],
+      ["Use limits", "[confirm whether this is recommended for balance poses or floor work only]"],
+    ];
+  } else if (/\b(mug|drinkware|lid|leak|seal|insulated|bottle)\b/.test(text)) {
+    items = [
+      ["Capacity", "[confirm fluid capacity]"],
+      ["Lid and seal limits", "[confirm whether the lid is leakproof, splash-resistant, or upright-only]"],
+      ["Temperature retention", "[confirm hot/cold retention window]"],
+      ["Cleaning", "[confirm dishwasher safety and removable seal care]"],
+      ["Bag-use guidance", "[confirm whether it is safe for bags or near electronics]"],
+    ];
+  } else if (/\b(earbud|bluetooth|electronics|battery|charging|case)\b/.test(text)) {
+    items = [
+      ["Battery life", "[confirm earbud and case battery life]"],
+      ["Charging", "[confirm cable type, charge time, and included accessories]"],
+      ["Connectivity", "[confirm Bluetooth version and supported devices]"],
+      ["Fit and included tips", "[confirm included tip sizes or fit accessories]"],
+      ["Variant appearance", "[confirm real-life color/material differences by variant]"],
+    ];
+  } else if (/\b(ceramic|dinner|plate|bowl|kitchen|dishwasher|fragile)\b/.test(text)) {
+    items = [
+      ["Pieces included", "[confirm exact plate, bowl, and serving-piece count]"],
+      ["Dimensions", "[confirm plate and bowl diameters/capacity]"],
+      ["Material and finish", "[confirm ceramic type, glaze variation, and finish notes]"],
+      ["Care", "[confirm dishwasher, microwave, and oven safety]"],
+      ["Packaging and arrival check", "[confirm protective packaging and what to do if an item arrives damaged]"],
+    ];
+  } else if (/\b(planter|wifi|wi-fi|app|garden|seed|led)\b/.test(text)) {
+    items = [
+      ["Compatibility", "[confirm Wi-Fi band, app language, phone OS, and account requirements]"],
+      ["Power", "[confirm plug type, voltage, and cord length]"],
+      ["Dimensions", "[confirm counter footprint and grow-light height]"],
+      ["Included items", "[confirm seed pods, accessories, and replacement parts]"],
+      ["Setup guidance", "[confirm router/app setup steps before first use]"],
+    ];
+  } else if (/\b(print|art|wall|frame|poster|canvas)\b/.test(text)) {
+    items = [
+      ["Dimensions", "[confirm print size and visible image area]"],
+      ["Material and finish", "[confirm paper/canvas material, matte/gloss finish, and color tone]"],
+      ["Frame", "[confirm whether a frame, hanger, or mounting hardware is included]"],
+      ["Room context", "[confirm lighting, scale, and visual mood guidance]"],
+      ["Shipping format", "[confirm rolled, flat, or framed shipping format]"],
+    ];
+  } else {
+    items = [
+      ["Dimensions or size", "[confirm product dimensions, weight, and size guidance]"],
+      ["Materials or components", "[confirm materials, included parts, and replacement components]"],
+      ["Compatibility or setup", "[confirm requirements, supported use cases, and setup steps]"],
+      ["Care or maintenance", "[confirm cleaning, storage, and maintenance guidance]"],
+      ["Use limits", "[confirm safety limits, product boundaries, and expectation-setting details]"],
+    ];
+  }
+
+  const issueItem = buildIssueSpecificSpecItem(context);
+  if (issueItem) items.splice(Math.min(3, items.length), 0, issueItem);
+  const variantItem = buildVariantSpecificSpecItem(context);
+  if (variantItem) items.push(variantItem);
+  return dedupeSpecItems(items).slice(0, 8).map(([label, detail]) => ({ label, detail }));
+}
+
+function buildIssueSpecificSpecItem(context = {}) {
+  const text = context.normalizedText || "";
+  if (/\b(condensation|humidity|wet|water ring|nightstand|surface)\b/.test(text)) {
+    return ["Moisture guidance", "[confirm expected condensation, clearance, and safe surface requirements]"];
+  }
+  if (/\b(clock|timer|alarm|schedule|early|late|drift|firmware)\b/.test(text)) {
+    return ["Timing accuracy", "[confirm timer tolerance, firmware/reset steps, and alarm fallback behavior]"];
+  }
+  if (/\b(leak|seal|drip|spill)\b/.test(text)) {
+    return ["Leak or seal limit", "[confirm exact leakproof/splash-resistant claim and testing conditions]"];
+  }
+  if (/\b(odor|smell|chemical|air out|airing)\b/.test(text)) {
+    return ["First-use airing", "[confirm expected odor, airing time, and when a customer should contact support]"];
+  }
+  if (/\b(wobble|unstable|tilt|sliding|deflat|air loss)\b/.test(text)) {
+    return ["Stability test", "[confirm stability standard, safe weight, and pressure-loss tolerance]"];
+  }
+  if (/\b(privacy|qr|location|gps|tracking)\b/.test(text)) {
+    return ["Privacy and tracking limits", "[confirm visible profile fields, update source, and non-GPS limitations]"];
+  }
+  if (/\b(voice|false open|lockout|battery drain)\b/.test(text)) {
+    return ["Voice-lock safeguards", "[confirm false-open protections, lockout/reset flow, and battery-drain expectations]"];
+  }
+  return null;
+}
+
+function buildVariantSpecificSpecItem(context = {}) {
+  if (!context.variantLabels?.length) return null;
+  return [
+    "Variant-specific details",
+    `[confirm whether ${context.variantLabels.join(", ")} differ in specs, setup, finish, capacity, care, or limitations]`,
+  ];
+}
+
+function dedupeSpecItems(items = []) {
+  return uniqueBy(
+    items.filter((item) => Array.isArray(item) && item[0] && item[1]),
+    (item) => normalizeText(item[0]),
+  );
 }
 
 function buildProductClassificationDraft({ product = {}, mainIssue = "" } = {}) {
@@ -8630,6 +8836,7 @@ function summarizeTextSource(items) {
   return {
     total: items.length,
     sentiment,
+    sentimentTrend: buildSentimentTrend(items),
     emotions,
     subjectiveNegativity: summarizeSubjectiveNegativity(items),
     repeatedLanguage: extractRepeatedLanguage(items).slice(0, 5),
@@ -8650,8 +8857,64 @@ function summarizeTextSource(items) {
         variant: item.variant || "",
         source: item.source || "",
         sourceLabel: item.sourceLabel || "",
+        createdAt: toIso(item.createdAt),
       })),
   };
+}
+
+function buildSentimentTrend(items = []) {
+  const rows = (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const date = parseValidDate(item.createdAt || item.updatedAt);
+      const sentiment = ["positive", "neutral", "negative"].includes(item.sentiment) ? item.sentiment : "neutral";
+      return date ? { date, sentiment } : null;
+    })
+    .filter(Boolean)
+    .sort((first, second) => first.date.getTime() - second.date.getTime());
+  if (!rows.length) return [];
+
+  const firstDate = rows[0].date;
+  const lastDate = rows[rows.length - 1].date;
+  const spanDays = Math.max(1, (lastDate.getTime() - firstDate.getTime()) / (24 * 60 * 60 * 1000));
+  const bucketMode = spanDays > 120 ? "month" : spanDays > 28 ? "week" : "day";
+  const buckets = new Map();
+
+  rows.forEach((row) => {
+    const key = getSentimentTrendBucketKey(row.date, bucketMode);
+    const current = buckets.get(key) || {
+      key,
+      label: getSentimentTrendBucketLabel(row.date, bucketMode),
+      date: row.date.toISOString(),
+      positive: 0,
+      neutral: 0,
+      negative: 0,
+      total: 0,
+    };
+    current[row.sentiment] += 1;
+    current.total += 1;
+    buckets.set(key, current);
+  });
+
+  return Array.from(buckets.values()).sort((first, second) => new Date(first.date).getTime() - new Date(second.date).getTime());
+}
+
+function getSentimentTrendBucketKey(date, bucketMode = "month") {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  if (bucketMode === "day") return `${year}-${month}-${day}`;
+  if (bucketMode === "week") {
+    const weekStart = new Date(Date.UTC(year, date.getUTCMonth(), date.getUTCDate()));
+    weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
+    return `${weekStart.getUTCFullYear()}-${String(weekStart.getUTCMonth() + 1).padStart(2, "0")}-${String(weekStart.getUTCDate()).padStart(2, "0")}`;
+  }
+  return `${year}-${month}`;
+}
+
+function getSentimentTrendBucketLabel(date, bucketMode = "month") {
+  if (bucketMode === "day") return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  if (bucketMode === "week") return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return date.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 function summarizeEmotionCounts(items) {
@@ -8940,6 +9203,7 @@ function classifyCustomerSentiment(text, rating = 0) {
   const positiveMatches = countRegexMatches(normalized, /(great|good|love|loved|perfect|excellent|happy|quality|comfortable|recommend|works well|beautiful)/g);
   const ratingNumber = Number(rating || 0);
   if (ratingNumber > 0 && ratingNumber <= 2) return "negative";
+  if (ratingNumber === 3 && Math.abs(negativeMatches - positiveMatches) <= 1) return "neutral";
   if (
     ratingNumber >= 4
     && hasPositiveRecoveryCustomerLanguage(normalized)
@@ -9497,15 +9761,18 @@ function buildContentAnalysis(deterministic, contentGaps) {
   const aiIssues = aiFindings.issues;
   const aiAdvisories = aiFindings.advisories;
   const issues = uniqueBy([...deterministicIssues, ...aiIssues], (issue) => `${issue.code}-${issue.label}`);
-  const advisories = uniqueBy([...deterministicAdvisories, ...aiAdvisories], (issue) => `${issue.code}-${issue.label}`);
+  const descriptionDepthAdvisory = buildDescriptionDepthAdvisory(deterministic.metrics);
+  const advisories = uniqueBy([
+    ...deterministicAdvisories,
+    ...aiAdvisories,
+    ...(descriptionDepthAdvisory ? [descriptionDepthAdvisory] : []),
+  ], (issue) => `${issue.code}-${issue.label}`);
   const aiRiskLift = Math.min(18, aiIssues.reduce((total, issue) => total + issue.riskLift, 0));
   const deterministicRiskLift = Number(deterministic.metrics.contentQualityRisk || 0);
-  const riskLift = Math.min(18, Math.max(deterministicRiskLift, aiRiskLift));
+  const score = calculateContentQualityScore(deterministic.metrics, contentGaps, issues);
+  const scoreRiskLift = getContentQualityScoreRiskLift(score);
+  const riskLift = Math.min(18, Math.max(deterministicRiskLift, aiRiskLift, scoreRiskLift));
   const additionalRiskLift = Math.min(10, Math.max(0, riskLift - deterministicRiskLift));
-  const aiScore = Number(contentGaps?.content_quality_score);
-  const score = Number.isFinite(aiScore)
-    ? clamp(Math.round(aiScore), 0, 100)
-    : Number(deterministic.metrics.contentQualityScore || 100);
 
   return {
     score,
@@ -9518,6 +9785,53 @@ function buildContentAnalysis(deterministic, contentGaps) {
     riskLift,
     additionalRiskLift,
   };
+}
+
+function calculateContentQualityScore(metrics = {}, contentGaps = {}, issues = []) {
+  const deterministicScore = clamp(Number(metrics.contentQualityScore || 100), 0, 100);
+  const aiScore = Number(contentGaps?.content_quality_score);
+  const normalizedAiScore = Number.isFinite(aiScore) ? clamp(Math.round(aiScore), 0, 100) : null;
+  const blendedScore = normalizedAiScore == null
+    ? deterministicScore
+    : Math.min(
+      Math.round((deterministicScore * 0.35) + (normalizedAiScore * 0.65)),
+      normalizedAiScore + 8,
+    );
+  const descriptionCap = getDescriptionDepthContentQualityCap(metrics, issues);
+  return clamp(Math.min(blendedScore, descriptionCap), 0, 100);
+}
+
+function getDescriptionDepthContentQualityCap(metrics = {}, issues = []) {
+  const wordCount = Number(metrics.descriptionWordCount || 0);
+  const issueCodes = new Set((Array.isArray(issues) ? issues : []).map((issue) => normalizeContentIssueCode(issue.code)));
+
+  if (issueCodes.has("missing_description") || wordCount <= 0) return 30;
+  if (wordCount < 15) return 50;
+  if (wordCount < 25) return 62;
+  if (wordCount < 35) return 72;
+  if (wordCount < 50) return 80;
+  if (wordCount < 80) return issueCodes.has("missing_specifications") || issueCodes.has("missing_customer_guidance") ? 84 : 88;
+  return 100;
+}
+
+function buildDescriptionDepthAdvisory(metrics = {}) {
+  const wordCount = Number(metrics.descriptionWordCount || 0);
+  if (wordCount <= 0 || wordCount >= 50) return null;
+  return buildContentAdvisory(
+    "thin_description",
+    "Description depth is limited",
+    `The description has ${wordCount} words, so ProductPulse caps content quality even when the copy is coherent.`,
+  );
+}
+
+function getContentQualityScoreRiskLift(score) {
+  const numericScore = Number(score);
+  if (!Number.isFinite(numericScore)) return 0;
+  if (numericScore < 45) return 12;
+  if (numericScore < 60) return 8;
+  if (numericScore < 75) return 5;
+  if (numericScore < 85) return 2;
+  return 0;
 }
 
 function adjustRiskComponentsForContentAnalysis(riskComponents = {}, contentAnalysis = {}) {
@@ -9609,6 +9923,7 @@ function getContentAdvisoryLabel(code, fallback) {
   if (code === "tag_description_mismatch") return "Tags could be reflected in description";
   if (code === "collection_mismatch") return "Collection context could be clearer";
   if (code === "title_description_mismatch") return "Title and description alignment could be reviewed";
+  if (code === "thin_description") return "Description depth is limited";
   return fallback;
 }
 
@@ -9616,6 +9931,7 @@ const CONTENT_ADVISORY_CODES = new Set([
   "missing_product_type_context",
   "tag_description_mismatch",
   "collection_mismatch",
+  "thin_description",
 ]);
 
 function summarizeContentIssues(issues) {

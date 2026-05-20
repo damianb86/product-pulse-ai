@@ -3746,17 +3746,33 @@ function getProductDetailModel(product) {
   const mainFinding = sanitizeProductMainFinding(product.mainFinding);
   const riskTrendValues = getProductRiskTrendValues(product);
   const riskDisplay = getProductRiskDisplay(product.riskScore, riskTrendValues, product.riskTone, hasRiskSnapshot);
+  const monthlyOrderActivity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
+  const returnRatePrediction = normalizeProductReturnRatePrediction(metrics.returnRatePrediction);
+  const productMomentum = normalizeProductMomentum(metrics.productMomentum);
+  const hasMonthlyOrderActivity = hasProductMonthlyOrderActivity(monthlyOrderActivity);
+  const hasReturnRatePrediction = hasProductReturnRatePrediction(returnRatePrediction);
+  const productStatus = product.status || metrics.productStatus || "";
+  const productCollections = Array.isArray(metrics.collections) && metrics.collections.length
+    ? metrics.collections
+    : [product.collection].filter(Boolean);
 
   return {
     productGid: product.productGid || product.id || "",
     handle: product.handle || product.slug || "",
     slug: product.slug || product.handle || "",
     title: product.title,
+    productStatus,
+    productStatusLabel: getProductStatusLabel(productStatus),
+    productStatusTone: getProductStatusTone(productStatus),
+    productType: product.productType || metrics.productType || "",
+    vendor: product.vendor || metrics.vendor || "",
+    collections: productCollections,
     sku: product.sku || metrics.sku || "",
     variant: getProductArtVariant(product),
     imageUrl: product.imageUrl,
     imageAlt: product.imageAlt,
     shopifyAdminUrl: product.shopifyAdminUrl,
+    shopifyStorefrontUrl: product.shopifyStorefrontUrl,
     lastAnalysis: formatProductAnalysisDate(product.lastAnalysis),
     analysisStatus,
     analysisDepth: analysisStatus.depth,
@@ -3789,9 +3805,11 @@ function getProductDetailModel(product) {
     scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
     riskTrend: riskTrendValues,
     riskHistory: Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [],
-    monthlyOrderActivity: normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity),
-    returnRatePrediction: normalizeProductReturnRatePrediction(metrics.returnRatePrediction),
-    productMomentum: normalizeProductMomentum(metrics.productMomentum),
+    monthlyOrderActivity,
+    hasMonthlyOrderActivity,
+    returnRatePrediction,
+    hasReturnRatePrediction,
+    productMomentum,
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
     issueCategory,
@@ -3826,6 +3844,23 @@ function getActiveProductDiagnosisFromProduct(product = {}) {
   const job = product.diagnosisJob;
   const status = String(job?.status || "").toLowerCase();
   return status === "queued" || status === "running" ? job : null;
+}
+
+function getProductStatusLabel(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (!normalized) return "Status unavailable";
+  if (normalized === "active" || normalized === "published") return "Published";
+  if (normalized === "draft") return "Draft";
+  if (normalized === "archived") return "Archived";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function getProductStatusTone(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "active" || normalized === "published") return "success";
+  if (normalized === "draft") return "warning";
+  if (normalized === "archived") return "critical";
+  return "info";
 }
 
 function getConfidenceLabel(confidence, hasRiskSnapshot = true) {
@@ -3996,6 +4031,29 @@ function normalizeProductReturnRatePrediction(prediction = null) {
     actionAdjustment: prediction?.actionAdjustment || null,
     model: prediction?.model || null,
   };
+}
+
+function hasProductMonthlyOrderActivity(activity = null) {
+  const summary = activity?.summary || {};
+  const months = Array.isArray(activity?.months) ? activity.months : [];
+  return Boolean(
+    Number(summary.totalOrders || 0) > 0
+      || Number(summary.totalOrderUnits || 0) > 0
+      || Number(summary.totalRevenue || 0) > 0
+      || months.some((month) => Number(month.orders || 0) > 0 || Number(month.orderUnits || 0) > 0 || Number(month.revenue || 0) > 0),
+  );
+}
+
+function hasProductReturnRatePrediction(prediction = null) {
+  const summary = prediction?.summary || {};
+  const observedPoints = Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [];
+  const hasOrders = Number(summary.totalOrders || 0) > 0
+    || Number(summary.totalOrderUnits || 0) > 0
+    || observedPoints.some((point) => Number(point.orders || 0) > 0 || Number(point.orderUnits || 0) > 0);
+  const hasReturns = Number(summary.totalReturnedOrders || 0) > 0
+    || Number(summary.totalReturnedUnits || 0) > 0
+    || observedPoints.some((point) => Number(point.returnedOrders || 0) > 0 || Number(point.returnedUnits || 0) > 0);
+  return hasOrders && hasReturns;
 }
 
 function normalizeProductMomentum(momentum = null) {
@@ -4573,17 +4631,17 @@ function getEvidenceEmotionPolarity(item = {}) {
 }
 
 function getEvidenceIcon(source) {
-  const normalized = source.toLowerCase();
-  if (normalized.includes("return")) return "return";
+  const normalized = String(source || "").toLowerCase();
+  if (normalized.includes("ai evidence") || normalized.includes("ai synthesis")) return "ai-evidence-synthesis";
+  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("sentiment")) return "customer-language-analysis";
+  if (normalized.includes("csv") || (normalized.includes("review") && !normalized.includes("judge") && !normalized.includes("judgeme"))) return "csv-reviews";
+  if (normalized.includes("refund")) return "shopify-refunds";
+  if (normalized.includes("return")) return "shopify-returns";
+  if (normalized.includes("order") || normalized.includes("sales")) return "shopify-orders";
+  if (normalized.includes("variant")) return "variants";
+  if (normalized.includes("product") || normalized.includes("shopify") || normalized.includes("content") || normalized.includes("description")) return "shopify-product";
   if (normalized.includes("review")) return "star";
-  if (normalized.includes("refund")) return "cash-dollar";
-  if (normalized.includes("order") || normalized.includes("sales")) return "cash-dollar";
   if (normalized.includes("support")) return "question-circle";
-  if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) return "note";
-  if (normalized.includes("ai evidence")) return "wand";
-  if (normalized.includes("product")) return "product";
-  if (normalized.includes("variant")) return "duplicate";
-  if (normalized.includes("content") || normalized.includes("description")) return "note";
   return "duplicate";
 }
 
@@ -5658,6 +5716,7 @@ function getFaqRecommendedActionApplication(action, product = null, options = {}
     currentValueLabel: "Current Shopify description",
     currentValue: isMetafield ? "" : currentDescription,
     insertionPosition: isMetafield ? "" : "append",
+    faqItems: normalizeFaqPreviewItems(payload.faqItems),
     variants,
     variantId,
     defaultVariantId,
@@ -5738,6 +5797,35 @@ function formatFaqItemsForDisplay(faqItems = [], fallback = "") {
   return items
     .map((item) => `${item.question}\n${item.answer}`)
     .join("\n\n");
+}
+
+function normalizeFaqPreviewItems(faqItems = []) {
+  return (Array.isArray(faqItems) ? faqItems : [])
+    .map((item) => ({
+      question: String(item?.question || "").trim(),
+      answer: String(item?.answer || "").trim(),
+    }))
+    .filter((item) => item.question || item.answer);
+}
+
+function getFaqPreviewItems(application = {}, detailText = "") {
+  const structuredItems = normalizeFaqPreviewItems(application.faqItems);
+  if (structuredItems.length) return structuredItems;
+
+  const sections = String(detailText || "")
+    .split(/\n{2,}/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+
+  return sections
+    .map((section) => {
+      const lines = section.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+      return {
+        question: lines[0] || "",
+        answer: lines.slice(1).join("\n"),
+      };
+    })
+    .filter((item) => item.question && item.answer);
 }
 
 function getGroupedDescriptionActionApplication(action, product = null, options = {}) {
@@ -6697,16 +6785,6 @@ function getProductCheckedItems(product) {
   return items;
 }
 
-function formatCheckedEvidenceSummaryItem(item = {}) {
-  const label = String(item.label || "").toLowerCase();
-  const value = String(item.value || "").trim();
-  if (!value) return "";
-  if (label.includes("units sold")) return `${value} units sold`;
-  if (label.includes("returns")) return `${value} return${value === "1" ? "" : "s"}`;
-  if (label.includes("refund")) return `${value} refund${value === "1" ? "" : "s"}`;
-  return value;
-}
-
 function getRecommendedActionMode(action, index) {
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
@@ -6830,6 +6908,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const [watchlistLocalState, setWatchlistLocalState] = useState(null);
+  const [detailActionsOpen, setDetailActionsOpen] = useState(false);
   const [recommendedActionsCollapsed, setRecommendedActionsCollapsed] = useState(false);
   const [recommendedActionSort, setRecommendedActionSort] = useState("priority");
   const [recommendedActionsExpanded, setRecommendedActionsExpanded] = useState(false);
@@ -6865,6 +6944,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setDiagnosisConfirmation(null);
     setWatchlistConfirmation(null);
     setWatchlistLocalState(null);
+    setDetailActionsOpen(false);
     setRecommendedActionsCollapsed(false);
     setRecommendedActionSort("priority");
     setRecommendedActionsExpanded(false);
@@ -6920,6 +7000,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       setActionConfirmation(null);
       setDiagnosisConfirmation(null);
       setWatchlistConfirmation(null);
+      setDetailActionsOpen(false);
     }
   }, [actionData]);
 
@@ -6988,6 +7069,16 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const resolvingPending = pendingActionType === "mark-resolved" || pendingActionType === "mark-unresolved";
   const watchlistPending = pendingActionType === "add-to-watchlist" || pendingActionType === "remove-from-watchlist";
   const isWatched = watchlistLocalState ?? Boolean(detail.isWatched);
+  const productStatusLabel = resolved ? "Resolved" : detail.productStatusLabel;
+  const productStatusTone = resolved ? "success" : detail.productStatusTone;
+  const storeUrl = detail.shopifyStorefrontUrl || detail.shopifyAdminUrl || "";
+  const productMetaItems = [
+    ["Handle", detail.handle || "Unavailable"],
+    ["Type", detail.productType || "Product"],
+    ["Vendor", detail.vendor || "Unknown vendor"],
+    ["Collections", detail.collections.length ? detail.collections.join(", ") : "Uncategorized"],
+  ];
+  const analysisPillLabel = detail.lastAnalysis === "Not analyzed" ? "Not analyzed" : `Analyzed ${detail.lastAnalysis}`;
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       navigate(-1);
@@ -7196,158 +7287,148 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       <ScreenShell className="ppDashboard ppProductDetailScreen">
         <ProductDetailToast actionData={toastData} onDismiss={() => setToastData(null)} />
 
+        <button className="ppProductBackButton ppProductBackButtonStandalone" type="button" onClick={handleBack}>
+          <s-icon type="arrow-left" size="small"></s-icon>
+          Back to products
+        </button>
+
+        <section className="ppProductDetailHeroPanel" aria-label="Product overview">
+          <span className="ppProductHeroImageWrap">
+            <ProductArt
+              variant={detail.variant}
+              label={detail.title}
+              size="hero"
+              imageUrl={detail.imageUrl}
+              imageAlt={detail.imageAlt}
+            />
+            <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly={detail.hasFullDiagnosis} />
+          </span>
+          <div className="ppProductDetailHeroCopy">
+            <div className="ppProductTitleHeading">
+              <h1>{detail.title}</h1>
+            </div>
+            <div className="ppProductDetailStatusRow">
+              <span className={`ppProductStatusPill ppProductStatusPill-${productStatusTone}`}>{productStatusLabel}</span>
+              <span className="ppProductStatusPill ppProductStatusPill-analysis">{analysisPillLabel}</span>
+            </div>
+            <dl className="ppProductMetaLine">
+              {productMetaItems.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}:</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div className="ppProductHeaderActions">
+            {detail.diagnosisInProgress ? (
+              <span className="ppProductDiagnosisRunning">
+                <span className="ppMiniSpinner" aria-hidden="true" />
+                {getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)}
+              </span>
+            ) : (
+              <button className="ppSecondaryButton ppProductAnalyzeButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
+                <s-icon type="refresh" size="small"></s-icon>
+                {diagnosisPending ? "Queueing..." : detail.hasFullDiagnosis ? "Re-analyze" : detail.diagnosisButtonLabel}
+              </button>
+            )}
+            {storeUrl ? (
+              <a
+                className="ppProductStoreButton"
+                href={storeUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="View product on store"
+              >
+                <span>View on store</span>
+                <s-icon type="external" size="small"></s-icon>
+              </a>
+            ) : (
+              <span className="ppProductStoreButton isDisabled" aria-disabled="true">
+                <span>View on store</span>
+                <s-icon type="external" size="small"></s-icon>
+              </span>
+            )}
+            <ProductDetailActionsMenu
+              detail={detail}
+              product={product}
+              open={detailActionsOpen}
+              onToggle={() => setDetailActionsOpen((open) => !open)}
+              onClose={() => setDetailActionsOpen(false)}
+              onWatchlistToggle={handleRequestWatchlistToggle}
+              isWatched={isWatched}
+              watchlistPending={watchlistPending}
+              resolved={resolved}
+              resolvingPending={resolvingPending}
+            />
+          </div>
+        </section>
+
+        <div className="ppProductSummaryGrid" aria-label="Product signal summary">
+          <div className="ppRiskSnapshot">
+            <ProductInsightMetric
+              title="Product risk"
+              value={detail.riskScoreLabel}
+              detail={`${detail.riskScore} / 100`}
+              footnote={detail.riskTrendLabel}
+              tone={detail.riskTone}
+              sparkline={detail.riskTrend}
+              icon="alert-circle"
+            />
+            <ProductInsightMetric
+              title="Product Momentum"
+              value={detail.productMomentum ? detail.productMomentum.tier : "Needs deep diagnosis"}
+              detail={detail.productMomentum ? `${detail.productMomentum.score} / 100` : "Commercial momentum unavailable"}
+              footnote={detail.productMomentum
+                ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
+                : "Run product diagnosis to calculate recent sales strength."}
+              tone={detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral"}
+              sparkline={detail.productMomentum?.inputs.weeklyUnitsLast4Weeks || []}
+              icon="wand"
+            />
+            <ProductInsightMetric
+              title="Diagnosis confidence"
+              value={detail.confidenceLabel}
+              detail={`${detail.confidence}%`}
+              footnote={`Based on ${detail.signalCount} signals`}
+              tone="green"
+              progress={detail.confidence}
+              icon="shield-check-mark"
+            />
+            <ProductInsightMetric
+              title="Financial exposure"
+              value={formatMoney(detail.estimatedImpact)}
+              detail={`${formatMoney(detail.marginAtRisk)} margin at risk`}
+              footnote={getFinancialExposureFootnote(detail)}
+              tone="red"
+              icon="cash-dollar"
+            />
+            <ProductInsightMetric
+              title="Main issue"
+              value={detail.issueCategory}
+              detail={detail.issueDetail}
+              tone={detail.issueTone}
+              icon="product"
+            />
+          </div>
+        </div>
+
         <div className="ppProductDetailLayout">
           <main className="ppProductDetailPrimary">
-            <ProductDetailSectionLabel number="1" title="Overview" subtitle="The essentials at a glance" />
-            <section className="ppProductDetailOverviewCard" aria-label="Product overview">
-              <div className="ppProductDetailHeroPanel">
-                <div className="ppProductDetailHeader">
-                  <button className="ppProductBackButton" type="button" onClick={handleBack}>
-                    <s-icon type="arrow-left" size="small"></s-icon>
-                    Back to products
-                  </button>
-                  <div className="ppProductTitleRow">
-                    <span className="ppProductHeroImageWrap">
-                      <ProductArt
-                        variant={detail.variant}
-                        label={detail.title}
-                        size="hero"
-                        imageUrl={detail.imageUrl}
-                        imageAlt={detail.imageAlt}
-                      />
-                      <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly={detail.hasFullDiagnosis} />
-                    </span>
-                    <div>
-                      <div className="ppProductTitleHeading">
-                        <h1>{detail.title}</h1>
-                      </div>
-                      <p>
-                        {detail.hasFullDiagnosis ? "AI Product Diagnosis" : detail.analysisDepth === "quickscan" ? "QuickScan product signals" : "ProductPulse status"}
-                        {" - Last analyzed "}
-                        {detail.lastAnalysis}
-                      </p>
-                      <div className="ppBadgeRow">
-                        <InlineBadge tone={resolved ? "success" : detail.riskBadgeTone} icon={resolved ? "check" : "alert-circle"}>
-                          {resolved ? "Resolved" : detail.riskLabel}
-                        </InlineBadge>
-                        {detail.showIssueBadge && <InlineBadge tone="warning" icon="product">{detail.issueBadge}</InlineBadge>}
-                        {detail.showEvidenceBadge && <InlineBadge tone="success" icon="star">{detail.evidenceLabel}</InlineBadge>}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="ppProductHeaderActions">
-                    {detail.shopifyAdminUrl && (
-                      <a
-                        className="ppProductExternalButton"
-                        href={detail.shopifyAdminUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label="Open product in Shopify admin"
-                      >
-                        <s-icon type="external" size="small"></s-icon>
-                      </a>
-                    )}
-                    <button
-                      className={`ppProductExternalButton ppProductWatchlistButton ${isWatched ? "isWatched" : ""}`.trim()}
-                      type="button"
-                      aria-label={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
-                      title={isWatched ? "Remove product from Watchlist" : "Add product to Watchlist"}
-                      disabled={watchlistPending || !detail.productGid}
-                      onClick={handleRequestWatchlistToggle}
-                    >
-                      {isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
-                    </button>
-                    {detail.diagnosisInProgress ? (
-                      <span className="ppProductDiagnosisRunning">
-                        <span className="ppMiniSpinner" aria-hidden="true" />
-                        {getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)}
-                      </span>
-                    ) : (
-                      <button className="ppPrimaryButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
-                        <s-icon type="wand" size="small"></s-icon>
-                        {diagnosisPending ? "Queueing..." : detail.diagnosisButtonLabel}
-                      </button>
-                    )}
-                    <Form method="post">
-                      <input type="hidden" name="_action" value={resolved ? "mark-unresolved" : "mark-resolved"} />
-                      <input type="hidden" name="productId" value={product.slug} />
-                      <button className={`ppSecondaryButton ppResolveButton ${resolved ? "isResolved" : "isUnresolved"}`.trim()} type="submit" disabled={!detail.canResolve || resolvingPending}>
-                        <s-icon type={resolved ? "check-circle" : "check"} size="small"></s-icon>
-                        {resolvingPending ? "Saving..." : resolved ? "Mark unresolved" : "Mark as resolved"}
-                      </button>
-                    </Form>
-                  </div>
-                </div>
-
-                <div className="ppProductSummaryGrid">
-                  <s-section padding="none">
-                    <div className="ppRiskSnapshot">
-                      <ProductInsightMetric
-                        title="Product risk"
-                        value={detail.riskScoreLabel}
-                        detail={`${detail.riskScore} / 100`}
-                        footnote={detail.riskTrendLabel}
-                        tone={detail.riskTone}
-                        sparkline={detail.riskTrend}
-                      />
-                      <ProductInsightMetric
-                        title="Product Momentum"
-                        value={detail.productMomentum ? detail.productMomentum.tier : "Needs deep diagnosis"}
-                        detail={detail.productMomentum ? `${detail.productMomentum.score} / 100` : "Commercial momentum unavailable"}
-                        footnote={detail.productMomentum
-                          ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
-                          : "Run product diagnosis to calculate recent sales strength."}
-                        tone={detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral"}
-                        sparkline={detail.productMomentum?.inputs.weeklyUnitsLast4Weeks || []}
-                      />
-                      <ProductInsightMetric
-                        title="Diagnosis confidence"
-                        value={detail.confidenceLabel}
-                        detail={`${detail.confidence}%`}
-                        footnote={`Based on ${detail.signalCount} signals`}
-                        tone="green"
-                        progress={detail.confidence}
-                      />
-                      <ProductInsightMetric
-                        title="Financial exposure"
-                        value={formatMoney(detail.estimatedImpact)}
-                        detail={`${formatMoney(detail.marginAtRisk)} margin at risk`}
-                        footnote={getFinancialExposureFootnote(detail)}
-                        tone="red"
-                      />
-                      <ProductInsightMetric
-                        title="Main issue"
-                        value={detail.issueCategory}
-                        detail={detail.issueDetail}
-                        tone={detail.issueTone}
-                        icon="product"
-                      />
-                      <ProductInsightMetric
-                        title="Recommended fix"
-                        value={detail.recommendedFix}
-                        detail={detail.recommendedFixDetail}
-                      />
-                    </div>
-                  </s-section>
-
-                  <s-section padding="none">
-                    <div className="ppMainFindingCard">
-                      <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
-                      <div>
-                        <span>AI Summary</span>
-                        <h2>{detail.mainFindingTitle}</h2>
-                        <div className="ppMainFindingText">
-                          {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
-                            <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </s-section>
+            <div className="ppMainFindingCard">
+              <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
+              <div>
+                <span>AI Summary</span>
+                <h2>{detail.mainFindingTitle}</h2>
+                <div className="ppMainFindingText">
+                  {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
+                    <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
+                  ))}
                 </div>
               </div>
+            </div>
 
-              <div className="ppProductPanel ppIssuesOverviewPanel">
+            <div className="ppProductPanel ppIssuesOverviewPanel">
                 <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
                 <div className="ppIssuesTableWrap">
                   <table className="ppIssuesTable">
@@ -7415,10 +7496,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   </table>
                 </div>
               </div>
-            </section>
 
-            <ProductOrderActivityPanel detail={detail} />
-            <ProductReturnRatePredictionPanel detail={detail} />
+            {!detail.hasFullDiagnosis ? (
+              <ProductDeepDiagnosisDataPlaceholder detail={detail} />
+            ) : (detail.hasMonthlyOrderActivity || detail.hasReturnRatePrediction) ? (
+              <div className={`ppProductDeepResearchGrid ${detail.hasMonthlyOrderActivity && detail.hasReturnRatePrediction ? "" : "isSingle"}`.trim()}>
+                {detail.hasMonthlyOrderActivity && <ProductOrderActivityPanel detail={detail} />}
+                {detail.hasReturnRatePrediction && <ProductReturnRatePredictionPanel detail={detail} />}
+              </div>
+            ) : null}
           </main>
 
           <aside className="ppProductDetailSidebar">
@@ -7621,13 +7707,31 @@ function ProductDetailSectionLabel({ number, title, subtitle }) {
   );
 }
 
+function ProductDeepDiagnosisDataPlaceholder({ detail }) {
+  return (
+    <section className="ppProductDeepDiagnosisPlaceholder" aria-label="Full diagnosis required for commercial charts">
+      <span className="ppProductDeepDiagnosisPlaceholderIcon" aria-hidden="true">
+        <s-icon type="wand" size="large"></s-icon>
+      </span>
+      <div>
+        <span>Full diagnosis needed</span>
+        <h2>Commercial charts are not available yet</h2>
+        <p>
+          Monthly order activity and return-rate prediction are unlocked after a full product diagnosis.
+          Run the full diagnosis for {detail.title} to calculate order history, return behavior and forward-looking return risk from stored Shopify evidence.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function ProductOrderActivityPanel({ detail }) {
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
   const months = activity.months || [];
   const summary = activity.summary || {};
   const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders);
   const maxOrders = Math.max(Number(summary.maxOrders || 0), ...months.map((month) => Math.max(month.orders, month.returnedOrders, month.refundedOrders)), 1);
-  const windowLabel = activity.windowDays ? `${activity.windowDays}-day Shopify order window` : "Stored Shopify order window";
+  const windowLabel = activity.windowDays ? `${activity.windowDays}-day window` : "Stored window";
   const rangeLabel = getMonthlyOrderActivityRangeLabel(months);
 
   return (
@@ -7701,46 +7805,43 @@ function ProductReturnRatePredictionPanel({ detail }) {
       </div>
 
       {hasPrediction ? (
-        <div className="ppReturnPredictionChartWrap">
-          <div className="ppReturnPredictionPlot">
-            <div className="ppReturnPredictionYAxis" aria-hidden="true">
-              <span className="ppReturnPredictionYAxisTitle">Return rate</span>
-              {chart.yTicks.map((tick) => (
-                <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
-              ))}
+        <>
+          <div className="ppReturnPredictionChartWrap">
+            <div className="ppReturnPredictionPlot">
+              <div className="ppReturnPredictionYAxis" aria-hidden="true">
+                <span className="ppReturnPredictionYAxisTitle">Return rate</span>
+                {chart.yTicks.map((tick) => (
+                  <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
+                ))}
+              </div>
+              <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
+                {chart.yTicks.map((tick) => (
+                  <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
+                ))}
+                {chart.monthTicks.map((tick) => (
+                  <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
+                ))}
+                {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
+                {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
+                {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
+              </svg>
+              <div className="ppReturnPredictionXAxis">
+                {chart.monthTicks.map((tick) => (
+                  <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
+                ))}
+                {chart.boundaryX > 0 && <strong style={{ left: `${chart.boundaryX}%` }}>Today</strong>}
+              </div>
             </div>
-            <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
-              {chart.yTicks.map((tick) => (
-                <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
-              ))}
-              {chart.monthTicks.map((tick) => (
-                <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
-              ))}
-              {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
-              {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
-              {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
-            </svg>
-            <div className="ppReturnPredictionXAxis">
-              {chart.monthTicks.map((tick) => (
-                <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
-              ))}
-              {chart.boundaryX > 0 && <strong style={{ left: `${chart.boundaryX}%` }}>Today</strong>}
+            <div className="ppReturnPredictionLegend">
+              <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
+              <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
             </div>
-          </div>
-          <div className="ppReturnPredictionLegend">
-            <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
-            <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
           </div>
           <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
-        </div>
+        </>
       ) : (
         <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
       )}
-
-      <div className={`ppReturnPredictionActionNote ppReturnPredictionActionNote-${actionCopy.tone}`}>
-        <s-icon type={actionCopy.icon} size="small"></s-icon>
-        <span>{actionCopy.detail}</span>
-      </div>
     </section>
   );
 }
@@ -7764,11 +7865,11 @@ function ProductMomentumPanel({ detail }) {
   }
 
   const componentRows = [
-    ["Current velocity", momentum.components.currentVelocityScore],
-    ["Growth", momentum.components.growthScore],
-    ["Catalog share", momentum.components.catalogShareScore],
-    ["Trend consistency", momentum.components.trendConsistencyScore],
-    ["Recency", momentum.components.recencyScore],
+    { label: "Current velocity", value: momentum.components.currentVelocityScore, detail: "Recent units and revenue vs catalog" },
+    { label: "Growth", value: momentum.components.growthScore, detail: "Last 30 days vs previous 30 days" },
+    { label: "Catalog share", value: momentum.components.catalogShareScore, detail: "Product share vs its baseline" },
+    { label: "Trend consistency", value: momentum.components.trendConsistencyScore, detail: "Weekly activity and direction" },
+    { label: "Recency", value: momentum.components.recencyScore, detail: "How recently orders happened" },
   ];
 
   return (
@@ -7787,17 +7888,15 @@ function ProductMomentumPanel({ detail }) {
           <span>{momentum.direction}</span>
           <p>{momentum.display.growthLabel} vs previous 30 days · {momentum.display.catalogPositionLabel}</p>
         </div>
-        <div className="ppProductMomentumBars" aria-label="Sales units over the last 4 weeks">
-          <SignalBars tone={getProductMomentumBarsTone(momentum)} values={momentum.inputs.weeklyUnitsLast4Weeks} />
-          <small>{momentum.display.trendLabel}</small>
-        </div>
+        <ProductMomentumTrendCard momentum={momentum} />
       </div>
       <div className="ppProductMomentumBreakdown">
-        {componentRows.map(([label, value]) => (
+        {componentRows.map(({ label, value, detail: componentDetail }) => (
           <div className="ppProductMomentumComponent" key={label}>
             <span>{label}</span>
             <strong>{formatInteger(value)}</strong>
             <div aria-hidden="true"><span style={{ width: `${clampNumber(value, 0, 100)}%` }} /></div>
+            <small>{componentDetail}</small>
           </div>
         ))}
       </div>
@@ -7807,6 +7906,66 @@ function ProductMomentumPanel({ detail }) {
       </div>
     </section>
   );
+}
+
+function ProductMomentumTrendCard({ momentum }) {
+  const rows = getProductMomentumWeeklyRows(momentum);
+  return (
+    <div className="ppProductMomentumTrendCard">
+      <div className="ppProductMomentumTrendHeader">
+        <span>Last 4 weeks</span>
+        <strong>{momentum.display.trendLabel}</strong>
+      </div>
+      {rows.length ? (
+        <div className="ppProductMomentumTrendBars" role="img" aria-label={`Weekly units for ${momentum.tier} Product Momentum`}>
+          {rows.map((row) => (
+            <div className={row.isLatest ? "isLatest" : ""} key={row.label}>
+              <strong>{formatInteger(row.value)}</strong>
+              <span aria-hidden="true">{row.value > 0 ? <i style={{ height: `${row.height}%`, width: "100%" }} /> : null}</span>
+              <small>{row.label}</small>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="ppProductMomentumTrendEmpty">Weekly Shopify order buckets are not available for this product yet.</p>
+      )}
+      <p>{getProductMomentumWhyText(momentum)}</p>
+    </div>
+  );
+}
+
+function getProductMomentumWeeklyRows(momentum = {}) {
+  const values = Array.isArray(momentum.inputs?.weeklyUnitsLast4Weeks)
+    ? momentum.inputs.weeklyUnitsLast4Weeks.map((value) => Math.max(0, Number(value || 0)))
+    : [];
+  const max = Math.max(...values, 1);
+  return values.map((value, index) => ({
+    label: ["W-3", "W-2", "W-1", "Now"][index] || `W${index + 1}`,
+    value,
+    height: value > 0 ? clampNumber((value / max) * 100, 14, 100) : 0,
+    isLatest: index === values.length - 1,
+  }));
+}
+
+function getProductMomentumWhyText(momentum = {}) {
+  const inputs = momentum.inputs || {};
+  const weekly = Array.isArray(inputs.weeklyUnitsLast4Weeks) ? inputs.weeklyUnitsLast4Weeks.map((value) => Number(value || 0)) : [];
+  const firstWeek = weekly.length ? weekly[0] : 0;
+  const latestWeek = weekly.length ? weekly[weekly.length - 1] : 0;
+  const weeklyDirection = latestWeek > firstWeek
+    ? `weekly units rose from ${formatInteger(firstWeek)} to ${formatInteger(latestWeek)}`
+    : latestWeek < firstWeek
+      ? `weekly units cooled from ${formatInteger(firstWeek)} to ${formatInteger(latestWeek)}`
+      : weekly.length
+        ? `weekly units held at ${formatInteger(latestWeek)}`
+        : "weekly order buckets are missing";
+  const previousUnits = Number(inputs.unitsPrevious30Days || 0);
+  const currentUnits = Number(inputs.unitsLast30Days || 0);
+  const growthText = previousUnits > 0
+    ? `${formatInteger(currentUnits)} units in the last 30 days vs ${formatInteger(previousUnits)} before`
+    : `${formatInteger(currentUnits)} units in the last 30 days with limited prior baseline`;
+  const catalogPosition = String(momentum.display?.catalogPositionLabel || "catalog baseline pending").toLowerCase();
+  return `${momentum.tier} because ${growthText}, catalog position is ${catalogPosition}, and ${weeklyDirection}.`;
 }
 
 function getMomentumBadgeTone(momentum = {}) {
@@ -7904,37 +8063,21 @@ function buildReturnPredictionYAxisTicks(min, max, range) {
 function getReturnRatePredictionActionCopy(adjustment = null) {
   if (!adjustment) {
     return {
-      tone: "neutral",
-      icon: "info",
       short: "No action adjustment",
-      detail: "Prediction uses return history only because no recommendation status was available for this product.",
     };
   }
-  const pending = Number(adjustment.pending || 0);
-  const applied = Number(adjustment.applied || 0);
-  const reviewed = Number(adjustment.reviewed || 0);
-  const dismissed = Number(adjustment.dismissed || 0);
   if (adjustment.direction === "improving") {
     return {
-      tone: "improving",
-      icon: "check",
       short: "Improved by handled actions",
-      detail: `${applied} applied and ${reviewed} reviewed recommendations reduce the projected return-rate path.`,
     };
   }
   if (adjustment.direction === "worsening") {
     return {
-      tone: "worsening",
-      icon: "alert-circle",
       short: "Worse with open actions",
-      detail: `${pending} open recommendation${pending === 1 ? "" : "s"} remain unresolved. ProductPulse only raises the forecast when return history is already trending up; unresolved actions do not add pressure by themselves. ${dismissed ? `${dismissed} dismissed action${dismissed === 1 ? "" : "s"} treated as neutral.` : ""}`.trim(),
     };
   }
   return {
-    tone: "neutral",
-    icon: "info",
     short: "Neutral action impact",
-    detail: "Recommendation status does not materially change the projected return-rate path.",
   };
 }
 
@@ -7973,7 +8116,7 @@ function OrderActivityComboChart({ months = [], maxOrders = 1 }) {
         <div className="ppOrderActivityGridLines" aria-hidden="true">
           {ticks.map((tick) => <span key={tick.value} style={{ top: `${tick.y}%` }} />)}
         </div>
-        <div className="ppOrderActivityBars" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(34px, 1fr))` }}>
+        <div className="ppOrderActivityBars" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(0, 1fr))` }}>
           {months.map((month) => (
             <OrderActivityMonthBar key={month.key || month.label} month={month} maxOrders={axisMax} />
           ))}
@@ -7983,7 +8126,7 @@ function OrderActivityComboChart({ months = [], maxOrders = 1 }) {
           {refundPath && <path className="ppOrderActivityLine ppOrderActivityLineRefunds" d={refundPath} />}
         </svg>
       </div>
-      <div className="ppOrderActivityXAxis" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(34px, 1fr))` }}>
+      <div className="ppOrderActivityXAxis" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(0, 1fr))` }}>
         {months.map((month) => (
           <span key={month.key || month.label} title={`${month.label}: ${formatInteger(month.orders)} orders`}>
             <b>{formatInteger(month.orders)}</b>
@@ -8088,7 +8231,6 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
   const dismissed = Number(adjustment.dismissed || 0);
   const total = Number(adjustment.total || pending + applied + reviewed + dismissed || 0);
   const handled = Number(adjustment.handled || applied + reviewed + dismissed);
-  const beneficialHandled = Number(adjustment.beneficialHandled || applied + reviewed);
   const handledPercent = total ? Math.round((handled / total) * 100) : 0;
   const shift = Number(adjustment.adjustmentPoints || 0);
   const direction = shift < 0 ? "improving" : shift > 0 ? "worsening" : "neutral";
@@ -8112,11 +8254,7 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
         <span><b>{dismissed}</b> dismissed</span>
         <span><b>{pending}</b> open</span>
       </div>
-      <p>
-        {beneficialHandled > 0
-          ? `${beneficialHandled} completed recommendation${beneficialHandled === 1 ? "" : "s"} pull the forecast downward after refresh.`
-          : "Open recommendations are neutral: they do not add extra return-rate pressure, but they also do not lower the forecast until applied or reviewed."}
-      </p>
+      <p>Applied or reviewed recommendations pull the forecast downward after the next diagnosis refresh.</p>
     </div>
   );
 }
@@ -8132,64 +8270,78 @@ function getMonthlyOrderActivityRangeLabel(months = []) {
 }
 
 function ProductEvidenceSummaryPanel({ detail, onSelectEvidence }) {
-  const evidenceRows = detail.evidenceSources.slice(0, 5);
-  const dataQualityGood = detail.evidenceSources.length >= 3 && detail.checkedItems.length > 0;
-  const dataQualityLabel = dataQualityGood ? "Good" : detail.evidenceSources.length > 0 ? "Partial" : "Missing";
-  const dataQualityTone = dataQualityGood ? "success" : detail.evidenceSources.length > 0 ? "warning" : "critical";
-  const checkedItems = detail.checkedItems.length
-    ? detail.checkedItems
-    : [{ icon: "product", label: "Shopify product data", value: "0 variants", detail: "No product-specific checks stored yet." }];
-  const checkedSummary = checkedItems.slice(0, 3).map(formatCheckedEvidenceSummaryItem).filter(Boolean).join(", ");
+  const evidenceRows = detail.evidenceSources.slice(0, 7);
 
   return (
     <div className="ppProductEvidenceSummaryPanel">
       <div className="ppEvidenceSummaryList">
         {evidenceRows.map((source, index) => (
-          <button className="ppEvidenceSummaryRow" type="button" key={source.title} onClick={() => onSelectEvidence(index)} title={source.summary}>
-            <span className={`ppEvidenceSummaryIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
-              <s-icon type={source.icon} size="small"></s-icon>
-            </span>
-            <span>
-              <strong>{source.title}</strong>
-              <em>{formatInteger(source.points.length)} signal{source.points.length === 1 ? "" : "s"}</em>
-              <small>{source.summary}</small>
-            </span>
-            <s-icon type="chevron-right" size="small"></s-icon>
-          </button>
+          <EvidenceSummaryCompactRow
+            key={source.title}
+            source={source}
+            onSelect={() => onSelectEvidence(index)}
+          />
         ))}
         {evidenceRows.length === 0 && (
           <div className="ppEvidenceSummaryEmpty">
             <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
           </div>
         )}
-        <button className="ppEvidenceSummaryRow" type="button" onClick={() => onSelectEvidence(0)}>
-          <span className="ppEvidenceSummaryIcon ppEvidenceTone-insight" aria-hidden="true">
-            <s-icon type={checkedItems[0]?.icon || "product"} size="small"></s-icon>
-          </span>
-          <span>
-            <strong>Product data checked</strong>
-            <em>{checkedSummary}</em>
-            <small><span>What ProductPulse checked</span> for this product.</small>
-          </span>
-          <s-icon type="chevron-right" size="small"></s-icon>
-        </button>
       </div>
 
-      <div className={`ppEvidenceDataQuality ppEvidenceDataQuality-${dataQualityTone}`}>
-        <div>
-          <strong>Data quality <span>{dataQualityLabel}</span></strong>
-          <p>
-            {dataQualityGood
-              ? "All required product diagnostic sources have stored evidence or checks."
-              : "Some diagnostic sources are unavailable or have limited product-level evidence."}
-          </p>
-        </div>
-        <button type="button" onClick={() => onSelectEvidence(0)}>
-          View all sources
+      {detail.evidenceSources.length > 0 && (
+        <button className="ppEvidenceSummaryViewAll" type="button" onClick={() => onSelectEvidence(0)}>
+          View all sources ({formatInteger(detail.evidenceSources.length)})
           <s-icon type="chevron-right" size="small"></s-icon>
         </button>
-      </div>
+      )}
     </div>
+  );
+}
+
+function EvidenceSummaryCompactRow({ source, onSelect }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const signalCount = Number(source.points?.length || 0);
+  const handleOpen = () => setOpen(true);
+  const handleClose = () => setOpen(false);
+
+  return (
+    <>
+      <button
+        className="ppEvidenceSummaryRow"
+        type="button"
+        ref={triggerRef}
+        onClick={onSelect}
+        onBlur={handleClose}
+        onFocus={handleOpen}
+        onMouseEnter={handleOpen}
+        onMouseLeave={handleClose}
+      >
+        <span className={`ppEvidenceSummaryIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
+          <ProductPulseGlyph type={source.icon} />
+        </span>
+        <strong>{source.title}</strong>
+        <em>{formatInteger(signalCount)}</em>
+      </button>
+      <FloatingTablePopover
+        anchorRef={triggerRef}
+        open={open}
+        className="ppEvidenceSummaryPopover"
+        width={300}
+        estimatedHeight={132}
+        placement="bottom-end"
+        onMouseEnter={handleOpen}
+        onMouseLeave={handleClose}
+      >
+        <strong>{source.title}</strong>
+        <p>{source.summary}</p>
+        {source.points?.slice(0, 2).map((point) => (
+          <span className="ppEvidenceSummaryPopoverPoint" key={point}>{point}</span>
+        ))}
+        <small>{formatInteger(signalCount)} signal{signalCount === 1 ? "" : "s"} stored</small>
+      </FloatingTablePopover>
+    </>
   );
 }
 
@@ -8627,6 +8779,92 @@ function DashboardKpiCard({ kpi }) {
 }
 
 function ProductPulseGlyph({ type }) {
+  if (type === "ai-evidence-synthesis") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-aiEvidence" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M5.5 15.5C7.2 14.1 8.55 12.35 9.6 10.25C10.1 9.25 11.55 9.25 12.05 10.25L12.35 10.85C12.85 11.85 14.25 11.95 14.9 11.05L16.8 8.45" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.5 18H18.5" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+        <path d="M17.8 3.7L18.35 5.25L19.9 5.8L18.35 6.35L17.8 7.9L17.25 6.35L15.7 5.8L17.25 5.25L17.8 3.7Z" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M6.4 4.6L6.75 5.55L7.7 5.9L6.75 6.25L6.4 7.2L6.05 6.25L5.1 5.9L6.05 5.55L6.4 4.6Z" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "customer-language-analysis") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-customerLanguage" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M6 7.5C6 6.11929 7.11929 5 8.5 5H15.5C16.8807 5 18 6.11929 18 7.5V12.5C18 13.8807 16.8807 15 15.5 15H11L7.5 18V15.5C6.67157 15.5 6 14.8284 6 14V7.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 9H14.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M9 12H12.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="17.5" cy="17.5" r="2.5" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M19.3 19.3L21 21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "shopify-returns") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-shopifyReturns" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M8.5 8.5H16.2C18.35 8.5 20.1 10.25 20.1 12.4C20.1 14.55 18.35 16.3 16.2 16.3H9" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M9 5.5L6 8.5L9 11.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10.4 16.3H7.8C5.65 16.3 3.9 14.55 3.9 12.4C3.9 11.25 4.4 10.22 5.2 9.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M14.4 13.3L17.4 16.3L14.4 19.3" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "csv-reviews") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-csvReviews" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M8 4.75H14L18 8.75V18C18 19.1046 17.1046 20 16 20H8C6.89543 20 6 19.1046 6 18V6.75C6 5.64543 6.89543 4.75 8 4.75Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M14 4.75V8.75H18" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M12 10.2L12.7416 11.7024L14.4 11.9434L13.2 13.1136L13.4832 14.7651L12 13.985L10.5168 14.7651L10.8 13.1136L9.6 11.9434L11.2584 11.7024L12 10.2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "shopify-refunds") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-shopifyRefunds" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M14.6 9.2C14.1 8.5 13.2 8 12.1 8C10.7 8 9.8 8.7 9.8 9.8C9.8 10.9 10.8 11.4 12.3 11.7C13.8 12 14.8 12.5 14.8 13.8C14.8 15 13.7 16 12 16C10.7 16 9.6 15.5 8.9 14.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M12 6.9V8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M12 16V17.1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M7.4 14.5L8.9 14.6L8.8 16.1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "shopify-product") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-shopifyProduct" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M12 3.8L18.6 7.55V15.95L12 19.8L5.4 15.95V7.55L12 3.8Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+        <path d="M5.6 7.7L12 11.45L18.4 7.7" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+        <path d="M12 11.45V19.4" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+        <path d="M9.1 5.45L15.6 9.2" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" opacity="0.9" />
+        <path d="M15.2 13.2L16.1 12.3L17 13.2" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M16.1 12.3V15.2" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "shopify-orders") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-shopifyOrders" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M8 7V6.1C8 3.83563 9.79086 2 12 2C14.2091 2 16 3.83563 16 6.1V7" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+        <path d="M6.6 7H17.4C18.2837 7 19 7.71634 19 8.6V18.3C19 19.1837 18.2837 19.9 17.4 19.9H6.6C5.71634 19.9 5 19.1837 5 18.3V8.6C5 7.71634 5.71634 7 6.6 7Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+        <path d="M8.6 11H15.4" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
+        <path d="M8.6 14H13" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
+        <path d="M15.3 14.1L16.1 14.9L17.5 13.4" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "variants") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-variants" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M7.5 5.2H10.5C11.3284 5.2 12 5.87157 12 6.7V9.7C12 10.5284 11.3284 11.2 10.5 11.2H7.5C6.67157 11.2 6 10.5284 6 9.7V6.7C6 5.87157 6.67157 5.2 7.5 5.2Z" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M13.5 12.8H16.5C17.3284 12.8 18 13.4716 18 14.3V17.3C18 18.1284 17.3284 18.8 16.5 18.8H13.5C12.6716 18.8 12 18.1284 12 17.3V14.3C12 13.4716 12.6716 12.8 13.5 12.8Z" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M15 5.2H18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M16.5 3.7V6.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M6 16H9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M7.5 14.5V17.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
   if (type === "thumb-up" || type === "thumb-down") {
     return (
       <svg className={`ppThumbGlyph ppThumbGlyph-${type === "thumb-down" ? "down" : "up"}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -8664,7 +8902,7 @@ function ProductPulseGlyph({ type }) {
       </svg>
     );
   }
-  return <s-icon type={type}></s-icon>;
+  return <s-icon type={type || "info"}></s-icon>;
 }
 
 function DashboardIcon({ type, tone = "blue", size = "base" }) {
@@ -8881,7 +9119,7 @@ function DashboardCoverageSourcePill({ source }) {
       aria-label={`${source.label}: ${connected ? "connected" : "not connected"}`}
     >
       <span className="ppCoverageSourceIcon" aria-hidden="true">
-        <s-icon type={source.icon || "check"} size="small"></s-icon>
+        <ProductPulseGlyph type={source.icon || "check"} />
       </span>
       <span>{source.label}</span>
       <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppCoverageSourcePopover" width={300} estimatedHeight={130}>
@@ -9505,19 +9743,138 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
   );
 }
 
-function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline }) {
+function ProductDetailActionsMenu({
+  detail,
+  product,
+  open,
+  onToggle,
+  onClose,
+  onWatchlistToggle,
+  isWatched,
+  watchlistPending,
+  resolved,
+  resolvingPending,
+}) {
+  const triggerRef = useRef(null);
+  const [copied, setCopied] = useState(false);
+  const productId = detail.slug || detail.handle || product?.slug || product?.handle || "";
+  const handle = detail.handle || product?.handle || productId;
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (target instanceof Node && triggerRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(".ppProductDetailActionMenu")) return;
+      onClose?.();
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
+
+  const handleCopy = async () => {
+    try {
+      await window.navigator?.clipboard?.writeText(handle);
+    } catch {
+      // Clipboard may be unavailable inside embedded Shopify surfaces.
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+    onClose?.();
+  };
+
+  const handleWatchlistClick = () => {
+    onClose?.();
+    onWatchlistToggle?.();
+  };
+
+  return (
+    <span className="ppActionMenuWrap ppProductDetailActionMenuWrap" ref={triggerRef}>
+      <button
+        className="ppProductOverflowButton"
+        type="button"
+        aria-expanded={open}
+        aria-label={`More actions for ${detail.title}`}
+        onClick={onToggle}
+      >
+        <s-icon type="menu-horizontal" size="small"></s-icon>
+      </button>
+      {open && (
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu ppProductDetailActionMenu" width={236} estimatedHeight={214} placement="bottom-end" role="menu">
+          <span className="ppProductDetailActionMenuHeader">Product actions</span>
+          <button
+            role="menuitem"
+            type="button"
+            disabled={watchlistPending || !detail.productGid}
+            onClick={handleWatchlistClick}
+          >
+            {isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+            {isWatched ? "Remove from Watchlist" : "Add to Watchlist"}
+          </button>
+          {resolved ? (
+            <Form method="post" role="none">
+              <input type="hidden" name="_action" value="mark-unresolved" />
+              <input type="hidden" name="productId" value={productId} />
+              <button role="menuitem" type="submit" disabled={!detail.canResolve || resolvingPending} onClick={onClose}>
+                <s-icon type="x" size="small"></s-icon>
+                {resolvingPending ? "Saving..." : "Mark unresolved"}
+              </button>
+            </Form>
+          ) : (
+            <Form method="post" role="none">
+              <input type="hidden" name="_action" value="mark-resolved" />
+              <input type="hidden" name="productId" value={productId} />
+              <button role="menuitem" type="submit" disabled={!detail.canResolve || resolvingPending} onClick={onClose}>
+                <s-icon type="check" size="small"></s-icon>
+                {resolvingPending ? "Saving..." : "Mark as resolved"}
+              </button>
+            </Form>
+          )}
+          <button role="menuitem" type="button" onClick={handleCopy}>
+            <s-icon type="duplicate" size="small"></s-icon>
+            {copied ? "Copied handle" : "Copy handle"}
+          </button>
+          {detail.shopifyAdminUrl && (
+            <a role="menuitem" href={detail.shopifyAdminUrl} target="_blank" rel="noreferrer" onClick={onClose}>
+              <s-icon type="external" size="small"></s-icon>
+              Open in Shopify admin
+            </a>
+          )}
+        </FloatingTablePopover>
+      )}
+    </span>
+  );
+}
+
+function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline, icon }) {
   const trendValues = Array.isArray(sparkline) ? sparkline : [];
   const helpText = getInsightMetricHelp(title);
+  const metricIcon = icon || getInsightMetricIcon(title);
 
   return (
     <div className={`ppProductInsight ppProductInsight-${tone}`}>
-      <span>
-        {title}
-        <button className="ppInsightInfoWrap" type="button" aria-label={`What ${title} means`}>
-          <s-icon type="info" size="small" color="subdued"></s-icon>
-          <span className="ppInsightTooltip" role="tooltip">{helpText}</span>
-        </button>
-      </span>
+      <div className="ppProductInsightTop">
+        <span className="ppProductInsightIcon" aria-hidden="true">
+          <ProductPulseGlyph type={metricIcon} />
+        </span>
+        <span>
+          {title}
+          <button className="ppInsightInfoWrap" type="button" aria-label={`What ${title} means`}>
+            <s-icon type="info" size="small" color="subdued"></s-icon>
+            <span className="ppInsightTooltip" role="tooltip">{helpText}</span>
+          </button>
+        </span>
+      </div>
       <strong>{value}</strong>
       <small>{renderAnalysisText(detail)}</small>
       {trendValues.length > 0 && <MiniTrend tone={getTrendTone(trendValues)} size="large" values={trendValues} />}
@@ -9552,6 +9909,23 @@ function getInsightMetricHelp(title) {
       return "The safest next action ProductPulse can recommend from deterministic evidence before any deeper AI review.";
     default:
       return "Product-specific signal summary calculated from the evidence stored for this product.";
+  }
+}
+
+function getInsightMetricIcon(title) {
+  switch (title) {
+    case "Product risk":
+      return "alert-circle";
+    case "Product Momentum":
+      return "wand";
+    case "Diagnosis confidence":
+      return "shield-check-mark";
+    case "Financial exposure":
+      return "cash-dollar";
+    case "Main issue":
+      return "product";
+    default:
+      return "info";
   }
 }
 
@@ -9590,7 +9964,7 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
             onClick={() => onSelectEvidence(index)}
           >
             <span className={`ppEvidenceTabIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
-              <s-icon type={source.icon} size="small"></s-icon>
+              <ProductPulseGlyph type={source.icon} />
             </span>
             <span>{source.title}</span>
             <strong>{source.points.length}</strong>
@@ -9879,6 +10253,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
   const repeatedLanguage = getReviewRepeatedLanguage(product.metrics?.textInsights || {}, source.title);
   const repeatedLanguageTone = getEvidencePhraseTone(repeatedLanguage, reviewStats.negativeCount ? "red" : "teal");
   const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points, reviewStats, source.title);
+  const sentimentTrend = getReviewSentimentTrendData(product.metrics?.textInsights || {}, source.title, reviewStats);
   const insights = [
     { label: "Average rating / negative rate", value: reviewStats.negativeRateLabel, detail: "Product-level rating pressure", tone: reviewStats.negativeCount ? "red" : "teal" },
     { label: "Evidence", value: formatInteger(reviewStats.totalAnalyzed || reviewStats.reviewCount), detail: "Reviews analyzed", tone: "blue" },
@@ -9897,12 +10272,20 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
         <EvidenceSourceStatCard icon="clock" label="Recent negatives" value={formatInteger(reviewStats.recentNegativeCount)} detail={reviewStats.recentNegativeWindowLabel} tone={reviewStats.recentNegativeCount ? "red" : "blue"} />
       </div>
 
-      <div className="ppEvidenceThreeColumnGrid">
+      <div className="ppEvidenceTwoColumnGrid ppEvidenceReviewTrendGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Review sentiment over time</h4>
+          <p>Positive, neutral and negative reviews from first to latest review</p>
+          <EvidenceReviewSentimentTrendChart trend={sentimentTrend} />
+        </section>
+
         <section className="ppEvidenceReportSectionCard">
           <h4>Review sentiment</h4>
           <EvidenceSignalDonut total={reviewStats.sentiment.total} rows={reviewStats.sentimentRows} />
         </section>
+      </div>
 
+      <div className="ppEvidenceTwoColumnGrid">
         <section className="ppEvidenceReportSectionCard">
           <h4>Review emotions <span>(detected)</span></h4>
           <EvidenceBarList rows={emotionRows} tone="red" emptyLabel="No review emotions stored" />
@@ -10235,7 +10618,7 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
                   <tr key={row.key}>
                     <td>
                       <div className="ppEvidenceSignalNameCell">
-                        <span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><s-icon type="product" size="small"></s-icon></span>
+                        <span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><ProductPulseGlyph type="variants" /></span>
                         <span>{row.variant}</span>
                       </div>
                     </td>
@@ -10340,7 +10723,7 @@ function getAiEvidenceContextSection(product = {}, sourceKind = "", options = {}
 
 function getAiEvidenceSynthesisSource(product = {}) {
   const item = getEvidenceList(product.evidence).find((evidence) => isAiEvidenceSynthesisSource(evidence.source));
-  if (!item) return { title: "AI evidence synthesis", points: [], summary: "", tone: "insight", icon: "wand", available: false };
+  if (!item) return { title: "AI evidence synthesis", points: [], summary: "", tone: "insight", icon: "ai-evidence-synthesis", available: false };
   const persistedRecords = getStoredEvidenceRecords(item);
   const persistedPoints = getStoredEvidencePoints(item);
   const points = getEvidencePoints(item, product);
@@ -10351,7 +10734,7 @@ function getAiEvidenceSynthesisSource(product = {}) {
     persistedRecords,
     summary: persistedPoints[0] || points[0] || "",
     tone: "insight",
-    icon: "wand",
+    icon: "ai-evidence-synthesis",
     available: true,
   };
 }
@@ -10872,6 +11255,36 @@ function getReviewEvidenceStats(source = {}, product = {}) {
   };
 }
 
+function getReviewSentimentTrendData(textInsights = {}, sourceTitle = "", reviewStats = {}) {
+  const sourceSummary = getReviewSourceSummary(textInsights, sourceTitle);
+  const specificSource = isSpecificReviewSource(sourceTitle);
+  const storedTrend = getEvidenceList(sourceSummary?.sentimentTrend || (!specificSource ? textInsights.reviews?.sentimentTrend : []));
+  const normalizedTrend = storedTrend
+    .map((row, index) => ({
+      key: row.key || row.label || `trend-${index}`,
+      label: row.label || row.key || `Point ${index + 1}`,
+      date: row.date || row.createdAt || "",
+      positive: Number(row.positive || 0),
+      neutral: Number(row.neutral || 0),
+      negative: Number(row.negative || 0),
+      total: Number(row.total || 0),
+    }))
+    .filter((row) => row.total || row.positive || row.neutral || row.negative);
+  if (normalizedTrend.length) return normalizedTrend;
+
+  const sentiment = normalizeEvidenceSentiment(sourceSummary?.sentiment || reviewStats.sentiment);
+  if (!sentiment.total) return [];
+  return [{
+    key: "current",
+    label: "Current",
+    date: "",
+    positive: sentiment.positive,
+    neutral: sentiment.neutral,
+    negative: sentiment.negative,
+    total: sentiment.total,
+  }];
+}
+
 function getSentimentDonutRows(sentiment = {}) {
   const normalized = normalizeEvidenceSentiment(sentiment);
   return [
@@ -11363,30 +11776,6 @@ function getCombinedCustomerLanguageSentiment(metrics = {}) {
   return normalizeEvidenceSentiment(textInsights.sentiment);
 }
 
-function getTopEvidenceEmotion(items = []) {
-  const list = getEvidenceList(items)
-    .map((item) => ({
-      label: item.label || item.normalizedLabel || item.code || "",
-      count: Number(item.count || item.signals || 0),
-      polarity: item.polarity || "",
-    }))
-    .filter((item) => item.label);
-  if (!list.length) return null;
-  list.sort((first, second) => second.count - first.count);
-  return list[0];
-}
-
-function getTopCustomerLanguageEmotion(metrics = {}) {
-  const textInsights = metrics.textInsights || {};
-  const candidates = [
-    ...getEvidenceList(textInsights.aiKnownEmotions),
-    ...getEvidenceList(textInsights.emotions),
-    ...getEvidenceList(textInsights.reviews?.emotions),
-    ...getEvidenceList(textInsights.returns?.emotions),
-  ];
-  return getTopEvidenceEmotion(uniqueByEvidenceLabel(candidates));
-}
-
 function getCustomerLanguageEmotionSummary(metrics = {}) {
   const textInsights = metrics.textInsights || {};
   const grouped = new Map();
@@ -11806,7 +12195,7 @@ function EvidenceReasonBarList({ rows = [], total = 0 }) {
         const share = Number(row.share || (total && count ? (count / total) * 100 : 0));
         return (
           <div key={row.key || row.label}>
-            <span><strong>{row.label}</strong><em>{formatInteger(count)} ({formatPercent(share)})</em></span>
+            <span><strong title={row.label}>{row.label}</strong><em>{formatInteger(count)} ({formatPercent(share)})</em></span>
             <div aria-hidden="true"><span style={{ width: `${Math.max(count ? 6 : 1, Math.round((count / max) * 100))}%` }}></span></div>
           </div>
         );
@@ -11868,6 +12257,53 @@ function EvidenceReturnRateChart({ activity = null, prediction = null, returnRat
   );
 }
 
+function EvidenceReviewSentimentTrendChart({ trend = [] }) {
+  const rows = Array.isArray(trend) && trend.length
+    ? trend
+    : [{ key: "empty", label: "No dated reviews", positive: 0, neutral: 0, negative: 0, total: 0 }];
+  const max = Math.max(
+    ...rows.flatMap((row) => [Number(row.positive || 0), Number(row.neutral || 0), Number(row.negative || 0)]),
+    1,
+  );
+  const labels = rows.length > 1
+    ? [rows[0], rows[Math.floor(rows.length / 2)], rows[rows.length - 1]].filter(Boolean)
+    : rows;
+
+  return (
+    <div className="ppEvidenceReviewTrendChart">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Review sentiment over time">
+        {[25, 50, 75].map((line) => <line key={line} className="ppEvidenceReviewTrendGridLine" x1="0" x2="100" y1={line} y2={line} />)}
+        <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-positive" d={getReviewSentimentTrendPath(rows, "positive", max)} />
+        <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-neutral" d={getReviewSentimentTrendPath(rows, "neutral", max)} />
+        <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-negative" d={getReviewSentimentTrendPath(rows, "negative", max)} />
+      </svg>
+      <div className="ppEvidenceReviewTrendXAxis" aria-hidden="true">
+        {labels.map((row, index) => <span key={`${row.key || row.label}-${index}`}>{row.label}</span>)}
+      </div>
+      <div className="ppEvidenceReviewTrendLegend">
+        <span><i className="ppEvidenceReviewTrendDot-positive"></i>Positive</span>
+        <span><i className="ppEvidenceReviewTrendDot-neutral"></i>Neutral</span>
+        <span><i className="ppEvidenceReviewTrendDot-negative"></i>Negative</span>
+      </div>
+    </div>
+  );
+}
+
+function getReviewSentimentTrendPath(rows = [], key = "positive", max = 1) {
+  const safeRows = Array.isArray(rows) && rows.length ? rows : [{ [key]: 0 }];
+  const safeMax = Math.max(1, Number(max || 1));
+  const points = safeRows.map((row, index) => {
+    const value = Math.max(0, Number(row[key] || 0));
+    const x = safeRows.length === 1 ? 50 : Math.round((index / (safeRows.length - 1)) * 1000) / 10;
+    const y = Math.round((92 - (value / safeMax) * 76) * 10) / 10;
+    return { x, y };
+  });
+  if (points.length === 1) {
+    return buildSmoothSvgPath([{ x: 0, y: points[0].y }, { x: 100, y: points[0].y }]);
+  }
+  return buildSmoothSvgPath(points);
+}
+
 function getReturnRepeatedLanguage(textInsights = {}) {
   return [
     ...getEvidenceList(textInsights.returns?.repeatedLanguage),
@@ -11901,7 +12337,7 @@ function EvidenceMetricCard({ card }) {
   return (
     <article className={`ppEvidenceMetricCard ppEvidenceMetricCard-${card.tone || "blue"}`}>
       <span className="ppEvidenceMetricIcon" aria-hidden="true">
-        <s-icon type={card.icon || "info"} size="small"></s-icon>
+        <ProductPulseGlyph type={card.icon || "info"} />
       </span>
       <div>
         <span>{card.label}</span>
@@ -12144,7 +12580,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
               <article className="ppEvidenceReportSource" key={sourceItem.title}>
                 <div className="ppEvidenceReportSourceHeader">
                   <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${sourceItem.tone}`} aria-hidden="true">
-                    <s-icon type={sourceItem.icon} size="small"></s-icon>
+                    <ProductPulseGlyph type={sourceItem.icon} />
                   </span>
                   <div>
                     <h3>{sourceItem.title}</h3>
@@ -14044,6 +14480,10 @@ function RecommendedActionProposedChange({
   onEditedTextChange,
   onEditText,
 }) {
+  const faqPreviewItems = !isEditingInline && isFaqRecommendedAction(action)
+    ? getFaqPreviewItems(application, detailText)
+    : [];
+
   return (
     <div className="ppActionProposedChangeBox">
       {isEditingInline ? (
@@ -14059,9 +14499,20 @@ function RecommendedActionProposedChange({
       ) : (
         <>
           {application.valueLabel && <span className="ppActionProposedValueLabel">{application.valueLabel}</span>}
-          <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>
-            {renderAnalysisText(detailText || "No proposed value supplied.")}
-          </p>
+          {faqPreviewItems.length ? (
+            <div className={`ppActionFaqPreview ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>
+              {faqPreviewItems.map((item, index) => (
+                <article className="ppActionFaqPreviewItem" key={`${item.question || "faq"}-${index}`}>
+                  {item.question && <strong>{renderAnalysisText(item.question)}</strong>}
+                  {item.answer && <p>{renderAnalysisText(item.answer)}</p>}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>
+              {renderAnalysisText(detailText || "No proposed value supplied.")}
+            </p>
+          )}
           {application.editable && (
             <button className="ppActionEditSuggestionButton ppActionEditSuggestionButton-review" type="button" onClick={onEditText} aria-label={`Edit suggested text for ${action.title}`}>
               <s-icon type="edit" size="small"></s-icon>

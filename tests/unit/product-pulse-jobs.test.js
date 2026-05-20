@@ -34,8 +34,12 @@ describe("ProductPulse product job helpers", () => {
     expect(collapsible).toContain("<summary style=");
     expect(collapsible).toContain("productpulse-callout");
     expect(collapsible).toContain("background:#eff6ff");
-    expect(modal).toContain("role=\"dialog\"");
-    expect(modal).toContain("Open frequently asked questions");
+    expect(modal).toContain("<dialog");
+    expect(modal).toContain("productpulse-faq-dialog-create-product-faq");
+    expect(modal).toContain("showModal()");
+    expect(modal).toContain("method=\"dialog\"");
+    expect(modal).toContain("Close FAQ modal");
+    expect(modal).toContain("View FAQ");
   });
 
   it("keeps open recommendations neutral in return-rate forecasts", () => {

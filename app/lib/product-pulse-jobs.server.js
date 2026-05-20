@@ -1570,6 +1570,15 @@ function normalizeFaqAnswer(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function buildProductPulseDomId(prefix, value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${prefix}-${normalized || "item"}`;
+}
+
 function buildProductPulseFaqHtml({ faqItems, variant, action }) {
   const actionId = escapeHtml(action.id || "product-faq");
   const calloutAttributes = buildProductPulseCalloutAttributes(actionId, "productpulse-faq");
@@ -1583,7 +1592,19 @@ function buildProductPulseFaqHtml({ faqItems, variant, action }) {
   }
 
   if (variant === "description-modal") {
-    return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Open frequently asked questions</summary>\n<div role="dialog" aria-label="Frequently asked questions" style="margin-top:12px;">\n${headingHtml}\n<dl style="margin:0;">\n${itemsHtml}\n</dl>\n</div>\n</details>\n</section>`;
+    const modalId = buildProductPulseDomId("productpulse-faq-dialog", action.id || "product-faq");
+    const escapedModalId = escapeHtml(modalId);
+    const modalItemsHtml = faqItems.map((item, index) => (
+      `<div style="${index > 0 ? "border-top:1px solid #e5e7eb;" : ""}padding:${index > 0 ? "14px" : "0"} 0 0;">\n<dt style="font-weight:800;color:#111827;font-size:15px;line-height:1.35;margin:0 0 6px;">${escapeHtml(item.question)}</dt>\n<dd style="margin:0;color:#475569;line-height:1.6;font-size:14px;">${escapeHtml(item.answer)}</dd>\n</div>`
+    )).join("\n");
+    const modalStyles = [
+      "<style>",
+      `#${escapedModalId}::backdrop{background:rgba(15,23,42,.44);backdrop-filter:blur(2px);}`,
+      `#${escapedModalId}{box-sizing:border-box;max-width:min(720px,calc(100vw - 32px));width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);border:1px solid rgba(148,163,184,.38);border-radius:18px;padding:0;background:#ffffff;color:#111827;box-shadow:0 24px 80px rgba(15,23,42,.28);overflow:hidden;}`,
+      `#${escapedModalId}[open]{display:block;}`,
+      "</style>",
+    ].join("");
+    return `<section ${calloutAttributes}>\n${modalStyles}\n<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">\n<div>\n${headingHtml}\n<p style="margin:0;color:#475569;line-height:1.55;font-size:14px;">Open a focused FAQ without expanding the full product description.</p>\n</div>\n<button type="button" onclick="var d=document.getElementById('${escapedModalId}');if(d&&d.showModal)d.showModal();" style="appearance:none;border:0;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800;padding:10px 14px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(99,102,241,.18);">View FAQ</button>\n</div>\n<dialog id="${escapedModalId}" aria-label="Frequently asked questions">\n<div style="padding:24px;max-height:calc(100vh - 48px);overflow:auto;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);">\n<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #e5e7eb;padding-bottom:14px;margin-bottom:16px;">\n<div>\n<p style="margin:0 0 6px;color:#4f46e5;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;">Product FAQ</p>\n<h3 style="margin:0;color:#111827;font-size:22px;line-height:1.2;font-weight:850;">Frequently asked questions</h3>\n<p style="margin:8px 0 0;color:#64748b;font-size:14px;line-height:1.5;">Quick answers based on the product details and customer evidence.</p>\n</div>\n<form method="dialog" style="margin:0;">\n<button type="submit" aria-label="Close FAQ modal" style="appearance:none;width:38px;height:38px;border:1px solid #dbe3ef;border-radius:12px;background:#ffffff;color:#334155;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.06);">&times;</button>\n</form>\n</div>\n<dl style="margin:0;display:grid;gap:0;">\n${modalItemsHtml}\n</dl>\n<form method="dialog" style="margin:22px 0 0;display:flex;justify-content:flex-end;">\n<button type="submit" style="appearance:none;border:0;border-radius:12px;background:#1f2937;color:#ffffff;font-weight:800;padding:11px 18px;cursor:pointer;box-shadow:0 8px 18px rgba(15,23,42,.18);">Close</button>\n</form>\n</div>\n</dialog>\n</section>`;
   }
 
   return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>\n</section>`;
@@ -3243,6 +3264,7 @@ function withShopifyAdminUrl(product, shop) {
   return {
     ...product,
     shopifyAdminUrl: getShopifyProductAdminUrl(shop, product.id),
+    shopifyStorefrontUrl: getShopifyProductStorefrontUrl(shop, product.handle || product.slug),
   };
 }
 
@@ -3250,6 +3272,12 @@ function getShopifyProductAdminUrl(shop, productGid) {
   const numericId = String(productGid || "").split("/").pop();
   if (!shop || !numericId) return null;
   return `https://${shop}/admin/products/${numericId}`;
+}
+
+function getShopifyProductStorefrontUrl(shop, handle) {
+  const productHandle = String(handle || "").trim();
+  if (!shop || !productHandle) return null;
+  return `https://${shop}/products/${encodeURIComponent(productHandle)}`;
 }
 
 function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {

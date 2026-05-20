@@ -299,6 +299,50 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(terms).not.toContain("because");
   });
 
+  it("keeps mixed 3-star reviews neutral and stores review sentiment trend buckets", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [],
+      reviews: [
+        {
+          title: "Matched the page",
+          body: "The item was good and matched the description.",
+          rating: 5,
+          sourceType: "csv_review",
+          sourceLabel: "CSV reviews",
+          createdAt: "2026-01-10T12:00:00Z",
+        },
+        {
+          title: "Average overall",
+          body: "It is okay overall, mixed feelings, average experience.",
+          rating: 3,
+          sourceType: "csv_review",
+          sourceLabel: "CSV reviews",
+          createdAt: "2026-03-10T12:00:00Z",
+        },
+        {
+          title: "Not what I expected",
+          body: "The product was damaged and I had to return it.",
+          rating: 2,
+          sourceType: "csv_review",
+          sourceLabel: "CSV reviews",
+          createdAt: "2026-06-10T12:00:00Z",
+        },
+      ],
+    });
+
+    expect(insights.reviews.sentiment).toMatchObject({
+      total: 3,
+      positive: 1,
+      neutral: 1,
+      negative: 1,
+    });
+    expect(insights.reviews.bySource.csv.sentimentTrend).toEqual([
+      expect.objectContaining({ label: "Jan 2026", positive: 1, neutral: 0, negative: 0, total: 1 }),
+      expect.objectContaining({ label: "Mar 2026", positive: 0, neutral: 1, negative: 0, total: 1 }),
+      expect.objectContaining({ label: "Jun 2026", positive: 0, neutral: 0, negative: 1, total: 1 }),
+    ]);
+  });
+
   it("ignores generic Other return reasons when there is no customer note", () => {
     const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
       returns: [{
@@ -1618,6 +1662,26 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(analysis.issues.map((issue) => issue.code)).not.toContain("missing_description");
   });
 
+  it("caps content quality for thin descriptions even when AI scoring is optimistic", () => {
+    const analysis = __productPulseDiagnosisTestHooks.buildContentAnalysis({
+      metrics: {
+        contentIssues: [],
+        contentAdvisories: [],
+        contentQualityScore: 100,
+        contentQualityRisk: 0,
+        descriptionWordCount: 26,
+      },
+    }, {
+      content_quality_score: 84,
+      content_summary: "The description is coherent but compact.",
+      content_issues: [],
+    });
+
+    expect(analysis.score).toBeLessThanOrEqual(72);
+    expect(analysis.riskLift).toBeGreaterThanOrEqual(5);
+    expect(analysis.advisories.map((advisory) => advisory.code)).toContain("thin_description");
+  });
+
   it("only recommends a full description rewrite for missing, short or clearly broken descriptions", () => {
     const contentIssues = [{
       code: "missing_specifications",
@@ -2275,6 +2339,117 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
     expect(recommendations.map((item) => item.id)).not.toContain("correct-variant-options");
     expect(recommendations.map((item) => item.id)).toContain("add-specs-details-block");
+  });
+
+  it("builds specs details blocks as technical placeholders instead of catalog metadata", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 68,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Cream unit brewed before the alarm and left condensation rings on the nightstand." },
+        { text: "Graphite worked after a firmware reset, but the timer drifted again later." },
+      ],
+      issueSignalCounts: { quality_defect: 8 },
+      product: {
+        title: "GEN WhisperBrew Coffee Alarm Clock",
+        description: "Schedules a single-cup brew near wake time with quiet alarm tones and a removable water tank.",
+        vendor: "ProductPulse Lab",
+        productType: "Small Appliance",
+        options: [{ name: "Color", values: ["Cream", "Graphite"] }],
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Cream", sku: "GEN-BREW-CREAM" },
+          { id: "gid://shopify/ProductVariant/2", title: "Graphite", sku: "GEN-BREW-GRAPH" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 12,
+        signalCount: 20,
+        returnUnits: 7,
+        refundUnits: 4,
+        negativeReviewCount: 10,
+        specsBlockRecommended: true,
+        contentIssueCount: 2,
+        topReturnReasons: ["Other"],
+        contentAnalysis: {
+          issues: [
+            { code: "missing_specifications", label: "Missing product specifications", severity: "medium", evidence: "No voltage, capacity, timing, or surface guidance is provided." },
+            { code: "missing_customer_guidance", label: "Missing shopper guidance", severity: "medium", evidence: "Condensation and timer behavior need pre-purchase guidance." },
+          ],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "condensation", count: 4 }, { term: "timer drift", count: 3 }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/3",
+        productTitle: "GEN WhisperBrew Coffee Alarm Clock",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const specs = recommendations.find((item) => item.id === "add-specs-details-block");
+    expect(specs?.payload.draftText).toContain("Power input");
+    expect(specs?.payload.draftText).toContain("Brew capacity");
+    expect(specs?.payload.draftText).toContain("Timer and alarm behavior");
+    expect(specs?.payload.draftText).toContain("Water and condensation guidance");
+    expect(specs?.payload.draftText).toContain("[confirm");
+    expect(specs?.payload.draftText).not.toContain("Product type:");
+    expect(specs?.payload.draftText).not.toContain("Brand/vendor:");
+    expect(specs?.payload.draftText).not.toContain("Available options:");
+    expect(specs?.payload.draftText).not.toContain("Variants/SKUs:");
+  });
+
+  it("uses AI-generated specs details block when it is product-specific", () => {
+    const deterministic = {
+      mainIssue: "compatibility",
+      riskScore: 58,
+      confidence: 80,
+      issueSignalCounts: { compatibility: 5 },
+      product: {
+        title: "GEN SmartHerb Planter Kit",
+        description: "Includes planter base, LED grow light and seed pods.",
+        productType: "Home Garden",
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 10,
+        returnUnits: 3,
+        refundUnits: 1,
+        negativeReviewCount: 3,
+        specsBlockRecommended: true,
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{ code: "missing_specifications", label: "Missing compatibility details", severity: "medium", evidence: "Wi-Fi and app requirements are not clear." }],
+          advisories: [],
+        },
+        textInsights: {},
+      },
+    };
+    const aiBlock = [
+      "Technical details to confirm before buying:",
+      "- Wi-Fi compatibility: [confirm 2.4 GHz requirement]",
+      "- App language: [confirm supported languages]",
+      "- Power input: [confirm plug type and voltage]",
+    ].join("\n");
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/4",
+        productTitle: "GEN SmartHerb Planter Kit",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { specs_details_block: aiBlock } } },
+    });
+
+    expect(recommendations.find((item) => item.id === "add-specs-details-block")?.payload.draftText).toBe(aiBlock);
   });
 
   it("prioritizes QA review for refund-driven damage and does not recommend pricing without value evidence", () => {
