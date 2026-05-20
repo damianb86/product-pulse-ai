@@ -244,16 +244,18 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
           )}
         </div>
       ) : null}
-      <button
-        type="button"
-        className="ppChatKitLauncher"
-        onClick={() => setIsOpen((current) => !current)}
-        aria-expanded={isOpen}
-        aria-label="Open AI Assistant"
-      >
-        <span aria-hidden="true">AI</span>
-        <strong>Assistant</strong>
-      </button>
+      {!isOpen ? (
+        <button
+          type="button"
+          className="ppChatKitLauncher"
+          onClick={() => setIsOpen(true)}
+          aria-expanded="false"
+          aria-label="Open AI Assistant"
+        >
+          <span aria-hidden="true">AI</span>
+          <strong>Assistant</strong>
+        </button>
+      ) : null}
     </aside>
   );
 }

@@ -42,10 +42,10 @@
 .ppChatKitPanel {
   position: absolute;
   right: 0;
-  bottom: 58px;
+  bottom: 0;
   display: flex;
   width: min(420px, calc(100vw - 32px));
-  height: min(680px, calc(100vh - 120px));
+  height: min(760px, calc(100vh - 48px));
   overflow: hidden;
   flex-direction: column;
   border: 1px solid rgba(20, 30, 35, 0.12);
@@ -58,7 +58,7 @@
   width: min(80vw, calc(100vw - 48px));
   max-width: 1120px;
   min-width: min(760px, calc(100vw - 48px));
-  height: min(760px, calc(100vh - 96px));
+  height: min(820px, calc(100vh - 48px));
 }
 
 .ppChatKitPanelHeader {
@@ -171,13 +171,13 @@
   .ppChatKitPanel {
     right: -8px;
     width: calc(100vw - 32px);
-    height: min(640px, calc(100vh - 96px));
+    height: calc(100vh - 32px);
   }
 
   .ppChatKitAssistant-expanded .ppChatKitPanel {
     width: calc(100vw - 32px);
     min-width: 0;
-    height: min(720px, calc(100vh - 96px));
+    height: calc(100vh - 32px);
   }
 
   .ppChatKitLauncher strong {

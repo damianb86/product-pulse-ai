@@ -33,8 +33,12 @@ describe("ProductPulseChatKitAssistant", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
 
     expect(screen.getByRole("dialog", { name: "AI Assistant" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open AI Assistant" })).not.toBeInTheDocument();
     expect(screen.getByText("ChatKit requires OPENAI_API_KEY on the server.")).toBeVisible();
     expect(screen.queryByTestId("chatkit")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close AI Assistant" }));
+    expect(screen.getByRole("button", { name: "Open AI Assistant" })).toBeInTheDocument();
   });
 
   it("lets the assistant drawer switch between default and wide widths", () => {
