@@ -123,7 +123,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const chatKit = useChatKit({
     api: {
       url: config?.apiUrl || "/api/ai/chatkit/message",
-      domainKey: config?.domainKey || "product-pulse-custom-backend",
+      domainKey: config?.domainKey || "",
       fetch: chatKitBackendFetch,
     },
     widgets: {

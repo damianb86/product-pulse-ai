@@ -27,6 +27,7 @@ SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,rea
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
 OPENAI_API_KEY=
 AI_CHAT_MODEL=gpt-5.4-mini
+AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 ```
 
 The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `write_orders` and `write_returns` for the Settings mock dataset generator, which creates controlled Shopify test orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
@@ -94,10 +95,10 @@ OPENAI_API_KEY=
 AI_CHAT_MODEL=gpt-5.4-mini
 AI_CHATKIT_ENABLED=true
 AI_CHATKIT_API_URL=/api/ai/chatkit/message
-AI_CHATKIT_DOMAIN_KEY=product-pulse-custom-backend
+AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 ```
 
-The browser receives only safe ChatKit config. OpenAI inference runs server-side through the existing `/api/ai/chatkit/message` adapter and `AiChatOrchestrator`.
+The browser receives only safe ChatKit config, including the public ChatKit domain key from OpenAI's domain allowlist. OpenAI inference runs server-side through the existing `/api/ai/chatkit/message` adapter and `AiChatOrchestrator`.
 
 ## Documentation
 - `docs/product-brief.md`

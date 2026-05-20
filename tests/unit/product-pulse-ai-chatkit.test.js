@@ -68,7 +68,7 @@ describe("ProductPulse ChatKit integration", () => {
     expect(result.enabled).toBe(true);
     expect(result.client_secret).toBeUndefined();
     expect(result.apiUrl).toBe("/api/ai/chatkit/message");
-    expect(result.domainKey).toBe("product-pulse-custom-backend");
+    expect(result.domainKey).toBe("domain_pk_test");
     expect(store.contexts[0].shop).toBe("auth-shop.myshopify.com");
     expect(JSON.stringify(result)).not.toContain("auth-shop.myshopify.com");
   });
@@ -315,7 +315,7 @@ function enabledConfig() {
     enabled: true,
     apiKeyConfigured: true,
     apiUrl: "/api/ai/chatkit/message",
-    domainKey: "product-pulse-custom-backend",
+    domainKey: "domain_pk_test",
     debug: false,
     recentThreadCount: 10,
     disabledReason: null,

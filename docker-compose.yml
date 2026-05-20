@@ -34,6 +34,11 @@ services:
       SCOPES: ${SCOPES:?Set SCOPES in the app .env}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the app .env}
       SHOPIFY_APP_URL: ${SHOPIFY_APP_URL:?Set SHOPIFY_APP_URL in the app .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in the app .env}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-gpt-5.4-mini}
+      AI_CHATKIT_ENABLED: ${AI_CHATKIT_ENABLED:-true}
+      AI_CHATKIT_API_URL: ${AI_CHATKIT_API_URL:-/api/ai/chatkit/message}
+      AI_CHATKIT_DOMAIN_KEY: ${AI_CHATKIT_DOMAIN_KEY:?Set AI_CHATKIT_DOMAIN_KEY in the app .env}
     labels:
       caddy: ${APP_HOST:?Set APP_HOST in the app .env}
       caddy.encode: zstd gzip

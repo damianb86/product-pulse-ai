@@ -39,7 +39,7 @@ Server environment variables:
 - `AI_CHAT_MODEL`: optional default chat model. Fallback is handled by the Phase 2 chat config.
 - `AI_CHATKIT_ENABLED`: set to `false`, `0`, `off`, or `disabled` to disable the ChatKit UI.
 - `AI_CHATKIT_API_URL`: optional custom endpoint. Defaults to `/api/ai/chatkit/message`.
-- `AI_CHATKIT_DOMAIN_KEY`: optional public ChatKit custom-backend domain key. Defaults to `product-pulse-custom-backend`.
+- `AI_CHATKIT_DOMAIN_KEY`: required public ChatKit domain key from the OpenAI domain allowlist. Current Cloudflare tunnel key: `domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da`.
 - `AI_CHATKIT_HISTORY_RECENT_THREADS`: optional history limit.
 - `AI_CHATKIT_DEBUG`: enables client-safe debug state.
 
@@ -48,7 +48,7 @@ Not required by default:
 - `AI_CHATKIT_WORKFLOW_ID`
 - `AI_CHATKIT_WORKFLOW_VERSION`
 
-Client-safe config is exposed from the app loader through `getAiChatKitClientConfig()`. The browser receives only `enabled`, `debug`, `apiUrl`, `domainKey`, and a safe disabled reason. It never receives `OPENAI_API_KEY`.
+Client-safe config is exposed from the app loader through `getAiChatKitClientConfig()`. The browser receives only `enabled`, `debug`, `apiUrl`, `domainKey`, and a safe disabled reason. The `domainKey` is public by design. The browser never receives `OPENAI_API_KEY`.
 
 ## Backend Flow
 

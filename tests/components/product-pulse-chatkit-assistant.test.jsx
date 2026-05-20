@@ -39,7 +39,7 @@ describe("ProductPulseChatKitAssistant", () => {
         config={{
           enabled: true,
           apiUrl: "/api/ai/chatkit/message",
-          domainKey: "product-pulse-custom-backend",
+          domainKey: "domain_pk_test",
           disabledReason: null,
         }}
         pageContext={{ type: "product", entityId: "core-linen-trouser" }}
@@ -54,7 +54,7 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(useChatKit).toHaveBeenCalledWith(expect.objectContaining({
       api: expect.objectContaining({
         url: "/api/ai/chatkit/message",
-        domainKey: "product-pulse-custom-backend",
+        domainKey: "domain_pk_test",
       }),
     }));
     expect(useChatKit.mock.calls.at(-1)[0].api.getClientSecret).toBeUndefined();
