@@ -58,6 +58,7 @@ The AI action layer intentionally does not support:
 6. Confirm calls the backend with only `proposalId`.
 7. The backend reloads the proposal under the authenticated shop, checks status, expiry, ownership, and stored input, then executes the action.
 8. Execution status is stored and audited.
+9. ChatKit receives a deterministic `action_result` block from the backend. Confirm/cancel does not require another model turn.
 
 ## Security Model
 
@@ -90,6 +91,10 @@ The direct action endpoints are backend API surfaces for future UIs. ChatKit use
 - Confirm and Cancel buttons.
 
 Buttons send only `proposalId`. They do not include executable action input.
+
+The same adapter maps `action_result` blocks into read-only result cards for completed, cancelled, or failed actions. Result cards show the safe backend message, target label, affected entities, and created job ID when available. They do not include mutation buttons.
+
+ChatKit confirm/cancel actions are handled by the backend action registry directly and return result widgets without routing through another OpenAI response. The model still runs on OpenAI for normal chat turns and action proposal creation, but confirmed execution results are produced by ProductPulse backend state.
 
 ## Audit Logging
 

@@ -44,6 +44,8 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return emptyStateWidget(block);
     case "action_proposal":
       return actionProposalWidget(block);
+    case "action_result":
+      return actionResultWidget(block);
     case "summary":
     default:
       return summaryWidget(block);
@@ -266,6 +268,28 @@ function actionProposalWidget(block: Extract<AiPresentationBlock, { type: "actio
   });
 }
 
+function actionResultWidget(block: Extract<AiPresentationBlock, { type: "action_result" }>): Widgets.Card {
+  return card([
+    title(block.title, { key: "title" }),
+    row([
+      badge(actionResultStatusLabel(block.status), actionResultBadgeColor(block.status), { key: "status" }),
+      ...(block.sideEffectLevel ? [badge(`${capitalize(block.sideEffectLevel)} side effect`, sideEffectBadgeColor(block.sideEffectLevel), { key: "side-effect" })] : []),
+    ], { key: "badges" }),
+    text(block.summary, { key: "summary", maxLength: MAX_SUMMARY_LENGTH }),
+    ...(block.targetLabel ? [labelValueRow("Target", block.targetLabel, "target")] : []),
+    ...(block.createdJobId ? [caption(`Job: ${block.createdJobId}`, { key: "job", maxLength: 120 })] : []),
+    ...(block.affectedEntities.length ? [
+      divider("affected-divider"),
+      ...block.affectedEntities.slice(0, 4).map((entity, index) => bulletRow(entity.label || entity.id, `affected-${index}`, "check-circle")),
+    ] : []),
+  ], {
+    status: {
+      text: block.status === "cancelled" ? "Action cancelled" : block.status === "success" ? "Action completed" : "Action failed",
+      icon: block.status === "success" ? "check-circle" : "info",
+    },
+  });
+}
+
 function unsupportedBlockWidget(block: unknown): Widgets.Card {
   const type = block && typeof block === "object" && "type" in block ? String((block as { type?: unknown }).type || "") : "";
   return card([
@@ -410,6 +434,18 @@ function sideEffectBadgeColor(level: "low" | "medium" | "high"): NonNullable<Wid
   if (level === "high") return "danger";
   if (level === "medium") return "warning";
   return "info";
+}
+
+function actionResultBadgeColor(status: "success" | "error" | "cancelled"): NonNullable<Widgets.Badge["color"]> {
+  if (status === "success") return "success";
+  if (status === "error") return "danger";
+  return "secondary";
+}
+
+function actionResultStatusLabel(status: "success" | "error" | "cancelled"): string {
+  if (status === "success") return "Completed";
+  if (status === "error") return "Failed";
+  return "Cancelled";
 }
 
 function compactPayload(payload: Record<string, unknown>): Record<string, unknown> {

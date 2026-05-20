@@ -60,6 +60,12 @@ It does not parse assistant natural language and does not build cards from raw d
 - Shows summary, target, reason, expected result, risks, confirmation level, side-effect level, reversibility, and expiry.
 - Confirm/Cancel buttons send only `proposalId`.
 
+`action_result`
+
+- Renders completed, cancelled, or failed internal app action results.
+- Shows the safe backend summary, target label, affected entities, side-effect level, and created job ID when present.
+- Does not render execution buttons or accept action input from the client.
+
 ## Existing UI Reuse
 
 ChatKit widgets are JSON payloads, so existing React/Polaris components cannot be reused directly. The adapter reuses ProductPulse display patterns instead:
@@ -94,6 +100,8 @@ All widget actions continue through ProductPulse backend validation:
 - `cancel_ai_action`
 
 Navigation actions are validated server-side and emitted back as ChatKit client effects. Confirmation actions are executed only through the internal action registry and only after the backend reloads the stored proposal.
+
+Confirm/cancel responses are deterministic backend responses. They emit `action_result` widgets directly and do not make a second OpenAI call after the user clicks Confirm or Cancel.
 
 ## Chart Cards
 

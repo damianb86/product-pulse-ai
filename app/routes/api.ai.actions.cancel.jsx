@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { createAiToolContextFromAuthenticatedRequest } from "../ai/context.server";
 import { createAiActionRegistry } from "../ai/actions/registry.server";
-import { aiActionProposalToSafeSummary } from "../ai/actions/presentation";
+import {
+  aiActionCancellationToPresentationBlock,
+  aiActionProposalToSafeSummary,
+} from "../ai/actions/presentation";
+import { mapAiPresentationBlockToChatKitWidget } from "../ai/chatkit/widgets";
 
 const aiActionCancelRequestSchema = z.object({
   proposalId: z.string().trim().min(1).max(320),
@@ -42,10 +46,13 @@ export const action = async ({ request }) => {
     );
   }
 
+  const block = aiActionCancellationToPresentationBlock(result.data.proposal);
   return Response.json(
     {
       status: "success",
       proposal: aiActionProposalToSafeSummary(result.data.proposal),
+      block,
+      widget: mapAiPresentationBlockToChatKitWidget(block),
       message: "Action proposal cancelled.",
     },
     { status: 200, headers: { "Cache-Control": "no-store" } },

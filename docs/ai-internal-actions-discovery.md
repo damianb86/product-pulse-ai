@@ -163,3 +163,4 @@ Confirmation levels:
 - Product/entity ownership must be re-checked server-side before proposal creation and again before execution.
 - ChatKit confirm/cancel payloads should contain only `proposalId`.
 - The backend must reload the proposal and execute stored validated input, not client-supplied action input.
+- Confirm/cancel responses should be deterministic backend responses with `action_result` cards, not extra model calls.

@@ -104,7 +104,14 @@ describe("ProductPulse AI internal action registry", () => {
     });
 
     expect(result.status).toBe("success");
-    expect(result.action.type).toBe("send_message");
+    expect(result.action.type).toBe("assistant_response");
+    expect(result.action.blocks[0]).toMatchObject({
+      type: "action_result",
+      status: "success",
+      targetLabel: "Core Linen Trouser",
+    });
+    expect(JSON.stringify(result.action.blocks[0])).not.toContain("tampered-product");
+    expect(JSON.stringify(result.action.blocks[0])).not.toContain(context.shop);
     expect(services.addWatchedProductForShop).toHaveBeenCalledWith(context.shop, {
       productGid: "gid://shopify/Product/1",
       title: "Core Linen Trouser",
@@ -132,6 +139,12 @@ describe("ProductPulse AI internal action registry", () => {
     });
 
     expect(result.status).toBe("success");
+    expect(result.action.type).toBe("assistant_response");
+    expect(result.action.blocks[0]).toMatchObject({
+      type: "action_result",
+      status: "cancelled",
+      targetLabel: "Core Linen Trouser",
+    });
     expect(store.proposals.get(proposalResult.data.proposal.id).status).toBe("cancelled");
     expect(services.addWatchedProductForShop).not.toHaveBeenCalled();
   });

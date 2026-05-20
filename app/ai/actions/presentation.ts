@@ -1,5 +1,5 @@
 import type { AiPresentationBlock } from "../presentation/blocks";
-import type { AiActionProposal } from "./types";
+import type { AiActionExecutionResult, AiActionProposal } from "./types";
 
 export interface AiActionProposalSafeSummary {
   id: string;
@@ -66,5 +66,58 @@ export function aiActionProposalToSafeSummary(proposal: AiActionProposal): AiAct
     confirmedAt: proposal.confirmedAt,
     cancelledAt: proposal.cancelledAt,
     executedAt: proposal.executedAt,
+  };
+}
+
+export function aiActionExecutionToPresentationBlock(
+  proposal: AiActionProposal,
+  execution: AiActionExecutionResult,
+): AiPresentationBlock {
+  return {
+    type: "action_result",
+    actionName: execution.actionName,
+    status: execution.status === "success" ? "success" : "error",
+    title: execution.status === "success" ? "Action completed" : "Action failed",
+    summary: execution.safeMessage || execution.summary,
+    targetLabel: proposal.targetLabel,
+    sideEffectLevel: proposal.sideEffectLevel,
+    affectedEntities: execution.affectedEntities.slice(0, 6).map((entity) => ({
+      type: entity.type,
+      id: entity.id,
+      label: entity.label || null,
+    })),
+    createdJobId: execution.createdJobId || null,
+  };
+}
+
+export function aiActionCancellationToPresentationBlock(proposal: AiActionProposal): AiPresentationBlock {
+  return {
+    type: "action_result",
+    actionName: proposal.actionName,
+    status: "cancelled",
+    title: "Action cancelled",
+    summary: `${proposal.title} was cancelled. No internal app data was changed.`,
+    targetLabel: proposal.targetLabel,
+    sideEffectLevel: proposal.sideEffectLevel,
+    affectedEntities: [],
+    createdJobId: null,
+  };
+}
+
+export function aiActionErrorToPresentationBlock(input: {
+  actionName?: string | null;
+  title?: string | null;
+  message: string;
+}): AiPresentationBlock {
+  return {
+    type: "action_result",
+    actionName: input.actionName || "unknown_internal_action",
+    status: "error",
+    title: input.title || "Action unavailable",
+    summary: input.message,
+    targetLabel: null,
+    sideEffectLevel: null,
+    affectedEntities: [],
+    createdJobId: null,
   };
 }

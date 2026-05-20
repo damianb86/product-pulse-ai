@@ -105,6 +105,22 @@ const actionProposalBlockSchema = z.object({
   expiresAt: z.string().max(80),
 }).strict();
 
+const actionResultBlockSchema = z.object({
+  type: z.literal("action_result"),
+  actionName: z.string().max(160),
+  status: z.enum(["success", "error", "cancelled"]),
+  title: z.string().max(220),
+  summary: z.string().max(800),
+  targetLabel: z.string().max(220).nullable().optional(),
+  sideEffectLevel: z.enum(["low", "medium", "high"]).nullable().optional(),
+  affectedEntities: z.array(z.object({
+    type: z.string().max(80),
+    id: z.string().max(320),
+    label: z.string().max(220).nullable().optional(),
+  }).strict()).max(6).default([]),
+  createdJobId: z.string().max(320).nullable().optional(),
+}).strict();
+
 export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   textBlockSchema,
   productReferenceBlockSchema,
@@ -115,6 +131,7 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   recommendationListBlockSchema,
   unavailableStateBlockSchema,
   actionProposalBlockSchema,
+  actionResultBlockSchema,
 ]);
 
 export type AiPresentationBlock = z.infer<typeof aiPresentationBlockSchema>;

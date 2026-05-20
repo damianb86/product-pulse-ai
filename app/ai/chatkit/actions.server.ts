@@ -1,9 +1,14 @@
 import { z } from "zod";
 import { createAiToolContextFromAuthenticatedRequest } from "../context.server";
 import type { AiToolContext } from "../domain/types";
+import type { AiPresentationBlock } from "../presentation/blocks";
 import { createAiToolRegistry, type AiToolRegistry } from "../tools/registry.server";
 import { PRODUCT_PULSE_AI_TOOL_NAMES } from "../tools/productPulseTools.server";
 import { createAiActionRegistry, type AiActionRegistry } from "../actions/registry.server";
+import {
+  aiActionCancellationToPresentationBlock,
+  aiActionExecutionToPresentationBlock,
+} from "../actions/presentation";
 
 const safeActionPayloadSchema = z.object({
   proposalId: z.string().trim().min(1).max(320).optional(),
@@ -31,6 +36,7 @@ export type ChatKitActionResult =
       action:
         | { type: "navigate"; url: string }
         | { type: "send_message"; message: string }
+        | { type: "assistant_response"; message: string; blocks: AiPresentationBlock[] }
         | { type: "noop"; message: string };
     }
   | {
@@ -157,8 +163,9 @@ async function confirmAiAction(
   return {
     status: "success",
     action: {
-      type: "send_message",
-      message: `Confirmed: ${result.data.execution.safeMessage}`,
+      type: "assistant_response",
+      message: result.data.execution.safeMessage,
+      blocks: [aiActionExecutionToPresentationBlock(result.data.proposal, result.data.execution)],
     },
   };
 }
@@ -188,8 +195,9 @@ async function cancelAiAction(
   return {
     status: "success",
     action: {
-      type: "send_message",
-      message: `Cancelled: ${result.data.proposal.title}.`,
+      type: "assistant_response",
+      message: `${result.data.proposal.title} was cancelled. No internal app data was changed.`,
+      blocks: [aiActionCancellationToPresentationBlock(result.data.proposal)],
     },
   };
 }

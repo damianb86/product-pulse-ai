@@ -228,6 +228,61 @@ describe("ProductPulse ChatKit integration", () => {
     expect(text).not.toContain("Opening that view in ProductPulse");
   });
 
+  it("renders confirmed internal actions as deterministic result widgets without calling the orchestrator", async () => {
+    const store = new InMemoryConversationStore();
+    store.conversations.push({
+      id: "conversation-1",
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      title: "ProductPulse AI assistant",
+      createdAt: "2026-05-20T12:00:00.000Z",
+      updatedAt: "2026-05-20T12:00:00.000Z",
+    });
+    const orchestrator = {
+      runAiChatTurnWithContext: vi.fn(),
+    };
+    const actionRegistry = {
+      confirmAiActionProposal: vi.fn().mockResolvedValue({
+        ok: true,
+        data: {
+          proposal: actionProposalFixture(),
+          execution: actionExecutionFixture(),
+        },
+      }),
+    };
+
+    const response = await handleChatKitMessage(baseContext, JSON.stringify({
+      type: "threads.custom_action",
+      metadata: { pageContext: { type: "product", entityId: "core-linen-trouser" } },
+      params: {
+        thread_id: "conversation-1",
+        item_id: "widget-1",
+        action: {
+          type: "confirm_ai_action",
+          payload: { proposalId: "proposal-1" },
+        },
+      },
+    }), {
+      conversationStore: store,
+      orchestrator,
+      actionRegistry,
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    });
+
+    const text = await response.text();
+    expect(actionRegistry.confirmAiActionProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: baseContext.shop }),
+      "proposal-1",
+    );
+    expect(orchestrator.runAiChatTurnWithContext).not.toHaveBeenCalled();
+    expect(text).toContain("\"assistant_message.content_part.text_delta\"");
+    expect(text).toContain("\"widget\"");
+    expect(text).toContain("\"Action completed\"");
+    expect(text).toContain("\"Product added to watchlist.\"");
+    expect(text).not.toContain("chatkit_custom_backend_action");
+    expect(JSON.stringify(store.messages)).toContain("action_result");
+  });
+
   it("converts neutral presentation blocks into ChatKit widgets", () => {
     const longEvidence = "A".repeat(320);
     const widgets = mapAiPresentationBlocksToChatKitWidgets([
@@ -315,15 +370,31 @@ describe("ProductPulse ChatKit integration", () => {
         reversible: true,
         expiresAt: "2026-05-20T12:15:00.000Z",
       },
+      {
+        type: "action_result",
+        actionName: "product_pulse_add_to_watchlist",
+        status: "success",
+        title: "Action completed",
+        summary: "Product added to watchlist.",
+        targetLabel: "Core Linen Trouser",
+        sideEffectLevel: "low",
+        affectedEntities: [{
+          type: "product",
+          id: "gid://shopify/Product/1",
+          label: "Core Linen Trouser",
+        }],
+        createdJobId: null,
+      },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "ListView", "Card", "Card", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "ListView", "Card", "Card", "Card", "Card"]);
     expect(widgets.every((widget) => widget.type !== "Card" || widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence");
     expect(JSON.stringify(widgets)).toContain("show_more_evidence");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
+    expect(JSON.stringify(widgets)).toContain("Action completed");
     expect(JSON.stringify(widgets)).not.toContain(longEvidence);
   });
 
@@ -489,6 +560,55 @@ function createRegistry({ productFound = true, product = {} } = {}) {
           error: { code: "NOT_FOUND", message: "Not found." },
           metadata: { resultCount: 0 },
         }),
+  };
+}
+
+function actionProposalFixture() {
+  return {
+    id: "proposal-1",
+    shop: baseContext.shop,
+    userId: baseContext.userId,
+    conversationId: "conversation-1",
+    actionName: "product_pulse_add_to_watchlist",
+    category: "watchlist",
+    targetType: "product",
+    targetId: "gid://shopify/Product/1",
+    targetLabel: "Core Linen Trouser",
+    proposedInput: { productRef: "core-linen-trouser" },
+    title: "Add to ProductPulse watchlist",
+    summary: "Add Core Linen Trouser to the ProductPulse watchlist.",
+    reason: "High risk",
+    expectedResult: "ProductPulse will create a watchlist row. Shopify product data will not be changed.",
+    risks: [],
+    confirmationLevel: "low",
+    sideEffectLevel: "low",
+    reversible: true,
+    requiresEntityOwnershipCheck: true,
+    status: "executed",
+    result: null,
+    safeError: null,
+    createdAt: "2026-05-20T12:00:00.000Z",
+    updatedAt: "2026-05-20T12:00:00.000Z",
+    expiresAt: "2026-05-20T12:15:00.000Z",
+    confirmedAt: "2026-05-20T12:01:00.000Z",
+    cancelledAt: null,
+    executedAt: "2026-05-20T12:01:00.000Z",
+  };
+}
+
+function actionExecutionFixture() {
+  return {
+    actionName: "product_pulse_add_to_watchlist",
+    status: "success",
+    summary: "Product added to watchlist.",
+    affectedEntities: [{
+      type: "product",
+      id: "gid://shopify/Product/1",
+      label: "Core Linen Trouser",
+    }],
+    createdJobId: null,
+    updatedData: null,
+    safeMessage: "Product added to watchlist.",
   };
 }
 

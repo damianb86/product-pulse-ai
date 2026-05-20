@@ -23,6 +23,7 @@ The Phase 1/2 backend exposes real AI-safe data through typed tools and neutral 
 - Evidence snippets: `source`, `quote`, `weight`, bounded by schema.
 - Metrics: `label`, `value`, `detail`.
 - Internal action proposals: `proposalId`, title, summary, target label, reason, expected result, risks, confirmation level, side effect level, reversibility, expiry.
+- Internal action results: action name, status, safe summary, target label, affected entities, optional created job ID.
 - Domain types also support recommendation summaries, watchlist items, analytics snapshots, recent activity, and product risk summaries, but the current neutral block schema only covered some of those shapes.
 
 ## Needed ChatKit Widgets
@@ -34,6 +35,7 @@ Supported now or appropriate to add with existing fields:
 - Evidence list card from `evidence_list`.
 - Metrics card from `metric_table`.
 - Action confirmation card from `action_proposal`.
+- Action result card from `action_result`.
 - Compact entity/list card for product/watchlist/activity/ranked lists using existing summary fields.
 - Recommendation list card using existing `AiRecommendationSummary`-style fields.
 - Empty/unavailable state card for missing diagnosis, evidence, products, analytics, or action availability.
@@ -68,6 +70,7 @@ Available through current neutral blocks:
 - `evidence_list`: product GID, source, quote, weight.
 - `metric_table`: title, metric label/value/detail.
 - `action_proposal`: proposal ID, title, summary, target, reason, expected result, risks, confirmation level, side effect level, reversibility, expiry.
+- `action_result`: action name, status, title, safe summary, target label, side effect level, affected entities, created job ID.
 
 Available in domain types and safe to model in presentation blocks:
 
@@ -88,5 +91,6 @@ Unavailable for ChatKit cards today:
 - The model may only choose among validated neutral block shapes.
 - Widget actions must keep routing through backend validation.
 - Action confirmation buttons must send only `proposalId`.
+- Action result cards must be read-only and generated from backend execution/cancellation state.
 - Cards should cap long text and item counts.
 - Unknown or invalid block types must fall back to safe unavailable cards without exposing raw JSON.

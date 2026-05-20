@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { createAiToolContextFromAuthenticatedRequest } from "../ai/context.server";
 import { createAiActionRegistry } from "../ai/actions/registry.server";
-import { aiActionProposalToSafeSummary } from "../ai/actions/presentation";
+import {
+  aiActionExecutionToPresentationBlock,
+  aiActionProposalToSafeSummary,
+} from "../ai/actions/presentation";
+import { mapAiPresentationBlockToChatKitWidget } from "../ai/chatkit/widgets";
 
 const aiActionConfirmRequestSchema = z.object({
   proposalId: z.string().trim().min(1).max(320),
@@ -42,11 +46,14 @@ export const action = async ({ request }) => {
     );
   }
 
+  const block = aiActionExecutionToPresentationBlock(result.data.proposal, result.data.execution);
   return Response.json(
     {
       status: "success",
       proposal: aiActionProposalToSafeSummary(result.data.proposal),
       execution: result.data.execution,
+      block,
+      widget: mapAiPresentationBlockToChatKitWidget(block),
       message: result.data.execution.safeMessage,
     },
     { status: 200, headers: { "Cache-Control": "no-store" } },

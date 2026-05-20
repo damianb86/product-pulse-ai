@@ -10,6 +10,8 @@ import {
 import { AiChatOrchestrator, type AiChatTurnResult } from "../chat/aiChatOrchestrator.server";
 import type { AiPageContext } from "../chat/pageContext";
 import type { AiPresentationBlock } from "../presentation/blocks";
+import type { AiActionRegistry } from "../actions/registry.server";
+import { aiActionErrorToPresentationBlock } from "../actions/presentation";
 import { createAiToolRegistry, type AiToolRegistry } from "../tools/registry.server";
 import { chatKitActionRequestSchema, handleChatKitAction } from "./actions.server";
 import { validateChatKitPageContextForShop } from "./session.server";
@@ -135,6 +137,7 @@ export interface HandleChatKitMessageDependencies {
   orchestrator?: Pick<AiChatOrchestrator, "runAiChatTurnWithContext">;
   conversationStore?: AiConversationStore;
   toolRegistry?: AiToolRegistry;
+  actionRegistry?: AiActionRegistry;
   now?: () => Date;
 }
 
@@ -274,9 +277,31 @@ async function runChatKitAction(input: {
 
   const result = await handleChatKitAction(input.context, parsed.data, {
     toolRegistry: input.dependencies.toolRegistry,
+    actionRegistry: input.dependencies.actionRegistry,
   });
   if (result.status === "error") {
-    return [errorEvent(result.message)];
+    return assistantBlockResponseEvents({
+      context: input.context,
+      conversationId: input.conversationId,
+      store: input.store,
+      message: result.message,
+      blocks: [aiActionErrorToPresentationBlock({
+        actionName: input.request.params.action.type,
+        message: result.message,
+      })],
+      now: input.now,
+    });
+  }
+
+  if (result.action.type === "assistant_response") {
+    return assistantBlockResponseEvents({
+      context: input.context,
+      conversationId: input.conversationId,
+      store: input.store,
+      message: result.action.message,
+      blocks: result.action.blocks,
+      now: input.now,
+    });
   }
 
   if (result.action.type === "send_message") {
@@ -310,6 +335,33 @@ async function runChatKitAction(input: {
 
   const message = result.action.message;
   return [assistantDoneEvent(input.conversationId, `msg_${stableId(`${input.conversationId}:${input.now().toISOString()}`)}`, message, input.now)];
+}
+
+async function assistantBlockResponseEvents(input: {
+  context: AiToolContext;
+  conversationId: string;
+  store: AiConversationStore;
+  message: string;
+  blocks: AiPresentationBlock[];
+  now: () => Date;
+}): Promise<Record<string, unknown>[]> {
+  await input.store.getOrCreateConversation(input.context, {
+    conversationId: input.conversationId,
+    titleSeed: "ProductPulse AI assistant",
+  });
+  const assistantMessage = await input.store.addMessage({
+    context: input.context,
+    conversationId: input.conversationId,
+    role: "assistant",
+    content: input.message,
+    structuredContent: { blocks: input.blocks },
+  });
+  return [
+    streamOptionsEvent(),
+    ...assistantStreamingEvents(input.conversationId, assistantMessage.id, input.message, input.now),
+    ...widgetsToDoneEvents(input.conversationId, assistantMessage.id, input.blocks, input.message, input.now),
+    endOfTurnDoneEvent(input.conversationId, assistantMessage.id, input.now),
+  ];
 }
 
 async function syncActionResponse(
