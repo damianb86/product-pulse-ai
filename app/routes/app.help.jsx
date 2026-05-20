@@ -766,26 +766,26 @@ function SignalMapGraphic() {
     >
       <defs>
         <linearGradient id="signal-card" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="100%" stopColor="#eef4ff" />
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="100%" stopColor="#EEF4FF" />
         </linearGradient>
         <linearGradient id="signal-dark" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stopColor="#0f172a" />
-          <stop offset="100%" stopColor="#1e293b" />
+          <stop offset="0%" stopColor="#111827" />
+          <stop offset="100%" stopColor="#334155" />
         </linearGradient>
       </defs>
       <rect x="24" y="26" width="712" height="468" rx="24" fill="url(#signal-card)" />
       <path
         d="M136 118 C258 42 328 184 418 124 S552 94 632 156"
         fill="none"
-        stroke="#14b8a6"
+        stroke="#16A34A"
         strokeDasharray="10 12"
         strokeWidth="4"
       />
       <path
         d="M126 342 C228 260 314 366 432 302 S572 244 648 328"
         fill="none"
-        stroke="#7c3aed"
+        stroke="#7C5CFF"
         strokeDasharray="9 13"
         strokeWidth="4"
       />
@@ -813,10 +813,10 @@ function SignalMapGraphic() {
         <rect x="262" y="166" width="236" height="174" rx="22" fill="url(#signal-dark)" />
         <text className={styles.graphicTitle} x="296" y="210">ProductPulse AI</text>
         <text className={styles.graphicSubtext} x="296" y="236">Risk score 84</text>
-        <rect x="296" y="262" width="168" height="10" rx="5" fill="#334155" />
-        <rect x="296" y="262" width="134" height="10" rx="5" fill="#3a6bff" />
-        <rect x="296" y="286" width="168" height="10" rx="5" fill="#334155" />
-        <rect x="296" y="286" width="112" height="10" rx="5" fill="#14b8a6" />
+        <rect x="296" y="262" width="168" height="10" rx="5" fill="#475569" />
+        <rect x="296" y="262" width="134" height="10" rx="5" fill="#2563EB" />
+        <rect x="296" y="286" width="168" height="10" rx="5" fill="#475569" />
+        <rect x="296" y="286" width="112" height="10" rx="5" fill="#16A34A" />
         <text className={styles.graphicFootnote} x="296" y="318">Evidence-backed draft actions</text>
       </g>
       <g className={styles.graphicAction}>
@@ -831,10 +831,10 @@ function SignalMapGraphic() {
         <rect x="482" y="414" width="132" height="42" rx="12" />
         <text x="510" y="441">CX snippet</text>
       </g>
-      <circle cx="260" cy="202" r="8" fill="#f59e0b" />
-      <circle cx="500" cy="202" r="8" fill="#06b6d4" />
-      <circle cx="260" cy="304" r="8" fill="#ef4444" />
-      <circle cx="500" cy="304" r="8" fill="#22c55e" />
+      <circle cx="260" cy="202" r="8" fill="#F59E0B" />
+      <circle cx="500" cy="202" r="8" fill="#2563EB" />
+      <circle cx="260" cy="304" r="8" fill="#EF4444" />
+      <circle cx="500" cy="304" r="8" fill="#16A34A" />
     </svg>
   );
 }

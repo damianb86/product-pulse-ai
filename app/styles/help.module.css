@@ -204,13 +204,13 @@
 }
 
 .graphicSubtext {
-  fill: #cbd5e1;
+  fill: var(--pp-slate-300);
   font-size: 16px;
   font-weight: 650;
 }
 
 .graphicFootnote {
-  fill: #cbd5e1;
+  fill: var(--pp-slate-300);
   font-size: 13px;
   font-weight: 600;
 }
@@ -460,7 +460,7 @@
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(135deg, var(--pp-midnight-ink), #1e293b);
+    var(--pp-dark-neutral-gradient);
   background-size: 26px 26px, 26px 26px, auto;
 }
 

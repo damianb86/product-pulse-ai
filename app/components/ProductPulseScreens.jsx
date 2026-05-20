@@ -2064,7 +2064,7 @@ function WatchlistTrendPanel({ trend = {} }) {
                 key={item.productGid || item.productTitle}
                 className="ppWatchTrendLine"
                 d={buildSmoothSvgPath(linePoints)}
-                stroke={item.color || "#3A6BFF"}
+                stroke={item.color || "#2563EB"}
               />
             );
           })}
@@ -2073,7 +2073,7 @@ function WatchlistTrendPanel({ trend = {} }) {
       <div className="ppWatchTrendLegend" aria-label="Watched product trend legend">
         {hasSeries ? series.map((item) => (
           <Link key={item.productGid || item.productTitle} to={item.href || "/app/products"} title={item.productTitle}>
-            <span style={{ backgroundColor: item.color || "#3A6BFF" }} aria-hidden="true" />
+            <span style={{ backgroundColor: item.color || "#2563EB" }} aria-hidden="true" />
             <strong>{item.productTitle || "Watched product"}</strong>
             <small>{Number.isFinite(Number(item.riskScore)) ? `${item.riskScore} · ${item.riskLabel}` : item.riskLabel || "No data"}</small>
           </Link>
@@ -3861,6 +3861,17 @@ function getProductStatusTone(status) {
   if (normalized === "draft") return "warning";
   if (normalized === "archived") return "critical";
   return "info";
+}
+
+function getStorefrontUrlFromAdminUrl(adminUrl, handle) {
+  const productHandle = String(handle || "").trim();
+  if (!adminUrl || !productHandle) return "";
+  try {
+    const url = new URL(adminUrl);
+    return `${url.protocol}//${url.host}/products/${encodeURIComponent(productHandle)}`;
+  } catch {
+    return "";
+  }
 }
 
 function getConfidenceLabel(confidence, hasRiskSnapshot = true) {
@@ -7071,7 +7082,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const isWatched = watchlistLocalState ?? Boolean(detail.isWatched);
   const productStatusLabel = resolved ? "Resolved" : detail.productStatusLabel;
   const productStatusTone = resolved ? "success" : detail.productStatusTone;
-  const storeUrl = detail.shopifyStorefrontUrl || detail.shopifyAdminUrl || "";
+  const storeUrl = detail.shopifyStorefrontUrl || getStorefrontUrlFromAdminUrl(detail.shopifyAdminUrl, detail.handle);
   const productMetaItems = [
     ["Handle", detail.handle || "Unavailable"],
     ["Type", detail.productType || "Product"],

@@ -86,6 +86,58 @@ model ProductPulseAiProviderState {
   updatedAt          DateTime  @updatedAt
 }
 
+model AiConversation {
+  id        String                  @id @default(cuid())
+  shop      String
+  userId    String?
+  title     String?
+  metadata  Json?
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  messages  AiConversationMessage[]
+  toolCalls AiConversationToolCall[]
+
+  @@index([shop, updatedAt])
+  @@index([shop, userId])
+}
+
+model AiConversationMessage {
+  id                String                   @id @default(cuid())
+  shop              String
+  conversationId    String
+  conversation      AiConversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role              String
+  content           String
+  structuredContent Json?
+  openAiResponseId  String?
+  createdAt         DateTime                 @default(now())
+  toolCalls         AiConversationToolCall[]
+
+  @@index([shop, conversationId, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+model AiConversationToolCall {
+  id             String                 @id @default(cuid())
+  shop           String
+  conversationId String
+  conversation   AiConversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String?
+  message        AiConversationMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  toolName       String
+  callId         String?
+  validatedInput Json?
+  status         String
+  durationMs     Int?
+  resultCount    Int?
+  safeError      Json?
+  createdAt      DateTime               @default(now())
+
+  @@index([shop, conversationId, createdAt])
+  @@index([conversationId, toolName])
+  @@index([messageId])
+}
+
 model ProductPulseJobLog {
   id        String   @id @default(cuid())
   shop      String

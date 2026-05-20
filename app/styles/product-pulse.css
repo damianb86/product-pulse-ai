@@ -1,84 +1,105 @@
 :root {
-  --pp-pulse-blue: #3A6BFF;
-  --pp-insight-violet: #7C3AED;
-  --pp-signal-teal: #14B8A6;
-  --pp-midnight-ink: #0F172A;
+  --pp-pulse-blue: #2563EB;
+  --pp-insight-violet: #7C5CFF;
+  --pp-signal-teal: #16A34A;
+  --pp-midnight-ink: #111827;
   --pp-cloud-white: #FFFFFF;
-  --pp-mist-gray: #F8FAFC;
+  --pp-mist-gray: #F6F8FA;
   --pp-slate-900: #111827;
-  --pp-slate-700: #334155;
+  --pp-slate-800: #334155;
+  --pp-slate-700: #475569;
   --pp-slate-600: #475569;
   --pp-slate-500: #64748B;
   --pp-slate-400: #94A3B8;
   --pp-slate-300: #CBD5E1;
-  --pp-slate-200: #E2E8F0;
+  --pp-slate-200: #DDE5EF;
   --pp-slate-100: #F1F5F9;
   --pp-slate-50: #F8FAFC;
-  --pp-success-green: #22C55E;
+  --pp-success-green: #16A34A;
   --pp-warning-amber: #F59E0B;
   --pp-risk-red: #EF4444;
-  --pp-info-cyan: #06B6D4;
+  --pp-info-cyan: #2563EB;
+  --pp-primary-green: #0F6B3F;
+  --pp-dark-cta: #111827;
+  --pp-card-bg: #FFFFFF;
+  --pp-subcard-bg: #FAFBFC;
+  --pp-soft-highlight: #F3F7F4;
+  --pp-border-color: #DDE5EF;
+  --pp-active-border: #A7C3FF;
+  --pp-table-header-bg: #F1F5F9;
+  --pp-table-hover-bg: #F8FAFC;
+  --pp-discovery-blue: #1D4ED8;
+  --pp-discovery-soft: #DBEAFE;
+  --pp-high-risk-text: #B91C1C;
+  --pp-medium-risk-text: #92400E;
+  --pp-low-risk-text: #166534;
+  --pp-primary-next-step-text: #5B21B6;
+  --pp-primary-action-highlight-bg: #F8F7FF;
+  --pp-primary-action-highlight-border: #C4B5FD;
   --pp-blue-soft: #EEF4FF;
-  --pp-violet-soft: #F3E8FF;
-  --pp-teal-soft: #CCFBF1;
+  --pp-violet-soft: #F3EFFF;
+  --pp-teal-soft: #F3F7F4;
   --pp-green-soft: #DCFCE7;
   --pp-amber-soft: #FEF3C7;
   --pp-red-soft: #FEE2E2;
-  --pp-cyan-soft: #CFFAFE;
-  --pp-pulse-blue-rgb: 58, 107, 255;
-  --pp-insight-violet-rgb: 124, 58, 237;
-  --pp-signal-teal-rgb: 20, 184, 166;
-  --pp-success-green-rgb: 34, 197, 94;
+  --pp-cyan-soft: #DBEAFE;
+  --pp-pulse-blue-rgb: 37, 99, 235;
+  --pp-insight-violet-rgb: 124, 92, 255;
+  --pp-signal-teal-rgb: 22, 163, 74;
+  --pp-success-green-rgb: 22, 163, 74;
   --pp-warning-amber-rgb: 245, 158, 11;
   --pp-risk-red-rgb: 239, 68, 68;
-  --pp-info-cyan-rgb: 6, 182, 212;
-  --pp-slate-700-rgb: 51, 65, 85;
+  --pp-info-cyan-rgb: 37, 99, 235;
+  --pp-primary-green-rgb: 15, 107, 63;
+  --pp-slate-700-rgb: 71, 85, 105;
   --pp-slate-500-rgb: 100, 116, 139;
   --pp-slate-100-rgb: 241, 245, 249;
   --pp-shadow-rgb: 15, 23, 42;
+  --pp-grid-line: #E5E7EB;
+  --pp-card-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 20px rgba(15, 23, 42, 0.04);
+  --pp-highlighted-card-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 12px 32px rgba(15, 23, 42, 0.08);
   --pp-dark-neutral-gradient:
-    radial-gradient(circle at 8% 0%, rgba(255, 255, 255, 0.16), transparent 34%),
-    radial-gradient(circle at 94% 10%, rgba(203, 213, 225, 0.11), transparent 34%),
-    linear-gradient(135deg, #313743 0%, #202631 45%, #0d111a 50%);
-  --pp-highlight-border: rgba(79, 115, 255, 0.22);
+    linear-gradient(135deg, #111827 0%, #1F2937 100%);
+  --pp-highlight-border: #DDE5EF;
   --pp-highlight-bg:
     linear-gradient(
       135deg,
-      #f5f7fb 0%,
-      #f8f7ff 46%,
-      #f7fbff 100%
+      #FFFFFF 0%,
+      #F8F7FF 55%,
+      #F3F7F4 100%
     );
   --pp-highlight-accent:
     linear-gradient(
       90deg,
-      rgba(67, 97, 238, 0.85),
-      rgba(124, 92, 255, 0.55),
-      rgba(45, 212, 191, 0.35)
+      rgba(124, 92, 255, 0.78),
+      rgba(37, 99, 235, 0.48),
+      rgba(22, 163, 74, 0.28)
     );
   --pp-highlight-glow:
     radial-gradient(
       circle,
-      rgba(124, 92, 255, 0.14) 0%,
-      rgba(124, 92, 255, 0.06) 38%,
+      rgba(124, 92, 255, 0.10) 0%,
+      rgba(124, 92, 255, 0.04) 38%,
       transparent 70%
     );
-  --pp-highlight-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.05),
-    0 10px 28px rgba(15, 23, 42, 0.06),
-    0 0 0 1px rgba(255, 255, 255, 0.65) inset;
+  --pp-highlight-shadow: var(--pp-highlighted-card-shadow);
   --pp-overview-highlight-bg:
     linear-gradient(
       135deg,
-      #f5f7fb 0%,
-      #f7f5ff 42%,
-      #f4fbff 100%
+      #FFFFFF 0%,
+      #F8F7FF 55%,
+      #F3F7F4 100%
     );
   --pp-actions-highlight-bg:
     linear-gradient(
       180deg,
-      #f8f7ff 0%,
-      #f5f7fb 42%,
-      #ffffff 100%
+      #FFFFFF 0%,
+      var(--pp-primary-action-highlight-bg) 48%,
+      #FAFBFC 100%
     );
 }
 
@@ -118,6 +139,18 @@ s-page[inline-size="large-500"] {
   box-sizing: border-box;
 }
 
+.ppFullWidthPage :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  border-color: var(--pp-slate-300);
+  background: var(--pp-card-bg);
+  color: var(--pp-slate-900);
+}
+
+.ppFullWidthPage :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea):focus {
+  border-color: var(--pp-pulse-blue);
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.12);
+}
+
 .ppPageTitle {
   margin: 0 0 8px;
   color: var(--pp-slate-900);
@@ -129,7 +162,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailPage {
   padding-top: 14px;
-  background: var(--pp-cloud-white);
+  background: var(--pp-mist-gray);
 }
 
 .ppDashboard {
@@ -165,10 +198,10 @@ s-page[inline-size="large-500"] {
   align-items: center;
   gap: 14px;
   padding: 18px;
-  border: 1px solid var(--pp-slate-300);
+  border: 1px solid var(--pp-border-color);
   border-radius: 14px;
-  background: var(--pp-cloud-white);
-  box-shadow: 0 1px 1px rgba(var(--pp-shadow-rgb), 0.06), 0 2px 10px rgba(var(--pp-shadow-rgb), 0.06);
+  background: var(--pp-card-bg);
+  box-shadow: var(--pp-card-shadow);
 }
 
 .ppDashboardKpi h2 {
@@ -573,22 +606,22 @@ s-page[inline-size="large-500"] {
 
 .ppInlineBadge-critical {
   background: var(--pp-red-soft);
-  color: var(--pp-risk-red);
+  color: var(--pp-high-risk-text);
 }
 
 .ppInlineBadge-warning {
   background: var(--pp-amber-soft);
-  color: var(--pp-warning-amber);
+  color: var(--pp-medium-risk-text);
 }
 
 .ppInlineBadge-success {
   background: var(--pp-green-soft);
-  color: var(--pp-success-green);
+  color: var(--pp-low-risk-text);
 }
 
 .ppInlineBadge-info {
-  background: var(--pp-cyan-soft);
-  color: var(--pp-info-cyan);
+  background: var(--pp-discovery-soft);
+  color: var(--pp-discovery-blue);
 }
 
 .ppAnalyzeLinkButton {
@@ -632,14 +665,10 @@ s-page[inline-size="large-500"] {
 .ppAnalyzeLinkButton-primary {
   min-height: 38px;
   padding: 9px 16px;
-  border-color: var(--pp-pulse-blue);
-  background: linear-gradient(
-    180deg,
-    var(--pp-pulse-blue) 0%,
-    color-mix(in srgb, var(--pp-pulse-blue) 82%, var(--pp-midnight-ink)) 100%
-  );
+  border-color: var(--pp-dark-cta);
+  background: var(--pp-dark-cta);
   color: var(--pp-cloud-white);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 8px 18px rgba(var(--pp-pulse-blue-rgb), 0.24);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset, 0 8px 18px rgba(var(--pp-shadow-rgb), 0.14);
 }
 
 .ppAnalyzeLinkButton-primary s-icon {
@@ -654,14 +683,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyzeLinkButton-primary:hover {
-  border-color: color-mix(in srgb, var(--pp-pulse-blue) 82%, var(--pp-midnight-ink));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--pp-pulse-blue) 92%, var(--pp-cloud-white)) 0%,
-    color-mix(in srgb, var(--pp-pulse-blue) 72%, var(--pp-midnight-ink)) 100%
-  );
+  border-color: color-mix(in srgb, var(--pp-dark-cta) 88%, var(--pp-cloud-white));
+  background: color-mix(in srgb, var(--pp-dark-cta) 92%, var(--pp-cloud-white));
   color: var(--pp-cloud-white);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset, 0 10px 22px rgba(var(--pp-pulse-blue-rgb), 0.3);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 10px 22px rgba(var(--pp-shadow-rgb), 0.18);
 }
 
 .ppPrimaryButton {
@@ -671,9 +696,9 @@ s-page[inline-size="large-500"] {
   justify-content: center;
   gap: 6px;
   padding: 7px 14px;
-  border: 1px solid var(--pp-pulse-blue);
+  border: 1px solid var(--pp-primary-green);
   border-radius: 8px;
-  background: var(--pp-pulse-blue);
+  background: var(--pp-primary-green);
   color: var(--pp-cloud-white);
   font: inherit;
   font-size: 13px;
@@ -682,7 +707,7 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 4px 10px rgba(var(--pp-pulse-blue-rgb), 0.2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 4px 10px rgba(var(--pp-primary-green-rgb), 0.18);
   transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
@@ -700,11 +725,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppPrimaryButton:hover {
-  border-color: color-mix(in srgb, var(--pp-pulse-blue) 82%, var(--pp-midnight-ink));
-  background: color-mix(in srgb, var(--pp-pulse-blue) 86%, var(--pp-midnight-ink));
+  border-color: color-mix(in srgb, var(--pp-primary-green) 82%, var(--pp-midnight-ink));
+  background: color-mix(in srgb, var(--pp-primary-green) 86%, var(--pp-midnight-ink));
   color: var(--pp-cloud-white);
   text-decoration: none;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 7px 16px rgba(var(--pp-pulse-blue-rgb), 0.26);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 7px 16px rgba(var(--pp-primary-green-rgb), 0.24);
   transform: translateY(-1px);
 }
 
@@ -901,7 +926,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppEvidenceMetric-warning small {
-  color: #b45309;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppEvidenceMetric-info small {
@@ -956,7 +981,7 @@ s-page[inline-size="large-500"] {
 
 .ppDashboardTable th {
   height: 34px;
-  background: var(--pp-slate-100);
+  background: var(--pp-table-header-bg);
   color: var(--pp-slate-500);
   font-size: 12px;
   font-weight: 450;
@@ -972,6 +997,10 @@ s-page[inline-size="large-500"] {
 
 .ppDashboardTable tr:last-child td {
   border-bottom: 0;
+}
+
+.ppDashboardTable tbody tr:hover td {
+  background: var(--pp-table-hover-bg);
 }
 
 .ppReviewProduct {
@@ -1449,13 +1478,13 @@ s-page[inline-size="large-500"] {
 
 .ppSourceToken-refunds .ppSourceGlyph {
   background: rgba(var(--pp-warning-amber-rgb), 0.14);
-  color: #b45309;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppSourceGlyph.ppSourceToken-refunds,
 .ppSourceSummaryGlyph-refunds {
   background: rgba(var(--pp-warning-amber-rgb), 0.14);
-  color: #b45309;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppSourceToken-returns .ppSourceGlyph {
@@ -1663,7 +1692,7 @@ s-page[inline-size="large-500"] {
 
 .ppPriorityProductRank-warning {
   background: var(--pp-amber-soft);
-  color: #b45309;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppPriorityProductRank-success {
@@ -2439,10 +2468,10 @@ s-page[inline-size="large-500"] {
 .ppProductReturnPredictionPanel,
 .ppProductMomentumPanel,
 .ppProductRiskHistoryPanel {
-  border: 1px solid var(--pp-slate-200);
+  border: 1px solid var(--pp-border-color);
   border-radius: 12px;
-  background: var(--pp-cloud-white);
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 18px 44px rgba(var(--pp-shadow-rgb), 0.06);
+  background: var(--pp-card-bg);
+  box-shadow: var(--pp-card-shadow);
 }
 
 .ppProductDetailOverviewCard {
@@ -2767,7 +2796,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductStatusPill-success {
   background: var(--pp-green-soft);
-  color: #16a34a;
+  color: var(--pp-success-green);
 }
 
 .ppProductStatusPill-warning {
@@ -2927,7 +2956,7 @@ s-page[inline-size="large-500"] {
 .ppProductHeaderActions .ppResolveButton.isUnresolved {
   border-color: rgba(var(--pp-success-green-rgb), 0.34);
   background: linear-gradient(180deg, rgba(var(--pp-success-green-rgb), 0.13), rgba(var(--pp-success-green-rgb), 0.07));
-  color: #15803d;
+  color: var(--pp-low-risk-text);
 }
 
 .ppProductHeaderActions .ppResolveButton.isUnresolved:hover:not(:disabled) {
@@ -3234,11 +3263,10 @@ s-page[inline-size="large-500"] {
   align-items: start;
   overflow: hidden;
   padding: 18px 20px;
-  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.16);
+  border: 1px solid var(--pp-border-color);
   border-radius: 10px;
-  background:
-    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.09), rgba(var(--pp-pulse-blue-rgb), 0.055) 46%, rgba(var(--pp-signal-teal-rgb), 0.035)),
-    var(--pp-cloud-white);
+  background: var(--pp-overview-highlight-bg);
+  box-shadow: var(--pp-card-shadow);
 }
 
 .ppMainFindingCard::after {
@@ -3593,7 +3621,7 @@ s-page[inline-size="large-500"] {
 .ppProductDetailHeroPanel .ppProductHeaderActions .ppResolveButton.isUnresolved {
   border-color: rgba(var(--pp-success-green-rgb), 0.34);
   background: linear-gradient(180deg, rgba(var(--pp-success-green-rgb), 0.13), rgba(var(--pp-success-green-rgb), 0.07));
-  color: #15803d;
+  color: var(--pp-low-risk-text);
 }
 
 .ppProductDetailHeroPanel .ppProductHeaderActions .ppResolveButton.isResolved {
@@ -4585,21 +4613,21 @@ s-page[inline-size="large-500"] {
 
 .ppReturnPredictionGridLine {
   fill: none;
-  stroke: rgba(100, 116, 139, 0.18);
+  stroke: var(--pp-grid-line);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
 .ppReturnPredictionMonthLine {
   fill: none;
-  stroke: rgba(100, 116, 139, 0.13);
+  stroke: rgba(229, 231, 235, 0.82);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
 .ppReturnPredictionGridLine-top,
 .ppReturnPredictionGridLine-bottom {
-  stroke: rgba(100, 116, 139, 0.12);
+  stroke: rgba(229, 231, 235, 0.74);
 }
 
 .ppReturnPredictionBoundary {
@@ -5527,7 +5555,7 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceTextPositive {
   background: var(--pp-green-soft);
-  color: #15803d;
+  color: var(--pp-low-risk-text);
 }
 
 .ppEvidenceTextNeutral {
@@ -5542,7 +5570,7 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceNumber {
   background: var(--pp-teal-soft);
-  color: #0f766e;
+  color: var(--pp-success-green);
 }
 
 .ppEvidenceQuote {
@@ -5569,7 +5597,7 @@ s-page[inline-size="large-500"] {
   border: 1px dashed rgba(var(--pp-warning-amber-rgb), 0.62);
   border-radius: 6px;
   background: rgba(var(--pp-warning-amber-rgb), 0.14);
-  color: #92400e;
+  color: var(--pp-medium-risk-text);
   font-weight: 850;
   line-height: 1.15;
 }
@@ -5936,7 +5964,7 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceFinding-positive .ppEvidenceFindingIndex {
   background: var(--pp-green-soft);
-  color: #15803d;
+  color: var(--pp-low-risk-text);
 }
 
 .ppEvidenceFinding-insight .ppEvidenceFindingIndex {
@@ -6034,10 +6062,10 @@ s-page[inline-size="large-500"] {
   gap: 0;
   padding: 0;
   overflow: visible;
-  border-color: var(--pp-slate-200);
+  border-color: var(--pp-border-color);
   border-radius: 10px;
-  background: var(--pp-cloud-white);
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 18px 44px rgba(var(--pp-shadow-rgb), 0.06);
+  background: var(--pp-card-bg);
+  box-shadow: var(--pp-card-shadow);
 }
 
 .ppEvidenceObservabilityHeader {
@@ -6619,7 +6647,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppVariantEvidenceCell-amber strong {
-  color: #92400e;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppVariantEvidenceCell-violet strong {
@@ -8089,13 +8117,17 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th {
   height: 28px;
-  background: var(--pp-slate-100);
+  background: var(--pp-table-header-bg);
   color: var(--pp-slate-500);
   font-weight: 450;
 }
 
 .ppIssuesTable tr:last-child td {
   border-bottom: 0;
+}
+
+.ppIssuesTable tbody tr:hover td {
+  background: var(--pp-table-hover-bg);
 }
 
 .ppIssuesTable tr.isIgnored {
@@ -8368,13 +8400,10 @@ s-page[inline-size="large-500"] {
 .ppProductDetailSidebar .ppRecommendedActionsPanel {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(124, 92, 255, 0.20);
+  border: 1px solid var(--pp-primary-action-highlight-border);
   border-radius: 18px;
-  background: var(--pp-actions-highlight-bg);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 10px 26px rgba(15, 23, 42, 0.055),
-    0 0 0 1px rgba(255, 255, 255, 0.7) inset;
+  background: var(--pp-primary-action-highlight-bg);
+  box-shadow: var(--pp-card-shadow);
 }
 
 .ppProductDetailSidebar .ppRecommendedActionsPanel::before {
@@ -9618,7 +9647,7 @@ s-page[inline-size="large-500"] {
   border: 1px solid rgba(var(--pp-warning-amber-rgb), 0.38);
   border-radius: 8px;
   background: rgba(var(--pp-warning-amber-rgb), 0.11);
-  color: #92400e;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppPlaceholderNotice s-icon {
@@ -9633,7 +9662,7 @@ s-page[inline-size="large-500"] {
 
 .ppPlaceholderNotice p {
   margin: 0;
-  color: #92400e;
+  color: var(--pp-medium-risk-text);
   font-size: 12px;
   font-weight: 680;
   line-height: 1.42;
@@ -10348,16 +10377,16 @@ s-page[inline-size="large-500"] {
   justify-content: center;
   gap: 8px;
   padding: 9px 14px;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.32);
+  border: 1px solid rgba(var(--pp-primary-green-rgb), 0.34);
   border-radius: 9px;
-  background: linear-gradient(135deg, var(--pp-pulse-blue), #2451dc);
+  background: var(--pp-primary-green);
   color: var(--pp-cloud-white);
   font: inherit;
   font-size: 13px;
   font-weight: 800;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 12px 24px rgba(var(--pp-pulse-blue-rgb), 0.22);
+  box-shadow: 0 10px 22px rgba(var(--pp-primary-green-rgb), 0.18);
 }
 
 .ppActionCtaButton span,
@@ -10446,7 +10475,7 @@ s-page[inline-size="large-500"] {
 
 .ppActionCtaButton:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 16px 30px rgba(var(--pp-pulse-blue-rgb), 0.28);
+  box-shadow: 0 12px 26px rgba(var(--pp-primary-green-rgb), 0.24);
 }
 
 .ppActionCtaButton:disabled {
@@ -11595,7 +11624,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppChartGridLine {
-  stroke: var(--pp-slate-200);
+  stroke: var(--pp-grid-line);
   stroke-width: 1;
 }
 
@@ -13549,7 +13578,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppQuickScanCsvIcon {
-  background: linear-gradient(135deg, #4f46e5, #14b8a6);
+  background: linear-gradient(135deg, var(--pp-insight-violet), var(--pp-success-green));
 }
 
 .ppQuickScanCsvNotice {
@@ -13705,7 +13734,7 @@ s-page[inline-size="large-500"] {
   width: 38px;
   padding: 0;
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.45);
-  background: linear-gradient(135deg, var(--pp-pulse-blue), #6d5dfc);
+  background: linear-gradient(135deg, var(--pp-pulse-blue), var(--pp-insight-violet));
   color: var(--pp-cloud-white);
   box-shadow: 0 8px 18px rgba(var(--pp-pulse-blue-rgb), 0.22);
 }
@@ -13733,7 +13762,7 @@ s-page[inline-size="large-500"] {
 
 .ppShopifyProductResultActionIconOnly:hover {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.6);
-  background: linear-gradient(135deg, #3156f5, #6d5dfc);
+  background: linear-gradient(135deg, var(--pp-pulse-blue), var(--pp-insight-violet));
   color: var(--pp-cloud-white);
 }
 
@@ -13868,7 +13897,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchlistConfirmIcon-remove {
-  background: linear-gradient(135deg, var(--pp-risk-red), #fb7185);
+  background: linear-gradient(135deg, var(--pp-risk-red), var(--pp-high-risk-text));
 }
 
 .ppWatchlistRemoveConfirmButton {
@@ -13882,7 +13911,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppDeleteAnalysisConfirmIcon {
-  background: linear-gradient(135deg, var(--pp-risk-red), #fb7185);
+  background: linear-gradient(135deg, var(--pp-risk-red), var(--pp-high-risk-text));
 }
 
 .ppDeleteAnalysisConfirmIcon .ppTrashIcon {
@@ -14488,7 +14517,7 @@ s-page[inline-size="large-500"] {
   align-items: start;
   padding: 24px 28px 20px;
   border-bottom: 1px solid var(--pp-slate-200);
-  background: linear-gradient(180deg, var(--pp-cloud-white), #fbfdff);
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
 }
 
 .ppWatchChangeReportHeader .ppDashboardIcon {
@@ -14604,7 +14633,7 @@ s-page[inline-size="large-500"] {
   gap: 10px;
   padding: 14px 28px 16px;
   overflow: auto;
-  background: linear-gradient(180deg, #fbfdff, var(--pp-cloud-white));
+  background: linear-gradient(180deg, var(--pp-subcard-bg), var(--pp-cloud-white));
 }
 
 .ppWatchChangeReportMeta {
@@ -16070,17 +16099,17 @@ s-page[inline-size="large-500"] {
 
 .ppSettingsRiskPreview span:nth-child(2) {
   background: var(--pp-green-soft);
-  color: #15803D;
+  color: var(--pp-low-risk-text);
 }
 
 .ppSettingsRiskPreview span:nth-child(3) {
   background: var(--pp-amber-soft);
-  color: #B45309;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppSettingsRiskPreview span:nth-child(4) {
   background: var(--pp-red-soft);
-  color: #B91C1C;
+  color: var(--pp-high-risk-text);
 }
 
 .ppSettingsRiskSlider {
@@ -16277,17 +16306,17 @@ s-page[inline-size="large-500"] {
 
 .ppSettingsRiskLegend span:nth-child(2) {
   background: var(--pp-green-soft);
-  color: #15803D;
+  color: var(--pp-low-risk-text);
 }
 
 .ppSettingsRiskLegend span:nth-child(3) {
   background: var(--pp-amber-soft);
-  color: #B45309;
+  color: var(--pp-medium-risk-text);
 }
 
 .ppSettingsRiskLegend span:nth-child(4) {
   background: var(--pp-red-soft);
-  color: #B91C1C;
+  color: var(--pp-high-risk-text);
 }
 
 .ppSettingsRiskLegend strong {
@@ -17082,8 +17111,8 @@ s-page[inline-size="large-500"] {
   display: inline-grid;
   place-items: center;
   border-radius: 5px;
-  background: #95bf47;
-  color: #ffffff;
+  background: var(--pp-primary-green);
+  color: var(--pp-cloud-white);
   font-size: 10px;
   font-weight: 900;
   line-height: 1;
@@ -17213,7 +17242,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductsTable th {
   height: 45px;
-  background: var(--pp-slate-100);
+  background: var(--pp-table-header-bg);
   color: var(--pp-slate-700);
   font-size: 12px;
   font-weight: 450;
@@ -17258,6 +17287,10 @@ s-page[inline-size="large-500"] {
 
 .ppProductsTable tr:last-child td {
   border-bottom: 0;
+}
+
+.ppProductsTable tbody tr:hover td {
+  background: var(--pp-table-hover-bg);
 }
 
 .ppProductsTable tbody tr.isDiagnosing td {
