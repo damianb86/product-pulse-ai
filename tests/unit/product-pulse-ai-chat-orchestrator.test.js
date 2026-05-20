@@ -27,6 +27,12 @@ const {
 const {
   PRODUCT_PULSE_AI_ACTION_NAMES,
 } = await import("../../app/ai/actions/productPulseActions.server");
+const {
+  estimateAiTurnCost,
+} = await import("../../app/ai/observability/pricing");
+const {
+  normalizeOpenAiTokenUsage,
+} = await import("../../app/ai/observability/tokenUsage");
 
 const baseContext = {
   shop: "shop-a.myshopify.com",
@@ -285,6 +291,129 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(result.assistantText).toContain("AI chat is not configured");
     expect(store.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
   });
+
+  it("normalizes token usage and estimates turn cost centrally", () => {
+    const usage = normalizeOpenAiTokenUsage({
+      input_tokens: 1000,
+      output_tokens: 500,
+      total_tokens: 1500,
+      input_tokens_details: { cached_tokens: 200 },
+      output_tokens_details: { reasoning_tokens: 50 },
+    });
+
+    const cost = estimateAiTurnCost({
+      model: "gpt-5.4-mini",
+      usage,
+    });
+
+    expect(usage).toMatchObject({
+      inputTokens: 1000,
+      outputTokens: 500,
+      cachedInputTokens: 200,
+      reasoningOutputTokens: 50,
+      totalTokens: 1500,
+    });
+    expect(cost.totalUsd).toBe(0.002865);
+    expect(cost.missingUsage).toBe(false);
+    expect(cost.missingPricing).toBe(false);
+  });
+
+  it("logs AI turn traces with usage, estimated cost, instruction version, and call count", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn().mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+      assistantText: "Here is a measured answer.",
+    })));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Summarize this product.",
+    });
+
+    const request = openAiCreate.mock.calls[0][0];
+    const assistantMessage = store.messages.find((message) => message.role === "assistant");
+    expect(request.max_output_tokens).toBe(1600);
+    expect(result.metadata.usage).toMatchObject({
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+    });
+    expect(result.metadata.estimatedCost.totalUsd).toBeGreaterThan(0);
+    expect(result.metadata.trace).toMatchObject({
+      openAiCallCount: 1,
+      toolCallCount: 0,
+      blockedToolCallCount: 0,
+      instructionVersion: "product-pulse-ai-chat-v1",
+      structuredResponse: {
+        valid: true,
+        retryCount: 0,
+        fallbackUsed: false,
+      },
+    });
+    expect(assistantMessage.structuredContent.trace).toMatchObject({
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      tokenUsage: expect.objectContaining({ totalTokens: 30 }),
+      estimatedCost: expect.objectContaining({ estimated: true }),
+    });
+  });
+
+  it("trims conversation history before sending model input", async () => {
+    const store = new InMemoryConversationStore();
+    store.conversations.push({
+      id: "conversation-1",
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      title: "Existing conversation",
+    });
+    for (let index = 0; index < 10; index += 1) {
+      store.messages.push({
+        id: `old-${index}`,
+        conversationId: "conversation-1",
+        role: index % 2 ? "assistant" : "user",
+        content: `old message ${index}`,
+        structuredContent: {},
+        createdAt: new Date(),
+      });
+    }
+    const openAiCreate = vi.fn().mockResolvedValueOnce(openAiTextResponse(validAssistantResponse()));
+    const orchestrator = createTestOrchestrator({
+      store,
+      openAiCreate,
+      config: { maxRecentMessages: 3 },
+    });
+
+    await orchestrator.runAiChatTurnWithContext(baseContext, {
+      conversationId: "conversation-1",
+      message: "Current message",
+    });
+
+    const request = openAiCreate.mock.calls[0][0];
+    expect(request.input).toHaveLength(3);
+    expect(JSON.stringify(request.input)).toContain("Current message");
+    expect(JSON.stringify(request.input)).not.toContain("old message 0");
+  });
+
+  it("honors configured structured-response retry limits", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn().mockResolvedValueOnce({ id: "bad-1", output_text: "not json" });
+    const orchestrator = createTestOrchestrator({
+      store,
+      openAiCreate,
+      config: { maxStructuredResponseRetries: 0 },
+    });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Return invalid output.",
+    });
+
+    expect(openAiCreate).toHaveBeenCalledTimes(1);
+    expect(result.warnings.join(" ")).toContain("safe text-only fallback");
+    expect(result.metadata.trace.structuredResponse).toMatchObject({
+      valid: false,
+      retryCount: 0,
+      fallbackUsed: true,
+    });
+  });
 });
 
 function createTestOrchestrator({ registry, actionRegistry, store, openAiCreate, config = {} } = {}) {
@@ -297,7 +426,12 @@ function createTestOrchestrator({ registry, actionRegistry, store, openAiCreate,
         create: openAiCreate || vi.fn().mockResolvedValue(openAiTextResponse(validAssistantResponse())),
       },
     },
-    env: { OPENAI_API_KEY: "test-key" },
+    env: {
+      OPENAI_API_KEY: "test-key",
+      AI_MODEL_PRICING_JSON: JSON.stringify({
+        "gpt-test": { input: 1, cachedInput: 0.1, output: 2 },
+      }),
+    },
     config: {
       defaultModel: "gpt-test",
       strongModel: "gpt-test-strong",
@@ -305,6 +439,12 @@ function createTestOrchestrator({ registry, actionRegistry, store, openAiCreate,
       maxToolCallsPerTurn: 5,
       maxRecentMessages: 8,
       maxToolResultCharacters: 2000,
+      maxOutputTokens: 1600,
+      maxStructuredResponseRetries: 1,
+      maxActionProposalsPerTurn: 1,
+      openAiTimeoutMs: 30000,
+      costTrackingEnabled: true,
+      debugCosts: false,
       responseTemperature: 0.2,
       ...config,
     },
@@ -462,7 +602,7 @@ class InMemoryConversationStore {
 
   async addMessage(input) {
     const message = {
-      id: `message-${this.messages.length + 1}`,
+      id: input.id || `message-${this.messages.length + 1}`,
       conversationId: input.conversationId,
       role: input.role,
       content: input.content,

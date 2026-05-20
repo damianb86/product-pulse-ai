@@ -93,6 +93,10 @@ Relevant env vars:
 ```bash
 OPENAI_API_KEY=
 AI_CHAT_MODEL=gpt-5.4-mini
+AI_CHAT_MAX_TOOL_CALLS_PER_TURN=5
+AI_CHAT_MAX_OUTPUT_TOKENS=1600
+AI_COST_TRACKING_ENABLED=true
+AI_DEBUG_COSTS=false
 AI_CHATKIT_ENABLED=true
 AI_CHATKIT_API_URL=/api/ai/chatkit/message
 AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
@@ -100,10 +104,20 @@ AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 
 The browser receives only safe ChatKit config, including the public ChatKit domain key from OpenAI's domain allowlist. OpenAI inference runs server-side through the existing `/api/ai/chatkit/message` adapter and `AiChatOrchestrator`.
 
+AI cost/eval tooling:
+
+```bash
+npm run ai:eval
+```
+
+The eval runner uses mocked OpenAI responses by default. Internal traces with token usage and estimated cost are stored server-side on assistant messages; normal ChatKit responses do not expose token or cost data.
+
 ## Documentation
 - `docs/product-brief.md`
 - `docs/requirements.md`
 - `docs/architecture.md`
+- `docs/ai-cost-and-call-flow.md`
+- `docs/ai-cost-evaluation-observability.md`
 - `docs/shopify-integration.md`
 - `docs/qa-plan.md`
 - `docs/requirement-traceability-matrix.md`

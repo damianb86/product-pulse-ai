@@ -63,6 +63,9 @@ Safeguards:
 - Invalid tool input returns safe validation errors.
 - Per-turn tool calls are capped by `AI_CHAT_MAX_TOOL_CALLS_PER_TURN` or the default of 5.
 - Tool outputs are compacted before being returned to the model.
+- Model output is capped by `AI_CHAT_MAX_OUTPUT_TOKENS`.
+- OpenAI calls are bounded by `AI_CHAT_OPENAI_TIMEOUT_MS`.
+- Structured-output repair retries are capped by `AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES`.
 - Tool call start/success/error/blocked events are logged.
 
 ## Model Config
@@ -76,6 +79,13 @@ Environment variables:
 - `AI_CHAT_MAX_TOOL_CALLS_PER_TURN`: default 5.
 - `AI_CHAT_MAX_RECENT_MESSAGES`: default 8.
 - `AI_CHAT_MAX_TOOL_RESULT_CHARACTERS`: default 6000.
+- `AI_CHAT_MAX_OUTPUT_TOKENS`: default 1600.
+- `AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES`: default 1.
+- `AI_CHAT_MAX_ACTION_PROPOSALS_PER_TURN`: default 1.
+- `AI_CHAT_OPENAI_TIMEOUT_MS`: default 30000.
+- `AI_COST_TRACKING_ENABLED`: default true.
+- `AI_DEBUG_COSTS`: default false. In development only, exposes debug metadata from `/api/ai/chat`.
+- `AI_MODEL_PRICING_JSON`: optional model pricing override map.
 - `AI_CHAT_TEMPERATURE`: default 0.2.
 
 The API key is server-only and is never returned to the client.
@@ -113,6 +123,12 @@ This tool can create a pending server-stored proposal for a supported ProductPul
 Actual execution only happens through backend confirmation handling. The backend reloads the proposal by `proposalId`, checks shop ownership, status, expiry, entity ownership, and stored validated input, then runs the action executor. The model does not receive authority to run mutations directly.
 
 If the model returns invalid structured output, the orchestrator retries once. If the retry also fails, it returns a safe text-only fallback.
+
+## Observability
+
+Every assistant turn stores an internal trace in `AiConversationMessage.structuredContent.trace`. The trace includes instruction version, model, OpenAI response IDs, call count, token usage, estimated cost, tool/action counts, structured response validation state, guardrail settings, duration, and safe error status.
+
+Normal ChatKit rendering ignores the trace and only renders validated response blocks. Normal user responses do not expose token or cost metadata.
 
 ## Page Context
 

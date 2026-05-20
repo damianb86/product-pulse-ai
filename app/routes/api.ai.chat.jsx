@@ -1,3 +1,4 @@
+/* eslint-env node */
 import { z } from "zod";
 import { AiChatOrchestrator } from "../ai/chat/aiChatOrchestrator.server";
 
@@ -45,8 +46,23 @@ export const action = async ({ request }) => {
     ...parsed.data,
   });
 
-  return Response.json(result, {
+  return Response.json(toPublicAiChatResult(result), {
     status: 200,
     headers: { "Cache-Control": "no-store" },
   });
 };
+
+function toPublicAiChatResult(result) {
+  const debugEnabled = process.env.NODE_ENV === "development" && String(process.env.AI_DEBUG_COSTS || "").toLowerCase() === "true";
+  const { metadata, ...publicResult } = result;
+  return {
+    ...publicResult,
+    metadata: debugEnabled
+      ? metadata
+      : {
+          toolCallCount: metadata.toolCallCount,
+          blockedToolCallCount: metadata.blockedToolCallCount,
+          pageContext: metadata.pageContext,
+        },
+  };
+}

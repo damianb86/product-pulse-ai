@@ -14,6 +14,10 @@ import {
   aiActionProposalToPresentationBlock,
   aiActionProposalToSafeSummary,
 } from "../actions/presentation";
+import { estimateAiTurnCost, type AiEstimatedCost } from "../observability/pricing";
+import type { AiChatTrace } from "../observability/trace";
+import { AI_TRACE_SCHEMA_VERSION, compactAiChatTraceForMetadata } from "../observability/trace";
+import { combineOpenAiTokenUsage, type AiTokenUsage } from "../observability/tokenUsage";
 import { getAiChatConfig, hasOpenAiApiKey, type AiChatConfig } from "./config.server";
 import {
   buildStructuredMessageContent,
@@ -21,7 +25,7 @@ import {
   type AiConversationStore,
   type StoredAiConversationMessage,
 } from "./conversationStore.server";
-import { buildAiChatInstructions } from "./instructions";
+import { AI_CHAT_INSTRUCTIONS_VERSION, buildAiChatInstructions } from "./instructions";
 import { getPageContextReference, normalizeAiPageContext, type AiPageContext } from "./pageContext";
 import {
   aiAssistantResponseSchema,
@@ -67,7 +71,9 @@ export interface AiChatTurnResult extends AiAssistantResponse {
     toolCallCount: number;
     blockedToolCallCount: number;
     openAiResponseId: string | null;
-    usage: Record<string, unknown> | null;
+    usage: AiTokenUsage | null;
+    estimatedCost: AiEstimatedCost | null;
+    trace: ReturnType<typeof compactAiChatTraceForMetadata> | null;
     pageContext: AiPageContext;
   };
 }
@@ -91,6 +97,12 @@ interface ToolCallExecutionSummary {
   status: "success" | "error" | "blocked";
   resultCount?: number;
   durationMs?: number;
+}
+
+interface StructuredResponseValidationSummary {
+  valid: boolean;
+  retryCount: number;
+  fallbackUsed: boolean;
 }
 
 export class AiChatOrchestrator {
@@ -123,6 +135,7 @@ export class AiChatOrchestrator {
     context: AiToolContext,
     input: RunAiChatTurnWithContextInput,
   ): Promise<AiChatTurnResult> {
+    const turnStartedAt = Date.now();
     const message = normalizeUserMessage(input.message);
     const pageContext = normalizeAiPageContext(input.pageContext);
     const conversation = await this.conversationStore.getOrCreateConversation(context, {
@@ -153,7 +166,29 @@ export class AiChatOrchestrator {
       const fallback = createFallbackAssistantResponse("AI chat is not configured yet. Set OPENAI_API_KEY on the server before using this endpoint.", [
         "AI chat configuration is missing.",
       ]);
-      const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null);
+      const assistantMessageId = createMessageId("ai_msg", this.now);
+      const trace = buildAiChatTrace({
+        context: chatContext,
+        conversationId: conversation.id,
+        messageId: assistantMessageId,
+        userMessageId: userMessage.id,
+        model: this.config.defaultModel,
+        openAiResponseIds: [],
+        openAiCallCount: 0,
+        usage: null,
+        estimatedCost: null,
+        toolCallCount: 0,
+        blockedToolCallCount: 0,
+        actionProposalCount: 0,
+        validation: { valid: true, retryCount: 0, fallbackUsed: true },
+        pageContext,
+        config: this.config,
+        recentMessagesSent: 0,
+        durationMs: Date.now() - turnStartedAt,
+        errorStatus: "missing_openai_api_key",
+        now: this.now,
+      });
+      const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null, trace);
       return buildTurnResult({
         response: fallback,
         conversationId: conversation.id,
@@ -165,6 +200,8 @@ export class AiChatOrchestrator {
         blockedToolCallCount: 0,
         openAiResponseId: null,
         usage: null,
+        estimatedCost: null,
+        trace: compactAiChatTraceForMetadata(trace),
       });
     }
 
@@ -198,21 +235,52 @@ export class AiChatOrchestrator {
         tools: [...adapter.tools, actionProposalTool],
         openAiNameToInternalName: adapter.openAiNameToInternalName,
       });
-      const assistantResponse = await this.parseOrRecoverAssistantResponse({
+      const parseResult = await this.parseOrRecoverAssistantResponse({
         client,
         instructions,
         inputItems: runResult.inputItems,
         rawResponse: runResult.response,
       });
+      const openAiResponses = [...runResult.responses, ...parseResult.extraOpenAiResponses];
+      const usage = combineOpenAiTokenUsage(openAiResponses.map((response) => response.usage));
+      const estimatedCost = this.config.costTrackingEnabled
+        ? estimateAiTurnCost({ model: this.config.defaultModel, usage, env: this.env })
+        : null;
+      const actionProposalCount = runResult.toolCallSummaries
+        .filter((summary) => summary.internalToolName === AI_ACTION_PROPOSAL_TOOL_NAME && summary.status === "success")
+        .length;
+      const assistantMessageId = createMessageId("ai_msg", this.now);
+      const trace = buildAiChatTrace({
+        context: chatContext,
+        conversationId: conversation.id,
+        messageId: assistantMessageId,
+        userMessageId: userMessage.id,
+        model: this.config.defaultModel,
+        openAiResponseIds: openAiResponses.map((response) => String(response.id || "")).filter(Boolean),
+        openAiCallCount: openAiResponses.length,
+        usage,
+        estimatedCost,
+        toolCallCount: runResult.executedToolCalls,
+        blockedToolCallCount: runResult.blockedToolCalls,
+        actionProposalCount,
+        validation: parseResult.validation,
+        pageContext,
+        config: this.config,
+        recentMessagesSent: recentMessages.length,
+        durationMs: Date.now() - turnStartedAt,
+        errorStatus: null,
+        now: this.now,
+      });
       const assistantMessage = await this.persistAssistantMessage(
         chatContext,
         conversation.id,
-        assistantResponse,
+        parseResult.response,
         runResult.response.id || null,
+        trace,
       );
 
       return buildTurnResult({
-        response: assistantResponse,
+        response: parseResult.response,
         conversationId: conversation.id,
         userMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
@@ -221,13 +289,37 @@ export class AiChatOrchestrator {
         toolCallCount: runResult.executedToolCalls,
         blockedToolCallCount: runResult.blockedToolCalls,
         openAiResponseId: runResult.response.id || null,
-        usage: normalizeUsage(runResult.response.usage),
+        usage,
+        estimatedCost,
+        trace: compactAiChatTraceForMetadata(trace),
       });
     } catch (error) {
       const fallback = createFallbackAssistantResponse("I could not complete that AI chat turn. Please try again in a moment.", [
         getSafeOpenAiErrorCode(error),
       ].filter(Boolean));
-      const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null);
+      const assistantMessageId = createMessageId("ai_msg", this.now);
+      const trace = buildAiChatTrace({
+        context: chatContext,
+        conversationId: conversation.id,
+        messageId: assistantMessageId,
+        userMessageId: userMessage.id,
+        model: this.config.defaultModel,
+        openAiResponseIds: [],
+        openAiCallCount: 0,
+        usage: null,
+        estimatedCost: null,
+        toolCallCount: 0,
+        blockedToolCallCount: 0,
+        actionProposalCount: 0,
+        validation: { valid: false, retryCount: 0, fallbackUsed: true },
+        pageContext,
+        config: this.config,
+        recentMessagesSent: recentMessages.length,
+        durationMs: Date.now() - turnStartedAt,
+        errorStatus: getSafeOpenAiErrorCode(error),
+        now: this.now,
+      });
+      const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null, trace);
       return buildTurnResult({
         response: fallback,
         conversationId: conversation.id,
@@ -239,6 +331,8 @@ export class AiChatOrchestrator {
         blockedToolCallCount: 0,
         openAiResponseId: null,
         usage: null,
+        estimatedCost: null,
+        trace: compactAiChatTraceForMetadata(trace),
       });
     }
   }
@@ -254,19 +348,23 @@ export class AiChatOrchestrator {
     openAiNameToInternalName: Map<string, string>;
   }): Promise<{
     response: OpenAiResponseLike;
+    responses: OpenAiResponseLike[];
     inputItems: Array<Record<string, unknown>>;
     executedToolCalls: number;
     blockedToolCalls: number;
+    toolCallSummaries: ToolCallExecutionSummary[];
   }> {
     const inputItems = [...input.inputItems];
     let response = await this.createOpenAiResponse(input.client, input.instructions, inputItems, input.tools);
+    const responses = [response];
+    const toolCallSummaries: ToolCallExecutionSummary[] = [];
     let executedToolCalls = 0;
     let blockedToolCalls = 0;
 
     for (let turn = 0; turn <= this.config.maxToolCallsPerTurn; turn += 1) {
       const functionCalls = extractFunctionCalls(response);
       if (!functionCalls.length) {
-        return { response, inputItems, executedToolCalls, blockedToolCalls };
+        return { response, responses, inputItems, executedToolCalls, blockedToolCalls, toolCallSummaries };
       }
 
       inputItems.push(...normalizeOpenAiOutputItems(response.output));
@@ -283,6 +381,7 @@ export class AiChatOrchestrator {
 
         if (summary.status === "blocked") blockedToolCalls += 1;
         else executedToolCalls += 1;
+        toolCallSummaries.push(summary);
         inputItems.push({
           type: "function_call_output",
           call_id: summary.callId,
@@ -292,12 +391,13 @@ export class AiChatOrchestrator {
 
       const toolsForNextTurn = blockedToolCalls ? [] : input.tools;
       response = await this.createOpenAiResponse(input.client, input.instructions, inputItems, toolsForNextTurn);
+      responses.push(response);
       if (blockedToolCalls) {
-        return { response, inputItems, executedToolCalls, blockedToolCalls };
+        return { response, responses, inputItems, executedToolCalls, blockedToolCalls, toolCallSummaries };
       }
     }
 
-    return { response, inputItems, executedToolCalls, blockedToolCalls };
+    return { response, responses, inputItems, executedToolCalls, blockedToolCalls, toolCallSummaries };
   }
 
   private async executeToolCall(input: {
@@ -460,9 +560,14 @@ export class AiChatOrchestrator {
         },
       },
       temperature: this.config.responseTemperature,
+      max_output_tokens: this.config.maxOutputTokens,
     };
     if (tools.length) request.tools = tools;
-    return client.responses.create(request);
+    return withTimeout(
+      client.responses.create(request),
+      this.config.openAiTimeoutMs,
+      "OpenAI response timed out.",
+    );
   }
 
   private async parseOrRecoverAssistantResponse(input: {
@@ -470,27 +575,51 @@ export class AiChatOrchestrator {
     instructions: string;
     inputItems: Array<Record<string, unknown>>;
     rawResponse: OpenAiResponseLike;
-  }): Promise<AiAssistantResponse> {
+  }): Promise<{
+    response: AiAssistantResponse;
+    extraOpenAiResponses: OpenAiResponseLike[];
+    validation: StructuredResponseValidationSummary;
+  }> {
     const parsed = parseAiAssistantResponse(extractStructuredResponseValue(input.rawResponse));
-    if (parsed) return parsed;
+    if (parsed) {
+      return {
+        response: enforceAssistantResponseGuardrails(parsed, this.config),
+        extraOpenAiResponses: [],
+        validation: { valid: true, retryCount: 0, fallbackUsed: false },
+      };
+    }
 
-    const retryInput = [
-      ...input.inputItems,
-      ...normalizeOpenAiOutputItems(input.rawResponse.output),
-      {
-        role: "user",
-        content: "Return the previous answer again as valid JSON that matches the required ProductPulse assistant response schema.",
-      },
-    ];
-    const retry = await this.createOpenAiResponse(input.client, input.instructions, retryInput, []);
-    const retryParsed = parseAiAssistantResponse(extractStructuredResponseValue(retry));
-    if (retryParsed) return retryParsed;
+    const retries: OpenAiResponseLike[] = [];
+    for (let retryCount = 1; retryCount <= this.config.maxStructuredResponseRetries; retryCount += 1) {
+      const retryInput = [
+        ...input.inputItems,
+        ...normalizeOpenAiOutputItems(input.rawResponse.output),
+        {
+          role: "user",
+          content: "Return the previous answer again as valid JSON that matches the required ProductPulse assistant response schema.",
+        },
+      ];
+      const retry = await this.createOpenAiResponse(input.client, input.instructions, retryInput, []);
+      retries.push(retry);
+      const retryParsed = parseAiAssistantResponse(extractStructuredResponseValue(retry));
+      if (retryParsed) {
+        return {
+          response: enforceAssistantResponseGuardrails(retryParsed, this.config),
+          extraOpenAiResponses: retries,
+          validation: { valid: true, retryCount, fallbackUsed: false },
+        };
+      }
+    }
 
-    const text = extractOutputText(input.rawResponse) || extractOutputText(retry);
-    return createFallbackAssistantResponse(
-      text ? truncateText(text, 1600) : "I found data, but could not format the answer correctly.",
-      ["The AI response format was repaired with a safe text-only fallback."],
-    );
+    const text = extractOutputText(input.rawResponse) || extractOutputText(retries[retries.length - 1] || {});
+    return {
+      response: createFallbackAssistantResponse(
+        text ? truncateText(text, 1600) : "I found data, but could not format the answer correctly.",
+        ["The AI response format was repaired with a safe text-only fallback."],
+      ),
+      extraOpenAiResponses: retries,
+      validation: { valid: false, retryCount: retries.length, fallbackUsed: true },
+    };
   }
 
   private async persistAssistantMessage(
@@ -498,13 +627,15 @@ export class AiChatOrchestrator {
     conversationId: string,
     response: AiAssistantResponse,
     openAiResponseId: string | null,
+    trace?: AiChatTrace | null,
   ): Promise<StoredAiConversationMessage> {
     return this.conversationStore.addMessage({
+      id: trace?.messageId,
       context,
       conversationId,
       role: "assistant",
       content: buildStructuredMessageContent(response),
-      structuredContent: response,
+      structuredContent: trace ? { ...response, trace } : response,
       openAiResponseId,
     });
   }
@@ -603,8 +734,26 @@ function truncateText(value: string, maxCharacters: number): string {
   return `${value.slice(0, Math.max(0, maxCharacters - 3)).trim()}...`;
 }
 
-function normalizeUsage(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? value as Record<string, unknown> : null;
+function enforceAssistantResponseGuardrails(
+  response: AiAssistantResponse,
+  config: AiChatConfig,
+): AiAssistantResponse {
+  if (config.maxActionProposalsPerTurn < 0) return response;
+  let actionProposalCount = 0;
+  const blocks = response.blocks.filter((block) => {
+    if (block.type !== "action_proposal") return true;
+    actionProposalCount += 1;
+    return actionProposalCount <= config.maxActionProposalsPerTurn;
+  });
+  if (blocks.length === response.blocks.length) return response;
+  return {
+    ...response,
+    blocks,
+    warnings: [
+      ...response.warnings,
+      "Some action proposals were hidden by the per-turn proposal limit.",
+    ].slice(0, 6),
+  };
 }
 
 function buildActionProposalOpenAiToolDefinition(): Record<string, unknown> {
@@ -625,6 +774,85 @@ function getSafeOpenAiErrorCode(error: unknown): string {
   return "AI chat turn failed safely.";
 }
 
+function buildAiChatTrace(input: {
+  context: AiToolContext;
+  conversationId: string;
+  messageId: string;
+  userMessageId: string;
+  model: string;
+  openAiResponseIds: string[];
+  openAiCallCount: number;
+  usage: AiTokenUsage | null;
+  estimatedCost: AiEstimatedCost | null;
+  toolCallCount: number;
+  blockedToolCallCount: number;
+  actionProposalCount: number;
+  validation: StructuredResponseValidationSummary;
+  pageContext: AiPageContext;
+  config: AiChatConfig;
+  recentMessagesSent: number;
+  durationMs: number;
+  errorStatus: string | null;
+  now: () => Date;
+}): AiChatTrace {
+  return {
+    schemaVersion: AI_TRACE_SCHEMA_VERSION,
+    conversationId: input.conversationId,
+    messageId: input.messageId,
+    userMessageId: input.userMessageId,
+    shop: input.context.shop,
+    userId: input.context.userId == null ? null : String(input.context.userId),
+    model: input.model,
+    instructionVersion: AI_CHAT_INSTRUCTIONS_VERSION,
+    openAiResponseIds: input.openAiResponseIds,
+    openAiCallCount: input.openAiCallCount,
+    tokenUsage: input.usage,
+    estimatedCost: input.estimatedCost,
+    toolCallCount: input.toolCallCount,
+    blockedToolCallCount: input.blockedToolCallCount,
+    actionProposalCount: input.actionProposalCount,
+    structuredResponse: {
+      valid: input.validation.valid,
+      retryCount: input.validation.retryCount,
+      fallbackUsed: input.validation.fallbackUsed,
+    },
+    guardrails: {
+      maxToolCallsPerTurn: input.config.maxToolCallsPerTurn,
+      maxRecentMessages: input.config.maxRecentMessages,
+      recentMessagesSent: input.recentMessagesSent,
+      maxToolResultCharacters: input.config.maxToolResultCharacters,
+      maxOutputTokens: input.config.maxOutputTokens || null,
+      maxActionProposalsPerTurn: input.config.maxActionProposalsPerTurn,
+    },
+    pageContext: input.pageContext,
+    durationMs: Math.max(0, Math.round(input.durationMs)),
+    errorStatus: input.errorStatus,
+    createdAt: input.now().toISOString(),
+  };
+}
+
+function createMessageId(prefix: string, now: () => Date): string {
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${prefix}_${now().getTime().toString(36)}_${random}`;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  if (!timeoutMs) return promise;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      const error = new Error(message);
+      Object.assign(error, { code: "OPENAI_TIMEOUT" });
+      reject(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function buildTurnResult(input: {
   response: AiAssistantResponse;
   conversationId: string;
@@ -635,7 +863,9 @@ function buildTurnResult(input: {
   toolCallCount: number;
   blockedToolCallCount: number;
   openAiResponseId: string | null;
-  usage: Record<string, unknown> | null;
+  usage: AiTokenUsage | null;
+  estimatedCost: AiEstimatedCost | null;
+  trace: ReturnType<typeof compactAiChatTraceForMetadata> | null;
 }): AiChatTurnResult {
   return {
     conversationId: input.conversationId,
@@ -648,6 +878,8 @@ function buildTurnResult(input: {
       blockedToolCallCount: input.blockedToolCallCount,
       openAiResponseId: input.openAiResponseId,
       usage: input.usage,
+      estimatedCost: input.estimatedCost,
+      trace: input.trace,
       pageContext: input.pageContext,
     },
   };

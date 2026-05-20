@@ -55,6 +55,7 @@ export interface AiConversationStore {
   }>;
   updateConversationTitle(context: AiToolContext, conversationId: string, title: string): Promise<StoredAiConversation | null>;
   addMessage(input: {
+    id?: string | null;
     context: AiToolContext;
     conversationId: string;
     role: AiConversationRole;
@@ -148,6 +149,7 @@ export class PrismaAiConversationStore implements AiConversationStore {
   }
 
   async addMessage(input: {
+    id?: string | null;
     context: AiToolContext;
     conversationId: string;
     role: AiConversationRole;
@@ -155,8 +157,10 @@ export class PrismaAiConversationStore implements AiConversationStore {
     structuredContent?: unknown;
     openAiResponseId?: string | null;
   }): Promise<StoredAiConversationMessage> {
+    const messageId = optionalString(input.id);
     const created = await this.db.aiConversationMessage.create({
       data: {
+        ...(messageId ? { id: messageId } : {}),
         shop: input.context.shop,
         conversationId: input.conversationId,
         role: input.role,
