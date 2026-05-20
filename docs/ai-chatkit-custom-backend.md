@@ -101,6 +101,8 @@ The orchestrator returns neutral ProductPulse blocks. `app/ai/chatkit/widgets.ts
 
 No arbitrary HTML is returned.
 
+The reusable card/widget layer is documented in `docs/ai-chatkit-card-system.md`.
+
 ## Actions
 
 Widget actions still use:

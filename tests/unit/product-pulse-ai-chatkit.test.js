@@ -25,6 +25,7 @@ const {
   handleChatKitAction,
 } = await import("../../app/ai/chatkit/actions.server");
 const {
+  mapAiPresentationBlockToChatKitWidget,
   mapAiPresentationBlocksToChatKitWidgets,
 } = await import("../../app/ai/chatkit/widgets");
 const {
@@ -228,25 +229,74 @@ describe("ProductPulse ChatKit integration", () => {
   });
 
   it("converts neutral presentation blocks into ChatKit widgets", () => {
+    const longEvidence = "A".repeat(320);
     const widgets = mapAiPresentationBlocksToChatKitWidgets([
       {
+        type: "summary",
+        title: "Summary",
+        text: "Risk is elevated because returns and reviews point to the same product quality issue.",
+      },
+      {
         type: "product_reference",
-        productGid: "gid://shopify/Product/1",
         title: "Core Linen Trouser",
-        handle: "core-linen-trouser",
-        riskScore: 82,
-        riskLabel: "High",
+      },
+      {
+        type: "diagnosis_summary",
+        title: "Diagnosis",
+        likelyCause: null,
+        issues: [],
       },
       {
         type: "evidence_list",
         productGid: "gid://shopify/Product/1",
         title: "Evidence",
-        items: [{ source: "Returns", quote: "Too small twice.", weight: "High signal" }],
+        items: [
+          { source: "Returns", quote: longEvidence, weight: "High signal" },
+          { source: "Reviews", quote: "Customer says sizing failed twice.", weight: "Review signal" },
+          { source: "Refunds", quote: "Refund pressure is above baseline.", weight: "Refund signal" },
+          { source: "Support", quote: "Support tickets mention fit issues.", weight: "Support signal" },
+          { source: "AI evidence synthesis", quote: "Evidence aligns across sources.", weight: "Synthesis signal" },
+          { source: "Customer language", quote: "Repeated phrase appears in complaints.", weight: "Language signal" },
+        ],
       },
       {
         type: "metric_table",
         title: "Metrics",
         rows: [{ label: "Return rate", value: "12%", detail: "Above store baseline" }],
+      },
+      {
+        type: "entity_list",
+        title: "High risk products",
+        items: [{
+          entityType: "product",
+          id: "gid://shopify/Product/1",
+          title: "Core Linen Trouser",
+          subtitle: "Primary issue: sizing",
+          productGid: "gid://shopify/Product/1",
+          handle: "core-linen-trouser",
+          status: "Active",
+          riskScore: 82,
+          riskLabel: "High",
+        }],
+      },
+      {
+        type: "recommendation_list",
+        productGid: "gid://shopify/Product/1",
+        title: "Recommended actions",
+        items: [{
+          id: "rec-1",
+          label: "Review sizing guidance",
+          status: "active",
+          issue: "Sizing",
+          effort: "Low",
+          draftPreview: "Clarify fit guidance on the product page.",
+        }],
+      },
+      {
+        type: "unavailable_state",
+        title: "No watchlist data",
+        message: "The watchlist is empty.",
+        nextStep: "Add products to the watchlist before asking for watchlist trends.",
       },
       {
         type: "action_proposal",
@@ -267,12 +317,64 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "ListView", "Card", "Card"]);
-    expect(widgets[0].size).toBe("full");
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "ListView", "Card", "Card", "Card"]);
+    expect(widgets.every((widget) => widget.type !== "Card" || widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence");
+    expect(JSON.stringify(widgets)).toContain("show_more_evidence");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
+    expect(JSON.stringify(widgets)).not.toContain(longEvidence);
+  });
+
+  it("falls back safely for unsupported presentation blocks without leaking raw JSON", () => {
+    const widget = mapAiPresentationBlockToChatKitWidget({
+      type: "future_card",
+      internalSecret: "do-not-render",
+    });
+
+    expect(widget.type).toBe("Card");
+    expect(JSON.stringify(widget)).toContain("Unsupported assistant card");
+    expect(JSON.stringify(widget)).toContain("future_card");
+    expect(JSON.stringify(widget)).not.toContain("do-not-render");
+  });
+
+  it("keeps action confirmation widget payloads limited to proposal IDs", () => {
+    const widget = mapAiPresentationBlockToChatKitWidget({
+      type: "action_proposal",
+      proposalId: "proposal-1",
+      actionName: "product_pulse_archive_internal_product_analysis",
+      title: "Remove ProductPulse analysis",
+      summary: "Remove app-owned analysis records.",
+      targetType: "product",
+      targetId: "gid://shopify/Product/1",
+      targetLabel: "Core Linen Trouser",
+      reason: "Merchant requested cleanup.",
+      expectedResult: "ProductPulse records will be removed. Shopify product data will not be changed.",
+      risks: ["This cannot be undone from the assistant."],
+      confirmationLevel: "high",
+      sideEffectLevel: "high",
+      reversible: false,
+      expiresAt: "2026-05-20T12:15:00.000Z",
+    });
+
+    const actionButtons = JSON.stringify(widget).match(/"onClickAction":\{[^}]+\}/g) || [];
+    expect(actionButtons.length).toBe(2);
+    expect(actionButtons.every((button) => button.includes("\"proposalId\":\"proposal-1\""))).toBe(true);
+    expect(actionButtons.some((button) => button.includes("product_pulse_archive_internal_product_analysis"))).toBe(false);
+    expect(actionButtons.some((button) => button.includes("gid://shopify/Product/1"))).toBe(false);
+  });
+
+  it("renders user-provided text as widget text, not HTML or markdown components", () => {
+    const widget = mapAiPresentationBlockToChatKitWidget({
+      type: "summary",
+      title: "<strong>Summary</strong>",
+      text: "<script>alert('x')</script> Product needs review.",
+    });
+
+    const serialized = JSON.stringify(widget);
+    expect(serialized).toContain("\"type\":\"Text\"");
+    expect(serialized).not.toContain("\"type\":\"Markdown\"");
   });
 
   it("rejects unsafe or unknown ChatKit actions", async () => {

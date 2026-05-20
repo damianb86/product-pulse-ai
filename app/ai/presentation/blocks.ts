@@ -46,6 +46,47 @@ const metricTableBlockSchema = z.object({
   }).strict()).max(12),
 }).strict();
 
+const entityListBlockSchema = z.object({
+  type: z.literal("entity_list"),
+  title: z.string().max(160).optional(),
+  emptyMessage: z.string().max(260).nullable().optional(),
+  items: z.array(z.object({
+    entityType: z.enum(["product", "diagnosis", "watchlist", "analytics", "activity", "recommendation", "source"]).optional(),
+    id: z.string().max(320).optional(),
+    title: z.string().max(220),
+    subtitle: z.string().max(260).nullable().optional(),
+    detail: z.string().max(260).nullable().optional(),
+    productGid: z.string().max(320).optional(),
+    handle: z.string().max(180).optional(),
+    status: z.string().max(80).nullable().optional(),
+    riskScore: z.number().min(0).max(100).nullable().optional(),
+    riskLabel: z.string().max(40).nullable().optional(),
+  }).strict()).max(8),
+}).strict();
+
+const recommendationListBlockSchema = z.object({
+  type: z.literal("recommendation_list"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  emptyMessage: z.string().max(260).nullable().optional(),
+  items: z.array(z.object({
+    id: z.string().max(160),
+    label: z.string().max(220),
+    status: z.string().max(80).nullable().optional(),
+    issue: z.string().max(220).nullable().optional(),
+    effort: z.string().max(80).nullable().optional(),
+    draftPreview: z.string().max(320).nullable().optional(),
+  }).strict()).max(6),
+}).strict();
+
+const unavailableStateBlockSchema = z.object({
+  type: z.literal("unavailable_state"),
+  title: z.string().max(160),
+  message: z.string().max(500),
+  reason: z.string().max(260).nullable().optional(),
+  nextStep: z.string().max(260).nullable().optional(),
+}).strict();
+
 const actionProposalBlockSchema = z.object({
   type: z.literal("action_proposal"),
   proposalId: z.string().max(320),
@@ -70,6 +111,9 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   diagnosisSummaryBlockSchema,
   evidenceListBlockSchema,
   metricTableBlockSchema,
+  entityListBlockSchema,
+  recommendationListBlockSchema,
+  unavailableStateBlockSchema,
   actionProposalBlockSchema,
 ]);
 
