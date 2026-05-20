@@ -40,8 +40,10 @@ const GENERATED_TAG = "productpulse-gen";
 const GENERATED_ORDER_TAG = "productpulse-gen-order";
 const GENERATED_EVOLUTION_ORDER_TAG = "productpulse-gen-evolution-order";
 const GENERATED_REVIEW_SOURCE = "ProductPulse mock reviews";
-const DEFAULT_ORDER_COUNT = 120;
-const DEFAULT_EVOLUTION_ORDER_COUNT = 26;
+const LEGACY_ORDER_COUNT = 120;
+const EXTRA_STRESS_ORDER_COUNT = 80;
+const DEFAULT_ORDER_COUNT = LEGACY_ORDER_COUNT + EXTRA_STRESS_ORDER_COUNT;
+const DEFAULT_EVOLUTION_ORDER_COUNT = 41;
 export const SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS = {
   all: DEFAULT_ORDER_COUNT,
   products: 0,
@@ -463,7 +465,214 @@ const MOCK_PRODUCTS = [
     themes: ["premium", "solid", "switches", "fast shipping"],
     reviewProfile: { count: 44, negativeRate: 0.1, average: 4.5 },
   },
+  {
+    key: "voice-lock-safe",
+    title: "GEN EchoLock Voice Safe",
+    productType: "Home Security",
+    vendor: "ProductPulse Lab",
+    seoTitle: "EchoLock Voice Safe",
+    seoDescription: "Compact voice-activated safe with keypad backup and removable shelf.",
+    descriptionHtml: `
+      <section>
+        <h2>Voice-activated compact safe</h2>
+        <p>Stores passports, keys and small valuables with voice unlock, keypad backup and a removable shelf.</p>
+        <p>Voice unlock should be trained in a quiet room before first use.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, "home-security", "voice-unlock", "edge-case", "stress-test"],
+    options: [{ name: "Finish", values: ["Matte Black", "Oak"] }],
+    variants: [
+      { options: { Finish: "Matte Black" }, price: "96.00", sku: "GEN-SAFE-BLK" },
+      { options: { Finish: "Oak" }, price: "104.00", sku: "GEN-SAFE-OAK" },
+    ],
+    story: "A safety-sensitive product with contradictory customer language. Some buyers say voice unlock is convenient, while others say the Oak finish opens to a television voice, refuses the registered owner after a cold, or drains batteries overnight.",
+    orderPattern: "Sparse early demand, then a gift-season spike followed by concentrated recent Oak purchases from a creator video.",
+    returnRefundPattern: "Returns and refunds are not about appearance. They mention voice recognition, false opens, lockouts, battery drain and anxiety around security.",
+    reviewPattern: "Reviews swing between trust and alarm: one buyer says it saved them time, another says it opened for the wrong voice, another says the keypad worked but the spoken phrase did not.",
+    stressCase: "Tests whether the system treats security language as high severity without inventing a universal product defect when the Oak variant is the stronger signal.",
+    expectedFindings: [
+      "Security and trust language should be treated as serious evidence.",
+      "Oak finish should show stronger variant concentration than Matte Black.",
+      "Contradictory reviews should not collapse into one generic sentiment issue.",
+    ],
+    expectedActions: [
+      "Supplier / QA review.",
+      "Add compatibility and training guidance.",
+      "Consider pausing the affected variant if confidence is high.",
+    ],
+    themes: ["voice unlock", "false open", "battery", "security"],
+    reviewProfile: { count: 52, negativeRate: 0.58, average: 2.5 },
+  },
+  {
+    key: "cooling-pillow",
+    title: "GEN FrostPulse Cooling Pillow",
+    productType: "Bedding",
+    vendor: "ProductPulse Lab",
+    seoTitle: "FrostPulse Cooling Pillow",
+    seoDescription: "Cooling pillow with removable gel insert and two loft choices.",
+    descriptionHtml: `
+      <article>
+        <h2>Cooling pillow with removable insert</h2>
+        <p>Includes a washable cover, removable cooling insert and two loft profiles for different sleep positions.</p>
+        <p>The insert should be aired out before first use.</p>
+      </article>
+    `,
+    tags: ["GEN", GENERATED_TAG, "bedding", "cooling", "odor", "comfort-mismatch"],
+    options: [
+      { name: "Loft", values: ["Low Loft", "High Loft"] },
+      { name: "Cover", values: ["Ice Blue", "Graphite"] },
+    ],
+    variants: [
+      { options: { Loft: "Low Loft", Cover: "Ice Blue" }, price: "58.00", sku: "GEN-PILLOW-LOW-ICE" },
+      { options: { Loft: "High Loft", Cover: "Ice Blue" }, price: "64.00", sku: "GEN-PILLOW-HIGH-ICE" },
+      { options: { Loft: "Low Loft", Cover: "Graphite" }, price: "58.00", sku: "GEN-PILLOW-LOW-GPH" },
+      { options: { Loft: "High Loft", Cover: "Graphite" }, price: "64.00", sku: "GEN-PILLOW-HIGH-GPH" },
+    ],
+    story: "A comfort product where the evidence points in opposite directions. Some customers say the insert is icy and damp, others say it warms up quickly, while High Loft reviews also mention neck angle.",
+    orderPattern: "Steady baseline, a hot-weather growth wave, then recent purchases split between High Loft and Ice Blue after an ad claiming all-night cooling.",
+    returnRefundPattern: "Returns mix subjective comfort with concrete odor, dampness and neck-pressure notes. Refunds often mention customers keeping the cover but rejecting the insert.",
+    reviewPattern: "Language is deliberately inconsistent: too cold, not cold, wet, chemical smell, great after airing out, and High Loft too tall.",
+    stressCase: "Tests whether the app can explain mixed evidence instead of forcing one neat defect story.",
+    expectedFindings: [
+      "High Loft and Ice Blue should appear in variant-level evidence.",
+      "Comfort and odor should be separated from objective damage.",
+      "AI synthesis should describe the contradiction instead of overfitting one complaint.",
+    ],
+    expectedActions: [
+      "Add expectation-setting note.",
+      "Add care/setup guidance for airing the insert.",
+      "Review High Loft positioning if returns concentrate there.",
+    ],
+    themes: ["too cold", "not cold", "odor", "high loft"],
+    reviewProfile: { count: 48, negativeRate: 0.5, average: 2.9 },
+  },
+  {
+    key: "inflatable-standing-desk",
+    title: "GEN LiftAir Inflatable Standing Desk",
+    productType: "Furniture",
+    vendor: "ProductPulse Lab",
+    seoTitle: "LiftAir Inflatable Standing Desk",
+    seoDescription: "Portable inflatable standing desk riser with compact pump.",
+    descriptionHtml: `
+      <section>
+        <h2>Portable inflatable desk riser</h2>
+        <p>Inflates into a temporary standing-height desk surface and packs flat for small spaces.</p>
+        <p>Use on a stable table and keep sharp objects away from the air chamber.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, "furniture", "portable-desk", "air-leak", "extreme-test"],
+    options: [{ name: "Kit", values: ["Starter", "Tall Kit", "Travel Kit"] }],
+    variants: [
+      { options: { Kit: "Starter" }, price: "69.00", sku: "GEN-LIFTAIR-START" },
+      { options: { Kit: "Tall Kit" }, price: "89.00", sku: "GEN-LIFTAIR-TALL" },
+      { options: { Kit: "Travel Kit" }, price: "76.00", sku: "GEN-LIFTAIR-TRAVEL" },
+    ],
+    story: "An intentionally strange furniture product that sells because it sounds clever, then creates operational and safety language: wobble, slow air loss, laptops sliding and customers unsure whether it is a joke or a real desk.",
+    orderPattern: "Small novelty baseline, sharp growth from social traffic, then recent Tall Kit orders with high quantity variance.",
+    returnRefundPattern: "Returns mention air leaks, unstable height and fear of equipment damage. Refunds happen when buyers keep the pump but cannot ship the inflated desk back cleanly.",
+    reviewPattern: "Reviews should look messy: one buyer loves the tiny apartment use case, another says it sighed itself flat during a call, another says the Tall Kit is both too tall and not tall enough.",
+    stressCase: "Tests extreme product plausibility, safety-adjacent wording and whether return notes can drive a real diagnostic even when reviews sound absurd.",
+    expectedFindings: [
+      "Air leak and wobble themes should dominate recent evidence.",
+      "Tall Kit should have stronger return pressure than other kits.",
+      "Recommendations should include QA and copy clarification, not only sentiment handling.",
+    ],
+    expectedActions: [
+      "Supplier / QA review.",
+      "Add weight and stability limits.",
+      "Consider pausing Tall Kit if return concentration remains high.",
+    ],
+    themes: ["wobble", "air leak", "tilt", "tall kit"],
+    reviewProfile: { count: 50, negativeRate: 0.66, average: 2.2 },
+  },
+  {
+    key: "smart-luggage-tag",
+    title: "GEN LoopLink Smart Luggage Tag",
+    productType: "Travel Accessories",
+    vendor: "ProductPulse Lab",
+    seoTitle: "LoopLink Smart Luggage Tag",
+    seoDescription: "QR and Bluetooth luggage tag for travel contact recovery.",
+    descriptionHtml: `
+      <article>
+        <h2>Smart travel recovery tag</h2>
+        <p>Combines QR contact recovery with short-range Bluetooth alerts and a privacy-forward owner profile.</p>
+        <p>Location updates depend on scan events and nearby device signals.</p>
+      </article>
+    `,
+    tags: ["GEN", GENERATED_TAG, "travel", "privacy", "tracking", "source-integrity"],
+    options: [{ name: "Color", values: ["Carbon", "Citrus", "Cloud"] }],
+    variants: [
+      { options: { Color: "Carbon" }, price: "29.00", sku: "GEN-LOOP-CARBON" },
+      { options: { Color: "Citrus" }, price: "29.00", sku: "GEN-LOOP-CITRUS" },
+      { options: { Color: "Cloud" }, price: "29.00", sku: "GEN-LOOP-CLOUD" },
+    ],
+    story: "A travel accessory where orders look healthy but review language mixes true recovery wins with privacy fear, wrong-city alerts and one review that appears to describe a pet collar instead of luggage.",
+    orderPattern: "Low baseline, strong travel-season bundles, then recent family-pack purchases with multiple units per order.",
+    returnRefundPattern: "Returns and refunds mention QR privacy, wrong location notifications, dead batteries and confusion about whether the tag is real GPS.",
+    reviewPattern: "Positive reviews say the tag recovered a suitcase. Negative reviews say it pinged the wrong airport, exposed too much profile info, or sounds like it came from another product feed.",
+    stressCase: "Tests product/source ambiguity, privacy language, bundle quantity math and whether the app distinguishes scan-based tracking from promised GPS.",
+    expectedFindings: [
+      "Tracking expectation mismatch should be visible.",
+      "Citrus and Carbon should have different evidence themes.",
+      "Source-integrity warnings should remain separate from native Shopify return evidence.",
+    ],
+    expectedActions: [
+      "Clarify GPS versus scan-based updates.",
+      "Review privacy copy and QR profile defaults.",
+      "Check review source mapping if unrelated language appears.",
+    ],
+    themes: ["wrong location", "qr privacy", "battery", "not gps"],
+    reviewProfile: { count: 45, negativeRate: 0.47, average: 3.1 },
+  },
+  {
+    key: "coffee-alarm-brewer",
+    title: "GEN WhisperBrew Coffee Alarm Clock",
+    productType: "Small Appliance",
+    vendor: "ProductPulse Lab",
+    seoTitle: "WhisperBrew Coffee Alarm Clock",
+    seoDescription: "Bedside alarm clock with timed single-cup coffee brewing.",
+    descriptionHtml: `
+      <section>
+        <h2>Bedside coffee alarm</h2>
+        <p>Schedules a single-cup brew near wake time with quiet alarm tones and a removable water tank.</p>
+        <p>Use only on a stable, water-resistant surface.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, "small-appliance", "alarm", "coffee", "timing-risk"],
+    options: [{ name: "Color", values: ["Cream", "Graphite"] }],
+    variants: [
+      { options: { Color: "Cream" }, price: "118.00", sku: "GEN-BREW-CREAM" },
+      { options: { Color: "Graphite" }, price: "122.00", sku: "GEN-BREW-GRAPH" },
+    ],
+    story: "A weird but plausible appliance with timing contradictions. Some buyers love waking up to coffee, while others say it brewed hours early, stayed silent, produced condensation or made the room smell burnt.",
+    orderPattern: "Gift-driven baseline, a recent morning-routine campaign and uneven repeat purchases from buyers ordering multiple units for offices.",
+    returnRefundPattern: "Returns mention schedule drift, wet nightstands and alarm silence. Refunds mention keeping the cup tray but losing trust in the timed brew function.",
+    reviewPattern: "Reviews move from delight to alarm: great ritual, brewed at 3 a.m., clock lost minutes, coffee was cold, then a positive review says the Graphite unit was perfect after firmware reset.",
+    stressCase: "Tests whether contradictory language, appliance trust and time-based complaints produce a useful diagnosis without generating fake precision.",
+    expectedFindings: [
+      "Timing and condensation evidence should be separated.",
+      "Cream should show stronger cosmetic/stain notes than Graphite.",
+      "Recent negative reviews should outweigh older novelty praise.",
+    ],
+    expectedActions: [
+      "Supplier / QA review.",
+      "Add setup and surface warning guidance.",
+      "Create internal support note for firmware reset language.",
+    ],
+    themes: ["early brew", "clock drift", "condensation", "alarm silent"],
+    reviewProfile: { count: 47, negativeRate: 0.6, average: 2.4 },
+  },
 ];
+
+export const SHOPIFY_MOCK_DATASET_PRODUCT_COUNT = MOCK_PRODUCTS.length;
+
+const STRESS_PRODUCT_KEYS = new Set([
+  "voice-lock-safe",
+  "cooling-pillow",
+  "inflatable-standing-desk",
+  "smart-luggage-tag",
+  "coffee-alarm-brewer",
+]);
 
 export function getMissingShopifyMockDatasetScopes(scopeString) {
   const granted = new Set(String(scopeString || "").split(",").map((scope) => scope.trim()).filter(Boolean));
@@ -539,8 +748,10 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
   await updateProgress(context, 3, `Preparing Shopify mock dataset stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[requestedStage]}.`);
   const shopInfo = await getShopInfo(admin);
   const location = await getPrimaryLocation(admin);
+  const createMissingProducts = shouldRunMockDatasetStage(requestedStage, "products")
+    || ["orders", "reviews", "evolution"].includes(requestedStage);
   let products = await loadOrCreateMockProducts(context, location, shopInfo.currencyCode, {
-    createMissing: shouldRunMockDatasetStage(requestedStage, "products"),
+    createMissing: createMissingProducts,
   });
 
   let orders = [];
@@ -1269,17 +1480,29 @@ async function createMockProduct(context, spec, location, currencyCode) {
 
 function buildOrderPlans(products, currencyCode) {
   const start = Date.now() - 300 * 24 * 60 * 60 * 1000;
-  const step = (300 * 24 * 60 * 60 * 1000) / DEFAULT_ORDER_COUNT;
   const byKey = new Map(products.map((product) => [product.key, product]));
 
   return Array.from({ length: DEFAULT_ORDER_COUNT }, (_, index) => {
-    const progress = index / Math.max(1, DEFAULT_ORDER_COUNT - 1);
-    const date = new Date(start + index * step + (index % 9) * 60 * 60 * 1000);
-    const primary = byKey.get(getPrimaryProductKeyForOrder(index, progress));
-    const bundledProducts = getSecondaryProductKeysForOrder(index, progress)
+    const stressOrder = index >= LEGACY_ORDER_COUNT;
+    const sequenceIndex = stressOrder ? index - LEGACY_ORDER_COUNT : index;
+    const sequenceCount = stressOrder ? EXTRA_STRESS_ORDER_COUNT : LEGACY_ORDER_COUNT;
+    const progress = sequenceIndex / Math.max(1, sequenceCount - 1);
+    const phase = getOrderPhase(progress);
+    const step = (300 * 24 * 60 * 60 * 1000) / sequenceCount;
+    const dateOffset = stressOrder
+      ? 33 * 60 * 1000 + (index % 11) * 45 * 60 * 1000
+      : (index % 9) * 60 * 60 * 1000;
+    const date = new Date(start + sequenceIndex * step + dateOffset);
+    const primaryKey = stressOrder
+      ? getStressPrimaryProductKeyForOrder(sequenceIndex, progress)
+      : getPrimaryProductKeyForOrder(sequenceIndex, progress);
+    const secondaryKeys = stressOrder
+      ? getStressSecondaryProductKeysForOrder(sequenceIndex, progress)
+      : getSecondaryProductKeysForOrder(sequenceIndex, progress);
+    const orderProducts = [...new Set([primaryKey, ...secondaryKeys].filter(Boolean))]
       .map((key) => byKey.get(key))
       .filter(Boolean);
-    const items = [primary, ...bundledProducts].filter(Boolean).map((product, itemIndex) => {
+    const items = orderProducts.map((product, itemIndex) => {
       const variant = pickVariantForOrder(product, index + itemIndex);
       return {
         productKey: product.key,
@@ -1295,10 +1518,12 @@ function buildOrderPlans(products, currencyCode) {
     const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     return {
       index,
-      phase: getOrderPhase(progress),
+      phase,
       processedAt: date.toISOString(),
       currencyCode,
-      note: `ProductPulse generated order ${index + 1}. ${getOrderPhase(progress)} phase. Controlled mock dataset for diagnostics.`,
+      note: stressOrder
+        ? `ProductPulse generated order ${index + 1}. ${phase} phase. Extreme mock stress dataset for diagnostics.`
+        : `ProductPulse generated order ${index + 1}. ${phase} phase. Controlled mock dataset for diagnostics.`,
       tags: [GENERATED_ORDER_TAG, `ppgen-order-${index + 1}`, `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
       items,
       total,
@@ -1368,12 +1593,68 @@ function getPrimaryProductKeyForOrder(index, progress) {
   return cycle[index % cycle.length];
 }
 
+function getStressPrimaryProductKeyForOrder(index, progress) {
+  const phaseCycles = {
+    baseline: [
+      "voice-lock-safe",
+      "cooling-pillow",
+      "smart-luggage-tag",
+      "coffee-alarm-brewer",
+      "inflatable-standing-desk",
+      "smart-luggage-tag",
+      "cooling-pillow",
+      "voice-lock-safe",
+    ],
+    growth: [
+      "coffee-alarm-brewer",
+      "inflatable-standing-desk",
+      "cooling-pillow",
+      "smart-luggage-tag",
+      "voice-lock-safe",
+      "inflatable-standing-desk",
+      "coffee-alarm-brewer",
+      "cooling-pillow",
+    ],
+    friction: [
+      "inflatable-standing-desk",
+      "voice-lock-safe",
+      "coffee-alarm-brewer",
+      "cooling-pillow",
+      "smart-luggage-tag",
+      "inflatable-standing-desk",
+      "voice-lock-safe",
+      "coffee-alarm-brewer",
+    ],
+    current: [
+      "coffee-alarm-brewer",
+      "voice-lock-safe",
+      "smart-luggage-tag",
+      "inflatable-standing-desk",
+      "cooling-pillow",
+      "coffee-alarm-brewer",
+      "voice-lock-safe",
+      "smart-luggage-tag",
+    ],
+  };
+  const cycle = phaseCycles[getOrderPhase(progress)];
+  return cycle[index % cycle.length];
+}
+
 function getSecondaryProductKeysForOrder(index, progress) {
   const phase = getOrderPhase(progress);
   const keys = [];
   if (index % 9 === 0) keys.push(phase === "current" ? "premium-keyboard" : "puzzle-calm");
   if (index % 14 === 0) keys.push(phase === "friction" ? "travel-mug-leak" : "soft-yoga-mat");
   if (index % 22 === 0) keys.push(phase === "growth" ? "smart-planter" : "ceramic-dinner-set");
+  return [...new Set(keys)];
+}
+
+function getStressSecondaryProductKeysForOrder(index, progress) {
+  const phase = getOrderPhase(progress);
+  const keys = [];
+  if (index % 6 === 0) keys.push(phase === "baseline" ? "puzzle-calm" : "smart-luggage-tag");
+  if (index % 10 === 0) keys.push(phase === "current" ? "coffee-alarm-brewer" : "cooling-pillow");
+  if (index % 13 === 0) keys.push(phase === "friction" ? "voice-lock-safe" : "inflatable-standing-desk");
   return [...new Set(keys)];
 }
 
@@ -1388,6 +1669,30 @@ function pickVariantForOrder(product, index) {
     const rose = variants.find((variant) => variant.title.toLowerCase().includes("rose"));
     if (index % 2 === 0 && rose) return rose;
   }
+  if (product.key === "voice-lock-safe") {
+    const oak = variants.find((variant) => variant.title.toLowerCase().includes("oak"));
+    if (index % 3 !== 0 && oak) return oak;
+  }
+  if (product.key === "cooling-pillow") {
+    const high = variants.find((variant) => variant.title.toLowerCase().includes("high loft"));
+    if (index % 2 === 0 && high) return high;
+    const ice = variants.find((variant) => variant.title.toLowerCase().includes("ice blue"));
+    if (index % 3 === 0 && ice) return ice;
+  }
+  if (product.key === "inflatable-standing-desk") {
+    const tall = variants.find((variant) => variant.title.toLowerCase().includes("tall kit"));
+    if (index % 2 === 0 && tall) return tall;
+  }
+  if (product.key === "smart-luggage-tag") {
+    const citrus = variants.find((variant) => variant.title.toLowerCase().includes("citrus"));
+    if (index % 4 < 2 && citrus) return citrus;
+    const carbon = variants.find((variant) => variant.title.toLowerCase().includes("carbon"));
+    if (index % 4 === 2 && carbon) return carbon;
+  }
+  if (product.key === "coffee-alarm-brewer") {
+    const cream = variants.find((variant) => variant.title.toLowerCase().includes("cream"));
+    if (index % 2 === 0 && cream) return cream;
+  }
   return variants[index % variants.length];
 }
 
@@ -1396,6 +1701,9 @@ function getOrderQuantity(productKey, index, progress) {
   if (productKey === "premium-keyboard" && progress > 0.7 && index % 4 === 0) return 2;
   if (productKey === "ceramic-dinner-set" && progress > 0.42 && progress < 0.72 && index % 5 === 0) return 2;
   if (productKey === "linen-shirt-fit" && progress > 0.68 && index % 8 === 0) return 2;
+  if (productKey === "smart-luggage-tag" && index % 5 === 0) return 3;
+  if (productKey === "cooling-pillow" && index % 6 === 0) return 2;
+  if (productKey === "coffee-alarm-brewer" && progress > 0.7 && index % 7 === 0) return 2;
   return 1;
 }
 
@@ -1553,6 +1861,11 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
     "soft-yoga-mat": 4,
     "smart-planter": 3,
     "desk-fan-mismatch": 1,
+    "voice-lock-safe": 7,
+    "cooling-pillow": 6,
+    "inflatable-standing-desk": 8,
+    "smart-luggage-tag": 5,
+    "coffee-alarm-brewer": 7,
   }));
   const refundTargets = new Map(Object.entries({
     "ceramic-dinner-set": 7,
@@ -1560,7 +1873,14 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
     "smart-planter": 4,
     "earbuds-color": 2,
     "linen-shirt-fit": 2,
+    "voice-lock-safe": 4,
+    "cooling-pillow": 4,
+    "inflatable-standing-desk": 5,
+    "smart-luggage-tag": 3,
+    "coffee-alarm-brewer": 4,
   }));
+  const returnTargetTotal = sumTargetCounts(returnTargets);
+  const refundTargetTotal = sumTargetCounts(refundTargets);
   const returnCounts = new Map(returns.map((outcome) => outcome.productKey).filter(Boolean).map((productKey) => [
     productKey,
     returns.filter((outcome) => outcome.productKey === productKey).length,
@@ -1573,7 +1893,7 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (returns.length >= 36) break;
+    if (returns.length >= returnTargetTotal) break;
     if (!lineItem.fulfillmentLineItemId || usedLineItems.has(lineItem.id)) continue;
     const target = returnTargets.get(lineItem.productKey) || 0;
     const productReturnCount = returnCounts.get(lineItem.productKey) || 0;
@@ -1598,7 +1918,7 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (refunds.length >= 24) break;
+    if (refunds.length >= refundTargetTotal) break;
     if (usedLineItems.has(lineItem.id)) continue;
     const target = refundTargets.get(lineItem.productKey) || 0;
     const productRefundCount = refundCounts.get(lineItem.productKey) || 0;
@@ -1622,6 +1942,10 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
   }
 
   return { returns, refunds };
+}
+
+function sumTargetCounts(targets) {
+  return [...targets.values()].reduce((sum, value) => sum + Number(value || 0), 0);
 }
 
 async function createMockEvolutionBatch(context, products, location, currencyCode, { baseCreatedAt, orderDelayMs }) {
@@ -1944,6 +2268,21 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
     { key: "linen-shirt-fit", daysAgo: 1, count: 1 },
     { key: "premium-keyboard", daysAgo: 1, count: 2 },
     { key: "earbuds-color", daysAgo: 1, count: 1 },
+    { key: "voice-lock-safe", daysAgo: 10, count: 1, variantHint: "Oak", outcome: "return", note: "Other: Oak voice safe opened to a television phrase and ignored the registered owner the next morning.", reason: "OTHER", theme: "voice-security" },
+    { key: "voice-lock-safe", daysAgo: 4, count: 1, variantHint: "Oak", outcome: "refund", note: "Refund after customer stopped trusting Oak voice unlock because of false-open and battery-drain reports.", theme: "voice-security" },
+    { key: "voice-lock-safe", daysAgo: 1, count: 1, variantHint: "Matte" },
+    { key: "cooling-pillow", daysAgo: 9, count: 2, variantHint: "High", outcome: "return", note: "Not as described: High Loft Ice Blue was too tall, smelled sharp, and stopped cooling by morning.", reason: "NOT_AS_DESCRIBED", theme: "cooling-comfort" },
+    { key: "cooling-pillow", daysAgo: 3, count: 1, variantHint: "Ice", outcome: "refund", note: "Partial refund after buyer kept the cover but rejected the damp cooling insert.", theme: "cooling-odor" },
+    { key: "cooling-pillow", daysAgo: 1, count: 1, variantHint: "Low" },
+    { key: "inflatable-standing-desk", daysAgo: 8, count: 1, variantHint: "Tall", outcome: "return", note: "Other: Tall Kit lost air during a call and the laptop started sliding toward the edge.", reason: "OTHER", theme: "tall-kit-wobble" },
+    { key: "inflatable-standing-desk", daysAgo: 4, count: 1, variantHint: "Tall", outcome: "refund", note: "Refund after video showed the Tall Kit deflating under normal typing pressure.", theme: "air-leak" },
+    { key: "inflatable-standing-desk", daysAgo: 2, count: 1, variantHint: "Travel" },
+    { key: "smart-luggage-tag", daysAgo: 7, count: 3, variantHint: "Citrus", outcome: "return", note: "Not as described: Citrus tag exposed more QR profile detail than expected and still was not live GPS.", reason: "NOT_AS_DESCRIBED", theme: "qr-privacy" },
+    { key: "smart-luggage-tag", daysAgo: 3, count: 2, variantHint: "Carbon", outcome: "refund", note: "Refund for wrong-city location alert during travel and scan-based tracking confusion.", theme: "tracking-expectation" },
+    { key: "smart-luggage-tag", daysAgo: 1, count: 2, variantHint: "Cloud" },
+    { key: "coffee-alarm-brewer", daysAgo: 6, count: 1, variantHint: "Cream", outcome: "return", note: "Other: Cream unit brewed before the alarm, stained the side, and left condensation on the nightstand.", reason: "OTHER", theme: "cream-condensation" },
+    { key: "coffee-alarm-brewer", daysAgo: 2, count: 1, variantHint: "Graphite", outcome: "refund", note: "Goodwill refund for clock drift and silent alarm after firmware reset did not hold.", theme: "schedule-drift" },
+    { key: "coffee-alarm-brewer", daysAgo: 1, count: 2, variantHint: "Cream" },
   ];
 
   return specs.map((spec, index) => {
@@ -2027,6 +2366,11 @@ function getEvolutionExpectedChange(productKey) {
     "ceramic-dinner-set": "Improves: new sales without damage refunds should show packaging risk cooling.",
     "desk-fan-mismatch": "Source-integrity issue grows through reviews, not orders or returns.",
     "premium-keyboard": "Improves momentum with clean orders and positive reviews; should remain low risk.",
+    "voice-lock-safe": "Worsens: recent Oak voice-lock evidence should raise a safety/trust issue with variant concentration.",
+    "cooling-pillow": "Mixed: recent High Loft and insert complaints should keep the synthesis honest about contradictory cooling evidence.",
+    "inflatable-standing-desk": "Worsens sharply: Tall Kit wobble and air-loss returns should surface as a QA and copy-clarity issue.",
+    "smart-luggage-tag": "Mixed: bundle sales continue, but tracking and QR privacy complaints should separate expectation mismatch from source integrity.",
+    "coffee-alarm-brewer": "Worsens: fresh timing and condensation evidence should outweigh older novelty praise.",
   };
   return changes[productKey] || "Recent evolution added for watchlist testing.";
 }
@@ -2090,6 +2434,63 @@ function getReturnReasonForLineItem(lineItem, order, productReturnCount) {
   if (lineItem.productKey === "desk-fan-mismatch" && phase === "current") {
     return { returnReason: "WRONG_ITEM", note: "The product is a fan, but the review context and support note I saw referred to a snowboard.", theme: "source-mismatch" };
   }
+  if (lineItem.productKey === "voice-lock-safe" && phase !== "baseline") {
+    const oak = lineItem.variantTitle?.toLowerCase().includes("oak");
+    const notes = oak ? [
+      "Other: Oak voice safe opened when a TV said a similar phrase, then refused my own voice after I had a cold.",
+      "Not as described: Oak finish unit heard the wrong person but ignored the registered unlock phrase twice.",
+      "Other: Battery dropped overnight and the voice lock made me less confident storing documents.",
+    ] : [
+      "Other: Voice unlock worked one day and then locked me out until keypad reset.",
+      "Not as described: It is a safe, but I do not trust a lock that argues with my voice.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: oak ? "oak-voice-security" : "voice-security" };
+  }
+  if (lineItem.productKey === "cooling-pillow" && phase !== "baseline") {
+    const high = lineItem.variantTitle?.toLowerCase().includes("high loft");
+    const notes = high ? [
+      "Other: High Loft pushed my neck up while the cooling insert felt damp and then warm.",
+      "Not as described: High Loft Ice Blue was too tall, smelled sharp, and was not cooling by morning.",
+    ] : [
+      "Other: The pillow was icy at first, then weirdly hot, and the insert smelled like a pool bag.",
+      "Not as described: Cooling claim was inconsistent; one side felt wet and the other side felt warm.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: high ? "high-loft-comfort" : "cooling-odor" };
+  }
+  if (lineItem.productKey === "inflatable-standing-desk" && phase !== "baseline") {
+    const tall = lineItem.variantTitle?.toLowerCase().includes("tall kit");
+    const notes = tall ? [
+      "Other: Tall Kit slowly lost air during a call and the laptop started sliding toward the edge.",
+      "Not as described: Tall Kit was too wobbly for typing but somehow still not tall enough for standing.",
+      "Other: The desk sighed itself flat after lunch. Funny once, not useful for work.",
+    ] : [
+      "Other: Air chamber would not hold pressure and the surface tilted toward the keyboard.",
+      "Not as described: Portable idea is clever, but the desk flexed too much for normal work.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: tall ? "tall-kit-wobble" : "air-leak" };
+  }
+  if (lineItem.productKey === "smart-luggage-tag" && phase !== "baseline") {
+    const citrus = lineItem.variantTitle?.toLowerCase().includes("citrus");
+    const notes = citrus ? [
+      "Other: Citrus QR profile showed more contact detail than expected and made the buyer nervous.",
+      "Not as described: Citrus tag reported the bag in a city I never visited, then updated two days late.",
+    ] : [
+      "Other: The tag is not GPS but the page made it sound more live than scan-based tracking.",
+      "Not as described: Battery and location alerts were inconsistent across the trip.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: citrus ? "qr-privacy" : "tracking-expectation" };
+  }
+  if (lineItem.productKey === "coffee-alarm-brewer" && phase !== "baseline") {
+    const cream = lineItem.variantTitle?.toLowerCase().includes("cream");
+    const notes = cream ? [
+      "Other: Cream unit brewed before the alarm, left condensation rings, and stained the side panel.",
+      "Not as described: It made coffee at 3 a.m. once and stayed silent on the morning I needed it.",
+    ] : [
+      "Other: Clock drifted enough that the brew time moved around all week.",
+      "Not as described: Alarm was quiet, coffee was cold, and the timing felt random.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: cream ? "cream-condensation" : "schedule-drift" };
+  }
   return null;
 }
 
@@ -2114,6 +2515,42 @@ function getRefundReasonForLineItem(lineItem, order, productRefundCount) {
   }
   if (lineItem.productKey === "linen-shirt-fit" && lineItem.variantTitle?.includes("M") && phase === "current") {
     return { note: "Partial refund for Medium White fit complaint after wash shrinkage.", theme: "fit", quantity: 1 };
+  }
+  if (lineItem.productKey === "voice-lock-safe" && ["friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund after voice lock opened to a similar voice phrase and customer no longer trusted the safe.",
+      "Goodwill refund for Oak unit battery drain and false-open report.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "voice-security", quantity: 1 };
+  }
+  if (lineItem.productKey === "cooling-pillow" && ["growth", "friction", "current"].includes(phase)) {
+    const notes = [
+      "Partial refund after customer kept the cover but rejected the cooling insert because of odor.",
+      "Refund for High Loft neck-angle complaint plus damp cooling insert report.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "cooling-comfort", quantity: 1 };
+  }
+  if (lineItem.productKey === "inflatable-standing-desk" && ["friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund issued after air chamber leak made the desk unsafe for a laptop.",
+      "Partial refund because buyer kept the pump but the Tall Kit would not hold pressure.",
+      "Refund for wobble complaint after customer sent video of the desk deflating.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "air-leak", quantity: 1 };
+  }
+  if (lineItem.productKey === "smart-luggage-tag" && ["friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund for scan-based tracking expectation mismatch; customer thought it was live GPS.",
+      "Privacy refund after QR profile exposed more owner detail than expected.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "tracking-privacy", quantity: 1 };
+  }
+  if (lineItem.productKey === "coffee-alarm-brewer" && ["growth", "friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund after timed brew ran hours early and left condensation on the nightstand.",
+      "Goodwill refund for schedule drift and silent alarm complaint.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "schedule-drift", quantity: 1 };
   }
   return null;
 }
@@ -2212,7 +2649,7 @@ function buildReviewRows(products, createdAt) {
     const count = product.reviewProfile.count;
     for (let index = 0; index < count; index += 1) {
       const progress = index / Math.max(1, count - 1);
-      const ageDays = Math.round(295 - (index / Math.max(1, count - 1)) * 285);
+      const ageDays = getReviewAgeDays(product, index, count);
       const date = new Date(createdAt.getTime() - ageDays * 24 * 60 * 60 * 1000);
       const phase = getOrderPhase(progress);
       const negative = shouldMakeNegativeReview(product, index, progress);
@@ -2236,6 +2673,14 @@ function buildReviewRows(products, createdAt) {
   });
 }
 
+function getReviewAgeDays(product, index, count) {
+  const progress = index / Math.max(1, count - 1);
+  if (STRESS_PRODUCT_KEYS.has(product.key)) {
+    return Math.max(0, Math.round(330 - progress * 330));
+  }
+  return Math.round(295 - progress * 285);
+}
+
 function shouldMakeNegativeReview(product, index, progress) {
   if (product.key === "puzzle-calm") return index === 11 || index === 27;
   if (product.key === "premium-keyboard") return progress < 0.25 && index % 9 === 0;
@@ -2247,6 +2692,11 @@ function shouldMakeNegativeReview(product, index, progress) {
   if (product.key === "linen-shirt-fit") return progress > 0.42 ? index % 2 === 0 || index % 6 === 0 : index % 10 === 0;
   if (product.key === "ceramic-dinner-set") return progress > 0.35 && progress < 0.78 ? index % 2 === 0 : index % 12 === 0;
   if (product.key === "desk-fan-mismatch") return progress > 0.68 ? true : index % 10 === 0;
+  if (product.key === "voice-lock-safe") return progress > 0.25 ? index % 2 === 0 || index % 5 === 0 : index % 7 === 0;
+  if (product.key === "cooling-pillow") return index % 3 === 0 || (progress > 0.5 && index % 2 === 0) || (progress > 0.82 && index % 5 === 0);
+  if (product.key === "inflatable-standing-desk") return progress > 0.28 ? index % 2 === 0 || index % 3 === 0 : index % 6 === 0;
+  if (product.key === "smart-luggage-tag") return progress > 0.35 ? index % 2 === 0 || index % 7 === 0 : index % 8 === 0;
+  if (product.key === "coffee-alarm-brewer") return progress > 0.32 ? index % 2 === 0 || index % 3 === 0 : index % 6 === 0;
   const threshold = Math.round(product.reviewProfile.count * product.reviewProfile.negativeRate);
   return index < threshold;
 }
@@ -2256,6 +2706,9 @@ function getReviewRating(product, index, negative, progress) {
   if (product.key === "travel-mug-leak" && progress > 0.55) return index % 3 === 0 ? 1 : 2;
   if (product.key === "night-watch-print" && progress > 0.65) return index % 3 === 0 ? 1 : 2;
   if (product.key === "desk-fan-mismatch" && progress > 0.68) return index % 4 === 0 ? 1 : 2;
+  if (product.key === "voice-lock-safe" && progress > 0.45) return index % 4 === 0 ? 1 : 2;
+  if (product.key === "inflatable-standing-desk" && progress > 0.4) return index % 3 === 0 ? 1 : 2;
+  if (product.key === "coffee-alarm-brewer" && progress > 0.5) return index % 3 === 0 ? 1 : 2;
   return index % 2 === 0 ? 2 : 3;
 }
 
@@ -2269,6 +2722,11 @@ function getNegativeReviewTitle(product, progress) {
     "linen-shirt-fit": "Medium White runs small",
     "ceramic-dinner-set": progress > 0.78 ? "Packaging seems improved now" : "Arrived broken despite looking beautiful",
     "desk-fan-mismatch": progress > 0.68 ? "This review seems attached to the wrong product" : "Fan is smaller than expected",
+    "voice-lock-safe": progress > 0.55 ? "Opened for the wrong voice" : "Voice lock feels inconsistent",
+    "cooling-pillow": "Cooling evidence is all over the place",
+    "inflatable-standing-desk": "The desk slowly deflated",
+    "smart-luggage-tag": progress > 0.55 ? "Wrong city and privacy worries" : "Not live GPS like I expected",
+    "coffee-alarm-brewer": progress > 0.55 ? "Brewed at the wrong time" : "Great idea, unreliable timing",
   };
   return titles[product.key] || "Not what I expected";
 }
@@ -2277,6 +2735,11 @@ function getPositiveReviewTitle(product, progress) {
   if (product.key === "premium-keyboard") return "Excellent build quality";
   if (product.key === "puzzle-calm") return "Clear listing and great gift";
   if (product.key === "ceramic-dinner-set" && progress > 0.78) return "Arrived safely after packaging change";
+  if (product.key === "voice-lock-safe") return "Convenient after careful setup";
+  if (product.key === "cooling-pillow") return "Comfortable once aired out";
+  if (product.key === "inflatable-standing-desk") return "Clever for tiny spaces";
+  if (product.key === "smart-luggage-tag") return "Recovered my suitcase";
+  if (product.key === "coffee-alarm-brewer") return "Morning ritual worked";
   return "Good product overall";
 }
 
@@ -2304,6 +2767,13 @@ function getReviewText(product, index, negative, progress, phase) {
       "desk-fan-mismatch": phase === "baseline"
         ? "The fan is small, quiet and useful on a desk. The USB cable was in the box and the airflow was enough for a keyboard area."
         : "The actual fan works for a small workspace. My concern is not the fan itself; it is that later reviews on the listing do not always seem to describe this product.",
+      "voice-lock-safe": phase === "baseline"
+        ? "The Matte Black safe worked after I trained the phrase twice. The keypad backup was clear, and for a closet safe it felt convenient."
+        : "After retraining in a quiet room, the safe opened reliably for me. I would still make the voice setup warning louder because small changes in voice seem to matter.",
+      "cooling-pillow": "After airing out the insert for a day, the Low Loft pillow felt comfortable. It was cool at first, then normal, which is what I wanted rather than an ice pack.",
+      "inflatable-standing-desk": "For a tiny apartment, the Starter kit was useful as a temporary riser. I would not put a heavy monitor on it, but the lightweight laptop setup worked for short sessions.",
+      "smart-luggage-tag": "The Cloud tag helped a baggage desk contact me after a scan. I understood it was not live GPS, so the delayed update did not surprise me.",
+      "coffee-alarm-brewer": "The Graphite unit brewed near my alarm time after setup, and waking up to the smell was fun. I keep it on a tray because it is still a water appliance.",
     };
     return positives[product.key] || `The product matched the listing. ${product.themes[0]} and ${product.themes[1]} were as expected.`;
   }
@@ -2348,6 +2818,36 @@ function getReviewText(product, index, negative, progress, phase) {
       "This review talks about snowboard bindings and boots, not a fan. Something is mismatched in the review feed because the text mentions snow conditions, edge hold and bindings while this product is clearly a USB desk fan.",
       "I bought this little desk fan, but several reviews mention boards, boots and mountain conditions. The product may be fine, but I do not trust the rating data because it looks attached to another listing.",
       "The listing says desk fan, but the review examples mention a snowboard, powder days and bindings. Please fix the review feed before using this text to rewrite the PDP.",
+    ],
+    "voice-lock-safe": [
+      "The Oak voice safe opened when the TV said a phrase that only sounded close to mine, then refused my actual voice after I had a cold. That is too strange for something sold as a safe.",
+      "I like the idea, but the lock made me trust it less. One review says it saved time, mine locked me out, and support told me to retrain it in a silent room.",
+      "Battery dropped overnight and the voice sensor behaved differently every morning. The keypad worked, so the box is not useless, but the voice claim is the risk.",
+      "Matte Black was okay for my partner, Oak failed for me. This feels variant or microphone-batch specific and should not be summarized as normal user error.",
+    ],
+    "cooling-pillow": [
+      "The pillow was too cold for ten minutes, then warm, then somehow damp. I cannot tell if the insert is brilliant or broken, but the page promises a simple cooling story that my sleep did not match.",
+      "High Loft Ice Blue lifted my neck too high and smelled sharp. Another reviewer says it was not cold enough, while mine felt like a cold wet towel at first.",
+      "The Low Loft cover felt nice, but the gel insert smelled like a pool bag. I kept the cover and stopped using the insert, which makes the product hard to rate honestly.",
+      "It is not exactly bad and not exactly good. I woke up warm on one side and chilly on the other, so the cooling claim needs a lot more expectation-setting.",
+    ],
+    "inflatable-standing-desk": [
+      "The Tall Kit slowly sighed itself flat during a video call. My laptop started sliding and I spent the rest of the meeting holding the corner like a steering wheel.",
+      "This product sounds fake but it is real enough to be annoying. It inflated, wobbled, worked for ten minutes, then tilted toward the keyboard.",
+      "Starter kit was clever for a tiny desk, but the Tall Kit is both too tall for typing and not tall enough for standing. I know that sounds impossible; that is what happened.",
+      "The pump is useful, the desk chamber is not. Air leaked from the seam and I do not want to test gravity with a laptop again.",
+    ],
+    "smart-luggage-tag": [
+      "I thought this was live GPS. The tag updated only after scans and once showed a city I never visited, so the travel anxiety got worse instead of better.",
+      "Citrus QR profile looked cute, but the scan page exposed more contact detail than I expected. The product needs clearer privacy defaults before a stranger scans it.",
+      "One review talks about a collar and walking routes, not luggage. If that text belongs to a different source, please do not use it to rewrite this travel tag listing.",
+      "It did help one bag get returned, but the Carbon tag battery warning appeared right before a trip. The evidence is mixed in a way the page does not explain.",
+    ],
+    "coffee-alarm-brewer": [
+      "The Cream unit brewed at 3 a.m. and the alarm stayed silent at 7. I woke up to cold coffee, a wet nightstand and a burnt smell that made no sense.",
+      "Graphite worked after reset for two days, then the clock drifted again. The idea is charming, but time is the one feature this product cannot be casual about.",
+      "It brewed before the alarm and stained the Cream side panel. The cup tray is fine, but I do not trust the schedule near books or electronics.",
+      "Some mornings it was delightful, some mornings it sounded like it was whispering steam into the dark. The listing should warn about condensation and firmware reset steps.",
     ],
   };
   const options = negativeTexts[product.key] || [`The product had issues with ${product.themes.join(", ")}.`];
@@ -2462,6 +2962,86 @@ function buildEvolutionReviewRows(products, evolution, startSourceRow = 2) {
       title: "Rose still needs real-life photos",
       body: "The earbuds sound fine, but Rose is warmer and more copper than expected. This feels like a media and variant expectation issue rather than a general electronics quality problem.",
       phase: "evolution_variant_media",
+    },
+    {
+      key: "voice-lock-safe",
+      daysAgo: 4,
+      rating: 1,
+      title: "Oak opened for the wrong phrase",
+      body: "The Oak voice safe opened when a TV voice sounded close to my phrase, then ignored me after I had a cold. I would treat this as a trust issue, not just a setup issue.",
+      phase: "evolution_security_spike",
+    },
+    {
+      key: "voice-lock-safe",
+      daysAgo: 1,
+      rating: 4,
+      title: "Matte Black worked after retraining",
+      body: "My Matte Black unit worked after I retrained the phrase in a quiet room. The contrast with Oak complaints makes me wonder whether the microphone batch or finish is part of the issue.",
+      phase: "evolution_variant_split",
+    },
+    {
+      key: "cooling-pillow",
+      daysAgo: 5,
+      rating: 2,
+      title: "Too cold, then too warm",
+      body: "The High Loft Ice Blue pillow felt icy and damp for a few minutes, then warmed up before morning. I kept the cover but stopped using the insert because the experience was too inconsistent.",
+      phase: "evolution_mixed_comfort",
+    },
+    {
+      key: "cooling-pillow",
+      daysAgo: 2,
+      rating: 5,
+      title: "Low Loft worked after airing out",
+      body: "Low Loft Graphite was comfortable after I aired out the insert for a day. The setup note matters because without that step the first smell would have made me return it.",
+      phase: "evolution_recovery_signal",
+    },
+    {
+      key: "inflatable-standing-desk",
+      daysAgo: 6,
+      rating: 1,
+      title: "Tall Kit deflated during a call",
+      body: "The Tall Kit slowly lost air while I was typing and my laptop slid toward the edge. The portable idea is clever, but this needs a stability limit and QA review before I would trust it.",
+      phase: "evolution_qa_spike",
+    },
+    {
+      key: "inflatable-standing-desk",
+      daysAgo: 2,
+      rating: 2,
+      title: "Travel Kit is funny but unstable",
+      body: "The Travel Kit packed flat and made me laugh, then tilted toward my keyboard. It is not only a sentiment problem; the surface needs clearer weight and use limits.",
+      phase: "evolution_copy_and_qa",
+    },
+    {
+      key: "smart-luggage-tag",
+      daysAgo: 5,
+      rating: 2,
+      title: "Citrus QR privacy surprised me",
+      body: "The Citrus tag looked bright and easy to scan, but the profile page exposed more contact detail than I expected. The page should make QR privacy defaults obvious.",
+      phase: "evolution_privacy",
+    },
+    {
+      key: "smart-luggage-tag",
+      daysAgo: 1,
+      rating: 3,
+      title: "Recovered one bag, confused another",
+      body: "One Cloud tag helped recover a suitcase, while a Carbon tag showed a delayed wrong-city alert. This is mixed tracking evidence, not a simple good or bad product story.",
+      phase: "evolution_mixed_tracking",
+    },
+    {
+      key: "coffee-alarm-brewer",
+      daysAgo: 3,
+      rating: 1,
+      title: "Cream brewed at 3 a.m.",
+      body: "The Cream unit brewed hours before the alarm and left condensation on my nightstand. A coffee alarm cannot be casual about time, water and sleeping next to electronics.",
+      phase: "evolution_timing_spike",
+    },
+    {
+      key: "coffee-alarm-brewer",
+      daysAgo: 1,
+      rating: 4,
+      title: "Graphite worked after reset",
+      body: "Graphite worked for me after a firmware reset, but reading the Cream timing complaints makes me think the setup and reset instructions need to be front and center.",
+      phase: "evolution_variant_recovery",
     },
   ];
 
@@ -2978,14 +3558,28 @@ function stripNullish(value) {
 }
 
 function buildAddress(index) {
+  const addresses = [
+    { city: "Austin", provinceCode: "TX", countryCode: "US", zip: "78701", street: "Test Dataset Ave" },
+    { city: "Brooklyn", provinceCode: "NY", countryCode: "US", zip: "11201", street: "Atlantic Test Way" },
+    { city: "Los Angeles", provinceCode: "CA", countryCode: "US", zip: "90012", street: "Mock Market St" },
+    { city: "Chicago", provinceCode: "IL", countryCode: "US", zip: "60607", street: "Signal Loop" },
+    { city: "Miami", provinceCode: "FL", countryCode: "US", zip: "33131", street: "Catalog Bay Dr" },
+    { city: "Seattle", provinceCode: "WA", countryCode: "US", zip: "98101", street: "Variant Pier" },
+    { city: "Toronto", provinceCode: "ON", countryCode: "CA", zip: "M5V 2T6", street: "Queen Test St" },
+    { city: "Vancouver", provinceCode: "BC", countryCode: "CA", zip: "V6B 1A1", street: "Return Harbor Rd" },
+    { city: "London", provinceCode: null, countryCode: "GB", zip: "SW1A 1AA", street: "Signal Mews" },
+    { city: "Sydney", provinceCode: "NSW", countryCode: "AU", zip: "2000", street: "Mock Wharf" },
+    { city: "Berlin", provinceCode: null, countryCode: "DE", zip: "10115", street: "Katalogstrasse" },
+  ];
+  const address = addresses[index % addresses.length];
   return {
     firstName: "Mock",
     lastName: `Customer ${index + 1}`,
-    address1: `${100 + index} Test Dataset Ave`,
-    city: "Austin",
-    provinceCode: "TX",
-    countryCode: "US",
-    zip: "78701",
+    address1: `${100 + index} ${address.street}`,
+    city: address.city,
+    provinceCode: address.provinceCode,
+    countryCode: address.countryCode,
+    zip: address.zip,
   };
 }
 

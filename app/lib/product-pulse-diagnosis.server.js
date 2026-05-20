@@ -1788,7 +1788,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const negativeReviewCount = negativeReviews.length;
   const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
   const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDate(review.createdAt, 30)).length;
-  const topReturnReasons = countTopValues(returns.flatMap((item) => [item.reason, item.reasonNote, item.customerNote]).filter(Boolean), 4);
+  const topReturnReasons = buildTopReturnReasonDetails(returns, 4);
   const topRefundReasons = countTopValues(refunds
     .map(getRefundReasonText)
     .filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 4);
@@ -2092,6 +2092,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       negativeReviewCount,
       negativeReviewRate,
       recentNegativeReviewCount,
+      recentNegativeReviewWindowDays: 30,
       judgeMeReviewCount: reviewSourceStats.judgeMe.reviewCount,
       judgeMeNegativeReviewCount: reviewSourceStats.judgeMe.negativeReviewCount,
       judgeMeAverageRating: reviewSourceStats.judgeMe.avgRating,
@@ -2383,6 +2384,7 @@ function buildReconstructedRiskHistoryPoint({
       negativeReviewCount,
       negativeReviewRate,
       recentNegativeReviewCount,
+      recentNegativeReviewWindowDays: 30,
       signalCount,
       customerSignalCount,
       contentIssueCount,
@@ -3580,7 +3582,8 @@ function analyzeFaqOpportunity({
   const confusionSignals = emotions
     .filter((item) => ["confusion", "uncertainty", "distrust"].includes(normalizeEmotionCode(item.code)))
     .reduce((total, item) => total + Number(item.count || 0), 0);
-  const repeatedFaqLanguage = repeatedLanguage.filter((item) => isFaqRelevantText(item.term));
+  const repeatedFaqLanguage = repeatedLanguage
+    .filter((item) => isFaqRelevantText(item.term) && Number(item.count || 0) >= 2);
   const returnReasonQuestions = (Array.isArray(topReturnReasons) ? topReturnReasons : [])
     .filter((item) => isFaqRelevantText(item.label || item));
 
@@ -3604,11 +3607,11 @@ function analyzeFaqOpportunity({
     });
   }
 
-  if (guidanceIssues.length) {
+  if (guidanceIssues.length >= 2 || (guidanceIssues.length && customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE)) {
     add({
       topic: "Product information",
       reason: `${guidanceIssues.length} product-content gap${guidanceIssues.length === 1 ? "" : "s"} can be answered as FAQ guidance.`,
-      weight: Math.min(3, guidanceIssues.length + 1),
+      weight: Math.min(3, guidanceIssues.length),
       signalCount: guidanceIssues.length,
       source: "Product content",
     });
@@ -3624,7 +3627,7 @@ function analyzeFaqOpportunity({
     });
   }
 
-  if (repeatedFaqLanguage.length) {
+  if (repeatedFaqLanguage.length >= 2 || (repeatedFaqLanguage.length && customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE)) {
     const topTerm = repeatedFaqLanguage[0];
     add({
       topic: getFaqTopicForText(topTerm.term),
@@ -3655,10 +3658,20 @@ function analyzeFaqOpportunity({
     });
   }
 
-  const hasEvidenceThreshold = customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || guidanceIssues.length > 0
-    || Number(reviewCount || 0) >= 4;
-  const shouldRecommend = score >= 3 && hasEvidenceThreshold;
+  const topicCount = topics.size;
+  const sourceCount = sources.size;
+  const hasCustomerEvidence = customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || confusionSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || issueSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || repeatedFaqLanguage.reduce((total, item) => total + Number(item.count || 0), 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE;
+  const hasMultiAspectQuestion = topicCount >= 2
+    || sourceCount >= 2
+    || guidanceIssues.length >= 2
+    || repeatedFaqLanguage.length >= 2
+    || returnReasonQuestions.length >= 2;
+  const hasBroadReviewContext = Number(reviewCount || 0) >= 4 && Number(negativeReviewCount || 0) >= 2;
+  const hasEvidenceThreshold = hasCustomerEvidence && (hasMultiAspectQuestion || hasBroadReviewContext);
+  const shouldRecommend = score >= 4 && hasEvidenceThreshold;
 
   return {
     shouldRecommend,
@@ -3668,6 +3681,8 @@ function analyzeFaqOpportunity({
     reasons: reasons.slice(0, 5),
     sourceTypes: Array.from(sources),
     evidenceThreshold: hasEvidenceThreshold ? "met" : "not_met",
+    topicCount,
+    sourceCount,
   };
 }
 
@@ -3906,8 +3921,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         applicationOptions: getFaqApplicationOptions(),
         metafield: {
           namespace: "productpulse",
-          key: "faq_items",
-          type: "json",
+          key: "faq_html",
+          type: "multi_line_text_field",
         },
       },
     });
@@ -5091,7 +5106,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
     return {
       ...common,
       proposedChange: "Create generated FAQ content and apply it as description HTML or a product metafield.",
-      shopifyField: "Product.descriptionHtml or productpulse.faq_items metafield",
+      shopifyField: "Product.descriptionHtml or productpulse.faq_html metafield",
       expectedImpact: "Answer repeated buyer uncertainty before purchase.",
       applicationRisk: "Low",
       priorityGroup: "Customer-facing fix",
@@ -5876,10 +5891,10 @@ function getFaqApplicationOptions() {
       operation: "Append modal-style FAQ",
     },
     {
-      id: "metafield-json",
+      id: "metafield-html",
       label: "Save FAQ metafield",
       target: "Product metafield",
-      operation: "Save JSON metafield",
+      operation: "Save HTML metafield",
     },
   ];
 }
@@ -7251,7 +7266,7 @@ function getCsvReviewMatchConfidence(row, snapshot, product) {
 }
 
 function buildReviewSourceStats(reviews = []) {
-  const empty = { reviewCount: 0, negativeReviewCount: 0, avgRating: 0, negativeReviewRate: 0, recentNegativeReviewCount: 0 };
+  const empty = { reviewCount: 0, negativeReviewCount: 0, avgRating: 0, negativeReviewRate: 0, recentNegativeReviewCount: 0, recentNegativeReviewWindowDays: 30 };
   const stats = {
     judgeMe: { ...empty },
     csv: { ...empty },
@@ -8618,8 +8633,12 @@ function summarizeTextSource(items) {
     emotions,
     subjectiveNegativity: summarizeSubjectiveNegativity(items),
     repeatedLanguage: extractRepeatedLanguage(items).slice(0, 5),
-    examples: items
-      .filter((item) => item.sentiment === "negative" || item.isOther)
+    examples: uniqueBy(
+      items
+        .filter((item) => item.sentiment === "negative" || item.isOther)
+        .filter((item) => item.text),
+      (item) => normalizeText(item.text || item.noteText || ""),
+    )
       .slice(0, 4)
       .map((item) => ({
         text: truncateText(item.text, 180),
@@ -10089,6 +10108,106 @@ function countTopValues(values, limit) {
     .map(([label, count]) => ({ label, count }));
 }
 
+function buildTopReturnReasonDetails(returns = [], limit = 4) {
+  const groups = new Map();
+
+  (Array.isArray(returns) ? returns : []).forEach((item) => {
+    const category = normalizeReturnReasonLabel(item.reasonLabel || item.reason || "Return");
+    if (!category) return;
+
+    const key = normalizeReturnReasonKey(category);
+    const quantity = Math.max(1, Number(item.quantity || item.processedQuantity || item.refundedQuantity || 1));
+    const note = getReturnReasonNoteSummary(item);
+    const group = groups.get(key) || {
+      key,
+      label: category,
+      count: 0,
+      subReasonMap: new Map(),
+    };
+
+    group.count += quantity;
+
+    if (note && !isDefaultCustomerLanguageTerm(note)) {
+      const noteKey = normalizeReturnReasonKey(note);
+      const subReason = group.subReasonMap.get(noteKey) || {
+        key: noteKey,
+        label: note,
+        count: 0,
+      };
+      subReason.count += quantity;
+      group.subReasonMap.set(noteKey, subReason);
+    }
+
+    groups.set(key, group);
+  });
+
+  return [...groups.values()]
+    .map((group) => {
+      const subReasons = [...group.subReasonMap.values()]
+        .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label));
+      const dominantSubReason = subReasons[0] || null;
+      const isOther = group.key === "other";
+      const label = isOther && dominantSubReason
+        ? `Other: ${dominantSubReason.label}`
+        : group.label;
+
+      return {
+        key: group.key,
+        label,
+        category: group.label,
+        count: group.count,
+        detail: dominantSubReason
+          ? `${group.label} · ${dominantSubReason.count} unit${dominantSubReason.count === 1 ? "" : "s"}`
+          : `${group.count} unit${group.count === 1 ? "" : "s"}`,
+        subReasons: subReasons.slice(0, 4),
+      };
+    })
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .slice(0, limit);
+}
+
+function getReturnReasonNoteSummary(item = {}) {
+  const notes = [item.reasonNote, item.customerNote]
+    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const first = notes[0] || "";
+  return first
+    .replace(/^other\s*(reason)?\s*[:/-]\s*/i, "")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+}
+
+function normalizeReturnReasonKey(value) {
+  const normalized = normalizeText(value)
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+  if (isGenericOtherReason(normalized) || ["other reason", "other reasons"].includes(normalized)) return "other";
+  if (["not as described", "not described"].includes(normalized)) return "not_as_described";
+  if (["quality issue", "quality"].includes(normalized)) return "quality_issue";
+  if (["wrong item", "wrong product"].includes(normalized)) return "wrong_item";
+  if (["color", "colour"].includes(normalized)) return "color";
+  return normalized;
+}
+
+function normalizeReturnReasonLabel(value) {
+  const normalized = String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  const key = normalizeReturnReasonKey(normalized);
+  if (key === "other") return "Other";
+  if (key === "not_as_described") return "Not as described";
+  if (key === "quality_issue") return "Quality issue";
+  if (key === "wrong_item") return "Wrong item";
+  if (key === "color") return "Color";
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function buildOrderGeographyRows(sales = []) {
   const orders = new Map();
 
@@ -11524,6 +11643,7 @@ export const __productPulseDiagnosisTestHooks = {
   getRefundAdjustmentReasons,
   getReturnLineItemNoteText,
   getReturnReasonValue,
+  buildTopReturnReasonDetails,
   getNodes,
   buildCustomerTextInsights,
   buildCustomerTextAnalysisItems,

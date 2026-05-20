@@ -245,6 +245,49 @@ describe("ProductPulse actions", () => {
     });
   });
 
+  it("does not count one applied same-label action as every same-label recommendation", () => {
+    const product = {
+      id: "gid://shopify/Product/faq",
+      handle: "faq-product",
+      title: "FAQ Product",
+      riskScore: 74,
+      confidence: 82,
+      analysisDepth: "full",
+      primaryIssue: "Product content",
+      metrics: {
+        latestDiagnosisId: "diagnosis-faq",
+        marginAtRisk: 260,
+        revenueAtRisk: 780,
+        signalCount: 10,
+      },
+      recommendedActions: [
+        { id: "create-fit-faq", label: "Create product FAQ", type: "PDP copy", status: "Ready" },
+        { id: "create-compatibility-faq", label: "Create product FAQ", type: "PDP copy", status: "Ready" },
+      ],
+      actionHistory: [
+        {
+          id: "stored-create-fit-faq",
+          actionId: "create-fit-faq",
+          label: "Create product FAQ",
+          status: "applied",
+          payload: { actionAliases: ["create-product-faq"] },
+        },
+      ],
+    };
+
+    const dashboard = buildDashboardViewData([product]);
+    const analytics = buildAnalyticsViewData([product]);
+
+    expect(dashboard.totals.pendingActions).toBe(1);
+    expect(dashboard.totals.appliedActions).toBe(1);
+    expect(dashboard.actionQueue.total).toBe(1);
+    expect(analytics.actionPerformance).toMatchObject({
+      suggested: 2,
+      pending: 1,
+      applied: 1,
+    });
+  });
+
   it("prioritizes product-change actions over investigation-only actions on the dashboard", () => {
     const investigationOnlyProduct = {
       id: "gid://shopify/Product/investigate",

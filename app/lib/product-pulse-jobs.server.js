@@ -28,6 +28,7 @@ import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
 import {
   SHOPIFY_MOCK_DATASET_KIND,
   SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS,
+  SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
   SHOPIFY_MOCK_DATASET_STAGE_LABELS,
   getMissingShopifyMockDatasetScopes,
   normalizeShopifyMockDatasetStage,
@@ -149,8 +150,8 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
         queuedAt: new Date().toISOString(),
         stage,
         stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
-        expectedProducts: 10,
-        expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? 120,
+        expectedProducts: SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
+        expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS.all,
       },
     },
   });
@@ -161,7 +162,11 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
     jobId: job.id,
     event: "mock_dataset.queued",
     message: `Shopify mock dataset stage queued: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
-    data: { stage, expectedProducts: 10, expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? 120 },
+    data: {
+      stage,
+      expectedProducts: SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
+      expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS.all,
+    },
   });
 
   return {
@@ -706,6 +711,9 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     ...(payloadOverride.tag ? { tag: payloadOverride.tag } : {}),
     ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
     ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
+    ...(payloadOverride.metafieldNamespace ? { metafieldNamespace: payloadOverride.metafieldNamespace } : {}),
+    ...(payloadOverride.metafieldKey ? { metafieldKey: payloadOverride.metafieldKey } : {}),
+    ...(payloadOverride.metafieldType ? { metafieldType: payloadOverride.metafieldType } : {}),
   };
   const recordActionId = action.id || actionId || payloadOverride.label || "product-action";
   const recordLabel = action.label || payloadOverride.label || actionId || "Product action";
@@ -1460,27 +1468,25 @@ async function applyFaqRecommendationAction({ admin, snapshot, action, payload }
     return { status: "validation_error", message: "This FAQ action does not include questions and answers to apply." };
   }
 
-  if (variant === "metafield-json") {
-    const metafield = payload.metafield || {};
-    const namespace = metafield.namespace || "productpulse";
-    const key = metafield.key || "faq_items";
-    const type = metafield.type || "json";
+  if (isFaqMetafieldApplyVariant(variant)) {
+    const metafield = getFaqMetafieldConfig(payload);
     const result = await setProductFaqMetafield(admin, snapshot.productGid, {
-      namespace,
-      key,
-      type,
+      namespace: metafield.namespace,
+      key: metafield.key,
+      type: metafield.type,
       faqItems,
       sourceActionId: action.id,
     });
     if (result.status === "validation_error") return result;
     return {
-      message: `Product FAQ metafield ${namespace}.${key} was saved for ${snapshot.productTitle}.`,
+      message: `Product FAQ metafield ${metafield.namespace}.${metafield.key} was saved for ${snapshot.productTitle}.`,
       change: {
         target: "Product metafield",
         operation: "set",
-        value: faqItems,
-        namespace,
-        key,
+        value: buildProductPulseFaqHtml({ faqItems, variant: "description-section", action }),
+        namespace: metafield.namespace,
+        key: metafield.key,
+        type: metafield.type,
       },
     };
   }
@@ -1510,13 +1516,19 @@ function isFaqRecommendationAction(action, payload = {}) {
 
 function getFaqApplyVariant(payload = {}) {
   const variant = String(payload.actionVariant || payload.defaultApplyMode || "").trim();
-  if (["description-section", "description-collapsible", "description-modal", "metafield-json"].includes(variant)) return variant;
+  if (variant === "metafield-json") return "metafield-html";
+  if (["description-section", "description-collapsible", "description-modal", "metafield-html"].includes(variant)) return variant;
   return "description-collapsible";
+}
+
+function isFaqMetafieldApplyVariant(variant = "") {
+  return variant === "metafield-html" || variant === "metafield-json";
 }
 
 function getFaqApplyVariantLabel(variant) {
   if (variant === "description-section") return "Product FAQ section was appended";
   if (variant === "description-modal") return "Product FAQ modal block was appended";
+  if (isFaqMetafieldApplyVariant(variant)) return "Product FAQ metafield was saved";
   return "Product FAQ was appended";
 }
 
@@ -1577,13 +1589,31 @@ function buildProductPulseFaqHtml({ faqItems, variant, action }) {
   return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>\n</section>`;
 }
 
+function getFaqMetafieldConfig(payload = {}) {
+  const metafield = payload.metafield || {};
+  return {
+    namespace: normalizeShopifyMetafieldNamespace(payload.metafieldNamespace || metafield.namespace || "productpulse"),
+    key: normalizeShopifyMetafieldKey(payload.metafieldKey || metafield.key || "faq_html"),
+    type: "multi_line_text_field",
+  };
+}
+
+function normalizeShopifyMetafieldNamespace(value) {
+  const normalized = String(value || "").trim();
+  if (normalized === "$app") return normalized;
+  return normalized.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "productpulse";
+}
+
+function normalizeShopifyMetafieldKey(value) {
+  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "faq_html";
+}
+
 async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId }) {
   try {
-    const value = JSON.stringify({
-      source: "ProductPulse AI",
-      sourceActionId,
-      updatedAt: new Date().toISOString(),
-      items: faqItems,
+    const value = buildProductPulseFaqHtml({
+      faqItems,
+      variant: "description-section",
+      action: { id: sourceActionId || "product-faq-metafield" },
     });
     const response = await admin.graphql(
       `#graphql
@@ -1607,9 +1637,9 @@ async function setProductFaqMetafield(admin, productGid, { namespace, key, type,
         variables: {
           metafields: [{
             ownerId: productGid,
-            namespace,
-            key,
-            type,
+            namespace: normalizeShopifyMetafieldNamespace(namespace),
+            key: normalizeShopifyMetafieldKey(key),
+            type: type || "multi_line_text_field",
             value,
           }],
         },

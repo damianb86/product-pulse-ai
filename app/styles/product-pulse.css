@@ -5068,6 +5068,10 @@ s-page[inline-size="large-500"] {
   color: var(--pp-pulse-blue);
 }
 
+.ppEvidenceSourceGlyph > s-icon {
+  transform: scale(1.55);
+}
+
 .ppEvidenceTone-critical {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
@@ -5425,6 +5429,10 @@ s-page[inline-size="large-500"] {
   display: inline-grid;
   place-items: center;
   border-radius: 7px;
+}
+
+.ppEvidenceTabIcon > s-icon {
+  transform: scale(1.28);
 }
 
 .ppEvidenceSourcePanel {
@@ -5796,6 +5804,10 @@ s-page[inline-size="large-500"] {
   border-radius: 8px;
   background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceSignalTypeIcon > s-icon {
+  transform: scale(1.28);
 }
 
 .ppEvidenceSignalTypeIcon.ppEvidenceMetricCard-red,
@@ -6613,6 +6625,33 @@ s-page[inline-size="large-500"] {
   border-radius: 10px;
   background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceMetricIcon > s-icon,
+.ppEvidenceReportIcon > s-icon {
+  transform: scale(1.42);
+}
+
+.ppThumbGlyph {
+  width: 24px;
+  height: 24px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ppThumbGlyph-down {
+  transform: rotate(180deg);
+}
+
+.ppEvidenceMetricIcon .ppThumbGlyph,
+.ppEvidenceSignalTypeIcon .ppThumbGlyph,
+.ppEvidenceSourceGlyph .ppThumbGlyph {
+  width: 28px;
+  height: 28px;
 }
 
 .ppEvidenceMetricCard > div,
@@ -8207,6 +8246,58 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
   font-size: 11px;
   line-height: 1.25;
+}
+
+.ppFaqMetafieldFields {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 10px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.04);
+}
+
+.ppFaqMetafieldFieldsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppFaqMetafieldFields label {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppFaqMetafieldFields input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 700;
+  outline: none;
+}
+
+.ppFaqMetafieldFields input:focus {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.52);
+  box-shadow: 0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.12);
+}
+
+.ppFaqMetafieldFields p {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .ppActionSuggestionBox {
@@ -12810,6 +12901,12 @@ s-page[inline-size="large-500"] {
   border-color: var(--pp-slate-300);
   background: var(--pp-slate-100);
   color: var(--pp-slate-500);
+}
+
+.ppProductPulseSearchStatus-added {
+  border-color: var(--pp-slate-300);
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
+  color: var(--pp-slate-600);
 }
 
 .ppProductPulseSearchStatus-watch {

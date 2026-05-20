@@ -28,6 +28,31 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(__productPulseDiagnosisTestHooks.getReturnLineItemNoteText(returnLineItem)).toBe("Scares me more than nothing. I want them to take him away.");
   });
 
+  it("groups generic other return reasons under the captured note", () => {
+    const reasons = __productPulseDiagnosisTestHooks.buildTopReturnReasonDetails([
+      {
+        reason: "OTHER",
+        reasonLabel: "Other reason",
+        reasonNote: "Too soft for balance poses; expected a firmer yoga surface.",
+        quantity: 4,
+      },
+    ]);
+
+    expect(reasons).toEqual([
+      expect.objectContaining({
+        label: "Other: Too soft for balance poses; expected a firmer yoga surface.",
+        category: "Other",
+        count: 4,
+        subReasons: [
+          expect.objectContaining({
+            label: "Too soft for balance poses; expected a firmer yoga surface.",
+            count: 4,
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it("matches returned line items by title when Shopify omits the product object", () => {
     const lineItem = {
       title: "THE NIGHT WATCH | REMBRANDT VAN RIJN",
@@ -1690,10 +1715,21 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       returnUnits: 0,
       refundUnits: 0,
     });
+    const contentOnly = __productPulseDiagnosisTestHooks.analyzeFaqOpportunity({
+      mainIssue: "product_content",
+      issueSignalCounts: { product_content: 1 },
+      contentAnalysis: { issues: [{ code: "short_description", label: "Short description" }] },
+      textInsights: { emotions: [], repeatedLanguage: [] },
+      reviewCount: 8,
+      negativeReviewCount: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
 
     expect(supported.shouldRecommend).toBe(true);
     expect(supported.topics).toContain("Compatibility");
     expect(isolated.shouldRecommend).toBe(false);
+    expect(contentOnly.shouldRecommend).toBe(false);
   });
 
   it("builds FAQ recommendations with application options and AI-generated items", () => {
@@ -1762,8 +1798,13 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       "description-section",
       "description-collapsible",
       "description-modal",
-      "metafield-json",
+      "metafield-html",
     ]);
+    expect(faq.payload.metafield).toMatchObject({
+      namespace: "productpulse",
+      key: "faq_html",
+      type: "multi_line_text_field",
+    });
     expect(faq.payload.whyThisAction).toBe("Returns and negative reviews repeat fit uncertainty, so an FAQ gives shoppers a direct answer before checkout.");
   });
 

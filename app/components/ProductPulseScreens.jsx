@@ -20,13 +20,13 @@ const MOCK_DATASET_STAGE_ACTIONS = [
     stage: "products",
     label: "Create products",
     icon: "product",
-    detail: "Creates or reuses the 10 GEN products with variants, SEO, tags and HTML descriptions.",
+    detail: "Creates or reuses the 15 GEN products with variants, SEO, tags and HTML descriptions.",
   },
   {
     stage: "orders",
     label: "Create orders",
     icon: "calendar",
-    detail: "Creates or resumes 120 historical orders, skipping existing generated order emails.",
+    detail: "Creates or resumes 200 historical orders, skipping existing generated order indexes.",
   },
   {
     stage: "outcomes",
@@ -877,6 +877,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const handleAddShopifyProductCandidate = (product) => {
     if (pendingCandidateAdd || !product?.id) return;
+    setAddedCandidateProductIds((current) => {
+      const next = new Set(current);
+      next.add(product.id);
+      return next;
+    });
     const formData = new FormData();
     formData.set("_action", "add-shopify-product-candidate");
     formData.set("productId", product.id);
@@ -1305,8 +1310,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
             <span className="ppScanSpinner" aria-hidden="true" />
             <h2>Fast product scan running</h2>
             <p>
-              ProductPulse is checking the catalog for potential quality signals. You can leave this page;
-              the backend job will keep running.
+              ProductPulse is checking the catalog for potential quality signals. The backend job will keep running.
             </p>
             <small>{activeScanJob ? activeScanJob.source : "Starting scan..."}</small>
           </div>
@@ -1324,6 +1328,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           onQueryChange={setShopifyProductSearchQuery}
           actionLabel="Run diagnostics"
           addedProductIds={addedCandidateProductIds}
+          addedActionLabel="Added to Candidates"
+          addedStatusKind="candidate"
         />
       )}
       {analysisConfirmation && (
@@ -2448,7 +2454,7 @@ export function SettingsScreen({ data = {}, actionData }) {
                 <span>Testing dataset</span>
                 <h2 id="settings-mock-dataset-title">Create Shopify mock dataset</h2>
                 <p>
-                  Generate 10 controlled <strong>GEN</strong> products, historical Shopify orders, returns, refunds and a normalized CSV review source for end-to-end diagnostic testing.
+                  Generate 15 controlled <strong>GEN</strong> products, historical Shopify orders, returns, refunds and a normalized CSV review source for end-to-end diagnostic testing.
                 </p>
               </div>
             </div>
@@ -2461,8 +2467,8 @@ export function SettingsScreen({ data = {}, actionData }) {
                 </p>
               </div>
               <ul>
-                <li>10 Shopify products with HTML descriptions, SEO, tags and variants.</li>
-                <li>120 historical test orders distributed across roughly 300 days.</li>
+                <li>15 Shopify products with HTML descriptions, SEO, tags and variants.</li>
+                <li>200 historical test orders distributed across roughly 300 days.</li>
                 <li>Selected full or partial returns and refunds, including Other notes.</li>
                 <li>Hundreds of normalized CSV reviews linked to the generated products.</li>
               </ul>
@@ -2538,7 +2544,7 @@ export function SettingsScreen({ data = {}, actionData }) {
                 <small>
                   {mockDataset?.config?.stages?.evolution?.status === "completed"
                     ? `Completed ${formatWatchReportTimestamp(mockDataset.config.stages.evolution.completedAt)}`
-                    : "Creates or reuses 26 recent evolution orders and rewrites the CSV with new reviews."}
+                    : "Creates or reuses 41 recent evolution orders and rewrites the CSV with new reviews."}
                 </small>
               </div>
               <button className="ppPrimaryButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
@@ -3100,6 +3106,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
   const tagOverride = String(confirmation.tagOverride || "");
   const valuePreview = editedText || "No value supplied.";
   const unresolvedPlaceholders = getEditableTextPlaceholders(editedText);
+  const metafieldMissing = application.isMetafield && (!String(application.metafieldNamespace || "").trim() || !String(application.metafieldKey || "").trim());
   const submitLabel = pending ? "Applying change..." : application.confirmationSubmitLabel || "Accept and apply change";
 
   return (
@@ -3125,6 +3132,12 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
             <span>Operation</span>
             <strong>{application.operation}</strong>
           </div>
+          {application.isMetafield && (
+            <div>
+              <span>Metafield</span>
+              <strong>{application.metafieldNamespace}.{application.metafieldKey}</strong>
+            </div>
+          )}
         </div>
 
         {application.currentValue && (
@@ -3159,8 +3172,11 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           <input type="hidden" name="applyMode" value="apply" />
           <input type="hidden" name="actionVariant" value={application.variantId || ""} />
           <input type="hidden" name="descriptionOperation" value={application.descriptionOperation || ""} />
+          <input type="hidden" name="metafieldNamespace" value={application.metafieldNamespace || ""} />
+          <input type="hidden" name="metafieldKey" value={application.metafieldKey || ""} />
+          <input type="hidden" name="metafieldType" value={application.metafieldType || ""} />
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim() || unresolvedPlaceholders.length > 0}>
+          <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim() || unresolvedPlaceholders.length > 0 || metafieldMissing}>
             <s-icon type={isTagChange ? "tag" : "wand"} size="small"></s-icon>
             {submitLabel}
           </button>
@@ -3199,6 +3215,7 @@ function ShopifyProductSearchModal({
   actionIcon = "wand",
   addedProductIds = [],
   addedActionLabel = "Added",
+  addedStatusKind = "watchlist",
   onAddCandidate,
   candidateActionLabel = "Add to Candidates",
 }) {
@@ -3277,7 +3294,7 @@ function ShopifyProductSearchModal({
                     <div className="ppShopifyProductResultText">
                       <div>
                         <strong>{product.title}</strong>
-                        <ProductSearchStatusIcon product={product} alreadyAdded={alreadyAdded} addedActionLabel={addedActionLabel} />
+                        <ProductSearchStatusIcon product={product} alreadyAdded={alreadyAdded} addedActionLabel={addedActionLabel} addedStatusKind={addedStatusKind} />
                       </div>
                       <p>{product.handle ? `/${product.handle}` : "Shopify product"}</p>
                       <small>
@@ -3287,10 +3304,9 @@ function ShopifyProductSearchModal({
                     <div className="ppShopifyProductResultActions">
                       <ShopifyProductResultActionButton
                         className="ppShopifyProductResultRunAction"
-                        disabled={alreadyAdded}
-                        icon={alreadyAdded ? "check" : actionIcon}
-                        label={alreadyAdded ? addedActionLabel : actionLabel}
-                        tooltip={alreadyAdded ? "This product is already in the current workflow." : "Run diagnostics and move this product into Full diagnostics while the job runs."}
+                        icon={actionIcon}
+                        label={actionLabel}
+                        tooltip="Run diagnostics and move this product into Full diagnostics while the job runs."
                         iconOnly={Boolean(onAddCandidate)}
                         onClick={() => onAnalyze(product)}
                       />
@@ -3298,9 +3314,11 @@ function ShopifyProductSearchModal({
                         <ShopifyProductResultActionButton
                           className="ppShopifyProductResultCandidateAction"
                           disabled={alreadyAdded || getProductSearchStatus(product).tone !== "catalog"}
-                          icon="plus"
-                          label={candidateActionLabel}
-                          tooltip={getProductSearchStatus(product).tone === "catalog"
+                          icon={alreadyAdded ? "check" : "plus"}
+                          label={alreadyAdded ? addedActionLabel : candidateActionLabel}
+                          tooltip={alreadyAdded
+                            ? "This product is already listed in Candidates."
+                            : getProductSearchStatus(product).tone === "catalog"
                             ? "Add this product to Candidates without running any scan."
                             : "This product is already stored in ProductPulse."}
                           onClick={() => onAddCandidate(product)}
@@ -3359,12 +3377,12 @@ function ShopifyProductResultActionButton({
   );
 }
 
-function ProductSearchStatusIcon({ product, alreadyAdded = false, addedActionLabel = "Added" }) {
+function ProductSearchStatusIcon({ product, alreadyAdded = false, addedActionLabel = "Added", addedStatusKind = "watchlist" }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
-  const status = getProductSearchStatus(product, alreadyAdded);
+  const status = getProductSearchStatus(product, alreadyAdded, addedStatusKind);
   const label = alreadyAdded ? addedActionLabel : status.label;
-  const detail = alreadyAdded ? "This product is already in the current workflow." : status.detail;
+  const detail = status.detail;
 
   return (
     <>
@@ -3388,8 +3406,16 @@ function ProductSearchStatusIcon({ product, alreadyAdded = false, addedActionLab
   );
 }
 
-function getProductSearchStatus(product = {}, alreadyAdded = false) {
+function getProductSearchStatus(product = {}, alreadyAdded = false, addedStatusKind = "watchlist") {
   if (alreadyAdded) {
+    if (addedStatusKind === "candidate") {
+      return {
+        icon: "check",
+        tone: "added",
+        label: "Added to Candidates",
+        detail: "This product is now listed in Candidates. You can still run diagnostics from this modal.",
+      };
+    }
     return {
       icon: "binoculars",
       tone: "watch",
@@ -4911,8 +4937,10 @@ function getRecommendedActionHistoryRecord(action = {}, actionHistory = []) {
     .filter((record) => !isSystemRecommendedActionRecord(record))
     .sort((first, second) => getRecommendedActionRecordTime(second) - getRecommendedActionRecordTime(first));
   const actionKeys = getRecommendedActionMatchKeys(action);
+  const hasPreciseIdentity = hasPreciseRecommendedActionIdentity(action);
   const exactRecord = records.find((record) => intersectsActionKeys(actionKeys, getStoredRecommendedActionMatchKeys(record)));
   if (exactRecord) return getArchivedActionStateFromRecordStatus(exactRecord.status) ? exactRecord : null;
+  if (hasPreciseIdentity) return null;
 
   const actionFamily = getRecommendedActionPersistenceFamily(action);
   if (!actionFamily) return null;
@@ -4934,30 +4962,52 @@ function isSystemRecommendedActionRecord(record = {}) {
 
 function getRecommendedActionMatchKeys(action = {}) {
   const payload = action.payload || {};
+  const identityKeys = getPreciseRecommendedActionIdentityValues(action, payload)
+    .map(normalizeRecommendedActionMatchKey)
+    .filter(Boolean);
+  if (identityKeys.length) return new Set(identityKeys);
+
   return new Set([
+    action.label,
+    action.title,
+  ].map(normalizeRecommendedActionMatchKey).filter(Boolean));
+}
+
+function hasPreciseRecommendedActionIdentity(action = {}) {
+  const payload = action.payload || {};
+  return getPreciseRecommendedActionIdentityValues(action, payload)
+    .map(normalizeRecommendedActionMatchKey)
+    .filter(Boolean)
+    .length > 0;
+}
+
+function getPreciseRecommendedActionIdentityValues(action = {}, payload = {}) {
+  return [
     action.id,
     action.actionId,
     action.actionType,
-    action.label,
-    action.title,
     payload.sourceActionId,
     payload.canonicalActionId,
-    ...(Array.isArray(payload.actionAliases) ? payload.actionAliases : []),
-    ...(Array.isArray(action.actionAliases) ? action.actionAliases : []),
-  ].map(normalizeRecommendedActionMatchKey).filter(Boolean));
+    ...getPreciseStoredRecommendedActionAliases(payload.actionAliases),
+    ...getPreciseStoredRecommendedActionAliases(action.actionAliases),
+  ];
 }
 
 function getStoredRecommendedActionMatchKeys(record = {}) {
   const payload = record.payload || {};
-  return new Set([
+  const identityKeys = [
     record.actionId,
     record.actionType,
-    record.id,
-    record.label,
     payload.sourceActionId,
     payload.canonicalActionId,
     ...getPreciseStoredRecommendedActionAliases(payload.actionAliases),
     ...getPreciseStoredRecommendedActionAliases(record.actionAliases),
+  ].map(normalizeRecommendedActionMatchKey).filter(Boolean);
+  if (identityKeys.length) return new Set(identityKeys);
+
+  return new Set([
+    record.label,
+    record.id,
   ].map(normalizeRecommendedActionMatchKey).filter(Boolean));
 }
 
@@ -4974,6 +5024,8 @@ const BROAD_STORED_RECOMMENDED_ACTION_ALIASES = new Set([
   "product-description-changes",
   "review-product-evidence",
   "product-evidence",
+  "product-faq",
+  "create-product-faq",
   "title-metadata",
   "product-metadata",
   "variant-options",
@@ -5583,21 +5635,23 @@ function isFaqRecommendedAction(action = {}) {
 function getFaqRecommendedActionApplication(action, product = null, options = {}) {
   const payload = action.payload || {};
   const variants = getFaqApplicationVariants(payload);
-  const defaultVariantId = payload.defaultApplyMode || variants[1]?.id || variants[0]?.id || "description-section";
-  const variantId = variants.some((variant) => variant.id === options.variantId) ? options.variantId : defaultVariantId;
+  const defaultVariantId = normalizeFaqApplicationVariantId(payload.defaultApplyMode || variants[1]?.id || variants[0]?.id || "description-section");
+  const requestedVariantId = normalizeFaqApplicationVariantId(options.variantId || "");
+  const variantId = variants.some((variant) => variant.id === requestedVariantId) ? requestedVariantId : defaultVariantId;
   const selectedVariant = variants.find((variant) => variant.id === variantId) || variants[0];
   const currentDescription = getCurrentDescriptionForAction(product, payload);
   const value = formatFaqItemsForDisplay(payload.faqItems, payload.draftText);
-  const isMetafield = variantId === "metafield-json";
+  const isMetafield = variantId === "metafield-html";
+  const metafield = getFaqApplicationMetafield(payload, options);
 
   return withRecipeApplicationFields(action, {
     kind: "shopify_product",
     editable: true,
     target: selectedVariant.target,
     operation: selectedVariant.operation,
-    intro: getFaqApplicationIntro(variantId, payload),
+    intro: getFaqApplicationIntro(variantId, payload, metafield),
     confirmationTitle: isMetafield ? "Confirm FAQ metafield update" : "Confirm product FAQ update",
-    confirmationDetail: getFaqConfirmationDetail(variantId, payload),
+    confirmationDetail: getFaqConfirmationDetail(variantId, payload, metafield),
     applyLabel: selectedVariant.applyLabel,
     valueLabel: isMetafield ? "FAQ questions and answers to save" : "FAQ questions and answers to add",
     value,
@@ -5607,6 +5661,10 @@ function getFaqRecommendedActionApplication(action, product = null, options = {}
     variants,
     variantId,
     defaultVariantId,
+    isMetafield,
+    metafieldNamespace: metafield.namespace,
+    metafieldKey: metafield.key,
+    metafieldType: metafield.type,
     relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
   });
 }
@@ -5617,13 +5675,16 @@ function getFaqApplicationVariants(payload = {}) {
     { id: "description-section", label: "Full FAQ in description", target: "Product description", operation: "Append FAQ section", applyLabel: "Add FAQ section" },
     { id: "description-collapsible", label: "Collapsible FAQ", target: "Product description", operation: "Append collapsible FAQ", applyLabel: "Add collapsible FAQ" },
     { id: "description-modal", label: "Modal-style FAQ", target: "Product description", operation: "Append modal-style FAQ", applyLabel: "Add FAQ modal" },
-    { id: "metafield-json", label: "Product metafield", target: "Product metafield", operation: "Save JSON metafield", applyLabel: "Save FAQ metafield" },
+    { id: "metafield-html", label: "Product metafield", target: "Product metafield", operation: "Save HTML metafield", applyLabel: "Save FAQ metafield" },
   ];
-  const configuredById = new Map(configured.map((item) => [item.id, item]));
+  const configuredById = new Map(configured.map((item) => {
+    const id = normalizeFaqApplicationVariantId(item.id);
+    return [id, { ...item, id }];
+  }));
   return defaults.map((item) => ({ ...item, ...(configuredById.get(item.id) || {}) }));
 }
 
-function getFaqApplicationIntro(variantId, payload = {}) {
+function getFaqApplicationIntro(variantId, payload = {}, metafield = null) {
   const reasons = Array.isArray(payload.faqNeed?.reasons) ? payload.faqNeed.reasons : [];
   const reasonText = reasons.length ? ` ProductPulse is suggesting FAQ coverage because ${reasons[0].toLowerCase()}` : "";
   if (variantId === "description-section") {
@@ -5632,23 +5693,43 @@ function getFaqApplicationIntro(variantId, payload = {}) {
   if (variantId === "description-modal") {
     return `This will append a modal-style FAQ block to the Shopify product description using HTML that can be styled by the theme.${reasonText}`;
   }
-  if (variantId === "metafield-json") {
-    const namespace = payload.metafield?.namespace || "productpulse";
-    const key = payload.metafield?.key || "faq_items";
-    return `This will save the generated FAQ as JSON in the product metafield ${namespace}.${key}. A product template or theme block can render it from that metafield.${reasonText}`;
+  if (variantId === "metafield-html") {
+    const namespace = metafield?.namespace || payload.metafield?.namespace || "productpulse";
+    const key = metafield?.key || payload.metafield?.key || "faq_html";
+    return `This will save the generated FAQ HTML in the product metafield ${namespace}.${key}. If the metafield is not present on the product, Shopify will create it when the value is saved.${reasonText}`;
   }
   return `This will append a compact collapsible FAQ to the Shopify product description so shoppers can open it without making the PDP much longer.${reasonText}`;
 }
 
-function getFaqConfirmationDetail(variantId, payload = {}) {
-  if (variantId === "metafield-json") {
-    const namespace = payload.metafield?.namespace || "productpulse";
-    const key = payload.metafield?.key || "faq_items";
-    return `ProductPulse will write JSON FAQ data to ${namespace}.${key}. Existing product description HTML will not change.`;
+function getFaqConfirmationDetail(variantId, payload = {}, metafield = null) {
+  if (variantId === "metafield-html") {
+    const namespace = metafield?.namespace || payload.metafield?.namespace || "productpulse";
+    const key = metafield?.key || payload.metafield?.key || "faq_html";
+    return `ProductPulse will write FAQ HTML to ${namespace}.${key} as a Shopify long text metafield. Existing product description HTML will not change.`;
   }
   if (variantId === "description-modal") return "ProductPulse will append modal-style FAQ HTML to the current Shopify product description.";
   if (variantId === "description-section") return "ProductPulse will append a visible FAQ section to the current Shopify product description.";
   return "ProductPulse will append a collapsible FAQ HTML block to the current Shopify product description.";
+}
+
+function normalizeFaqApplicationVariantId(value = "") {
+  const normalized = String(value || "").trim();
+  return normalized === "metafield-json" ? "metafield-html" : normalized;
+}
+
+function getFaqApplicationMetafield(payload = {}, options = {}) {
+  const metafield = payload.metafield || {};
+  return {
+    namespace: normalizeFaqMetafieldPart(options.metafieldNamespace ?? payload.metafieldNamespace ?? metafield.namespace ?? "productpulse", "productpulse", true),
+    key: normalizeFaqMetafieldPart(options.metafieldKey ?? payload.metafieldKey ?? metafield.key ?? "faq_html", "faq_html", false),
+    type: "multi_line_text_field",
+  };
+}
+
+function normalizeFaqMetafieldPart(value = "", fallback = "", allowAppNamespace = false) {
+  const raw = String(value || "").trim();
+  if (allowAppNamespace && raw === "$app") return raw;
+  return raw.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || fallback;
 }
 
 function formatFaqItemsForDisplay(faqItems = [], fallback = "") {
@@ -8546,6 +8627,15 @@ function DashboardKpiCard({ kpi }) {
 }
 
 function ProductPulseGlyph({ type }) {
+  if (type === "thumb-up" || type === "thumb-down") {
+    return (
+      <svg className={`ppThumbGlyph ppThumbGlyph-${type === "thumb-down" ? "down" : "up"}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M7.2 10.6v9.1" />
+        <path d="M3.8 10.9h3.4v8.4H3.8z" />
+        <path d="M7.2 11.1l4.1-7.4c.4-.8 1.6-.6 1.8.3l.3 1.7c.2 1-.1 2-.8 2.8l-1 1.1h5.7c1.1 0 1.9 1 1.7 2l-1.1 5.8c-.2 1.4-1.4 2.4-2.8 2.4H7.2" />
+      </svg>
+    );
+  }
   if (type === "binoculars") {
     return (
       <svg className="ppBinocularsIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -9599,12 +9689,13 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
   const textInsights = metrics.textInsights || {};
   const aiContext = getAiEvidenceContextSection(product, "customer-language");
   const sentiment = getCombinedCustomerLanguageSentiment(metrics);
-  const topEmotion = getTopCustomerLanguageEmotion(metrics);
-  const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
-  const emergentEmotion = getTopEvidenceEmotion(textInsights.aiEmergentSentiments);
+  const emotionSummary = getCustomerLanguageEmotionSummary(metrics);
+  const primaryEmotion = emotionSummary.primary;
+  const secondaryEmotion = emotionSummary.secondary;
+  const sentimentVisual = getSentimentVisual(sentiment);
   const themes = getCustomerLanguageThemes(textInsights, source.points, metrics);
   const signalBreakdown = getCustomerLanguageSignalBreakdown(metrics);
-  const signalRows = getCustomerLanguageSignalRows(textInsights, themes, metrics);
+  const signalRows = getCustomerLanguageSignalRows(textInsights, themes, metrics, emotionSummary);
   const recurringThemeCount = Math.max(
     themes.filter((theme) => Number(theme.count || 0) > 0).length,
     Number(textInsights.repeatedLanguage?.length || 0),
@@ -9621,8 +9712,8 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
       <div className="ppEvidenceHeroMetricStrip">
         <EvidenceSourceStatCard icon="note" label="Text signals" value={formatInteger(sentiment.total)} detail="Reviews, return notes and refund notes" tone="blue" />
         <EvidenceSourceStatCard icon="alert-circle" label="Negative language" value={formatInteger(sentiment.negative)} detail={`${formatInteger(sentiment.neutral)} neutral / ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > 0 ? "red" : "teal"} />
-        <EvidenceSourceStatCard icon="target" label="Dominant emotion" value={formatEvidenceEmotionLabelOnly(topEmotion)} detail={topEmotion?.count ? `Detected in ${formatInteger(topEmotion.count)} signals` : "No dominant emotion stored"} tone="violet" />
-        <EvidenceSourceStatCard icon="wand" label="AI emotions" value={formatEvidenceEmotionLabelOnly(topAiEmotion || emergentEmotion)} detail={(topAiEmotion || emergentEmotion)?.count ? `${formatInteger((topAiEmotion || emergentEmotion).count)} AI-labeled signals` : "No AI emotion label stored"} tone="violet" />
+        <EvidenceSourceStatCard icon="target" label="Primary emotion" value={formatEvidenceEmotionLabelOnly(primaryEmotion)} detail={primaryEmotion?.count ? `Detected in ${formatInteger(primaryEmotion.count)} signals` : "No primary emotion stored"} tone={primaryEmotion?.polarity === "negative" ? "red" : primaryEmotion?.polarity === "positive" ? "teal" : "violet"} />
+        <EvidenceSourceStatCard icon="wand" label="Secondary emotion" value={formatEvidenceEmotionLabelOnly(secondaryEmotion)} detail={secondaryEmotion?.count ? `${formatInteger(secondaryEmotion.count)} next-strongest signals` : "Only one emotion cluster stored"} tone={secondaryEmotion?.polarity === "negative" ? "amber" : secondaryEmotion?.polarity === "positive" ? "teal" : "violet"} />
       </div>
 
       <section className="ppEvidenceReportSectionCard">
@@ -9635,8 +9726,8 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
         </div>
 
         <div className="ppCustomerSnapshotGrid">
-          <EvidenceSourceStatCard compact icon="target" label="Top emotion" value={formatEvidenceEmotionLabelOnly(topEmotion)} detail={`Detected in ${formatInteger(topEmotion?.count || 0)} signals`} tone="red" />
-          <EvidenceSourceStatCard compact icon="chart-line" label="Overall sentiment" value={getDominantSentimentLabel(sentiment)} detail={`${formatInteger(sentiment.negative)} negative · ${formatInteger(sentiment.neutral)} neutral · ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > sentiment.positive ? "red" : sentiment.positive > sentiment.negative ? "teal" : "blue"} />
+          <EvidenceSourceStatCard compact icon="wand" label="AI reading" value={getCustomerLanguageAiReadingLabel({ aiContext, themes, primaryEmotion, sentiment })} detail="Plain-language interpretation" tone={primaryEmotion?.polarity === "negative" ? "red" : "violet"} />
+          <EvidenceSourceStatCard compact icon={sentimentVisual.icon} label="Overall sentiment" value={getDominantSentimentLabel(sentiment)} detail={`${formatInteger(sentiment.negative)} negative · ${formatInteger(sentiment.neutral)} neutral · ${formatInteger(sentiment.positive)} positive`} tone={sentimentVisual.tone} />
           <EvidenceSourceStatCard compact icon="note" label="Recurring themes" value={formatInteger(recurringThemeCount)} detail="Themes found" tone="blue" />
           <EvidenceSourceStatCard compact icon="shield-check-mark" label="AI confidence" value={aiConfidence} detail="Signal quality" tone={aiConfidence === "High" ? "teal" : aiConfidence === "Medium" ? "amber" : "blue"} />
         </div>
@@ -9675,7 +9766,14 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
             <tbody>
               {signalRows.map((row) => (
                 <tr key={row.type}>
-                  <td><span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}><s-icon type={row.icon} size="small"></s-icon></span>{row.type}</td>
+                  <td>
+                    <span className="ppEvidenceSignalNameCell">
+                      <span className={`ppEvidenceSignalTypeIcon ppEvidenceMetricCard-${row.tone}`}>
+                        <ProductPulseGlyph type={row.icon} />
+                      </span>
+                      <span>{row.type}</span>
+                    </span>
+                  </td>
                   <td>{row.meaning}</td>
                   <td>{row.count}</td>
                   <td>{row.trend}</td>
@@ -9697,6 +9795,8 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
   const textInsights = metrics.textInsights || {};
   const aiContext = getAiEvidenceContextSection(product, "returns");
   const returnsSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
+  const returnSentimentLabel = getDominantSentimentLabel(returnsSentiment);
+  const returnSentimentTone = getEvidenceSentimentTone(returnsSentiment);
   const topReasons = getReturnReasonRows(metrics);
   const topReason = topReasons[0] || { label: "No reason stored", count: 0, share: 0 };
   const repeatedLanguage = getReturnRepeatedLanguage(textInsights);
@@ -9711,7 +9811,7 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
         <EvidenceSourceStatCard icon="return" label="Total returns" value={formatInteger(metrics.returnUnits || 0)} detail={`${formatPercent(metrics.returnRate || 0)} return rate`} tone="blue" />
         <EvidenceSourceStatCard icon="chart-line" label="Return rate" value={formatPercent(metrics.returnRate || 0)} detail={`${formatInteger(metrics.soldUnits || 0)} sold units in scan window`} tone={Number(metrics.returnRate || 0) >= 20 ? "teal" : "blue"} />
         <EvidenceSourceStatCard icon="clock" label="Returned within" value={`${formatInteger(metrics.returnUnits || 0)} units`} detail={`${formatInteger(metrics.windowDays || 60)} day evidence window`} tone="blue" trend={metrics.signalTrend} />
-        <EvidenceSourceStatCard icon="target" label="Top reason" value={topReason.label} detail="Most frequent" tone="violet" />
+        <EvidenceSourceStatCard icon="target" label="Top reason" value={topReason.label} detail={topReason.detail || "Most frequent"} tone="violet" />
       </div>
 
       <div className="ppReturnsEvidenceGrid">
@@ -9731,11 +9831,11 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
 
       <div className="ppReturnsDetailMetricGrid">
         <EvidenceSourceStatCard icon="calendar" label="Last signal captured" value={metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product)} detail={`${formatInteger(metrics.signalCount || source.points.length)} total signals`} tone="blue" />
-        <EvidenceSourceStatCard icon="return" label="Return notes sentiment" value={formatInteger(returnsSentiment.negative)} detail={`${formatInteger(returnsSentiment.negative)} negative · ${formatInteger(returnsSentiment.neutral)} neutral · ${formatInteger(returnsSentiment.positive)} positive`} tone={returnsSentiment.negative ? "red" : "blue"} />
+        <EvidenceSourceStatCard icon="return" label="Return notes sentiment" value={returnSentimentLabel} detail={`${formatInteger(returnsSentiment.negative)} negative · ${formatInteger(returnsSentiment.neutral)} neutral · ${formatInteger(returnsSentiment.positive)} positive`} tone={returnSentimentTone} />
         <EvidenceSourceStatCard icon="note" label="Repeated language" value={formatInteger(repeatedLanguage.length)} detail={repeatedLanguage[0] ? `${quoteSourceText(repeatedLanguage[0].term)} (${formatInteger(repeatedLanguage[0].count)})` : "No repeated return language"} tone={repeatedLanguage.length ? "red" : "blue"} />
         <EvidenceSourceStatCard icon="lightbulb" label="Return insights" value={formatInteger(getReturnInsightCount(textInsights, source))} detail="Insight groups" tone="blue" />
         <EvidenceSourceStatCard icon="product" label="Vendor" value={metrics.vendor || "Not stored"} detail={metrics.vendor || "Vendor not captured"} tone="blue" />
-        <EvidenceSourceStatCard icon="tag" label="Product type" value={metrics.productType || "Not stored"} detail={metrics.productType || "Product type not captured"} tone="blue" />
+        <EvidenceSourceStatCard icon="product" label="Product type" value={metrics.productType || "Not stored"} detail={metrics.productType || "Product type not captured"} tone="blue" />
         <EvidenceSourceStatCard icon="note" label="Description words" value={formatInteger(metrics.descriptionWordCount || 0)} detail="In product description" tone="blue" />
         <EvidenceSourceStatCard icon="shield-check-mark" label="Content quality" value={metrics.contentQualityScore ? `${metrics.contentQualityScore} / 100` : "Not scored"} detail="Content quality score" tone="blue" />
       </div>
@@ -9793,8 +9893,8 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
         <EvidenceSourceStatCard icon="star" label="Total reviews" value={formatInteger(reviewStats.reviewCount)} detail={`${formatInteger(reviewStats.negativeCount)} negative reviews`} tone="blue" />
         <EvidenceSourceStatCard icon="star" label="Average rating" value={reviewStats.averageRatingLabel} detail="Product-level rating" tone="teal" />
-        <EvidenceSourceStatCard icon="alert-circle" label="Negative reviews" value={formatInteger(reviewStats.negativeCount)} detail={`${reviewStats.negativeRateLabel} negative rate`} tone={reviewStats.negativeCount ? "red" : "teal"} />
-        <EvidenceSourceStatCard icon="clock" label="Recent negatives" value={formatInteger(reviewStats.recentNegativeCount)} detail="Recent negative signals" tone="violet" />
+        <EvidenceSourceStatCard icon="thumb-down" label="Negative reviews" value={formatInteger(reviewStats.negativeCount)} detail={`${reviewStats.negativeRateLabel} negative rate`} tone={reviewStats.negativeCount ? "red" : "teal"} />
+        <EvidenceSourceStatCard icon="clock" label="Recent negatives" value={formatInteger(reviewStats.recentNegativeCount)} detail={reviewStats.recentNegativeWindowLabel} tone={reviewStats.recentNegativeCount ? "red" : "blue"} />
       </div>
 
       <div className="ppEvidenceThreeColumnGrid">
@@ -10705,7 +10805,7 @@ function EvidenceSourceReportHeader({ source, title, summary, eyebrow = "" }) {
     <div className="ppEvidenceActiveHeader ppEvidenceReportActiveHeader">
       <div className="ppEvidenceActiveTitle">
         <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${source.tone}`}>
-          <s-icon type={source.icon} size="small"></s-icon>
+          <ProductPulseGlyph type={source.icon} />
         </span>
         <div>
           {eyebrow && <span>{eyebrow}</span>}
@@ -10722,7 +10822,7 @@ function EvidenceSourceStatCard({ icon = "info", label, value, detail, tone = "b
   return (
     <article className={`ppEvidenceSourceStatCard ppEvidenceMetricCard-${tone}${compact ? " ppEvidenceSourceStatCard-compact" : ""}`}>
       <span className="ppEvidenceMetricIcon" aria-hidden="true">
-        <s-icon type={icon} size="small"></s-icon>
+        <ProductPulseGlyph type={icon} />
       </span>
       <div>
         <span>{label}</span>
@@ -10744,7 +10844,8 @@ function getReviewEvidenceStats(source = {}, product = {}) {
   const averageRating = Number(sourceStats.avgRating || sourceStats.averageRating || 0);
   const negativeCount = Number(sourceStats.negativeReviewCount || 0);
   const negativeRate = Number(sourceStats.negativeReviewRate || (reviewCount ? (negativeCount / reviewCount) * 100 : 0));
-  const recentNegativeCount = Number(sourceStats.recentNegativeReviewCount || negativeCount || 0);
+  const recentNegativeWindowDays = Number(sourceStats.recentNegativeReviewWindowDays || metrics.recentNegativeReviewWindowDays || 30);
+  const recentNegativeCount = Number(sourceStats.recentNegativeReviewCount || 0);
   const storedSentiment = normalizeEvidenceSentiment(sourceSummary?.sentiment || (!isSpecificReviewSource(sourceTitle) ? textInsights.reviews?.sentiment : null));
   const sentiment = storedSentiment.total
     ? storedSentiment
@@ -10763,6 +10864,8 @@ function getReviewEvidenceStats(source = {}, product = {}) {
     negativeRate,
     negativeRateLabel: formatPercent(negativeRate),
     recentNegativeCount,
+    recentNegativeWindowDays,
+    recentNegativeWindowLabel: `Last ${formatInteger(recentNegativeWindowDays)} days`,
     totalAnalyzed: Math.max(reviewCount, sentiment.total),
     sentiment,
     sentimentRows: getSentimentDonutRows(sentiment),
@@ -10967,7 +11070,7 @@ function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}, 
   const sourceExamples = getEvidenceList(sourceSummary?.examples).length
     ? getEvidenceList(sourceSummary.examples)
     : getEvidenceList(textInsights.reviews?.examples).filter((example) => !specificSource || reviewExampleMatchesSource(example, sourceKey));
-  const examples = sourceExamples
+  const examples = dedupeReviewExampleRows(sourceExamples
     .map((example) => ({
       title: example.title || example.summary || truncateText(example.text || example.body || "Review example", 56),
       text: example.text || example.body || example.note || "Review text was captured but no excerpt is stored.",
@@ -10978,11 +11081,11 @@ function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}, 
         example.sentiment ? startCase(example.sentiment) : "",
       ].filter(Boolean),
     }))
-    .filter((example) => !looksLikePositiveRecoveryReviewText(`${example.title} ${example.text}`, example.rating));
+    .filter((example) => !looksLikePositiveRecoveryReviewText(`${example.title} ${example.text}`, example.rating)));
   if (examples.length) return examples;
   if (Number(reviewStats.negativeCount || 0) <= 0) return [];
 
-  return points
+  return dedupeReviewExampleRows(points
     .map((point) => parseEvidencePoint(point))
     .filter((point) => /review|rating|negative|star/i.test(`${point.label} ${point.body}`))
     .slice(0, 4)
@@ -10992,7 +11095,29 @@ function getReviewExampleRows(textInsights = {}, points = [], reviewStats = {}, 
       rating: /negative|low|bad|poor/i.test(point.body || point.label || "") ? 1 : 3,
       date: "",
       tags: [/negative|bad|poor/i.test(point.body || "") ? "Negative" : "Evidence"].filter(Boolean),
-    }));
+    })));
+}
+
+function dedupeReviewExampleRows(examples = []) {
+  const seen = new Set();
+  return (Array.isArray(examples) ? examples : []).filter((example) => {
+    const textKey = normalizeReviewExampleFingerprint(example.text || example.body || example.note || "");
+    const titleKey = normalizeReviewExampleFingerprint(example.title || example.summary || "");
+    const key = textKey.length >= 18 ? textKey : `${titleKey}|${textKey}|${Number(example.rating || 0)}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeReviewExampleFingerprint(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/<[^>]*>/g, " ")
+    .replace(/[\u2018\u2019\u201C\u201D"']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function reviewExampleMatchesSource(example = {}, sourceKey = "") {
@@ -11262,6 +11387,43 @@ function getTopCustomerLanguageEmotion(metrics = {}) {
   return getTopEvidenceEmotion(uniqueByEvidenceLabel(candidates));
 }
 
+function getCustomerLanguageEmotionSummary(metrics = {}) {
+  const textInsights = metrics.textInsights || {};
+  const grouped = new Map();
+  const addEmotion = (item, source) => {
+    const label = item?.label || item?.normalizedLabel || item?.code || "";
+    const cleanLabel = String(label || "").replace(/_/g, " ").replace(/\s+/g, " ").trim();
+    if (!cleanLabel || /^none stored$/i.test(cleanLabel)) return;
+    const key = cleanLabel.toLowerCase();
+    const count = Math.max(1, Number(item.count || item.signals || 0));
+    const existing = grouped.get(key);
+    grouped.set(key, {
+      label: cleanLabel.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      count: Math.max(Number(existing?.count || 0), count),
+      polarity: item.polarity || existing?.polarity || getEvidenceEmotionPolarity(item),
+      sources: [...new Set([...(existing?.sources || []), source].filter(Boolean))],
+    });
+  };
+
+  getEvidenceList(textInsights.aiKnownEmotions).forEach((item) => addEmotion(item, "AI taxonomy"));
+  getEvidenceList(textInsights.aiEmergentSentiments).forEach((item) => addEmotion(item, "Emergent"));
+  getEvidenceList(textInsights.emotions).forEach((item) => addEmotion(item, "Language"));
+  getEvidenceList(textInsights.reviews?.emotions).forEach((item) => addEmotion(item, "Reviews"));
+  getEvidenceList(textInsights.returns?.emotions).forEach((item) => addEmotion(item, "Returns"));
+
+  const emotions = [...grouped.values()].sort((first, second) => {
+    if (second.count !== first.count) return second.count - first.count;
+    if ((second.sources?.length || 0) !== (first.sources?.length || 0)) return (second.sources?.length || 0) - (first.sources?.length || 0);
+    return first.label.localeCompare(second.label);
+  });
+
+  return {
+    emotions,
+    primary: emotions[0] || null,
+    secondary: emotions[1] || null,
+  };
+}
+
 function formatEvidenceEmotionLabelOnly(item) {
   return item?.label || "None stored";
 }
@@ -11271,6 +11433,25 @@ function getDominantSentimentLabel(sentiment = {}) {
   if (sentiment.negative >= sentiment.neutral && sentiment.negative >= sentiment.positive && sentiment.negative > 0) return "Negative";
   if (sentiment.positive >= sentiment.neutral && sentiment.positive > 0) return "Positive";
   return "Neutral";
+}
+
+function getSentimentVisual(sentiment = {}) {
+  const label = getDominantSentimentLabel(sentiment);
+  if (label === "Positive") return { icon: "thumb-up", tone: "teal" };
+  if (label === "Negative") return { icon: "thumb-down", tone: "red" };
+  if (label === "Neutral") return { icon: "info", tone: "violet" };
+  return { icon: "info", tone: "blue" };
+}
+
+function getCustomerLanguageAiReadingLabel({ themes = [], primaryEmotion = null, sentiment = {} }) {
+  const sentimentLabel = getDominantSentimentLabel(sentiment);
+  const topTheme = themes.find((theme) => Number(theme.count || 0) > 0 && !/^no recurring theme/i.test(theme.label));
+  if (sentimentLabel === "Positive" && Number(sentiment.negative || 0) > 0) return "Positive with friction";
+  if (sentimentLabel === "Negative" && primaryEmotion?.label) return `${primaryEmotion.label} concern`;
+  if (sentimentLabel === "Positive" && topTheme?.label) return `${topTheme.label} praise`;
+  if (primaryEmotion?.label && topTheme?.label) return `${primaryEmotion.label} around ${topTheme.label}`;
+  if (topTheme?.label) return `${topTheme.label} pattern`;
+  return sentimentLabel === "None stored" ? "No reading stored" : `${sentimentLabel} language`;
 }
 
 function getCustomerLanguageAiConfidenceLabel({ textInsights = {}, sentiment = {}, source = {} }) {
@@ -11299,9 +11480,6 @@ function getCustomerLanguageThemes(textInsights = {}, points = [], metrics = {})
   getEvidenceList(textInsights.returns?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
   getEvidenceList(textInsights.reviews?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
   getEvidenceList(metrics.refundInsights?.repeatedLanguage).forEach((item) => addTheme(item.term || item.label, item.count));
-  getEvidenceList(textInsights.emotions).forEach((item) => addTheme(item.label || item.code, item.count));
-  getEvidenceList(textInsights.aiKnownEmotions).forEach((item) => addTheme(item.label || item.code, item.count || item.signals));
-  getEvidenceList(textInsights.aiEmergentSentiments).forEach((item) => addTheme(item.label || item.normalizedLabel, item.count || item.signals));
 
   points.forEach((point) => {
     const parsed = parseEvidencePoint(point);
@@ -11360,69 +11538,76 @@ function getCustomerLanguageSignalBreakdown(metrics = {}) {
   };
 }
 
-function getCustomerLanguageSignalRows(textInsights = {}, themes = [], metrics = {}) {
+function getCustomerLanguageSignalRows(textInsights = {}, themes = [], metrics = {}, emotionSummary = null) {
   const returnsSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
   const reviewsSentiment = normalizeEvidenceSentiment(textInsights.reviews?.sentiment);
   const refundSentiment = normalizeEvidenceSentiment(metrics.refundInsights?.sentiment);
-  const emergent = getTopEvidenceEmotion(textInsights.aiEmergentSentiments);
-  const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
+  const primaryEmotion = emotionSummary?.primary || getCustomerLanguageEmotionSummary(metrics).primary;
+  const secondaryEmotion = emotionSummary?.secondary || null;
   const subjective = textInsights.subjectiveNegativity || {};
   const insightCount = themes.filter((theme) => Number(theme.count || 0) > 0).length;
+  const topTheme = themes.find((theme) => Number(theme.count || 0) > 0 && !/^no recurring theme/i.test(theme.label));
+  const formatSentimentCount = (item) => item.total
+    ? `${formatInteger(item.negative)} negative / ${formatInteger(item.positive)} positive`
+    : "No stored text";
+  const formatSentimentDetail = (item, sourceLabel) => item.total
+    ? `${formatInteger(item.total)} ${sourceLabel}; ${formatInteger(item.neutral)} neutral`
+    : `No ${sourceLabel} stored`;
 
   return [
     {
-      type: "Emergent emotion",
-      meaning: "New sentiment clusters",
-      count: emergent ? formatEvidenceEmotionLabelOnly(emergent) : "None stored",
-      trend: emergent ? `${formatInteger(emergent.count)} signals` : "No emergent cluster stored",
-      icon: "alert-circle",
-      tone: emergent?.polarity === "negative" ? "red" : "violet",
+      type: "Primary emotion",
+      meaning: "Strongest customer emotion cluster",
+      count: formatEvidenceEmotionLabelOnly(primaryEmotion),
+      trend: primaryEmotion?.count ? `${formatInteger(primaryEmotion.count)} signals · ${(primaryEmotion.sources || []).join(", ") || "stored language"}` : "No primary emotion stored",
+      icon: "target",
+      tone: primaryEmotion?.polarity === "negative" ? "red" : primaryEmotion?.polarity === "positive" ? "teal" : "violet",
     },
     {
-      type: "AI emotion taxonomy",
-      meaning: "AI-labeled emotion pattern",
-      count: topAiEmotion ? formatEvidenceEmotionLabelOnly(topAiEmotion) : "None stored",
-      trend: topAiEmotion ? `${formatInteger(topAiEmotion.count)} labeled signals` : "No AI emotion label stored",
+      type: "Secondary emotion",
+      meaning: "Next strongest emotion signal",
+      count: formatEvidenceEmotionLabelOnly(secondaryEmotion),
+      trend: secondaryEmotion?.count ? `${formatInteger(secondaryEmotion.count)} signals · ${(secondaryEmotion.sources || []).join(", ") || "stored language"}` : "Only one emotion cluster stored",
       icon: "wand",
-      tone: topAiEmotion?.polarity === "negative" ? "red" : "violet",
+      tone: secondaryEmotion?.polarity === "negative" ? "amber" : secondaryEmotion?.polarity === "positive" ? "teal" : "violet",
     },
     {
       type: "Subjective reactions",
-      meaning: "Direct customer reactions",
+      meaning: "Customer wording that describes expectation or perception",
       count: formatInteger(subjective.count || 0),
       trend: subjective.total ? `${formatInteger(subjective.total)} text signals` : "No subjective signal stored",
       icon: "return",
       tone: "blue",
     },
     {
-      type: "Customer insight",
-      meaning: "Product-related insights",
+      type: "Customer themes",
+      meaning: "Repeated phrases after removing generic emotion labels",
       count: formatInteger(insightCount),
-      trend: insightCount ? `Top: ${themes[0]?.label || "stored themes"}` : "No recurring theme stored",
+      trend: topTheme ? `Top theme: ${topTheme.label} (${formatInteger(topTheme.count)})` : "No recurring theme stored",
       icon: "lightbulb",
       tone: "violet",
     },
     {
       type: "Returns sentiment",
       meaning: "Sentiment in return notes",
-      count: returnsSentiment.total ? `${formatInteger(returnsSentiment.negative)} negative` : "0",
-      trend: returnsSentiment.total ? `${formatInteger(returnsSentiment.total)} return-note signals` : "No return notes stored",
+      count: formatSentimentCount(returnsSentiment),
+      trend: formatSentimentDetail(returnsSentiment, "return-note signals"),
       icon: "return",
       tone: returnsSentiment.negative ? "red" : "blue",
     },
     {
       type: "Refund-note sentiment",
       meaning: "Sentiment in refund and restock notes",
-      count: refundSentiment.total ? `${formatInteger(refundSentiment.negative)} negative` : "0",
-      trend: refundSentiment.total ? `${formatInteger(refundSentiment.total)} refund-note signals` : "No refund notes stored",
+      count: formatSentimentCount(refundSentiment),
+      trend: formatSentimentDetail(refundSentiment, "refund-note signals"),
       icon: "cash-dollar",
       tone: refundSentiment.negative ? "red" : "blue",
     },
     {
       type: "Reviews sentiment",
       meaning: "Sentiment in reviews",
-      count: reviewsSentiment.total ? `${formatInteger(reviewsSentiment.negative)} negative` : "0",
-      trend: reviewsSentiment.total ? `${formatInteger(reviewsSentiment.total)} review text signals` : "No review text stored",
+      count: formatSentimentCount(reviewsSentiment),
+      trend: formatSentimentDetail(reviewsSentiment, "review text signals"),
       icon: "star",
       tone: reviewsSentiment.negative ? "amber" : "blue",
     },
@@ -11479,22 +11664,137 @@ function EvidenceSignalDonut({ total = 0, rows = [] }) {
 
 function getReturnReasonRows(metrics = {}) {
   const total = Math.max(Number(metrics.returnUnits || 0), 0);
-  const rows = getEvidenceReasonItems(metrics.topReturnReasonDetails || metrics.topReturnReasons)
+  const rawRows = getEvidenceReasonItems(metrics.topReturnReasonDetails || metrics.topReturnReasons)
     .map((item) => {
       const countMatch = String(item.detail || "").match(/\d+/);
       const count = Number(item.count || countMatch?.[0] || 0);
       const share = Number(item.share || item.percent || item.percentage || (total && count ? (count / total) * 100 : 0));
       return {
         ...item,
+        key: getReturnReasonKey(item.key || item.category || item.label),
+        label: formatReturnReasonDisplayLabel(item.label),
+        category: item.category ? formatReturnReasonDisplayLabel(item.category) : "",
         count,
         share,
       };
     });
-  const usedLabels = new Set(rows.map((row) => String(row.label).toLowerCase()));
-  ["Other reason", "Color", "Not as described", "Quality issue", "Wrong item"].forEach((label) => {
-    if (!usedLabels.has(label.toLowerCase())) rows.push({ label, count: 0, share: 0, detail: "0 signals" });
+
+  const rowsByKey = new Map();
+  const genericOtherRows = [];
+  const specificOtherRows = [];
+  const genericOtherCount = rawRows
+    .filter((row) => getReturnReasonKey(row.key || row.category || row.label) === "other")
+    .reduce((max, row) => Math.max(max, Number(row.count || 0)), 0);
+
+  rawRows.forEach((row) => {
+    const key = getReturnReasonKey(row.key || row.label);
+    const categoryKey = getReturnReasonKey(row.category);
+    const isOther = key === "other" || categoryKey === "other" || isOtherReasonLabel(row.label);
+    const isSpecificOther = isOther && /:\s*\S/.test(row.label);
+
+    if (isOther && !isSpecificOther) {
+      genericOtherRows.push({ ...row, key: "other", label: "Other", category: "Other" });
+      return;
+    }
+
+    if (isSpecificOther) {
+      specificOtherRows.push({ ...row, key: "other", category: "Other" });
+      return;
+    }
+
+    if (genericOtherCount > 0 && Number(row.count || 0) === genericOtherCount && isLikelyReturnNoteReason(row.label)) {
+      specificOtherRows.push({ ...row, key: "other", category: "Other", label: `Other: ${row.label}` });
+      return;
+    }
+
+    const existing = rowsByKey.get(key);
+    if (!existing) {
+      rowsByKey.set(key, { ...row, key });
+      return;
+    }
+    existing.count += row.count;
+    existing.share = Math.max(existing.share, row.share);
+  });
+
+  if (specificOtherRows.length) {
+    specificOtherRows.forEach((row) => rowsByKey.set(`other:${row.label.toLowerCase()}`, row));
+  } else if (genericOtherRows.length) {
+    const mergedOther = genericOtherRows.reduce((acc, row) => ({
+      ...acc,
+      count: acc.count + row.count,
+      share: Math.max(acc.share, row.share),
+    }), { ...genericOtherRows[0], count: 0, share: 0 });
+    rowsByKey.set("other", mergedOther);
+  }
+
+  const rows = [...rowsByKey.values()]
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label));
+
+  const usedKeys = new Set(rows.map((row) => getReturnReasonKey(row.key || row.label)));
+  [
+    { key: "other", label: "Other" },
+    { key: "color", label: "Color" },
+    { key: "not_as_described", label: "Not as described" },
+    { key: "quality_issue", label: "Quality issue" },
+    { key: "wrong_item", label: "Wrong item" },
+  ].forEach(({ key, label }) => {
+    if (!usedKeys.has(key)) rows.push({ key, label, count: 0, share: 0, detail: "0 signals" });
   });
   return rows.slice(0, 5);
+}
+
+function getReturnReasonKey(value = "") {
+  const normalized = String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-zA-Z0-9:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "other" || normalized === "other reason" || normalized === "other reasons") return "other";
+  if (normalized === "not as described") return "not_as_described";
+  if (normalized === "quality issue" || normalized === "quality") return "quality_issue";
+  if (normalized === "wrong item" || normalized === "wrong product") return "wrong_item";
+  if (normalized === "colour") return "color";
+  return normalized;
+}
+
+function isOtherReasonLabel(value = "") {
+  return getReturnReasonKey(value) === "other";
+}
+
+function formatReturnReasonDisplayLabel(value = "") {
+  const text = String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  const [category, ...rest] = text.split(":");
+  if (rest.length && isOtherReasonLabel(category)) {
+    return `Other: ${formatReturnReasonDisplayLabel(rest.join(":"))}`;
+  }
+  const key = getReturnReasonKey(text);
+  if (key === "other") return "Other";
+  if (key === "not_as_described") return "Not as described";
+  if (key === "quality_issue") return "Quality issue";
+  if (key === "wrong_item") return "Wrong item";
+  if (key === "color") return "Color";
+  if (isLikelyReturnNoteReason(text)) return text.charAt(0).toUpperCase() + text.slice(1);
+  return text.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+function isLikelyReturnNoteReason(value = "") {
+  const text = String(value || "").trim();
+  if (text.length < 18) return false;
+  return /[.;:,]/.test(text) || /\b(expected|looks?|arrived|because|too|not|missing|different|broken|damaged|poses?|surface|quality)\b/i.test(text);
+}
+
+function getEvidenceSentimentTone(sentiment = {}) {
+  const label = getDominantSentimentLabel(sentiment);
+  if (label === "Negative") return "red";
+  if (label === "Positive") return "teal";
+  if (label === "Neutral") return "violet";
+  return "blue";
 }
 
 function EvidenceReasonBarList({ rows = [], total = 0 }) {
@@ -11505,7 +11805,7 @@ function EvidenceReasonBarList({ rows = [], total = 0 }) {
         const count = Number(row.count || 0);
         const share = Number(row.share || (total && count ? (count / total) * 100 : 0));
         return (
-          <div key={row.label}>
+          <div key={row.key || row.label}>
             <span><strong>{row.label}</strong><em>{formatInteger(count)} ({formatPercent(share)})</em></span>
             <div aria-hidden="true"><span style={{ width: `${Math.max(count ? 6 : 1, Math.round((count / max) * 100))}%` }}></span></div>
           </div>
@@ -12515,13 +12815,13 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Last imported", metrics.csvImportedAt ? formatProductAnalysisDate(metrics.csvImportedAt) : "Stored import", "Normalized file is stored by shop", "calendar", "blue");
   } else if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) {
     const combinedSentiment = getCombinedCustomerLanguageSentiment(metrics);
-    const topCustomerEmotion = getTopCustomerLanguageEmotion(metrics);
-    const topAiEmotion = getTopEvidenceEmotion(textInsights.aiKnownEmotions);
+    const emotionSummary = getCustomerLanguageEmotionSummary(metrics);
+    const sentimentVisual = getSentimentVisual(combinedSentiment);
     add("Text signals", formatInteger(combinedSentiment.total), "Reviews, return notes and refund notes analyzed together", "note", "blue");
     add("Negative language", formatInteger(combinedSentiment.negative), `${formatInteger(combinedSentiment.neutral)} neutral / ${formatInteger(combinedSentiment.positive)} positive`, "alert-circle", Number(combinedSentiment.negative || 0) > 0 ? "red" : "teal");
-    add("Dominant emotion", formatEvidenceEmotionLabelOnly(topCustomerEmotion), topCustomerEmotion?.count ? `${formatInteger(topCustomerEmotion.count)} labeled signals` : "No dominant emotion stored", "lightbulb", "violet");
-    add("AI emotions", formatEvidenceEmotionLabelOnly(topAiEmotion), topAiEmotion?.count ? `${formatInteger(topAiEmotion.count)} AI-labeled signals` : "No AI emotion label stored", "wand", "violet");
-    add("Emergent emotion", formatEvidenceEmotionLabelOnly(getTopEvidenceEmotion(textInsights.aiEmergentSentiments)), "New sentiment clusters suggested by AI", "target", "violet");
+    add("Primary emotion", formatEvidenceEmotionLabelOnly(emotionSummary.primary), emotionSummary.primary?.count ? `${formatInteger(emotionSummary.primary.count)} labeled signals` : "No primary emotion stored", "lightbulb", emotionSummary.primary?.polarity === "negative" ? "red" : "violet");
+    add("Secondary emotion", formatEvidenceEmotionLabelOnly(emotionSummary.secondary), emotionSummary.secondary?.count ? `${formatInteger(emotionSummary.secondary.count)} next-strongest signals` : "Only one emotion cluster stored", "wand", emotionSummary.secondary?.polarity === "negative" ? "amber" : "violet");
+    add("Overall sentiment", getDominantSentimentLabel(combinedSentiment), `${formatInteger(combinedSentiment.negative)} negative / ${formatInteger(combinedSentiment.positive)} positive`, sentimentVisual.icon, sentimentVisual.tone);
     add("Subjective reactions", formatInteger(textInsights.subjectiveNegativity?.count), `${formatInteger(textInsights.subjectiveNegativity?.total)} customer text signals`, "view", "amber");
   } else if (normalized.includes("order") || normalized.includes("sales")) {
     const activity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
@@ -12701,8 +13001,9 @@ function getEvidenceReasonItems(value) {
     const count = Number(item.count || item.quantity || item.units || 0);
     const share = Number(item.share || item.percent || item.percentage || 0);
     return {
+      ...item,
       label,
-      detail: count ? `${formatInteger(count)} signal${count === 1 ? "" : "s"}` : "Stored reason",
+      detail: item.detail || (count ? `${formatInteger(count)} signal${count === 1 ? "" : "s"}` : "Stored reason"),
       badge: share ? formatPercent(share) : "",
       count,
       share,
@@ -13361,6 +13662,8 @@ function RecommendedActionReviewBody({
   onEditedTextChange,
   onEditText,
   onSelectedVariantChange,
+  onMetafieldNamespaceChange,
+  onMetafieldKeyChange,
 }) {
   const detailText = String(application.editable ? editedText : application.value || action.detail || "");
 
@@ -13420,6 +13723,13 @@ function RecommendedActionReviewBody({
             </div>
           </div>
         )}
+        {application.isMetafield && (
+          <RecommendedActionMetafieldConfig
+            application={application}
+            onNamespaceChange={onMetafieldNamespaceChange}
+            onKeyChange={onMetafieldKeyChange}
+          />
+        )}
       </RecommendedActionReviewSection>
 
       {!application.hidePreview && (
@@ -13437,6 +13747,36 @@ function RecommendedActionReviewBody({
       </RecommendedActionReviewSection>
 
       <RecommendedActionAdvancedDetails action={action} application={application} />
+    </div>
+  );
+}
+
+function RecommendedActionMetafieldConfig({ application, onNamespaceChange, onKeyChange }) {
+  return (
+    <div className="ppFaqMetafieldFields">
+      <div className="ppFaqMetafieldFieldsGrid">
+        <label>
+          <span>Namespace</span>
+          <input
+            aria-label="FAQ metafield namespace"
+            type="text"
+            value={application.metafieldNamespace || ""}
+            onChange={(event) => onNamespaceChange?.(event.target.value)}
+            placeholder="productpulse"
+          />
+        </label>
+        <label>
+          <span>Key</span>
+          <input
+            aria-label="FAQ metafield key"
+            type="text"
+            value={application.metafieldKey || ""}
+            onChange={(event) => onKeyChange?.(event.target.value)}
+            placeholder="faq_html"
+          />
+        </label>
+      </div>
+      <p>ProductPulse will save this FAQ as HTML in a Shopify long text metafield. Shopify creates the product metafield when it does not already exist.</p>
     </div>
   );
 }
@@ -14219,6 +14559,8 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onRestoreDismiss, onMarkReviewed, onAddInvestigationTag, onCollapse, showHeader = true, actionKind: forcedActionKind = "" }) {
   const baseApplication = getRecommendedActionApplication(action, product);
   const [selectedVariantId, setSelectedVariantId] = useState(baseApplication.defaultVariantId || baseApplication.variantId || "");
+  const [metafieldNamespace, setMetafieldNamespace] = useState(baseApplication.metafieldNamespace || "");
+  const [metafieldKey, setMetafieldKey] = useState(baseApplication.metafieldKey || "");
   const defaultDescriptionChangeIds = getDefaultDescriptionChangeIds(baseApplication);
   const defaultDescriptionChangeKey = defaultDescriptionChangeIds.join("|");
   const [selectedDescriptionChangeIds, setSelectedDescriptionChangeIds] = useState(defaultDescriptionChangeIds);
@@ -14226,6 +14568,8 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const application = getRecommendedActionApplication(action, product, {
     variantId: selectedVariantId || baseApplication.defaultVariantId,
     selectedChangeIds: selectedDescriptionChangeIds,
+    metafieldNamespace,
+    metafieldKey,
   });
   const actionStateKey = action.id || action.title || "";
   const productStateKey = product?.slug || product?.id || "";
@@ -14262,7 +14606,8 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
   const placeholderApplication = isEditingInline ? { ...effectiveApplication, descriptionChanges: [] } : effectiveApplication;
   const unresolvedPlaceholders = getActionApplicationPlaceholders(placeholderApplication, detailText);
-  const disabled = pending || applied || !hasSelectedDescriptionChanges || (actionKind === "applyable" && unresolvedPlaceholders.length > 0);
+  const metafieldMissing = effectiveApplication.isMetafield && (!String(effectiveApplication.metafieldNamespace || "").trim() || !String(effectiveApplication.metafieldKey || "").trim());
+  const disabled = pending || applied || !hasSelectedDescriptionChanges || metafieldMissing || (actionKind === "applyable" && unresolvedPlaceholders.length > 0);
   const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
     actionId,
     application: effectiveApplication,
@@ -14277,11 +14622,13 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
 
   useEffect(() => {
     setSelectedVariantId(baseApplication.defaultVariantId || baseApplication.variantId || "");
+    setMetafieldNamespace(baseApplication.metafieldNamespace || "");
+    setMetafieldKey(baseApplication.metafieldKey || "");
     setSelectedDescriptionChangeIds(defaultDescriptionChangeKey ? defaultDescriptionChangeKey.split("|") : []);
     setExpandedDescriptionChangeIds({});
     setIsEditingInline(false);
     setDetailExpanded(false);
-  }, [actionStateKey, productStateKey, baseApplication.defaultVariantId, baseApplication.variantId, defaultDescriptionChangeKey]);
+  }, [actionStateKey, productStateKey, baseApplication.defaultVariantId, baseApplication.variantId, baseApplication.metafieldNamespace, baseApplication.metafieldKey, defaultDescriptionChangeKey]);
 
   useEffect(() => {
     setEditedText(application.value || action.detail || "");
@@ -14304,6 +14651,8 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       onDescriptionChangeSelectedChange={(changeId, selected) => setSelectedDescriptionChangeIds((current) => updateSelectedDescriptionChangeIds(current, changeId, selected, baseApplication))}
       onEditedTextChange={setEditedText}
       onEditText={() => setIsEditingInline(true)}
+      onMetafieldNamespaceChange={setMetafieldNamespace}
+      onMetafieldKeyChange={setMetafieldKey}
       onSelectedVariantChange={setSelectedVariantId}
     />
   );

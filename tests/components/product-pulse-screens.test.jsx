@@ -412,6 +412,8 @@ describe("ProductPulse screens", () => {
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
     expect(screen.getByText("Denim Tote")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Added to Candidates.*still run diagnostics/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Run diagnostics" })[0]).not.toBeDisabled();
   });
 
   it("renders settings controls for thresholds and queue limits", () => {
@@ -994,9 +996,12 @@ describe("ProductPulse screens", () => {
 
     fireEvent.click(within(faqDialog).getByRole("button", { name: /Product metafield/ }));
     await waitFor(() => expect(within(faqDialog).getByRole("button", { name: /Product metafield/ })).toHaveClass("isSelected"));
+    expect(within(faqDialog).getByLabelText("FAQ metafield namespace")).toHaveValue("productpulse");
+    expect(within(faqDialog).getByLabelText("FAQ metafield key")).toHaveValue("faq_html");
+    fireEvent.change(within(faqDialog).getByLabelText("FAQ metafield key"), { target: { value: "buyer_faq_html" } });
     fireEvent.click(within(faqDialog).getByRole("button", { name: "Apply change" }));
     expect(screen.getByRole("heading", { name: "Confirm FAQ metafield update" })).toBeInTheDocument();
-    expect(screen.getAllByText(/productpulse\.faq_items/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/productpulse\.buyer_faq_html/).length).toBeGreaterThan(0);
   });
 
   it("minimizes and expands the recommended actions panel", () => {
@@ -1336,6 +1341,54 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     expect(screen.getByRole("button", { name: "Open recommended action Update product description" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open recommended action Rewrite meta description" })).not.toBeInTheDocument();
+  });
+
+  it("does not let a stored FAQ action archive every FAQ through broad aliases", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [
+        {
+          id: "create-sizing-faq",
+          title: "Create sizing FAQ",
+          label: "Create product FAQ",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Ready",
+          payload: {
+            faqItems: [{ question: "How does sizing run?", answer: "It runs small." }],
+          },
+        },
+        {
+          id: "create-compatibility-faq",
+          title: "Create compatibility FAQ",
+          label: "Create product FAQ",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Ready",
+          payload: {
+            faqItems: [{ question: "What is it compatible with?", answer: "Use the listed adapter." }],
+          },
+        },
+      ],
+      actionHistory: [
+        {
+          id: "stored-sizing-faq",
+          actionId: "create-sizing-faq",
+          actionType: "create-sizing-faq",
+          label: "Create product FAQ",
+          status: "applied",
+          payload: {
+            sourceActionId: "create-sizing-faq",
+            canonicalActionId: "create-sizing-faq",
+            actionAliases: ["create-product-faq"],
+          },
+        },
+      ],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getAllByRole("button", { name: "Open recommended action Create product FAQ" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Expand Create product FAQ" })).toBeInTheDocument();
   });
 
   it("shows Add to Watchlist as a workflow action without a before/after preview", () => {
@@ -1815,16 +1868,17 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("tab", { name: /Customer language analysis/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Text signals")).toBeInTheDocument();
     expect(screen.getByText("Negative language")).toBeInTheDocument();
-    expect(screen.getByText("Dominant emotion")).toBeInTheDocument();
+    expect(screen.getAllByText("Primary emotion").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Fear").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/2 (AI-labeled|labeled|signals)/).length).toBeGreaterThan(0);
-    expect(screen.getByText("AI emotions")).toBeInTheDocument();
+    expect(screen.getAllByText(/2 (next-strongest )?signals/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Secondary emotion").length).toBeGreaterThan(0);
     expect(screen.getByText("Snapshot overview")).toBeInTheDocument();
+    expect(screen.getByText("AI reading")).toBeInTheDocument();
     expect(screen.getByText("Top themes")).toBeInTheDocument();
     expect(screen.getByText("Signal breakdown")).toBeInTheDocument();
     expect(screen.getByText("All signals by type")).toBeInTheDocument();
-    expect(screen.getByText("Emergent emotion")).toBeInTheDocument();
-    expect(screen.getAllByText("Superstitious discomfort").length).toBeGreaterThan(0);
+    expect(screen.getByText("Customer themes")).toBeInTheDocument();
+    expect(screen.getAllByText(/Superstitious discomfort/i).length).toBeGreaterThan(0);
     expect(screen.getByText("What ProductPulse checked")).toBeInTheDocument();
   });
 
@@ -2050,7 +2104,10 @@ describe("ProductPulse screens", () => {
                 sentiment: { total: 3, negative: 2, neutral: 1, positive: 0 },
                 emotions: [{ label: "Frustration", count: 2 }],
                 repeatedLanguage: [{ term: "seam issue", count: 2, sources: ["csv_review"], sentiments: { negative: 2 } }],
-                examples: [{ source: "csv_review", sourceLabel: "CSV reviews", title: "CSV fit note", text: "CSV review seam issue was repeated.", sentiment: "negative", rating: 2 }],
+                examples: [
+                  { source: "csv_review", sourceLabel: "CSV reviews", title: "CSV fit note", text: "CSV review seam issue was repeated.", sentiment: "negative", rating: 2 },
+                  { source: "csv_review", sourceLabel: "CSV reviews", title: "CSV fit note", text: "CSV review seam issue was repeated.", sentiment: "negative", rating: 2 },
+                ],
               },
               judgeMe: {
                 sentiment: { total: 4, negative: 1, neutral: 1, positive: 2 },
@@ -2071,8 +2128,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/CSV-only synthesis says imported review wording/)).toBeInTheDocument();
     expect(screen.queryByText(/Judge-only synthesis/)).not.toBeInTheDocument();
     expect(screen.getByText("CSV review seam issue was repeated.")).toBeInTheDocument();
+    expect(screen.getAllByText("CSV review seam issue was repeated.")).toHaveLength(1);
     expect(screen.queryByText("Judge.me packaging note mentioned dents.")).not.toBeInTheDocument();
     expect(screen.getByText("2 negative reviews")).toBeInTheDocument();
+    expect(screen.getAllByText("Last 30 days").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "Judge.me reviews" }));
     expect(screen.getByRole("heading", { name: "Judge.me reviews" })).toBeInTheDocument();

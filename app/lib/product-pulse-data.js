@@ -769,16 +769,21 @@ function getDashboardActionHistoryRecord(action = {}, history = []) {
   const currentRecords = (Array.isArray(history) ? history : [])
     .filter((record) => !isSystemProductActionRecord(record))
     .sort((first, second) => new Date(second.appliedAt || second.createdAt || 0).getTime() - new Date(first.appliedAt || first.createdAt || 0).getTime());
-  const actionId = normalizeDashboardActionToken(action.id || action.actionId || action.actionType);
-  const actionLabel = normalizeDashboardActionLabel(action.label || action.title);
+  const actionIdentityTokens = getDashboardActionIdentityTokens(action);
   const exactRecord = currentRecords.find((record) => {
-    const recordId = normalizeDashboardActionToken(record.actionId || record.actionType || record.id);
-    const recordLabel = normalizeDashboardActionLabel(record.label);
-    return (actionId && recordId === actionId) || (actionLabel && recordLabel === actionLabel);
+    const recordIdentityTokens = getDashboardActionRecordIdentityTokens(record);
+    return intersectsDashboardActionTokens(actionIdentityTokens, recordIdentityTokens);
   });
   if (exactRecord) return exactRecord;
-
   const family = getDashboardActionFamily(action);
+
+  if (!actionIdentityTokens.size) {
+    const actionLabel = normalizeDashboardActionLabel(action.label || action.title);
+    const labelRecord = currentRecords.find((record) => actionLabel && normalizeDashboardActionLabel(record.label) === actionLabel);
+    if (labelRecord) return labelRecord;
+  }
+
+  if (actionIdentityTokens.size && !shouldUseDashboardActionFamilyFallback(family)) return null;
   if (!family || family === "other") return null;
   if (!shouldUseDashboardActionFamilyFallback(family)) return null;
 
@@ -788,8 +793,60 @@ function getDashboardActionHistoryRecord(action = {}, history = []) {
   )) || null;
 }
 
+function getDashboardActionIdentityTokens(action = {}) {
+  const payload = action.payload || {};
+  return new Set([
+    action.id,
+    action.actionId,
+    action.actionType,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...getDashboardPreciseActionAliases(action.actionAliases),
+    ...getDashboardPreciseActionAliases(payload.actionAliases),
+  ].map(normalizeDashboardActionToken).filter(Boolean));
+}
+
+function getDashboardActionRecordIdentityTokens(record = {}) {
+  const payload = record.payload || {};
+  return new Set([
+    record.actionId,
+    record.actionType,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...getDashboardPreciseActionAliases(record.actionAliases),
+    ...getDashboardPreciseActionAliases(payload.actionAliases),
+  ].map(normalizeDashboardActionToken).filter(Boolean));
+}
+
+function intersectsDashboardActionTokens(firstTokens, secondTokens) {
+  if (!(firstTokens instanceof Set) || !(secondTokens instanceof Set) || !firstTokens.size || !secondTokens.size) return false;
+  for (const token of firstTokens) {
+    if (secondTokens.has(token)) return true;
+  }
+  return false;
+}
+
 function shouldUseDashboardActionFamilyFallback(family = "") {
   return ["product-copy", "evidence-review"].includes(family);
+}
+
+const BROAD_DASHBOARD_ACTION_ALIASES = new Set([
+  "product-description-changes",
+  "review-product-evidence",
+  "product-evidence",
+  "product-faq",
+  "create-product-faq",
+  "title-metadata",
+  "product-metadata",
+  "variant-options",
+  "workflow-tag",
+  "media-alt-text",
+  "commercial-control",
+]);
+
+function getDashboardPreciseActionAliases(aliases = []) {
+  return (Array.isArray(aliases) ? aliases : [])
+    .filter((alias) => !BROAD_DASHBOARD_ACTION_ALIASES.has(normalizeDashboardActionToken(alias)));
 }
 
 function normalizeDashboardActionToken(value) {

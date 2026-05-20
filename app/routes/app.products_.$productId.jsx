@@ -42,6 +42,9 @@ export const action = async ({ request, params }) => {
         applyMode: String(formData.get("applyMode") || ""),
         actionVariant: String(formData.get("actionVariant") || ""),
         descriptionOperation: String(formData.get("descriptionOperation") || ""),
+        metafieldNamespace: String(formData.get("metafieldNamespace") || ""),
+        metafieldKey: String(formData.get("metafieldKey") || ""),
+        metafieldType: String(formData.get("metafieldType") || ""),
       },
       admin,
     );
