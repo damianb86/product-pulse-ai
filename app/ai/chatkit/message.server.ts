@@ -426,6 +426,7 @@ function buildTurnEvents(input: {
   events.push({ type: "stream_options", stream_options: { allow_cancel: false } });
   events.push(assistantDoneEvent(input.result.conversationId, input.result.messageId, input.result.assistantText, input.now));
   events.push(...widgetsToDoneEvents(input.result.conversationId, input.result.messageId, input.result.blocks, input.result.assistantText, input.now));
+  events.push(endOfTurnDoneEvent(input.result.conversationId, input.result.messageId, input.now));
   return events;
 }
 
@@ -446,6 +447,18 @@ function userDoneEvent(threadId: string, itemId: string, text: string, now: () =
 
 function assistantDoneEvent(threadId: string, itemId: string, text: string, now: () => Date): Record<string, unknown> {
   return { type: "thread.item.done", item: assistantMessageItem(threadId, itemId, text, now().toISOString()) };
+}
+
+function endOfTurnDoneEvent(threadId: string, assistantMessageId: string, now: () => Date): Record<string, unknown> {
+  return {
+    type: "thread.item.done",
+    item: {
+      type: "end_of_turn",
+      id: `${assistantMessageId}-end`,
+      thread_id: threadId,
+      created_at: now().toISOString(),
+    },
+  };
 }
 
 function widgetsToDoneEvents(
@@ -504,7 +517,7 @@ function assistantMessageItem(
     id: itemId,
     thread_id: threadId,
     created_at: toIso(createdAt),
-    content: [{ type: "output_text", text }],
+    content: [{ type: "output_text", text, annotations: [] }],
   };
 }
 

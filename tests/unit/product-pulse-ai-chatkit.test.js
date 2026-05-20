@@ -180,6 +180,8 @@ describe("ProductPulse ChatKit integration", () => {
     );
     expect(text).toContain("\"thread.created\"");
     expect(text).toContain("\"assistant_message\"");
+    expect(text).toContain("\"annotations\":[]");
+    expect(text).toContain("\"end_of_turn\"");
     expect(text).toContain("\"widget\"");
     expect(text).not.toContain("evil.myshopify.com");
   });

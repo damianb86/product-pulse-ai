@@ -11035,7 +11035,7 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
         </div>
         <div className="ppEvidenceFindingStream ppEvidenceFindingStream-compact">
           {sections.length ? sections.map((section, index) => (
-            <div className={`ppEvidenceFinding ppEvidenceFinding-${section.tone || "default"}`} key={section.title}>
+            <div className={`ppEvidenceFinding ppEvidenceFinding-${section.tone || "default"}`} key={`${section.title}-${index}`}>
               <span className="ppEvidenceFindingIndex">{String(index + 1).padStart(2, "0")}</span>
               <div>
                 <strong>{section.title}</strong>
