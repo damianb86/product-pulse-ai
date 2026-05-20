@@ -17,6 +17,8 @@ import { mapAiPresentationBlocksToChatKitWidgets } from "./widgets";
 
 const MAX_CHATKIT_MESSAGE_LENGTH = 3000;
 const DEFAULT_PAGE_SIZE = 20;
+const STREAM_TEXT_DELTA_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 12;
+const STREAM_TEXT_CHUNK_SIZE = 36;
 
 const chatKitMetadataSchema = z.object({
   conversationId: z.string().trim().max(320).optional(),
@@ -270,7 +272,9 @@ async function runChatKitAction(input: {
     return [errorEvent("ChatKit action request is invalid.")];
   }
 
-  const result = await handleChatKitAction(input.context, parsed.data);
+  const result = await handleChatKitAction(input.context, parsed.data, {
+    toolRegistry: input.dependencies.toolRegistry,
+  });
   if (result.status === "error") {
     return [errorEvent(result.message)];
   }
@@ -297,9 +301,14 @@ async function runChatKitAction(input: {
     });
   }
 
-  const message = result.action.type === "navigate"
-    ? "Opening that view in ProductPulse."
-    : result.action.message;
+  if (result.action.type === "navigate") {
+    return [
+      streamOptionsEvent(),
+      clientEffectEvent("product_pulse.navigate", { url: result.action.url }),
+    ];
+  }
+
+  const message = result.action.message;
   return [assistantDoneEvent(input.conversationId, `msg_${stableId(`${input.conversationId}:${input.now().toISOString()}`)}`, message, input.now)];
 }
 
@@ -423,8 +432,8 @@ function buildTurnEvents(input: {
     });
   }
   events.push(userDoneEvent(input.result.conversationId, input.result.userMessageId, input.userText, input.now));
-  events.push({ type: "stream_options", stream_options: { allow_cancel: false } });
-  events.push(assistantDoneEvent(input.result.conversationId, input.result.messageId, input.result.assistantText, input.now));
+  events.push(streamOptionsEvent());
+  events.push(...assistantStreamingEvents(input.result.conversationId, input.result.messageId, input.result.assistantText, input.now));
   events.push(...widgetsToDoneEvents(input.result.conversationId, input.result.messageId, input.result.blocks, input.result.assistantText, input.now));
   events.push(endOfTurnDoneEvent(input.result.conversationId, input.result.messageId, input.now));
   return events;
@@ -449,6 +458,47 @@ function assistantDoneEvent(threadId: string, itemId: string, text: string, now:
   return { type: "thread.item.done", item: assistantMessageItem(threadId, itemId, text, now().toISOString()) };
 }
 
+function assistantStreamingEvents(threadId: string, itemId: string, text: string, now: () => Date): Record<string, unknown>[] {
+  const createdAt = now().toISOString();
+  return [
+    {
+      type: "thread.item.added",
+      item: {
+        ...assistantMessageItem(threadId, itemId, "", createdAt),
+        content: [],
+      },
+    },
+    {
+      type: "thread.item.updated",
+      item_id: itemId,
+      update: {
+        type: "assistant_message.content_part.added",
+        content_index: 0,
+        content: { type: "output_text", text: "", annotations: [] },
+      },
+    },
+    ...chunkTextForStreaming(text).map((delta) => ({
+      type: "thread.item.updated",
+      item_id: itemId,
+      update: {
+        type: "assistant_message.content_part.text_delta",
+        content_index: 0,
+        delta,
+      },
+    })),
+    {
+      type: "thread.item.updated",
+      item_id: itemId,
+      update: {
+        type: "assistant_message.content_part.done",
+        content_index: 0,
+        content: { type: "output_text", text, annotations: [] },
+      },
+    },
+    assistantDoneEvent(threadId, itemId, text, () => new Date(createdAt)),
+  ];
+}
+
 function endOfTurnDoneEvent(threadId: string, assistantMessageId: string, now: () => Date): Record<string, unknown> {
   return {
     type: "thread.item.done",
@@ -459,6 +509,14 @@ function endOfTurnDoneEvent(threadId: string, assistantMessageId: string, now: (
       created_at: now().toISOString(),
     },
   };
+}
+
+function streamOptionsEvent(): Record<string, unknown> {
+  return { type: "stream_options", stream_options: { allow_cancel: false } };
+}
+
+function clientEffectEvent(name: string, data: Record<string, unknown>): Record<string, unknown> {
+  return { type: "client_effect", name, data };
 }
 
 function widgetsToDoneEvents(
@@ -557,6 +615,27 @@ function normalizeLimit(value: unknown): number {
 }
 
 function streamResponse(events: Record<string, unknown>[]): Response {
+  if (STREAM_TEXT_DELTA_DELAY_MS > 0 && events.some(isTextDeltaEvent)) {
+    const encoder = new TextEncoder();
+    return new Response(new ReadableStream({
+      async start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          if (isTextDeltaEvent(event)) {
+            await delay(STREAM_TEXT_DELTA_DELAY_MS);
+          }
+        }
+        controller.close();
+      },
+    }), {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/event-stream",
+      },
+    });
+  }
+
   return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
     status: 200,
     headers: {
@@ -564,6 +643,15 @@ function streamResponse(events: Record<string, unknown>[]): Response {
       "Content-Type": "text/event-stream",
     },
   });
+}
+
+function isTextDeltaEvent(event: Record<string, unknown>): boolean {
+  const update = event.update && typeof event.update === "object" ? event.update as { type?: unknown } : null;
+  return event.type === "thread.item.updated" && update?.type === "assistant_message.content_part.text_delta";
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -611,6 +699,16 @@ function toIso(value: unknown): string {
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function chunkTextForStreaming(value: string): string[] {
+  if (!value) return [];
+  const characters = Array.from(value);
+  const chunks: string[] = [];
+  for (let index = 0; index < characters.length; index += STREAM_TEXT_CHUNK_SIZE) {
+    chunks.push(characters.slice(index, index + STREAM_TEXT_CHUNK_SIZE).join(""));
+  }
+  return chunks;
 }
 
 function stableId(value: string): string {

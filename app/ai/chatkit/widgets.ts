@@ -142,7 +142,7 @@ function actionProposalWidget(block: Extract<AiPresentationBlock, { type: "actio
 function card(children: Widgets.WidgetComponent[], options: Partial<Widgets.Card> = {}): Widgets.Card {
   return {
     type: "Card",
-    size: "md",
+    size: "full",
     padding: 12,
     children,
     ...options,

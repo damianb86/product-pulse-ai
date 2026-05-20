@@ -6,6 +6,7 @@ let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [chatKitScriptReady, setChatKitScriptReady] = useState(false);
   const [conversationId, setConversationId] = useState("");
@@ -101,7 +102,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       body: JSON.stringify({
         action,
         itemId: widgetItem?.id,
-        conversationId: conversationId || undefined,
+        conversationId: conversationIdRef.current || undefined,
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -111,14 +112,19 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     }
 
     if (body.action?.type === "navigate" && body.action.url) {
-      window.location.assign(body.action.url);
+      navigateToProductPulseUrl(body.action.url, setStatusMessage);
       return;
     }
 
     if (body.action?.type === "send_message" && body.action.message) {
       await chatKitMethodsRef.current?.sendUserMessage({ text: body.action.message });
     }
-  }, [conversationId]);
+  }, []);
+
+  const handleEffect = useCallback((event) => {
+    if (event?.name !== "product_pulse.navigate") return;
+    navigateToProductPulseUrl(event?.data?.url, setStatusMessage);
+  }, []);
 
   const chatKit = useChatKit({
     api: {
@@ -173,8 +179,9 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       text: "Read-only assistant. It cannot apply Shopify changes yet.",
     },
     thread: {
-      autoScroll: true,
+      autoScroll: false,
     },
+    onEffect: handleEffect,
     onThreadChange: (event) => {
       const nextThreadId = event?.threadId || "";
       if (nextThreadId) {
@@ -195,8 +202,14 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     setStatusMessage("");
   }, [pageContextKey]);
 
+  const assistantClassName = [
+    "ppChatKitAssistant",
+    isOpen ? "ppChatKitAssistant-open" : "",
+    isExpanded ? "ppChatKitAssistant-expanded" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <aside className={`ppChatKitAssistant${isOpen ? " ppChatKitAssistant-open" : ""}`} aria-label="ProductPulse AI assistant">
+    <aside className={assistantClassName} aria-label="ProductPulse AI assistant">
       {isOpen ? (
         <div className="ppChatKitPanel" role="dialog" aria-modal="false" aria-label="AI Assistant">
           <div className="ppChatKitPanelHeader">
@@ -204,9 +217,20 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
               <strong>AI Assistant</strong>
               <span>{enabled ? "Backend AI" : "Unavailable"}</span>
             </div>
-            <button type="button" className="ppChatKitIconButton" onClick={() => setIsOpen(false)} aria-label="Close AI Assistant">
-              x
-            </button>
+            <div className="ppChatKitPanelActions">
+              <button
+                type="button"
+                className="ppChatKitTextButton"
+                onClick={() => setIsExpanded((current) => !current)}
+                aria-pressed={isExpanded}
+                aria-label={isExpanded ? "Use default AI Assistant width" : "Expand AI Assistant width"}
+              >
+                {isExpanded ? "Default" : "Wide"}
+              </button>
+              <button type="button" className="ppChatKitIconButton" onClick={() => setIsOpen(false)} aria-label="Close AI Assistant">
+                x
+              </button>
+            </div>
           </div>
           {statusMessage ? <div className="ppChatKitStatus" role="status">{statusMessage}</div> : null}
           {!enabled ? (
@@ -232,6 +256,18 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       </button>
     </aside>
   );
+}
+
+function navigateToProductPulseUrl(url, setStatusMessage) {
+  if (typeof url !== "string" || !isSafeProductPulsePath(url)) {
+    setStatusMessage("That assistant navigation is not available.");
+    return;
+  }
+  window.location.assign(url);
+}
+
+function isSafeProductPulsePath(url) {
+  return url === "/app" || url.startsWith("/app/");
 }
 
 function loadChatKitBrowserScript() {

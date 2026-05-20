@@ -180,10 +180,51 @@ describe("ProductPulse ChatKit integration", () => {
     );
     expect(text).toContain("\"thread.created\"");
     expect(text).toContain("\"assistant_message\"");
+    expect(text).toContain("\"assistant_message.content_part.text_delta\"");
     expect(text).toContain("\"annotations\":[]");
     expect(text).toContain("\"end_of_turn\"");
     expect(text).toContain("\"widget\"");
     expect(text).not.toContain("evil.myshopify.com");
+  });
+
+  it("streams navigation widget actions as client effects instead of assistant text", async () => {
+    const store = new InMemoryConversationStore();
+    store.conversations.push({
+      id: "conversation-1",
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      title: "ProductPulse AI assistant",
+      createdAt: "2026-05-20T12:00:00.000Z",
+      updatedAt: "2026-05-20T12:00:00.000Z",
+    });
+
+    const response = await handleChatKitMessage(baseContext, JSON.stringify({
+      type: "threads.custom_action",
+      metadata: { pageContext: { type: "product", entityId: "core-linen-trouser" } },
+      params: {
+        thread_id: "conversation-1",
+        item_id: "widget-1",
+        action: {
+          type: "open_product",
+          payload: { productRef: "core-linen-trouser" },
+        },
+      },
+    }), {
+      conversationStore: store,
+      toolRegistry: createRegistry({
+        product: {
+          productGid: "gid://shopify/Product/1",
+          handle: "core-linen-trouser",
+        },
+      }),
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    });
+
+    const text = await response.text();
+    expect(text).toContain("\"client_effect\"");
+    expect(text).toContain("\"product_pulse.navigate\"");
+    expect(text).toContain("\"/app/products/core-linen-trouser\"");
+    expect(text).not.toContain("Opening that view in ProductPulse");
   });
 
   it("converts neutral presentation blocks into ChatKit widgets", () => {
@@ -227,6 +268,7 @@ describe("ProductPulse ChatKit integration", () => {
     ]);
 
     expect(widgets.map((widget) => widget.type)).toEqual(["Card", "ListView", "Card", "Card"]);
+    expect(widgets[0].size).toBe("full");
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
