@@ -340,30 +340,6 @@ s-page[inline-size="large-500"] {
   box-shadow: var(--pp-highlight-shadow);
 }
 
-.ppNextBestActionPanel::before,
-.ppProductsToolbar::before,
-.ppProductDetailHeroPanel::before {
-  position: absolute;
-  inset: 0 0 auto;
-  height: 3px;
-  content: "";
-  pointer-events: none;
-  background: var(--pp-highlight-accent);
-}
-
-.ppNextBestActionPanel::after,
-.ppProductsToolbar::after,
-.ppProductDetailHeroPanel::after {
-  position: absolute;
-  top: -120px;
-  right: -120px;
-  width: 260px;
-  height: 260px;
-  content: "";
-  pointer-events: none;
-  background: var(--pp-highlight-glow);
-}
-
 .ppNextBestActionPanel > *,
 .ppProductsToolbar > *,
 .ppProductDetailHeroPanel > * {
@@ -3374,6 +3350,164 @@ s-page[inline-size="large-500"] {
   border-left: 1px solid var(--pp-slate-200);
 }
 
+.ppProductInsight-withArea {
+  grid-template-columns: minmax(0, 1fr) 86px;
+  align-items: center;
+  gap: 10px;
+  min-height: 118px;
+}
+
+.ppProductInsightAreaBody {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.ppProductInsightAreaCopy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  align-content: center;
+}
+
+.ppProductInsightAreaTitle {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ppProductInsightAreaTitle .ppInsightInfoWrap {
+  flex: 0 0 auto;
+}
+
+.ppProductInsightAreaValue {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-wrap: nowrap;
+}
+
+.ppProductInsightAreaValue strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.ppProductInsightAreaValue small {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductInsightAreaFootnote {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+}
+
+.ppProductInsightAreaFootnote::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.ppProductInsightAreaFootnoteText {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ppProductInsightAreaTrend {
+  width: min(86px, 100%);
+  height: 42px;
+  display: block;
+  justify-self: end;
+  color: var(--pp-insight-violet);
+}
+
+.ppProductInsightAreaTrend svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.ppProductInsightAreaFillShadow {
+  fill: currentColor;
+  opacity: 0.1;
+  filter: blur(3px);
+  transform: translateY(3px);
+}
+
+.ppProductInsightAreaFill {
+  opacity: 1;
+}
+
+.ppProductInsightAreaLineGlow,
+.ppProductInsightAreaLine {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ppProductInsightAreaLineGlow {
+  stroke-width: 5;
+  opacity: 0.14;
+  filter: blur(2px);
+}
+
+.ppProductInsightAreaLine {
+  stroke-width: 2.1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppProductInsightAreaTrend-red {
+  color: var(--pp-risk-red);
+}
+
+.ppProductInsightAreaTrend-purple {
+  color: var(--pp-insight-violet);
+}
+
+.ppProductInsightAreaTrend-orange {
+  color: var(--pp-warning-amber);
+}
+
+.ppProductInsightAreaTrend-green {
+  color: var(--pp-success-green);
+}
+
+.ppProductInsightAreaTrend-neutral {
+  color: var(--pp-slate-500);
+}
+
 .ppProductInsightTop {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -3501,6 +3635,30 @@ s-page[inline-size="large-500"] {
 
 .ppProductInsight-green strong {
   color: var(--pp-signal-teal);
+}
+
+.ppProductInsight-withArea strong {
+  color: var(--pp-slate-900);
+}
+
+.ppProductInsight-withArea.ppProductInsight-red .ppProductInsightAreaFootnote {
+  color: var(--pp-risk-red);
+}
+
+.ppProductInsight-withArea.ppProductInsight-orange .ppProductInsightAreaFootnote {
+  color: var(--pp-warning-amber);
+}
+
+.ppProductInsight-withArea.ppProductInsight-green .ppProductInsightAreaFootnote {
+  color: var(--pp-success-green);
+}
+
+.ppProductInsight-withArea.ppProductInsight-blue .ppProductInsightAreaFootnote {
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductInsight-withArea.ppProductInsight-neutral .ppProductInsightAreaFootnote {
+  color: var(--pp-slate-500);
 }
 
 .ppProductInsightProgress {

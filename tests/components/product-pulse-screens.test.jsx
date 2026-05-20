@@ -1034,7 +1034,7 @@ describe("ProductPulse screens", () => {
     expect(container.querySelector(".ppProductReturnPredictionPanel")).not.toBeInTheDocument();
   });
 
-  it("shows product risk level first and the trend label below the sparkline", () => {
+  it("shows product risk level and renders area trend cards for risk and momentum", () => {
     const product = {
       ...defaultView.startHere,
       riskScore: 50,
@@ -1054,6 +1054,8 @@ describe("ProductPulse screens", () => {
     const riskSnapshot = container.querySelector(".ppRiskSnapshot");
 
     expect(riskSnapshot).toBeInTheDocument();
+    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea")).toHaveLength(2);
+    expect(riskSnapshot.querySelectorAll(".ppProductInsightAreaTrend")).toHaveLength(2);
     expect(within(riskSnapshot).getByText("Emerging")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Improving")).toBeInTheDocument();
   });
@@ -1109,9 +1111,8 @@ describe("ProductPulse screens", () => {
 
   it("minimizes and expands the recommended actions panel", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
-    const sidebarLabels = Array.from(container.querySelectorAll(".ppProductDetailSidebar .ppProductDetailSectionLabel")).map((element) => element.textContent);
-    expect(sidebarLabels[0]).toContain("2Recommended actions");
-    expect(sidebarLabels[1]).toContain("3Evidence summary");
+    expect(container.querySelector(".ppProductDetailSidebar .ppRecommendedActionsPanel")).toBeInTheDocument();
+    expect(container.querySelector(".ppProductDetailSidebar .ppProductEvidenceSummaryPanel")).toBeInTheDocument();
     expect(container.querySelector(".ppProductDetailFullWidth .ppEvidenceObservabilityPanel")).toBeInTheDocument();
     expect(container.querySelector(".ppProductDetailPrimary .ppEvidenceObservabilityPanel")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();

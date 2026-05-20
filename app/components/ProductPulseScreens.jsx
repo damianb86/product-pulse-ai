@@ -7385,6 +7385,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               tone={detail.riskTone}
               sparkline={detail.riskTrend}
               icon="alert-circle"
+              chartStyle="area"
+              chartTone="purple"
             />
             <ProductInsightMetric
               title="Product Momentum"
@@ -7396,6 +7398,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               tone={detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral"}
               sparkline={detail.productMomentum?.inputs.weeklyUnitsLast4Weeks || []}
               icon="wand"
+              chartStyle="area"
+              chartTone="purple"
             />
             <ProductInsightMetric
               title="Diagnosis confidence"
@@ -7519,7 +7523,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </main>
 
           <aside className="ppProductDetailSidebar">
-            <ProductDetailSectionLabel number="2" title="Recommended actions" subtitle="Clear, actionable next steps" />
             <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
               <div className="ppRecommendedActionsHeader">
                 <div>
@@ -7635,7 +7638,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               )}
             </div>
 
-            <ProductDetailSectionLabel number="3" title="Evidence summary" subtitle="Quick summary by category" />
             <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
             <ProductRiskHistoryPanel detail={detail} />
             <ProductMomentumPanel detail={detail} />
@@ -7643,7 +7645,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         </div>
 
         <div className="ppProductDetailFullWidth">
-          <ProductDetailSectionLabel number="4" title="Evidence by source" subtitle="Explore the evidence clearly" />
           <div ref={evidencePanelRef}>
             <EvidenceObservabilityPanel
               detail={detail}
@@ -7703,18 +7704,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         )}
       </ScreenShell>
     </FullWidthPage>
-  );
-}
-
-function ProductDetailSectionLabel({ number, title, subtitle }) {
-  return (
-    <div className="ppProductDetailSectionLabel">
-      <span>{number}</span>
-      <div>
-        <strong>{title}</strong>
-        <small>{subtitle}</small>
-      </div>
-    </div>
   );
 }
 
@@ -9867,10 +9856,43 @@ function ProductDetailActionsMenu({
   );
 }
 
-function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline, icon }) {
+function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral", progress, sparkline, icon, chartStyle = "line", chartTone }) {
   const trendValues = Array.isArray(sparkline) ? sparkline : [];
   const helpText = getInsightMetricHelp(title);
   const metricIcon = icon || getInsightMetricIcon(title);
+  const usesAreaChart = chartStyle === "area";
+
+  if (usesAreaChart) {
+    return (
+      <div className={`ppProductInsight ppProductInsight-${tone} ppProductInsight-withArea`}>
+        <div className="ppProductInsightAreaBody">
+          <span className="ppProductInsightIcon" aria-hidden="true">
+            <ProductPulseGlyph type={metricIcon} />
+          </span>
+          <span className="ppProductInsightAreaCopy">
+            <span className="ppProductInsightAreaTitle">
+              {title}
+              <button className="ppInsightInfoWrap" type="button" aria-label={`What ${title} means`}>
+                <s-icon type="info" size="small" color="subdued"></s-icon>
+                <span className="ppInsightTooltip" role="tooltip">{helpText}</span>
+              </button>
+            </span>
+            <span className="ppProductInsightAreaValue">
+              <strong>{value}</strong>
+              <small>{renderAnalysisText(detail)}</small>
+            </span>
+            {footnote && (
+              <em className="ppProductInsightAreaFootnote">
+                {footnote.includes("18%") && <span className="ppTrendArrow" aria-hidden="true" />}
+                <span className="ppProductInsightAreaFootnoteText">{renderAnalysisText(footnote)}</span>
+              </em>
+            )}
+          </span>
+        </div>
+        <ProductInsightAreaTrend tone={chartTone || tone} values={trendValues} />
+      </div>
+    );
+  }
 
   return (
     <div className={`ppProductInsight ppProductInsight-${tone}`}>
@@ -9901,6 +9923,34 @@ function ProductInsightMetric({ title, value, detail, footnote, tone = "neutral"
         </em>
       )}
     </div>
+  );
+}
+
+function ProductInsightAreaTrend({ tone = "blue", values = [] }) {
+  const gradientId = `pp-insight-area-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const trend = normalizeSparklineValues(values, "area");
+  const linePath = buildSmoothSparklinePath(trend.points);
+  const baseline = trend.height - 5;
+  const firstPoint = trend.points[0] || { x: 0, y: baseline };
+  const lastPoint = trend.points[trend.points.length - 1] || { x: trend.width, y: baseline };
+  const areaPath = `${linePath} L ${lastPoint.x} ${baseline} L ${firstPoint.x} ${baseline} Z`;
+
+  return (
+    <span className={`ppProductInsightAreaTrend ppProductInsightAreaTrend-${tone}`} aria-hidden="true">
+      <svg viewBox={`0 0 ${trend.width} ${trend.height}`} focusable="false">
+        <defs>
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.24" />
+            <stop offset="58%" stopColor="currentColor" stopOpacity="0.11" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path className="ppProductInsightAreaFillShadow" d={areaPath} />
+        <path className="ppProductInsightAreaFill" d={areaPath} fill={`url(#${gradientId})`} />
+        <path className="ppProductInsightAreaLineGlow" d={linePath} />
+        <path className="ppProductInsightAreaLine" d={linePath} />
+      </svg>
+    </span>
   );
 }
 
@@ -13662,14 +13712,14 @@ function MiniTrend({ tone = "red", size = "base", values = [] }) {
 function normalizeSparklineValues(values, size = "base") {
   const sourceValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
   const fallback = Array.from({ length: 7 }, () => 0);
-  const width = size === "large" ? 70 : 62;
-  const height = size === "large" ? 26 : 20;
+  const width = size === "area" ? 86 : size === "large" ? 70 : 62;
+  const height = size === "area" ? 42 : size === "large" ? 26 : 20;
   const normalized = normalizeTrendForSparkline(sourceValues.length ? sourceValues : fallback);
   const max = Math.max(...normalized, 1);
   const min = Math.min(...normalized);
   const range = max - min;
   const horizontalStep = width / Math.max(normalized.length - 1, 1);
-  const verticalPadding = 3;
+  const verticalPadding = size === "area" ? 7 : 3;
   const drawableHeight = height - verticalPadding * 2;
   const points = normalized.map((value, index) => ({
     x: Math.round(index * horizontalStep * 10) / 10,
@@ -13679,6 +13729,29 @@ function normalizeSparklineValues(values, size = "base") {
   }));
 
   return { width, height, points };
+}
+
+function buildSmoothSparklinePath(points = []) {
+  if (!points.length) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  return points.slice(0, -1).reduce((path, point, index) => {
+    const previous = points[index - 1] || point;
+    const next = points[index + 1];
+    const following = points[index + 2] || next;
+    const controlOne = {
+      x: roundSparklineCoordinate(point.x + (next.x - previous.x) / 6),
+      y: roundSparklineCoordinate(point.y + (next.y - previous.y) / 6),
+    };
+    const controlTwo = {
+      x: roundSparklineCoordinate(next.x - (following.x - point.x) / 6),
+      y: roundSparklineCoordinate(next.y - (following.y - point.y) / 6),
+    };
+    return `${path} C ${controlOne.x} ${controlOne.y}, ${controlTwo.x} ${controlTwo.y}, ${next.x} ${next.y}`;
+  }, `M ${points[0].x} ${points[0].y}`);
+}
+
+function roundSparklineCoordinate(value) {
+  return Math.round(value * 10) / 10;
 }
 
 function normalizeTrendForSparkline(values) {
