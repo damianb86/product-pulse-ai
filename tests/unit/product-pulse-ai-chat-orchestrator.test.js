@@ -192,6 +192,40 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(result.warnings.join(" ")).toContain("safe text-only fallback");
   });
 
+  it("recovers assistant text and safe cards when model JSON has oversized block arrays", async () => {
+    const store = new InMemoryConversationStore();
+    const oversizedResponse = validAssistantResponse({
+      assistantText: "Resumen compacto del producto sin JSON crudo.",
+      blocks: [{
+        type: "product_reference",
+        title: "The Night Watch",
+        handle: "the-night-watch",
+        riskScore: 26,
+        riskLabel: "Low",
+        ignoredModelField: "must be dropped",
+        metrics: Array.from({ length: 8 }, (_, index) => ({
+          label: `Metric ${index + 1}`,
+          value: index + 1,
+          detail: `Detail ${index + 1}`,
+        })),
+      }],
+    });
+    const openAiCreate = vi.fn().mockResolvedValueOnce(openAiTextResponse(oversizedResponse));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Mostrame un resumen compacto.",
+    });
+
+    expect(openAiCreate).toHaveBeenCalledTimes(1);
+    expect(result.assistantText).toBe("Resumen compacto del producto sin JSON crudo.");
+    expect(result.assistantText).not.toContain("\"assistantText\"");
+    expect(result.blocks).toHaveLength(1);
+    expect(result.blocks[0].type).toBe("product_reference");
+    expect(result.blocks[0].metrics).toHaveLength(4);
+    expect(result.blocks[0]).not.toHaveProperty("ignoredModelField");
+  });
+
   it("passes product page context into the model input", async () => {
     const store = new InMemoryConversationStore();
     const openAiCreate = vi.fn().mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
