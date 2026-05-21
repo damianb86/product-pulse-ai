@@ -13,6 +13,7 @@ import {
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummary } from "./product-pulse-return-refund-relationship.server";
+import { buildProductPurchaseContextSummary } from "./product-pulse-purchase-context.server";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const MAX_ORDER_PAGES = 12;
@@ -25,7 +26,7 @@ const RECONSTRUCTED_RISK_HISTORY_MAX_WEEKLY_POINTS = 58;
 const RECONSTRUCTED_RISK_HISTORY_MAX_MONTHLY_POINTS = 24;
 const RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS = 370;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
-const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 2;
+const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 3;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
@@ -641,7 +642,10 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
     (data?.orders?.nodes || []).forEach((order) => {
       const geography = getOrderAddressGeography(order);
       const orderDate = toIso(getShopifyOrderDate(order));
-      getNodes(order.lineItems).forEach((lineItem) => {
+      const orderLineItems = getNodes(order.lineItems);
+      const basketLineItems = normalizeDiagnosisBasketLineItems(orderLineItems);
+      const basketFingerprint = stableSignature(basketLineItems);
+      orderLineItems.forEach((lineItem) => {
         if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
         events.push({
           id: lineItem.id,
@@ -659,6 +663,8 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
           variantId: lineItem.variant?.id || null,
           variantTitle: lineItem.variant?.title || "",
           selectedOptions: lineItem.variant?.selectedOptions || [],
+          basketLineItems,
+          basketFingerprint,
           geography,
           country: geography?.country || "",
           countryCode: geography?.countryCode || "",
@@ -674,6 +680,21 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
   }
 
   return events;
+}
+
+function normalizeDiagnosisBasketLineItems(lineItems = []) {
+  return getNodes(lineItems).map((lineItem) => ({
+    id: lineItem.id || null,
+    lineItemId: lineItem.id || null,
+    productId: lineItem.product?.id || lineItem.variant?.product?.id || null,
+    handle: lineItem.product?.handle || lineItem.variant?.product?.handle || "",
+    title: lineItem.product?.title || lineItem.variant?.product?.title || lineItem.title || "",
+    variantId: lineItem.variant?.id || null,
+    variantTitle: lineItem.variant?.title || "",
+    sku: lineItem.sku || lineItem.variant?.sku || "",
+    quantity: Number(lineItem.quantity || 0),
+    amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
+  }));
 }
 
 function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
@@ -1863,6 +1884,13 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     returns,
     refunds,
   });
+  const productPurchaseContextSummary = buildProductPurchaseContextSummary({
+    shop: snapshot.shop,
+    productId: product.id || snapshot.productGid,
+    products: [product],
+    sales,
+    assumeCompleteOrderEvents: false,
+  });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
@@ -2071,6 +2099,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundAmount,
       refundInsights,
       returnRefundRelationshipSummary,
+      productPurchaseContextSummary,
       returnRefundRelationshipFactors: scoreModel.relationshipFactors,
       returnRefundScoringImpact: scoreModel.relationshipExplanations,
       returnPressure: scoreModel.relationshipFactors.returnPressure,
@@ -8472,6 +8501,8 @@ function trimSourceEventForCache(item = {}, type) {
     cacheKey,
     id: item.id || null,
     orderId: item.orderId || null,
+    lineItemId: item.lineItemId || null,
+    productId: item.productId || null,
     orderDate: toIso(item.orderDate || item.orderProcessedAt || item.orderCreatedAt),
     orderProcessedAt: toIso(item.orderProcessedAt),
     orderCreatedAt: toIso(item.orderCreatedAt),
@@ -8495,7 +8526,13 @@ function trimSourceEventForCache(item = {}, type) {
     city: item.city || item.geography?.city || "",
   };
 
-  if (type === "sales") return base;
+  if (type === "sales") {
+    return {
+      ...base,
+      basketFingerprint: item.basketFingerprint || "",
+      basketLineItems: normalizeCachedBasketLineItems(item.basketLineItems),
+    };
+  }
   if (type === "returns") {
     return {
       ...base,
@@ -8524,6 +8561,23 @@ function trimSourceEventForCache(item = {}, type) {
     };
   }
   return base;
+}
+
+function normalizeCachedBasketLineItems(lineItems = []) {
+  return (Array.isArray(lineItems) ? lineItems : [])
+    .slice(0, DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE)
+    .map((lineItem) => ({
+      id: lineItem.id || null,
+      lineItemId: lineItem.lineItemId || lineItem.id || null,
+      productId: lineItem.productId || null,
+      handle: truncateText(lineItem.handle || "", 160),
+      title: truncateText(lineItem.title || "", 180),
+      variantId: lineItem.variantId || null,
+      variantTitle: truncateText(lineItem.variantTitle || "", 160),
+      sku: String(lineItem.sku || ""),
+      quantity: Number(lineItem.quantity || 0),
+      amount: Number(lineItem.amount || 0),
+    }));
 }
 
 function getSourceEventCacheKey(type, item = {}) {
@@ -8745,10 +8799,12 @@ function buildDiagnosisSourceFingerprint({
       "id",
       "orderId",
       "lineItemId",
+      "productId",
       "variantId",
       "sku",
       "quantity",
       "amount",
+      "basketFingerprint",
       "countryCode",
       "provinceCode",
       "country",
