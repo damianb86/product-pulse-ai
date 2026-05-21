@@ -308,6 +308,91 @@ describe("ProductPulse watchlist helpers", () => {
     expect(reviewInsight?.summary).toContain("1 new review text signal");
   });
 
+  it("reports concrete new orders before calculated product-state changes", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-19T02:00:00.000Z",
+      riskScore: 56,
+      riskLabel: "Medium",
+      confidence: 79,
+      impactScore: 12,
+      primaryIssue: "Color expectations",
+      orderCount: 1,
+      soldUnits: 2,
+      salesAmount: 80,
+      evidenceDetails: {
+        orders: {
+          totalOrders: 1,
+          totalUnits: 2,
+          totalRevenue: 80,
+          items: [{
+            key: "sale:old-order",
+            orderId: "old-order",
+            quantity: 2,
+            amount: 80,
+            variant: "Blue",
+            createdAt: "2026-05-18T02:00:00.000Z",
+          }],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 56,
+        impactScore: 12,
+        confidence: 79,
+        primaryIssue: "Color expectations",
+        metrics: {
+          soldUnits: 5,
+          salesAmount: 260,
+          monthlyOrderActivity: {
+            summary: {
+              totalOrders: 2,
+              totalOrderUnits: 5,
+              totalRevenue: 260,
+            },
+          },
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [
+                  {
+                    cacheKey: "sale:old-order",
+                    orderId: "old-order",
+                    quantity: 2,
+                    amount: 80,
+                    variantTitle: "Blue",
+                    createdAt: "2026-05-18T02:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:new-order",
+                    orderId: "new-order",
+                    quantity: 3,
+                    amount: 180,
+                    variantTitle: "Rose",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-19T04:00:00.000Z"),
+    });
+
+    expect(report.status).toBe("changed");
+    expect(report.sourceChangeCount).toBe(1);
+    expect(report.sourceChanges[0].id).toBe("new-orders");
+    expect(report.sourceChanges[0].value).toBe("1 order");
+    expect(report.sourceChanges[0].delta).toBe("+3 units");
+    expect(report.sourceInsights[0].id).toBe("order-evidence");
+    expect(report.changes).toEqual([]);
+    expect(report.headline).toContain("New orders");
+  });
+
   it("uses stored evidence keys instead of review dates when comparing two item-level reports", () => {
     const previousSummary = {
       capturedAt: "2026-05-19T02:00:00.000Z",

@@ -152,8 +152,9 @@ describe("ProductPulse screens", () => {
                 title: "Watchlist changes detected",
                 summary: "2 meaningful changes since the previous Watchlist run. Product risk increased from 58 to 63.",
                 narrative: "Nintendo New 3DS XL picked up new return and review evidence since the last Watchlist scan.",
-                headline: "Product risk increased from 58 to 63.",
-                changeCount: 2,
+                headline: "New returns: 2 returned units · +2 return signals.",
+                changeCount: 3,
+                sourceChangeCount: 1,
                 previousRunAt: "2026-05-16T10:00:00.000Z",
                 currentRunAt: "2026-05-17T10:00:00.000Z",
                 current: {
@@ -165,6 +166,17 @@ describe("ProductPulse screens", () => {
                   productMomentumTier: "Rising",
                   productMomentumScore: 74,
                 },
+                sourceChanges: [{
+                  id: "new-returns",
+                  source: "returns",
+                  label: "New returns",
+                  value: "2 returned units",
+                  delta: "+2 return signals",
+                  direction: "up",
+                  tone: "orange",
+                  icon: "shopify-returns",
+                  detail: "New return text sentiment: 2 negative, 0 neutral, 0 positive.",
+                }],
                 sections: [{
                   id: "risk",
                   title: "Risk and diagnosis",
@@ -277,7 +289,10 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "View latest Watchlist change report for Nintendo New 3DS XL" }));
     const reportDialog = screen.getByRole("dialog", { name: "Nintendo New 3DS XL" });
     expect(within(reportDialog).getByText("Watchlist change report")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("Product risk increased from 58 to 63.")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("What happened since the last run")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("New returns")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("2 returned units")).toBeInTheDocument();
+    expect(within(reportDialog).getByText("Calculated product-state changes")).toBeInTheDocument();
     expect(within(reportDialog).getByText("Return evidence changed")).toBeInTheDocument();
     expect(within(reportDialog).getByText("Nintendo New 3DS XL picked up new return and review evidence since the last Watchlist scan.")).toBeInTheDocument();
     fireEvent.click(within(reportDialog).getByRole("button", { name: "Done" }));

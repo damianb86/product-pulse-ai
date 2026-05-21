@@ -1679,10 +1679,11 @@ function WatchChangeReportModal({ product, report, onClose }) {
   const isBaselineReport = report?.status === "baseline";
   const sections = isBaselineReport ? [] : (Array.isArray(report?.sections) ? report.sections : []);
   const visibleSections = isBaselineReport ? [] : getVisibleWatchReportSections(sections);
+  const sourceChanges = isBaselineReport ? [] : getWatchSourceChangeCards(report);
   const sourceInsights = isBaselineReport ? [] : (Array.isArray(report?.sourceInsights) ? report.sourceInsights : []);
   const current = report?.current || {};
   const changedCards = isBaselineReport ? [] : getWatchReportChangeCards(report, visibleSections);
-  const hasVisibleChanges = changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0;
+  const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
   const statusLabel = getWatchReportStatusLabel(effectiveStatus);
@@ -1720,7 +1721,7 @@ function WatchChangeReportModal({ product, report, onClose }) {
             </div>
             <div>
               <DashboardIcon type="file" tone="blue" size="small" />
-              <span>Changed fields</span>
+              <span>Tracked changes</span>
               <strong>{Number(report?.changeCount || 0)}</strong>
             </div>
             <div>
@@ -1746,49 +1747,44 @@ function WatchChangeReportModal({ product, report, onClose }) {
                 </div>
               </div>
             </section>
-          ) : changedCards.length ? (
-            <section className="ppWatchChangedPanel" aria-label="Watchlist fields that changed">
+          ) : null}
+
+          {!isBaselineReport && sourceChanges.length ? (
+            <section className="ppWatchSourceChangesPanel" aria-label="Concrete source activity since the previous Watchlist run">
               <div className="ppWatchChangedPanelTitle">
-                <h3>What changed</h3>
+                <h3>What happened since the last run</h3>
                 {report?.headline ? <p>{report.headline}</p> : null}
               </div>
-              <div className="ppWatchChangedGrid">
-                {changedCards.map((change) => {
-                  const tone = getWatchChangeCardTone(change);
+              <div className="ppWatchSourceChangesGrid">
+                {sourceChanges.map((change) => {
+                  const tone = getWatchSourceChangeTone(change);
                   return (
-                    <article className={`ppWatchChangedCard ppWatchChangedCard-${tone}`} key={change.sectionId ? `${change.sectionId}-${change.id}` : change.id || change.label}>
-                      <DashboardIcon type={getWatchChangeCardIcon(change)} tone={tone} size="small" />
+                    <article className={`ppWatchSourceChangeCard ppWatchSourceChangeCard-${tone}`} key={change.id || change.label}>
+                      <DashboardIcon type={getWatchSourceChangeIcon(change)} tone={tone} size="small" />
                       <div>
                         <span>{change.label}</span>
-                        <strong>
-                          <em>{change.from}</em>
-                          <s-icon type="arrow-right" size="small"></s-icon>
-                          <em>{change.to}</em>
-                        </strong>
-                        <small>{change.detail}</small>
+                        <strong>{change.value || change.delta || "Changed"}</strong>
+                        <small>{change.detail || "Concrete source activity changed since the previous Watchlist run."}</small>
                       </div>
-                      <b className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchChangeDeltaTone(change)}`}>{change.delta}</b>
+                      {change.delta ? <b className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchSourceChangeDeltaTone(change)}`}>{change.delta}</b> : null}
                     </article>
                   );
                 })}
               </div>
             </section>
-          ) : effectiveStatus === "unchanged" ? (
+          ) : null}
+
+          {!isBaselineReport && effectiveStatus === "unchanged" ? (
             <section className="ppWatchNoChangesPanel" aria-label="No Watchlist changes detected">
               <DashboardIcon type="check" tone="green" />
               <div>
-                <h3>No changes detected</h3>
-                <p>No meaningful product risk, evidence, financial exposure or momentum movement was detected since the previous Watchlist run.</p>
+                <h3>No new activity detected</h3>
+                <p>No new orders, returns, refunds, reviews or meaningful calculated product-state movement was detected since the previous Watchlist run.</p>
               </div>
             </section>
-          ) : report?.headline ? (
-            <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
-              <s-icon type="info" size="small"></s-icon>
-              <span>{report.headline}</span>
-            </div>
           ) : null}
 
-          {sourceInsights.length ? (
+          {!isBaselineReport && sourceInsights.length ? (
             <div className="ppWatchChangeReportInsights">
               {sourceInsights.map((insight) => {
                 const quote = getWatchInsightQuote(insight);
@@ -1814,6 +1810,40 @@ function WatchChangeReportModal({ product, report, onClose }) {
                   </article>
                 );
               })}
+            </div>
+          ) : null}
+
+          {!isBaselineReport && changedCards.length ? (
+            <section className="ppWatchChangedPanel" aria-label="Calculated Watchlist fields that changed">
+              <div className="ppWatchChangedPanelTitle">
+                <h3>Calculated product-state changes</h3>
+                <p>Secondary context from risk, evidence totals, exposure and momentum.</p>
+              </div>
+              <div className="ppWatchChangedGrid">
+                {changedCards.map((change) => {
+                  const tone = getWatchChangeCardTone(change);
+                  return (
+                    <article className={`ppWatchChangedCard ppWatchChangedCard-${tone}`} key={change.sectionId ? `${change.sectionId}-${change.id}` : change.id || change.label}>
+                      <DashboardIcon type={getWatchChangeCardIcon(change)} tone={tone} size="small" />
+                      <div>
+                        <span>{change.label}</span>
+                        <strong>
+                          <em>{change.from}</em>
+                          <s-icon type="arrow-right" size="small"></s-icon>
+                          <em>{change.to}</em>
+                        </strong>
+                        <small>{change.detail}</small>
+                      </div>
+                      <b className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchChangeDeltaTone(change)}`}>{change.delta}</b>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : !sourceChanges.length && report?.headline ? (
+            <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
+              <s-icon type="info" size="small"></s-icon>
+              <span>{report.headline}</span>
             </div>
           ) : null}
 
@@ -1876,6 +1906,12 @@ function getWatchReportChangeCards(report, sections = []) {
   return (explicit.length ? explicit : sectionChanges).filter(isMeaningfulWatchReportChange).slice(0, 4);
 }
 
+function getWatchSourceChangeCards(report) {
+  return (Array.isArray(report?.sourceChanges) ? report.sourceChanges : [])
+    .filter((change) => change && typeof change === "object")
+    .slice(0, 6);
+}
+
 function getVisibleWatchReportSections(sections = []) {
   return (Array.isArray(sections) ? sections : [])
     .map((section) => ({
@@ -1925,11 +1961,32 @@ function getWatchReportSectionIcon(sectionId) {
 }
 
 function getWatchReportInsightIcon(insightId) {
-  if (insightId === "return-evidence") return "return";
+  if (insightId === "order-evidence") return "shopify-orders";
+  if (insightId === "return-evidence") return "shopify-returns";
   if (insightId === "review-evidence") return "star";
-  if (insightId === "refund-evidence") return "cash-dollar";
-  if (insightId === "product-content") return "product";
+  if (insightId === "refund-evidence") return "shopify-refunds";
+  if (insightId === "product-content") return "shopify-product";
   return "info";
+}
+
+function getWatchSourceChangeIcon(change = {}) {
+  if (change.icon) return change.icon;
+  const id = String(change.id || change.source || change.label || "").toLowerCase();
+  if (id.includes("order")) return "shopify-orders";
+  if (id.includes("return")) return "shopify-returns";
+  if (id.includes("refund")) return "shopify-refunds";
+  if (id.includes("review")) return "star";
+  if (id.includes("content") || id.includes("product")) return "shopify-product";
+  return "info";
+}
+
+function getWatchSourceChangeTone(change = {}) {
+  if (change.tone) return change.tone;
+  const id = String(change.id || change.source || change.label || "").toLowerCase();
+  if (id.includes("return") || id.includes("refund")) return "orange";
+  if (id.includes("review")) return "blue";
+  if (id.includes("order")) return "green";
+  return "blue";
 }
 
 function getWatchChangeCardIcon(change = {}) {
@@ -1981,6 +2038,21 @@ function getWatchChangeDirectionTone(direction) {
   if (direction === "up") return "up";
   if (direction === "down") return "down";
   return "neutral";
+}
+
+function getWatchSourceChangeDeltaTone(change = {}) {
+  const direction = getWatchChangeDirectionTone(change.direction);
+  if (direction === "neutral") return "neutral";
+  const id = String(change.id || change.source || change.label || "").toLowerCase();
+  if (id.includes("return") || id.includes("refund") || id.includes("negative")) {
+    return direction === "up" ? "bad" : "good";
+  }
+  if (id.includes("review")) {
+    const delta = String(change.delta || "").toLowerCase();
+    if (delta.includes("negative")) return direction === "up" ? "bad" : "good";
+    if (delta.includes("rating")) return direction === "up" ? "good" : "bad";
+  }
+  return direction === "up" ? "good" : "bad";
 }
 
 function getWatchChangeDeltaTone(change = {}) {

@@ -752,6 +752,8 @@ function formatWatchChangeReportActivity(activity = {}) {
     previous: report.previous || null,
     current: report.current || null,
     narrative: report.narrative || "",
+    sourceChangeCount: Number(report.sourceChangeCount || 0),
+    sourceChanges: Array.isArray(report.sourceChanges) ? report.sourceChanges : [],
     sourceInsights: Array.isArray(report.sourceInsights) ? report.sourceInsights : [],
     sections: Array.isArray(report.sections) ? report.sections : [],
     changes: Array.isArray(report.changes) ? report.changes : [],
@@ -806,30 +808,34 @@ function buildWatchChangeReport({
       source,
       noChangesReused,
       changeCount: 0,
+      sourceChangeCount: 0,
       previousRunAt: null,
       currentRunAt: current.capturedAt,
       previous: null,
       current,
       narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, momentum and evidence against this stored point.",
+      sourceChanges: [],
       sourceInsights: [],
       sections: [],
       changes: [],
     };
   }
 
+  const sourceChanges = buildWatchSourceChangeCards(previous, current);
+  const sourceInsights = buildWatchEvidenceChangeInsights(previous, current);
   const sections = [
     buildRiskChangeSection(previous, current),
     buildEvidenceChangeSection(previous, current),
     buildImpactChangeSection(previous, current),
     buildMomentumChangeSection(previous, current),
   ].filter((section) => section.changes.length);
-  const sourceInsights = buildWatchEvidenceChangeInsights(previous, current);
   const changes = sections.flatMap((section) => section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title })));
-  const status = changes.length ? "changed" : "unchanged";
-  const headline = changes.length ? getWatchReportHeadline(changes) : "No meaningful changes detected";
-  const summary = changes.length
-    ? `${changes.length} meaningful change${changes.length === 1 ? "" : "s"} since the previous Watchlist run. ${headline}`
-    : "No meaningful product risk, evidence, impact or momentum changes were detected since the previous Watchlist run.";
+  const totalChangeCount = sourceChanges.length + changes.length;
+  const status = totalChangeCount ? "changed" : "unchanged";
+  const headline = totalChangeCount ? getWatchReportHeadline(changes, sourceChanges) : "No meaningful changes detected";
+  const summary = totalChangeCount
+    ? `${sourceChanges.length} concrete source change${sourceChanges.length === 1 ? "" : "s"} and ${changes.length} calculated product-state change${changes.length === 1 ? "" : "s"} since the previous Watchlist run. ${headline}`
+    : "No new orders, returns, refunds, reviews or meaningful calculated product-state movement were detected since the previous Watchlist run.";
 
   return {
     id: `watch-report-${snapshot.productGid || "product"}-${createdAt.getTime()}`,
@@ -839,12 +845,14 @@ function buildWatchChangeReport({
     summary,
     source,
     noChangesReused,
-    changeCount: changes.length,
+    changeCount: totalChangeCount,
+    sourceChangeCount: sourceChanges.length,
     previousRunAt,
     currentRunAt: current.capturedAt,
     previous,
     current,
-    narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceInsights, changes, current, previous } }),
+    narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceChanges, sourceInsights, changes, current, previous } }),
+    sourceChanges,
     sourceInsights,
     sections: status === "unchanged" ? [] : sections,
     changes,
@@ -853,6 +861,7 @@ function buildWatchChangeReport({
 
 function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefined, capturedAt = new Date()) {
   const metrics = snapshot.metrics || {};
+  const evidenceDetails = buildWatchEvidenceDetails(metrics);
   const riskScore = clampRoundNumber(snapshot.riskScore);
   const returnRatePercent = normalizeRatePercent(firstNumber(
     metrics.returnRatePercent,
@@ -878,10 +887,13 @@ function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefin
     marginAtRisk: roundMoney(firstNumber(metrics.marginAtRisk, metrics.financialExposure?.marginAtRisk, metrics.impactFactors?.marginAtRisk)),
     revenueAtRisk: roundMoney(firstNumber(metrics.revenueAtRisk, metrics.financialExposure?.revenueAtRisk, metrics.impactFactors?.revenueAtRisk)),
     primaryIssue: String(snapshot.primaryIssue || metrics.primaryIssue || metrics.mainIssue || "No primary issue"),
+    orderCount: clampRoundNumber(firstNumber(metrics.orderCount, metrics.monthlyOrderActivity?.summary?.totalOrders, evidenceDetails.orders?.totalOrders)),
+    soldUnits: clampRoundNumber(firstNumber(metrics.soldUnits, metrics.monthlyOrderActivity?.summary?.totalOrderUnits, evidenceDetails.orders?.totalUnits)),
+    salesAmount: roundMoney(firstNumber(metrics.salesAmount, metrics.monthlyOrderActivity?.summary?.totalRevenue, evidenceDetails.orders?.totalRevenue)),
     returnRatePercent,
     refundRatePercent,
-    returnUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.returns?.units, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
-    refundUnits: clampRoundNumber(firstNumber(metrics.refundUnits, metrics.refunds?.units, metrics.monthlyOrderActivity?.summary?.refundedOrders)),
+    returnUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.returns?.units, metrics.monthlyOrderActivity?.summary?.totalReturnedUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
+    refundUnits: clampRoundNumber(firstNumber(metrics.refundUnits, metrics.refunds?.units, metrics.monthlyOrderActivity?.summary?.totalRefundedUnits, metrics.monthlyOrderActivity?.summary?.refundedOrders)),
     negativeReviewCount: clampRoundNumber(firstNumber(metrics.negativeReviewCount, metrics.reviews?.negativeReviews)),
     reviewCount: clampRoundNumber(firstNumber(metrics.reviewCount, metrics.reviews?.totalReviews)),
     signalCount: clampRoundNumber(firstNumber(metrics.signalCount, metrics.signalsCount, metrics.totalSignals, metrics.evidenceSignalCount)),
@@ -898,27 +910,39 @@ function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefin
     productMomentumScore: clampRoundNumber(firstNumber(metrics.productMomentumScore, productMomentum.score)),
     productMomentumTier: firstString(metrics.productMomentumTier, productMomentum.tier, "No momentum"),
     productMomentumDirection: firstString(metrics.momentumDirection, productMomentum.direction),
-    evidenceDetails: buildWatchEvidenceDetails(metrics),
+    evidenceDetails,
     sourceFingerprint: metrics.incrementalDiagnosis?.cache?.sourceFingerprint || null,
   };
 }
 
 function buildWatchEvidenceDetails(metrics = {}) {
   const cache = metrics.incrementalDiagnosis?.cache || {};
+  const sourceEvents = cache.sourceEvents || {};
   const customerText = cache.customerText || {};
   const refundCache = cache.refunds || {};
+  const orderItems = normalizeWatchSourceEvents(sourceEvents.sales, "orders").slice(-80);
+  const returnSourceItems = normalizeWatchSourceEvents(sourceEvents.returns, "returns").slice(-60);
+  const refundSourceItems = normalizeWatchSourceEvents(sourceEvents.refunds, "refunds").slice(-50);
   const returnItems = normalizeWatchAnalysisItems(customerText.returnItems).slice(-60);
   const reviewItems = normalizeWatchAnalysisItems(customerText.reviewItems).slice(-80);
   const refundItems = normalizeWatchAnalysisItems(refundCache.items).slice(-40);
   const textInsights = metrics.textInsights || {};
   const refundInsights = metrics.refundInsights || {};
+  const monthlySummary = metrics.monthlyOrderActivity?.summary || {};
   return {
+    orders: {
+      totalOrders: clampRoundNumber(firstNumber(metrics.orderCount, monthlySummary.totalOrders, orderItems.length)),
+      totalUnits: clampRoundNumber(firstNumber(metrics.soldUnits, monthlySummary.totalOrderUnits, sumWatchItemNumbers(orderItems, "quantity"))),
+      totalRevenue: roundMoney(firstNumber(metrics.salesAmount, monthlySummary.totalRevenue, sumWatchItemNumbers(orderItems, "amount"))),
+      items: orderItems.map(trimWatchSourceEventItem),
+    },
     returns: {
-      totalUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
+      totalUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.monthlyOrderActivity?.summary?.totalReturnedUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
       rate: normalizeRatePercent(firstNumber(metrics.returnRate, metrics.monthlyOrderActivity?.summary?.returnRate)),
       topReasons: normalizeWatchCountRows(metrics.topReturnReasonDetails),
       sentiment: normalizeWatchSentiment(textInsights.returns?.sentiment),
       repeatedLanguage: normalizeWatchCountRows(textInsights.returns?.repeatedLanguage),
+      sourceItems: returnSourceItems.map(trimWatchSourceEventItem),
       items: returnItems.map(trimWatchEvidenceItem),
     },
     reviews: {
@@ -932,12 +956,13 @@ function buildWatchEvidenceDetails(metrics = {}) {
       items: reviewItems.map(trimWatchEvidenceItem),
     },
     refunds: {
-      totalUnits: clampRoundNumber(firstNumber(metrics.refundUnits)),
+      totalUnits: clampRoundNumber(firstNumber(metrics.refundUnits, metrics.monthlyOrderActivity?.summary?.totalRefundedUnits, metrics.monthlyOrderActivity?.summary?.refundedOrders)),
       amount: roundMoney(firstNumber(metrics.refundAmount)),
       rate: normalizeRatePercent(firstNumber(metrics.refundRate)),
       topReasons: normalizeWatchCountRows(metrics.topRefundReasonDetails || refundInsights.topReasons),
       sentiment: normalizeWatchSentiment(refundInsights.sentiment),
       repeatedLanguage: normalizeWatchCountRows(refundInsights.repeatedLanguage),
+      sourceItems: refundSourceItems.map(trimWatchSourceEventItem),
       items: refundItems.map(trimWatchEvidenceItem),
     },
     content: {
@@ -954,10 +979,158 @@ function buildWatchEvidenceDetails(metrics = {}) {
   };
 }
 
+function buildWatchSourceChangeCards(previous, current) {
+  const previousDetails = previous?.evidenceDetails || {};
+  const currentDetails = current?.evidenceDetails || {};
+  return [
+    buildWatchOrderSourceChange(previous, current, previousDetails.orders, currentDetails.orders),
+    buildWatchReturnSourceChange(previous, current, previousDetails.returns, currentDetails.returns),
+    buildWatchRefundSourceChange(previous, current, previousDetails.refunds, currentDetails.refunds),
+    buildWatchReviewSourceChange(previous, current, previousDetails.reviews, currentDetails.reviews),
+    buildWatchContentSourceChange(currentDetails.content),
+  ].filter(Boolean);
+}
+
+function buildWatchOrderSourceChange(previous, current, previousOrders = {}, currentOrders = {}) {
+  const newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
+  const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
+  const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
+  const newOrderCount = newItems.length || Math.max(0, Math.round(orderDelta));
+  const newUnits = sumWatchItemNumbers(newItems, "quantity") || Math.max(0, Math.round(unitDelta));
+  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || Math.max(0, revenueDelta));
+  if (!newOrderCount && !newUnits && newRevenue < 1) return null;
+  return {
+    id: "new-orders",
+    source: "orders",
+    label: "New orders",
+    value: `${formatNumberWithSuffix(newOrderCount)} order${newOrderCount === 1 ? "" : "s"}`,
+    delta: newUnits ? `+${formatNumberWithSuffix(newUnits)} unit${newUnits === 1 ? "" : "s"}` : newRevenue ? `+${formatMoney(newRevenue)}` : "New activity",
+    direction: "up",
+    tone: "green",
+    icon: "shopify-orders",
+    detail: [
+      newRevenue ? `${formatMoney(newRevenue)} order revenue captured since the previous Watchlist run.` : "",
+      newItems.length ? summarizeWatchVariants(newItems) : "",
+    ].filter(Boolean).join(" "),
+    items: newItems.slice(-6),
+  };
+}
+
+function buildWatchReturnSourceChange(previous, current, previousReturns = {}, currentReturns = {}) {
+  const newSourceItems = getNewWatchEvidenceItems(previousReturns.sourceItems, currentReturns.sourceItems, { sinceAt: previous?.capturedAt });
+  const newTextItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items, { sinceAt: previous?.capturedAt });
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.returnUnits, previousReturns.totalUnits), findWatchNumber(current?.returnUnits, currentReturns.totalUnits));
+  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || Math.max(0, Math.round(unitDelta));
+  const newCount = newSourceItems.length || newTextItems.length || (newUnits ? 1 : 0);
+  if (!newCount && !newUnits) return null;
+  const sentiment = summarizeWatchEvidenceItems(newTextItems);
+  const reasons = countWatchTerms([
+    ...newSourceItems.map((item) => item.reason || item.reasonText),
+    ...newTextItems.map((item) => item.reason || item.issueCode),
+  ].filter(Boolean));
+  return {
+    id: "new-returns",
+    source: "returns",
+    label: "New returns",
+    value: `${formatNumberWithSuffix(newUnits || newCount)} returned unit${(newUnits || newCount) === 1 ? "" : "s"}`,
+    delta: `+${formatNumberWithSuffix(newCount)} return signal${newCount === 1 ? "" : "s"}`,
+    direction: "up",
+    tone: "orange",
+    icon: "shopify-returns",
+    detail: [
+      reasons.length ? `New return reason language: ${formatWatchCountList(reasons, 3)}.` : "",
+      sentiment.total ? `New return text sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      newTextItems[0]?.text ? `Latest note: "${truncateWatchText(newTextItems[0].text, 110)}"` : "",
+    ].filter(Boolean).join(" "),
+    items: [...newSourceItems, ...newTextItems].slice(-6),
+  };
+}
+
+function buildWatchRefundSourceChange(previous, current, previousRefunds = {}, currentRefunds = {}) {
+  const newSourceItems = getNewWatchEvidenceItems(previousRefunds.sourceItems, currentRefunds.sourceItems, { sinceAt: previous?.capturedAt });
+  const newTextItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items, { sinceAt: previous?.capturedAt });
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.refundUnits, previousRefunds.totalUnits), findWatchNumber(current?.refundUnits, currentRefunds.totalUnits));
+  const amountDelta = watchNumberDelta(findWatchNumber(previousRefunds.amount), findWatchNumber(currentRefunds.amount));
+  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || Math.max(0, Math.round(unitDelta));
+  const newAmount = roundMoney(sumWatchItemNumbers(newSourceItems, "amount") || Math.max(0, amountDelta));
+  const newCount = newSourceItems.length || newTextItems.length || (newUnits ? 1 : 0);
+  if (!newCount && !newUnits && newAmount < 1) return null;
+  const sentiment = summarizeWatchEvidenceItems(newTextItems);
+  const reasons = countWatchTerms([
+    ...newSourceItems.flatMap((item) => [item.reasonText, item.reason, item.restockType]),
+    ...newTextItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]),
+  ].filter(Boolean));
+  return {
+    id: "new-refunds",
+    source: "refunds",
+    label: "New refunds",
+    value: `${formatNumberWithSuffix(newUnits || newCount)} refunded unit${(newUnits || newCount) === 1 ? "" : "s"}`,
+    delta: newAmount ? `+${formatMoney(newAmount)}` : `+${formatNumberWithSuffix(newCount)} refund signal${newCount === 1 ? "" : "s"}`,
+    direction: "up",
+    tone: "orange",
+    icon: "shopify-refunds",
+    detail: [
+      reasons.length ? `New refund reason language: ${formatWatchCountList(reasons, 3)}.` : "",
+      sentiment.total ? `New refund-note sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      newTextItems[0]?.text ? `Latest note: "${truncateWatchText(newTextItems[0].text, 110)}"` : "",
+    ].filter(Boolean).join(" "),
+    items: [...newSourceItems, ...newTextItems].slice(-6),
+  };
+}
+
+function buildWatchReviewSourceChange(previous, current, previousReviews = {}, currentReviews = {}) {
+  const newItems = getNewWatchEvidenceItems(previousReviews.items, currentReviews.items, { sinceAt: previous?.capturedAt });
+  const reviewDelta = watchNumberDelta(findWatchNumber(previous?.reviewCount, previousReviews.total), findWatchNumber(current?.reviewCount, currentReviews.total));
+  const negativeDelta = watchNumberDelta(findWatchNumber(previous?.negativeReviewCount, previousReviews.negative), findWatchNumber(current?.negativeReviewCount, currentReviews.negative));
+  const ratingDelta = watchNumberDelta(findWatchNumber(previousReviews.averageRating), findWatchNumber(currentReviews.averageRating));
+  const newCount = newItems.length || Math.max(0, Math.round(reviewDelta));
+  if (!newCount && Math.abs(ratingDelta) < 0.1 && !negativeDelta) return null;
+  const sentiment = summarizeWatchEvidenceItems(newItems);
+  const repeated = extractWatchRepeatedLanguage(newItems);
+  const ratingDirection = ratingDelta > 0 ? "up" : ratingDelta < 0 ? "down" : "neutral";
+  return {
+    id: "new-reviews",
+    source: "reviews",
+    label: newCount ? "New reviews" : "Review rating changed",
+    value: newCount ? `${formatNumberWithSuffix(newCount)} review${newCount === 1 ? "" : "s"}` : `${formatNumberWithSuffix(previousReviews.averageRating || 0)} to ${formatNumberWithSuffix(currentReviews.averageRating || 0)}`,
+    delta: Math.abs(ratingDelta) >= 0.1
+      ? `${ratingDelta > 0 ? "+" : ""}${formatNumberWithSuffix(ratingDelta)} rating`
+      : `${negativeDelta > 0 ? "+" : ""}${formatNumberWithSuffix(negativeDelta)} negative`,
+    direction: ratingDirection === "neutral" ? (negativeDelta > 0 ? "up" : negativeDelta < 0 ? "down" : "neutral") : ratingDirection,
+    tone: negativeDelta > 0 || sentiment.negative > sentiment.positive || ratingDelta < -0.1 ? "orange" : "blue",
+    icon: "star",
+    detail: [
+      sentiment.total ? `New review sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      Math.abs(ratingDelta) >= 0.1 ? `Average rating moved from ${formatNumberWithSuffix(previousReviews.averageRating || 0)} to ${formatNumberWithSuffix(currentReviews.averageRating || 0)}.` : "",
+      repeated.length ? `Repeated new review language: ${formatWatchCountList(repeated, 4)}.` : "",
+      newItems[0]?.text ? `Latest review: "${truncateWatchText(newItems[0].text, 110)}"` : "",
+    ].filter(Boolean).join(" "),
+    items: newItems.slice(-6),
+  };
+}
+
+function buildWatchContentSourceChange(currentContent = {}) {
+  if (!currentContent?.changed) return null;
+  return {
+    id: "product-content-updated",
+    source: "content",
+    label: "Product content",
+    value: "Updated",
+    delta: "Changed",
+    direction: "neutral",
+    tone: "blue",
+    icon: "shopify-product",
+    detail: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous deep diagnosis.",
+    items: [],
+  };
+}
+
 function buildWatchEvidenceChangeInsights(previous, current) {
   const previousDetails = previous?.evidenceDetails || {};
   const currentDetails = current?.evidenceDetails || {};
   return [
+    buildWatchOrderInsight(previous, current, previousDetails.orders, currentDetails.orders),
     buildWatchReturnInsight(previous, current, previousDetails.returns, currentDetails.returns),
     buildWatchReviewInsight(previous, current, previousDetails.reviews, currentDetails.reviews),
     buildWatchRefundInsight(previous, current, previousDetails.refunds, currentDetails.refunds),
@@ -965,14 +1138,41 @@ function buildWatchEvidenceChangeInsights(previous, current) {
   ].filter(Boolean);
 }
 
+function buildWatchOrderInsight(previous, current, previousOrders = {}, currentOrders = {}) {
+  const newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
+  const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
+  const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
+  const newOrderCount = newItems.length || Math.max(0, Math.round(orderDelta));
+  const newUnits = sumWatchItemNumbers(newItems, "quantity") || Math.max(0, Math.round(unitDelta));
+  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || Math.max(0, revenueDelta));
+  if (!newOrderCount && !newUnits && newRevenue < 1) return null;
+  return {
+    id: "order-evidence",
+    title: "Order activity changed",
+    tone: "green",
+    metric: `${formatNumberWithSuffix(newOrderCount)} new order${newOrderCount === 1 ? "" : "s"}`,
+    summary: `${formatNumberWithSuffix(newUnits || newOrderCount)} sold unit${(newUnits || newOrderCount) === 1 ? "" : "s"} were captured since the previous Watchlist report.`,
+    bullets: [
+      newRevenue ? `New order revenue: ${formatMoney(newRevenue)}.` : "",
+      summarizeWatchVariants(newItems),
+      summarizeWatchGeography(newItems),
+    ].filter(Boolean),
+  };
+}
+
 function buildWatchReturnInsight(previous, current, previousReturns = {}, currentReturns = {}) {
   const newItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items, { sinceAt: previous?.capturedAt });
+  const newSourceItems = getNewWatchEvidenceItems(previousReturns.sourceItems, currentReturns.sourceItems, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.returnUnits || currentReturns.totalUnits || 0) - Number(previous?.returnUnits || previousReturns.totalUnits || 0);
   const rateDelta = Number(current?.returnRatePercent || currentReturns.rate || 0) - Number(previous?.returnRatePercent || previousReturns.rate || 0);
-  if (!newItems.length && Math.abs(unitDelta) < 1 && Math.abs(rateDelta) < 0.2) return null;
+  if (!newItems.length && !newSourceItems.length && Math.abs(unitDelta) < 1 && Math.abs(rateDelta) < 0.2) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReturns.items);
   const sentimentLabel = newItems.length ? "New return sentiment" : "Current return sentiment";
-  const reasons = countWatchTerms(newItems.map((item) => item.reason || item.issueCode).filter(Boolean));
+  const reasons = countWatchTerms([
+    ...newItems.map((item) => item.reason || item.issueCode),
+    ...newSourceItems.map((item) => item.reason || item.reasonText),
+  ].filter(Boolean));
   const repeated = extractWatchRepeatedLanguage(newItems);
   return {
     id: "return-evidence",
@@ -1019,11 +1219,15 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
 
 function buildWatchRefundInsight(previous, current, previousRefunds = {}, currentRefunds = {}) {
   const newItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items, { sinceAt: previous?.capturedAt });
+  const newSourceItems = getNewWatchEvidenceItems(previousRefunds.sourceItems, currentRefunds.sourceItems, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.refundUnits || currentRefunds.totalUnits || 0) - Number(previous?.refundUnits || previousRefunds.totalUnits || 0);
-  if (!newItems.length && Math.abs(unitDelta) < 1) return null;
+  if (!newItems.length && !newSourceItems.length && Math.abs(unitDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentRefunds.items);
   const sentimentLabel = newItems.length ? "New refund-note sentiment" : "Current refund-note sentiment";
-  const reasons = countWatchTerms(newItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]).filter(Boolean));
+  const reasons = countWatchTerms([
+    ...newItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]),
+    ...newSourceItems.flatMap((item) => [item.reasonText, item.reason, item.restockType]),
+  ].filter(Boolean));
   const repeated = extractWatchRepeatedLanguage(newItems);
   return {
     id: "refund-evidence",
@@ -1264,7 +1468,13 @@ function textWatchChange({ id, label, previous, current, detail }) {
   };
 }
 
-function getWatchReportHeadline(changes = []) {
+function getWatchReportHeadline(changes = [], sourceChanges = []) {
+  const preferredSource = sourceChanges.find((change) => ["new-returns", "new-refunds", "new-reviews", "new-orders"].includes(change.id))
+    || sourceChanges[0];
+  if (preferredSource) {
+    const value = [preferredSource.value, preferredSource.delta].filter(Boolean).join(" · ");
+    return `${preferredSource.label}: ${value}.`;
+  }
   const preferred = changes.find((change) => ["risk-score", "return-rate", "negative-reviews", "estimated-impact", "momentum-score"].includes(change.id))
     || changes[0];
   if (!preferred) return "No meaningful changes detected";
@@ -1274,19 +1484,24 @@ function getWatchReportHeadline(changes = []) {
 
 function buildWatchChangeDeterministicNarrative({ productTitle = "This product", report = {}, noChangesReused = false } = {}) {
   if (noChangesReused || report.status === "unchanged") {
-    return `${productTitle} did not show meaningful Watchlist changes since the previous run. Product risk, source evidence, financial exposure and commercial momentum stayed close to the last stored report.`;
+    return `${productTitle} did not show new orders, returns, refunds, reviews or meaningful calculated Watchlist movement since the previous run. Product risk, source evidence, financial exposure and commercial momentum stayed close to the last stored report.`;
   }
   if (report.status === "baseline") {
     return `${productTitle} now has a Watchlist baseline. Future runs will compare new returns, refunds, reviews, source language, product risk and momentum against this stored point.`;
   }
+  const sourceChangeText = (report.sourceChanges || [])
+    .slice(0, 4)
+    .map((change) => `${change.label}: ${[change.value, change.delta].filter(Boolean).join(" · ")}${change.detail ? ` (${change.detail})` : ""}`)
+    .join(" ");
   const insightText = (report.sourceInsights || [])
     .slice(0, 3)
     .map((insight) => `${insight.title}: ${insight.summary}`)
     .join(" ");
   return [
     `${productTitle} changed since the previous Watchlist run.`,
+    sourceChangeText || "No concrete source-event changes were isolated; the movement below is calculated product-state context.",
     report.headline || "",
-    insightText || "The report below shows the most relevant movement in risk, evidence, impact and momentum.",
+    insightText || "Calculated changes in product risk, rates, exposure and momentum are secondary context.",
   ].filter(Boolean).join(" ");
 }
 
@@ -1552,6 +1767,39 @@ function normalizeWatchAnalysisItems(items = []) {
     .sort((a, b) => new Date(a.createdAt || a.updatedAt || 0).getTime() - new Date(b.createdAt || b.updatedAt || 0).getTime());
 }
 
+function normalizeWatchSourceEvents(items = [], type = "source") {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const key = String(item.key || item.cacheKey || item.id || item.returnId || item.refundId || item.orderId || "").trim();
+      if (!key) return null;
+      return {
+        key,
+        source: type,
+        id: item.id || null,
+        orderId: item.orderId || null,
+        returnId: item.returnId || null,
+        refundId: item.refundId || null,
+        title: String(item.title || "").trim(),
+        sku: String(item.sku || "").trim(),
+        variant: String(item.variant || item.variantTitle || "").trim(),
+        quantity: Number(item.quantity || item.processedQuantity || item.refundedQuantity || 0),
+        amount: Number(item.amount || item.totalRefundedAmount || 0),
+        reason: String(item.reasonLabel || item.reason || item.restockType || "").trim(),
+        reasonText: String(item.reasonNote || item.customerNote || item.note || item.reasonLabel || item.reason || "").trim(),
+        noteText: String(item.note || item.reasonNote || item.customerNote || "").trim(),
+        restockType: String(item.restockType || "").trim(),
+        country: String(item.country || "").trim(),
+        province: String(item.province || "").trim(),
+        city: String(item.city || "").trim(),
+        createdAt: item.createdAt || item.processedAt || item.orderDate || item.orderProcessedAt || item.updatedAt || null,
+        updatedAt: item.updatedAt || item.processedAt || item.createdAt || null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.createdAt || a.updatedAt || 0).getTime() - new Date(b.createdAt || b.updatedAt || 0).getTime());
+}
+
 function trimWatchEvidenceItem(item = {}) {
   return {
     key: item.key,
@@ -1569,6 +1817,31 @@ function trimWatchEvidenceItem(item = {}) {
     quantity: item.quantity,
     amount: item.amount,
     variant: item.variant,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function trimWatchSourceEventItem(item = {}) {
+  return {
+    key: item.key,
+    source: item.source,
+    id: item.id,
+    orderId: item.orderId,
+    returnId: item.returnId,
+    refundId: item.refundId,
+    title: truncateWatchText(item.title || "", 140),
+    sku: item.sku,
+    variant: truncateWatchText(item.variant || "", 120),
+    quantity: Number(item.quantity || 0),
+    amount: roundMoney(item.amount),
+    reason: truncateWatchText(item.reason || "", 140),
+    reasonText: truncateWatchText(item.reasonText || "", 220),
+    noteText: truncateWatchText(item.noteText || "", 220),
+    restockType: item.restockType,
+    country: item.country,
+    province: item.province,
+    city: item.city,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
@@ -1668,6 +1941,24 @@ function formatWatchCountList(items = [], limit = 4) {
     .join(", ");
 }
 
+function summarizeWatchVariants(items = []) {
+  const variants = countWatchTerms((Array.isArray(items) ? items : [])
+    .map((item) => item?.variant || item?.sku || item?.title)
+    .filter(Boolean));
+  return variants.length ? `New activity by variant/SKU: ${formatWatchCountList(variants, 3)}.` : "";
+}
+
+function summarizeWatchGeography(items = []) {
+  const places = countWatchTerms((Array.isArray(items) ? items : [])
+    .map((item) => [item?.city, item?.province, item?.country].filter(Boolean).join(", "))
+    .filter(Boolean));
+  return places.length ? `New order geography: ${formatWatchCountList(places, 3)}.` : "";
+}
+
+function sumWatchItemNumbers(items = [], key) {
+  return (Array.isArray(items) ? items : []).reduce((total, item) => total + Number(item?.[key] || 0), 0);
+}
+
 function humanizeWatchLabel(value) {
   return String(value || "")
     .replace(/[_-]+/g, " ")
@@ -1688,6 +1979,19 @@ function firstNumber(...values) {
     if (Number.isFinite(number)) return number;
   }
   return 0;
+}
+
+function findWatchNumber(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function watchNumberDelta(previous, current) {
+  return Number.isFinite(previous) && Number.isFinite(current) ? current - previous : 0;
 }
 
 function firstString(...values) {
