@@ -21,6 +21,7 @@ import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server"
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummaries } from "./product-pulse-return-refund-relationship.server";
 import { buildProductPurchaseContextSummaries } from "./product-pulse-purchase-context.server";
+import { buildProductRelationshipSummaries } from "./product-pulse-product-relationships.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
@@ -253,6 +254,12 @@ export function buildQuickScanCandidates({
     events,
     assumeCompleteOrderEvents: true,
   });
+  const productRelationshipSummaries = buildProductRelationshipSummaries({
+    products: Array.from(productIndex.values()),
+    events,
+    windowDays,
+    assumeCompleteOrderEvents: true,
+  });
   const storeTotals = getStoreTotals(aggregateList);
   const now = new Date();
   const momentumBaselineSnapshots = buildQuickScanMomentumBaselineSnapshots(aggregateList, windowDays, now);
@@ -269,6 +276,7 @@ export function buildQuickScanCandidates({
       now,
       returnRefundRelationshipSummary: returnRefundRelationshipSummaries.get(aggregate.product.id) || null,
       productPurchaseContextSummary: productPurchaseContextSummaries.get(aggregate.product.id) || null,
+      productRelationshipSummary: productRelationshipSummaries.get(aggregate.product.id) || null,
     }))
     .filter((candidate) => isPersistableCandidate(candidate, settings))
     .sort((a, b) => b.metrics.quickScanCandidateScore - a.metrics.quickScanCandidateScore)
@@ -1694,6 +1702,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
   now = new Date(),
   returnRefundRelationshipSummary = null,
   productPurchaseContextSummary = null,
+  productRelationshipSummary = null,
 }) {
   const returnRate = safeRate(aggregate.returnUnits, aggregate.soldUnits);
   const refundRate = safeRate(aggregate.refundUnits, aggregate.soldUnits);
@@ -1820,6 +1829,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
       refundPressure: getRefundPressureSummary({ aggregate, refundRate: refundRatePercent }),
       returnRefundRelationshipSummary,
       productPurchaseContextSummary,
+      productRelationshipIntelligenceSummary: productRelationshipSummary,
       productPurchaseContextFactors: scoreModel.purchaseContextFactors,
       productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
       purchaseContextSignalBreakdown: scoreModel.purchaseContextFactors.customerSignalBreakdown,

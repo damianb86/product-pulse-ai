@@ -14,6 +14,7 @@ import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server"
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummary } from "./product-pulse-return-refund-relationship.server";
 import { buildProductPurchaseContextSummary } from "./product-pulse-purchase-context.server";
+import { buildProductRelationshipSummary } from "./product-pulse-product-relationships.server";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const MAX_ORDER_PAGES = 12;
@@ -2010,6 +2011,16 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     refunds,
     assumeCompleteOrderEvents: false,
   });
+  const productRelationshipIntelligenceSummary = buildProductRelationshipSummary({
+    shop: snapshot.shop,
+    productId: product.id || snapshot.productGid,
+    products: [product],
+    sales,
+    returns,
+    refunds,
+    windowDays,
+    assumeCompleteOrderEvents: false,
+  });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
@@ -2220,6 +2231,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundInsights,
       returnRefundRelationshipSummary,
       productPurchaseContextSummary,
+      productRelationshipIntelligenceSummary,
       productPurchaseContextFactors: scoreModel.purchaseContextFactors,
       productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
       purchaseContextSignalBreakdown: scoreModel.purchaseContextFactors.customerSignalBreakdown,

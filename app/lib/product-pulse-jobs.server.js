@@ -3452,6 +3452,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
         ? metrics.productPurchaseContextScoringImpact
         : [],
       purchaseContextSignalBreakdown: metrics.purchaseContextSignalBreakdown || null,
+      productRelationshipIntelligenceSummary: metrics.productRelationshipIntelligenceSummary || null,
       productMomentumScore: metrics.productMomentumScore || metrics.productMomentum?.score || null,
       productMomentumTier: metrics.productMomentumTier || metrics.productMomentum?.tier || "",
       momentumDirection: metrics.momentumDirection || metrics.productMomentum?.direction || "",
