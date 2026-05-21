@@ -10890,26 +10890,49 @@ export function buildProductMomentum({
   const revenueDistribution = Array.isArray(catalog.revenueLast30Distribution) ? catalog.revenueLast30Distribution : [];
   const unitsVelocityScore = percentileRank(last30.units, unitsDistribution);
   const revenueVelocityScore = percentileRank(last30.revenue, revenueDistribution);
-  const currentVelocityScore = clamp((0.65 * unitsVelocityScore) + (0.35 * revenueVelocityScore), 0, 100);
+  const currentVelocityScore = clamp((0.65 * unitsVelocityScore) + (0.35 * revenueVelocityScore), 0, 96);
   const smoothingUnits = Math.max(3, Number(catalog.medianUnitsLast30 || 0) * 0.10);
   const smoothingRevenue = Math.max(10, Number(catalog.medianRevenueLast30 || 0) * 0.10);
   const unitsGrowthRatio = (last30.units + smoothingUnits) / (previous30.units + smoothingUnits);
   const revenueGrowthRatio = (last30.revenue + smoothingRevenue) / (previous30.revenue + smoothingRevenue);
   const combinedGrowthRatio = (0.65 * unitsGrowthRatio) + (0.35 * revenueGrowthRatio);
-  const growthScore = clamp(50 + (35 * safeLog2(combinedGrowthRatio)), 0, 100);
+  const growthScore = getValidatedMomentumGrowthScore({
+    unitsLast30: last30.units,
+    unitsPrevious30: previous30.units,
+    revenueLast30: last30.revenue,
+    revenuePrevious30: previous30.revenue,
+  });
   const storeUnitsLast30 = Math.max(0, Number(catalog.storeUnitsLast30 || 0)) || last30.units;
   const storeUnitsPrevious90 = Math.max(0, Number(catalog.storeUnitsPrevious90 || 0)) || previous90.units;
   const productShareLast30 = last30.units / Math.max(storeUnitsLast30, 1);
   const productShareBaseline = previous90.units / Math.max(storeUnitsPrevious90, 1);
   const shareLiftRatio = (productShareLast30 + 0.0001) / (productShareBaseline + 0.0001);
-  const catalogShareScore = clamp(50 + (35 * safeLog2(shareLiftRatio)), 0, 100);
+  const topCatalogPercent = unitsDistribution.length
+    ? Math.max(1, Math.round(100 - unitsVelocityScore))
+    : null;
+  const catalogShareScore = getValidatedMomentumCatalogShareScore({
+    storedScore: 0,
+    currentVelocityScore,
+    topCatalogPercent,
+    productShareBaseline: productShareBaseline * 100,
+    shareLiftRatio,
+    hasCatalogBaseline: catalog.hasCatalogBaseline,
+    unitsLast30: last30.units,
+  });
   const activeWeekRatio = weeklyUnits.filter((value) => Number(value || 0) > 0).length / 4;
   const weeklySlope = linearRegressionSlope(weeklyUnits);
   const averageWeeklyUnits = average(weeklyUnits);
   const normalizedSlope = weeklySlope / Math.max(averageWeeklyUnits, 1);
-  const trendDirectionScore = clamp(50 + (100 * normalizedSlope), 0, 100);
-  const trendConsistencyScore = clamp((0.60 * trendDirectionScore) + (0.40 * activeWeekRatio * 100), 0, 100);
-  const recencyScore = last7.units > 0 ? 100 : last14.units > 0 ? 70 : last30.units > 0 ? 40 : 0;
+  const trendDirectionScore = clamp(50 + (70 * normalizedSlope), 0, 100);
+  const trendConsistencyScore = clamp((0.58 * trendDirectionScore) + (0.42 * activeWeekRatio * 100), 0, 100);
+  const recencyScore = getValidatedMomentumRecencyScore({
+    weeklyUnits,
+    unitsLast30: last30.units,
+    unitsLast7Days: last7.units,
+    unitsLast14Days: last14.units,
+    lastSaleAt: getLatestEventDate(safeSales),
+    now: currentDate,
+  });
   const rawScore = (0.35 * currentVelocityScore)
     + (0.25 * growthScore)
     + (0.20 * catalogShareScore)
@@ -10920,6 +10943,9 @@ export function buildProductMomentum({
   if (last30.units === 0 && last30.revenue === 0) score = 0;
   if (last30.units < 2 && revenueVelocityScore < 80) score = Math.min(score, 40);
   if (last30.units < 5 && currentVelocityScore < 80) score = Math.min(score, 65);
+  if (previous30.units === 0 && previous30.revenue === 0 && last30.units > 0) {
+    score = Math.min(score, Math.round(78 + Math.min(9, Math.log1p(last30.units) * 2.6)));
+  }
   if (productAgeDays !== null && productAgeDays < 30) score = Math.min(score, 85);
 
   const historyConfidence = previous90.units > 0 || previous90.revenue > 0
@@ -10956,9 +10982,6 @@ export function buildProductMomentum({
     smoothingUnits,
     inventoryConstraint: inventoryState.inventoryConstraint,
   });
-  const topCatalogPercent = unitsDistribution.length
-    ? Math.max(1, Math.round(100 - unitsVelocityScore))
-    : null;
   const growthPercent = previous30.units || previous30.revenue
     ? roundRate((combinedGrowthRatio - 1) * 100, 1)
     : last30.units > 0
@@ -11030,6 +11053,74 @@ export function buildProductMomentum({
       missingInventoryHistory: inventoryState.availableDaysLast30Days === null,
     },
   };
+}
+
+function getValidatedMomentumGrowthScore({ unitsLast30 = 0, unitsPrevious30 = 0, revenueLast30 = 0, revenuePrevious30 = 0 } = {}) {
+  const currentUnits = Math.max(0, Number(unitsLast30 || 0));
+  const previousUnits = Math.max(0, Number(unitsPrevious30 || 0));
+  const currentRevenue = Math.max(0, Number(revenueLast30 || 0));
+  const previousRevenue = Math.max(0, Number(revenuePrevious30 || 0));
+  if (!currentUnits && !currentRevenue) return 0;
+  if (!previousUnits && !previousRevenue) {
+    const volumeConfidence = Math.log1p(currentUnits) / Math.log1p(Math.max(40, currentUnits));
+    return clamp(66 + (22 * volumeConfidence), 0, 88);
+  }
+  const ratios = [];
+  if (previousUnits > 0 || currentUnits > 0) {
+    ratios.push({ ratio: (currentUnits + 3) / (previousUnits + 3), weight: previousUnits > 0 ? 0.72 : 0.35 });
+  }
+  if (previousRevenue > 0) {
+    ratios.push({ ratio: (currentRevenue + 25) / (previousRevenue + 25), weight: 0.28 });
+  }
+  const totalWeight = ratios.reduce((total, item) => total + item.weight, 0);
+  const combinedRatio = totalWeight
+    ? ratios.reduce((total, item) => total + (item.ratio * item.weight), 0) / totalWeight
+    : 1;
+  return clamp(50 + (28 * safeLog2(combinedRatio)), 0, 96);
+}
+
+function getValidatedMomentumCatalogShareScore({
+  storedScore = 0,
+  currentVelocityScore = 0,
+  topCatalogPercent = 0,
+  productShareBaseline = 0,
+  shareLiftRatio = 0,
+  hasCatalogBaseline = false,
+  unitsLast30 = 0,
+} = {}) {
+  const stored = clamp(Number(storedScore || 0), 0, 100);
+  const velocity = clamp(Number(currentVelocityScore || 0), 0, 96);
+  const baseline = Number(productShareBaseline || 0);
+  const lift = Number(shareLiftRatio || 0);
+  const topPercent = Number(topCatalogPercent || 0);
+  if (hasCatalogBaseline && baseline > 0 && lift > 0) {
+    const liftScore = clamp(50 + (26 * safeLog2(lift)), 0, 96);
+    return clamp((0.55 * liftScore) + (0.45 * velocity), 0, 96);
+  }
+  if (topPercent > 0) {
+    const positionScore = clamp(98 - (topPercent * 1.55), 42, 94);
+    return clamp((0.65 * positionScore) + (0.35 * Math.min(stored || positionScore, 92)), 0, 94);
+  }
+  const volumeScore = clamp(42 + ((Math.log1p(Math.max(0, unitsLast30)) / Math.log1p(Math.max(40, unitsLast30))) * 36), 0, 82);
+  return clamp(stored ? Math.min(stored, volumeScore) : volumeScore, 0, 86);
+}
+
+function getValidatedMomentumRecencyScore({ weeklyUnits = [], unitsLast30 = 0, unitsLast7Days = 0, unitsLast14Days = 0, lastSaleAt = null, now = new Date() } = {}) {
+  const latestWeekUnits = Array.isArray(weeklyUnits) && weeklyUnits.length ? Number(weeklyUnits[weeklyUnits.length - 1] || 0) : 0;
+  const recent7 = Math.max(0, Number(unitsLast7Days || 0) || latestWeekUnits);
+  const recent14 = Math.max(0, Number(unitsLast14Days || 0));
+  const currentUnits = Math.max(0, Number(unitsLast30 || 0));
+  const currentDate = parseValidDate(now) || new Date();
+  const lastSaleDate = parseValidDate(lastSaleAt);
+  const daysSinceLastSale = lastSaleDate
+    ? Math.max(0, Math.floor((currentDate.getTime() - lastSaleDate.getTime()) / (24 * 60 * 60 * 1000)))
+    : null;
+  let base = recent7 > 0 ? 82 : recent14 > 0 ? 64 : currentUnits > 0 ? 42 : 0;
+  if (daysSinceLastSale !== null) {
+    base = daysSinceLastSale <= 2 ? 86 : daysSinceLastSale <= 7 ? 78 : daysSinceLastSale <= 14 ? 60 : daysSinceLastSale <= 30 ? 38 : 0;
+  }
+  const recentShare = currentUnits ? clamp(recent7 / currentUnits, 0, 1) : 0;
+  return clamp(base + (recentShare * 10) + (recent7 >= 5 ? 4 : 0), 0, 96);
 }
 
 function sumSalesInWindow(sales, currentDate, days) {

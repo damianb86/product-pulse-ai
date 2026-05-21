@@ -2418,7 +2418,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.36fr);
+  grid-template-columns: minmax(0, 3fr) minmax(390px, 2fr);
   gap: 18px;
   align-items: start;
 }
@@ -2518,7 +2518,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDeepResearchGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -2873,24 +2873,38 @@ s-page[inline-size="large-500"] {
 .ppProductHeaderActions .ppProductAnalyzeButton {
   min-height: 38px;
   padding: 0 17px;
-  border-color: var(--pp-slate-200);
+  border-color: var(--pp-dark-cta);
   border-radius: 7px;
-  background: var(--pp-cloud-white);
-  color: var(--pp-slate-900);
+  background: var(--pp-dark-cta);
+  color: var(--pp-cloud-white);
   font-size: 13px;
   font-weight: 750;
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset, 0 8px 18px rgba(var(--pp-shadow-rgb), 0.14);
 }
 
 .ppProductHeaderActions .ppProductAnalyzeButton s-icon {
-  color: var(--pp-slate-700);
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
   transform: scale(0.9);
 }
 
 .ppProductHeaderActions .ppProductAnalyzeButton:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--pp-dark-cta) 88%, var(--pp-cloud-white));
+  background: color-mix(in srgb, var(--pp-dark-cta) 92%, var(--pp-cloud-white));
+  color: var(--pp-cloud-white);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 10px 22px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppProductHeaderActions .ppProductAnalyzeButton:disabled {
   border-color: var(--pp-slate-300);
-  background: var(--pp-slate-50);
-  color: var(--pp-slate-900);
+  background: var(--pp-slate-200);
+  color: var(--pp-slate-500);
+  box-shadow: none;
+}
+
+.ppProductHeaderActions .ppProductAnalyzeButton:disabled s-icon {
+  color: var(--pp-slate-500);
+  filter: none;
 }
 
 .ppProductDiagnosisRunning {
@@ -3237,37 +3251,32 @@ s-page[inline-size="large-500"] {
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 12px;
   align-items: start;
-  overflow: hidden;
-  padding: 18px 20px;
+  overflow: visible;
+  padding: 16px 18px;
   border: 1px solid var(--pp-border-color);
   border-radius: 10px;
-  background: var(--pp-overview-highlight-bg);
+  background: var(--pp-card-bg);
   box-shadow: var(--pp-card-shadow);
 }
 
 .ppMainFindingCard::after {
-  position: absolute;
-  inset: auto -80px -120px auto;
-  width: 260px;
-  height: 180px;
-  content: "";
-  background: radial-gradient(circle, rgba(var(--pp-insight-violet-rgb), 0.14), rgba(var(--pp-insight-violet-rgb), 0));
-  pointer-events: none;
+  display: none;
+  content: none;
 }
 
 .ppMainFindingCard .ppDashboardIcon {
   width: 34px;
   height: 34px;
   margin-top: 1px;
-  background: linear-gradient(135deg, var(--pp-insight-violet), var(--pp-pulse-blue));
-  color: var(--pp-cloud-white);
-  box-shadow: 0 10px 22px rgba(var(--pp-insight-violet-rgb), 0.16);
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+  box-shadow: none;
 }
 
 .ppMainFindingCard .ppDashboardIcon s-icon,
 .ppMainFindingCard .ppDashboardIcon svg {
-  color: var(--pp-cloud-white);
-  filter: brightness(0) invert(1);
+  color: currentColor;
+  filter: none;
 }
 
 .ppMainFindingCard span,
@@ -3289,8 +3298,8 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--pp-insight-violet);
-  font-size: 12px;
+  color: var(--pp-slate-900);
+  font-size: 13px;
   font-weight: 850;
 }
 
@@ -3317,12 +3326,100 @@ s-page[inline-size="large-500"] {
   line-height: 1.5;
 }
 
+.ppRiskSnapshotBlock {
+  display: grid;
+  gap: 12px;
+  overflow: visible;
+}
+
 .ppRiskSnapshot {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
   align-items: stretch;
   overflow: visible;
+}
+
+.ppRiskSnapshotOverflow {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition:
+    max-height 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease,
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 360ms;
+}
+
+.ppRiskSnapshotBlock.isExpanded .ppRiskSnapshotOverflow {
+  max-height: 620px;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    max-height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease,
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+
+.ppRiskSnapshot-extra {
+  padding-top: 2px;
+}
+
+.ppRiskSnapshotToggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 1px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-slate-900);
+  cursor: pointer;
+}
+
+.ppRiskSnapshotToggleLine {
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(100, 116, 139, 0.22));
+}
+
+.ppRiskSnapshotToggleLine:last-child {
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.22), transparent);
+}
+
+.ppRiskSnapshotToggleLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ppRiskSnapshotToggleLabel s-icon {
+  transform: scale(0.88);
+}
+
+.ppRiskSnapshotToggle:hover .ppRiskSnapshotToggleLabel,
+.ppRiskSnapshotToggle:focus-visible .ppRiskSnapshotToggleLabel {
+  color: var(--pp-pulse-blue);
+}
+
+.ppRiskSnapshotToggle:hover .ppRiskSnapshotToggleLine,
+.ppRiskSnapshotToggle:focus-visible .ppRiskSnapshotToggleLine {
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.28));
+}
+
+.ppRiskSnapshotToggle:hover .ppRiskSnapshotToggleLine:last-child,
+.ppRiskSnapshotToggle:focus-visible .ppRiskSnapshotToggleLine:last-child {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.28), transparent);
 }
 
 .ppProductDetailOverviewCard .ppRiskSnapshot {
@@ -3351,16 +3448,69 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductInsight-withArea {
+  --pp-insight-icon-bg: var(--pp-blue-soft);
+  --pp-insight-icon-color: var(--pp-pulse-blue);
   grid-template-columns: 1fr;
   align-items: stretch;
   gap: 12px;
-  padding: 14px;
+  padding: 20px;
+}
+
+.ppProductInsight-chartTone-red {
+  --pp-insight-icon-bg: var(--pp-red-soft);
+  --pp-insight-icon-color: var(--pp-risk-red);
+}
+
+.ppProductInsight-chartTone-purple {
+  --pp-insight-icon-bg: var(--pp-violet-soft);
+  --pp-insight-icon-color: var(--pp-insight-violet);
+}
+
+.ppProductInsight-chartTone-blue {
+  --pp-insight-icon-bg: var(--pp-blue-soft);
+  --pp-insight-icon-color: var(--pp-pulse-blue);
+}
+
+.ppProductInsight-chartTone-maroon {
+  --pp-insight-icon-bg: var(--pp-red-soft);
+  --pp-insight-icon-color: var(--pp-high-risk-text);
+}
+
+.ppProductInsight-chartTone-orange {
+  --pp-insight-icon-bg: var(--pp-amber-soft);
+  --pp-insight-icon-color: var(--pp-warning-amber);
+}
+
+.ppProductInsight-chartTone-green {
+  --pp-insight-icon-bg: var(--pp-green-soft);
+  --pp-insight-icon-color: var(--pp-success-green);
+}
+
+.ppProductInsight-chartTone-primary {
+  --pp-insight-icon-bg: var(--pp-soft-highlight);
+  --pp-insight-icon-color: var(--pp-primary-green);
+}
+
+.ppProductInsight-chartTone-dark {
+  --pp-insight-icon-bg: var(--pp-slate-100);
+  --pp-insight-icon-color: var(--pp-dark-cta);
+}
+
+.ppProductInsight-chartTone-discovery {
+  --pp-insight-icon-bg: var(--pp-discovery-soft);
+  --pp-insight-icon-color: var(--pp-discovery-blue);
+}
+
+.ppProductInsight-chartTone-slate,
+.ppProductInsight-chartTone-neutral {
+  --pp-insight-icon-bg: var(--pp-slate-100);
+  --pp-insight-icon-color: var(--pp-slate-500);
 }
 
 .ppProductInsightAreaHeader {
   min-width: 0;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
@@ -3411,9 +3561,9 @@ s-page[inline-size="large-500"] {
 .ppProductInsightAreaMain {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 86px;
+  grid-template-columns: minmax(0, 1fr) 116px;
   align-items: end;
-  gap: 10px;
+  gap: 14px;
 }
 
 .ppProductInsightAreaStats {
@@ -3511,8 +3661,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductInsightAreaTrend {
-  width: min(86px, 100%);
-  height: 42px;
+  width: min(116px, 100%);
+  height: 48px;
   display: block;
   justify-self: end;
   color: var(--pp-insight-violet);
@@ -3659,6 +3809,22 @@ s-page[inline-size="large-500"] {
 .ppProductInsight-neutral .ppProductInsightIcon {
   background: var(--pp-slate-100);
   color: var(--pp-slate-600);
+}
+
+.ppProductInsight-withArea .ppProductInsightIcon {
+  width: 42px;
+  height: 42px;
+  background: var(--pp-insight-icon-bg);
+  color: var(--pp-insight-icon-color);
+}
+
+.ppProductInsight-withArea .ppProductInsightIcon s-icon {
+  transform: scale(1.8);
+}
+
+.ppProductInsight-withArea .ppProductInsightIcon svg {
+  width: 30px;
+  height: 30px;
 }
 
 .ppInsightInfoWrap {
@@ -4535,24 +4701,33 @@ s-page[inline-size="large-500"] {
   padding: 14px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
-  background: radial-gradient(circle at 10% 8%, rgba(var(--pp-pulse-blue-rgb), 0.1), transparent 34%), linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
+  background: var(--pp-subcard-bg);
 }
 
 .ppOrderActivityCombo {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  grid-template-rows: 188px auto;
-  column-gap: 10px;
-  row-gap: 8px;
+  grid-template-columns: 46px minmax(0, 1fr) 72px;
+  grid-template-rows: 232px 34px;
+  column-gap: 12px;
+  row-gap: 7px;
   min-width: 0;
 }
 
 .ppOrderActivityYAxis {
   position: relative;
-  height: 188px;
+  grid-row: 1;
+  height: 232px;
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 850;
+}
+
+.ppOrderActivityYAxisLeft {
+  grid-column: 1;
+}
+
+.ppOrderActivityYAxisRight {
+  grid-column: 3;
 }
 
 .ppOrderActivityYAxis span {
@@ -4562,17 +4737,24 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
+.ppOrderActivityYAxisRight span {
+  right: auto;
+  left: 0;
+}
+
 .ppOrderActivityPlotFrame {
   position: relative;
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
-  height: 188px;
+  height: 232px;
   overflow-y: visible;
-  padding: 0 8px;
+  padding: 0 9px;
 }
 
 .ppOrderActivityGridLines {
   position: absolute;
-  inset: 0 8px;
+  inset: 0 9px;
   pointer-events: none;
 }
 
@@ -4581,25 +4763,25 @@ s-page[inline-size="large-500"] {
   left: 0;
   right: 0;
   height: 1px;
-  background: rgba(var(--pp-slate-500-rgb), 0.16);
+  background: rgba(var(--pp-slate-500-rgb), 0.13);
 }
 
 .ppOrderActivityBars {
   position: absolute;
-  inset: 0 8px;
+  inset: 0 9px;
   display: grid;
   align-items: end;
-  gap: 9px;
-  min-width: 520px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .ppOrderActivityLineOverlay {
   position: absolute;
-  inset: 0 8px;
+  inset: 0 9px;
   z-index: 3;
-  width: calc(100% - 16px);
+  width: calc(100% - 18px);
   height: 100%;
-  min-width: 520px;
+  min-width: 0;
   overflow: visible;
   pointer-events: none;
 }
@@ -4608,16 +4790,21 @@ s-page[inline-size="large-500"] {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.5;
+  stroke-width: 3;
   vector-effect: non-scaling-stroke;
 }
 
-.ppOrderActivityLineReturns {
-  stroke: var(--pp-warning-amber);
+.ppOrderActivityLineRevenueGlow {
+  fill: none;
+  stroke: rgba(var(--pp-signal-teal-rgb), 0.2);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 7;
+  vector-effect: non-scaling-stroke;
 }
 
-.ppOrderActivityLineRefunds {
-  stroke: var(--pp-risk-red);
+.ppOrderActivityLineRevenue {
+  stroke: var(--pp-signal-teal);
 }
 
 .ppOrderActivityMonth {
@@ -4635,24 +4822,46 @@ s-page[inline-size="large-500"] {
 
 .ppOrderActivityBarShell {
   position: relative;
-  width: 22px;
+  width: 30px;
   height: 100%;
-  background: rgba(203, 213, 225, 0.22);
-  overflow: visible;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  overflow: hidden;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: 0 4px 11px rgba(var(--pp-shadow-rgb), 0.06);
 }
 
 .ppOrderActivityBar {
-  position: absolute;
-  bottom: 0;
   display: block;
+  width: 100%;
+  min-height: 0;
   transition: height 180ms ease;
 }
 
+.ppOrderActivityBar.isTop {
+  border-radius: 4px 4px 0 0;
+}
+
+.ppOrderActivityBar.isBottom {
+  border-radius: 0 0 4px 4px;
+}
+
+.ppOrderActivityBar.isTop.isBottom {
+  border-radius: 4px;
+}
+
 .ppOrderActivityBarTotal {
-  left: 0;
-  width: 100%;
-  border-radius: 0;
-  background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.9), rgba(var(--pp-pulse-blue-rgb), 0.42));
+  background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.82), rgba(var(--pp-pulse-blue-rgb), 0.68));
+}
+
+.ppOrderActivityBarReturns {
+  background: linear-gradient(180deg, rgba(var(--pp-warning-amber-rgb), 0.82), rgba(var(--pp-warning-amber-rgb), 0.68));
+}
+
+.ppOrderActivityBarRefunds {
+  background: linear-gradient(180deg, rgba(var(--pp-risk-red-rgb), 0.82), rgba(var(--pp-risk-red-rgb), 0.68));
 }
 
 .ppOrderActivityMonth:hover .ppOrderActivityBarShell,
@@ -4736,45 +4945,36 @@ s-page[inline-size="large-500"] {
 
 .ppOrderActivityXAxis {
   grid-column: 2;
+  grid-row: 2;
   display: grid;
-  gap: 9px;
+  gap: 12px;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 9px;
   color: var(--pp-slate-500);
-  font-size: 11px;
-  font-weight: 750;
-  overflow-x: auto;
+  font-size: 12px;
+  font-weight: 850;
+  overflow: hidden;
 }
 
 .ppOrderActivityXAxis span {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
+  display: block;
   min-width: 34px;
-}
-
-.ppOrderActivityXAxis b {
-  color: var(--pp-slate-800);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.ppOrderActivityXAxis small {
-  color: var(--pp-slate-500);
-  font-size: 11px;
-  font-weight: 750;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ppOrderActivityLegend {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
+  justify-content: center;
+  gap: 24px;
   flex-wrap: wrap;
   color: var(--pp-slate-600);
   font-size: 12px;
   font-weight: 800;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .ppOrderActivityLegend span {
@@ -4784,9 +4984,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppOrderActivityLegend i {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
   display: inline-block;
 }
 
@@ -4800,6 +5000,13 @@ s-page[inline-size="large-500"] {
 
 .ppOrderActivityLegendRefunds {
   background: var(--pp-risk-red);
+}
+
+.ppOrderActivityLegend .ppOrderActivityLegendRevenue {
+  width: 26px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--pp-signal-teal);
 }
 
 .ppProductReturnPredictionPanel {
@@ -4856,11 +5063,9 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 10px;
   padding: 14px;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
-  background:
-    radial-gradient(circle at 10% 8%, rgba(var(--pp-pulse-blue-rgb), 0.1), transparent 34%),
-    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
+  background: var(--pp-subcard-bg);
 }
 
 .ppReturnPredictionPlot {
@@ -4900,11 +5105,17 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
-.ppReturnPredictionChart {
+.ppReturnPredictionChartArea {
+  position: relative;
   grid-column: 2;
   grid-row: 1;
-  width: 100%;
+  min-width: 0;
   height: 230px;
+}
+
+.ppReturnPredictionChart {
+  width: 100%;
+  height: 100%;
   overflow: visible;
 }
 
@@ -4933,6 +5144,11 @@ s-page[inline-size="large-500"] {
   stroke-dasharray: 4 5;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
+}
+
+.ppReturnPredictionForecastRange {
+  fill: rgba(var(--pp-insight-violet-rgb), 0.18);
+  stroke: none;
 }
 
 .ppReturnPredictionObserved,
@@ -5024,76 +5240,97 @@ s-page[inline-size="large-500"] {
   background: repeating-linear-gradient(90deg, var(--pp-insight-violet) 0 7px, transparent 7px 12px);
 }
 
-.ppReturnPredictionActionImpact {
-  display: grid;
-  gap: 9px;
-  padding: 12px;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
-  border-radius: 12px;
-  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
-  color: var(--pp-slate-700);
+.ppReturnPredictionLegendRange {
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.2);
+  border-radius: 4px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.18);
 }
 
-.ppReturnPredictionActionImpactHeader,
-.ppReturnPredictionActionCounts {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
+.ppReturnPredictionImpactBadge {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
 }
 
-.ppReturnPredictionActionImpactHeader span,
-.ppReturnPredictionActionCounts span {
+.ppReturnPredictionImpactTrigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid rgba(var(--pp-slate-500-rgb), 0.18);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 8px 20px rgba(var(--pp-shadow-rgb), 0.11);
+  cursor: help;
 }
 
-.ppReturnPredictionActionImpactHeader strong {
+.ppReturnPredictionImpactTrigger s-icon {
+  color: var(--pp-pulse-blue);
+  transform: scale(0.88);
+}
+
+.ppReturnPredictionImpactBadge-improving .ppReturnPredictionImpactTrigger s-icon {
+  color: var(--pp-signal-teal);
+}
+
+.ppReturnPredictionImpactBadge-worsening .ppReturnPredictionImpactTrigger s-icon {
+  color: var(--pp-warning-amber);
+}
+
+.ppReturnPredictionImpactTooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: min(320px, calc(100vw - 48px));
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.24);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  box-shadow: 0 18px 44px rgba(var(--pp-shadow-rgb), 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.ppReturnPredictionImpactBadge:hover .ppReturnPredictionImpactTooltip,
+.ppReturnPredictionImpactBadge:focus-within .ppReturnPredictionImpactTooltip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.ppReturnPredictionImpactTooltip::after {
+  position: absolute;
+  right: 22px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  content: "";
+  border-right: 1px solid rgba(var(--pp-insight-violet-rgb), 0.24);
+  border-bottom: 1px solid rgba(var(--pp-insight-violet-rgb), 0.24);
+  background: var(--pp-cloud-white);
+  transform: rotate(45deg);
+}
+
+.ppReturnPredictionImpactTooltip strong {
   color: var(--pp-slate-900);
   font-size: 13px;
   font-weight: 950;
 }
 
-.ppReturnPredictionActionImpactHeader b {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: var(--pp-cloud-white);
-  color: var(--pp-slate-800);
-  font-size: 12px;
-  font-weight: 950;
-  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.16);
-}
-
-.ppReturnPredictionActionProgress {
-  height: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.25);
-}
-
-.ppReturnPredictionActionProgress span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-signal-teal));
-  transition: width 180ms ease;
-}
-
-.ppReturnPredictionActionCounts {
-  justify-content: flex-start;
-  color: var(--pp-slate-600);
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.ppReturnPredictionActionCounts b {
-  color: var(--pp-slate-900);
-  font-weight: 950;
-}
-
-.ppReturnPredictionActionImpact p {
+.ppReturnPredictionImpactTooltip p {
   margin: 0;
   color: var(--pp-slate-600);
   font-size: 12px;
@@ -5101,19 +5338,52 @@ s-page[inline-size="large-500"] {
   line-height: 1.4;
 }
 
-.ppReturnPredictionActionImpact-improving {
-  border-color: rgba(var(--pp-signal-teal-rgb), 0.24);
-  background: linear-gradient(135deg, rgba(var(--pp-signal-teal-rgb), 0.11), rgba(var(--pp-pulse-blue-rgb), 0.05));
+.ppReturnPredictionImpactShift {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
 }
 
-.ppReturnPredictionActionImpact-worsening {
-  border-color: rgba(var(--pp-warning-amber-rgb), 0.28);
-  background: linear-gradient(135deg, rgba(var(--pp-warning-amber-rgb), 0.12), rgba(var(--pp-risk-red-rgb), 0.05));
+.ppReturnPredictionImpactShift b {
+  color: currentColor;
+  font-size: 13px;
+  font-weight: 950;
 }
 
-.ppReturnPredictionActionImpact-neutral {
-  border-color: rgba(var(--pp-pulse-blue-rgb), 0.16);
-  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
+.ppReturnPredictionImpactShift small {
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppReturnPredictionImpactCounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.ppReturnPredictionImpactCounts span {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 9px;
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.ppReturnPredictionImpactCounts b {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
 }
 
 .ppProductDeepResearchGrid .ppProductOrderActivityPanel,
@@ -5202,14 +5472,14 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityCombo {
-  grid-template-columns: 34px minmax(0, 1fr);
-  grid-template-rows: 148px auto;
-  column-gap: 7px;
+  grid-template-columns: 32px minmax(0, 1fr) 52px;
+  grid-template-rows: 176px 28px;
+  column-gap: 6px;
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityYAxis,
 .ppProductDeepResearchGrid .ppOrderActivityPlotFrame {
-  height: 148px;
+  height: 176px;
   font-size: 9px;
 }
 
@@ -5225,7 +5495,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityBars {
-  gap: 4px;
+  gap: 5px;
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityMonth {
@@ -5233,7 +5503,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityBarShell {
-  width: 12px;
+  width: 16px;
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityXAxis {
@@ -5255,6 +5525,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDeepResearchGrid .ppOrderActivityLegend {
   justify-content: center;
+  gap: 12px;
 }
 
 .ppProductDeepResearchGrid .ppReturnPredictionPlot {
@@ -5270,7 +5541,7 @@ s-page[inline-size="large-500"] {
   font-size: 9px;
 }
 
-.ppProductDeepResearchGrid .ppReturnPredictionChart {
+.ppProductDeepResearchGrid .ppReturnPredictionChartArea {
   height: 168px;
 }
 
@@ -5283,18 +5554,14 @@ s-page[inline-size="large-500"] {
   width: 18px;
 }
 
-.ppProductDeepResearchGrid .ppReturnPredictionActionImpact {
-  gap: 7px;
-  padding: 10px;
+.ppProductDeepResearchGrid .ppReturnPredictionImpactBadge {
+  right: 8px;
+  bottom: 8px;
 }
 
-.ppProductDeepResearchGrid .ppReturnPredictionActionImpactHeader strong,
-.ppProductDeepResearchGrid .ppReturnPredictionActionImpactHeader b {
-  font-size: 11px;
-}
-
-.ppProductDeepResearchGrid .ppReturnPredictionActionCounts,
-.ppProductDeepResearchGrid .ppReturnPredictionActionImpact p {
+.ppProductDeepResearchGrid .ppReturnPredictionImpactTrigger {
+  min-height: 26px;
+  padding: 4px 8px;
   font-size: 10px;
 }
 
@@ -5344,228 +5611,266 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
-.ppProductMomentumBody {
-  display: grid;
-  grid-template-columns: minmax(0, 0.72fr) minmax(190px, 1fr);
-  align-items: stretch;
-  padding: 14px;
-  border: 1px solid rgba(var(--pp-signal-teal-rgb), 0.18);
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 10% 10%, rgba(var(--pp-signal-teal-rgb), 0.12), transparent 35%),
-    linear-gradient(135deg, var(--pp-cloud-white), rgba(var(--pp-pulse-blue-rgb), 0.045));
-}
-
-.ppProductMomentumScore {
-  display: grid;
-  gap: 5px;
-  align-content: center;
-  min-width: 0;
-}
-
-.ppProductMomentumScore strong {
-  color: var(--pp-slate-900);
-  font-size: 34px;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.ppProductMomentumScore strong small {
-  color: var(--pp-slate-500);
-  font-size: 18px;
-}
-
-.ppProductMomentumScore > span {
-  color: var(--pp-slate-900);
+.ppProductMomentumHeader .ppProductMomentumTier {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid rgba(var(--pp-success-green-rgb), 0.22);
+  border-radius: 999px;
+  background: var(--pp-green-soft);
+  color: var(--pp-low-risk-text);
   font-size: 14px;
   font-weight: 900;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
-.ppProductMomentumScore p,
-.ppProductMomentumBars small,
-.ppProductMomentumMeta span {
-  margin: 0;
-  color: var(--pp-slate-600);
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.4;
+.ppProductMomentumHeader .ppProductMomentumTier svg {
+  width: 20px;
+  height: 20px;
 }
 
-.ppProductMomentumBars {
-  display: grid;
-  gap: 6px;
-  align-content: center;
-  justify-items: end;
-  min-width: 220px;
+.ppProductMomentumHeader .ppProductMomentumTier-orange {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.24);
+  background: var(--pp-amber-soft);
+  color: var(--pp-medium-risk-text);
 }
 
-.ppProductMomentumBars .ppSignalBars {
-  width: 96px;
-  height: 44px;
-  gap: 5px;
-}
-
-.ppProductMomentumBars .ppSignalBars span {
-  width: 11px;
-  border-radius: 3px 3px 0 0;
-}
-
-.ppProductMomentumTrendCard {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 11px;
-  border: 1px solid rgba(var(--pp-signal-teal-rgb), 0.18);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.74);
-}
-
-.ppProductMomentumTrendHeader {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.ppProductMomentumTrendHeader span {
-  color: var(--pp-signal-teal);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.ppProductMomentumTrendHeader strong {
-  min-width: 0;
-  overflow: hidden;
+.ppProductMomentumHeader .ppProductMomentumTier-neutral {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-100);
   color: var(--pp-slate-700);
-  font-size: 11px;
-  font-weight: 850;
-  line-height: 1.2;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.ppProductMomentumTrendBars {
-  height: 112px;
+.ppProductMomentumBody {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  align-items: end;
-  padding: 4px 0 0;
+  gap: 18px;
+  padding: 0;
 }
 
-.ppProductMomentumTrendBars > div {
-  min-width: 0;
+.ppProductMomentumGauge {
+  position: relative;
+  min-height: 330px;
+  display: grid;
+  place-items: center;
+}
+
+.ppProductMomentumGaugeScale {
+  position: relative;
+  width: min(100%, 540px);
+  aspect-ratio: 1.58 / 1;
+}
+
+.ppProductMomentumGaugeScale svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
-  display: grid;
-  grid-template-rows: 18px minmax(0, 1fr) 16px;
-  gap: 4px;
-  justify-items: center;
-  align-items: end;
+  overflow: visible;
 }
 
-.ppProductMomentumTrendBars > div > strong {
+.ppProductMomentumGaugeArc {
+  fill: none;
+  stroke-width: 34;
+  stroke-linecap: butt;
+}
+
+.ppProductMomentumNeedle {
+  fill: #162236;
+}
+
+.ppProductMomentumGaugeTicks line {
+  stroke: rgba(255, 255, 255, 0.42);
+  stroke-linecap: round;
+  stroke-width: 1.6;
+}
+
+.ppProductMomentumGaugeTicks line.isMajor {
+  stroke: rgba(255, 255, 255, 0.94);
+  stroke-width: 3.2;
+}
+
+.ppProductMomentumGaugeLabel {
+  position: absolute;
+  color: var(--pp-slate-700);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.ppProductMomentumGaugeLabel-0 {
+  left: 6%;
+  bottom: 5%;
+}
+
+.ppProductMomentumGaugeLabel-25 {
+  left: 19%;
+  top: 31%;
+}
+
+.ppProductMomentumGaugeLabel-50 {
+  left: 50%;
+  top: 14%;
+  transform: translateX(-50%);
+}
+
+.ppProductMomentumGaugeLabel-75 {
+  right: 19%;
+  top: 31%;
+}
+
+.ppProductMomentumGaugeLabel-100 {
+  right: 5%;
+  bottom: 5%;
+}
+
+.ppProductMomentumGaugeCenter {
+  position: absolute;
+  left: 50%;
+  top: 53%;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: min(82%, 390px);
   color: var(--pp-slate-900);
-  font-size: 12px;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.ppProductMomentumGaugeCenter strong {
+  color: var(--pp-slate-900);
+  font-size: clamp(44px, 8vw, 64px);
   font-weight: 950;
   line-height: 1;
 }
 
-.ppProductMomentumTrendBars > div > span {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  align-self: stretch;
-  align-items: flex-end;
-  justify-content: center;
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(var(--pp-slate-100-rgb), 0.92), var(--pp-slate-200));
-}
-
-.ppProductMomentumTrendBars i {
-  width: 100%;
-  min-height: 5px;
-  display: block;
-  border-radius: 7px;
-  background: linear-gradient(180deg, var(--pp-signal-teal), var(--pp-pulse-blue));
-  box-shadow: 0 8px 14px rgba(var(--pp-signal-teal-rgb), 0.22);
-}
-
-.ppProductMomentumTrendBars > div.isLatest i {
-  background: linear-gradient(180deg, var(--pp-success-green), var(--pp-signal-teal));
-}
-
-.ppProductMomentumTrendBars small {
+.ppProductMomentumGaugeCenter strong small {
   color: var(--pp-slate-500);
-  font-size: 10px;
-  font-weight: 850;
-  line-height: 1;
+  font-size: 0.54em;
+  font-weight: 650;
 }
 
-.ppProductMomentumTrendCard p,
-.ppProductMomentumTrendEmpty {
+.ppProductMomentumGaugeCenter > span {
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.ppProductMomentumGaugeCenter p {
   margin: 0;
   color: var(--pp-slate-700);
-  font-size: 12px;
-  font-weight: 720;
-  line-height: 1.42;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ppProductMomentumGaugeCenter p b {
+  color: var(--pp-low-risk-text);
+  font-weight: 850;
+}
+
+.ppProductMomentumTrendCallout {
+  display: inline-flex;
+  align-items: center;
+  justify-self: center;
+  gap: 14px;
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 820;
+}
+
+.ppProductMomentumTrendCallout > span {
+  width: 48px;
+  height: 48px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  background: var(--pp-green-soft);
+  color: var(--pp-low-risk-text);
+}
+
+.ppProductMomentumComponent > svg {
+  width: 48px;
+  height: 48px;
+  padding: 10px;
+  display: block;
+  border-radius: 14px;
+  background: var(--pp-green-soft);
+  color: var(--pp-low-risk-text);
+  box-sizing: border-box;
+}
+
+.ppProductMomentumTrendCallout svg {
+  width: 27px;
+  height: 27px;
 }
 
 .ppProductMomentumBreakdown {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  gap: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--pp-slate-200);
 }
 
 .ppProductMomentumComponent {
   display: grid;
-  gap: 6px;
+  justify-items: center;
+  gap: 8px;
   min-width: 0;
-  padding: 10px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 10px;
-  background: var(--pp-mist-gray);
+  padding: 4px 12px 0;
+  border-right: 1px solid var(--pp-slate-200);
+  text-align: center;
+}
+
+.ppProductMomentumComponent:last-child {
+  border-right: 0;
+}
+
+.ppProductMomentumComponent:nth-child(1) > svg {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductMomentumComponent:nth-child(3) > svg {
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductMomentumComponent:nth-child(4) > svg {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
 }
 
 .ppProductMomentumComponent span {
-  color: var(--pp-slate-500);
-  font-size: 11px;
-  font-weight: 850;
-}
-
-.ppProductMomentumComponent small {
-  color: var(--pp-slate-500);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.3;
+  color: var(--pp-slate-700);
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.12;
 }
 
 .ppProductMomentumComponent strong {
   color: var(--pp-slate-900);
-  font-size: 18px;
+  font-size: 28px;
   font-weight: 950;
-}
-
-.ppProductMomentumComponent div {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--pp-slate-200);
-}
-
-.ppProductMomentumComponent div span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--pp-signal-teal), var(--pp-pulse-blue));
+  line-height: 1;
 }
 
 .ppProductMomentumMeta {
   align-items: center;
   padding-top: 2px;
+}
+
+.ppProductMomentumMeta span {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.4;
 }
 
 .ppProductMomentumMeta b {
@@ -5602,17 +5907,59 @@ s-page[inline-size="large-500"] {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.ppProductDetailSidebar .ppProductMomentumScore strong {
-  font-size: 28px;
+.ppProductDetailSidebar .ppProductMomentumGauge {
+  min-height: 270px;
 }
 
-.ppProductDetailSidebar .ppProductMomentumBars {
-  justify-items: start;
-  min-width: 0;
+.ppProductDetailSidebar .ppProductMomentumGaugeCenter strong {
+  font-size: 46px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumGaugeCenter > span {
+  font-size: 15px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumGaugeCenter p {
+  font-size: 12px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumTrendCallout {
+  font-size: 13px;
+  gap: 10px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumTrendCallout > span {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
 }
 
 .ppProductDetailSidebar .ppProductMomentumBreakdown {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+}
+
+.ppProductDetailSidebar .ppProductMomentumComponent {
+  padding: 2px 6px 0;
+}
+
+.ppProductDetailSidebar .ppProductMomentumComponent > svg {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumTrendCallout svg {
+  width: 22px;
+  height: 22px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumComponent span {
+  font-size: 11px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumComponent strong {
+  font-size: 20px;
 }
 
 .ppProductDetailSidebar .ppProductMomentumMeta {
@@ -8355,6 +8702,7 @@ s-page[inline-size="large-500"] {
   position: relative;
   overflow: visible;
   border: 1px solid var(--pp-slate-300);
+  border-top: 0;
   border-radius: 8px;
   background: var(--pp-cloud-white);
 }
@@ -8373,7 +8721,7 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(2),
 .ppIssuesTable td:nth-child(2) {
-  width: 9%;
+  width: 12%;
 }
 
 .ppIssuesTable th:nth-child(3),
@@ -8414,7 +8762,7 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th {
   height: 28px;
-  background: var(--pp-table-header-bg);
+  background: var(--pp-cloud-white);
   color: var(--pp-slate-500);
   font-weight: 450;
 }
@@ -8459,7 +8807,16 @@ s-page[inline-size="large-500"] {
   overflow-wrap: anywhere;
 }
 
-.ppIssueNameCell strong {
+.ppIssueTitleWithEvidence {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  outline: none;
+}
+
+.ppIssueNameCell strong,
+.ppIssueTitleWithEvidence strong {
   display: block;
   color: var(--pp-slate-900);
   font-size: 12px;
@@ -8467,16 +8824,46 @@ s-page[inline-size="large-500"] {
   line-height: 1.2;
 }
 
-.ppIssueNameCell small {
-  display: -webkit-box;
-  overflow: hidden;
-  margin-top: 3px;
-  color: var(--pp-slate-500);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+.ppIssueTitleWithEvidence.hasEvidence strong {
+  cursor: help;
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--pp-slate-500-rgb), 0.28);
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.ppIssueEvidenceTooltip {
+  position: absolute;
+  z-index: 85;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: min(320px, calc(100vw - 42px));
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--pp-slate-700-rgb), 0.14);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 11.5px;
+  font-weight: 620;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: 0 14px 36px rgba(var(--pp-shadow-rgb), 0.16);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 150ms ease, visibility 0s linear 150ms;
+}
+
+.ppIssueTitleWithEvidence:hover .ppIssueEvidenceTooltip,
+.ppIssueTitleWithEvidence:focus-visible .ppIssueEvidenceTooltip,
+.ppIssueTitleWithEvidence:focus-within .ppIssueEvidenceTooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 150ms ease, transform 150ms ease, visibility 0s;
 }
 
 .ppIssueIcon {
@@ -8544,6 +8931,65 @@ s-page[inline-size="large-500"] {
   margin-top: 0;
 }
 
+.ppImpactLevelIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--pp-success-green);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppImpactLevelIndicator-high {
+  color: var(--pp-risk-red);
+}
+
+.ppImpactLevelIndicator-medium {
+  color: var(--pp-warning-amber);
+}
+
+.ppImpactLevelIndicator-low {
+  color: var(--pp-success-green);
+}
+
+.ppImpactLevelBars {
+  height: 16px;
+  display: inline-grid;
+  grid-template-columns: repeat(3, 4px);
+  align-items: end;
+  gap: 3px;
+  color: currentColor;
+}
+
+.ppImpactLevelBars span {
+  width: 4px;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppImpactLevelBars span:nth-child(1) {
+  height: 7px;
+}
+
+.ppImpactLevelBars span:nth-child(2) {
+  height: 11px;
+}
+
+.ppImpactLevelBars span:nth-child(3) {
+  height: 15px;
+}
+
+.ppImpactLevelBars span.isActive {
+  background: currentColor;
+}
+
+.ppImpactLevelLabel {
+  color: var(--pp-slate-700);
+  font-weight: 760;
+}
+
 .ppProductPanel > s-link,
 .ppRecommendedActionsPanel > s-link {
   display: inline-block;
@@ -8570,6 +9016,29 @@ s-page[inline-size="large-500"] {
   margin-bottom: 12px;
 }
 
+.ppRecommendedActionsTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ppRecommendedActionsTitleIcon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppRecommendedActionsTitleIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
 .ppRecommendedActionsHeader h2 {
   margin: 0;
   color: var(--pp-slate-900);
@@ -8584,7 +9053,7 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
 }
 
-.ppRecommendedActionsHeader > div > span {
+.ppRecommendedActionsHeader > div > span:not(.ppRecommendedActionsTitle) {
   display: none;
 }
 
@@ -8696,31 +9165,22 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailSidebar .ppRecommendedActionsPanel {
   position: relative;
-  overflow: hidden;
-  border: 1px solid var(--pp-primary-action-highlight-border);
-  border-radius: 18px;
-  background: var(--pp-primary-action-highlight-bg);
-  box-shadow: var(--pp-card-shadow);
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .ppProductDetailSidebar .ppRecommendedActionsPanel::before {
-  position: absolute;
-  inset: 0 0 auto;
-  height: 3px;
-  content: "";
-  pointer-events: none;
-  background: var(--pp-highlight-accent);
+  display: none;
+  content: none;
 }
 
 .ppProductDetailSidebar .ppRecommendedActionsPanel::after {
-  position: absolute;
-  top: -120px;
-  right: -120px;
-  width: 260px;
-  height: 260px;
-  content: "";
-  pointer-events: none;
-  background: var(--pp-highlight-glow);
+  display: none;
+  content: none;
 }
 
 .ppProductDetailSidebar .ppRecommendedActionsPanel > * {
@@ -8730,11 +9190,11 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailSidebar .ppRecommendedActionsHeader {
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .ppProductDetailSidebar .ppRecommendedActionsHeader h2 {
-  font-size: 20px;
+  font-size: 15px;
 }
 
 .ppProductDetailSidebar .ppPanelCollapseButton span {
@@ -8753,17 +9213,17 @@ s-page[inline-size="large-500"] {
 
 .ppCompactRecommendedAction {
   width: 100%;
-  min-height: 148px;
+  min-height: 86px;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 18px;
+  grid-template-columns: 34px minmax(0, 1fr) auto 18px;
   grid-template-areas:
-    "index content arrow"
-    "metrics metrics metrics";
-  gap: 14px;
-  align-items: start;
-  padding: 16px;
+    "index content badge arrow"
+    "index metrics metrics arrow";
+  gap: 8px 12px;
+  align-items: center;
+  padding: 12px 14px;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-900);
   font: inherit;
@@ -8783,30 +9243,22 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailSidebar .ppCompactRecommendedAction {
   position: relative;
-  overflow: hidden;
-  border-color: rgba(124, 92, 255, 0.18);
-  background: rgba(255, 255, 255, 0.76);
+  overflow: visible;
+  border-color: var(--pp-slate-200);
+  background: var(--pp-cloud-white);
   color: var(--pp-slate-900);
-  box-shadow:
-    0 10px 24px rgba(var(--pp-shadow-rgb), 0.055),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 8px 20px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedAction::before {
-  position: absolute;
-  inset: 0 0 auto;
-  height: 2px;
-  content: "";
-  pointer-events: none;
-  background: linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.7), rgba(var(--pp-insight-violet-rgb), 0.42));
+  display: none;
+  content: none;
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedAction:hover,
 .ppProductDetailSidebar .ppCompactRecommendedAction:focus-visible {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.34);
-  box-shadow:
-    0 14px 30px rgba(var(--pp-pulse-blue-rgb), 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: 0 10px 26px rgba(var(--pp-pulse-blue-rgb), 0.1);
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedContent > strong,
@@ -8819,6 +9271,10 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
 }
 
+.ppProductDetailSidebar .ppCompactRecommendedDescription {
+  -webkit-line-clamp: 1;
+}
+
 .ppProductDetailSidebar .ppCompactRecommendedAction > s-icon {
   color: var(--pp-slate-600, var(--pp-slate-500));
 }
@@ -8829,17 +9285,17 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailSidebar .ppCompactRecommendedMetrics {
-  border-top-color: rgba(var(--pp-slate-500-rgb), 0.14);
+  border-top-color: transparent;
 }
 
 .ppProductDetailSidebar .ppCompactActionMetric {
-  border-left-color: rgba(var(--pp-slate-500-rgb), 0.14);
+  border-left-color: transparent;
 }
 
 .ppCompactRecommendedContent {
   grid-area: content;
   display: grid;
-  gap: 7px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -8864,25 +9320,27 @@ s-page[inline-size="large-500"] {
 
 .ppCompactRecommendedAction > s-icon {
   grid-area: arrow;
-  margin-top: 5px;
+  align-self: center;
   color: var(--pp-slate-700);
 }
 
 .ppCompactRecommendedIndex {
   grid-area: index;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
   background: rgba(var(--pp-insight-violet-rgb), 0.1);
   color: var(--pp-insight-violet);
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 900;
 }
 
 .ppCompactRecommendedBadge {
-  justify-self: start;
+  grid-area: badge;
+  align-self: start;
+  justify-self: end;
   max-width: 150px;
   overflow: hidden;
   display: inline-flex;
@@ -8940,31 +9398,35 @@ s-page[inline-size="large-500"] {
 .ppCompactRecommendedMetrics {
   grid-area: metrics;
   width: 100%;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin-top: 2px;
-  padding-top: 12px;
-  border-top: 1px solid var(--pp-slate-200);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .ppCompactActionMetric {
   min-width: 0;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 7px;
+  display: inline-flex;
   align-items: center;
-  padding: 0 8px;
-  border-left: 1px solid var(--pp-slate-200);
+  gap: 3px;
+  min-height: 22px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-600);
+  white-space: nowrap;
 }
 
 .ppCompactActionMetric:first-child {
-  padding-left: 0;
-  border-left: 0;
+  padding-left: 7px;
+  border-left: 1px solid transparent;
 }
 
 .ppCompactActionMetric:last-child {
-  padding-right: 0;
+  padding-right: 7px;
 }
 
 .ppCompactActionMetricIcon {
@@ -8985,28 +9447,82 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCompactActionMetric small {
-  display: block;
+  display: inline;
   min-width: 0;
   overflow: hidden;
   color: var(--pp-slate-500);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 750;
-  line-height: 1.05;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.ppCompactActionMetric small::after {
+  content: ":";
+}
+
 .ppCompactActionMetric strong {
-  display: block;
+  display: inline;
   min-width: 0;
   overflow: hidden;
-  margin-top: 3px;
+  margin-top: 0;
   color: var(--pp-slate-900);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 750;
-  line-height: 1.15;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ppCompactActionMetric-green {
+  background: rgba(var(--pp-success-green-rgb), 0.075);
+  color: var(--pp-success-green);
+}
+
+.ppCompactActionMetric-amber {
+  background: rgba(var(--pp-warning-amber-rgb), 0.08);
+  color: var(--pp-warning-amber);
+}
+
+.ppCompactActionMetric-red {
+  background: rgba(var(--pp-risk-red-rgb), 0.075);
+  color: var(--pp-risk-red);
+}
+
+.ppCompactActionMetric-blue {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.07);
+  color: var(--pp-pulse-blue);
+}
+
+.ppCompactActionMetric-violet {
+  background: rgba(var(--pp-insight-violet-rgb), 0.07);
+  color: var(--pp-insight-violet);
+}
+
+.ppCompactActionMetric-green strong,
+.ppCompactActionMetric-green small {
+  color: var(--pp-success-green);
+}
+
+.ppCompactActionMetric-amber strong,
+.ppCompactActionMetric-amber small {
+  color: var(--pp-warning-amber);
+}
+
+.ppCompactActionMetric-red strong,
+.ppCompactActionMetric-red small {
+  color: var(--pp-risk-red);
+}
+
+.ppCompactActionMetric-blue strong,
+.ppCompactActionMetric-blue small {
+  color: var(--pp-pulse-blue);
+}
+
+.ppCompactActionMetric-violet strong,
+.ppCompactActionMetric-violet small {
+  color: var(--pp-insight-violet);
 }
 
 .ppCompactActionMetricIcon-green {
@@ -9040,31 +9556,62 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionsMore {
-  justify-self: center;
-  display: inline-flex;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin: 14px auto 0;
-  padding: 6px 10px;
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 1px 0 0;
   border: 0;
   background: transparent;
-  color: var(--pp-pulse-blue);
+  color: var(--pp-slate-900);
   font: inherit;
-  font-size: 12px;
-  font-weight: 850;
   cursor: pointer;
 }
 
-.ppRecommendedActionsMore s-icon {
-  color: currentColor;
+.ppRecommendedActionsMoreLine {
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(100, 116, 139, 0.22));
 }
 
-.ppRecommendedActionsMore:hover,
+.ppRecommendedActionsMoreLine:last-child {
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.22), transparent);
+}
+
+.ppRecommendedActionsMoreLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ppRecommendedActionsMoreLabel s-icon {
+  color: currentColor;
+  transform: scale(0.88);
+}
+
+.ppRecommendedActionsMore:hover .ppRecommendedActionsMoreLabel,
+.ppRecommendedActionsMore:focus-visible .ppRecommendedActionsMoreLabel {
+  color: var(--pp-pulse-blue);
+}
+
+.ppRecommendedActionsMore:hover .ppRecommendedActionsMoreLine,
+.ppRecommendedActionsMore:focus-visible .ppRecommendedActionsMoreLine {
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.28));
+}
+
+.ppRecommendedActionsMore:hover .ppRecommendedActionsMoreLine:last-child,
+.ppRecommendedActionsMore:focus-visible .ppRecommendedActionsMoreLine:last-child {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.28), transparent);
+}
+
 .ppRecommendedActionsMore:focus-visible {
-  color: var(--pp-insight-violet);
-  text-decoration: underline;
-  text-underline-offset: 3px;
   outline: none;
 }
 
@@ -17786,7 +18333,13 @@ s-page[inline-size="large-500"] {
 .ppRiskScoreCell {
   min-width: 68px;
   justify-content: flex-start;
-  gap: 6px;
+  gap: 8px;
+}
+
+.ppRiskScoreValue {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 760;
 }
 
 .ppRiskTrendCell {
@@ -18464,9 +19017,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppJobDockMinimized {
-  right: 18px;
+  right: auto;
   bottom: 18px;
-  left: auto;
+  left: 18px;
   width: auto;
   max-width: calc(100vw - 36px);
   display: inline-flex;
@@ -19153,7 +19706,11 @@ s-page[inline-size="large-500"] {
 
 @media (max-width: 1040px) {
   .ppRiskSnapshot {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppRiskSnapshotBlock.isExpanded .ppRiskSnapshotOverflow {
+    max-height: 960px;
   }
 
   .ppProductDetailHeroPanel {
@@ -19290,6 +19847,10 @@ s-page[inline-size="large-500"] {
 
   .ppEvidenceSourceRail button {
     min-width: 186px;
+  }
+
+  .ppRiskSnapshotBlock.isExpanded .ppRiskSnapshotOverflow {
+    max-height: 1560px;
   }
 
   .ppRiskSnapshot .ppProductInsight .ppInsightTooltip {

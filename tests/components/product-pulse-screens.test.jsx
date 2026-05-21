@@ -556,18 +556,22 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Analyze Linen Shirt" })).toBeInTheDocument();
     expect(screen.getByLabelText("Diagnosis running for Linen Shirt")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis running").closest("tr")).toHaveClass("isDiagnosing");
+    const productRiskCell = screen.getByText("84").closest(".ppRiskScoreCell");
+    expect(within(productRiskCell).getByText("High")).toBeInTheDocument();
+    expect(productRiskCell.querySelector(".ppImpactLevelIndicator-high")).toBeInTheDocument();
+    expect(productRiskCell.querySelectorAll(".ppImpactLevelBars .isActive")).toHaveLength(3);
     fireEvent.click(screen.getAllByRole("button", { name: "Product risk" })[0]);
     expect(screen.getByText("↓")).toBeInTheDocument();
     expect(screen.getAllByText("Evidence").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Momentum").length).toBeGreaterThan(0);
     const trendLink = screen.getByRole("link", { name: "Rising risk trend for Linen Shirt" });
     expect(within(trendLink).getByText("Rising")).toBeInTheDocument();
-    expect(screen.getByText("Hot 86")).toBeInTheDocument();
+    expect(screen.getByText("Hot 87")).toBeInTheDocument();
     expect(screen.getByText("+68% 30d · Top 12%")).toBeInTheDocument();
     expect(screen.getByText("Strong · 3 sources")).toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByRole("link", { name: "Open Product Momentum for Linen Shirt" }));
     expect(await screen.findByText("Product Momentum")).toBeInTheDocument();
-    expect(screen.getByText("Hot · 86/100")).toBeInTheDocument();
+    expect(screen.getByText("Hot · 87/100")).toBeInTheDocument();
     expect(screen.getByText("42 units")).toBeInTheDocument();
     expect(screen.getByText("$3,240 revenue")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add to Watchlist" })).toBeInTheDocument();
@@ -695,6 +699,22 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Undo dismiss" })).toBeInTheDocument();
   });
 
+  it("puts Shopify Admin in the product header and storefront in product actions", () => {
+    const product = {
+      ...defaultView.startHere,
+      shopifyAdminUrl: "https://admin.shopify.com/store/qorve/products/123",
+      shopifyStorefrontUrl: "https://qorve.example.com/products/core-linen-trouser",
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByRole("link", { name: "Open in Shopify Admin" })).toHaveAttribute("href", product.shopifyAdminUrl);
+    expect(screen.queryByRole("link", { name: "View in Store" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
+    expect(screen.getByRole("menuitem", { name: "View in Store" })).toHaveAttribute("href", product.shopifyStorefrontUrl);
+    expect(screen.queryByRole("menuitem", { name: "Open in Shopify admin" })).not.toBeInTheDocument();
+  });
+
   it("restores a dismissed recommended action from the action modal", async () => {
     let submittedAction = null;
     let submittedActionId = null;
@@ -811,13 +831,22 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Product Momentum").length).toBeGreaterThan(0);
     expect(panel.closest(".ppProductDetailSidebar")).toBeInTheDocument();
     expect(momentumPanelIndex).toBeGreaterThan(riskPanelIndex);
-    expect(within(panel).getByText("86")).toBeInTheDocument();
-    expect(within(panel).getByText("/100")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductMomentumGaugeCenter strong")).toHaveTextContent(/\d+\s*\/\s*100/);
+    expect(within(panel).getByText("/ 100")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductMomentumGauge")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductMomentumGaugeArc")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductMomentumNeedle")).toBeInTheDocument();
+    expect(within(panel).getByText("Commercial signal")).toBeInTheDocument();
+    expect(within(panel).getByText("Hot")).toBeInTheDocument();
     expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
-    expect(within(panel).getByText("Last 4 weeks")).toBeInTheDocument();
-    expect(within(panel).getByText(/Hot because 42 units in the last 30 days vs 25 before/)).toBeInTheDocument();
-    expect(within(panel).getByText("Current velocity")).toBeInTheDocument();
-    expect(within(panel).getByText("Recent units and revenue vs catalog")).toBeInTheDocument();
+    expect(within(panel).getByText("Sales increasing over the last 4 weeks")).toBeInTheDocument();
+    ["0", "25", "50", "75", "100"].forEach((label) => {
+      expect(within(panel).getByText(label)).toBeInTheDocument();
+    });
+    ["Velocity", "Growth", "Catalog share", "Trend consistency", "Recency"].forEach((label) => {
+      expect(within(panel).getByText(label)).toBeInTheDocument();
+    });
+    expect(panel.querySelector(".ppProductMomentumTrendBars")).not.toBeInTheDocument();
     expect(within(panel).getByText("High confidence")).toBeInTheDocument();
     expect(within(panel).getByText("42 units · $3,240 revenue in the last 30 days")).toBeInTheDocument();
   });
@@ -855,13 +884,24 @@ describe("ProductPulse screens", () => {
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    const bars = container.querySelector(".ppProductMomentumTrendBars");
-    const visibleBars = bars.querySelectorAll("i");
+    const panel = container.querySelector(".ppProductMomentumPanel");
+    const momentumCard = Array.from(container.querySelectorAll(".ppProductInsight-withArea"))
+      .find((card) => card.textContent.includes("Product Momentum"));
+    const linePath = momentumCard.querySelector(".ppProductInsightAreaLine").getAttribute("d");
+    const pathNumbers = linePath.match(/-?\d+(?:\.\d+)?/g).map(Number);
+    const firstLineY = pathNumbers[1];
+    const lastLineY = pathNumbers[pathNumbers.length - 1];
+    const componentValues = Array.from(panel.querySelectorAll(".ppProductMomentumComponent strong"))
+      .map((element) => Number(element.textContent));
+    const needleTransform = panel.querySelector(".ppProductMomentumNeedle").style.transform;
 
-    expect(within(bars).getByText("15")).toBeInTheDocument();
-    expect(visibleBars).toHaveLength(1);
-    expect(visibleBars[0]).toHaveStyle({ height: "100%" });
-    expect(visibleBars[0]).toHaveStyle({ width: "100%" });
+    expect(panel.querySelector(".ppProductMomentumGauge")).toBeInTheDocument();
+    expect(needleTransform).toContain("rotate(");
+    expect(panel.querySelector(".ppProductMomentumTrendBars")).not.toBeInTheDocument();
+    expect(within(panel).getByText("New activity")).toBeInTheDocument();
+    expect(componentValues.every((value) => value < 100)).toBe(true);
+    expect(within(momentumCard).getByText("Last 4 weekly units")).toBeInTheDocument();
+    expect(firstLineY - lastLineY).toBeGreaterThan(10);
   });
 
   it("renders monthly order activity for product diagnosis", () => {
@@ -931,6 +971,12 @@ describe("ProductPulse screens", () => {
     expect(within(orderPanel).getByText("$150")).toBeInTheDocument();
     expect(within(orderPanel).getByText("Apr")).toBeInTheDocument();
     expect(within(orderPanel).getByText("May")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("Revenue")).toBeInTheDocument();
+    expect(within(orderPanel.querySelector(".ppOrderActivityYAxisRight")).getByText("$1,200")).toBeInTheDocument();
+    expect(orderPanel.querySelector(".ppOrderActivityLineRevenue")).toBeInTheDocument();
+    expect(orderPanel.querySelectorAll(".ppOrderActivityBarRefunds")).toHaveLength(1);
+    expect(orderPanel.querySelectorAll(".ppOrderActivityBarReturns")).toHaveLength(2);
+    expect(orderPanel.querySelectorAll(".ppOrderActivityBarTotal")).toHaveLength(2);
   });
 
   it("renders return-rate prediction for product diagnosis", () => {
@@ -979,6 +1025,17 @@ describe("ProductPulse screens", () => {
     expect(within(predictionPanel).getByText("Last 30 days")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Next 3 months")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Medium confidence")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("Forecast range")).toBeInTheDocument();
+    expect(predictionPanel.querySelector(".ppReturnPredictionForecastRange")).toBeInTheDocument();
+    expect(predictionPanel.querySelector(".ppReturnPredictionForecastRange")?.getAttribute("d")).toContain("Z");
+    expect(predictionPanel.querySelector(".ppReturnPredictionImpactBadge")).toBeInTheDocument();
+    expect(predictionPanel.querySelector(".ppReturnPredictionActionImpact")).not.toBeInTheDocument();
+    expect(within(predictionPanel).getAllByText("0 points").length).toBeGreaterThan(0);
+    const impactCounts = predictionPanel.querySelector(".ppReturnPredictionImpactCounts");
+    expect(impactCounts).toHaveTextContent("1 applied");
+    expect(impactCounts).toHaveTextContent("1 reviewed");
+    expect(impactCounts).toHaveTextContent("0 dismissed");
+    expect(impactCounts).toHaveTextContent("0 open");
     expect(within(predictionPanel).getByText(/pull the forecast downward/)).toBeInTheDocument();
   });
 
@@ -1051,12 +1108,15 @@ describe("ProductPulse screens", () => {
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    const riskSnapshot = container.querySelector(".ppRiskSnapshot");
+    const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
 
     expect(riskSnapshot).toBeInTheDocument();
     expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea")).toHaveLength(10);
+    expect(riskSnapshot.querySelectorAll(".ppRiskSnapshot-primary .ppProductInsight-withArea")).toHaveLength(4);
+    expect(riskSnapshot.querySelectorAll(".ppRiskSnapshot-extra .ppProductInsight-withArea")).toHaveLength(6);
     expect(riskSnapshot.querySelectorAll(".ppProductInsightAreaTrend")).toHaveLength(10);
     expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea .ppInsightInfoWrap")).toHaveLength(10);
+    expect(within(riskSnapshot).getByRole("button", { name: /view more/i })).toHaveAttribute("aria-expanded", "false");
     expect(within(riskSnapshot).getByText("Emerging")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Improving")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Return pressure")).toBeInTheDocument();
@@ -1078,6 +1138,11 @@ describe("ProductPulse screens", () => {
     ].forEach((tooltipCopy) => {
       expect(within(riskSnapshot).getByText(tooltipCopy)).toBeInTheDocument();
     });
+    fireEvent.click(within(riskSnapshot).getByRole("button", { name: /view more/i }));
+    expect(riskSnapshot).toHaveClass("isExpanded");
+    expect(within(riskSnapshot).getByRole("button", { name: /show less/i })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(within(riskSnapshot).getByRole("button", { name: /show less/i }));
+    expect(riskSnapshot).not.toHaveClass("isExpanded");
   });
 
   it("lets product detail remove an already watched product", () => {
@@ -1987,6 +2052,15 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const issuesPanel = screen.getByText("Issues detected").closest(".ppIssuesOverviewPanel");
+    const issueRow = within(issuesPanel).getByText("Fear or safety concern").closest("tr");
+    expect(within(issueRow).getByText("Medium")).toBeInTheDocument();
+    expect(issueRow.querySelector(".ppImpactLevelIndicator-medium")).toBeInTheDocument();
+    expect(issueRow.querySelectorAll(".ppImpactLevelBars .isActive")).toHaveLength(2);
+    const issueEvidenceTrigger = within(issueRow).getByText("Fear or safety concern").closest(".ppIssueTitleWithEvidence");
+    expect(issueEvidenceTrigger).toHaveClass("hasEvidence");
+    expect(within(issueEvidenceTrigger).getByRole("tooltip")).toHaveTextContent("4 generic return reasons reclassified from customer text as Fear or safety concern.");
+    expect(issueRow.querySelector(".ppIssueNameCell small")).not.toBeInTheDocument();
     expect(screen.getAllByText("Fear or safety concern").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: /Customer language analysis/ })).toHaveAttribute("aria-selected", "true");

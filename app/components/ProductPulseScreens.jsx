@@ -1136,8 +1136,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                     </td>
                     <td>
                       <div className="ppRiskScoreCell">
-                        <s-badge tone={product.riskTone}>{product.risk}</s-badge>
-                        <span>{product.riskScore}</span>
+                        <ImpactLevelIndicator value={product.risk} ariaLabel={`${product.risk} product risk`} />
+                        <span className="ppRiskScoreValue">{product.riskScore}</span>
                       </div>
                     </td>
                     <td><ProductRiskTrendCell product={product} /></td>
@@ -4087,7 +4087,7 @@ function normalizeProductMomentum(momentum = null) {
   const display = momentum.display || {};
   const score = Number(momentum.score ?? 0);
 
-  return {
+  const normalized = {
     source: momentum.source || "",
     score: Number.isFinite(score) ? Math.round(score) : 0,
     tier: momentum.tier || getMomentumTierFromScore(score),
@@ -4137,6 +4137,8 @@ function normalizeProductMomentum(momentum = null) {
     },
     flags: momentum.flags || {},
   };
+
+  return getValidatedProductMomentum(normalized);
 }
 
 function getMomentumTierFromScore(score) {
@@ -4163,6 +4165,160 @@ function getMomentumConfidenceLabel(confidence) {
   if (value >= 60) return "Medium confidence";
   if (value >= 40) return "Low confidence";
   return "Very low confidence";
+}
+
+function getValidatedProductMomentum(momentum = {}) {
+  const inputs = momentum.inputs || {};
+  const catalog = momentum.catalog || {};
+  const weeklyUnits = Array.isArray(inputs.weeklyUnitsLast4Weeks)
+    ? inputs.weeklyUnitsLast4Weeks.map((value) => Math.max(0, Number(value || 0)))
+    : [];
+  const unitsLast30 = Math.max(0, Number(inputs.unitsLast30Days || 0));
+  const unitsPrevious30 = Math.max(0, Number(inputs.unitsPrevious30Days || 0));
+  const revenueLast30 = Math.max(0, Number(inputs.revenueLast30Days || 0));
+  const revenuePrevious30 = Math.max(0, Number(inputs.revenuePrevious30Days || 0));
+  const hasEnoughInputs = unitsLast30 > 0 || revenueLast30 > 0 || weeklyUnits.some((value) => value > 0);
+  if (!hasEnoughInputs) return momentum;
+
+  const storedComponents = momentum.components || {};
+  const topCatalogPercent = Number(catalog.topCatalogPercent || 0);
+  const currentVelocityScore = clampNumber(Number(storedComponents.currentVelocityScore || 0), 0, 96);
+  const growthScore = calculateValidatedMomentumGrowthScore({ unitsLast30, unitsPrevious30, revenueLast30, revenuePrevious30 });
+  const catalogShareScore = calculateValidatedMomentumCatalogShareScore({
+    storedScore: storedComponents.catalogShareScore,
+    currentVelocityScore,
+    topCatalogPercent,
+    productShareBaseline: catalog.productShareBaseline,
+    shareLiftRatio: catalog.shareLiftRatio,
+    hasCatalogBaseline: catalog.hasCatalogBaseline,
+    unitsLast30,
+  });
+  const trendConsistencyScore = calculateValidatedMomentumTrendConsistencyScore(weeklyUnits, storedComponents.trendConsistencyScore);
+  const recencyScore = calculateValidatedMomentumRecencyScore({ weeklyUnits, unitsLast30, unitsLast7Days: inputs.unitsLast7Days, unitsLast14Days: inputs.unitsLast14Days, lastSaleAt: inputs.lastSaleAt });
+  let validatedScore = Math.round(clampNumber(
+    (0.35 * currentVelocityScore)
+      + (0.25 * growthScore)
+      + (0.20 * catalogShareScore)
+      + (0.15 * trendConsistencyScore)
+      + (0.05 * recencyScore),
+    0,
+    100,
+  ));
+
+  if (unitsLast30 === 0 && revenueLast30 === 0) validatedScore = 0;
+  if (unitsPrevious30 === 0 && unitsLast30 > 0) {
+    validatedScore = Math.min(validatedScore, Math.round(78 + Math.min(9, Math.log1p(unitsLast30) * 2.6)));
+  }
+
+  return {
+    ...momentum,
+    score: validatedScore,
+    tier: getMomentumTierFromScore(validatedScore),
+    direction: getValidatedMomentumDirection({ momentum, score: validatedScore, unitsPrevious30, unitsLast30, weeklyUnits }),
+    components: {
+      currentVelocityScore: Math.round(currentVelocityScore),
+      growthScore: Math.round(growthScore),
+      catalogShareScore: Math.round(catalogShareScore),
+      trendConsistencyScore: Math.round(trendConsistencyScore),
+      recencyScore: Math.round(recencyScore),
+    },
+  };
+}
+
+function calculateValidatedMomentumGrowthScore({ unitsLast30 = 0, unitsPrevious30 = 0, revenueLast30 = 0, revenuePrevious30 = 0 } = {}) {
+  const currentUnits = Math.max(0, Number(unitsLast30 || 0));
+  const previousUnits = Math.max(0, Number(unitsPrevious30 || 0));
+  const currentRevenue = Math.max(0, Number(revenueLast30 || 0));
+  const previousRevenue = Math.max(0, Number(revenuePrevious30 || 0));
+  if (!currentUnits && !currentRevenue) return 0;
+  if (!previousUnits && !previousRevenue) {
+    const volumeConfidence = Math.log1p(currentUnits) / Math.log1p(Math.max(40, currentUnits));
+    return clampNumber(66 + (22 * volumeConfidence), 0, 88);
+  }
+  const ratios = [];
+  if (previousUnits > 0 || currentUnits > 0) {
+    ratios.push({ ratio: (currentUnits + 3) / (previousUnits + 3), weight: previousUnits > 0 ? 0.72 : 0.35 });
+  }
+  if (previousRevenue > 0) {
+    ratios.push({ ratio: (currentRevenue + 25) / (previousRevenue + 25), weight: 0.28 });
+  }
+  const totalWeight = ratios.reduce((total, item) => total + item.weight, 0);
+  const combinedRatio = totalWeight
+    ? ratios.reduce((total, item) => total + (item.ratio * item.weight), 0) / totalWeight
+    : 1;
+  return clampNumber(50 + (28 * Math.log2(Math.max(combinedRatio, 0.05))), 0, 96);
+}
+
+function calculateValidatedMomentumCatalogShareScore({
+  storedScore = 0,
+  currentVelocityScore = 0,
+  topCatalogPercent = 0,
+  productShareBaseline = 0,
+  shareLiftRatio = 0,
+  hasCatalogBaseline = false,
+  unitsLast30 = 0,
+} = {}) {
+  const stored = clampNumber(Number(storedScore || 0), 0, 100);
+  const velocity = clampNumber(Number(currentVelocityScore || 0), 0, 96);
+  const baseline = Number(productShareBaseline || 0);
+  const lift = Number(shareLiftRatio || 0);
+  const topPercent = Number(topCatalogPercent || 0);
+  if (hasCatalogBaseline && baseline > 0 && lift > 0) {
+    const liftScore = clampNumber(50 + (26 * Math.log2(Math.max(lift, 0.05))), 0, 96);
+    return clampNumber((0.55 * liftScore) + (0.45 * velocity), 0, 96);
+  }
+  if (topPercent > 0) {
+    const positionScore = clampNumber(98 - (topPercent * 1.55), 42, 94);
+    return clampNumber((0.65 * positionScore) + (0.35 * Math.min(stored || positionScore, 92)), 0, 94);
+  }
+  const volumeScore = clampNumber(42 + ((Math.log1p(Math.max(0, unitsLast30)) / Math.log1p(Math.max(40, unitsLast30))) * 36), 0, 82);
+  return clampNumber(stored ? Math.min(stored, volumeScore) : volumeScore, 0, 86);
+}
+
+function calculateValidatedMomentumTrendConsistencyScore(weeklyUnits = [], fallbackScore = 0) {
+  const values = (Array.isArray(weeklyUnits) ? weeklyUnits : []).map((value) => Math.max(0, Number(value || 0)));
+  if (values.length < 2) return clampNumber(Number(fallbackScore || 0), 0, 100);
+  const activeWeekRatio = values.filter((value) => value > 0).length / values.length;
+  const weeklySlope = calculateClientLinearRegressionSlope(values);
+  const averageWeeklyUnits = calculateAverage(values);
+  const normalizedSlope = weeklySlope / Math.max(averageWeeklyUnits, 1);
+  const trendDirectionScore = clampNumber(50 + (70 * normalizedSlope), 0, 100);
+  return clampNumber((0.58 * trendDirectionScore) + (0.42 * activeWeekRatio * 100), 0, 100);
+}
+
+function calculateValidatedMomentumRecencyScore({ weeklyUnits = [], unitsLast30 = 0, unitsLast7Days = 0, unitsLast14Days = 0, lastSaleAt = null } = {}) {
+  const latestWeekUnits = Array.isArray(weeklyUnits) && weeklyUnits.length ? Number(weeklyUnits[weeklyUnits.length - 1] || 0) : 0;
+  const recent7 = Math.max(0, Number(unitsLast7Days || 0) || latestWeekUnits);
+  const recent14 = Math.max(0, Number(unitsLast14Days || 0));
+  const currentUnits = Math.max(0, Number(unitsLast30 || 0));
+  const lastSaleDate = lastSaleAt ? new Date(lastSaleAt) : null;
+  const daysSinceLastSale = lastSaleDate && !Number.isNaN(lastSaleDate.getTime())
+    ? Math.max(0, Math.floor((Date.now() - lastSaleDate.getTime()) / (24 * 60 * 60 * 1000)))
+    : null;
+  let base = recent7 > 0 ? 82 : recent14 > 0 ? 64 : currentUnits > 0 ? 42 : 0;
+  if (daysSinceLastSale !== null) {
+    base = daysSinceLastSale <= 2 ? 86 : daysSinceLastSale <= 7 ? 78 : daysSinceLastSale <= 14 ? 60 : daysSinceLastSale <= 30 ? 38 : 0;
+  }
+  const recentShare = currentUnits ? clampNumber(recent7 / currentUnits, 0, 1) : 0;
+  return clampNumber(base + (recentShare * 10) + (recent7 >= 5 ? 4 : 0), 0, 96);
+}
+
+function calculateClientLinearRegressionSlope(values = []) {
+  const points = (Array.isArray(values) ? values : []).map((value, index) => ({ x: index + 1, y: Number(value || 0) }));
+  if (points.length < 2) return 0;
+  const meanX = calculateAverage(points.map((point) => point.x));
+  const meanY = calculateAverage(points.map((point) => point.y));
+  const denominator = points.reduce((total, point) => total + ((point.x - meanX) ** 2), 0);
+  if (!denominator) return 0;
+  return points.reduce((total, point) => total + ((point.x - meanX) * (point.y - meanY)), 0) / denominator;
+}
+
+function getValidatedMomentumDirection({ momentum = {}, score = 0, unitsPrevious30 = 0, unitsLast30 = 0, weeklyUnits = [] } = {}) {
+  if (!unitsPrevious30 && unitsLast30 > 0) return "New activity";
+  if (weeklyUnits.length >= 2 && weeklyUnits[weeklyUnits.length - 1] > weeklyUnits[0]) return "Accelerating";
+  if (weeklyUnits.length >= 2 && weeklyUnits[weeklyUnits.length - 1] < weeklyUnits[0]) return "Cooling";
+  if (score >= 80) return "Hot";
+  return momentum.direction || "Steady";
 }
 
 function getFinancialExposureFootnote(detail = {}) {
@@ -4202,7 +4358,7 @@ function getProductDetailInsightCards(detail = {}) {
       footnote: detail.riskTrendLabel,
       tone: detail.riskTone,
       sparkline: getInsightSeries(history, (entry) => entry.riskScore, detail.riskScore),
-      icon: "alert-circle",
+      icon: "product-risk",
       chartStyle: "area",
       chartTone: "purple",
     },
@@ -4214,7 +4370,7 @@ function getProductDetailInsightCards(detail = {}) {
       footnote: getFinancialExposureFootnote(detail),
       tone: "red",
       sparkline: getInsightSeries(history, (entry) => firstFiniteNumber(entry.financialExposure, entry.revenueAtRisk, entry.marginAtRisk), detail.estimatedImpact),
-      icon: "cash-dollar",
+      icon: "financial-exposure",
       chartStyle: "area",
       chartTone: "red",
     },
@@ -4232,15 +4388,15 @@ function getProductDetailInsightCards(detail = {}) {
     },
     {
       title: "Product Momentum",
-      meta: "Commercial trend",
+      meta: detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks?.length ? "Last 4 weekly units" : "Commercial trend",
       value: detail.productMomentum ? detail.productMomentum.tier : "Needs diagnosis",
       detail: detail.productMomentum ? `${formatInteger(momentumScore)} / 100` : "Momentum unavailable",
       footnote: detail.productMomentum
         ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
         : "Run diagnosis to calculate sales strength",
       tone: detail.productMomentum ? getProductMomentumTone(detail.productMomentum) : "neutral",
-      sparkline: getInsightSeries(history, (entry) => entry.productMomentumScore, momentumScore),
-      icon: "wand",
+      sparkline: getProductMomentumInsightSeries(detail, history, momentumScore),
+      icon: "product-momentum",
       chartStyle: "area",
       chartTone: "blue",
     },
@@ -4252,7 +4408,7 @@ function getProductDetailInsightCards(detail = {}) {
       footnote: `Based on ${formatInteger(detail.signalCount)} signals`,
       tone: "green",
       sparkline: getInsightSeries(history, (entry) => entry.confidence, detail.confidence),
-      icon: "shield-check-mark",
+      icon: "diagnostic-confidence",
       chartStyle: "area",
       chartTone: "green",
     },
@@ -4264,7 +4420,7 @@ function getProductDetailInsightCards(detail = {}) {
       footnote: `${formatCompactMoney(detail.salesAmount)} sales in window`,
       tone: refundLeakage >= 8 ? "red" : "blue",
       sparkline: getInsightSeries(history, calculateRefundLeakageRate, refundLeakage),
-      icon: "shopify-refunds",
+      icon: "refund-leakage",
       chartStyle: "area",
       chartTone: "maroon",
     },
@@ -4300,7 +4456,7 @@ function getProductDetailInsightCards(detail = {}) {
       footnote: `${formatInteger(detail.reviewCount)} total reviews`,
       tone: Number(detail.negativeReviewRate || 0) >= 12 ? "red" : "blue",
       sparkline: getInsightSeries(history, (entry) => entry.negativeReviewRate, detail.negativeReviewRate),
-      icon: "csv-reviews",
+      icon: "negative-review-pressure",
       chartStyle: "area",
       chartTone: "discovery",
     },
@@ -4312,11 +4468,28 @@ function getProductDetailInsightCards(detail = {}) {
       footnote: `${formatInteger(detail.signalCount)} related signals`,
       tone: detail.issueTone,
       sparkline: getInsightSeries(history, (entry) => entry.signalCount, detail.signalCount),
-      icon: "product",
+      icon: "main-issue",
       chartStyle: "area",
       chartTone: "slate",
     },
   ];
+}
+
+function getProductMomentumInsightSeries(detail = {}, history = [], fallbackScore = 0) {
+  const weeklyUnits = getMomentumWeeklySeries(detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks);
+  if (weeklyUnits.length >= 2) return weeklyUnits;
+
+  const weeklyRevenue = getMomentumWeeklySeries(detail.productMomentum?.inputs?.weeklyRevenueLast4Weeks);
+  if (weeklyRevenue.length >= 2) return weeklyRevenue;
+
+  return getInsightSeries(history, (entry) => entry.productMomentumScore, fallbackScore);
+}
+
+function getMomentumWeeklySeries(values = []) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => Math.max(0, Number(value || 0)))
+    .filter((value) => Number.isFinite(value));
 }
 
 function getInsightSeries(history = [], selector, fallbackValue = 0) {
@@ -4840,7 +5013,7 @@ function getEvidenceIcon(source) {
   if (normalized.includes("ai evidence") || normalized.includes("ai synthesis")) return "ai-evidence-synthesis";
   if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("sentiment")) return "customer-language-analysis";
   if (normalized.includes("csv") || (normalized.includes("review") && !normalized.includes("judge") && !normalized.includes("judgeme"))) return "csv-reviews";
-  if (normalized.includes("refund")) return "shopify-refunds";
+  if (normalized.includes("refund")) return "refund-leakage";
   if (normalized.includes("return")) return "shopify-returns";
   if (normalized.includes("order") || normalized.includes("sales")) return "shopify-orders";
   if (normalized.includes("variant")) return "variants";
@@ -4942,8 +5115,8 @@ function getIssueActionLabel(issue, issueCategory) {
 function getIssueIcon(issue) {
   const normalized = String(issue || "").toLowerCase();
   if (normalized.includes("return")) return "return";
-  if (normalized.includes("refund")) return "cash-dollar";
-  if (normalized.includes("sentiment") || normalized.includes("language")) return "note";
+  if (normalized.includes("refund")) return "refund-leakage";
+  if (normalized.includes("sentiment") || normalized.includes("language") || normalized.includes("negative review")) return "negative-review-pressure";
   if (normalized.includes("fear") || normalized.includes("safety") || normalized.includes("scare")) return "alert-circle";
   if (normalized.includes("variant")) return "product";
   if (normalized.includes("expectation") || normalized.includes("description") || normalized.includes("color")) return "tag";
@@ -6944,7 +7117,7 @@ function getProductCheckedItems(product) {
 
   if (sources.some((source) => String(source).toLowerCase().includes("refund")) || Number(metrics.refundUnits || 0) > 0) {
     items.push({
-      icon: "cash-dollar",
+      icon: "refund-leakage",
       label: "Refunds analyzed",
       value: formatInteger(metrics.refundUnits || 0),
       detail: `${formatMoney(metrics.refundAmount || 0)} refunded, ${formatPercent(refundRate)} refund rate`,
@@ -7118,6 +7291,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [recommendedActionsCollapsed, setRecommendedActionsCollapsed] = useState(false);
   const [recommendedActionSort, setRecommendedActionSort] = useState("priority");
   const [recommendedActionsExpanded, setRecommendedActionsExpanded] = useState(false);
+  const [insightCardsExpanded, setInsightCardsExpanded] = useState(false);
   const [draftText, setDraftText] = useState("");
   const productRef = useRef(product);
   const minimizedActionStatesRef = useRef(minimizedActionStates);
@@ -7155,6 +7329,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setRecommendedActionsCollapsed(false);
     setRecommendedActionSort("priority");
     setRecommendedActionsExpanded(false);
+    setInsightCardsExpanded(false);
   }, [productIdentityKey, productResolvedAt]);
 
   useEffect(() => {
@@ -7288,6 +7463,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const detail = getProductDetailModel(product);
   const ignoredIssueRows = detail.detectedIssues.filter((issue) => isIssueIgnored(issue, ignoredIssues));
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
+  const insightCards = getProductDetailInsightCards(detail);
+  const primaryInsightCards = insightCards.slice(0, 4);
+  const hiddenInsightCards = insightCards.slice(4);
+  const hasHiddenInsightCards = hiddenInsightCards.length > 0;
   const isActionArchived = (action) => {
     return Boolean(getArchivedActionState(action, minimizedActionStates));
   };
@@ -7315,7 +7494,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const isWatched = watchlistLocalState ?? Boolean(detail.isWatched);
   const productStatusLabel = resolved ? "Resolved" : detail.productStatusLabel;
   const productStatusTone = resolved ? "success" : detail.productStatusTone;
-  const storeUrl = detail.shopifyStorefrontUrl || getStorefrontUrlFromAdminUrl(detail.shopifyAdminUrl, detail.handle);
+  const shopifyAdminUrl = detail.shopifyAdminUrl || "";
   const productMetaItems = [
     ["Handle", detail.handle || "Unavailable"],
     ["Type", detail.productType || "Product"],
@@ -7576,20 +7755,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 {diagnosisPending ? "Queueing..." : detail.hasFullDiagnosis ? "Re-analyze" : detail.diagnosisButtonLabel}
               </button>
             )}
-            {storeUrl ? (
+            {shopifyAdminUrl ? (
               <a
                 className="ppProductStoreButton"
-                href={storeUrl}
+                href={shopifyAdminUrl}
                 target="_blank"
                 rel="noreferrer"
-                aria-label="View product on store"
+                aria-label="Open in Shopify Admin"
               >
-                <span>View on store</span>
+                <span>Open in Shopify Admin</span>
                 <s-icon type="external" size="small"></s-icon>
               </a>
             ) : (
               <span className="ppProductStoreButton isDisabled" aria-disabled="true">
-                <span>View on store</span>
+                <span>Open in Shopify Admin</span>
                 <s-icon type="external" size="small"></s-icon>
               </span>
             )}
@@ -7609,10 +7788,36 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         </section>
 
         <div className="ppProductSummaryGrid" aria-label="Product signal summary">
-          <div className="ppRiskSnapshot">
-            {getProductDetailInsightCards(detail).map((card, index) => (
-              <ProductInsightMetric key={`${card.id || card.title || "insight"}-${index}`} {...card} />
-            ))}
+          <div className={`ppRiskSnapshotBlock${insightCardsExpanded ? " isExpanded" : ""}`}>
+            <div className="ppRiskSnapshot ppRiskSnapshot-primary">
+              {primaryInsightCards.map((card, index) => (
+                <ProductInsightMetric key={`${card.id || card.title || "insight"}-${index}`} {...card} />
+              ))}
+            </div>
+            {hasHiddenInsightCards && (
+              <>
+                <div className="ppRiskSnapshotOverflow" aria-hidden={!insightCardsExpanded}>
+                  <div className="ppRiskSnapshot ppRiskSnapshot-extra">
+                    {hiddenInsightCards.map((card, index) => (
+                      <ProductInsightMetric key={`${card.id || card.title || "insight"}-${index + primaryInsightCards.length}`} {...card} />
+                    ))}
+                  </div>
+                </div>
+                <button
+                  className="ppRiskSnapshotToggle"
+                  type="button"
+                  aria-expanded={insightCardsExpanded}
+                  onClick={() => setInsightCardsExpanded((expanded) => !expanded)}
+                >
+                  <span className="ppRiskSnapshotToggleLine" aria-hidden="true" />
+                  <span className="ppRiskSnapshotToggleLabel">
+                    {insightCardsExpanded ? "Show Less" : "View More"}
+                    <s-icon type={insightCardsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                  </span>
+                  <span className="ppRiskSnapshotToggleLine" aria-hidden="true" />
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -7621,7 +7826,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <div className="ppMainFindingCard">
               <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
               <div>
-                <span>AI Summary</span>
+                <span>Overview</span>
                 <h2>{detail.mainFindingTitle}</h2>
                 <div className="ppMainFindingText">
                   {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
@@ -7638,7 +7843,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                     <thead>
                       <tr>
                         <th>Issue</th>
-                        <th>Severity</th>
+                        <th>Impact</th>
                         <th>Confidence</th>
                         <th>Signals</th>
                         <th>Trend</th>
@@ -7669,15 +7874,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                   <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
                                 </span>
                                 <span>
-                                  <strong>{issue.issue}</strong>
-                                  {issueEvidenceText && (
-                                    <small title={issueEvidenceText}>{issueEvidenceText}</small>
-                                  )}
+                                  <IssueTitleWithEvidence title={issue.issue} evidence={issueEvidenceText} />
                                 </span>
                                 {ignored && <s-badge tone="success">Ignored</s-badge>}
                               </span>
                             </td>
-                            <td><s-badge tone={issue.tone}>{issue.severity}</s-badge></td>
+                            <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
                             <td>{issue.confidence}</td>
                             <td>{issue.signals}</td>
                             <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
@@ -7714,7 +7916,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
               <div className="ppRecommendedActionsHeader">
                 <div>
-                  <h2>Recommended actions</h2>
+                  <span className="ppRecommendedActionsTitle">
+                    <span className="ppRecommendedActionsTitleIcon" aria-hidden="true">
+                      <ProductPulseGlyph type="ai-evidence-synthesis" />
+                    </span>
+                    <h2>Recommended actions</h2>
+                  </span>
                   <p>Prioritized next steps based on product signals and evidence.</p>
                   <span>
                     {detail.hasFullDiagnosis
@@ -7790,8 +7997,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                       type="button"
                       onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
                     >
-                      <span>{recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}</span>
-                      <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                      <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
+                      <span className="ppRecommendedActionsMoreLabel">
+                        {recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}
+                        <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                      </span>
+                      <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
                     </button>
                   )}
                   {minimizedRecommendedActions.length > 0 && (
@@ -7917,8 +8128,9 @@ function ProductOrderActivityPanel({ detail }) {
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
   const months = activity.months || [];
   const summary = activity.summary || {};
-  const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders);
-  const maxOrders = Math.max(Number(summary.maxOrders || 0), ...months.map((month) => Math.max(month.orders, month.returnedOrders, month.refundedOrders)), 1);
+  const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders || month.revenue);
+  const maxOrders = Math.max(Number(summary.maxOrders || 0), ...months.map((month) => getOrderActivityStackTotal(month)), 1);
+  const maxRevenue = Math.max(Number(summary.maxRevenue || 0), ...months.map((month) => Number(month.revenue || 0)), 1);
   const windowLabel = activity.windowDays ? `${activity.windowDays}-day window` : "Stored window";
   const rangeLabel = getMonthlyOrderActivityRangeLabel(months);
 
@@ -7946,11 +8158,12 @@ function ProductOrderActivityPanel({ detail }) {
 
       {hasActivity ? (
         <div className="ppOrderActivityChart" role="img" aria-label={`Monthly Shopify orders chart for ${detail.title}`}>
-          <OrderActivityComboChart months={months} maxOrders={maxOrders} />
+          <OrderActivityComboChart months={months} maxOrders={maxOrders} maxRevenue={maxRevenue} />
           <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
-            <span><i className="ppOrderActivityLegendTotal" />Total orders</span>
+            <span><i className="ppOrderActivityLegendTotal" />Orders</span>
             <span><i className="ppOrderActivityLegendReturns" />Returned orders</span>
             <span><i className="ppOrderActivityLegendRefunds" />Refunded orders</span>
+            <span><i className="ppOrderActivityLegendRevenue" />Revenue</span>
           </div>
         </div>
       ) : (
@@ -7975,7 +8188,7 @@ function ProductReturnRatePredictionPanel({ detail }) {
         <div>
           <span>Prediction model</span>
           <h2>Return rate prediction</h2>
-          <p>Weekly Shopify order cohorts, smoothed from observed return behavior and projected three months forward.</p>
+          <p>Weekly Shopify order cohorts, smoothed from observed return behavior and projected three months forward. The lilac range widens as forecast uncertainty grows.</p>
         </div>
         <s-badge tone={getReturnRatePredictionConfidenceTone(summary.confidence)}>{summary.confidence || "Unavailable"} confidence</s-badge>
       </div>
@@ -8002,17 +8215,21 @@ function ProductReturnRatePredictionPanel({ detail }) {
                   <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
                 ))}
               </div>
-              <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
-                {chart.yTicks.map((tick) => (
-                  <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
-                ))}
-                {chart.monthTicks.map((tick) => (
-                  <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
-                ))}
-                {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
-                {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
-                {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
-              </svg>
+              <div className="ppReturnPredictionChartArea">
+                <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
+                  {chart.yTicks.map((tick) => (
+                    <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
+                  ))}
+                  {chart.monthTicks.map((tick) => (
+                    <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
+                  ))}
+                  {chart.forecastRangePath && <path className="ppReturnPredictionForecastRange" d={chart.forecastRangePath} />}
+                  {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
+                  {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
+                  {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
+                </svg>
+                <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
+              </div>
               <div className="ppReturnPredictionXAxis">
                 {chart.monthTicks.map((tick) => (
                   <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
@@ -8023,9 +8240,9 @@ function ProductReturnRatePredictionPanel({ detail }) {
             <div className="ppReturnPredictionLegend">
               <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
               <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
+              <span><i className="ppReturnPredictionLegendRange" />Forecast range</span>
             </div>
           </div>
-          <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
         </>
       ) : (
         <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
@@ -8053,11 +8270,11 @@ function ProductMomentumPanel({ detail }) {
   }
 
   const componentRows = [
-    { label: "Current velocity", value: momentum.components.currentVelocityScore, detail: "Recent units and revenue vs catalog" },
-    { label: "Growth", value: momentum.components.growthScore, detail: "Last 30 days vs previous 30 days" },
-    { label: "Catalog share", value: momentum.components.catalogShareScore, detail: "Product share vs its baseline" },
-    { label: "Trend consistency", value: momentum.components.trendConsistencyScore, detail: "Weekly activity and direction" },
-    { label: "Recency", value: momentum.components.recencyScore, detail: "How recently orders happened" },
+    { key: "velocity", label: "Velocity", value: momentum.components.currentVelocityScore },
+    { key: "growth", label: "Growth", value: momentum.components.growthScore },
+    { key: "catalog", label: "Catalog share", value: momentum.components.catalogShareScore },
+    { key: "trend", label: "Trend consistency", value: momentum.components.trendConsistencyScore },
+    { key: "recency", label: "Recency", value: momentum.components.recencyScore },
   ];
 
   return (
@@ -8068,23 +8285,26 @@ function ProductMomentumPanel({ detail }) {
           <h2>Product Momentum</h2>
           <p>This score answers whether the product matters commercially right now. It is separate from Product Risk.</p>
         </div>
-        <s-badge tone={getMomentumBadgeTone(momentum)}>{momentum.tier}</s-badge>
+        <span className={`ppProductMomentumTier ppProductMomentumTier-${getProductMomentumBarsTone(momentum)}`}>
+          <ProductMomentumFlameIcon />
+          {momentum.tier}
+        </span>
       </div>
       <div className="ppProductMomentumBody">
-        <div className="ppProductMomentumScore">
-          <strong>{momentum.score}<small>/100</small></strong>
-          <span>{momentum.direction}</span>
-          <p>{momentum.display.growthLabel} vs previous 30 days · {momentum.display.catalogPositionLabel}</p>
+        <ProductMomentumGauge momentum={momentum} />
+        <div className="ppProductMomentumTrendCallout">
+          <span>
+            <ProductMomentumComponentIcon type="growth" />
+          </span>
+          <strong>{momentum.display.trendLabel}</strong>
         </div>
-        <ProductMomentumTrendCard momentum={momentum} />
       </div>
       <div className="ppProductMomentumBreakdown">
-        {componentRows.map(({ label, value, detail: componentDetail }) => (
-          <div className="ppProductMomentumComponent" key={label}>
+        {componentRows.map(({ key, label, value }) => (
+          <div className="ppProductMomentumComponent" key={key}>
+            <ProductMomentumComponentIcon type={key} />
             <span>{label}</span>
             <strong>{formatInteger(value)}</strong>
-            <div aria-hidden="true"><span style={{ width: `${clampNumber(value, 0, 100)}%` }} /></div>
-            <small>{componentDetail}</small>
           </div>
         ))}
       </div>
@@ -8093,6 +8313,127 @@ function ProductMomentumPanel({ detail }) {
         <span>{formatInteger(momentum.inputs.unitsLast30Days)} units · {formatMoney(momentum.inputs.revenueLast30Days)} revenue in the last 30 days</span>
       </div>
     </section>
+  );
+}
+
+function ProductMomentumGauge({ momentum }) {
+  const score = clampNumber(Number(momentum.score || 0), 0, 100);
+  const rotation = -180 + (score * 1.8);
+  const getArcPoint = (value, radius) => {
+    const angle = ((-180 + value * 1.8) * Math.PI) / 180;
+    return {
+      x: 260 + Math.cos(angle) * radius,
+      y: 276 + Math.sin(angle) * radius,
+    };
+  };
+  const tickMarks = Array.from({ length: 41 }, (_, index) => {
+    const value = index * 2.5;
+    const isMajor = value % 25 === 0;
+    const outer = getArcPoint(value, 202);
+    const inner = getArcPoint(value, isMajor ? 168 : 181);
+    return (
+      <line
+        key={value}
+        className={isMajor ? "isMajor" : ""}
+        x1={inner.x}
+        y1={inner.y}
+        x2={outer.x}
+        y2={outer.y}
+      />
+    );
+  });
+
+  return (
+    <div className="ppProductMomentumGauge">
+      <div className="ppProductMomentumGaugeScale" aria-hidden="true">
+        <svg viewBox="0 0 520 330" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="ppProductMomentumGaugeGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#DDE5EF" />
+              <stop offset="44%" stopColor="#3B82F6" />
+              <stop offset="70%" stopColor="#32C9B7" />
+              <stop offset="100%" stopColor="#22C55E" />
+            </linearGradient>
+            <filter id="ppProductMomentumNeedleShadow" x="-20%" y="-30%" width="140%" height="160%">
+              <feDropShadow dx="0" dy="7" stdDeviation="5" floodColor="#0F172A" floodOpacity="0.18" />
+            </filter>
+          </defs>
+          <path className="ppProductMomentumGaugeArc" d="M 58 276 A 202 202 0 0 1 462 276" stroke="url(#ppProductMomentumGaugeGradient)" />
+          <g className="ppProductMomentumNeedle" style={{ transform: `rotate(${rotation}deg)`, transformOrigin: "260px 276px" }}>
+            <path d="M 260 266 L 456 274 Q 467 276 456 278 L 260 286 Z" filter="url(#ppProductMomentumNeedleShadow)" />
+            <circle cx="260" cy="276" r="19" filter="url(#ppProductMomentumNeedleShadow)" />
+          </g>
+          <g className="ppProductMomentumGaugeTicks">{tickMarks}</g>
+        </svg>
+        <span className="ppProductMomentumGaugeLabel ppProductMomentumGaugeLabel-0">0</span>
+        <span className="ppProductMomentumGaugeLabel ppProductMomentumGaugeLabel-25">25</span>
+        <span className="ppProductMomentumGaugeLabel ppProductMomentumGaugeLabel-50">50</span>
+        <span className="ppProductMomentumGaugeLabel ppProductMomentumGaugeLabel-75">75</span>
+        <span className="ppProductMomentumGaugeLabel ppProductMomentumGaugeLabel-100">100</span>
+      </div>
+      <div className="ppProductMomentumGaugeCenter">
+        <strong>{formatInteger(score)} <small>/ 100</small></strong>
+        <span>{momentum.direction}</span>
+        <p><b>{momentum.display.growthLabel}</b> vs previous 30 days · <b>{momentum.display.catalogPositionLabel}</b></p>
+      </div>
+    </div>
+  );
+}
+
+function ProductMomentumFlameIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d="M12.5 21C8.8 21 6 18.5 6 14.9C6 12.5 7.2 10.6 9.1 8.7C9.6 10.3 10.7 11.3 12.1 11.6C11.4 8.2 12.8 5.2 16.3 3C16 6.2 17.4 8 18.6 9.7C19.5 11 20 12.4 20 14.1C20 18.1 16.7 21 12.5 21Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M11 17.6C11 16.3 11.8 15.3 13 14.3C13.1 15.4 13.8 16.2 14.9 16.6C15.3 18.2 14.1 19.4 12.8 19.4C11.8 19.4 11 18.7 11 17.6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ProductMomentumComponentIcon({ type }) {
+  const normalized = String(type || "");
+  if (normalized === "velocity") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M5 15.5L9.2 11.3L12.2 14.2L19 7.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M15.5 7.4H19V10.9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5 19H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (normalized === "catalog") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M12 4V20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M4 12H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M12 12L12 4C16.4 4.5 20 8 20 12H12Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M12 12H20C19.5 16.4 16.4 20 12 20V12Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (normalized === "trend") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M4 15L7.6 11.5L11.2 14.8L15.1 9.6L20 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (normalized === "recency") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.9" />
+        <path d="M12 7.5V12.2L15.2 14.1" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d="M4 17.5H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M6.5 14.5V17.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M11 12V17.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M15.5 9V17.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M5.5 11.8L9.4 8.3L13 10.8L19 4.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M15.8 4.8H19V8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -8181,17 +8522,23 @@ function getReturnRatePredictionChart(prediction = {}) {
     value: Number(point.predictedReturnRate || 0),
     date: getReturnPredictionPointDate(point),
   }));
-  const allValues = [...observed, ...forecast].map((point) => point.value).filter((value) => Number.isFinite(value));
+  const forecastRange = buildReturnPredictionForecastRange(observed, forecast, prediction.summary || {});
+  const allValues = [
+    ...observed.map((point) => point.value),
+    ...forecast.map((point) => point.value),
+    ...forecastRange.flatMap((point) => [point.lowerValue, point.upperValue]),
+  ].filter((value) => Number.isFinite(value));
   if (!allValues.length) {
-    return { observedPath: "", forecastPath: "", boundaryX: 0, startLabel: "", endLabel: "", monthTicks: [], yTicks: [] };
+    return { observedPath: "", forecastPath: "", forecastRangePath: "", boundaryX: 0, startLabel: "", endLabel: "", monthTicks: [], yTicks: [] };
   }
   const min = Math.max(0, Math.min(...allValues) - 4);
-  const max = Math.min(100, Math.max(...allValues) + 4);
+  const max = Math.min(96, Math.max(...allValues) + 4);
   const range = Math.max(max - min, 1);
   const totalCount = Math.max(observed.length + forecast.length - 1, 1);
   const mapPoint = (point, index) => ({
     x: Math.round((index / totalCount) * 1000) / 10,
     y: Math.round((92 - ((point.value - min) / range) * 84) * 10) / 10,
+    value: point.value,
     date: point.date,
     label: point.label || point.key || "",
   });
@@ -8199,18 +8546,145 @@ function getReturnRatePredictionChart(prediction = {}) {
   const forecastOffset = Math.max(observed.length - 1, 0);
   const forecastChartPoints = forecast.map((point, index) => mapPoint(point, forecastOffset + index + 1));
   const boundaryX = observedChartPoints.length ? observedChartPoints[observedChartPoints.length - 1].x : 0;
+  const rangeChartPoints = forecastRange.map((point, index) => {
+    const x = Math.round(((forecastOffset + index + 1) / totalCount) * 1000) / 10;
+    return {
+      x,
+      upper: mapReturnPredictionChartValue(point.upperValue, min, range),
+      lower: mapReturnPredictionChartValue(point.lowerValue, min, range),
+    };
+  });
+  const forecastRangePath = buildReturnPredictionForecastRangePath(rangeChartPoints, observedChartPoints[observedChartPoints.length - 1], forecastRange[0], min, range);
   const startLabel = observed[0]?.label || observed[0]?.key || "";
   const endLabel = forecast[forecast.length - 1]?.label || forecast[forecast.length - 1]?.key || "";
   const allChartPoints = [...observedChartPoints, ...forecastChartPoints];
   return {
     observedPath: buildSmoothSvgPath(observedChartPoints),
     forecastPath: buildSmoothSvgPath(boundaryX && forecastChartPoints.length ? [observedChartPoints[observedChartPoints.length - 1], ...forecastChartPoints] : forecastChartPoints),
+    forecastRangePath,
     boundaryX,
     startLabel,
     endLabel,
     monthTicks: buildReturnPredictionMonthTicks(allChartPoints),
     yTicks: buildReturnPredictionYAxisTicks(min, max, range),
   };
+}
+
+function buildReturnPredictionForecastRange(observed = [], forecast = [], summary = {}) {
+  if (!forecast.length) return [];
+  const observedValues = observed.map((point) => Number(point.value)).filter(Number.isFinite);
+  const forecastValues = forecast.map((point) => Number(point.value)).filter(Number.isFinite);
+  const observedDiffs = observedValues.slice(1).map((value, index) => value - observedValues[index]);
+  const recentDiffs = observedDiffs.slice(-Math.min(4, observedDiffs.length));
+  const observedUnits = observed.reduce((sum, point) => sum + Math.max(Number(point.orderUnits || point.orders || 0), 0), 0);
+  const effectiveSample = Math.max(
+    Number(summary.totalOrderUnits || 0),
+    Number(summary.totalOrders || 0),
+    observedUnits,
+    1,
+  );
+  const averageForecastRate = forecastValues.length
+    ? forecastValues.reduce((sum, value) => sum + value, 0) / forecastValues.length
+    : Number(summary.forecastNext90ReturnRate || 0);
+  const probability = clampNumber(averageForecastRate / 100, 0.01, 0.99);
+  const binomialStandardError = Math.sqrt((probability * (1 - probability)) / effectiveSample) * 100;
+  const observedVolatility = calculateStandardDeviation(observedValues);
+  const slopeVolatility = calculateStandardDeviation(observedDiffs);
+  const recentSlope = calculateAverage(recentDiffs);
+  const longSlope = calculateAverage(observedDiffs);
+  const recentMean = observedValues.length
+    ? calculateAverage(observedValues.slice(-Math.min(6, observedValues.length)))
+    : averageForecastRate;
+  const upwardVolatility = calculateStandardDeviation(observedDiffs.filter((value) => value > 0));
+  const downwardVolatility = calculateStandardDeviation(observedDiffs.filter((value) => value < 0).map(Math.abs));
+  const trendPressure = clampNumber(recentSlope * 0.34 + longSlope * 0.18, -5, 5);
+  const baseError = Math.max(1.15, binomialStandardError * 0.52, observedVolatility * 0.34, slopeVolatility * 0.46);
+  const confidenceMultiplier = getReturnPredictionConfidenceUncertaintyMultiplier(summary.confidence);
+  const sampleMultiplier = clampNumber(Math.sqrt(64 / effectiveSample), 0.55, 1.35);
+  const horizonCount = Math.max(forecast.length, 1);
+
+  return forecast.map((point, index) => {
+    const horizonRatio = (index + 1) / horizonCount;
+    const upperPolynomial = 0.36 + 0.58 * Math.pow(horizonRatio, 1.75) + 0.22 * Math.pow(horizonRatio, 3);
+    const lowerPolynomial = 0.32 + 0.5 * Math.pow(horizonRatio, 1.65) + 0.18 * Math.pow(horizonRatio, 3);
+    const center = clampPercentValue(point.value);
+    const upperTrendBias = Math.max(0, trendPressure) * (0.28 + horizonRatio * 0.72)
+      + Math.max(0, center - recentMean) * 0.08 * horizonRatio;
+    const lowerTrendBias = Math.max(0, -trendPressure) * (0.24 + horizonRatio * 0.66)
+      + Math.max(0, recentMean - center) * 0.06 * horizonRatio;
+    const upperOffset = clampNumber(
+      baseError * confidenceMultiplier * sampleMultiplier * upperPolynomial
+        + upwardVolatility * (0.14 + horizonRatio * 0.26)
+        + upperTrendBias,
+      0.9,
+      22,
+    );
+    const lowerOffset = clampNumber(
+      baseError * confidenceMultiplier * sampleMultiplier * lowerPolynomial
+        + downwardVolatility * (0.12 + horizonRatio * 0.22)
+        + lowerTrendBias,
+      0.75,
+      20,
+    );
+    return {
+      ...point,
+      lowerOffset,
+      upperOffset,
+      lowerValue: clampNumber(center - lowerOffset, 0, 94),
+      upperValue: clampNumber(center + upperOffset, 0, 94),
+    };
+  });
+}
+
+function getReturnPredictionConfidenceUncertaintyMultiplier(confidence = "") {
+  const normalized = String(confidence || "").toLowerCase();
+  if (normalized.includes("high")) return 0.58;
+  if (normalized.includes("medium")) return 0.78;
+  if (normalized.includes("low")) return 1.06;
+  return 1.22;
+}
+
+function calculateAverage(values = []) {
+  const numericValues = values.map(Number).filter(Number.isFinite);
+  if (!numericValues.length) return 0;
+  return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+}
+
+function calculateStandardDeviation(values = []) {
+  const numericValues = values.map(Number).filter(Number.isFinite);
+  if (numericValues.length < 2) return 0;
+  const mean = numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+  const variance = numericValues.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (numericValues.length - 1);
+  return Math.sqrt(variance);
+}
+
+function mapReturnPredictionChartValue(value, min, range) {
+  return Math.round((92 - ((clampPercentValue(value) - min) / Math.max(range, 1)) * 84) * 10) / 10;
+}
+
+function buildReturnPredictionForecastRangePath(rangePoints = [], boundaryPoint = null, firstRange = null, min = 0, range = 1) {
+  if (!rangePoints.length) return "";
+  const upperPoints = [...rangePoints.map((point) => ({ x: point.x, y: point.upper }))];
+  const lowerPoints = [...rangePoints.map((point) => ({ x: point.x, y: point.lower }))];
+  if (boundaryPoint && firstRange) {
+    const initialUpperOffset = Math.max(0.35, Number(firstRange.upperOffset || 0) * 0.24);
+    const initialLowerOffset = Math.max(0.3, Number(firstRange.lowerOffset || 0) * 0.22);
+    upperPoints.unshift({
+      x: boundaryPoint.x,
+      y: mapReturnPredictionChartValue(clampNumber(Number(boundaryPoint.value || 0) + initialUpperOffset, 0, 94), min, range),
+    });
+    lowerPoints.unshift({
+      x: boundaryPoint.x,
+      y: mapReturnPredictionChartValue(clampNumber(Number(boundaryPoint.value || 0) - initialLowerOffset, 0, 94), min, range),
+    });
+  }
+  const upperPath = buildSmoothSvgPath(upperPoints);
+  const reversedLowerPoints = [...lowerPoints].reverse();
+  const lowerPath = buildSmoothSvgPath(reversedLowerPoints);
+  if (!upperPath || !lowerPath || !reversedLowerPoints.length) return "";
+  const lowerStart = reversedLowerPoints[0];
+  const lowerContinuation = lowerPath.replace(`M ${lowerStart.x},${lowerStart.y}`, `L ${lowerStart.x},${lowerStart.y}`);
+  return `${upperPath} ${lowerContinuation} Z`;
 }
 
 function getReturnPredictionPointDate(point = {}) {
@@ -8287,15 +8761,16 @@ function OrderActivityStat({ label, value, detail, tone }) {
   );
 }
 
-function OrderActivityComboChart({ months = [], maxOrders = 1 }) {
+function OrderActivityComboChart({ months = [], maxOrders = 1, maxRevenue = 1 }) {
   const axisMax = getOrderActivityAxisMax(maxOrders);
+  const revenueAxisMax = getOrderActivityRevenueAxisMax(maxRevenue);
   const ticks = getOrderActivityAxisTicks(axisMax);
-  const returnPath = getOrderActivityLinePath(months, "returnedOrders", axisMax);
-  const refundPath = getOrderActivityLinePath(months, "refundedOrders", axisMax);
+  const revenueTicks = getOrderActivityRevenueAxisTicks(revenueAxisMax);
+  const revenuePath = getOrderActivityLinePath(months, "revenue", revenueAxisMax);
 
   return (
     <div className="ppOrderActivityCombo">
-      <div className="ppOrderActivityYAxis" aria-hidden="true">
+      <div className="ppOrderActivityYAxis ppOrderActivityYAxisLeft" aria-hidden="true">
         {ticks.map((tick) => (
           <span key={tick.value} style={{ top: `${tick.y}%` }}>{formatInteger(tick.value)}</span>
         ))}
@@ -8310,15 +8785,19 @@ function OrderActivityComboChart({ months = [], maxOrders = 1 }) {
           ))}
         </div>
         <svg className="ppOrderActivityLineOverlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          {returnPath && <path className="ppOrderActivityLine ppOrderActivityLineReturns" d={returnPath} />}
-          {refundPath && <path className="ppOrderActivityLine ppOrderActivityLineRefunds" d={refundPath} />}
+          {revenuePath && <path className="ppOrderActivityLineRevenueGlow" d={revenuePath} />}
+          {revenuePath && <path className="ppOrderActivityLine ppOrderActivityLineRevenue" d={revenuePath} />}
         </svg>
+      </div>
+      <div className="ppOrderActivityYAxis ppOrderActivityYAxisRight" aria-hidden="true">
+        {revenueTicks.map((tick) => (
+          <span key={tick.value} style={{ top: `${tick.y}%` }}>{formatMoney(tick.value)}</span>
+        ))}
       </div>
       <div className="ppOrderActivityXAxis" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(0, 1fr))` }}>
         {months.map((month) => (
-          <span key={month.key || month.label} title={`${month.label}: ${formatInteger(month.orders)} orders`}>
-            <b>{formatInteger(month.orders)}</b>
-            <small>{month.shortLabel || month.label}</small>
+          <span key={month.key || month.label} title={`${month.label}: ${formatInteger(month.orders)} orders, ${formatMoney(month.revenue || 0)} revenue`}>
+            {month.shortLabel || month.label}
           </span>
         ))}
       </div>
@@ -8329,7 +8808,11 @@ function OrderActivityComboChart({ months = [], maxOrders = 1 }) {
 function OrderActivityMonthBar({ month, maxOrders }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
-  const orderHeight = getOrderActivityBarHeight(month.orders, maxOrders);
+  const segments = [
+    { key: "refunds", value: month.refundedOrders, className: "ppOrderActivityBarRefunds" },
+    { key: "returns", value: month.returnedOrders, className: "ppOrderActivityBarReturns" },
+    { key: "orders", value: month.orders, className: "ppOrderActivityBarTotal" },
+  ].filter((segment) => Number(segment.value || 0) > 0);
   const title = `${month.label}: ${formatInteger(month.orders)} orders, ${formatInteger(month.returnedOrders)} returned, ${formatInteger(month.refundedOrders)} refunded`;
 
   return (
@@ -8344,7 +8827,13 @@ function OrderActivityMonthBar({ month, maxOrders }) {
       onMouseLeave={() => setOpen(false)}
     >
       <div className="ppOrderActivityBarShell" aria-hidden="true">
-        <span className="ppOrderActivityBar ppOrderActivityBarTotal" style={{ height: `${orderHeight}%` }} />
+        {segments.map((segment, index) => (
+          <span
+            key={segment.key}
+            className={`ppOrderActivityBar ${segment.className}${index === 0 ? " isBottom" : ""}${index === segments.length - 1 ? " isTop" : ""}`}
+            style={{ height: `${getOrderActivitySegmentHeight(segment.value, maxOrders)}%` }}
+          />
+        ))}
       </div>
       <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppOrderActivityPopover" width={268} estimatedHeight={178} placement="top-center">
         <span className="ppOrderActivityPopoverHeader">
@@ -8364,10 +8853,16 @@ function OrderActivityMonthBar({ month, maxOrders }) {
   );
 }
 
-function getOrderActivityBarHeight(value, maxValue) {
+function getOrderActivityStackTotal(month = {}) {
+  return Math.max(0, Number(month.orders || 0))
+    + Math.max(0, Number(month.returnedOrders || 0))
+    + Math.max(0, Number(month.refundedOrders || 0));
+}
+
+function getOrderActivitySegmentHeight(value, maxValue) {
   const count = Number(value || 0);
   if (!count) return 0;
-  return Math.max(8, Math.min(100, (count / Math.max(Number(maxValue || 1), 1)) * 100));
+  return Math.max(3, Math.min(100, (count / Math.max(Number(maxValue || 1), 1)) * 100));
 }
 
 function getOrderActivityAxisMax(value) {
@@ -8377,6 +8872,23 @@ function getOrderActivityAxisMax(value) {
 }
 
 function getOrderActivityAxisTicks(axisMax) {
+  const max = Math.max(Number(axisMax || 0), 1);
+  return [1, 0.75, 0.5, 0.25, 0].map((ratio) => {
+    const value = Math.round(max * ratio);
+    return {
+      value,
+      y: Math.round((100 - (value / max) * 100) * 10) / 10,
+    };
+  });
+}
+
+function getOrderActivityRevenueAxisMax(value) {
+  const max = Math.max(Number(value || 0), 1);
+  const magnitude = max <= 1500 ? 300 : max <= 5000 ? 1000 : max <= 25000 ? 5000 : 10000;
+  return Math.ceil(max / magnitude) * magnitude;
+}
+
+function getOrderActivityRevenueAxisTicks(axisMax) {
   const max = Math.max(Number(axisMax || 0), 1);
   return [1, 0.75, 0.5, 0.25, 0].map((ratio) => {
     const value = Math.round(max * ratio);
@@ -8402,47 +8914,44 @@ function getOrderActivityLinePath(months = [], key, axisMax) {
 }
 
 function ReturnPredictionActionImpact({ adjustment = null }) {
-  if (!adjustment) {
-    return (
-      <div className="ppReturnPredictionActionImpact ppReturnPredictionActionImpact-neutral">
-        <div>
-          <s-icon type="info" size="small"></s-icon>
-          <strong>No action impact yet</strong>
-          <span>Complete recommended actions to let ProductPulse lower the forecast path on refresh.</span>
-        </div>
-      </div>
-    );
-  }
-  const pending = Number(adjustment.pending || 0);
-  const applied = Number(adjustment.applied || 0);
-  const reviewed = Number(adjustment.reviewed || 0);
-  const dismissed = Number(adjustment.dismissed || 0);
-  const total = Number(adjustment.total || pending + applied + reviewed + dismissed || 0);
-  const handled = Number(adjustment.handled || applied + reviewed + dismissed);
-  const handledPercent = total ? Math.round((handled / total) * 100) : 0;
-  const shift = Number(adjustment.adjustmentPoints || 0);
+  const pending = Number(adjustment?.pending || 0);
+  const applied = Number(adjustment?.applied || 0);
+  const reviewed = Number(adjustment?.reviewed || 0);
+  const dismissed = Number(adjustment?.dismissed || 0);
+  const total = Number(adjustment?.total || pending + applied + reviewed + dismissed || 0);
+  const handled = Number(adjustment?.handled || applied + reviewed + dismissed);
+  const shift = Number(adjustment?.adjustmentPoints || 0);
   const direction = shift < 0 ? "improving" : shift > 0 ? "worsening" : "neutral";
-  const shiftLabel = `${shift > 0 ? "+" : ""}${Math.round(shift * 10) / 10} pts`;
+  const roundedShift = Math.round(shift * 10) / 10;
+  const shiftLabel = `${roundedShift > 0 ? "+" : ""}${roundedShift} ${Math.abs(roundedShift) === 1 ? "point" : "points"}`;
 
   return (
-    <div className={`ppReturnPredictionActionImpact ppReturnPredictionActionImpact-${direction}`}>
-      <div className="ppReturnPredictionActionImpactHeader">
-        <span>
-          <s-icon type={direction === "improving" ? "check" : direction === "worsening" ? "alert-circle" : "info"} size="small"></s-icon>
-          <strong>Recommendation impact</strong>
+    <div className={`ppReturnPredictionImpactBadge ppReturnPredictionImpactBadge-${direction}`}>
+      <button
+        type="button"
+        className="ppReturnPredictionImpactTrigger"
+        aria-label={`Recommendation impact ${shiftLabel}`}
+      >
+        <s-icon type={direction === "improving" ? "check" : direction === "worsening" ? "alert-circle" : "info"} size="small"></s-icon>
+        <span>{shiftLabel}</span>
+      </button>
+      <div className="ppReturnPredictionImpactTooltip" role="tooltip">
+        <strong>Recommendation impact</strong>
+        <p>
+          Applied and reviewed recommendations pull the forecast downward on the next diagnosis refresh.
+          Open recommendations do not move the forecast yet; dismissed items are excluded from future action impact.
+        </p>
+        <span className="ppReturnPredictionImpactShift">
+          <b>{shiftLabel}</b>
+          <small>modeled return-rate shift</small>
         </span>
-        <b>{shiftLabel}</b>
+        <div className="ppReturnPredictionImpactCounts" aria-label={`${handled} of ${total} recommendations handled`}>
+          <span><b>{applied}</b> applied</span>
+          <span><b>{reviewed}</b> reviewed</span>
+          <span><b>{dismissed}</b> dismissed</span>
+          <span><b>{pending}</b> open</span>
+        </div>
       </div>
-      <div className="ppReturnPredictionActionProgress" aria-label={`${handled} of ${total} recommendations handled`}>
-        <span style={{ width: `${Math.max(0, Math.min(100, handledPercent))}%` }} />
-      </div>
-      <div className="ppReturnPredictionActionCounts">
-        <span><b>{applied}</b> applied</span>
-        <span><b>{reviewed}</b> reviewed</span>
-        <span><b>{dismissed}</b> dismissed</span>
-        <span><b>{pending}</b> open</span>
-      </div>
-      <p>Applied or reviewed recommendations pull the forecast downward after the next diagnosis refresh.</p>
     </div>
   );
 }
@@ -8967,6 +9476,82 @@ function DashboardKpiCard({ kpi }) {
 }
 
 function ProductPulseGlyph({ type }) {
+  if (type === "product-risk") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-productRisk" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M12 3.5L20.5 12L12 20.5L3.5 12L12 3.5Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+        <path d="M12 7.8V12.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M12 16.2H12.01" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "financial-exposure") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-financialExposure" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="10.5" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.9" />
+        <path d="M12.7 8.8C12.25 8.15 11.45 7.75 10.55 7.75C9.35 7.75 8.55 8.35 8.55 9.3C8.55 10.25 9.4 10.65 10.75 10.95C12.15 11.25 13 11.75 13 12.85C13 13.95 12.1 14.75 10.6 14.75C9.45 14.75 8.45 14.3 7.8 13.55" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M10.6 6.8V7.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M10.6 14.75V15.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M16.8 12.6L21 19.5H12.6L16.8 12.6Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+        <path d="M16.8 15.4V17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M16.8 18.35H16.81" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "product-momentum") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-productMomentum" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M4 17.5H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M6.5 14.5V17.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M11 12V17.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M15.5 9V17.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M5.5 11.8L9.4 8.3L13 10.8L19 4.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M15.8 4.8H19V8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "diagnostic-confidence") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-diagnosticConfidence" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M12 3.5L19 6.4V11.5C19 15.85 16.1 19.5 12 20.5C7.9 19.5 5 15.85 5 11.5V6.4L12 3.5Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+        <path d="M8.7 12.1L11 14.4L15.6 9.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "refund-leakage") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-refundLeakage" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M17 12C17 8.7 14.3 6 11 6C7.7 6 5 8.7 5 12C5 15.3 7.7 18 11 18" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M14.6 8.9C14.1 8.25 13.3 7.9 12.35 7.9C11.05 7.9 10.2 8.55 10.2 9.55C10.2 10.55 11.05 10.95 12.35 11.25C13.75 11.55 14.6 12.05 14.6 13.2C14.6 14.3 13.65 15.1 12.25 15.1C11.05 15.1 10.15 14.65 9.5 13.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M12.25 7V7.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M12.25 15.1V16" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M17.5 13V20" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M14.8 17.3L17.5 20L20.2 17.3" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "negative-review-pressure") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-negativeReviewPressure" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M6 15.5C7.4 13.9 8.9 13.2 10.6 13.6C12.1 14 12.65 15.1 14 15.1C15.1 15.1 16 14.45 17 13.4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M8.4 9.7C8.4 9.7 9.4 8.8 10.6 8.8C11.8 8.8 12.8 9.7 12.8 9.7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M6.5 7.5C6.5 5.85 7.85 4.5 9.5 4.5H14.5C16.15 4.5 17.5 5.85 17.5 7.5V11.5C17.5 13.15 16.15 14.5 14.5 14.5H11L7.5 17.5V14.5C6.95 14.5 6.5 14.05 6.5 13.5V7.5Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+        <circle cx="17.5" cy="16.5" r="3" stroke="currentColor" strokeWidth="1.9" />
+        <path d="M17.5 15V18" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M16 16.5H19" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "main-issue") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-mainIssue" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="11" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.9" />
+        <path d="M15.6 15.1L20 19.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M11 6.9V11.1" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M11 14.1H11.01" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
   if (type === "ai-evidence-synthesis") {
     return (
       <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-aiEvidence" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
@@ -9947,6 +10532,7 @@ function ProductDetailActionsMenu({
   const [copied, setCopied] = useState(false);
   const productId = detail.slug || detail.handle || product?.slug || product?.handle || "";
   const handle = detail.handle || product?.handle || productId;
+  const storefrontUrl = detail.shopifyStorefrontUrl || getStorefrontUrlFromAdminUrl(detail.shopifyAdminUrl, detail.handle);
 
   useEffect(() => {
     if (!open || typeof document === "undefined") return undefined;
@@ -10032,10 +10618,10 @@ function ProductDetailActionsMenu({
             <s-icon type="duplicate" size="small"></s-icon>
             {copied ? "Copied handle" : "Copy handle"}
           </button>
-          {detail.shopifyAdminUrl && (
-            <a role="menuitem" href={detail.shopifyAdminUrl} target="_blank" rel="noreferrer" onClick={onClose}>
+          {storefrontUrl && (
+            <a role="menuitem" href={storefrontUrl} target="_blank" rel="noreferrer" onClick={onClose}>
               <s-icon type="external" size="small"></s-icon>
-              Open in Shopify admin
+              View in Store
             </a>
           )}
         </FloatingTablePopover>
@@ -10062,6 +10648,7 @@ function ProductInsightMetric({ title, value, detail, footnote, meta, tone = "ne
   const helpContent = getInsightMetricHelp(title);
   const metricIcon = icon || getInsightMetricIcon(title);
   const usesAreaChart = chartStyle === "area";
+  const effectiveChartTone = chartTone || tone || "neutral";
   const stacksAreaDetail = usesAreaChart && shouldStackInsightAreaDetail(detail);
   const areaValueHasLongText = usesAreaChart && hasLongInsightAreaValueText(value);
   const areaValueClassName = [
@@ -10072,7 +10659,7 @@ function ProductInsightMetric({ title, value, detail, footnote, meta, tone = "ne
 
   if (usesAreaChart) {
     return (
-      <div className={`ppProductInsight ppProductInsight-${tone} ppProductInsight-withArea`}>
+      <div className={`ppProductInsight ppProductInsight-${tone} ppProductInsight-withArea ppProductInsight-chartTone-${effectiveChartTone}`}>
         <div className="ppProductInsightAreaHeader">
           <span className="ppProductInsightIcon" aria-hidden="true">
             <ProductPulseGlyph type={metricIcon} />
@@ -10098,7 +10685,7 @@ function ProductInsightMetric({ title, value, detail, footnote, meta, tone = "ne
               </em>
             )}
           </span>
-          <ProductInsightAreaTrend tone={chartTone || tone} values={trendValues} />
+          <ProductInsightAreaTrend tone={effectiveChartTone} values={trendValues} />
         </div>
       </div>
     );
@@ -10242,7 +10829,7 @@ function getInsightMetricHelp(title) {
       return {
         what: "Shows the product's commercial strength from sales velocity, growth, catalog share, trend consistency and recent activity.",
         why: "It separates commercial traction from quality risk, so a strong seller with quality issues is easier to spot.",
-        graph: "Read it left to right. A rising line means momentum is building; a falling line means commercial traction is cooling.",
+        graph: "Read it left to right. When weekly sales are available, the graph uses the last 4 weekly unit counts, so a spike at the end means recent demand just accelerated.",
       };
     case "Diagnosis confidence":
       return {
@@ -10310,25 +10897,25 @@ function getInsightMetricHelp(title) {
 function getInsightMetricIcon(title) {
   switch (title) {
     case "Product risk":
-      return "alert-circle";
+      return "product-risk";
     case "Product Momentum":
-      return "wand";
+      return "product-momentum";
     case "Diagnosis confidence":
-      return "shield-check-mark";
+      return "diagnostic-confidence";
     case "Financial exposure":
-      return "cash-dollar";
+      return "financial-exposure";
     case "Return pressure":
       return "shopify-returns";
     case "Refund leakage":
-      return "shopify-refunds";
+      return "refund-leakage";
     case "Evidence strength":
       return "ai-evidence-synthesis";
     case "Customer signals":
       return "customer-language-analysis";
     case "Negative review pressure":
-      return "csv-reviews";
+      return "negative-review-pressure";
     case "Main issue":
-      return "product";
+      return "main-issue";
     default:
       return "info";
   }
@@ -10490,7 +11077,7 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
 
       <div className="ppEvidenceHeroMetricStrip">
         <EvidenceSourceStatCard icon="note" label="Text signals" value={formatInteger(sentiment.total)} detail="Reviews, return notes and refund notes" tone="blue" />
-        <EvidenceSourceStatCard icon="alert-circle" label="Negative language" value={formatInteger(sentiment.negative)} detail={`${formatInteger(sentiment.neutral)} neutral / ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > 0 ? "red" : "teal"} />
+        <EvidenceSourceStatCard icon="negative-review-pressure" label="Negative language" value={formatInteger(sentiment.negative)} detail={`${formatInteger(sentiment.neutral)} neutral / ${formatInteger(sentiment.positive)} positive`} tone={sentiment.negative > 0 ? "red" : "teal"} />
         <EvidenceSourceStatCard icon="target" label="Primary emotion" value={formatEvidenceEmotionLabelOnly(primaryEmotion)} detail={primaryEmotion?.count ? `Detected in ${formatInteger(primaryEmotion.count)} signals` : "No primary emotion stored"} tone={primaryEmotion?.polarity === "negative" ? "red" : primaryEmotion?.polarity === "positive" ? "teal" : "violet"} />
         <EvidenceSourceStatCard icon="wand" label="Secondary emotion" value={formatEvidenceEmotionLabelOnly(secondaryEmotion)} detail={secondaryEmotion?.count ? `${formatInteger(secondaryEmotion.count)} next-strongest signals` : "Only one emotion cluster stored"} tone={secondaryEmotion?.polarity === "negative" ? "amber" : secondaryEmotion?.polarity === "positive" ? "teal" : "violet"} />
       </div>
@@ -10673,7 +11260,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
         <EvidenceSourceStatCard icon="star" label="Total reviews" value={formatInteger(reviewStats.reviewCount)} detail={`${formatInteger(reviewStats.negativeCount)} negative reviews`} tone="blue" />
         <EvidenceSourceStatCard icon="star" label="Average rating" value={reviewStats.averageRatingLabel} detail="Product-level rating" tone="teal" />
-        <EvidenceSourceStatCard icon="thumb-down" label="Negative reviews" value={formatInteger(reviewStats.negativeCount)} detail={`${reviewStats.negativeRateLabel} negative rate`} tone={reviewStats.negativeCount ? "red" : "teal"} />
+        <EvidenceSourceStatCard icon="negative-review-pressure" label="Negative reviews" value={formatInteger(reviewStats.negativeCount)} detail={`${reviewStats.negativeRateLabel} negative rate`} tone={reviewStats.negativeCount ? "red" : "teal"} />
         <EvidenceSourceStatCard icon="clock" label="Recent negatives" value={formatInteger(reviewStats.recentNegativeCount)} detail={reviewStats.recentNegativeWindowLabel} tone={reviewStats.recentNegativeCount ? "red" : "blue"} />
       </div>
 
@@ -10782,17 +11369,17 @@ function RefundEvidencePanel({ source, product, reportHref }) {
       <EvidenceAiContextBlock section={aiContext} />
 
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
-        <EvidenceSourceStatCard icon="star" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail={`${formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} refund rate`} tone="blue" />
-        <EvidenceSourceStatCard icon="cash-dollar" label="Refund amount" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail="Stored refund value" tone="red" />
-        <EvidenceSourceStatCard icon="chart-line" label="Refund pressure" value={formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} detail={`${formatInteger(metrics.soldUnits || refundInsights.soldUnits || 0)} sold units baseline`} tone={Number(metrics.refundRate || refundInsights.refundRate || 0) >= 20 ? "red" : "amber"} />
-        <EvidenceSourceStatCard icon="cash-dollar" label="Margin at risk" value={formatMoney(metrics.marginAtRisk || 0)} detail={`${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`} tone="teal" />
+        <EvidenceSourceStatCard icon="refund-leakage" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail={`${formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} refund rate`} tone="blue" />
+        <EvidenceSourceStatCard icon="refund-leakage" label="Refund amount" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail="Stored refund value" tone="red" />
+        <EvidenceSourceStatCard icon="refund-leakage" label="Refund pressure" value={formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} detail={`${formatInteger(metrics.soldUnits || refundInsights.soldUnits || 0)} sold units baseline`} tone={Number(metrics.refundRate || refundInsights.refundRate || 0) >= 20 ? "red" : "amber"} />
+        <EvidenceSourceStatCard icon="financial-exposure" label="Margin at risk" value={formatMoney(metrics.marginAtRisk || 0)} detail={`${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`} tone="teal" />
       </div>
 
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
         <EvidenceSourceStatCard icon="star" label="Refund evidence" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail={`${formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} of refunded units`} tone="red" />
         <EvidenceSourceStatCard icon="calendar" label="Last signal captured" value={metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product)} detail={`${formatInteger(metrics.signalCount || source.points.length)} total signals`} tone="blue" />
         <EvidenceSourceStatCard icon="target" label="Top refund reason" value={topReason.label} detail="Primary refund signal" tone="violet" />
-        <EvidenceSourceStatCard icon="alert-circle" label="Refund-note tone" value={formatInteger(refundSentiment.negative)} detail={`${formatInteger(refundSentiment.negative)} negative, ${formatInteger(refundSentiment.neutral)} neutral, ${formatInteger(refundSentiment.positive)} positive`} tone={refundSentiment.negative ? "red" : "blue"} />
+        <EvidenceSourceStatCard icon="negative-review-pressure" label="Refund-note tone" value={formatInteger(refundSentiment.negative)} detail={`${formatInteger(refundSentiment.negative)} negative, ${formatInteger(refundSentiment.neutral)} neutral, ${formatInteger(refundSentiment.positive)} positive`} tone={refundSentiment.negative ? "red" : "blue"} />
       </div>
 
       <div className="ppEvidenceThreeColumnGrid ppEvidenceThreeColumnGrid-equal">
@@ -10818,8 +11405,8 @@ function RefundEvidencePanel({ source, product, reportHref }) {
 
       <div className="ppReturnsDetailMetricGrid">
         <EvidenceSourceStatCard icon="note" label="Refund note" value={topReason.label} detail="Most common note" tone="blue" />
-        <EvidenceSourceStatCard icon="cash-dollar" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail="Refunded units" tone="blue" />
-        <EvidenceSourceStatCard icon="cash-dollar" label="Refund amount" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail="Total refunded" tone="red" />
+        <EvidenceSourceStatCard icon="refund-leakage" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail="Refunded units" tone="blue" />
+        <EvidenceSourceStatCard icon="refund-leakage" label="Refund amount" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail="Total refunded" tone="red" />
         <EvidenceSourceStatCard icon="product" label="Vendor" value={metrics.vendor || "Not stored"} detail="Vendor" tone="blue" />
         <EvidenceSourceStatCard icon="tag" label="Product type" value={metrics.productType || "Not stored"} detail="Product type" tone="blue" />
       </div>
@@ -11087,8 +11674,8 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
 
       <div className="ppEvidenceMetricGrid">
         <EvidenceMetricCard card={{ label: "Signal count", value: formatInteger(product.metrics?.signalCount || source.points.length), detail: "Total stored diagnostic evidence for this product.", icon: "duplicate", tone: "blue" }} />
-        <EvidenceMetricCard card={{ label: "Model confidence", value: `${formatInteger(product.confidence || 0)}%`, detail: "Diagnosis confidence stored with the current product snapshot.", icon: "shield-check-mark", tone: Number(product.confidence || 0) >= 80 ? "teal" : "amber" }} />
-        <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(product.metrics?.estimatedImpact || product.estimatedImpact || 0), detail: "Business exposure is shown separately from Product Risk.", icon: "cash-dollar", tone: "violet" }} />
+        <EvidenceMetricCard card={{ label: "Model confidence", value: `${formatInteger(product.confidence || 0)}%`, detail: "Diagnosis confidence stored with the current product snapshot.", icon: "diagnostic-confidence", tone: Number(product.confidence || 0) >= 80 ? "teal" : "amber" }} />
+        <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(product.metrics?.estimatedImpact || product.estimatedImpact || 0), detail: "Business exposure is shown separately from Product Risk.", icon: "financial-exposure", tone: "violet" }} />
         <EvidenceMetricCard card={{ label: "Freshness", value: detailEvidenceFreshness(product), detail: "Most recent stored signal or diagnosis timestamp.", icon: "calendar", tone: "blue" }} />
       </div>
     </div>
@@ -12394,7 +12981,7 @@ function getCustomerLanguageSignalRows(textInsights = {}, themes = [], metrics =
       meaning: "Sentiment in refund and restock notes",
       count: formatSentimentCount(refundSentiment),
       trend: formatSentimentDetail(refundSentiment, "refund-note signals"),
-      icon: "cash-dollar",
+      icon: "refund-leakage",
       tone: refundSentiment.negative ? "red" : "blue",
     },
     {
@@ -12402,7 +12989,7 @@ function getCustomerLanguageSignalRows(textInsights = {}, themes = [], metrics =
       meaning: "Sentiment in reviews",
       count: formatSentimentCount(reviewsSentiment),
       trend: formatSentimentDetail(reviewsSentiment, "review text signals"),
-      icon: "star",
+      icon: "negative-review-pressure",
       tone: reviewsSentiment.negative ? "amber" : "blue",
     },
   ];
@@ -12857,9 +13444,9 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
             </div>
           </div>
           <div className="ppEvidenceReportSummary">
-            <EvidenceMetricCard card={{ label: "Product risk", value: `${detail.riskScore}/100`, detail: detail.riskTrendLabel, icon: "target", tone: detail.riskBadgeTone }} />
-            <EvidenceMetricCard card={{ label: "Diagnosis confidence", value: `${detail.confidence}%`, detail: detail.confidenceLabel, icon: "shield-check-mark", tone: "blue" }} />
-            <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} margin at risk`, icon: "cash-dollar", tone: "teal" }} />
+            <EvidenceMetricCard card={{ label: "Product risk", value: `${detail.riskScore}/100`, detail: detail.riskTrendLabel, icon: "product-risk", tone: detail.riskBadgeTone }} />
+            <EvidenceMetricCard card={{ label: "Diagnosis confidence", value: `${detail.confidence}%`, detail: detail.confidenceLabel, icon: "diagnostic-confidence", tone: "blue" }} />
+            <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} margin at risk`, icon: "financial-exposure", tone: "teal" }} />
             <EvidenceMetricCard card={{ label: "Evidence strength", value: `${detail.evidenceStrengthScore || 0}/100`, detail: `${detail.signalCount} stored signals`, icon: "duplicate", tone: "violet" }} />
           </div>
         </div>
@@ -13634,16 +14221,16 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
   } else if (normalized.includes("refund")) {
     const topReasons = getEvidenceReasonItems(metrics.topRefundReasonDetails || metrics.topRefundReasons);
-    add("Refunded units", formatInteger(metrics.refundUnits), `${formatPercent(metrics.refundRate)} refund rate`, "cash-dollar", "blue");
-    add("Refund amount", formatMoney(metrics.refundAmount || 0), "Stored refund value from Shopify", "cash-dollar", "red");
-    add("Refund pressure", formatPercent(metrics.refundRate), `${formatInteger(metrics.soldUnits)} sold units baseline`, "chart-line", Number(metrics.refundRate || 0) > 20 ? "red" : "amber");
+    add("Refunded units", formatInteger(metrics.refundUnits), `${formatPercent(metrics.refundRate)} refund rate`, "refund-leakage", "blue");
+    add("Refund amount", formatMoney(metrics.refundAmount || 0), "Stored refund value from Shopify", "refund-leakage", "red");
+    add("Refund pressure", formatPercent(metrics.refundRate), `${formatInteger(metrics.soldUnits)} sold units baseline`, "refund-leakage", Number(metrics.refundRate || 0) > 20 ? "red" : "amber");
     add("Top refund reason", topReasons[0]?.label || "No reason stored", topReasons[0]?.detail || "Primary refund signal", "target", "violet", topReasons[0]?.badge ? { badge: topReasons[0].badge } : {});
-    add("Margin at risk", formatMoney(metrics.marginAtRisk || 0), `${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`, "cash-dollar", "teal");
+    add("Margin at risk", formatMoney(metrics.marginAtRisk || 0), `${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`, "financial-exposure", "teal");
     add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
   } else if (normalized.includes("review") || normalized.includes("judge")) {
     add("Total reviews", formatInteger(metrics.reviewCount || metrics.csvReviewCount || metrics.judgeMeReviewCount), `${formatInteger(metrics.negativeReviewCount)} negative reviews`, "star", "blue");
     add("Average rating", metrics.avgRating || metrics.reviewRating || "0", "Product-level review rating", "star", "teal");
-    add("Negative reviews", formatInteger(metrics.negativeReviewCount), `${formatPercent(metrics.negativeReviewRate)} negative review rate`, "alert-circle", Number(metrics.negativeReviewRate || 0) > 25 ? "red" : "amber");
+    add("Negative reviews", formatInteger(metrics.negativeReviewCount), `${formatPercent(metrics.negativeReviewRate)} negative review rate`, "negative-review-pressure", Number(metrics.negativeReviewRate || 0) > 25 ? "red" : "amber");
     add("Recent negatives", formatInteger(metrics.recentNegativeReviewCount), "Recent negative review signals", "clock", "violet");
     add("Review sentiment", formatSentimentSummary(textInsights.reviews?.sentiment), "AI-readable review language", "note", "violet");
     add("Review emotions", getTopEmotionLabel(textInsights.reviews?.emotions), "Dominant detected review emotion", "lightbulb", "violet");
@@ -13651,7 +14238,7 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("CSV reviews", formatInteger(metrics.csvReviewCount || metrics.csvReviewRatingCount), "Normalized external review rows", "file", "blue");
     add("CSV rating", metrics.csvAverageRating || metrics.csvReviewRating || metrics.avgRating || "0", "Average rating from uploaded CSV", "star", "teal");
     add("Matched products", formatInteger(metrics.csvMatchedReviewCount || metrics.csvReviewCount), "Rows matched to Shopify product identifiers", "link", "violet");
-    add("Negative CSV reviews", formatInteger(metrics.csvNegativeReviewCount || metrics.negativeReviewCount), "Imported low-rating signals", "alert-circle", "amber");
+    add("Negative CSV reviews", formatInteger(metrics.csvNegativeReviewCount || metrics.negativeReviewCount), "Imported low-rating signals", "negative-review-pressure", "amber");
     add("Source health", metrics.csvReviewCount || metrics.csvReviewRatingCount ? "Available" : "No CSV data", "CSV can be disabled from Connect", "check-circle", "blue");
     add("Last imported", metrics.csvImportedAt ? formatProductAnalysisDate(metrics.csvImportedAt) : "Stored import", "Normalized file is stored by shop", "calendar", "blue");
   } else if (normalized.includes("language") || normalized.includes("sentiment") || normalized.includes("customer")) {
@@ -13659,7 +14246,7 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     const emotionSummary = getCustomerLanguageEmotionSummary(metrics);
     const sentimentVisual = getSentimentVisual(combinedSentiment);
     add("Text signals", formatInteger(combinedSentiment.total), "Reviews, return notes and refund notes analyzed together", "note", "blue");
-    add("Negative language", formatInteger(combinedSentiment.negative), `${formatInteger(combinedSentiment.neutral)} neutral / ${formatInteger(combinedSentiment.positive)} positive`, "alert-circle", Number(combinedSentiment.negative || 0) > 0 ? "red" : "teal");
+    add("Negative language", formatInteger(combinedSentiment.negative), `${formatInteger(combinedSentiment.neutral)} neutral / ${formatInteger(combinedSentiment.positive)} positive`, "negative-review-pressure", Number(combinedSentiment.negative || 0) > 0 ? "red" : "teal");
     add("Primary emotion", formatEvidenceEmotionLabelOnly(emotionSummary.primary), emotionSummary.primary?.count ? `${formatInteger(emotionSummary.primary.count)} labeled signals` : "No primary emotion stored", "lightbulb", emotionSummary.primary?.polarity === "negative" ? "red" : "violet");
     add("Secondary emotion", formatEvidenceEmotionLabelOnly(emotionSummary.secondary), emotionSummary.secondary?.count ? `${formatInteger(emotionSummary.secondary.count)} next-strongest signals` : "Only one emotion cluster stored", "wand", emotionSummary.secondary?.polarity === "negative" ? "amber" : "violet");
     add("Overall sentiment", getDominantSentimentLabel(combinedSentiment), `${formatInteger(combinedSentiment.negative)} negative / ${formatInteger(combinedSentiment.positive)} positive`, sentimentVisual.icon, sentimentVisual.tone);
@@ -14040,6 +14627,53 @@ function IssueInlineActions({ issue, onReview, onIgnore, onUnignore, ignored, pe
   );
 }
 
+function IssueTitleWithEvidence({ title, evidence = "" }) {
+  const hasEvidence = Boolean(String(evidence || "").trim());
+
+  return (
+    <span className={`ppIssueTitleWithEvidence${hasEvidence ? " hasEvidence" : ""}`} tabIndex={hasEvidence ? 0 : undefined}>
+      <strong>{title}</strong>
+      {hasEvidence && (
+        <span className="ppIssueEvidenceTooltip" role="tooltip">
+          {evidence}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function ImpactLevelIndicator({ value = "Low", ariaLabel = "" }) {
+  const level = getImpactLevel(value);
+  const label = getImpactLevelLabel(value, level);
+  const activeBars = { low: 1, medium: 2, high: 3 }[level] || 1;
+
+  return (
+    <span className={`ppImpactLevelIndicator ppImpactLevelIndicator-${level}`} aria-label={ariaLabel || `${label} impact`}>
+      <span className="ppImpactLevelBars" aria-hidden="true">
+        {[1, 2, 3].map((bar) => (
+          <span className={bar <= activeBars ? "isActive" : ""} key={bar} />
+        ))}
+      </span>
+      <span className="ppImpactLevelLabel">{label}</span>
+    </span>
+  );
+}
+
+function getImpactLevel(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("high") || normalized.includes("critical")) return "high";
+  if (normalized.includes("medium") || normalized.includes("warning")) return "medium";
+  return "low";
+}
+
+function getImpactLevelLabel(value = "", level = "low") {
+  const normalized = String(value || "").trim();
+  if (/high/i.test(normalized) || /critical/i.test(normalized)) return "High";
+  if (/medium/i.test(normalized) || /warning/i.test(normalized)) return "Medium";
+  if (/low/i.test(normalized) || /good/i.test(normalized) || /healthy/i.test(normalized)) return "Low";
+  return level === "high" ? "High" : level === "medium" ? "Medium" : "Low";
+}
+
 function MiniTrend({ tone = "red", size = "base", values = [] }) {
   const trend = normalizeSparklineValues(values, size);
   const pathPoints = trend.points.map((point) => `${point.x},${point.y}`).join(" ");
@@ -14056,8 +14690,8 @@ function MiniTrend({ tone = "red", size = "base", values = [] }) {
 function normalizeSparklineValues(values, size = "base") {
   const sourceValues = (Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isFinite(value));
   const fallback = Array.from({ length: 7 }, () => 0);
-  const width = size === "area" ? 86 : size === "large" ? 70 : 62;
-  const height = size === "area" ? 42 : size === "large" ? 26 : 20;
+  const width = size === "area" ? 116 : size === "large" ? 70 : 62;
+  const height = size === "area" ? 48 : size === "large" ? 26 : 20;
   const normalized = normalizeTrendForSparkline(sourceValues.length ? sourceValues : fallback);
   const max = Math.max(...normalized, 1);
   const min = Math.min(...normalized);
@@ -14279,23 +14913,18 @@ function ProductRecommendedActionCompact({ action, index, onOpen }) {
       <span className="ppCompactRecommendedIndex">{index + 1}</span>
       <span className="ppCompactRecommendedContent">
         <strong>{action.title}</strong>
-        <span className={`ppCompactRecommendedBadge ppCompactRecommendedBadge-${getCompactActionPriorityTone(badgeLabel)}`}>
-          <span aria-hidden="true"></span>
-          {badgeLabel}
-        </span>
         <span className="ppCompactRecommendedDescription">{description}</span>
+      </span>
+      <span className={`ppCompactRecommendedBadge ppCompactRecommendedBadge-${getCompactActionPriorityTone(badgeLabel)}`}>
+        <span aria-hidden="true"></span>
+        {badgeLabel}
       </span>
       <s-icon type="chevron-right" size="small"></s-icon>
       <span className="ppCompactRecommendedMetrics" aria-label="Recommended action indicators">
         {indicators.map((indicator) => (
-          <span className="ppCompactActionMetric" key={indicator.label}>
-            <span className={`ppCompactActionMetricIcon ppCompactActionMetricIcon-${indicator.tone}`}>
-              <s-icon type={indicator.icon} size="small"></s-icon>
-            </span>
-            <span>
-              <small>{indicator.label}</small>
-              <strong>{indicator.value}</strong>
-            </span>
+          <span className={`ppCompactActionMetric ppCompactActionMetric-${indicator.tone}`} key={indicator.label}>
+            <small>{indicator.label}</small>
+            <strong>{indicator.value}</strong>
           </span>
         ))}
       </span>
