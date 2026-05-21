@@ -3760,6 +3760,12 @@ function getProductDetailModel(product) {
     metrics,
     returnRefundRelationship,
   );
+  const productPurchaseContextFactors = asPlainObject(metrics.productPurchaseContextFactors);
+  const productPurchaseContext = normalizeProductPurchaseContext(
+    metrics.productPurchaseContextSummary,
+    productPurchaseContextFactors,
+    metrics,
+  );
   const hasMonthlyOrderActivity = hasProductMonthlyOrderActivity(monthlyOrderActivity);
   const hasReturnRatePrediction = hasProductReturnRatePrediction(returnRatePrediction);
   const productStatus = product.status || metrics.productStatus || "";
@@ -3830,6 +3836,12 @@ function getProductDetailModel(product) {
     refundLeakageBreakdown: asPlainObject(metrics.refundLeakage || returnRefundRelationshipFactors.refundLeakage),
     customerSignalBreakdown: asPlainObject(metrics.customerSignalBreakdown || returnRefundRelationshipFactors.customerSignalBreakdown),
     financialExposureBreakdown,
+    productPurchaseContext,
+    productPurchaseContextFactors,
+    productPurchaseContextScoringImpact: Array.isArray(metrics.productPurchaseContextScoringImpact)
+      ? metrics.productPurchaseContextScoringImpact.filter(Boolean).map(String)
+      : [],
+    purchaseContextSignalBreakdown: asPlainObject(metrics.purchaseContextSignalBreakdown || productPurchaseContextFactors.customerSignalBreakdown),
     priorityScore: Number(metrics.priorityScore || 0),
     evidenceStrengthScore: Number(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore || 0),
     scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
@@ -4156,6 +4168,161 @@ function normalizeProductFinancialExposureBreakdown(value = null, metrics = {}, 
     refundAttributionRate: relationshipRatePercent(breakdown.refundAttributionRate ?? breakdown.refund_attribution_rate, relationship.attributedRefundAmount, relationship.totalRefundAmountRelated),
     totalRefundAmountRelated: firstFiniteMetricNumber(breakdown.totalRefundAmountRelated, breakdown.total_refund_amount_related, relationship.totalRefundAmountRelated),
   };
+}
+
+function normalizeProductPurchaseContext(summaryValue = null, factorsValue = null, metrics = {}) {
+  const summary = asPlainObject(summaryValue);
+  const factors = asPlainObject(factorsValue);
+  const scoringImpact = Array.isArray(metrics.productPurchaseContextScoringImpact)
+    ? metrics.productPurchaseContextScoringImpact.filter(Boolean).map(String)
+    : [];
+  const signalBreakdown = asPlainObject(metrics.purchaseContextSignalBreakdown || factors.customerSignalBreakdown);
+  const hasStoredSummary = Object.keys(summary).length > 0;
+  const totalOrders = firstFiniteMetricNumber(summary.total_orders_containing_product, summary.totalOrdersContainingProduct);
+  const totalUnits = firstFiniteMetricNumber(summary.total_units_sold, summary.totalUnitsSold);
+  const totalRevenue = firstFiniteMetricNumber(summary.total_revenue_if_available, summary.totalRevenueIfAvailable);
+  const soloOrders = firstFiniteMetricNumber(summary.solo_product_order_count, summary.soloProductOrderCount);
+  const multiProductOrders = firstFiniteMetricNumber(summary.multi_product_order_count, summary.multiProductOrderCount);
+  const singleUnitOrders = firstFiniteMetricNumber(summary.single_unit_order_count, summary.singleUnitOrderCount);
+  const multiUnitOrders = firstFiniteMetricNumber(summary.multi_unit_order_count, summary.multiUnitOrderCount);
+  const bulkOrders = firstFiniteMetricNumber(summary.bulk_order_count, summary.bulkOrderCount);
+  const multiVariantOrders = firstFiniteMetricNumber(summary.multi_variant_order_count, summary.multiVariantOrderCount);
+  const quantityDistribution = normalizePurchaseContextQuantityDistribution(summary.quantity_distribution || summary.quantityDistribution, totalOrders);
+  const monthlyContext = normalizePurchaseContextMonthlyContext(summary.monthly_context || summary.monthlyContext);
+  const topCoPurchasedProducts = normalizePurchaseContextCoPurchasedProducts(summary.top_co_purchased_products || summary.topCoPurchasedProducts);
+  const confidence = clampPercentValue(firstFiniteMetricNumber(summary.purchase_context_confidence, summary.purchaseContextConfidence));
+  const confidenceLabel = firstNonEmptyString(
+    summary.purchase_context_confidence_label,
+    summary.purchaseContextConfidenceLabel,
+    getRelationshipConfidenceLabel(confidence, hasStoredSummary),
+  );
+  const available = Boolean(hasStoredSummary || factors.hasPurchaseContextSummary === true || totalOrders > 0);
+  const primaryContext = firstNonEmptyString(signalBreakdown.primaryContext, factors.context?.primaryContext);
+  const interpretation = firstNonEmptyString(
+    summary.interpretation,
+    summary.backend_interpretation,
+    scoringImpact[0],
+    primaryContext ? `${primaryContext}.` : "",
+  );
+
+  return {
+    available,
+    hasOrderData: totalOrders > 0,
+    statusText: available
+      ? (totalOrders > 0 ? "Purchase context available" : "No product-containing orders in the stored window")
+      : "Purchase context not calculated yet",
+    totalOrdersContainingProduct: totalOrders,
+    totalUnitsSold: totalUnits,
+    totalRevenueIfAvailable: totalRevenue,
+    soloProductOrderCount: soloOrders,
+    multiProductOrderCount: multiProductOrders,
+    singleUnitOrderCount: singleUnitOrders,
+    multiUnitOrderCount: multiUnitOrders,
+    bulkOrderCount: bulkOrders,
+    multiVariantOrderCount: multiVariantOrders,
+    unknownOrIncompleteOrderCount: firstFiniteMetricNumber(summary.unknown_or_incomplete_order_count, summary.unknownOrIncompleteOrderCount),
+    bulkPurchaseThreshold: firstFiniteMetricNumber(summary.bulk_purchase_threshold, summary.bulkPurchaseThreshold, 4),
+    avgProductQuantityPerOrder: firstFiniteMetricNumber(summary.avg_product_quantity_per_order, summary.avgProductQuantityPerOrder, summary.avg_product_qty_per_order),
+    medianProductQuantityPerOrder: firstFiniteMetricNumber(summary.median_product_quantity_per_order, summary.medianProductQuantityPerOrder),
+    avgDistinctProductsPerOrder: firstFiniteMetricNumber(summary.avg_distinct_products_per_order, summary.avgDistinctProductsPerOrder),
+    avgTotalUnitsPerOrder: firstFiniteMetricNumber(summary.avg_total_units_per_order, summary.avgTotalUnitsPerOrder),
+    soloPurchaseRatePercent: relationshipRatePercent(summary.solo_purchase_rate ?? summary.soloPurchaseRate, soloOrders, totalOrders),
+    multiProductBasketRatePercent: relationshipRatePercent(summary.multi_product_basket_rate ?? summary.multiProductBasketRate, multiProductOrders, totalOrders),
+    singleUnitPurchaseRatePercent: relationshipRatePercent(summary.single_unit_purchase_rate ?? summary.singleUnitPurchaseRate, singleUnitOrders, totalOrders),
+    multiUnitPurchaseRatePercent: relationshipRatePercent(summary.multi_unit_purchase_rate ?? summary.multiUnitPurchaseRate, multiUnitOrders, totalOrders),
+    bulkPurchaseRatePercent: relationshipRatePercent(summary.bulk_purchase_rate ?? summary.bulkPurchaseRate, bulkOrders, totalOrders),
+    multiVariantOrderRatePercent: relationshipRatePercent(summary.multi_variant_order_rate ?? summary.multiVariantOrderRate, multiVariantOrders, totalOrders),
+    quantityDistribution,
+    topCoPurchasedProducts,
+    monthlyContext,
+    segments: normalizePurchaseContextSegments(summary.purchase_context_segments || summary.purchaseContextSegments),
+    purchaseContextConfidence: confidence,
+    purchaseContextConfidenceLabel: confidenceLabel,
+    primaryContext,
+    interpretation,
+    scoringImpact,
+    variantDataAvailable: Boolean(Number(metrics.variantCount || 0) > 1 || multiVariantOrders > 0 || summary.variant_data_available || summary.variantDataAvailable),
+    confidenceImpact: asPlainObject(factors.diagnosisConfidence),
+    riskImpact: asPlainObject(factors.productRisk),
+    financialExposureImpact: asPlainObject(factors.financialExposure),
+    returnPressureImpact: asPlainObject(factors.returnPressure),
+    refundLeakageImpact: asPlainObject(factors.refundLeakage),
+  };
+}
+
+function normalizePurchaseContextQuantityDistribution(value = null, totalOrders = 0) {
+  const distribution = asPlainObject(value);
+  const one = firstFiniteMetricNumber(distribution.one_unit_count, distribution.oneUnitCount);
+  const two = firstFiniteMetricNumber(distribution.two_unit_count, distribution.twoUnitCount);
+  const three = firstFiniteMetricNumber(distribution.three_unit_count, distribution.threeUnitCount);
+  const fourPlus = firstFiniteMetricNumber(distribution.four_plus_unit_count, distribution.fourPlusUnitCount);
+  return {
+    oneUnitCount: one,
+    twoUnitCount: two,
+    threeUnitCount: three,
+    fourPlusUnitCount: fourPlus,
+    oneUnitRatePercent: relationshipRatePercent(distribution.one_unit_rate ?? distribution.oneUnitRate, one, totalOrders),
+    twoUnitRatePercent: relationshipRatePercent(distribution.two_unit_rate ?? distribution.twoUnitRate, two, totalOrders),
+    threeUnitRatePercent: relationshipRatePercent(distribution.three_unit_rate ?? distribution.threeUnitRate, three, totalOrders),
+    fourPlusUnitRatePercent: relationshipRatePercent(distribution.four_plus_unit_rate ?? distribution.fourPlusUnitRate, fourPlus, totalOrders),
+  };
+}
+
+function normalizePurchaseContextCoPurchasedProducts(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      productId: String(item.productId || item.product_id || item.id || "").trim(),
+      title: firstNonEmptyString(item.title, item.productTitle, item.product_title, "Unknown product"),
+      handle: firstNonEmptyString(item.handle, item.productHandle, item.product_handle),
+      coOrderCount: firstFiniteMetricNumber(item.co_order_count, item.coOrderCount),
+      coOrderRatePercent: relationshipRatePercent(item.co_order_rate ?? item.coOrderRate),
+      affinityScore: firstFiniteMetricNumber(item.affinity_score, item.affinityScore),
+    }))
+    .filter((item) => item.productId || item.title)
+    .slice(0, 5);
+}
+
+function normalizePurchaseContextMonthlyContext(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      key: String(item.key || item.month || item.startAt || "").trim(),
+      label: String(item.label || item.month || item.key || "").trim(),
+      ordersContainingProduct: firstFiniteMetricNumber(item.orders_containing_product, item.ordersContainingProduct),
+      unitsSold: firstFiniteMetricNumber(item.units_sold, item.unitsSold),
+      soloProductOrders: firstFiniteMetricNumber(item.solo_product_orders, item.soloProductOrders),
+      multiProductOrders: firstFiniteMetricNumber(item.multi_product_orders, item.multiProductOrders),
+      avgProductQuantityPerOrder: firstFiniteMetricNumber(item.avg_product_quantity_per_order, item.avgProductQuantityPerOrder),
+      multiVariantOrders: firstFiniteMetricNumber(item.multi_variant_orders, item.multiVariantOrders),
+      bulkOrders: firstFiniteMetricNumber(item.bulk_orders, item.bulkOrders),
+    }));
+}
+
+function normalizePurchaseContextSegments(value = {}) {
+  return Object.fromEntries(Object.entries(asPlainObject(value)).map(([key, segment]) => {
+    const item = asPlainObject(segment);
+    return [key, {
+      orders: firstFiniteMetricNumber(item.orders),
+      soldUnits: firstFiniteMetricNumber(item.sold_units, item.soldUnits),
+      returnedUnits: firstFiniteMetricNumber(item.returned_units, item.returnedUnits),
+      refundedUnits: firstFiniteMetricNumber(item.refunded_units, item.refundedUnits),
+      refundAmount: firstFiniteMetricNumber(item.refund_amount, item.refundAmount),
+      affectedOrders: firstFiniteMetricNumber(item.affected_orders, item.affectedOrders),
+      returnRateUnitsPercent: relationshipRatePercent(item.return_rate_units ?? item.returnRateUnits),
+      refundRateUnitsPercent: relationshipRatePercent(item.refund_rate_units ?? item.refundRateUnits),
+      affectedOrderRatePercent: relationshipRatePercent(item.affected_order_rate ?? item.affectedOrderRate),
+      sufficientData: Boolean(item.sufficient_data ?? item.sufficientData),
+    }];
+  }));
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    const normalized = String(value || "").trim();
+    if (normalized) return normalized;
+  }
+  return "";
 }
 
 function calculateClientUnitRatePercent(numeratorUnits, denominatorUnits, fallbackPercent = 0) {
@@ -4562,6 +4729,8 @@ function getValidatedMomentumDirection({ momentum = {}, score = 0, unitsPrevious
 }
 
 function getFinancialExposureFootnote(detail = {}) {
+  const purchaseNote = getPurchaseContextFinancialExposureNote(detail);
+  if (purchaseNote) return purchaseNote;
   const breakdown = detail.financialExposureBreakdown || {};
   if (breakdown.hasRelationshipSummary) {
     return `${formatMoney(breakdown.returnRelatedRiskAmount || breakdown.estimatedFutureRefundFromReturnOnlyCases || 0)} return-related risk`;
@@ -4587,6 +4756,8 @@ function getFinancialExposureRangeLabel(detail = {}) {
 
 function getProductRiskRelationshipFootnote(detail = {}) {
   const relationship = detail.returnRefundRelationship || {};
+  const purchaseNote = getPurchaseContextRiskFootnote(detail);
+  if (purchaseNote) return purchaseNote;
   if (!relationship.available) return detail.riskTrendLabel;
   if (relationship.returnedAndRefundedUnits > 0) {
     return `${formatInteger(relationship.returnedAndRefundedUnits)} return+refund severity`;
@@ -4623,6 +4794,8 @@ function getReturnPressureCardData(detail = {}, fallbackScore = 0) {
     footnoteParts.push(`${formatInteger(returnOnly)} return-only`);
     if (refundOnly > 0) footnoteParts.push(`${formatInteger(refundOnly)} refund-only`);
   }
+  const contextNote = getPurchaseContextReturnPressureNote(detail);
+  if (contextNote) footnoteParts.push(contextNote);
   return {
     value: formatPercent(returnRate),
     detail: relationship.soldUnits
@@ -4666,13 +4839,22 @@ function getRefundLeakageCardData(detail = {}, fallbackLeakage = 0) {
 function getCustomerSignalsFootnote(detail = {}) {
   const breakdown = detail.customerSignalBreakdown || {};
   const relationship = detail.returnRefundRelationship || {};
+  const purchaseLine = getPurchaseContextCompactLine(detail);
   if (relationship.available) {
-    return `${formatInteger(breakdown.linkedReturnRefundCount ?? relationship.returnedAndRefundedUnits)} linked · ${formatInteger(breakdown.returnOnlyCount ?? relationship.returnedNotRefundedUnits)} return-only · ${formatInteger(breakdown.refundOnlyCount ?? relationship.refundedWithoutReturnUnits)} refund-only`;
+    return [
+      `${formatInteger(breakdown.linkedReturnRefundCount ?? relationship.returnedAndRefundedUnits)} linked · ${formatInteger(breakdown.returnOnlyCount ?? relationship.returnedNotRefundedUnits)} return-only · ${formatInteger(breakdown.refundOnlyCount ?? relationship.refundedWithoutReturnUnits)} refund-only`,
+      purchaseLine,
+    ].filter(Boolean).join(" · ");
   }
-  return `${formatInteger(detail.returnUnits)} returns · ${formatInteger(detail.refundUnits)} refunds · ${formatInteger(detail.negativeReviewCount)} negative reviews`;
+  return [
+    `${formatInteger(detail.returnUnits)} returns · ${formatInteger(detail.refundUnits)} refunds · ${formatInteger(detail.negativeReviewCount)} negative reviews`,
+    purchaseLine,
+  ].filter(Boolean).join(" · ");
 }
 
 function getDiagnosisConfidenceFootnote(detail = {}) {
+  const purchaseNote = getPurchaseContextConfidenceFootnote(detail);
+  if (purchaseNote) return purchaseNote;
   const relationship = detail.returnRefundRelationship || {};
   if (!relationship.available) return `Based on ${formatInteger(detail.signalCount)} signals`;
   if (relationship.unattributedRefundAmount > 0 || relationship.relationshipUnknownCount > 0) {
@@ -4688,6 +4870,74 @@ function getFinancialExposureDetail(detail = {}) {
   const breakdown = detail.financialExposureBreakdown || {};
   if (breakdown.hasRelationshipSummary) return `${formatMoney(breakdown.confirmedRefundAmount || 0)} confirmed refunds`;
   return `${formatMoney(detail.marginAtRisk)} margin at risk`;
+}
+
+function getPurchaseContextCompactLine(detail = {}) {
+  const context = detail.productPurchaseContext || {};
+  if (!context.available || !context.hasOrderData) return "";
+  const parts = [
+    `${formatPercent(context.soloPurchaseRatePercent)} solo`,
+    `${formatDecimal(context.avgProductQuantityPerOrder, 1)} avg qty/order`,
+  ];
+  if (context.variantDataAvailable) parts.push(`${formatPercent(context.multiVariantOrderRatePercent)} multi-variant`);
+  return parts.join(" · ");
+}
+
+function getPurchaseContextRiskFootnote(detail = {}) {
+  const context = detail.productPurchaseContext || {};
+  const riskImpact = context.riskImpact || {};
+  if (!context.available || !context.hasOrderData) return "";
+  if (Number(riskImpact.multiVariantRisk || 0) > 0) {
+    return `${formatPercent(context.multiVariantOrderRatePercent)} multi-variant attribution`;
+  }
+  if (Number(riskImpact.soloAttributionRisk || 0) > 0 || context.soloPurchaseRatePercent >= 70) {
+    return `${formatPercent(context.soloPurchaseRatePercent)} solo purchase attribution`;
+  }
+  if (context.multiProductBasketRatePercent >= 70) {
+    return `${formatPercent(context.multiProductBasketRatePercent)} basket-context uncertainty`;
+  }
+  return "";
+}
+
+function getPurchaseContextConfidenceFootnote(detail = {}) {
+  const context = detail.productPurchaseContext || {};
+  if (!context.available || !context.hasOrderData) return "";
+  if (context.purchaseContextConfidence < 55) {
+    return `Purchase context low confidence · ${formatInteger(context.totalOrdersContainingProduct)} orders`;
+  }
+  if (context.soloPurchaseRatePercent >= 60) {
+    return `Strong attribution: ${formatPercent(context.soloPurchaseRatePercent)} solo purchase rate`;
+  }
+  if (context.multiProductBasketRatePercent >= 60) {
+    return `Lower attribution: usually bought with ${formatDecimal(context.avgDistinctProductsPerOrder, 1)} products/order`;
+  }
+  if (context.variantDataAvailable && context.multiVariantOrderRatePercent >= 10) {
+    return `Variant uncertainty: ${formatPercent(context.multiVariantOrderRatePercent)} multi-variant orders`;
+  }
+  return "";
+}
+
+function getPurchaseContextFinancialExposureNote(detail = {}) {
+  const context = detail.productPurchaseContext || {};
+  const exposure = context.financialExposureImpact || {};
+  if (!context.available || !context.hasOrderData) return "";
+  if (Number(exposure.bulkQuantityExposure || 0) > 0 || context.bulkPurchaseRatePercent >= 12) {
+    return "Bulk orders increase unit exposure";
+  }
+  return "";
+}
+
+function getPurchaseContextReturnPressureNote(detail = {}) {
+  const context = detail.productPurchaseContext || {};
+  const returnPressure = context.returnPressureImpact || {};
+  if (!context.available || !context.hasOrderData) return "";
+  const aloneRate = firstFiniteMetricNumber(returnPressure.returnRateWhenBoughtAlone, context.segments?.bought_alone?.returnRateUnitsPercent);
+  const basketRate = firstFiniteMetricNumber(returnPressure.returnRateWhenBoughtWithOthers, context.segments?.bought_with_others?.returnRateUnitsPercent);
+  const multiVariantRate = firstFiniteMetricNumber(returnPressure.returnRateForMultiVariantOrders, context.segments?.multi_variant_orders?.returnRateUnitsPercent);
+  if (context.variantDataAvailable && multiVariantRate >= Math.max(aloneRate, basketRate, 1) && multiVariantRate >= 10) return "Returns higher in multi-variant orders";
+  if (basketRate >= aloneRate + 5 && basketRate >= 10) return "Returns higher when bought with other products";
+  if (aloneRate >= basketRate + 5 && aloneRate >= 10) return "Returns mostly from solo purchases";
+  return "";
 }
 
 function getProductDetailInsightCards(detail = {}) {
@@ -4712,6 +4962,7 @@ function getProductDetailInsightCards(detail = {}) {
       icon: "product-risk",
       chartStyle: "area",
       chartTone: "purple",
+      help: getProductRiskInsightHelp(detail),
     },
     {
       title: "Financial exposure",
@@ -4762,6 +5013,7 @@ function getProductDetailInsightCards(detail = {}) {
       icon: "diagnostic-confidence",
       chartStyle: "area",
       chartTone: "green",
+      help: getDiagnosisConfidenceInsightHelp(detail),
     },
     {
       title: "Refund leakage",
@@ -4824,6 +5076,30 @@ function getProductDetailInsightCards(detail = {}) {
       chartTone: "slate",
     },
   ];
+}
+
+function getProductRiskInsightHelp(detail = {}) {
+  const base = getInsightMetricHelp("Product risk");
+  const context = detail.productPurchaseContext || {};
+  const contextText = context.scoringImpact?.[0] || getPurchaseContextRiskFootnote(detail);
+  if (!context.available || !contextText) return base;
+  return {
+    ...base,
+    what: `${base.what} Purchase context is included when it changes product attribution.`,
+    why: `${base.why} ${contextText}`,
+  };
+}
+
+function getDiagnosisConfidenceInsightHelp(detail = {}) {
+  const base = getInsightMetricHelp("Diagnosis confidence");
+  const context = detail.productPurchaseContext || {};
+  const contextText = getPurchaseContextConfidenceFootnote(detail) || context.scoringImpact?.[0];
+  if (!context.available || !contextText) return base;
+  return {
+    ...base,
+    what: `${base.what} Purchase context also explains whether basket behavior makes the signal easier or harder to attribute.`,
+    why: `${base.why} ${contextText}`,
+  };
 }
 
 function getProductMomentumInsightSeries(detail = {}, history = [], fallbackScore = 0) {
@@ -8171,6 +8447,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </div>
 
+        <ProductPurchaseContextPanel detail={detail} />
+
         <ProductReturnRefundResolutionPanel detail={detail} />
 
         <div className="ppProductDetailLayout">
@@ -8470,6 +8748,252 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+const PURCHASE_CONTEXT_HELP = {
+  solo: "Share of orders containing this product where no other distinct product was purchased.",
+  basket: "This product is often bought with other products, which can make order-level refunds harder to attribute.",
+  quantity: "Average number of units of this product purchased per order. The chart shows how many orders had 1, 2, 3, or 4+ units.",
+  variant: "Share of orders where customers bought more than one variant of this same product.",
+  coPurchase: "Products that appear in the same orders as this product. Affinity adjusts for how common the other product is overall.",
+  confidence: "How reliable the basket, quantity, variant and co-purchase context is for this product.",
+};
+
+function ProductPurchaseContextPanel({ detail }) {
+  const context = detail.productPurchaseContext || normalizeProductPurchaseContext(null);
+  const hasData = context.available && context.hasOrderData;
+  const isBasketProduct = context.multiProductBasketRatePercent > context.soloPurchaseRatePercent;
+  const quantityBuckets = getPurchaseContextQuantityBuckets(context);
+  const soloBasketSegments = getPurchaseContextSoloBasketSegments(context);
+  const interpretation = context.interpretation || "Purchase-context scoring has not produced a backend interpretation for this product yet.";
+  const contextOverTime = getPurchaseContextMonthlyRows(context);
+
+  return (
+    <section className={`ppProductPanel ppPurchaseContextPanel${hasData ? "" : " isUnavailable"}`} aria-label="Purchase context">
+      <div className="ppPurchaseContextHeader">
+        <div>
+          <span className="ppPurchaseContextEyebrow">
+            <ProductPulseGlyph type="shopify-orders" />
+            Basket analysis
+          </span>
+          <h2>Purchase context</h2>
+          <p>Explains how customers usually buy this product inside Shopify orders.</p>
+        </div>
+        <span className={`ppPurchaseContextConfidence ppPurchaseContextConfidence-${String(context.purchaseContextConfidenceLabel || "unavailable").toLowerCase()}`}>
+          {hasData ? context.purchaseContextConfidenceLabel : "Unavailable"} confidence
+        </span>
+      </div>
+
+      {!hasData ? (
+        <EmptyProductDetailState message="Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available." />
+      ) : (
+        <>
+          <div className="ppPurchaseContextGrid">
+            <article className="ppPurchaseContextCard ppPurchaseContextCard-wide">
+              <div className="ppPurchaseContextCardHeader">
+                <span>
+                  <ProductPulseGlyph type={isBasketProduct ? "shopify-product" : "shopify-orders"} />
+                </span>
+                <div>
+                  <PurchaseContextInfoLabel label={isBasketProduct ? "Basket product" : "Solo purchase"} help={isBasketProduct ? PURCHASE_CONTEXT_HELP.basket : PURCHASE_CONTEXT_HELP.solo} />
+                  <small>{formatInteger(context.soloProductOrderCount)} solo · {formatInteger(context.multiProductOrderCount)} basket orders</small>
+                </div>
+              </div>
+              <div className="ppPurchaseContextPrimary">
+                <strong>{formatPercent(isBasketProduct ? context.multiProductBasketRatePercent : context.soloPurchaseRatePercent)}</strong>
+                <span>{isBasketProduct ? "usually bought with other products" : "usually bought as a standalone product"}</span>
+              </div>
+              <div className="ppPurchaseContextStackedBar" aria-label="Solo versus basket order distribution">
+                {soloBasketSegments.map((segment) => (
+                  <span key={segment.key} className={`ppPurchaseContextStackedSegment ppPurchaseContextStackedSegment-${segment.tone}`} style={{ width: `${segment.width}%` }} title={`${segment.label}: ${segment.display}`} />
+                ))}
+              </div>
+              <p className="ppPurchaseContextCardNote">Avg {formatDecimal(context.avgDistinctProductsPerOrder, 1)} distinct products/order · {formatInteger(context.totalOrdersContainingProduct)} product orders</p>
+            </article>
+
+            <article className="ppPurchaseContextCard ppPurchaseContextCard-wide">
+              <div className="ppPurchaseContextCardHeader">
+                <span><ProductPulseGlyph type="variants" /></span>
+                <div>
+                  <PurchaseContextInfoLabel label="Quantity/order" help={PURCHASE_CONTEXT_HELP.quantity} />
+                  <small>{formatPercent(context.singleUnitPurchaseRatePercent)} single-unit · {formatPercent(context.bulkPurchaseRatePercent)} bulk</small>
+                </div>
+              </div>
+              <div className="ppPurchaseContextPrimary">
+                <strong>{formatDecimal(context.avgProductQuantityPerOrder, 1)}</strong>
+                <span>average units per order</span>
+              </div>
+              <div className="ppPurchaseQuantityChart" aria-label="Quantity distribution chart">
+                {quantityBuckets.map((bucket) => (
+                  <div className="ppPurchaseQuantityRow" key={bucket.key}>
+                    <span>{bucket.label}</span>
+                    <div><i style={{ width: `${bucket.width}%` }} /></div>
+                    <strong>{formatInteger(bucket.count)}</strong>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            {context.variantDataAvailable ? (
+              <article className="ppPurchaseContextCard">
+                <div className="ppPurchaseContextCardHeader">
+                  <span><ProductPulseGlyph type="variants" /></span>
+                  <div>
+                    <PurchaseContextInfoLabel label="Variant behavior" help={PURCHASE_CONTEXT_HELP.variant} />
+                    <small>{formatInteger(context.multiVariantOrderCount)} multi-variant orders</small>
+                  </div>
+                </div>
+                <div className="ppPurchaseContextPrimary">
+                  <strong>{formatPercent(context.multiVariantOrderRatePercent)}</strong>
+                  <span>{context.multiVariantOrderRatePercent >= 10 ? "may indicate variant comparison" : "low variant comparison"}</span>
+                </div>
+                <p className="ppPurchaseContextCardNote">Useful for sizing, color, variant label and photo clarity diagnosis.</p>
+              </article>
+            ) : null}
+
+            <article className="ppPurchaseContextCard">
+              <div className="ppPurchaseContextCardHeader">
+                <span><ProductPulseGlyph type="shopify-product" /></span>
+                <div>
+                  <PurchaseContextInfoLabel label="Co-purchased products" help={PURCHASE_CONTEXT_HELP.coPurchase} />
+                  <small>{context.topCoPurchasedProducts.length ? "Top associated products" : "No reliable pattern yet"}</small>
+                </div>
+              </div>
+              {context.topCoPurchasedProducts.length ? (
+                <div className="ppPurchaseCoProductList">
+                  {context.topCoPurchasedProducts.slice(0, 3).map((item) => (
+                    <div className="ppPurchaseCoProductRow" key={item.productId || item.title}>
+                      <span>{item.title}</span>
+                      <strong>{formatInteger(item.coOrderCount)} orders</strong>
+                      <small>{formatPercent(item.coOrderRatePercent)} co-order · {formatDecimal(item.affinityScore, 1)}x affinity</small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="ppPurchaseContextCardNote">No reliable co-purchase pattern yet.</p>
+              )}
+            </article>
+
+            <article className="ppPurchaseContextCard ppPurchaseContextInterpretation">
+              <div className="ppPurchaseContextCardHeader">
+                <span><ProductPulseGlyph type="ai-evidence-synthesis" /></span>
+                <div>
+                  <PurchaseContextInfoLabel label="Interpretation" help={PURCHASE_CONTEXT_HELP.confidence} />
+                  <small>{context.primaryContext || context.statusText}</small>
+                </div>
+              </div>
+              <p>{renderAnalysisText(interpretation)}</p>
+              <div className="ppPurchaseContextChips">
+                <span>{formatInteger(context.totalUnitsSold)} units sold</span>
+                <span>{formatPercent(context.purchaseContextConfidence)} confidence</span>
+                {context.unknownOrIncompleteOrderCount > 0 ? <span>{formatInteger(context.unknownOrIncompleteOrderCount)} incomplete</span> : null}
+              </div>
+            </article>
+          </div>
+
+          {contextOverTime.length ? (
+            <div className="ppPurchaseContextTimeline" aria-label="Purchase context over time by cohort month">
+              <div>
+                <strong>Purchase context over time</strong>
+                <span>Cohort month</span>
+              </div>
+              <div className="ppPurchaseContextTimelineRows">
+                {contextOverTime.map((row) => (
+                  <div className="ppPurchaseContextTimelineRow" key={row.key || row.label}>
+                    <span>{row.label}</span>
+                    <div aria-hidden="true">
+                      <i className="ppPurchaseContextTimelineSolo" style={{ width: `${row.soloWidth}%` }} />
+                      <i className="ppPurchaseContextTimelineBasket" style={{ width: `${row.basketWidth}%` }} />
+                    </div>
+                    <strong>{formatDecimal(row.avgQuantity, 1)} qty/order</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+function PurchaseContextInfoLabel({ label, help }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="ppPurchaseContextInfoLabel">
+      <span>{label}</span>
+      <button
+        type="button"
+        ref={triggerRef}
+        aria-label={`${label} explanation`}
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <s-icon type="info" size="small"></s-icon>
+      </button>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppPurchaseContextTooltipPopover" width={292} estimatedHeight={120} placement="top-center">
+        <strong>{label}</strong>
+        <small>{help}</small>
+      </FloatingTablePopover>
+    </span>
+  );
+}
+
+function getPurchaseContextSoloBasketSegments(context = {}) {
+  const total = Math.max(Number(context.soloProductOrderCount || 0) + Number(context.multiProductOrderCount || 0), 1);
+  return [
+    {
+      key: "solo",
+      label: "Solo orders",
+      value: Number(context.soloProductOrderCount || 0),
+      width: Math.max(Number(context.soloProductOrderCount || 0) ? 5 : 0, (Number(context.soloProductOrderCount || 0) / total) * 100),
+      display: `${formatInteger(context.soloProductOrderCount)} orders`,
+      tone: "green",
+    },
+    {
+      key: "basket",
+      label: "Basket orders",
+      value: Number(context.multiProductOrderCount || 0),
+      width: Math.max(Number(context.multiProductOrderCount || 0) ? 5 : 0, (Number(context.multiProductOrderCount || 0) / total) * 100),
+      display: `${formatInteger(context.multiProductOrderCount)} orders`,
+      tone: "blue",
+    },
+  ];
+}
+
+function getPurchaseContextQuantityBuckets(context = {}) {
+  const distribution = context.quantityDistribution || {};
+  const buckets = [
+    { key: "one", label: "1 unit", count: distribution.oneUnitCount, rate: distribution.oneUnitRatePercent },
+    { key: "two", label: "2 units", count: distribution.twoUnitCount, rate: distribution.twoUnitRatePercent },
+    { key: "three", label: "3 units", count: distribution.threeUnitCount, rate: distribution.threeUnitRatePercent },
+    { key: "four-plus", label: "4+ units", count: distribution.fourPlusUnitCount, rate: distribution.fourPlusUnitRatePercent },
+  ];
+  const maxCount = Math.max(...buckets.map((bucket) => Number(bucket.count || 0)), 1);
+  return buckets.map((bucket) => ({
+    ...bucket,
+    width: Math.max(Number(bucket.count || 0) ? 6 : 0, (Number(bucket.count || 0) / maxCount) * 100),
+  }));
+}
+
+function getPurchaseContextMonthlyRows(context = {}) {
+  const months = Array.isArray(context.monthlyContext) ? context.monthlyContext : [];
+  return months
+    .filter((month) => month.ordersContainingProduct > 0)
+    .slice(-6)
+    .map((month) => {
+      const total = Math.max(Number(month.soloProductOrders || 0) + Number(month.multiProductOrders || 0), 1);
+      return {
+        key: month.key,
+        label: month.label || month.key,
+        soloWidth: (Number(month.soloProductOrders || 0) / total) * 100,
+        basketWidth: (Number(month.multiProductOrders || 0) / total) * 100,
+        avgQuantity: month.avgProductQuantityPerOrder,
+      };
+    });
 }
 
 const RETURN_REFUND_HELP = {
@@ -11239,9 +11763,9 @@ function hasLongInsightAreaValueText(value) {
   return /[A-Za-z]/.test(text);
 }
 
-function ProductInsightMetric({ title, value, detail, footnote, meta, tone = "neutral", progress, sparkline, icon, chartStyle = "line", chartTone }) {
+function ProductInsightMetric({ title, value, detail, footnote, meta, tone = "neutral", progress, sparkline, icon, chartStyle = "line", chartTone, help }) {
   const trendValues = Array.isArray(sparkline) ? sparkline : [];
-  const helpContent = getInsightMetricHelp(title);
+  const helpContent = help || getInsightMetricHelp(title);
   const metricIcon = icon || getInsightMetricIcon(title);
   const usesAreaChart = chartStyle === "area";
   const effectiveChartTone = chartTone || tone || "neutral";

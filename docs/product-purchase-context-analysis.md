@@ -225,17 +225,79 @@ Most purchase-context scoring and recommendation boosts require:
 
 Weak purchase context may still lower confidence when it reveals incomplete baskets or ambiguous multi-product refund attribution.
 
-## Future UI ideas
+## Product detail UI
 
-Potential UI surfaces:
+Phase 3 exposes purchase context on the product detail page without changing scoring logic.
 
-- Purchase context card near Customer Signals.
-- Solo vs basket segmented bar.
-- Quantity distribution mini chart.
-- Top co-purchased products list with affinity.
-- Basket-context warning inside Return & refund resolution when returns differ by solo vs multi-product orders.
+### Top metric card changes
 
-These are not implemented in Phase 1.
+Purchase context appears only where it improves interpretation:
+
+- Product Risk can show a purchase-context attribution note, such as `72% solo purchase attribution` or `basket-context uncertainty`, when Phase 2 factors indicate it affected risk interpretation.
+- Diagnosis Confidence can show attribution detail, such as `Strong attribution: 72% solo purchase rate`, `Lower attribution: usually bought with 3.4 products/order`, or `Variant uncertainty: 22% multi-variant orders`.
+- Customer Signals can add a compact purchase line with solo rate, average quantity/order, and multi-variant rate.
+- Financial Exposure can note bulk exposure when multi-unit or bulk orders materially affect potential unit exposure.
+- Return Pressure can note when returns are higher in solo, basket, or multi-variant contexts.
+
+The card tooltips also include purchase context when it materially affects Product Risk or Diagnosis Confidence.
+
+### Purchase context section
+
+The product detail page now includes a `Purchase context` section before return/refund resolution.
+
+It shows:
+
+- Solo vs basket behavior with a stacked bar and counts.
+- Quantity/order behavior with a compact distribution chart for `1 unit`, `2 units`, `3 units`, and `4+ units`.
+- Variant behavior only when variant data exists.
+- Top co-purchased products with co-order count, co-order rate, and affinity score.
+- A backend-generated interpretation from `productPurchaseContextScoringImpact`, `purchaseContextSignalBreakdown`, or stored summary interpretation.
+- A compact cohort-month trend when monthly purchase context is available.
+
+The section distinguishes unknown data from true zeroes:
+
+- no purchase context summary -> unavailable state;
+- empty co-purchase list -> `No reliable co-purchase pattern yet`;
+- unavailable variant data -> no variant card;
+- known zero multi-variant orders -> variant card may show `0%` only when variant data is available.
+
+### Tooltip wording
+
+- Solo purchase rate: `Share of orders containing this product where no other distinct product was purchased.`
+- Basket product: `This product is often bought with other products, which can make order-level refunds harder to attribute.`
+- Avg quantity/order: `Average number of units of this product purchased per order. The chart shows how many orders had 1, 2, 3, or 4+ units.`
+- Multi-variant order rate: `Share of orders where customers bought more than one variant of this same product.`
+- Co-purchased products: `Products that appear in the same orders as this product. Affinity adjusts for how common the other product is overall.`
+- Purchase-context confidence: `How reliable the basket, quantity, variant and co-purchase context is for this product.`
+
+## AI assistant integration
+
+Phase 3 adds read-only purchase context tools to the existing ProductPulse AI registry:
+
+- `product_pulse_get_product_purchase_context_summary`
+- `product_pulse_get_product_basket_behavior`
+- `product_pulse_get_product_quantity_distribution`
+- `product_pulse_get_product_co_purchase_summary`
+- `product_pulse_get_product_purchase_context_risk_impact`
+
+These tools are tenant-scoped through server context and return compact summaries instead of raw order datasets.
+
+The assistant can now answer:
+
+- whether a product is usually bought alone;
+- whether it is a basket product;
+- whether customers buy more than one unit;
+- whether customers buy multiple variants;
+- which products are usually bought with it;
+- whether purchase context affects Product Risk or Diagnosis Confidence;
+- whether returns/refunds are more ambiguous because of basket behavior.
+
+ChatKit supports deterministic cards for:
+
+- purchase context summary;
+- quantity distribution;
+- co-purchased products;
+- purchase-context risk impact.
 
 ## Limitations
 
@@ -245,4 +307,5 @@ These are not implemented in Phase 1.
 - Historical context starts after QuickScan or deep diagnosis stores this summary.
 - Co-purchase rates are window-based, not full-store lifetime rates.
 - Shopify bundle configuration is not detected.
-- Return/refund context by basket is future work.
+- Return/refund context by basket is available only when Phase 2 purchase-context segments were stored with enough data.
+- The UI intentionally avoids showing purchase-context zeroes when the underlying data is unknown or unavailable.

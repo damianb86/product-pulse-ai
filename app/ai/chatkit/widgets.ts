@@ -59,6 +59,14 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return metricTableWidget(block);
     case "return_refund_resolution":
       return returnRefundResolutionWidget(block);
+    case "purchase_context":
+      return purchaseContextWidget(block);
+    case "quantity_distribution":
+      return quantityDistributionWidget(block);
+    case "co_purchase_summary":
+      return coPurchaseSummaryWidget(block);
+    case "purchase_context_risk_impact":
+      return purchaseContextRiskImpactWidget(block);
     case "entity_list":
       return entityListWidget(block);
     case "recommendation_list":
@@ -276,6 +284,93 @@ function returnRefundResolutionWidget(block: Extract<AiPresentationBlock, { type
       block: true,
     })] : []),
   ], { size: "md", status: { text: "Return/refund", icon: "analytics" } });
+}
+
+function purchaseContextWidget(block: Extract<AiPresentationBlock, { type: "purchase_context" }>): Widgets.Card {
+  const confidence = block.confidence || "Unavailable";
+  return productPulseCard([
+    row([
+      col([
+        title(block.title || "Purchase context", { key: "title" }),
+        caption(block.interpretation || "How customers usually buy this product.", { key: "caption", maxLength: 220 }),
+      ], { key: "heading", gap: 2, flex: 1 }),
+      badge(confidence, confidenceBadgeColor(confidence), { key: "confidence" }),
+    ], { key: "top", justify: "between", align: "start", gap: 6 }),
+    metricGrid([
+      { label: "Solo rate", value: `${formatNumber(block.soloPurchaseRate)}%`, detail: "orders alone", tone: "success" },
+      { label: "Avg qty/order", value: formatNumber(block.avgQuantityPerOrder), detail: "units", tone: "info" },
+      { label: "Multi-variant", value: `${formatNumber(block.multiVariantRate)}%`, detail: "variant comparison", tone: "neutral" },
+    ], { key: "purchase-context-metrics" }),
+    ...(block.productGid ? [button("Open product", "open_product", { productRef: block.productGid }, "chevron-right", {
+      key: "open-product",
+      style: "secondary",
+      variant: "outline",
+      block: true,
+    })] : []),
+  ], { size: "md", status: { text: "Purchase context", icon: "profile-card" } });
+}
+
+function quantityDistributionWidget(block: Extract<AiPresentationBlock, { type: "quantity_distribution" }>): Widgets.Card {
+  if (!block.buckets.length) {
+    return emptyStateWidget({
+      type: "unavailable_state",
+      title: block.title || "Quantity distribution",
+      message: "No quantity distribution is available for this product yet.",
+    });
+  }
+  const rows = block.buckets.slice(0, 6).map((bucket) => ({
+    label: bucket.label,
+    value: bucket.count,
+    detail: typeof bucket.rate === "number" ? `${formatNumber(bucket.rate)}% of product orders` : null,
+  }));
+  return productPulseCard([
+    title(block.title || "Quantity distribution", { key: "title" }),
+    metricGrid(rows.map((row) => ({ ...row, tone: "info" })), { key: "quantity-buckets" }),
+  ], { size: "md", status: { text: "Quantity", icon: "chart" } });
+}
+
+function coPurchaseSummaryWidget(block: Extract<AiPresentationBlock, { type: "co_purchase_summary" }>): Widgets.Card {
+  if (!block.items.length) {
+    return emptyStateWidget({
+      type: "unavailable_state",
+      title: block.title || "Co-purchased products",
+      message: block.emptyMessage || "No reliable co-purchase pattern is available yet.",
+    });
+  }
+  return productPulseCard([
+    row([
+      title(block.title || "Co-purchased products", { key: "title" }),
+      badge(`${block.items.length}`, "secondary", { key: "count" }),
+    ], { key: "heading", justify: "between" }),
+    col(block.items.slice(0, MAX_LIST_ITEMS).map((item, index) => compactIssueRow({
+      label: item.title,
+      value: `${formatNumber(item.coOrderCount)} orders`,
+      detail: [
+        typeof item.coOrderRate === "number" ? `${formatNumber(item.coOrderRate)}% co-order` : "",
+        typeof item.affinityScore === "number" ? `${formatNumber(item.affinityScore)}x affinity` : "",
+      ].filter(Boolean).join(" · "),
+    }, index)), { key: "items", gap: 0 }),
+  ], { size: "md", status: { text: "Co-purchase", icon: "search" } });
+}
+
+function purchaseContextRiskImpactWidget(block: Extract<AiPresentationBlock, { type: "purchase_context_risk_impact" }>): Widgets.Card {
+  const rows = [
+    { label: "Risk impact", value: "Product Risk", detail: block.riskImpact },
+    { label: "Confidence", value: "Diagnosis", detail: block.confidenceImpact },
+    ...(block.financialExposureImpact ? [{ label: "Exposure", value: "Financial", detail: block.financialExposureImpact }] : []),
+    ...(block.returnPressureImpact ? [{ label: "Returns", value: "Pressure", detail: block.returnPressureImpact }] : []),
+    ...(block.refundLeakageImpact ? [{ label: "Refunds", value: "Leakage", detail: block.refundLeakageImpact }] : []),
+  ];
+  return productPulseCard([
+    title(block.title || "Purchase context risk impact", { key: "title" }),
+    col(rows.map((item, index) => compactIssueRow(item, index)), { key: "impact-rows", gap: 0 }),
+    ...(block.productGid ? [button("Open product", "open_product", { productRef: block.productGid }, "chevron-right", {
+      key: "open-product",
+      style: "secondary",
+      variant: "outline",
+      block: true,
+    })] : []),
+  ], { size: "md", status: { text: "Risk impact", icon: "analytics" } });
 }
 
 function entityListWidget(block: Extract<AiPresentationBlock, { type: "entity_list" }>): Widgets.Card {

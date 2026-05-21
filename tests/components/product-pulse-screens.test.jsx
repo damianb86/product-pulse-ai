@@ -1126,6 +1126,125 @@ describe("ProductPulse screens", () => {
     expect(within(resolutionPanel).queryByText("Return + refund")).not.toBeInTheDocument();
   });
 
+  it("renders purchase context cards, charts and product-card attribution notes", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        variantCount: 4,
+        productPurchaseContextSummary: purchaseContextSummaryFixture({
+          total_orders_containing_product: 18,
+          total_units_sold: 26,
+          solo_product_order_count: 13,
+          multi_product_order_count: 5,
+          single_unit_order_count: 12,
+          multi_unit_order_count: 6,
+          bulk_order_count: 1,
+          multi_variant_order_count: 3,
+          avg_product_quantity_per_order: 1.4,
+          avg_distinct_products_per_order: 1.8,
+          top_co_purchased_products: [{
+            productId: "gid://shopify/Product/care-kit",
+            title: "Care Kit",
+            co_order_count: 6,
+            co_order_rate: 0.333,
+            affinity_score: 2.1,
+          }],
+          monthly_context: [
+            { key: "2026-04", label: "Apr", orders_containing_product: 8, solo_product_orders: 6, multi_product_orders: 2, avg_product_quantity_per_order: 1.2 },
+            { key: "2026-05", label: "May", orders_containing_product: 10, solo_product_orders: 7, multi_product_orders: 3, avg_product_quantity_per_order: 1.6 },
+          ],
+          purchase_context_confidence: 86,
+          purchase_context_confidence_label: "High",
+        }),
+        productPurchaseContextFactors: {
+          hasPurchaseContextSummary: true,
+          productRisk: { soloAttributionRisk: 3 },
+          diagnosisConfidence: { purchaseContextScore: 6 },
+          financialExposure: { bulkQuantityExposure: 25 },
+          returnPressure: {
+            returnRateWhenBoughtAlone: 7,
+            returnRateWhenBoughtWithOthers: 18,
+            returnRateForMultiVariantOrders: 22,
+          },
+          customerSignalBreakdown: { primaryContext: "Mostly solo purchase context" },
+        },
+        productPurchaseContextScoringImpact: [
+          "This product is usually bought alone, so negative signals are easier to attribute to the product.",
+        ],
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const purchasePanel = container.querySelector(".ppPurchaseContextPanel");
+    const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
+
+    expect(purchasePanel).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Purchase context")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Solo purchase")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("72.2%")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("13 solo · 5 basket orders")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Quantity/order")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("1.4")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("1 unit")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("4+ units")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Variant behavior")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("16.7%")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Care Kit")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("6 orders")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("33.3% co-order · 2.1x affinity")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Purchase context over time")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/usually bought alone, so negative signals are easier to attribute/i)).toBeInTheDocument();
+
+    expect(within(riskSnapshot).getByText("72.2% solo purchase attribution")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Strong attribution: 72.2% solo purchase rate")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Bulk orders increase unit exposure")).toBeInTheDocument();
+    fireEvent.mouseEnter(within(purchasePanel).getByRole("button", { name: "Solo purchase explanation" }));
+    expect(screen.getByText(/no other distinct product was purchased/i)).toBeInTheDocument();
+  });
+
+  it("handles missing and unavailable purchase context without fake variant data", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        variantCount: 1,
+        productPurchaseContextSummary: purchaseContextSummaryFixture({
+          total_orders_containing_product: 6,
+          total_units_sold: 6,
+          solo_product_order_count: 0,
+          multi_product_order_count: 6,
+          single_unit_order_count: 6,
+          multi_unit_order_count: 0,
+          bulk_order_count: 0,
+          multi_variant_order_count: 0,
+          avg_product_quantity_per_order: 1,
+          avg_distinct_products_per_order: 3.2,
+          top_co_purchased_products: [],
+          purchase_context_confidence: 64,
+          purchase_context_confidence_label: "Medium",
+        }),
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const purchasePanel = container.querySelector(".ppPurchaseContextPanel");
+
+    expect(within(purchasePanel).getByText("Basket product")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("100%")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("No reliable co-purchase pattern yet.")).toBeInTheDocument();
+    expect(within(purchasePanel).queryByText("Variant behavior")).not.toBeInTheDocument();
+
+    const missingProduct = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productPurchaseContextSummary: null,
+      },
+    };
+    const missingRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={missingProduct} />);
+    const missingPanel = missingRender.container.querySelector(".ppPurchaseContextPanel");
+    expect(within(missingPanel).getByText("Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available.")).toBeInTheDocument();
+  });
+
   it("renders return-rate prediction for product diagnosis", () => {
     const product = {
       ...defaultView.startHere,
@@ -2890,5 +3009,51 @@ function relationshipSummaryFixture(overrides = {}) {
   summary.return_without_refund_rate = summary.sold_units ? summary.returned_not_refunded_units / summary.sold_units : 0;
   summary.exchange_rate = summary.sold_units ? summary.exchange_or_replacement_units / summary.sold_units : 0;
   summary.unattributed_refund_rate = summary.total_product_revenue ? summary.unattributed_refund_amount / summary.total_product_revenue : 0;
+  return summary;
+}
+
+function purchaseContextSummaryFixture(overrides = {}) {
+  const summary = {
+    total_orders_containing_product: 10,
+    total_units_sold: 12,
+    total_revenue_if_available: 1000,
+    solo_product_order_count: 5,
+    multi_product_order_count: 5,
+    single_unit_order_count: 8,
+    multi_unit_order_count: 2,
+    bulk_order_count: 0,
+    multi_variant_order_count: 0,
+    avg_product_quantity_per_order: 1.2,
+    median_product_quantity_per_order: 1,
+    avg_distinct_products_per_order: 2,
+    avg_total_units_per_order: 2.4,
+    top_co_purchased_products: [],
+    purchase_context_confidence: 80,
+    purchase_context_confidence_label: "High",
+    unknown_or_incomplete_order_count: 0,
+    bulk_purchase_threshold: 4,
+    quantity_distribution: {
+      one_unit_count: 8,
+      two_unit_count: 1,
+      three_unit_count: 1,
+      four_plus_unit_count: 0,
+    },
+    monthly_context: [],
+    purchase_context_segments: {},
+    ...overrides,
+  };
+  summary.solo_purchase_rate = summary.total_orders_containing_product ? summary.solo_product_order_count / summary.total_orders_containing_product : 0;
+  summary.multi_product_basket_rate = summary.total_orders_containing_product ? summary.multi_product_order_count / summary.total_orders_containing_product : 0;
+  summary.single_unit_purchase_rate = summary.total_orders_containing_product ? summary.single_unit_order_count / summary.total_orders_containing_product : 0;
+  summary.multi_unit_purchase_rate = summary.total_orders_containing_product ? summary.multi_unit_order_count / summary.total_orders_containing_product : 0;
+  summary.bulk_purchase_rate = summary.total_orders_containing_product ? summary.bulk_order_count / summary.total_orders_containing_product : 0;
+  summary.multi_variant_order_rate = summary.total_orders_containing_product ? summary.multi_variant_order_count / summary.total_orders_containing_product : 0;
+  summary.quantity_distribution = {
+    ...summary.quantity_distribution,
+    one_unit_rate: summary.total_orders_containing_product ? summary.quantity_distribution.one_unit_count / summary.total_orders_containing_product : 0,
+    two_unit_rate: summary.total_orders_containing_product ? summary.quantity_distribution.two_unit_count / summary.total_orders_containing_product : 0,
+    three_unit_rate: summary.total_orders_containing_product ? summary.quantity_distribution.three_unit_count / summary.total_orders_containing_product : 0,
+    four_plus_unit_rate: summary.total_orders_containing_product ? summary.quantity_distribution.four_plus_unit_count / summary.total_orders_containing_product : 0,
+  };
   return summary;
 }

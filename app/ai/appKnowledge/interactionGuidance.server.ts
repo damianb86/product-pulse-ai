@@ -271,6 +271,16 @@ function productInformationOptions(): AppInteractionGuidanceOption[] {
       requiresConfirmation: false,
       backendCapability: { kind: "tool", name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductReturnRefundResolution },
     },
+    {
+      id: "purchase_context",
+      label: "Purchase context",
+      description: "Explica si el producto se compra solo, en basket, en varias unidades, con variantes o junto a otros productos.",
+      examplePrompt: "¿Este producto se compra solo o con otros productos?",
+      category: "read",
+      requiresProductContext: true,
+      requiresConfirmation: false,
+      backendCapability: { kind: "tool", name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductPurchaseContextSummary },
+    },
   ];
 }
 

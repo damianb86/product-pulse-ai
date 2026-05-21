@@ -195,6 +195,91 @@ describe("ProductPulse AI data repositories", () => {
     expect(JSON.stringify(relationship)).not.toContain("shop-a.myshopify.com");
   });
 
+  it("returns compact purchase context summaries and risk impact for one scoped product", async () => {
+    const db = createRepositoryDbMock();
+    const snapshot = buildSnapshot({
+      productGid: "gid://shopify/Product/purchase-context",
+      handle: "purchase-context-product",
+      metrics: {
+        productPurchaseContextSummary: {
+          total_orders_containing_product: 18,
+          total_units_sold: 26,
+          total_revenue_if_available: 1200,
+          solo_product_order_count: 13,
+          multi_product_order_count: 5,
+          single_unit_order_count: 12,
+          multi_unit_order_count: 6,
+          bulk_order_count: 1,
+          multi_variant_order_count: 3,
+          avg_product_quantity_per_order: 1.4,
+          avg_distinct_products_per_order: 1.8,
+          solo_purchase_rate: 13 / 18,
+          multi_product_basket_rate: 5 / 18,
+          single_unit_purchase_rate: 12 / 18,
+          multi_unit_purchase_rate: 6 / 18,
+          bulk_purchase_rate: 1 / 18,
+          multi_variant_order_rate: 3 / 18,
+          purchase_context_confidence: 86,
+          purchase_context_confidence_label: "High",
+          quantity_distribution: {
+            one_unit_count: 12,
+            two_unit_count: 4,
+            three_unit_count: 1,
+            four_plus_unit_count: 1,
+            one_unit_rate: 12 / 18,
+            two_unit_rate: 4 / 18,
+            three_unit_rate: 1 / 18,
+            four_plus_unit_rate: 1 / 18,
+          },
+          top_co_purchased_products: [{
+            productId: "gid://shopify/Product/care-kit",
+            title: "Care Kit",
+            co_order_count: 6,
+            co_order_rate: 0.333,
+            affinity_score: 2.1,
+          }],
+        },
+        productPurchaseContextFactors: {
+          hasPurchaseContextSummary: true,
+          productRisk: { soloAttributionRisk: 3 },
+          diagnosisConfidence: { purchaseContextScore: 6 },
+          financialExposure: { bulkQuantityExposure: 25 },
+          returnPressure: { returnRateWhenBoughtWithOthers: 18, returnRateWhenBoughtAlone: 7 },
+          refundLeakage: { refundRateWhenBoughtAlone: 3, refundRateWhenBoughtWithOthers: 8 },
+        },
+        productPurchaseContextScoringImpact: [
+          "This product is usually bought alone, so negative signals are easier to attribute to the product.",
+        ],
+      },
+    });
+    db.productRiskSnapshot.findFirst.mockResolvedValue(snapshot);
+
+    const repository = new ProductPulseAiRepository(db);
+    const summary = await repository.getProductPurchaseContextSummary(context, "purchase-context-product");
+    const riskImpact = await repository.getProductPurchaseContextRiskImpact(context, "purchase-context-product");
+
+    expect(db.productRiskSnapshot.findFirst.mock.calls[0][0].where.shop).toBe(context.shop);
+    expect(summary).toMatchObject({
+      available: true,
+      totalOrdersContainingProduct: 18,
+      soloProductOrderCount: 13,
+      soloPurchaseRate: 72.2,
+      avgProductQuantityPerOrder: 1.4,
+      multiVariantOrderRate: 16.7,
+      purchaseContextConfidenceLabel: "High",
+    });
+    expect(summary.quantityDistribution.oneUnitCount).toBe(12);
+    expect(summary.topCoPurchasedProducts[0]).toMatchObject({
+      title: "Care Kit",
+      coOrderCount: 6,
+      coOrderRate: 33.3,
+      affinityScore: 2.1,
+    });
+    expect(riskImpact.purchaseContextRiskImpact.riskImpact).toContain("Solo-purchase behavior");
+    expect(riskImpact.purchaseContextRiskImpact.financialExposureImpact).toContain("Bulk or multi-unit orders");
+    expect(JSON.stringify(summary)).not.toContain("shop-a.myshopify.com");
+  });
+
   it("does not expose watch alert recipient emails", async () => {
     const db = createRepositoryDbMock();
     db.productWatchlistItem.findMany.mockResolvedValue([]);
@@ -350,6 +435,61 @@ describe("ProductPulse AI tool registry", () => {
     expect(exposureResult.data.financialExposure.confirmedRefundAmount).toBe(84);
   });
 
+  it("exposes purchase context AI tools as read-only scoped compact summaries", async () => {
+    const purchaseContext = {
+      available: true,
+      productGid: "gid://shopify/Product/1",
+      title: "Product",
+      handle: "product",
+      totalOrdersContainingProduct: 18,
+      soloPurchaseRate: 72.2,
+      avgProductQuantityPerOrder: 1.4,
+      multiVariantOrderRate: 16.7,
+      quantityDistribution: { oneUnitCount: 12 },
+      topCoPurchasedProducts: [{ title: "Care Kit", coOrderCount: 6 }],
+      interpretation: "Usually bought alone.",
+    };
+    const productRepository = {
+      getProductPurchaseContextSummary: vi.fn().mockResolvedValue(purchaseContext),
+      getProductBasketBehavior: vi.fn().mockResolvedValue(purchaseContext),
+      getProductQuantityDistribution: vi.fn().mockResolvedValue(purchaseContext),
+      getProductCoPurchaseSummary: vi.fn().mockResolvedValue(purchaseContext),
+      getProductPurchaseContextRiskImpact: vi.fn().mockResolvedValue({
+        product: { productGid: "gid://shopify/Product/1", updatedAt: null, calculatedAt: null },
+        purchaseContextRiskImpact: {
+          available: true,
+          riskImpact: "Solo-purchase behavior strengthens product-specific attribution.",
+          confidenceImpact: "Diagnosis confidence is higher because the product is often bought alone.",
+        },
+      }),
+    };
+    const registry = createRegistryWithRepositories({ productRepository });
+
+    const summaryResult = await registry.executeAiTool(
+      PRODUCT_PULSE_AI_TOOL_NAMES.getProductPurchaseContextSummary,
+      context,
+      { productRef: "product", shop: "evil-shop.myshopify.com" },
+    );
+    const basketResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductBasketBehavior, context, { productRef: "product" });
+    const quantityResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductQuantityDistribution, context, { productRef: "product" });
+    const coPurchaseResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductCoPurchaseSummary, context, { productRef: "product" });
+    const riskImpactResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductPurchaseContextRiskImpact, context, { productRef: "product" });
+
+    expect(summaryResult.ok).toBe(true);
+    expect(basketResult.ok).toBe(true);
+    expect(quantityResult.ok).toBe(true);
+    expect(coPurchaseResult.ok).toBe(true);
+    expect(riskImpactResult.ok).toBe(true);
+    expect(productRepository.getProductPurchaseContextSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: context.shop }),
+      "product",
+    );
+    expect(productRepository.getProductPurchaseContextSummary.mock.calls[0][0]).not.toHaveProperty("shop", "evil-shop.myshopify.com");
+    expect(summaryResult.data.purchaseContext.soloPurchaseRate).toBe(72.2);
+    expect(coPurchaseResult.data.purchaseContext.topCoPurchasedProducts[0].title).toBe("Care Kit");
+    expect(riskImpactResult.data.purchaseContextRiskImpact.riskImpact).toContain("Solo-purchase");
+  });
+
   it("masks raw repository/database errors", async () => {
     const productRepository = {
       listProductRiskSummaries: vi.fn().mockRejectedValue(new Error("database password leaked stack")),
@@ -386,6 +526,11 @@ function createRegistryWithRepositories(overrides = {}) {
         getReturnRefundRelationshipSummary: vi.fn().mockResolvedValue(null),
         getProductReturnRefundResolution: vi.fn().mockResolvedValue(null),
         getProductFinancialExposureBreakdown: vi.fn().mockResolvedValue(null),
+        getProductPurchaseContextSummary: vi.fn().mockResolvedValue(null),
+        getProductBasketBehavior: vi.fn().mockResolvedValue(null),
+        getProductQuantityDistribution: vi.fn().mockResolvedValue(null),
+        getProductCoPurchaseSummary: vi.fn().mockResolvedValue(null),
+        getProductPurchaseContextRiskImpact: vi.fn().mockResolvedValue(null),
         ...overrides.productRepository,
       },
       analyticsRepository: {

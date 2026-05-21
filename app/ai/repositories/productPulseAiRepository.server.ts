@@ -8,6 +8,8 @@ import type {
   AiEvidenceSnippet,
   AiIssueSummary,
   AiProductMetricSummary,
+  AiProductPurchaseContextRiskImpact,
+  AiProductPurchaseContextSummary,
   AiProductRiskDetail,
   AiProductRiskSummary,
   AiFinancialExposureBreakdown,
@@ -263,6 +265,50 @@ export class ProductPulseAiRepository {
     return {
       product,
       financialExposure: product.metrics.financialExposureBreakdown || buildAiFinancialExposureBreakdown(asRecord(snapshot.metrics)),
+    };
+  }
+
+  async getProductPurchaseContextSummary(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductPurchaseContextSummary | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    return buildAiProductPurchaseContextSummary(snapshot);
+  }
+
+  async getProductBasketBehavior(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductPurchaseContextSummary | null> {
+    return this.getProductPurchaseContextSummary(context, productRef);
+  }
+
+  async getProductQuantityDistribution(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductPurchaseContextSummary | null> {
+    return this.getProductPurchaseContextSummary(context, productRef);
+  }
+
+  async getProductCoPurchaseSummary(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductPurchaseContextSummary | null> {
+    return this.getProductPurchaseContextSummary(context, productRef);
+  }
+
+  async getProductPurchaseContextRiskImpact(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<{ product: AiProductRiskSummary; purchaseContextRiskImpact: AiProductPurchaseContextRiskImpact } | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    const settings = await this.getRiskSettings(context);
+    const product = mapProductSummary({ snapshot, settings });
+    return {
+      product,
+      purchaseContextRiskImpact: buildAiProductPurchaseContextRiskImpact(asRecord(snapshot.metrics)),
     };
   }
 
@@ -561,6 +607,7 @@ function mapMetricSummary(metrics: Record<string, unknown>): AiProductMetricSumm
     productMomentumTier: optionalText(metrics.productMomentumTier ?? asRecord(metrics.productMomentum).tier),
     returnRefundRelationship: relationship,
     financialExposureBreakdown: buildAiFinancialExposureBreakdown(metrics, relationship),
+    purchaseContext: buildAiProductPurchaseContextSummaryFromMetrics(metrics),
   };
 }
 
@@ -720,6 +767,176 @@ function buildAiFinancialExposureBreakdown(
   };
   exposure.interpretation = getAiFinancialExposureInterpretation(exposure);
   return exposure;
+}
+
+function buildAiProductPurchaseContextSummary(snapshot: DbRecord): AiProductPurchaseContextSummary {
+  return buildAiProductPurchaseContextSummaryFromMetrics(asRecord(snapshot.metrics), {
+    productGid: String(snapshot.productGid || ""),
+    title: String(snapshot.productTitle || "Shopify product"),
+    handle: optionalText(snapshot.handle),
+  });
+}
+
+function buildAiProductPurchaseContextSummaryFromMetrics(
+  metrics: Record<string, unknown>,
+  product: { productGid?: string | null; title?: string | null; handle?: string | null } = {},
+): AiProductPurchaseContextSummary {
+  const summary = asRecord(metrics.productPurchaseContextSummary);
+  const factors = asRecord(metrics.productPurchaseContextFactors);
+  const signalBreakdown = asRecord(metrics.purchaseContextSignalBreakdown || factors.customerSignalBreakdown);
+  const scoringImpact = arrayOfStrings(metrics.productPurchaseContextScoringImpact).slice(0, 5);
+  const available = Boolean(Object.keys(summary).length || factors.hasPurchaseContextSummary);
+  const totalOrders = firstNumber(summary.total_orders_containing_product, summary.totalOrdersContainingProduct);
+  const totalUnits = firstNumber(summary.total_units_sold, summary.totalUnitsSold);
+  const soloOrders = firstNumber(summary.solo_product_order_count, summary.soloProductOrderCount);
+  const multiProductOrders = firstNumber(summary.multi_product_order_count, summary.multiProductOrderCount);
+  const singleUnitOrders = firstNumber(summary.single_unit_order_count, summary.singleUnitOrderCount);
+  const multiUnitOrders = firstNumber(summary.multi_unit_order_count, summary.multiUnitOrderCount);
+  const bulkOrders = firstNumber(summary.bulk_order_count, summary.bulkOrderCount);
+  const multiVariantOrders = firstNumber(summary.multi_variant_order_count, summary.multiVariantOrderCount);
+  const confidence = normalizeAiConfidence(firstNumber(summary.purchase_context_confidence, summary.purchaseContextConfidence));
+  const context: AiProductPurchaseContextSummary = {
+    available,
+    status: available ? (totalOrders > 0 ? "Purchase context available" : "No product-containing orders in the stored window") : "Purchase context not calculated yet",
+    productGid: product.productGid || optionalText(summary.product_id),
+    title: product.title || null,
+    handle: product.handle || null,
+    totalOrdersContainingProduct: totalOrders,
+    totalUnitsSold: totalUnits,
+    totalRevenueIfAvailable: firstNumber(summary.total_revenue_if_available, summary.totalRevenueIfAvailable),
+    soloProductOrderCount: soloOrders,
+    multiProductOrderCount: multiProductOrders,
+    singleUnitOrderCount: singleUnitOrders,
+    multiUnitOrderCount: multiUnitOrders,
+    bulkOrderCount: bulkOrders,
+    multiVariantOrderCount: multiVariantOrders,
+    avgProductQuantityPerOrder: firstNumber(summary.avg_product_quantity_per_order, summary.avgProductQuantityPerOrder, summary.avg_product_qty_per_order),
+    avgDistinctProductsPerOrder: firstNumber(summary.avg_distinct_products_per_order, summary.avgDistinctProductsPerOrder),
+    soloPurchaseRate: ratePercent(summary.solo_purchase_rate ?? summary.soloPurchaseRate, soloOrders, totalOrders),
+    multiProductBasketRate: ratePercent(summary.multi_product_basket_rate ?? summary.multiProductBasketRate, multiProductOrders, totalOrders),
+    singleUnitPurchaseRate: ratePercent(summary.single_unit_purchase_rate ?? summary.singleUnitPurchaseRate, singleUnitOrders, totalOrders),
+    multiUnitPurchaseRate: ratePercent(summary.multi_unit_purchase_rate ?? summary.multiUnitPurchaseRate, multiUnitOrders, totalOrders),
+    bulkPurchaseRate: ratePercent(summary.bulk_purchase_rate ?? summary.bulkPurchaseRate, bulkOrders, totalOrders),
+    multiVariantOrderRate: ratePercent(summary.multi_variant_order_rate ?? summary.multiVariantOrderRate, multiVariantOrders, totalOrders),
+    purchaseContextConfidence: confidence,
+    purchaseContextConfidenceLabel: getAiPurchaseContextConfidenceLabel(confidence, available),
+    unknownOrIncompleteOrderCount: firstNumber(summary.unknown_or_incomplete_order_count, summary.unknownOrIncompleteOrderCount),
+    quantityDistribution: buildAiPurchaseQuantityDistribution(asRecord(summary.quantity_distribution || summary.quantityDistribution), totalOrders),
+    topCoPurchasedProducts: arrayOfRecords(summary.top_co_purchased_products || summary.topCoPurchasedProducts)
+      .slice(0, 5)
+      .map((item) => ({
+        productId: optionalText(item.productId || item.product_id || item.id),
+        title: optionalText(item.title || item.productTitle || item.product_title) || "Unknown product",
+        handle: optionalText(item.handle || item.productHandle || item.product_handle),
+        coOrderCount: firstNumber(item.co_order_count, item.coOrderCount),
+        coOrderRate: ratePercent(item.co_order_rate ?? item.coOrderRate),
+        affinityScore: toNullableNumber(item.affinity_score ?? item.affinityScore),
+      })),
+    interpretation: optionalText(summary.interpretation)
+      || scoringImpact[0]
+      || getAiPurchaseContextInterpretation({ available, totalOrders, soloOrders, multiProductOrders, signalBreakdown }),
+  };
+  return context;
+}
+
+function buildAiPurchaseQuantityDistribution(distribution: Record<string, unknown>, totalOrders: number): AiProductPurchaseContextSummary["quantityDistribution"] {
+  const oneUnitCount = firstNumber(distribution.one_unit_count, distribution.oneUnitCount);
+  const twoUnitCount = firstNumber(distribution.two_unit_count, distribution.twoUnitCount);
+  const threeUnitCount = firstNumber(distribution.three_unit_count, distribution.threeUnitCount);
+  const fourPlusUnitCount = firstNumber(distribution.four_plus_unit_count, distribution.fourPlusUnitCount);
+  return {
+    oneUnitCount,
+    twoUnitCount,
+    threeUnitCount,
+    fourPlusUnitCount,
+    oneUnitRate: ratePercent(distribution.one_unit_rate ?? distribution.oneUnitRate, oneUnitCount, totalOrders),
+    twoUnitRate: ratePercent(distribution.two_unit_rate ?? distribution.twoUnitRate, twoUnitCount, totalOrders),
+    threeUnitRate: ratePercent(distribution.three_unit_rate ?? distribution.threeUnitRate, threeUnitCount, totalOrders),
+    fourPlusUnitRate: ratePercent(distribution.four_plus_unit_rate ?? distribution.fourPlusUnitRate, fourPlusUnitCount, totalOrders),
+  };
+}
+
+function buildAiProductPurchaseContextRiskImpact(metrics: Record<string, unknown>): AiProductPurchaseContextRiskImpact {
+  const context = buildAiProductPurchaseContextSummaryFromMetrics(metrics);
+  const factors = asRecord(metrics.productPurchaseContextFactors);
+  const explanations = arrayOfStrings(metrics.productPurchaseContextScoringImpact).slice(0, 6);
+  return {
+    available: context.available,
+    riskImpact: getAiPurchaseContextRiskImpactText(context, asRecord(factors.productRisk)),
+    confidenceImpact: getAiPurchaseContextConfidenceImpactText(context, asRecord(factors.diagnosisConfidence)),
+    financialExposureImpact: getAiPurchaseContextFinancialExposureImpactText(context, asRecord(factors.financialExposure)),
+    returnPressureImpact: getAiPurchaseContextReturnPressureImpactText(asRecord(factors.returnPressure)),
+    refundLeakageImpact: getAiPurchaseContextRefundLeakageImpactText(asRecord(factors.refundLeakage)),
+    explanations,
+  };
+}
+
+function getAiPurchaseContextConfidenceLabel(confidence: number, available: boolean): AiProductPurchaseContextSummary["purchaseContextConfidenceLabel"] {
+  if (!available || confidence <= 0) return "Unavailable";
+  if (confidence >= 80) return "High";
+  if (confidence >= 55) return "Medium";
+  return "Low";
+}
+
+function getAiPurchaseContextInterpretation({
+  available,
+  totalOrders,
+  soloOrders,
+  multiProductOrders,
+  signalBreakdown,
+}: {
+  available: boolean;
+  totalOrders: number;
+  soloOrders: number;
+  multiProductOrders: number;
+  signalBreakdown: Record<string, unknown>;
+}): string {
+  const primaryContext = optionalText(signalBreakdown.primaryContext);
+  if (primaryContext) return `${primaryContext}.`;
+  if (!available) return "Purchase context is not calculated for this product yet.";
+  if (!totalOrders) return "No product-containing orders were available in the stored purchase context window.";
+  if (soloOrders >= multiProductOrders) return "This product is mostly bought alone, so product-level signals are easier to attribute.";
+  return "This product is often bought with other products, so order-level signals can be less conclusive.";
+}
+
+function getAiPurchaseContextRiskImpactText(context: AiProductPurchaseContextSummary, productRisk: Record<string, unknown>): string {
+  if (!context.available) return "Purchase context is not available and does not affect Product Risk.";
+  if (firstNumber(productRisk.multiVariantRisk) > 0) return "Multi-variant orders add a small variant or fit uncertainty signal.";
+  if (firstNumber(productRisk.soloAttributionRisk) > 0) return "Solo-purchase behavior strengthens product-specific attribution when negative signals exist.";
+  if (context.multiProductBasketRate >= 60) return "Multi-product baskets reduce confidence in weak order-level product attribution.";
+  return "Purchase context is available but does not materially change Product Risk.";
+}
+
+function getAiPurchaseContextConfidenceImpactText(context: AiProductPurchaseContextSummary, confidence: Record<string, unknown>): string {
+  if (!context.available) return "Purchase context is unavailable, so confidence cannot use basket behavior.";
+  if (firstNumber(confidence.multiProductAttributionPenalty) > 0) return "Diagnosis confidence is lower because multi-product baskets make weak order-level signals less conclusive.";
+  if (context.soloPurchaseRate >= 60) return "Diagnosis confidence is higher because the product is often bought alone.";
+  if (context.purchaseContextConfidence < 55) return "Diagnosis confidence is limited because purchase context quality is low.";
+  return "Purchase context supports diagnosis confidence without a strong penalty.";
+}
+
+function getAiPurchaseContextFinancialExposureImpactText(context: AiProductPurchaseContextSummary, exposure: Record<string, unknown>): string {
+  if (!context.available) return "Purchase context is unavailable for financial exposure.";
+  if (firstNumber(exposure.bulkQuantityExposure) > 0) return "Bulk or multi-unit orders increase potential unit exposure when bad events occur.";
+  return "Purchase context does not add material financial exposure.";
+}
+
+function getAiPurchaseContextReturnPressureImpactText(returnPressure: Record<string, unknown>): string {
+  const alone = firstNumber(returnPressure.returnRateWhenBoughtAlone);
+  const basket = firstNumber(returnPressure.returnRateWhenBoughtWithOthers);
+  const multiVariant = firstNumber(returnPressure.returnRateForMultiVariantOrders);
+  if (multiVariant >= Math.max(alone, basket, 1)) return "Returns are most notable in multi-variant orders.";
+  if (basket > alone) return "Returns are higher when the product is bought with other products.";
+  if (alone > basket) return "Returns are higher when the product is bought alone.";
+  return "No purchase-context return-pressure segment stands out.";
+}
+
+function getAiPurchaseContextRefundLeakageImpactText(refundLeakage: Record<string, unknown>): string {
+  const alone = firstNumber(refundLeakage.refundRateWhenBoughtAlone);
+  const basket = firstNumber(refundLeakage.refundRateWhenBoughtWithOthers);
+  if (basket > alone) return "Refund leakage is higher when the product is bought with other products.";
+  if (alone > basket) return "Refund leakage is higher when the product is bought alone.";
+  return "No purchase-context refund-leakage segment stands out.";
 }
 
 function mapDiagnosisSummary(

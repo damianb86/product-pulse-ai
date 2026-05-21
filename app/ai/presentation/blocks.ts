@@ -75,6 +75,52 @@ const returnRefundResolutionBlockSchema = z.object({
   interpretation: z.string().max(420).nullable().optional(),
 }).strict();
 
+const purchaseContextBlockSchema = z.object({
+  type: z.literal("purchase_context"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  soloPurchaseRate: z.number().min(0).max(100).default(0),
+  avgQuantityPerOrder: z.number().min(0).max(100000).default(0),
+  multiVariantRate: z.number().min(0).max(100).default(0),
+  confidence: z.string().max(80).nullable().optional(),
+  interpretation: z.string().max(420).nullable().optional(),
+}).strict();
+
+const quantityDistributionBlockSchema = z.object({
+  type: z.literal("quantity_distribution"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  buckets: z.array(z.object({
+    label: z.string().max(80),
+    count: z.number().min(0).max(100000),
+    rate: z.number().min(0).max(100).nullable().optional(),
+  }).strict()).max(6),
+}).strict();
+
+const coPurchaseSummaryBlockSchema = z.object({
+  type: z.literal("co_purchase_summary"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  emptyMessage: z.string().max(260).nullable().optional(),
+  items: z.array(z.object({
+    title: z.string().max(220),
+    coOrderCount: z.number().min(0).max(100000),
+    coOrderRate: z.number().min(0).max(100).nullable().optional(),
+    affinityScore: z.number().min(0).max(100000).nullable().optional(),
+  }).strict()).max(6),
+}).strict();
+
+const purchaseContextRiskImpactBlockSchema = z.object({
+  type: z.literal("purchase_context_risk_impact"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  riskImpact: z.string().max(320),
+  confidenceImpact: z.string().max(320),
+  financialExposureImpact: z.string().max(320).nullable().optional(),
+  returnPressureImpact: z.string().max(320).nullable().optional(),
+  refundLeakageImpact: z.string().max(320).nullable().optional(),
+}).strict();
+
 const entityListBlockSchema = z.object({
   type: z.literal("entity_list"),
   title: z.string().max(160).optional(),
@@ -283,6 +329,10 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   evidenceListBlockSchema,
   metricTableBlockSchema,
   returnRefundResolutionBlockSchema,
+  purchaseContextBlockSchema,
+  quantityDistributionBlockSchema,
+  coPurchaseSummaryBlockSchema,
+  purchaseContextRiskImpactBlockSchema,
   entityListBlockSchema,
   recommendationListBlockSchema,
   unavailableStateBlockSchema,

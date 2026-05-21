@@ -466,6 +466,35 @@ describe("ProductPulse ChatKit integration", () => {
         interpretation: "Returns are leading to attributed refunds.",
       },
       {
+        type: "purchase_context",
+        productGid: "gid://shopify/Product/1",
+        soloPurchaseRate: 72.2,
+        avgQuantityPerOrder: 1.4,
+        multiVariantRate: 16.7,
+        confidence: "High",
+        interpretation: "This product is usually bought alone.",
+      },
+      {
+        type: "quantity_distribution",
+        productGid: "gid://shopify/Product/1",
+        buckets: [
+          { label: "1 unit", count: 12, rate: 66.7 },
+          { label: "2 units", count: 4, rate: 22.2 },
+        ],
+      },
+      {
+        type: "co_purchase_summary",
+        productGid: "gid://shopify/Product/1",
+        items: [{ title: "Care Kit", coOrderCount: 6, coOrderRate: 33.3, affinityScore: 2.1 }],
+      },
+      {
+        type: "purchase_context_risk_impact",
+        productGid: "gid://shopify/Product/1",
+        riskImpact: "Solo-purchase behavior strengthens product-specific attribution.",
+        confidenceImpact: "Diagnosis confidence is higher because the product is often bought alone.",
+        financialExposureImpact: "Bulk or multi-unit orders increase potential unit exposure.",
+      },
+      {
         type: "entity_list",
         title: "High risk products",
         items: [{
@@ -533,7 +562,7 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
     expect(widgets.filter((widget) => widget.type === "Card").every((widget) => widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("#4C1D95");
     expect(JSON.stringify(widgets)).toContain("open_product");
@@ -542,6 +571,10 @@ describe("ProductPulse ChatKit integration", () => {
     expect(JSON.stringify(widgets)).toContain("prepare_apply_action");
     expect(JSON.stringify(widgets)).toContain("Return & refund resolution");
     expect(JSON.stringify(widgets)).toContain("Return + refund");
+    expect(JSON.stringify(widgets)).toContain("Purchase context");
+    expect(JSON.stringify(widgets)).toContain("Co-purchased products");
+    expect(JSON.stringify(widgets)).toContain("Care Kit");
+    expect(JSON.stringify(widgets)).toContain("Solo-purchase behavior");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
     expect(JSON.stringify(widgets)).toContain("Action completed");

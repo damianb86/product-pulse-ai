@@ -98,6 +98,7 @@ export interface AiProductMetricSummary {
   productMomentumTier: string | null;
   returnRefundRelationship: AiReturnRefundRelationshipSummary | null;
   financialExposureBreakdown: AiFinancialExposureBreakdown | null;
+  purchaseContext: AiProductPurchaseContextSummary | null;
 }
 
 export interface AiReturnRefundRelationshipSummary {
@@ -169,6 +170,67 @@ export interface AiFinancialExposureBreakdown {
   estimatedFutureRefundFromReturnOnlyCases: number;
   refundAttributionRate: number;
   interpretation: string;
+}
+
+export interface AiPurchaseQuantityDistribution {
+  oneUnitCount: number;
+  twoUnitCount: number;
+  threeUnitCount: number;
+  fourPlusUnitCount: number;
+  oneUnitRate: number;
+  twoUnitRate: number;
+  threeUnitRate: number;
+  fourPlusUnitRate: number;
+}
+
+export interface AiCoPurchasedProductSummary {
+  productId: string | null;
+  title: string;
+  handle: string | null;
+  coOrderCount: number;
+  coOrderRate: number;
+  affinityScore: number | null;
+}
+
+export interface AiProductPurchaseContextSummary {
+  available: boolean;
+  status: string;
+  productGid: string | null;
+  title: string | null;
+  handle: string | null;
+  totalOrdersContainingProduct: number;
+  totalUnitsSold: number;
+  totalRevenueIfAvailable: number;
+  soloProductOrderCount: number;
+  multiProductOrderCount: number;
+  singleUnitOrderCount: number;
+  multiUnitOrderCount: number;
+  bulkOrderCount: number;
+  multiVariantOrderCount: number;
+  avgProductQuantityPerOrder: number;
+  avgDistinctProductsPerOrder: number;
+  soloPurchaseRate: number;
+  multiProductBasketRate: number;
+  singleUnitPurchaseRate: number;
+  multiUnitPurchaseRate: number;
+  bulkPurchaseRate: number;
+  multiVariantOrderRate: number;
+  purchaseContextConfidence: number;
+  purchaseContextConfidenceLabel: "High" | "Medium" | "Low" | "Unavailable";
+  unknownOrIncompleteOrderCount: number;
+  quantityDistribution: AiPurchaseQuantityDistribution;
+  topCoPurchasedProducts: AiCoPurchasedProductSummary[];
+  interpretation: string;
+}
+
+export interface AiProductPurchaseContextRiskImpact {
+  available: boolean;
+  riskImpact: string;
+  confidenceImpact: string;
+  financialExposureImpact: string;
+  returnPressureImpact: string;
+  refundLeakageImpact: string;
+  explanations: string[];
 }
 
 export interface AiProductRiskSummary {
