@@ -102,6 +102,49 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(JSON.stringify(result)).not.toContain("evil.myshopify.com");
   });
 
+  it("accepts generic model draft aliases for product description drafts", async () => {
+    const { registry } = createAppMutationRegistry();
+
+    const result = await registry.createAiAppMutationProposal(
+      context,
+      PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
+      {
+        productRef: "core-linen-trouser",
+        title: "Description draft",
+        targetField: "product.description",
+        draftType: "product_description",
+        proposedValue: {
+          text: "Add a clear expectation note before purchase.",
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.data.proposal.proposedInput).toMatchObject({
+      productRef: "gid://shopify/Product/1",
+      text: "Add a clear expectation note before purchase.",
+      field: "product.description",
+    });
+  });
+
+  it("normalizes root-level app mutation tool fields into mutation input", async () => {
+    const { registry } = createAppMutationRegistry();
+
+    const result = await registry.executeProposalTool(context, {
+      mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
+      productRef: "core-linen-trouser",
+      title: "Description draft",
+      targetField: "product.description",
+      proposedValue: {
+        text: "Add a compact note from root-level tool args.",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.proposal.mutationName).toBe(PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft);
+    expect(result.data.proposal.title).toBe("Save product description draft");
+  });
+
   it("creates app-owned recommended action records without Shopify apply mode", async () => {
     const { registry, db } = createAppMutationRegistry();
     const proposal = await registry.createAiAppMutationProposal(
@@ -250,6 +293,47 @@ describe("ProductPulse AI app-only mutation registry", () => {
         payload: expect.objectContaining({
           source: "ai_app_only_action_update",
           sourceActionId: "fix-size-chart",
+          aiRegeneratedBy: "ProductPulse AI chat",
+          shopifyMutationBlocked: true,
+        }),
+      }),
+    });
+  });
+
+  it("can infer the recommended action to rewrite from target field when actionId is missing", async () => {
+    const { registry, db } = createAppMutationRegistry();
+    const proposal = await registry.createAiAppMutationProposal(
+      context,
+      PRODUCT_PULSE_AI_APP_MUTATION_NAMES.updateRecommendedActionDraft,
+      {
+        productRef: "core-linen-trouser",
+        targetField: "product.description",
+        draftType: "product_description",
+        proposedValue: {
+          text: "Fit runs small. Check the size chart before buying.",
+        },
+        reason: "Merchant asked ProductPulse AI to rewrite the description note.",
+      },
+    );
+
+    expect(proposal.ok).toBe(true);
+
+    const result = await registry.saveAiAppMutationDraft(context, proposal.data.proposal.id, {
+      title: "Review size chart",
+      description: "AI-regenerated size note.",
+      draftText: "Fit runs small. Check the size chart before buying.",
+      field: "product.description",
+      descriptionOperation: "prepend",
+      priority: "medium",
+      status: "draft",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(db.productAction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actionType: "fix-size-chart",
+        payload: expect.objectContaining({
+          source: "ai_app_only_action_update",
           aiRegeneratedBy: "ProductPulse AI chat",
           shopifyMutationBlocked: true,
         }),

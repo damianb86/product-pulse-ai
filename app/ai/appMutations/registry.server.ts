@@ -4,6 +4,7 @@ import { toSafeAiToolError } from "../domain/errors";
 import { canUseAiAppMutation } from "../security/permissions.server";
 import {
   createProductPulseAiAppMutationDefinitions,
+  PRODUCT_PULSE_AI_APP_MUTATION_NAMES,
   type ProductPulseAiAppMutationDependencies,
 } from "./productPulseAppMutations.server";
 import {
@@ -71,7 +72,8 @@ export class AiAppMutationRegistry {
     mutationName: string,
     rawInput: unknown = {},
   ): Promise<AiAppMutationSafeResult<{ proposal: AiAppMutationProposal }>> {
-    const definition = this.getAiAppMutationDefinition(mutationName);
+    const normalizedMutationName = resolveAppMutationName(mutationName, rawInput);
+    const definition = this.getAiAppMutationDefinition(normalizedMutationName);
     if (!definition) return { ok: false, error: unknownMutationError(mutationName) };
     if (!this.canUse(context)) return { ok: false, error: unauthorizedMutationError() };
 
@@ -84,7 +86,7 @@ export class AiAppMutationRegistry {
       await this.safeAudit({
         context,
         proposalId: proposal.id,
-        mutationName,
+        mutationName: normalizedMutationName,
         category: proposal.category,
         targetType: proposal.targetType,
         targetId: proposal.targetId,
@@ -98,7 +100,7 @@ export class AiAppMutationRegistry {
       const safeError = toSafeAiToolError(error);
       await this.safeAudit({
         context,
-        mutationName,
+        mutationName: normalizedMutationName,
         category: definition.category,
         eventType: "failed",
         validatedInput: parsed.data,
@@ -267,7 +269,7 @@ export class AiAppMutationRegistry {
   }
 
   async executeProposalTool(context: AiToolContext, rawArguments: unknown): Promise<AiToolExecutionResult> {
-    const parsed = appMutationProposalToolInputSchema.safeParse(rawArguments || {});
+    const parsed = appMutationProposalToolInputSchema.safeParse(normalizeAppMutationToolArguments(rawArguments || {}));
     if (!this.canUse(context)) {
       return {
         ok: false,
@@ -408,7 +410,7 @@ export function createAiAppMutationRegistry(options: AiAppMutationRegistryOption
 export const appMutationProposalToolInputSchema = z.object({
   mutationName: z.string().trim().min(1).max(180),
   input: z.record(z.string(), z.unknown()).optional(),
-}).strict();
+}).passthrough();
 
 export function buildAppMutationProposalOpenAiToolDefinition(sanitizeSchema: (schema: unknown) => unknown): Record<string, unknown> {
   return {
@@ -451,6 +453,42 @@ function normalizeEditableInput(proposal: AiAppMutationProposal, rawEditable: un
     const value = Object.prototype.hasOwnProperty.call(merged, fieldName) ? merged[fieldName] : defaults[fieldName];
     return [fieldName, value];
   }));
+}
+
+function normalizeAppMutationToolArguments(rawArguments: unknown): Record<string, unknown> {
+  const raw = rawArguments && typeof rawArguments === "object" && !Array.isArray(rawArguments)
+    ? rawArguments as Record<string, unknown>
+    : {};
+  const input = raw.input && typeof raw.input === "object" && !Array.isArray(raw.input)
+    ? raw.input as Record<string, unknown>
+    : {};
+  const rootInput = Object.fromEntries(Object.entries(raw).filter(([key]) => !["mutationName", "input"].includes(key)));
+  return {
+    mutationName: raw.mutationName,
+    input: {
+      ...rootInput,
+      ...input,
+    },
+  };
+}
+
+function resolveAppMutationName(mutationName: string, rawInput: unknown): string {
+  if (Object.values(PRODUCT_PULSE_AI_APP_MUTATION_NAMES).includes(mutationName as never)) return mutationName;
+  const normalized = String(mutationName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  const input = rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+    ? rawInput as Record<string, unknown>
+    : {};
+  const inputText = `${normalized} ${String(input.draftType || "")} ${String(input.field || input.targetField || "")}`.toLowerCase();
+  if (inputText.includes("metafield")) return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createMetafieldValueDraft;
+  if (inputText.includes("seo") || inputText.includes("meta")) return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createSeoDraft;
+  if (inputText.includes("rewrite") || inputText.includes("update") || inputText.includes("edit")) {
+    return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.updateRecommendedActionDraft;
+  }
+  if (inputText.includes("action") || inputText.includes("recommend")) return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction;
+  if (inputText.includes("description") || inputText.includes("copy") || inputText.includes("draft")) {
+    return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft;
+  }
+  return mutationName;
 }
 
 function unknownMutationError(mutationName: string): AiToolSafeError {

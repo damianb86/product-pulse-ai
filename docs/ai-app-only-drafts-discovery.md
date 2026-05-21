@@ -25,6 +25,8 @@
 - Create a new app-owned recommended action record for a product.
 - Create a new ProductPulse product action with real action payload fields such as `draftText`, target `field`, description operation, media update metadata, FAQ items, or tags. These are stored as ProductPulse data only.
 - Rewrite an existing ProductPulse recommendation/action by `actionId`. The save path records a `ProductAction` row and updates the latest stored diagnosis recommendation JSON when that recommendation exists, adding AI provenance such as `aiRegeneratedBy: ProductPulse AI chat`.
+- Accept safe model aliases such as `proposedValue`, `draftType`, `targetField`, `title`, and root-level tool arguments, then normalize them server-side before app-only mutation validation.
+- Convert invented internal action labels into app-only product action proposals when a product reference is present. This prevents unsupported labels like `manual_review` from trying to execute as real internal actions.
 - Update an app-owned recommended action status to `active`, `reviewed`, `dismissed`, or `completed` when the target belongs to the authenticated shop.
 
 ## Unsafe Or Unavailable Mutations

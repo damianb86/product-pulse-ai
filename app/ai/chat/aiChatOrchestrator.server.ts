@@ -20,6 +20,7 @@ import {
   createAiAppMutationRegistry,
   type AiAppMutationRegistry,
 } from "../appMutations/registry.server";
+import { PRODUCT_PULSE_AI_APP_MUTATION_NAMES } from "../appMutations/productPulseAppMutations.server";
 import { estimateAiTurnCost, type AiEstimatedCost } from "../observability/pricing";
 import type { AiChatTrace } from "../observability/trace";
 import { AI_TRACE_SCHEMA_VERSION, compactAiChatTraceForMetadata } from "../observability/trace";
@@ -576,6 +577,10 @@ export class AiChatOrchestrator {
       parsed.data.input || {},
     );
     if (!result.ok) {
+      if (result.error.code === "UNKNOWN_AI_ACTION") {
+        const fallback = await this.createAppOnlyActionFromUnknownInternalAction(context, parsed.data);
+        if (fallback) return fallback;
+      }
       return {
         ok: false,
         toolName: AI_ACTION_PROPOSAL_TOOL_NAME,
@@ -595,6 +600,31 @@ export class AiChatOrchestrator {
       },
       metadata: { resultCount: 1 },
     };
+  }
+
+  private async createAppOnlyActionFromUnknownInternalAction(
+    context: AiToolContext,
+    input: z.infer<typeof actionProposalToolInputSchema>,
+  ): Promise<AiToolExecutionResult | null> {
+    const rawInput = input.input && typeof input.input === "object" && !Array.isArray(input.input)
+      ? input.input as Record<string, unknown>
+      : {};
+    const hasProductReference = Boolean(rawInput.productRef || rawInput.productGid || rawInput.handle);
+    if (!hasProductReference) return null;
+    const title = String(rawInput.title || rawInput.label || input.actionName || "").replace(/[_-]+/g, " ").trim();
+    const mutationInput = {
+      ...rawInput,
+      actionId: rawInput.actionId || input.actionName,
+      title: title || "Create ProductPulse action",
+      description: rawInput.description || rawInput.reason || "Create an app-owned ProductPulse action from the chat request.",
+      draftText: rawInput.draftText || rawInput.text || rawInput.proposedText || rawInput.note || "",
+      reason: rawInput.reason || `Converted from unknown internal action "${input.actionName}".`,
+      status: rawInput.status || "draft",
+    };
+    return this.appMutationRegistry.executeProposalTool(context, {
+      mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction,
+      input: mutationInput,
+    });
   }
 
   private async blockToolCall(

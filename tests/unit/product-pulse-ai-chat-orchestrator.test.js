@@ -28,6 +28,9 @@ const {
   PRODUCT_PULSE_AI_ACTION_NAMES,
 } = await import("../../app/ai/actions/productPulseActions.server");
 const {
+  PRODUCT_PULSE_AI_APP_MUTATION_NAMES,
+} = await import("../../app/ai/appMutations/productPulseAppMutations.server");
+const {
   estimateAiTurnCost,
 } = await import("../../app/ai/observability/pricing");
 const {
@@ -311,6 +314,107 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(toolOutputForModel).not.toContain("user-1");
   });
 
+  it("routes invented internal action names to safe app-only product action proposals", async () => {
+    const store = new InMemoryConversationStore();
+    const actionRegistry = {
+      listAiActions: vi.fn().mockReturnValue([]),
+      createAiActionProposal: vi.fn().mockResolvedValue({
+        ok: false,
+        error: {
+          code: "UNKNOWN_AI_ACTION",
+          message: "Unknown AI internal action: add_description_expectations_note.",
+          retryable: false,
+        },
+      }),
+    };
+    const appMutationRegistry = {
+      listAiAppMutations: vi.fn().mockReturnValue([
+        { mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction },
+      ]),
+      executeProposalTool: vi.fn().mockResolvedValue({
+        ok: true,
+        toolName: "product_pulse_propose_app_only_mutation",
+        data: {
+          proposal: { mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction },
+          block: {
+            type: "app_draft_proposal",
+            proposalId: "draft-1",
+            mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction,
+            draftType: "recommendation_text",
+            title: "Create ProductPulse action",
+            summary: "Create an app-owned action.",
+            targetType: "product",
+            targetId: "gid://shopify/Product/1",
+            targetLabel: "Core Linen Trouser",
+            proposedValue: {},
+            currentAppValueSnapshot: {},
+            generatedReason: null,
+            validationWarnings: [],
+            editableFields: [],
+            confirmationLevel: "medium",
+            sideEffectLevel: "medium",
+            reversible: true,
+            expiresAt: "2026-05-20T12:30:00.000Z",
+          },
+        },
+        metadata: { resultCount: 1 },
+      }),
+    };
+    const openAiCreate = vi.fn()
+      .mockResolvedValueOnce(openAiToolCallResponse({
+        name: AI_ACTION_PROPOSAL_TOOL_NAME,
+        arguments: {
+          actionName: "add_description_expectations_note",
+          input: {
+            productRef: "core-linen-trouser",
+            draftText: "Check sizing before purchase.",
+            targetField: "product.description",
+          },
+        },
+      }))
+      .mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+        assistantText: "Creé un borrador interno para confirmar.",
+        blocks: [{
+          type: "app_draft_proposal",
+          proposalId: "draft-1",
+          mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction,
+          draftType: "recommendation_text",
+          title: "Create ProductPulse action",
+          summary: "Create an app-owned action.",
+          targetType: "product",
+          targetId: "gid://shopify/Product/1",
+          targetLabel: "Core Linen Trouser",
+          proposedValue: {},
+          currentAppValueSnapshot: {},
+          generatedReason: null,
+          validationWarnings: [],
+          editableFields: [],
+          confirmationLevel: "medium",
+          sideEffectLevel: "medium",
+          reversible: true,
+          expiresAt: "2026-05-20T12:30:00.000Z",
+        }],
+      })));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate, actionRegistry, appMutationRegistry });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Creá una acción para agregar una nota a la descripción.",
+    });
+
+    expect(result.blocks[0].type).toBe("app_draft_proposal");
+    expect(appMutationRegistry.executeProposalTool).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: baseContext.shop }),
+      {
+        mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction,
+        input: expect.objectContaining({
+          actionId: "add_description_expectations_note",
+          title: "add description expectations note",
+          draftText: "Check sizing before purchase.",
+        }),
+      },
+    );
+  });
+
   it("returns a persisted safe response without OpenAI when configuration is missing", async () => {
     const store = new InMemoryConversationStore();
     const orchestrator = new AiChatOrchestrator({
@@ -450,10 +554,11 @@ describe("ProductPulse AI chat orchestrator", () => {
   });
 });
 
-function createTestOrchestrator({ registry, actionRegistry, store, openAiCreate, config = {} } = {}) {
+function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry, store, openAiCreate, config = {} } = {}) {
   return new AiChatOrchestrator({
     toolRegistry: registry || createRegistryWithRepositories(),
     actionRegistry,
+    appMutationRegistry,
     conversationStore: store || new InMemoryConversationStore(),
     openAiClient: {
       responses: {

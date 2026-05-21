@@ -53,6 +53,16 @@ The AI assistant flow must not update Shopify product descriptions, SEO fields, 
 
 The assistant can create or rewrite ProductPulse actions only through the app-only mutation proposal tool. The model must pass a product reference returned by read-only ProductPulse tools and, for rewrites, the recommendation `actionId`. The user then confirms the editable ChatKit card.
 
+The backend also accepts common model aliases so the chat does not fail on equivalent payload shapes:
+- `proposedValue`, `value`, `text`, `draftText`, `proposedText`, or `note` for generated copy;
+- `targetField`, `target`, `field`, or `shopifyField` for the intended field;
+- `title`, `label`, or `actionTitle` for the action title;
+- root-level tool arguments are normalized into `input` before mutation validation.
+
+For rewrites, `actionId` is preferred but not mandatory. If it is missing, ProductPulse tries to match the existing recommendation from the title/label, target field, draft type, or the first available recommendation. This is still scoped to the authenticated shop and product.
+
+If the model accidentally calls the internal action proposal tool with an invented action name such as `manual_review` or `add_description_expectations_note`, the orchestrator converts that request into a safe app-only product action proposal when a product reference is present. It does not execute the action and does not mutate Shopify.
+
 Saved action edits:
 - create a `ProductAction` row scoped to the authenticated shop;
 - update the latest stored diagnosis recommendation JSON when the action exists there;

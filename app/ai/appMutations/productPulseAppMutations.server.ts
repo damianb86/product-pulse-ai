@@ -36,6 +36,11 @@ const productReferenceFields = {
   handle: z.string().trim().min(1).max(320).optional(),
 };
 
+const looseAppValueSchema = z.union([
+  z.string().trim().min(1).max(8000),
+  z.record(z.string(), z.unknown()),
+]);
+
 const appActionStatusSchema = z.enum(["draft", "active", "reviewed", "dismissed", "completed"]);
 const editableActionStatusSchema = z.enum(["draft", "active", "reviewed", "dismissed"]);
 const actionPrioritySchema = z.enum(["low", "medium", "high"]);
@@ -57,14 +62,20 @@ const actionPayloadDraftFields = {
   sourceActionId: z.string().trim().max(180).optional(),
   actionType: z.string().trim().max(180).optional(),
   type: z.string().trim().max(180).optional(),
+  draftType: z.string().trim().max(120).optional(),
   label: z.string().trim().min(3).max(180).optional(),
   title: z.string().trim().min(3).max(180).optional(),
+  actionTitle: z.string().trim().min(3).max(180).optional(),
   description: z.string().trim().min(1).max(3000).optional(),
   text: z.string().trim().min(1).max(5000).optional(),
   draftText: z.string().trim().min(1).max(5000).optional(),
   proposedText: z.string().trim().min(1).max(5000).optional(),
+  proposedValue: looseAppValueSchema.optional(),
+  value: looseAppValueSchema.optional(),
   note: z.string().trim().min(1).max(5000).optional(),
   field: z.string().trim().max(180).optional(),
+  targetField: z.string().trim().max(180).optional(),
+  target: z.string().trim().max(180).optional(),
   shopifyField: z.string().trim().max(180).optional(),
   descriptionOperation: descriptionOperationSchema.optional(),
   insertionPosition: descriptionOperationSchema.optional(),
@@ -84,24 +95,38 @@ const actionPayloadDraftFields = {
 
 const productDescriptionDraftSchema = z.object({
   ...productReferenceFields,
+  draftType: z.string().trim().max(120).optional(),
+  title: z.string().trim().max(180).optional(),
   text: z.string().trim().min(1).max(5000).optional(),
   draftText: z.string().trim().min(1).max(5000).optional(),
   proposedText: z.string().trim().min(1).max(5000).optional(),
+  proposedValue: looseAppValueSchema.optional(),
+  value: looseAppValueSchema.optional(),
   actionId: z.string().trim().max(180).optional(),
   sourceRecommendationId: z.string().trim().max(180).optional(),
   field: z.string().trim().max(180).optional(),
+  targetField: z.string().trim().max(180).optional(),
   descriptionOperation: descriptionOperationSchema.optional(),
   reason: z.string().trim().max(700).optional(),
 }).strict().superRefine(requireProductReference).superRefine(requireDraftText);
 
 const seoDraftSchema = z.object({
   ...productReferenceFields,
+  draftType: z.string().trim().max(120).optional(),
+  title: z.string().trim().max(180).optional(),
   seoTitle: z.string().trim().min(1).max(90).optional(),
   seoDescription: z.string().trim().min(1).max(220).optional(),
+  text: z.string().trim().min(1).max(220).optional(),
+  proposedText: z.string().trim().min(1).max(220).optional(),
+  proposedValue: looseAppValueSchema.optional(),
+  value: looseAppValueSchema.optional(),
+  field: z.string().trim().max(180).optional(),
+  targetField: z.string().trim().max(180).optional(),
   reason: z.string().trim().max(700).optional(),
   sourceRecommendationId: z.string().trim().max(160).optional(),
 }).strict().superRefine(requireProductReference).superRefine((input, ctx) => {
-  if (input.seoTitle || input.seoDescription) return;
+  const fields = getSeoDraftFields(input);
+  if (fields.seoTitle || fields.seoDescription) return;
   ctx.addIssue({ code: "custom", path: ["seoTitle"], message: "Provide seoTitle or seoDescription." });
 });
 
@@ -123,7 +148,6 @@ const createRecommendedActionSchema = z.object({
 const updateRecommendedActionDraftSchema = z.object({
   ...productReferenceFields,
   ...actionPayloadDraftFields,
-  actionId: z.string().trim().min(1).max(180),
 }).strict().superRefine(requireProductReference).superRefine(requireActionPatch);
 
 const createProductActionSchema = z.object({
@@ -201,10 +225,14 @@ export function createProductPulseAiAppMutationDefinitions(
       async buildProposal(context, input: ProductDescriptionDraftInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
         const text = getDraftText(input);
+        const field = getTargetField(input);
         return baseDraftProposal({
           mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
           product,
-          input: normalizeProductInput(input, product.productGid, { text }),
+          input: normalizeProductInput(input, product.productGid, {
+            text,
+            ...(field ? { field } : {}),
+          }),
           draftType: "product_description",
           title: "Save product description draft",
           summary: `Save an editable description draft for ${product.title} inside ProductPulse only.`,
@@ -235,10 +263,7 @@ export function createProductPulseAiAppMutationDefinitions(
       blockedFields: blockedShopifyFields(),
       async buildProposal(context, input: SeoDraftInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
-        const proposedValue = {
-          seoTitle: input.seoTitle || "",
-          seoDescription: input.seoDescription || "",
-        };
+        const proposedValue = getSeoDraftFields(input);
         return baseDraftProposal({
           mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createSeoDraft,
           product,
@@ -387,16 +412,17 @@ export function createProductPulseAiAppMutationDefinitions(
       blockedFields: blockedShopifyFields(),
       async buildProposal(context, input: UpdateRecommendedActionDraftInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
-        const recommendation = findRecommendation(product, input.actionId);
+        const recommendation = findRecommendationForInput(product, input);
         if (!recommendation) throw new Error("Recommended action was not found for this product.");
+        const actionId = getRecommendationId(recommendation);
         const proposedValue = buildActionProposedValue(input, product, recommendation);
         return baseDraftProposal({
           mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.updateRecommendedActionDraft,
           product,
-          input: normalizeActionMutationInput(input, product.productGid, proposedValue),
+          input: normalizeActionMutationInput({ ...input, actionId }, product.productGid, proposedValue),
           draftType: "recommendation_text",
           targetType: "product_action",
-          targetId: `${product.productGid}:${input.actionId}`,
+          targetId: `${product.productGid}:${actionId}`,
           targetLabel: recommendation.label,
           category: "recommendation",
           title: `Update ${recommendation.label}`,
@@ -421,10 +447,12 @@ export function createProductPulseAiAppMutationDefinitions(
         const fields = recommendationEditableSchema.parse(editable);
         const originalInput = updateRecommendedActionDraftSchema.parse(proposal.proposedInput || {});
         const product = await requireProduct(context, productRepository, getProductReference(originalInput));
-        const recommendation = findRecommendation(product, originalInput.actionId);
+        const recommendation = findRecommendationForInput(product, originalInput);
         if (!recommendation) throw new Error("Recommended action was not found for this product.");
-        const latestDiagnosis = await updateLatestDiagnosisRecommendation(db, context.shop, product.productGid, originalInput.actionId, {
+        const actionId = getRecommendationId(recommendation);
+        const latestDiagnosis = await updateLatestDiagnosisRecommendation(db, context.shop, product.productGid, actionId, {
           ...originalInput,
+          actionId,
           ...fields,
           title: fields.title,
           description: fields.description,
@@ -439,14 +467,14 @@ export function createProductPulseAiAppMutationDefinitions(
           fields,
           product,
           source: "ai_app_only_action_update",
-          sourceActionId: originalInput.actionId,
+          sourceActionId: actionId,
         });
         const action = await db.productAction.create({
           data: {
             shop: context.shop,
             diagnosisId: latestDiagnosis?.id || null,
             productGid: product.productGid,
-            actionType: recommendation.id || originalInput.actionId,
+            actionType: actionId,
             label: String(fields.title || recommendation.label),
             status: normalizeSavedActionStatus(fields.status || "draft"),
             payload: payload as unknown as Prisma.InputJsonValue,
@@ -466,7 +494,7 @@ export function createProductPulseAiAppMutationDefinitions(
           savedData: {
             status: action.status,
             label: action.label,
-            sourceActionId: originalInput.actionId,
+            sourceActionId: actionId,
             aiRegeneratedBy: "ProductPulse AI chat",
           },
         };
@@ -733,9 +761,13 @@ function requireActionPatch(input: Record<string, unknown>, ctx: z.RefinementCtx
     "priority",
     "status",
     "reason",
+    "proposedValue",
+    "value",
   ].some((field) => {
     const value = input[field];
-    return Array.isArray(value) ? value.length > 0 : Boolean(String(value || "").trim());
+    if (Array.isArray(value)) return value.length > 0;
+    if (value && typeof value === "object") return Object.keys(value).length > 0;
+    return Boolean(String(value || "").trim());
   });
   if (hasPatch) return;
   ctx.addIssue({
@@ -750,11 +782,64 @@ function getProductReference(input: Record<string, unknown>): string {
 }
 
 function getDraftText(input: Record<string, unknown>): string {
-  return String(input.text || input.draftText || input.proposedText || input.note || "").trim();
+  const proposedValue = asRecord(input.proposedValue);
+  const value = asRecord(input.value);
+  return String(
+    input.text
+      || input.draftText
+      || input.proposedText
+      || input.note
+      || input.description
+      || (typeof input.proposedValue === "string" ? input.proposedValue : "")
+      || proposedValue.text
+      || proposedValue.draftText
+      || proposedValue.proposedText
+      || proposedValue.description
+      || proposedValue.value
+      || (typeof input.value === "string" ? input.value : "")
+      || value.text
+      || value.draftText
+      || value.proposedText
+      || value.description
+      || value.value
+      || "",
+  ).trim();
 }
 
 function getActionTitle(input: Record<string, unknown>): string {
-  return String(input.title || input.label || "").trim();
+  const proposedValue = asRecord(input.proposedValue);
+  return String(input.title || input.label || input.actionTitle || proposedValue.title || proposedValue.label || "").trim();
+}
+
+function getTargetField(input: Record<string, unknown>): string {
+  const proposedValue = asRecord(input.proposedValue);
+  return String(
+    input.field
+      || input.targetField
+      || input.target
+      || input.shopifyField
+      || proposedValue.field
+      || proposedValue.targetField
+      || proposedValue.target
+      || proposedValue.shopifyField
+      || "",
+  ).trim();
+}
+
+function getSeoDraftFields(input: Record<string, unknown>): { seoTitle: string; seoDescription: string } {
+  const proposedValue = asRecord(input.proposedValue);
+  const value = asRecord(input.value);
+  const targetField = getTargetField(input).toLowerCase();
+  const draftType = String(input.draftType || proposedValue.draftType || "").toLowerCase();
+  const genericText = getDraftText(input);
+  const titleCandidate = String(input.seoTitle || proposedValue.seoTitle || proposedValue.title || value.seoTitle || "").trim();
+  const descriptionCandidate = String(input.seoDescription || proposedValue.seoDescription || proposedValue.metaDescription || value.seoDescription || "").trim();
+  const genericIsTitle = targetField.includes("title") || draftType.includes("title");
+  const genericIsDescription = targetField.includes("description") || targetField.includes("meta") || draftType.includes("description") || draftType.includes("meta");
+  return {
+    seoTitle: titleCandidate || (genericIsTitle ? genericText.slice(0, 90) : ""),
+    seoDescription: descriptionCandidate || (genericIsDescription || !genericIsTitle ? genericText.slice(0, 220) : ""),
+  };
 }
 
 function normalizeProductInput<T extends Record<string, unknown>>(
@@ -804,7 +889,7 @@ function buildActionProposedValue(
     || String(input.description || "").trim();
   const description = String(input.description || existingPayload.description || input.reason || "").trim()
     || (draftText ? "AI-regenerated app-owned action text." : `App-owned action for ${product.title}.`);
-  const field = String(input.field || input.shopifyField || existingPayload.field || "").trim();
+  const field = getTargetField(input) || String(existingPayload.field || "").trim();
   const descriptionOperation = normalizeDescriptionOperation(input.descriptionOperation || input.insertionPosition || existingPayload.descriptionOperation);
   const priority = normalizePriority(input.priority || existingPayload.priority);
   const status = normalizeEditableStatus(input.status || existingAction?.status || "draft");
@@ -1057,14 +1142,20 @@ function copyDefinedActionInput(input: Record<string, unknown>): Record<string, 
     "sourceActionId",
     "actionType",
     "type",
+    "draftType",
     "label",
     "title",
+    "actionTitle",
     "description",
     "text",
     "draftText",
     "proposedText",
+    "proposedValue",
+    "value",
     "note",
     "field",
+    "targetField",
+    "target",
     "shopifyField",
     "descriptionOperation",
     "insertionPosition",
@@ -1243,6 +1334,81 @@ function findRecommendation(product: AiProductRiskDetail, actionId: string) {
   return recommendations.find((recommendation) => recommendation.id === actionId)
     || product.actionHistory.find((action) => action.id === actionId || action.actionType === actionId)
     || null;
+}
+
+function findRecommendationForInput(product: AiProductRiskDetail, input: Record<string, unknown>) {
+  const explicit = String(input.actionId || input.sourceRecommendationId || input.sourceActionId || "").trim();
+  if (explicit) {
+    const found = findRecommendation(product, explicit);
+    if (found) return found;
+  }
+
+  const titleRef = getActionTitle(input);
+  if (titleRef) {
+    const found = findRecommendationByText(product, titleRef);
+    if (found) return found;
+  }
+
+  const field = getTargetField(input);
+  if (field) {
+    const found = findRecommendationByText(product, field);
+    if (found) return found;
+  }
+
+  const draftType = String(input.draftType || "").trim();
+  if (draftType) {
+    const found = findRecommendationByText(product, draftType);
+    if (found) return found;
+  }
+
+  const recommendations = product.diagnosis?.recommendations || [];
+  return recommendations[0] || product.actionHistory[0] || null;
+}
+
+function findRecommendationByText(product: AiProductRiskDetail, reference: string) {
+  const normalizedReference = normalizeActionId(reference);
+  if (!normalizedReference) return null;
+  const candidates = [
+    ...(product.diagnosis?.recommendations || []),
+    ...product.actionHistory,
+  ];
+  return candidates.find((recommendation) => {
+    const text = recommendationSearchText(recommendation);
+    if (text.includes(normalizedReference)) return true;
+    if (normalizedReference.includes("description") || normalizedReference.includes("pdp") || normalizedReference.includes("copy")) {
+      return /\b(description|pdp|copy|content|expectation|faq)\b/.test(text);
+    }
+    if (normalizedReference.includes("seo") || normalizedReference.includes("meta")) {
+      return /\b(seo|meta|metadata|title)\b/.test(text);
+    }
+    if (normalizedReference.includes("media") || normalizedReference.includes("image") || normalizedReference.includes("alt")) {
+      return /\b(media|image|alt)\b/.test(text);
+    }
+    if (normalizedReference.includes("review") || normalizedReference.includes("manual") || normalizedReference.includes("qa")) {
+      return /\b(review|manual|qa|quality|supplier|evidence)\b/.test(text);
+    }
+    return false;
+  }) || null;
+}
+
+function recommendationSearchText(recommendation: NonNullable<ReturnType<typeof findRecommendation>>): string {
+  const record = recommendation as unknown as Record<string, unknown>;
+  return normalizeActionId([
+    record.id,
+    record.actionType,
+    record.label,
+    record.type,
+    record.status,
+    "issue" in recommendation ? recommendation.issue : "",
+    "draftPreview" in recommendation ? recommendation.draftPreview : "",
+    JSON.stringify("payloadSummary" in recommendation ? recommendation.payloadSummary : {}),
+  ].filter(Boolean).join(" "));
+}
+
+function getRecommendationId(recommendation: NonNullable<ReturnType<typeof findRecommendation>>): string {
+  if ("id" in recommendation && recommendation.id) return String(recommendation.id);
+  if ("actionType" in recommendation && recommendation.actionType) return String(recommendation.actionType);
+  return slugifyActionId(recommendation.label || "productpulse-action");
 }
 
 function recommendationIssue(
