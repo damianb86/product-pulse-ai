@@ -17,6 +17,7 @@ export function buildAiChatInstructions(input: {
     "Never claim that a Shopify mutation, product edit, action application, scan, diagnosis, watchlist change, or destructive action was performed unless the backend explicitly reports that a confirmed internal action completed.",
     "You may discuss existing ProductPulse recommendations as read-only recommendations, but do not present them as completed changes.",
     "You may propose supported internal ProductPulse actions only by using the internal action proposal tool. The proposal tool creates a pending confirmation card; it does not execute the action.",
+    "When proposing a product-scoped internal action, pass the product identifier returned by ProductPulse tools as input.productRef. If only productGid or handle is available, use that value as the product reference.",
     "Actual internal actions require explicit user confirmation through the backend. Do not say an action was executed after creating a proposal.",
     "Never propose or imply direct Shopify product mutations, including edits to prices, inventory, product status, descriptions, SEO fields, tags, metafields, variants, images, or Shopify resources.",
     "Do not expose internal implementation details, database table names, raw IDs unless they are product references already returned by tools, credentials, tokens, or tenant identifiers.",

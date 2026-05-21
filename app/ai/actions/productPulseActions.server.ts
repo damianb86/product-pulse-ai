@@ -38,25 +38,63 @@ export interface ProductPulseAiActionDependencies {
   }>;
 }
 
+const productReferenceFields = {
+  productRef: z.string().trim().min(1).max(320).optional(),
+  productGid: z.string().trim().min(1).max(320).optional(),
+  handle: z.string().trim().min(1).max(320).optional(),
+};
+
 const productRefSchema = z.object({
-  productRef: z.string().trim().min(1).max(320),
+  ...productReferenceFields,
   reason: z.string().trim().max(500).optional(),
-}).strict();
+}).strict().superRefine(requireProductReference);
 
 const emptyActionSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 }).strict();
 
 const markRecommendedActionSchema = z.object({
-  productRef: z.string().trim().min(1).max(320),
+  ...productReferenceFields,
   actionId: z.string().trim().min(1).max(160),
   status: z.enum(["dismissed", "reviewed", "active"]),
   reason: z.string().trim().max(500).optional(),
-}).strict();
+}).strict().superRefine(requireProductReference);
 
 type ProductRefActionInput = z.infer<typeof productRefSchema>;
 type EmptyActionInput = z.infer<typeof emptyActionSchema>;
 type MarkRecommendedActionInput = z.infer<typeof markRecommendedActionSchema>;
+
+function requireProductReference(input: Record<string, unknown>, ctx: z.RefinementCtx) {
+  if (getProductReference(input)) return;
+  ctx.addIssue({
+    code: "custom",
+    path: ["productRef"],
+    message: "Provide productRef, productGid, or handle.",
+  });
+}
+
+function getProductReference(input: Record<string, unknown>): string {
+  return String(input.productRef || input.productGid || input.handle || "").trim();
+}
+
+function normalizeProductRefInput(input: ProductRefActionInput, canonicalProductGid: string): ProductRefActionInput {
+  return {
+    productRef: canonicalProductGid || getProductReference(input),
+    ...(input.reason ? { reason: input.reason } : {}),
+  };
+}
+
+function normalizeMarkRecommendedActionInput(
+  input: MarkRecommendedActionInput,
+  canonicalProductGid: string,
+): MarkRecommendedActionInput {
+  return {
+    productRef: canonicalProductGid || getProductReference(input),
+    actionId: input.actionId,
+    status: input.status,
+    ...(input.reason ? { reason: input.reason } : {}),
+  };
+}
 
 export function createProductPulseAiActionDefinitions(
   dependencies: ProductPulseAiActionDependencies = {},
@@ -84,14 +122,14 @@ export function createProductPulseAiActionDefinitions(
       reversible: false,
       requiresEntityOwnershipCheck: true,
       async buildProposal(context, input: ProductRefActionInput) {
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         return {
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.runProductDiagnosis,
           category: "diagnosis",
           targetType: "product",
           targetId: product.productGid,
           targetLabel: product.title,
-          proposedInput: input,
+          proposedInput: normalizeProductRefInput(input, product.productGid),
           title: "Run ProductPulse diagnosis",
           summary: `Queue a new internal diagnosis job for ${product.title}.`,
           reason: input.reason || product.primaryIssue || null,
@@ -106,7 +144,7 @@ export function createProductPulseAiActionDefinitions(
       },
       async execute(context, proposal) {
         const input = productRefSchema.parse(proposal.proposedInput);
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         const result = await services.queueProductDiagnosisForShop(context.shop, product.productGid);
         return serviceResultToExecutionResult({
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.runProductDiagnosis,
@@ -127,14 +165,14 @@ export function createProductPulseAiActionDefinitions(
       reversible: true,
       requiresEntityOwnershipCheck: true,
       async buildProposal(context, input: ProductRefActionInput) {
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         return {
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.addToWatchlist,
           category: "watchlist",
           targetType: "product",
           targetId: product.productGid,
           targetLabel: product.title,
-          proposedInput: input,
+          proposedInput: normalizeProductRefInput(input, product.productGid),
           title: "Add to ProductPulse watchlist",
           summary: `Add ${product.title} to the app watchlist.`,
           reason: input.reason || product.primaryIssue || null,
@@ -149,7 +187,7 @@ export function createProductPulseAiActionDefinitions(
       },
       async execute(context, proposal) {
         const input = productRefSchema.parse(proposal.proposedInput);
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         const result = await services.addWatchedProductForShop(context.shop, {
           productGid: product.productGid,
           title: product.title,
@@ -173,14 +211,14 @@ export function createProductPulseAiActionDefinitions(
       reversible: true,
       requiresEntityOwnershipCheck: true,
       async buildProposal(context, input: ProductRefActionInput) {
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         return {
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.removeFromWatchlist,
           category: "watchlist",
           targetType: "product",
           targetId: product.productGid,
           targetLabel: product.title,
-          proposedInput: input,
+          proposedInput: normalizeProductRefInput(input, product.productGid),
           title: "Remove from ProductPulse watchlist",
           summary: `Remove ${product.title} from the app watchlist.`,
           reason: input.reason || null,
@@ -195,7 +233,7 @@ export function createProductPulseAiActionDefinitions(
       },
       async execute(context, proposal) {
         const input = productRefSchema.parse(proposal.proposedInput);
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         const result = await services.removeWatchedProductForShop(context.shop, product.productGid);
         return serviceResultToExecutionResult({
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.removeFromWatchlist,
@@ -266,7 +304,7 @@ export function createProductPulseAiActionDefinitions(
       reversible: true,
       requiresEntityOwnershipCheck: true,
       async buildProposal(context, input: MarkRecommendedActionInput) {
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         const recommendation = findRecommendation(product, input.actionId);
         if (!recommendation) {
           throw new Error("Recommended action was not found for this product.");
@@ -278,7 +316,7 @@ export function createProductPulseAiActionDefinitions(
           targetType: "product_action",
           targetId: `${product.productGid}:${input.actionId}`,
           targetLabel: recommendation.label,
-          proposedInput: input,
+          proposedInput: normalizeMarkRecommendedActionInput(input, product.productGid),
           title: `Mark recommendation as ${input.status}`,
           summary: `Mark "${recommendation.label}" as ${input.status} for ${product.title}.`,
           reason: input.reason || recommendationIssue || null,
@@ -293,7 +331,7 @@ export function createProductPulseAiActionDefinitions(
       },
       async execute(context, proposal) {
         const input = markRecommendedActionSchema.parse(proposal.proposedInput);
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         const result = await services.recordProductDetailActionForShop(context.shop, product.productGid, input.actionId, {
           actionStatus: input.status,
         });
@@ -315,14 +353,14 @@ export function createProductPulseAiActionDefinitions(
       reversible: false,
       requiresEntityOwnershipCheck: true,
       async buildProposal(context, input: ProductRefActionInput) {
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         return {
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.archiveInternalProductAnalysis,
           category: "tracking",
           targetType: "product",
           targetId: product.productGid,
           targetLabel: product.title,
-          proposedInput: input,
+          proposedInput: normalizeProductRefInput(input, product.productGid),
           title: "Remove ProductPulse analysis",
           summary: `Remove ProductPulse analysis and tracking records for ${product.title}.`,
           reason: input.reason || null,
@@ -340,7 +378,7 @@ export function createProductPulseAiActionDefinitions(
       },
       async execute(context, proposal) {
         const input = productRefSchema.parse(proposal.proposedInput);
-        const product = await requireProduct(context, productRepository, input.productRef);
+        const product = await requireProduct(context, productRepository, getProductReference(input));
         const result = await services.deleteProductAnalysisForShop(context.shop, product.productGid);
         return serviceResultToExecutionResult({
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.archiveInternalProductAnalysis,

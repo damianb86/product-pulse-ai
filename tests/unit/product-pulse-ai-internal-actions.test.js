@@ -82,6 +82,27 @@ describe("ProductPulse AI internal action registry", () => {
     expect(services.addWatchedProductForShop).not.toHaveBeenCalled();
   });
 
+  it("accepts productGid aliases from AI product cards and normalizes the stored proposal input", async () => {
+    const { registry, productRepository } = createActionRegistry();
+
+    const result = await registry.createAiActionProposal(
+      context,
+      PRODUCT_PULSE_AI_ACTION_NAMES.runProductDiagnosis,
+      { productGid: "gid://shopify/Product/1", reason: "Refresh this product from the dashboard card." },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(productRepository.getProductRiskDetail).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: context.shop }),
+      "gid://shopify/Product/1",
+      expect.any(Object),
+    );
+    expect(result.data.proposal.proposedInput).toEqual({
+      productRef: "gid://shopify/Product/1",
+      reason: "Refresh this product from the dashboard card.",
+    });
+  });
+
   it("confirms a proposal by reloading stored input and ignores tampered ChatKit payload fields", async () => {
     const { registry, services } = createActionRegistry();
     const proposalResult = await registry.createAiActionProposal(
