@@ -8285,10 +8285,6 @@ function ProductMomentumPanel({ detail }) {
           <h2>Product Momentum</h2>
           <p>This score answers whether the product matters commercially right now. It is separate from Product Risk.</p>
         </div>
-        <span className={`ppProductMomentumTier ppProductMomentumTier-${getProductMomentumBarsTone(momentum)}`}>
-          <ProductMomentumFlameIcon />
-          {momentum.tier}
-        </span>
       </div>
       <div className="ppProductMomentumBody">
         <ProductMomentumGauge momentum={momentum} />
@@ -8445,15 +8441,6 @@ function ProductMomentumGauge({ momentum }) {
         <p><b>{momentum.display.growthLabel}</b> vs previous 30 days · <b>{momentum.display.catalogPositionLabel}</b></p>
       </div>
     </div>
-  );
-}
-
-function ProductMomentumFlameIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-      <path d="M12.5 21C8.8 21 6 18.5 6 14.9C6 12.5 7.2 10.6 9.1 8.7C9.6 10.3 10.7 11.3 12.1 11.6C11.4 8.2 12.8 5.2 16.3 3C16 6.2 17.4 8 18.6 9.7C19.5 11 20 12.4 20 14.1C20 18.1 16.7 21 12.5 21Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M11 17.6C11 16.3 11.8 15.3 13 14.3C13.1 15.4 13.8 16.2 14.9 16.6C15.3 18.2 14.1 19.4 12.8 19.4C11.8 19.4 11 18.7 11 17.6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
   );
 }
 

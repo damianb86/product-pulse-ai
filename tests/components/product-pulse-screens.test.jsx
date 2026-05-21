@@ -849,7 +849,6 @@ describe("ProductPulse screens", () => {
     expect(weeklyChart.querySelector(".ppProductMomentumWeeklyBarGroup.isLatest")).toBeInTheDocument();
     expect(weeklyChart.querySelector(".ppProductMomentumWeeklyStar")).toBeInTheDocument();
     expect(within(panel).getByText("Commercial signal")).toBeInTheDocument();
-    expect(within(panel).getByText("Hot")).toBeInTheDocument();
     expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
     expect(within(panel).getByText("Sales increasing over the last 4 weeks")).toBeInTheDocument();
     ["0", "25", "50", "75", "100"].forEach((label) => {
