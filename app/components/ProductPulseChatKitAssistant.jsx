@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
 const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v1";
+const CHATKIT_LAUNCHER_VARIANT_STORAGE_KEY = "productPulse.chatkit.launcherVariant.v1";
 let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
@@ -16,6 +17,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const [conversationId, setConversationId] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [themeMode, setThemeMode] = useState("light");
+  const [launcherVariant, setLauncherVariant] = useState("full");
   const chatKitMethodsRef = useRef(null);
   const conversationIdRef = useRef("");
   const pageContextRef = useRef(pageContext || { type: "unknown" });
@@ -24,10 +26,12 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const pageContextKey = useMemo(() => JSON.stringify(normalizedPageContext), [normalizedPageContext]);
   const enabled = Boolean(config?.enabled);
   const isDarkTheme = themeMode === "dark";
+  const isCompactLauncher = launcherVariant === "compact";
 
   useEffect(() => {
     setIsMounted(true);
     setThemeMode(readStoredThemeMode());
+    setLauncherVariant(readStoredLauncherVariant());
     const storedConversationId = readStoredConversationId();
     if (storedConversationId && !conversationIdRef.current) {
       conversationIdRef.current = storedConversationId;
@@ -147,6 +151,14 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     });
   }, []);
 
+  const toggleLauncherVariant = useCallback(() => {
+    setLauncherVariant((current) => {
+      const next = current === "compact" ? "full" : "compact";
+      writeStoredLauncherVariant(next);
+      return next;
+    });
+  }, []);
+
   const chatKit = useChatKit({
     api: {
       url: config?.apiUrl || "/api/ai/chatkit/message",
@@ -257,6 +269,22 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
                   <strong>{isDarkTheme ? "Dark" : "Light"}</strong>
                 </button>
               </div>
+              <div className="ppChatKitThemeControl ppChatKitLauncherControl" aria-label="AI Assistant launcher style">
+                <span>Launcher</span>
+                <button
+                  type="button"
+                  className="ppChatKitThemeSwitch ppChatKitLauncherSwitch"
+                  role="switch"
+                  aria-checked={isCompactLauncher}
+                  aria-label={isCompactLauncher ? "Use full AI Assistant launcher" : "Use compact AI Assistant launcher"}
+                  onClick={toggleLauncherVariant}
+                >
+                  <span className="ppChatKitThemeSwitchTrack" aria-hidden="true">
+                    <span className="ppChatKitThemeSwitchThumb" />
+                  </span>
+                  <strong>{isCompactLauncher ? "Icon" : "Full"}</strong>
+                </button>
+              </div>
               <button
                 type="button"
                 className="ppChatKitTextButton"
@@ -286,13 +314,15 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       {!isOpen ? (
         <button
           type="button"
-          className="ppChatKitLauncher"
+          className={`ppChatKitLauncher${isCompactLauncher ? " ppChatKitLauncher-compact" : ""}`}
           onClick={() => setIsOpen(true)}
           aria-expanded="false"
           aria-label="Open AI Assistant"
         >
-          <span aria-hidden="true">AI</span>
-          <strong>Assistant</strong>
+          <span className="ppChatKitLauncherIcon" aria-hidden="true">
+            <span className="ppChatKitLauncherIconGlyph" />
+          </span>
+          <strong className="ppChatKitLauncherLabel">AI Assistant</strong>
         </button>
       ) : null}
     </aside>
@@ -351,6 +381,25 @@ function writeStoredThemeMode(themeMode) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage?.setItem(CHATKIT_THEME_STORAGE_KEY, themeMode === "dark" ? "dark" : "light");
+  } catch {
+    // Storage can be unavailable in embedded browser privacy modes.
+  }
+}
+
+function readStoredLauncherVariant() {
+  if (typeof window === "undefined") return "full";
+  try {
+    const value = String(window.localStorage?.getItem(CHATKIT_LAUNCHER_VARIANT_STORAGE_KEY) || "").trim();
+    return value === "compact" ? "compact" : "full";
+  } catch {
+    return "full";
+  }
+}
+
+function writeStoredLauncherVariant(launcherVariant) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem(CHATKIT_LAUNCHER_VARIANT_STORAGE_KEY, launcherVariant === "compact" ? "compact" : "full");
   } catch {
     // Storage can be unavailable in embedded browser privacy modes.
   }

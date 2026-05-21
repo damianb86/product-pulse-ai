@@ -1,4 +1,9 @@
 .ppChatKitAssistant {
+  --ai-green: #0f6b3f;
+  --ai-blue: #2563eb;
+  --ai-purple: #7c5cff;
+  --ai-text: #ffffff;
+  --ai-shadow: rgba(37, 99, 235, 0.28);
   position: fixed;
   right: 24px;
   bottom: 24px;
@@ -17,34 +22,93 @@
 .ppChatKitLauncher {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 16px 0 10px;
-  border: 1px solid rgba(20, 92, 84, 0.22);
+  justify-content: center;
+  gap: 10px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 28px 0 15px;
+  border: 0;
   border-radius: 999px;
-  background: #ffffff;
-  color: #113f3a;
-  box-shadow: 0 14px 40px rgba(20, 30, 35, 0.18);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.34), transparent 30%),
+    linear-gradient(135deg, #0f766e 0%, var(--ai-blue) 48%, var(--ai-purple) 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.1),
+    0 12px 30px var(--ai-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  color: var(--ai-text);
   cursor: pointer;
+  font: 800 18px/1.1 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: -0.01em;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease;
 }
 
-.ppChatKitLauncher span {
+.ppChatKitLauncher:hover {
+  filter: saturate(1.06);
+  transform: translateY(-2px);
+  box-shadow:
+    0 2px 4px rgba(15, 23, 42, 0.14),
+    0 16px 38px rgba(124, 92, 255, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+}
+
+.ppChatKitLauncher:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.ppChatKitLauncherIcon {
+  position: relative;
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   place-items: center;
-  border-radius: 50%;
-  background: #1f7a6f;
+  flex: 0 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
   color: #ffffff;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0;
+  filter: drop-shadow(0 2px 5px rgba(15, 23, 42, 0.16));
 }
 
-.ppChatKitLauncher strong {
-  font-size: 14px;
-  font-weight: 650;
+.ppChatKitLauncherIconGlyph {
+  width: 24px;
+  height: 24px;
+  display: block;
+  background: currentColor;
+  mask: url("/assets/ai-assistant-icon-gradient.svg") center / contain no-repeat;
+  -webkit-mask: url("/assets/ai-assistant-icon-gradient.svg") center / contain no-repeat;
+}
+
+.ppChatKitLauncherLabel {
+  color: inherit;
+  font-size: 20px;
+  font-weight: 850;
   letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.ppChatKitLauncher-compact {
+  width: 56px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0;
+  gap: 0;
+}
+
+.ppChatKitLauncher-compact .ppChatKitLauncherIcon {
+  width: 36px;
+  height: 36px;
+}
+
+.ppChatKitLauncher-compact .ppChatKitLauncherIconGlyph {
+  width: 26px;
+  height: 26px;
+}
+
+.ppChatKitLauncher-compact .ppChatKitLauncherLabel {
+  display: none;
 }
 
 .ppChatKitPanel {
@@ -242,8 +306,8 @@
 .ppChatKitTextButton:focus-visible,
 .ppChatKitIconButton:focus-visible,
 .ppChatKitLauncher:focus-visible {
-  outline: 2px solid #1f7a6f;
-  outline-offset: 2px;
+  outline: 3px solid rgba(124, 92, 255, 0.24);
+  outline-offset: 4px;
 }
 
 .ppChatKitSurface {
@@ -300,10 +364,6 @@
     width: calc(100vw - 32px);
     min-width: 0;
     height: calc(100vh - 32px);
-  }
-
-  .ppChatKitLauncher strong {
-    display: none;
   }
 
   .ppChatKitThemeControl > span {

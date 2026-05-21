@@ -64,6 +64,31 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(assistant).not.toHaveClass("ppChatKitAssistant-expanded");
   });
 
+  it("lets the assistant header switch between full and compact launchers", () => {
+    renderWithRouter(
+      <ProductPulseChatKitAssistant
+        config={{ enabled: false, disabledReason: "ChatKit requires OPENAI_API_KEY on the server." }}
+        pageContext={{ type: "dashboard" }}
+      />,
+    );
+
+    const fullLauncher = screen.getByRole("button", { name: "Open AI Assistant" });
+    expect(fullLauncher).not.toHaveClass("ppChatKitLauncher-compact");
+    expect(fullLauncher).toHaveTextContent("AI Assistant");
+
+    fireEvent.click(fullLauncher);
+    const switchButton = screen.getByRole("switch", { name: "Use compact AI Assistant launcher" });
+    expect(switchButton).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(switchButton);
+
+    expect(screen.getByRole("switch", { name: "Use full AI Assistant launcher" })).toHaveAttribute("aria-checked", "true");
+    expect(window.localStorage.getItem("productPulse.chatkit.launcherVariant.v1")).toBe("compact");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close AI Assistant" }));
+    expect(screen.getByRole("button", { name: "Open AI Assistant" })).toHaveClass("ppChatKitLauncher-compact");
+  });
+
   it("mounts ChatKit inside the assistant drawer when enabled", async () => {
     renderWithRouter(
       <ProductPulseChatKitAssistant
