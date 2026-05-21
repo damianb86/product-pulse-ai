@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatKit } from "@openai/chatkit-react";
 import { MemoryRouter, useLocation } from "react-router";
@@ -21,6 +21,7 @@ vi.mock("@openai/chatkit-react", async () => {
 describe("ProductPulseChatKitAssistant", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
   });
 
   it("renders a disabled assistant state when ChatKit is not configured", () => {
@@ -88,7 +89,68 @@ describe("ProductPulseChatKitAssistant", () => {
     }));
     expect(useChatKit.mock.calls.at(-1)[0].api.getClientSecret).toBeUndefined();
     expect(useChatKit.mock.calls.at(-1)[0].onClientTool).toBeUndefined();
+    expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe(null);
     expect(useChatKit.mock.calls.at(-1)[0].thread.autoScroll).toBe(false);
+  });
+
+  it("restores the active ChatKit thread when the drawer is closed and reopened", async () => {
+    renderWithRouter(
+      <ProductPulseChatKitAssistant
+        config={{
+          enabled: true,
+          apiUrl: "/api/ai/chatkit/message",
+          domainKey: "domain_pk_test",
+          disabledReason: null,
+        }}
+        pageContext={{ type: "dashboard" }}
+      />,
+    );
+
+    const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
+    fireEvent.load(script);
+    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    await screen.findByTestId("chatkit");
+
+    await act(async () => {
+      useChatKit.mock.calls.at(-1)[0].onThreadChange({ threadId: "conversation-123" });
+    });
+
+    await waitFor(() => {
+      expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe("conversation-123");
+    });
+    expect(window.sessionStorage.getItem("productPulse.chatkit.conversationId.v1")).toBe("conversation-123");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close AI Assistant" }));
+    expect(screen.queryByTestId("chatkit")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    expect(await screen.findByTestId("chatkit")).toHaveClass("ppChatKitSurface");
+    expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe("conversation-123");
+  });
+
+  it("hydrates the active ChatKit thread from session storage", async () => {
+    window.sessionStorage.setItem("productPulse.chatkit.conversationId.v1", "stored-conversation");
+
+    renderWithRouter(
+      <ProductPulseChatKitAssistant
+        config={{
+          enabled: true,
+          apiUrl: "/api/ai/chatkit/message",
+          domainKey: "domain_pk_test",
+          disabledReason: null,
+        }}
+        pageContext={{ type: "dashboard" }}
+      />,
+    );
+
+    const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
+    fireEvent.load(script);
+    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    await screen.findByTestId("chatkit");
+
+    await waitFor(() => {
+      expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe("stored-conversation");
+    });
   });
 
   it("handles ChatKit navigation effects from server-validated actions", async () => {

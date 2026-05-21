@@ -3,6 +3,7 @@ import { ChatKit, useChatKit } from "@openai/chatkit-react";
 import { useNavigate } from "react-router";
 
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
+const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
 let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
@@ -23,6 +24,11 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
 
   useEffect(() => {
     setIsMounted(true);
+    const storedConversationId = readStoredConversationId();
+    if (storedConversationId && !conversationIdRef.current) {
+      conversationIdRef.current = storedConversationId;
+      setConversationId(storedConversationId);
+    }
     if (!enabled) {
       setChatKitScriptReady(false);
       return undefined;
@@ -79,6 +85,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     if (body.conversationId) {
       conversationIdRef.current = body.conversationId;
       setConversationId(body.conversationId);
+      writeStoredConversationId(body.conversationId);
     }
     const session = {
       cacheKey: JSON.stringify({
@@ -167,6 +174,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       showDelete: false,
       showRename: false,
     },
+    initialThread: conversationId || null,
     startScreen: {
       greeting: "Ask about ProductPulse risk, evidence, analytics, or watchlist status.",
       prompts: getStarterPrompts(normalizedPageContext),
@@ -185,11 +193,11 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     },
     onEffect: handleEffect,
     onThreadChange: (event) => {
-      const nextThreadId = event?.threadId || "";
-      if (nextThreadId) {
-        conversationIdRef.current = nextThreadId;
-        setConversationId(nextThreadId);
-      }
+      const nextThreadId = typeof event?.threadId === "string" ? event.threadId.trim() : "";
+      conversationIdRef.current = nextThreadId;
+      setConversationId(nextThreadId);
+      backendSessionRef.current = null;
+      writeStoredConversationId(nextThreadId);
     },
     onError: (event) => {
       setStatusMessage(event?.error?.message || "ChatKit reported an error.");
@@ -275,6 +283,29 @@ function navigateToProductPulseUrl(url, setStatusMessage, navigate) {
 
 function isSafeProductPulsePath(url) {
   return url === "/app" || url.startsWith("/app/");
+}
+
+function readStoredConversationId() {
+  if (typeof window === "undefined") return "";
+  try {
+    return String(window.sessionStorage?.getItem(CHATKIT_CONVERSATION_STORAGE_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredConversationId(conversationId) {
+  if (typeof window === "undefined") return;
+  try {
+    const normalized = String(conversationId || "").trim();
+    if (normalized) {
+      window.sessionStorage?.setItem(CHATKIT_CONVERSATION_STORAGE_KEY, normalized);
+    } else {
+      window.sessionStorage?.removeItem(CHATKIT_CONVERSATION_STORAGE_KEY);
+    }
+  } catch {
+    // Storage can be unavailable in embedded browser privacy modes.
+  }
 }
 
 function loadChatKitBrowserScript() {
