@@ -272,6 +272,37 @@ describe("ProductPulse product job helpers", () => {
           sentiment: { total: 1, negative: 1, neutral: 0, positive: 0 },
           repeatedLanguage: [],
         },
+        returnRefundRelationshipSummary: {
+          sold_units: 11,
+          sold_orders: 7,
+          returned_units: 6,
+          refunded_units: 1,
+          returned_and_refunded_units: 1,
+          relationship_match_confidence_avg: 1,
+        },
+        returnRefundRelationshipFactors: {
+          hasRelationshipSummary: true,
+          customerSignalBreakdown: {
+            linkedReturnRefundCount: 1,
+            returnOnlyCount: 5,
+          },
+        },
+        productPurchaseContextSummary: {
+          total_orders_containing_product: 7,
+          total_units_sold: 11,
+          solo_product_order_count: 5,
+          multi_product_order_count: 2,
+          avg_product_quantity_per_order: 1.57,
+        },
+        productPurchaseContextFactors: {
+          hasPurchaseContextSummary: true,
+          customerSignalBreakdown: {
+            primaryContext: "Mostly bought alone",
+          },
+        },
+        productPurchaseContextScoringImpact: [
+          "Usually bought alone, so negative signals are easier to attribute.",
+        ],
       },
     });
 
@@ -284,5 +315,18 @@ describe("ProductPulse product job helpers", () => {
     expect(detail.metrics.affectedVariantDetails).toEqual([{ label: "M / White", count: 7 }]);
     expect(detail.metrics.topRefundReasonDetails).toEqual([{ label: "Refund Discrepancy - No restock", count: 1 }]);
     expect(detail.metrics.refundInsights.sentiment.negative).toBe(1);
+    expect(detail.metrics.returnRefundRelationshipSummary).toMatchObject({
+      sold_units: 11,
+      returned_and_refunded_units: 1,
+    });
+    expect(detail.metrics.returnRefundRelationshipFactors.hasRelationshipSummary).toBe(true);
+    expect(detail.metrics.productPurchaseContextSummary).toMatchObject({
+      total_orders_containing_product: 7,
+      solo_product_order_count: 5,
+    });
+    expect(detail.metrics.productPurchaseContextFactors.hasPurchaseContextSummary).toBe(true);
+    expect(detail.metrics.productPurchaseContextScoringImpact).toEqual([
+      "Usually bought alone, so negative signals are easier to attribute.",
+    ]);
   });
 });
