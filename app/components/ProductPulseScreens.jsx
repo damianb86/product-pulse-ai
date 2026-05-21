@@ -8292,12 +8292,13 @@ function ProductMomentumPanel({ detail }) {
       </div>
       <div className="ppProductMomentumBody">
         <ProductMomentumGauge momentum={momentum} />
-        <div className="ppProductMomentumTrendCallout">
-          <span>
-            <ProductMomentumComponentIcon type="growth" />
-          </span>
-          <strong>{momentum.display.trendLabel}</strong>
-        </div>
+        <ProductMomentumWeeklyChart momentum={momentum} />
+      </div>
+      <div className="ppProductMomentumTrendCallout">
+        <span>
+          <ProductMomentumComponentIcon type="growth" />
+        </span>
+        <strong>{momentum.display.trendLabel}</strong>
       </div>
       <div className="ppProductMomentumBreakdown">
         {componentRows.map(({ key, label, value }) => (
@@ -8314,6 +8315,73 @@ function ProductMomentumPanel({ detail }) {
       </div>
     </section>
   );
+}
+
+function ProductMomentumWeeklyChart({ momentum }) {
+  const rows = getProductMomentumWeeklyChartRows(momentum);
+  const axisMax = getProductMomentumWeeklyAxisMax(rows.map((row) => row.value));
+  const ticks = [axisMax, axisMax * (2 / 3), axisMax * (1 / 3), 0].map((value, index) => ({
+    key: `${index}-${value}`,
+    value: Math.round(value),
+    top: `${100 - ((value / axisMax) * 100)}%`,
+  }));
+
+  return (
+    <div className="ppProductMomentumWeeklyChart" role="img" aria-label={`Last 4 weekly units sold for ${momentum.tier} Product Momentum`}>
+      <span className="ppProductMomentumWeeklyYAxisTitle">Units sold</span>
+      <div className="ppProductMomentumWeeklyYAxis" aria-hidden="true">
+        {ticks.map((tick) => <span key={tick.key} style={{ top: tick.top }}>{formatInteger(tick.value)}</span>)}
+      </div>
+      <div className="ppProductMomentumWeeklyPlot">
+        <div className="ppProductMomentumWeeklyGrid" aria-hidden="true">
+          {ticks.slice(0, -1).map((tick) => <span key={tick.key} style={{ top: tick.top }} />)}
+        </div>
+        <div className="ppProductMomentumWeeklyBars">
+          {rows.map((row) => (
+            <div
+              className={`ppProductMomentumWeeklyBarGroup${row.isLatest ? " isLatest" : ""}`}
+              key={row.label}
+              style={{ "--pp-momentum-weekly-height": `${row.height}%` }}
+            >
+              <span className="ppProductMomentumWeeklyBarTrack" aria-hidden="true">
+                <strong>{formatInteger(row.value)}</strong>
+                <span className="ppProductMomentumWeeklyBar" style={{ height: `${row.height}%` }}>
+                  {row.isLatest && row.value > 0 ? (
+                    <span className="ppProductMomentumWeeklyStar">
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                        <path d="M12 4.4L14.1 9L19.1 9.6L15.4 13L16.4 18L12 15.4L7.6 18L8.6 13L4.9 9.6L9.9 9L12 4.4Z" fill="currentColor" />
+                      </svg>
+                    </span>
+                  ) : null}
+                </span>
+              </span>
+              <small>{row.label}</small>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getProductMomentumWeeklyChartRows(momentum = {}) {
+  const values = Array.isArray(momentum.inputs?.weeklyUnitsLast4Weeks)
+    ? momentum.inputs.weeklyUnitsLast4Weeks.map((value) => Math.max(0, Number(value || 0))).slice(-4)
+    : [];
+  const normalizedValues = [...Array(Math.max(0, 4 - values.length)).fill(0), ...values].slice(-4);
+  const axisMax = getProductMomentumWeeklyAxisMax(normalizedValues);
+  return normalizedValues.map((value, index) => ({
+    label: ["W-3", "W-2", "W-1", "Now"][index],
+    value,
+    height: value > 0 ? clampNumber((value / axisMax) * 100, 5, 100) : 0,
+    isLatest: index === normalizedValues.length - 1,
+  }));
+}
+
+function getProductMomentumWeeklyAxisMax(values = []) {
+  const maxValue = Math.max(0, ...values.map((value) => Number(value || 0)));
+  if (maxValue <= 0) return 1;
+  return Math.max(maxValue + 1, Math.ceil(maxValue * 1.1));
 }
 
 function ProductMomentumGauge({ momentum }) {
@@ -8435,73 +8503,6 @@ function ProductMomentumComponentIcon({ type }) {
       <path d="M15.8 4.8H19V8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
-}
-
-function ProductMomentumTrendCard({ momentum }) {
-  const rows = getProductMomentumWeeklyRows(momentum);
-  return (
-    <div className="ppProductMomentumTrendCard">
-      <div className="ppProductMomentumTrendHeader">
-        <span>Last 4 weeks</span>
-        <strong>{momentum.display.trendLabel}</strong>
-      </div>
-      {rows.length ? (
-        <div className="ppProductMomentumTrendBars" role="img" aria-label={`Weekly units for ${momentum.tier} Product Momentum`}>
-          {rows.map((row) => (
-            <div className={row.isLatest ? "isLatest" : ""} key={row.label}>
-              <strong>{formatInteger(row.value)}</strong>
-              <span aria-hidden="true">{row.value > 0 ? <i style={{ height: `${row.height}%`, width: "100%" }} /> : null}</span>
-              <small>{row.label}</small>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="ppProductMomentumTrendEmpty">Weekly Shopify order buckets are not available for this product yet.</p>
-      )}
-      <p>{getProductMomentumWhyText(momentum)}</p>
-    </div>
-  );
-}
-
-function getProductMomentumWeeklyRows(momentum = {}) {
-  const values = Array.isArray(momentum.inputs?.weeklyUnitsLast4Weeks)
-    ? momentum.inputs.weeklyUnitsLast4Weeks.map((value) => Math.max(0, Number(value || 0)))
-    : [];
-  const max = Math.max(...values, 1);
-  return values.map((value, index) => ({
-    label: ["W-3", "W-2", "W-1", "Now"][index] || `W${index + 1}`,
-    value,
-    height: value > 0 ? clampNumber((value / max) * 100, 14, 100) : 0,
-    isLatest: index === values.length - 1,
-  }));
-}
-
-function getProductMomentumWhyText(momentum = {}) {
-  const inputs = momentum.inputs || {};
-  const weekly = Array.isArray(inputs.weeklyUnitsLast4Weeks) ? inputs.weeklyUnitsLast4Weeks.map((value) => Number(value || 0)) : [];
-  const firstWeek = weekly.length ? weekly[0] : 0;
-  const latestWeek = weekly.length ? weekly[weekly.length - 1] : 0;
-  const weeklyDirection = latestWeek > firstWeek
-    ? `weekly units rose from ${formatInteger(firstWeek)} to ${formatInteger(latestWeek)}`
-    : latestWeek < firstWeek
-      ? `weekly units cooled from ${formatInteger(firstWeek)} to ${formatInteger(latestWeek)}`
-      : weekly.length
-        ? `weekly units held at ${formatInteger(latestWeek)}`
-        : "weekly order buckets are missing";
-  const previousUnits = Number(inputs.unitsPrevious30Days || 0);
-  const currentUnits = Number(inputs.unitsLast30Days || 0);
-  const growthText = previousUnits > 0
-    ? `${formatInteger(currentUnits)} units in the last 30 days vs ${formatInteger(previousUnits)} before`
-    : `${formatInteger(currentUnits)} units in the last 30 days with limited prior baseline`;
-  const catalogPosition = String(momentum.display?.catalogPositionLabel || "catalog baseline pending").toLowerCase();
-  return `${momentum.tier} because ${growthText}, catalog position is ${catalogPosition}, and ${weeklyDirection}.`;
-}
-
-function getMomentumBadgeTone(momentum = {}) {
-  const tier = String(momentum.tier || "").toLowerCase();
-  if (tier.includes("hot") || tier.includes("rising")) return "success";
-  if (tier.includes("cooling")) return "warning";
-  return "info";
 }
 
 function getProductMomentumBarsTone(momentum = {}) {
@@ -8914,6 +8915,9 @@ function getOrderActivityLinePath(months = [], key, axisMax) {
 }
 
 function ReturnPredictionActionImpact({ adjustment = null }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef(null);
   const pending = Number(adjustment?.pending || 0);
   const applied = Number(adjustment?.applied || 0);
   const reviewed = Number(adjustment?.reviewed || 0);
@@ -8924,6 +8928,22 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
   const direction = shift < 0 ? "improving" : shift > 0 ? "worsening" : "neutral";
   const roundedShift = Math.round(shift * 10) / 10;
   const shiftLabel = `${roundedShift > 0 ? "+" : ""}${roundedShift} ${Math.abs(roundedShift) === 1 ? "point" : "points"}`;
+  const handleOpen = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setOpen(true);
+  };
+  const handleClose = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 140);
+  };
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   return (
     <div className={`ppReturnPredictionImpactBadge ppReturnPredictionImpactBadge-${direction}`}>
@@ -8931,11 +8951,25 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
         type="button"
         className="ppReturnPredictionImpactTrigger"
         aria-label={`Recommendation impact ${shiftLabel}`}
+        ref={triggerRef}
+        onBlur={handleClose}
+        onFocus={handleOpen}
+        onMouseEnter={handleOpen}
+        onMouseLeave={handleClose}
       >
         <s-icon type={direction === "improving" ? "check" : direction === "worsening" ? "alert-circle" : "info"} size="small"></s-icon>
         <span>{shiftLabel}</span>
       </button>
-      <div className="ppReturnPredictionImpactTooltip" role="tooltip">
+      <FloatingTablePopover
+        anchorRef={triggerRef}
+        open={open}
+        className="ppReturnPredictionImpactTooltip"
+        width={320}
+        estimatedHeight={248}
+        placement="top-end"
+        onMouseEnter={handleOpen}
+        onMouseLeave={handleClose}
+      >
         <strong>Recommendation impact</strong>
         <p>
           Applied and reviewed recommendations pull the forecast downward on the next diagnosis refresh.
@@ -8945,13 +8979,13 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
           <b>{shiftLabel}</b>
           <small>modeled return-rate shift</small>
         </span>
-        <div className="ppReturnPredictionImpactCounts" aria-label={`${handled} of ${total} recommendations handled`}>
+        <span className="ppReturnPredictionImpactCounts" aria-label={`${handled} of ${total} recommendations handled`}>
           <span><b>{applied}</b> applied</span>
           <span><b>{reviewed}</b> reviewed</span>
           <span><b>{dismissed}</b> dismissed</span>
           <span><b>{pending}</b> open</span>
-        </div>
-      </div>
+        </span>
+      </FloatingTablePopover>
     </div>
   );
 }
@@ -10300,9 +10334,10 @@ function useFloatingTablePopoverStyle(anchorRef, open, { width = 320, estimatedH
 
       const preferredBelow = rect.bottom + offset;
       const preferredAbove = rect.top - estimatedHeight - offset;
-      const top = preferredBelow + estimatedHeight <= viewportHeight - margin
-        ? preferredBelow
-        : Math.max(margin, preferredAbove);
+      const wantsTop = placement.startsWith("top");
+      const top = wantsTop
+        ? (preferredAbove >= margin ? preferredAbove : Math.min(preferredBelow, viewportHeight - estimatedHeight - margin))
+        : (preferredBelow + estimatedHeight <= viewportHeight - margin ? preferredBelow : Math.max(margin, preferredAbove));
 
       setStyle({
         position: "fixed",
@@ -14629,16 +14664,23 @@ function IssueInlineActions({ issue, onReview, onIgnore, onUnignore, ignored, pe
 
 function IssueTitleWithEvidence({ title, evidence = "" }) {
   const hasEvidence = Boolean(String(evidence || "").trim());
+  const tooltipId = useId();
+
+  if (!hasEvidence) {
+    return (
+      <span className="ppIssueTitleWithEvidence">
+        <strong>{title}</strong>
+      </span>
+    );
+  }
 
   return (
-    <span className={`ppIssueTitleWithEvidence${hasEvidence ? " hasEvidence" : ""}`} tabIndex={hasEvidence ? 0 : undefined}>
+    <button className="ppIssueTitleWithEvidence hasEvidence" type="button" aria-describedby={tooltipId}>
       <strong>{title}</strong>
-      {hasEvidence && (
-        <span className="ppIssueEvidenceTooltip" role="tooltip">
-          {evidence}
-        </span>
-      )}
-    </span>
+      <span className="ppIssueEvidenceTooltip" id={tooltipId} role="tooltip">
+        {evidence}
+      </span>
+    </button>
   );
 }
 

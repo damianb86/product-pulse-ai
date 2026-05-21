@@ -827,21 +827,33 @@ describe("ProductPulse screens", () => {
     const sidebarPanels = Array.from(container.querySelectorAll(".ppProductDetailSidebar > *"));
     const riskPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppProductRiskHistoryPanel"));
     const momentumPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppProductMomentumPanel"));
+    const gauge = panel.querySelector(".ppProductMomentumGauge");
+    const weeklyChart = panel.querySelector(".ppProductMomentumWeeklyChart");
 
     expect(screen.getAllByText("Product Momentum").length).toBeGreaterThan(0);
     expect(panel.closest(".ppProductDetailSidebar")).toBeInTheDocument();
     expect(momentumPanelIndex).toBeGreaterThan(riskPanelIndex);
-    expect(panel.querySelector(".ppProductMomentumGaugeCenter strong")).toHaveTextContent(/\d+\s*\/\s*100/);
-    expect(within(panel).getByText("/ 100")).toBeInTheDocument();
-    expect(panel.querySelector(".ppProductMomentumGauge")).toBeInTheDocument();
-    expect(panel.querySelector(".ppProductMomentumGaugeArc")).toBeInTheDocument();
-    expect(panel.querySelector(".ppProductMomentumNeedle")).toBeInTheDocument();
+    expect(gauge.querySelector(".ppProductMomentumGaugeCenter strong")).toHaveTextContent(/\d+\s*\/\s*100/);
+    expect(within(gauge).getByText("/ 100")).toBeInTheDocument();
+    expect(gauge).toBeInTheDocument();
+    expect(gauge.querySelector(".ppProductMomentumGaugeArc")).toBeInTheDocument();
+    expect(gauge.querySelector(".ppProductMomentumNeedle")).toBeInTheDocument();
+    expect(weeklyChart).toBeInTheDocument();
+    expect(within(weeklyChart).getByText("Units sold")).toBeInTheDocument();
+    ["W-3", "W-2", "W-1", "Now"].forEach((label) => {
+      expect(within(weeklyChart).getByText(label)).toBeInTheDocument();
+    });
+    ["4", "8", "12", "18"].forEach((value) => {
+      expect(within(weeklyChart).getByText(value)).toBeInTheDocument();
+    });
+    expect(weeklyChart.querySelector(".ppProductMomentumWeeklyBarGroup.isLatest")).toBeInTheDocument();
+    expect(weeklyChart.querySelector(".ppProductMomentumWeeklyStar")).toBeInTheDocument();
     expect(within(panel).getByText("Commercial signal")).toBeInTheDocument();
     expect(within(panel).getByText("Hot")).toBeInTheDocument();
     expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
     expect(within(panel).getByText("Sales increasing over the last 4 weeks")).toBeInTheDocument();
     ["0", "25", "50", "75", "100"].forEach((label) => {
-      expect(within(panel).getByText(label)).toBeInTheDocument();
+      expect(within(gauge).getByText(label)).toBeInTheDocument();
     });
     ["Velocity", "Growth", "Catalog share", "Trend consistency", "Recency"].forEach((label) => {
       expect(within(panel).getByText(label)).toBeInTheDocument();
@@ -870,10 +882,10 @@ describe("ProductPulse screens", () => {
             recencyScore: 100,
           },
           inputs: {
-            unitsLast30Days: 15,
+            unitsLast30Days: 9,
             unitsPrevious30Days: 0,
-            revenueLast30Days: 1535,
-            weeklyUnitsLast4Weeks: [0, 0, 0, 15],
+            revenueLast30Days: 935,
+            weeklyUnitsLast4Weeks: [0, 0, 0, 9],
           },
           display: {
             growthLabel: "+100%",
@@ -897,7 +909,13 @@ describe("ProductPulse screens", () => {
 
     expect(panel.querySelector(".ppProductMomentumGauge")).toBeInTheDocument();
     expect(needleTransform).toContain("rotate(");
-    expect(panel.querySelector(".ppProductMomentumTrendBars")).not.toBeInTheDocument();
+    const weeklyChart = panel.querySelector(".ppProductMomentumWeeklyChart");
+    expect(weeklyChart).toBeInTheDocument();
+    expect(within(weeklyChart).getByText("10")).toBeInTheDocument();
+    expect(within(weeklyChart).queryByText("30")).not.toBeInTheDocument();
+    expect(weeklyChart.querySelector(".ppProductMomentumWeeklyBarGroup.isLatest .ppProductMomentumWeeklyBar")).toHaveStyle({ height: "90%" });
+    expect(weeklyChart.querySelector(".ppProductMomentumWeeklyStar")).toBeInTheDocument();
+    expect(within(weeklyChart).getByText("9")).toBeInTheDocument();
     expect(within(panel).getByText("New activity")).toBeInTheDocument();
     expect(componentValues.every((value) => value < 100)).toBe(true);
     expect(within(momentumCard).getByText("Last 4 weekly units")).toBeInTheDocument();
@@ -1031,12 +1049,17 @@ describe("ProductPulse screens", () => {
     expect(predictionPanel.querySelector(".ppReturnPredictionImpactBadge")).toBeInTheDocument();
     expect(predictionPanel.querySelector(".ppReturnPredictionActionImpact")).not.toBeInTheDocument();
     expect(within(predictionPanel).getAllByText("0 points").length).toBeGreaterThan(0);
-    const impactCounts = predictionPanel.querySelector(".ppReturnPredictionImpactCounts");
+    fireEvent.mouseEnter(within(predictionPanel).getByRole("button", { name: "Recommendation impact 0 points" }));
+    const impactTooltip = document.body.querySelector(".ppReturnPredictionImpactTooltip");
+    expect(impactTooltip).toBeInTheDocument();
+    expect(impactTooltip).toHaveClass("ppFloatingTablePopover");
+    expect(predictionPanel.contains(impactTooltip)).toBe(false);
+    const impactCounts = impactTooltip.querySelector(".ppReturnPredictionImpactCounts");
     expect(impactCounts).toHaveTextContent("1 applied");
     expect(impactCounts).toHaveTextContent("1 reviewed");
     expect(impactCounts).toHaveTextContent("0 dismissed");
     expect(impactCounts).toHaveTextContent("0 open");
-    expect(within(predictionPanel).getByText(/pull the forecast downward/)).toBeInTheDocument();
+    expect(within(impactTooltip).getByText(/pull the forecast downward/)).toBeInTheDocument();
   });
 
   it("shows a full-diagnosis prompt instead of commercial charts for QuickScan-only products", () => {

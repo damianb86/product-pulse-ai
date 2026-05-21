@@ -5010,10 +5010,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductReturnPredictionPanel {
+  position: relative;
   display: grid;
   gap: 16px;
   padding: 18px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .ppReturnPredictionHeader {
@@ -5252,7 +5253,7 @@ s-page[inline-size="large-500"] {
   position: absolute;
   right: 12px;
   bottom: 12px;
-  z-index: 6;
+  z-index: 20;
 }
 
 .ppReturnPredictionImpactTrigger {
@@ -5286,9 +5287,6 @@ s-page[inline-size="large-500"] {
 }
 
 .ppReturnPredictionImpactTooltip {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
   width: min(320px, calc(100vw - 48px));
   display: grid;
   gap: 10px;
@@ -5302,6 +5300,13 @@ s-page[inline-size="large-500"] {
   pointer-events: none;
   transform: translateY(6px);
   transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.ppReturnPredictionImpactTooltip.ppFloatingTablePopover {
+  position: fixed;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
 }
 
 .ppReturnPredictionImpactBadge:hover .ppReturnPredictionImpactTooltip,
@@ -5468,6 +5473,9 @@ s-page[inline-size="large-500"] {
   gap: 8px;
   padding: 25px 12px 12px;
   border-radius: 10px;
+}
+
+.ppProductDeepResearchGrid .ppOrderActivityChart {
   overflow: hidden;
 }
 
@@ -5646,15 +5654,18 @@ s-page[inline-size="large-500"] {
 
 .ppProductMomentumBody {
   display: grid;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 20px;
   padding: 0;
 }
 
 .ppProductMomentumGauge {
   position: relative;
-  min-height: 330px;
+  min-height: 318px;
   display: grid;
   place-items: center;
+  min-width: 0;
 }
 
 .ppProductMomentumGaugeScale {
@@ -5669,6 +5680,7 @@ s-page[inline-size="large-500"] {
   width: 100%;
   height: 100%;
   overflow: visible;
+  z-index: 99;
 }
 
 .ppProductMomentumGaugeArc {
@@ -5701,28 +5713,28 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductMomentumGaugeLabel-0 {
-  left: 6%;
+  left: 10%;
   bottom: 5%;
 }
 
 .ppProductMomentumGaugeLabel-25 {
-  left: 19%;
+  left: 15%;
   top: 31%;
 }
 
 .ppProductMomentumGaugeLabel-50 {
   left: 50%;
-  top: 14%;
+  top: 10%;
   transform: translateX(-50%);
 }
 
 .ppProductMomentumGaugeLabel-75 {
-  right: 19%;
+  right: 15%;
   top: 31%;
 }
 
 .ppProductMomentumGaugeLabel-100 {
-  right: 5%;
+  right: 8%;
   bottom: 5%;
 }
 
@@ -5770,6 +5782,181 @@ s-page[inline-size="large-500"] {
 .ppProductMomentumGaugeCenter p b {
   color: var(--pp-low-risk-text);
   font-weight: 850;
+}
+
+.ppProductMomentumWeeklyChart {
+  --pp-momentum-weekly-label-row: 34px;
+  position: relative;
+  min-width: 0;
+  min-height: 318px;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  padding: 18px 8px 0 12px;
+}
+
+.ppProductMomentumWeeklyYAxisTitle {
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  color: var(--pp-slate-600);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: center;
+  white-space: nowrap;
+}
+
+.ppProductMomentumWeeklyYAxis {
+  position: relative;
+  grid-column: 1;
+  align-self: start;
+  height: calc(100% - var(--pp-momentum-weekly-label-row));
+  min-height: 0;
+  border-right: 1px solid rgba(var(--pp-slate-500-rgb), 0.22);
+}
+
+.ppProductMomentumWeeklyYAxis span {
+  position: absolute;
+  right: 12px;
+  color: var(--pp-slate-600);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.ppProductMomentumWeeklyYAxis span:first-child {
+  transform: translateY(-50%);
+}
+
+.ppProductMomentumWeeklyYAxis span:last-child {
+  transform: translateY(-50%);
+}
+
+.ppProductMomentumWeeklyPlot {
+  position: relative;
+  grid-column: 2;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ppProductMomentumWeeklyPlot::after {
+  position: absolute;
+  right: 0;
+  bottom: var(--pp-momentum-weekly-label-row);
+  left: 0;
+  content: "";
+  border-bottom: 1px solid rgba(var(--pp-slate-500-rgb), 0.22);
+}
+
+.ppProductMomentumWeeklyGrid {
+  position: absolute;
+  inset: 0 0 var(--pp-momentum-weekly-label-row);
+  pointer-events: none;
+}
+
+.ppProductMomentumWeeklyGrid span {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border-top: 1px dashed rgba(var(--pp-slate-500-rgb), 0.22);
+}
+
+.ppProductMomentumWeeklyBars {
+  position: absolute;
+  inset: 0 18px 0 22px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 18px;
+}
+
+.ppProductMomentumWeeklyBarGroup {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) var(--pp-momentum-weekly-label-row);
+  justify-items: center;
+  align-items: end;
+}
+
+.ppProductMomentumWeeklyBarTrack > strong {
+  position: absolute;
+  z-index: 3;
+  bottom: calc(var(--pp-momentum-weekly-height, 0%) + 8px);
+  color: var(--pp-slate-900);
+  font-size: 21px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppProductMomentumWeeklyBarTrack {
+  position: relative;
+  width: 100%;
+  max-width: 96px;
+  height: 100%;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+}
+
+.ppProductMomentumWeeklyBar {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.26);
+  border-radius: 7px 7px 0 0;
+  background: linear-gradient(180deg, rgba(147, 197, 253, 0.82), rgba(191, 219, 254, 0.62));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.ppProductMomentumWeeklyBarGroup.isLatest .ppProductMomentumWeeklyBar {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.78);
+  background: linear-gradient(180deg, #2E83FF 0%, #0B5EEF 100%);
+  box-shadow: 0 14px 28px rgba(var(--pp-pulse-blue-rgb), 0.18);
+}
+
+.ppProductMomentumWeeklyStar {
+  position: absolute;
+  top: -18px;
+  right: -16px;
+  z-index: 4;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--pp-cloud-white);
+  border-radius: 999px;
+  background: #2E83FF;
+  color: var(--pp-cloud-white);
+  box-shadow: 0 8px 18px rgba(var(--pp-pulse-blue-rgb), 0.24);
+}
+
+.ppProductMomentumWeeklyStar svg {
+  width: 19px;
+  height: 19px;
+}
+
+.ppProductMomentumWeeklyBarGroup > small {
+  min-width: 0;
+  align-self: end;
+  color: var(--pp-slate-600);
+  font-size: 17px;
+  font-weight: 850;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ppProductMomentumWeeklyBarGroup.isLatest > small {
+  color: var(--pp-pulse-blue);
+  font-weight: 950;
 }
 
 .ppProductMomentumTrendCallout {
@@ -5903,24 +6090,82 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailSidebar .ppProductMomentumBody {
-  padding: 12px;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 0;
 }
 
 .ppProductDetailSidebar .ppProductMomentumGauge {
-  min-height: 270px;
+  min-height: 248px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumGaugeScale {
+  width: min(100%, 340px);
 }
 
 .ppProductDetailSidebar .ppProductMomentumGaugeCenter strong {
-  font-size: 46px;
+  font-size: 24px;
 }
 
 .ppProductDetailSidebar .ppProductMomentumGaugeCenter > span {
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .ppProductDetailSidebar .ppProductMomentumGaugeCenter p {
+  width: min(92%, 230px);
+  font-size: 9px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumGaugeLabel {
+  font-size: 10px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyChart {
+  --pp-momentum-weekly-label-row: 28px;
+  min-height: 248px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  padding: 18px 0 0 2px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyYAxisTitle {
+  left: -18px;
+  font-size: 11px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyYAxis span {
+  right: 7px;
   font-size: 12px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyBars {
+  inset: 0 10px 0 12px;
+  gap: 8px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyBarTrack {
+  max-width: 54px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyBarTrack > strong {
+  bottom: calc(var(--pp-momentum-weekly-height, 0%) + 6px);
+  font-size: 14px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyBarGroup > small {
+  font-size: 12px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyStar {
+  top: -13px;
+  right: -11px;
+  width: 25px;
+  height: 25px;
+  border-width: 2px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumWeeklyStar svg {
+  width: 14px;
+  height: 14px;
 }
 
 .ppProductDetailSidebar .ppProductMomentumTrendCallout {
@@ -5989,6 +6234,16 @@ s-page[inline-size="large-500"] {
 
   .ppProductMomentumBars {
     justify-items: start;
+  }
+
+  .ppProductMomentumBody,
+  .ppProductDetailSidebar .ppProductMomentumBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppProductMomentumWeeklyChart,
+  .ppProductDetailSidebar .ppProductMomentumWeeklyChart {
+    min-height: 260px;
   }
 
   .ppOrderActivityWindow {
@@ -8812,7 +9067,13 @@ s-page[inline-size="large-500"] {
   display: inline-block;
   max-width: 100%;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   outline: none;
+  text-align: left;
 }
 
 .ppIssueNameCell strong,
