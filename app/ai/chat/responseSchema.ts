@@ -83,6 +83,7 @@ function recoverPresentationBlock(value: unknown): AiAssistantResponse["blocks"]
   trimArrayField(block, "dataShown", 8);
   trimArrayField(block, "howToRead", 8);
   trimArrayField(block, "commonActions", 8);
+  trimArrayField(block, "options", 6);
 
   const parsed = aiPresentationBlockSchema.safeParse(block);
   return parsed.success ? parsed.data : null;
@@ -259,6 +260,14 @@ const PRESENTATION_BLOCK_KEYS: Record<string, string[]> = {
     "defaultValue",
     "allowedValues",
     "effect",
+    "caveats",
+  ],
+  interaction_guidance: [
+    "type",
+    "title",
+    "summary",
+    "clarificationQuestion",
+    "options",
     "caveats",
   ],
 };

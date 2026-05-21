@@ -8,6 +8,9 @@ const {
   AppKnowledgeRepository,
 } = await import("../../app/ai/appKnowledge/repository.server");
 const {
+  AppInteractionGuidanceRepository,
+} = await import("../../app/ai/appKnowledge/interactionGuidance.server");
+const {
   PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES,
   createAppKnowledgeToolDefinitions,
 } = await import("../../app/ai/appKnowledge/tools.server");
@@ -97,6 +100,24 @@ describe("ProductPulse AI app knowledge repository", () => {
     expect(dashboard.howToRead.join(" ")).toContain("active jobs");
     expect(dashboard.commonActions).toContain("Run scan");
   });
+
+  it("returns guided next-step options for ambiguous product action requests", () => {
+    const repository = new AppInteractionGuidanceRepository();
+
+    const guidance = repository.getGuidance({
+      query: "quiero agregar una nueva accion a este producto",
+      hasProductContext: true,
+      limit: 4,
+    });
+
+    expect(guidance.intent).toBe("create_product_action");
+    expect(guidance.clarificationQuestion).toContain("Qué tipo de acción");
+    expect(guidance.options.map((option) => option.id)).toContain("description_guidance");
+    expect(guidance.options.map((option) => option.id)).toContain("seo_recommendation");
+    expect(guidance.options.every((option) => option.requiresConfirmation)).toBe(true);
+    expect(JSON.stringify(guidance)).toContain("product_pulse_create_product_action");
+    expect(JSON.stringify(guidance)).not.toContain("app/lib/");
+  });
 });
 
 describe("ProductPulse AI app knowledge tools", () => {
@@ -109,6 +130,7 @@ describe("ProductPulse AI app knowledge tools", () => {
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getScoreExplanation,
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getScreenGuide,
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getSettingExplanation,
+      PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getInteractionGuidance,
     ]);
     expect(definitions.every((definition) => definition.readOnly)).toBe(true);
     expect(definitions.every((definition) => definition.category === "app_knowledge")).toBe(true);
@@ -128,10 +150,22 @@ describe("ProductPulse AI app knowledge tools", () => {
       context,
       { query: "settings", shop: "evil.myshopify.com" },
     );
+    const guidance = await registry.executeAiTool(
+      PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getInteractionGuidance,
+      context,
+      {
+        query: "quiero informacion de este producto",
+        hasProductContext: true,
+        limit: 3,
+      },
+    );
 
     expect(result.ok).toBe(true);
     expect(result.data.scoreName).toBe("Product Momentum");
     expect(result.data.formula).toContain("currentVelocity");
+    expect(guidance.ok).toBe(true);
+    expect(guidance.data.intent).toBe("product_information");
+    expect(guidance.data.options).toHaveLength(3);
     expect(rejected.ok).toBe(false);
     expect(rejected.error.code).toBe("VALIDATION_ERROR");
   });
@@ -153,5 +187,32 @@ describe("ProductPulse AI app knowledge tools", () => {
     expect(widget.type).toBe("Card");
     expect(JSON.stringify(widget)).toContain("Risk score");
     expect(JSON.stringify(widget)).not.toContain("<script");
+  });
+
+  it("maps interaction guidance blocks to ChatKit option cards", () => {
+    const widget = mapAiPresentationBlockToChatKitWidget({
+      type: "interaction_guidance",
+      title: "Crear una acción para el producto",
+      summary: "Necesito saber qué tipo de acción querés crear.",
+      clarificationQuestion: "Qué tipo de acción querés agregar a este producto?",
+      options: [
+        {
+          id: "description_guidance",
+          label: "Nota o guía de descripción",
+          description: "Crea una acción de ProductPulse con texto sugerido.",
+          examplePrompt: "Creá una acción para agregar una nota de expectativas.",
+          category: "app_mutation",
+          requiresProductContext: true,
+          requiresConfirmation: true,
+        },
+      ],
+      caveats: ["No modifica Shopify."],
+    });
+
+    expect(widget.type).toBe("Card");
+    expect(JSON.stringify(widget)).toContain("Nota o guía de descripción");
+    expect(JSON.stringify(widget)).toContain("Ejemplo:");
+    expect(JSON.stringify(widget)).toContain("Confirm first");
+    expect(JSON.stringify(widget)).not.toContain("backendCapability");
   });
 });

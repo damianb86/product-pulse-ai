@@ -25,9 +25,10 @@ Curated user/developer knowledge lives in:
 - `docs/app-knowledge/settings.md`
 - `docs/app-knowledge/recommended-actions.md`
 - `docs/app-knowledge/app-owned-actions.md`
+- `docs/app-knowledge/interaction-guidance.md`
 - `docs/app-knowledge/glossary.md`
 
-Runtime tools use the curated index in `app/ai/appKnowledge/knowledgeBase.ts`. The app does not scan arbitrary source files on every chat turn.
+Runtime tools use the curated index in `app/ai/appKnowledge/knowledgeBase.ts` and guided next-step definitions in `app/ai/appKnowledge/interactionGuidance.server.ts`. The app does not scan arbitrary source files on every chat turn.
 
 ## Tools
 
@@ -38,6 +39,7 @@ Registered through the existing AI tool registry:
 - `product_pulse_get_score_explanation`
 - `product_pulse_get_screen_guide`
 - `product_pulse_get_setting_explanation`
+- `product_pulse_get_interaction_guidance`
 
 All tools are:
 
@@ -47,6 +49,8 @@ All tools are:
 - safe to expose through the existing OpenAI tool adapter;
 - strict about input validation;
 - unrelated to Shopify mutations.
+
+`product_pulse_get_interaction_guidance` is used when the merchant request is broad or ambiguous. It returns supported next-step options and example prompts for product information, methodology explanations, watchlist work, creating ProductPulse actions, editing ProductPulse actions, and safe alternatives to direct Shopify mutations.
 
 ## Merchant vs Developer Output
 
@@ -90,7 +94,8 @@ The assistant response schema supports app knowledge blocks:
 - `score_explanation`;
 - `process_guide`;
 - `screen_guide`;
-- `setting_explanation`.
+- `setting_explanation`;
+- `interaction_guidance`.
 
 The ChatKit widget adapter maps these blocks into compact ProductPulse cards. These cards are deterministic UI payloads; the model does not control arbitrary HTML or styling.
 
@@ -100,8 +105,9 @@ When ProductPulse behavior changes:
 
 1. Update the relevant file in `docs/app-knowledge/`.
 2. Update `app/ai/appKnowledge/knowledgeBase.ts`.
-3. Add or adjust unit tests in `tests/unit/product-pulse-ai-app-knowledge.test.js`.
-4. If adding a new block type, update:
+3. For guided next-step options, update `app/ai/appKnowledge/interactionGuidance.server.ts`.
+4. Add or adjust unit tests in `tests/unit/product-pulse-ai-app-knowledge.test.js`.
+5. If adding a new block type, update:
    - `app/ai/presentation/blocks.ts`;
    - `app/ai/chat/responseSchema.ts`;
    - `app/ai/chatkit/widgets.ts`;

@@ -196,6 +196,23 @@ export const APP_KNOWLEDGE_SNIPPETS: AppKnowledgeSnippet[] = [
     confidence: "high",
     lastUpdated: APP_KNOWLEDGE_LAST_UPDATED,
   },
+  {
+    id: "interaction-guidance",
+    topic: "interaction_guidance",
+    title: "Assistant interaction guidance",
+    summary: "When a merchant request is broad or ambiguous, ProductPulse AI should guide with supported options and examples before creating action or mutation proposals.",
+    body: "Interaction guidance covers ProductPulse product information, methodology explanations, watchlist options, creating app-owned product actions, editing app-owned product actions, and safe alternatives to direct Shopify mutations. Guidance is read-only and does not execute anything.",
+    keywords: ["guidance", "what can i ask", "examples", "clarify", "next step", "create action", "edit action", "what can you do"],
+    aliases: ["assistant guide", "examples", "what can you do", "next steps"],
+    source: {
+      documentTitle: "Interaction Guidance",
+      documentPath: "docs/app-knowledge/interaction-guidance.md",
+      section: "Guided assistant capabilities",
+      implementationRefs: ["app/ai/appKnowledge/interactionGuidance.server.ts"],
+    },
+    confidence: "high",
+    lastUpdated: APP_KNOWLEDGE_LAST_UPDATED,
+  },
 ];
 
 export const APP_CONCEPT_EXPLANATIONS: AppConceptExplanation[] = [

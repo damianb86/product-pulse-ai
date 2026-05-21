@@ -79,6 +79,8 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return screenGuideWidget(block);
     case "setting_explanation":
       return settingExplanationWidget(block);
+    case "interaction_guidance":
+      return interactionGuidanceWidget(block);
     case "summary":
     default:
       return summaryWidget(block);
@@ -596,6 +598,32 @@ function settingExplanationWidget(block: Extract<AiPresentationBlock, { type: "s
   ], { size: "full", status: { text: "Setting", icon: "settings-slider" } });
 }
 
+function interactionGuidanceWidget(block: Extract<AiPresentationBlock, { type: "interaction_guidance" }>): Widgets.Card {
+  return productPulseCard([
+    row([
+      iconTile("sparkle", { key: "icon", background: COLORS.accent, iconColor: "#FFFFFF" }),
+      col([
+        title(block.title, { key: "title", size: "md", weight: "bold" }),
+        text(block.summary, { key: "summary", maxLength: 520 }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+    ], { key: "heading", gap: 5, align: "start", wrap: "nowrap" }),
+    sectionBox([
+      caption("Pregunta de seguimiento", { key: "label", color: COLORS.accentStrong, weight: "bold" }),
+      text(block.clarificationQuestion, { key: "question", maxLength: 240, weight: "semibold" }),
+    ], { key: "question", background: COLORS.panel }),
+    col(block.options.slice(0, 6).map((option, index) => guidanceOptionPanel(option, index)), {
+      key: "options",
+      gap: 1,
+    }),
+    ...(block.caveats.length ? [
+      col(block.caveats.slice(0, 2).map((caveat, index) => bulletRow(caveat, `caveat-${index}`, "info")), {
+        key: "caveats",
+        gap: 1,
+      }),
+    ] : []),
+  ], { size: "full", status: { text: "Assistant guide", icon: "sparkle-double" } });
+}
+
 function unsupportedBlockWidget(block: unknown): Widgets.Card {
   const type = block && typeof block === "object" && "type" in block ? String((block as { type?: unknown }).type || "") : "";
   return productPulseCard([
@@ -957,6 +985,51 @@ function recommendationPanel(
   });
 }
 
+function guidanceOptionPanel(
+  option: Extract<AiPresentationBlock, { type: "interaction_guidance" }>["options"][number],
+  index: number,
+): Widgets.Col {
+  const badges = [
+    badge(guidanceCategoryLabel(option.category), guidanceCategoryColor(option.category), { key: "category" }),
+    ...(option.requiresProductContext ? [badge("Needs product", "info", { key: "product" })] : []),
+    ...(option.requiresConfirmation ? [badge("Confirm first", "warning", { key: "confirm" })] : []),
+  ];
+  return sectionBox([
+    row([
+      box([
+        icon(option.category === "read" ? "search" : option.category === "explain" ? "document" : "sparkle", {
+          key: "icon",
+          size: "lg",
+          color: COLORS.accentStrong,
+        }),
+      ], {
+        key: "icon",
+        size: 34,
+        minWidth: 34,
+        radius: "lg",
+        background: COLORS.accentSoft,
+        align: "center",
+        justify: "center",
+      }),
+      col([
+        row([
+          title(option.label, { key: "label", size: "sm", weight: "bold", maxLines: 2 }),
+          badge(`#${index + 1}`, "secondary", { key: "index" }),
+        ], { key: "title-row", justify: "between", align: "start", gap: 3, wrap: "nowrap" }),
+        text(option.description, { key: "description", maxLength: 260, maxLines: 2, color: "#475569" }),
+        row(badges, { key: "badges", gap: 4, wrap: "wrap" }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+    ], { key: "top", gap: 4, align: "start", wrap: "nowrap" }),
+    divider("option-divider", 1),
+    caption(`Ejemplo: ${option.examplePrompt}`, { key: "example", maxLength: 220, color: COLORS.accentStrong }),
+  ], {
+    key: `guidance-${index}-${stableId(option.id)}`,
+    background: COLORS.card,
+    border: { size: 1, color: COLORS.border },
+    radius: "lg",
+  });
+}
+
 function actionFooter(children: Widgets.WidgetComponent[], key: string): Widgets.Row {
   return row(children, { key, gap: 3, align: "center", wrap: "wrap" });
 }
@@ -1110,6 +1183,20 @@ function sideEffectBadgeColor(level: "low" | "medium" | "high"): NonNullable<Wid
   if (level === "high") return "danger";
   if (level === "medium") return "warning";
   return "info";
+}
+
+function guidanceCategoryLabel(category: "read" | "explain" | "propose_action" | "app_mutation"): string {
+  if (category === "read") return "Read data";
+  if (category === "explain") return "Explain";
+  if (category === "propose_action") return "Internal action";
+  return "ProductPulse save";
+}
+
+function guidanceCategoryColor(category: "read" | "explain" | "propose_action" | "app_mutation"): NonNullable<Widgets.Badge["color"]> {
+  if (category === "read") return "info";
+  if (category === "explain") return "secondary";
+  if (category === "propose_action") return "warning";
+  return "discovery";
 }
 
 function actionResultBadgeColor(status: "success" | "error" | "cancelled"): NonNullable<Widgets.Badge["color"]> {

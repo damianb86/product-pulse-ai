@@ -10,6 +10,7 @@ export const APP_KNOWLEDGE_TOPICS = [
   "settings",
   "recommended_actions",
   "app_owned_actions",
+  "interaction_guidance",
   "glossary",
 ] as const;
 
@@ -105,5 +106,43 @@ export interface AppSettingExplanation {
   effect: string;
   caveats: string[];
   source?: AppKnowledgeSourceReference;
+  confidence: AppKnowledgeConfidence;
+}
+
+export const APP_INTERACTION_GUIDANCE_INTENTS = [
+  "assistant_capabilities",
+  "create_product_action",
+  "edit_product_action",
+  "product_information",
+  "methodology_explanation",
+  "watchlist",
+  "unsupported_shopify_mutation",
+] as const;
+
+export type AppInteractionGuidanceIntent = typeof APP_INTERACTION_GUIDANCE_INTENTS[number];
+
+export interface AppInteractionGuidanceOption {
+  id: string;
+  label: string;
+  description: string;
+  examplePrompt: string;
+  category: "read" | "explain" | "propose_action" | "app_mutation";
+  requiresProductContext: boolean;
+  requiresConfirmation: boolean;
+  backendCapability?: {
+    kind: "tool" | "internal_action" | "app_mutation";
+    name: string;
+  };
+}
+
+export interface AppInteractionGuidance {
+  intent: AppInteractionGuidanceIntent;
+  title: string;
+  summary: string;
+  clarificationQuestion: string;
+  options: AppInteractionGuidanceOption[];
+  suggestedReplies: string[];
+  caveats: string[];
+  source: AppKnowledgeSourceReference;
   confidence: AppKnowledgeConfidence;
 }

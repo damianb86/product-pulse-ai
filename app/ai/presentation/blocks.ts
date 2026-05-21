@@ -247,6 +247,23 @@ const settingExplanationBlockSchema = z.object({
   caveats: z.array(z.string().max(260)).max(6).default([]),
 }).strict();
 
+const interactionGuidanceBlockSchema = z.object({
+  type: z.literal("interaction_guidance"),
+  title: z.string().max(180),
+  summary: z.string().max(700),
+  clarificationQuestion: z.string().max(240),
+  options: z.array(z.object({
+    id: z.string().max(120),
+    label: z.string().max(140),
+    description: z.string().max(320),
+    examplePrompt: z.string().max(220),
+    category: z.enum(["read", "explain", "propose_action", "app_mutation"]),
+    requiresProductContext: z.boolean(),
+    requiresConfirmation: z.boolean(),
+  }).strict()).max(6),
+  caveats: z.array(z.string().max(260)).max(4).default([]),
+}).strict();
+
 export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   textBlockSchema,
   productReferenceBlockSchema,
@@ -264,6 +281,7 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   processGuideBlockSchema,
   screenGuideBlockSchema,
   settingExplanationBlockSchema,
+  interactionGuidanceBlockSchema,
 ]);
 
 export type AiPresentationBlock = z.infer<typeof aiPresentationBlockSchema>;

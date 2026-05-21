@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { AnyAiToolDefinition, AiToolDefinition } from "../domain/types";
+import { AppInteractionGuidanceRepository, normalizeGuidanceLimit } from "./interactionGuidance.server";
 import { AppKnowledgeRepository, normalizeKnowledgeLimit } from "./repository.server";
-import { APP_KNOWLEDGE_TOPICS, type AppKnowledgeAudience } from "./types";
+import {
+  APP_INTERACTION_GUIDANCE_INTENTS,
+  APP_KNOWLEDGE_TOPICS,
+  type AppInteractionGuidanceIntent,
+  type AppKnowledgeAudience,
+} from "./types";
 
 export const PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES = {
   searchAppKnowledge: "product_pulse_search_app_knowledge",
@@ -9,10 +15,12 @@ export const PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES = {
   getScoreExplanation: "product_pulse_get_score_explanation",
   getScreenGuide: "product_pulse_get_screen_guide",
   getSettingExplanation: "product_pulse_get_setting_explanation",
+  getInteractionGuidance: "product_pulse_get_interaction_guidance",
 } as const;
 
 export interface AppKnowledgeToolDependencies {
   repository?: AppKnowledgeRepository;
+  interactionGuidanceRepository?: AppInteractionGuidanceRepository;
 }
 
 const audienceSchema = z.enum(["merchant", "developer"]).optional().default("merchant");
@@ -46,16 +54,26 @@ const settingInputSchema = z.object({
   audience: audienceSchema,
 }).strict();
 
+const interactionGuidanceInputSchema = z.object({
+  query: z.string().trim().min(1).max(500).optional(),
+  intent: z.enum(APP_INTERACTION_GUIDANCE_INTENTS).optional(),
+  pageType: z.string().trim().max(80).optional(),
+  hasProductContext: z.boolean().optional(),
+  limit: limitSchema,
+}).strict();
+
 type SearchInput = z.infer<typeof searchAppKnowledgeInputSchema>;
 type ConceptInput = z.infer<typeof conceptInputSchema>;
 type ScoreInput = z.infer<typeof scoreInputSchema>;
 type ScreenInput = z.infer<typeof screenInputSchema>;
 type SettingInput = z.infer<typeof settingInputSchema>;
+type InteractionGuidanceInput = z.infer<typeof interactionGuidanceInputSchema>;
 
 export function createAppKnowledgeToolDefinitions(
   dependencies: AppKnowledgeToolDependencies = {},
 ): AnyAiToolDefinition[] {
   const repository = dependencies.repository || new AppKnowledgeRepository();
+  const interactionGuidanceRepository = dependencies.interactionGuidanceRepository || new AppInteractionGuidanceRepository();
 
   const searchTool: AiToolDefinition<SearchInput, ReturnType<AppKnowledgeRepository["search"]>> = {
     name: PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.searchAppKnowledge,
@@ -189,12 +207,48 @@ export function createAppKnowledgeToolDefinitions(
     },
   };
 
+  const interactionGuidanceTool: AiToolDefinition<
+    InteractionGuidanceInput,
+    ReturnType<AppInteractionGuidanceRepository["getGuidance"]>
+  > = {
+    name: PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getInteractionGuidance,
+    description: "Return ProductPulse assistant guidance for ambiguous user requests, including supported next-step options and example prompts.",
+    inputSchema: interactionGuidanceInputSchema,
+    readOnly: true,
+    category: "app_knowledge",
+    permissionLevel: "merchant",
+    metadata: {
+      resultType: "AppInteractionGuidance",
+      dataSources: ["docs/app-knowledge/interaction-guidance.md", "registered AI tools/actions/mutations"],
+      maxResultCount: 6,
+      providerAgnostic: true,
+    },
+    async execute(_context, input) {
+      const result = interactionGuidanceRepository.getGuidance({
+        query: input.query,
+        intent: input.intent as AppInteractionGuidanceIntent | undefined,
+        pageType: input.pageType,
+        hasProductContext: input.hasProductContext,
+        limit: input.limit,
+      });
+      return {
+        data: result,
+        metadata: {
+          resultCount: result.options.length,
+          limit: normalizeGuidanceLimit(input.limit),
+          dataFreshness: [{ source: "ProductPulse assistant guidance", updatedAt: null }],
+        },
+      };
+    },
+  };
+
   return [
     searchTool,
     conceptTool,
     scoreTool,
     screenTool,
     settingTool,
+    interactionGuidanceTool,
   ] as unknown as AnyAiToolDefinition[];
 }
 
