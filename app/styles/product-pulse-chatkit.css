@@ -104,6 +104,7 @@
 .ppChatKitLauncher-compact .ppChatKitLauncherIconGlyph {
   width: 42px;
   height: 42px;
+  transform: translate(-1px, -1px);
 }
 
 .ppChatKitLauncher-compact .ppChatKitLauncherLabel {
