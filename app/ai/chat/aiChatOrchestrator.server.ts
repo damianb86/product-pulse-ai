@@ -120,7 +120,7 @@ export class AiChatOrchestrator {
     this.toolRegistry = dependencies.toolRegistry || createAiToolRegistry();
     this.actionRegistry = dependencies.actionRegistry || createAiActionRegistry();
     this.conversationStore = dependencies.conversationStore || new PrismaAiConversationStore();
-    this.config = dependencies.config || getAiChatConfig(dependencies.env);
+    this.config = { ...getAiChatConfig(dependencies.env), ...(dependencies.config || {}) };
     this.env = dependencies.env || process.env;
     this.now = dependencies.now || (() => new Date());
   }
@@ -162,6 +162,49 @@ export class AiChatOrchestrator {
         userIntentMetadata: input.userIntentMetadata,
       },
     });
+
+    if (!this.config.assistantEnabled) {
+      const fallback = createFallbackAssistantResponse("AI assistant is currently disabled.", [
+        "AI assistant is disabled by configuration.",
+      ]);
+      const assistantMessageId = createMessageId("ai_msg", this.now);
+      const trace = buildAiChatTrace({
+        context: chatContext,
+        conversationId: conversation.id,
+        messageId: assistantMessageId,
+        userMessageId: userMessage.id,
+        model: this.config.defaultModel,
+        openAiResponseIds: [],
+        openAiCallCount: 0,
+        usage: null,
+        estimatedCost: null,
+        toolCallCount: 0,
+        blockedToolCallCount: 0,
+        actionProposalCount: 0,
+        validation: { valid: true, retryCount: 0, fallbackUsed: true },
+        pageContext,
+        config: this.config,
+        recentMessagesSent: 0,
+        durationMs: Date.now() - turnStartedAt,
+        errorStatus: "ai_assistant_disabled",
+        now: this.now,
+      });
+      const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null, trace);
+      return buildTurnResult({
+        response: fallback,
+        conversationId: conversation.id,
+        userMessageId: userMessage.id,
+        assistantMessageId: assistantMessage.id,
+        model: this.config.defaultModel,
+        pageContext,
+        toolCallCount: 0,
+        blockedToolCallCount: 0,
+        openAiResponseId: null,
+        usage: null,
+        estimatedCost: null,
+        trace: compactAiChatTraceForMetadata(trace),
+      });
+    }
 
     if (!hasOpenAiApiKey(this.env) && !this.openAiClient) {
       const fallback = createFallbackAssistantResponse("AI chat is not configured yet. Set OPENAI_API_KEY on the server before using this endpoint.", [
@@ -214,10 +257,13 @@ export class AiChatOrchestrator {
     );
     const adapter = toOpenAiToolAdapterResult(this.toolRegistry);
     const actionProposalTool = buildActionProposalOpenAiToolDefinition();
+    const actionDefinitions = this.config.internalActionsEnabled && this.config.actionConfirmationsEnabled
+      ? this.actionRegistry.listAiActions()
+      : [];
     const instructions = buildAiChatInstructions({
       pageContext,
       toolNames: adapter.tools.map((tool) => tool.name),
-      actionNames: this.actionRegistry.listAiActions().map((definition) => definition.actionName),
+      actionNames: actionDefinitions.map((definition) => definition.actionName),
     });
     const inputItems = buildOpenAiInputItems({
       messages: recentMessages,
@@ -233,7 +279,7 @@ export class AiChatOrchestrator {
         userMessageId: userMessage.id,
         instructions,
         inputItems,
-        tools: [...adapter.tools, actionProposalTool],
+        tools: actionDefinitions.length ? [...adapter.tools, actionProposalTool] : adapter.tools,
         openAiNameToInternalName: adapter.openAiNameToInternalName,
       });
       const parseResult = await this.parseOrRecoverAssistantResponse({
@@ -475,6 +521,18 @@ export class AiChatOrchestrator {
     rawArguments: unknown,
   ): Promise<AiToolExecutionResult> {
     const parsed = actionProposalToolInputSchema.safeParse(rawArguments || {});
+    if (!this.config.internalActionsEnabled || !this.config.actionConfirmationsEnabled) {
+      return {
+        ok: false,
+        toolName: AI_ACTION_PROPOSAL_TOOL_NAME,
+        error: {
+          code: "AI_INTERNAL_ACTIONS_DISABLED",
+          message: "AI internal actions are disabled.",
+          retryable: false,
+        },
+        metadata: { resultCount: 0 },
+      };
+    }
     if (!parsed.success) {
       return {
         ok: false,

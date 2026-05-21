@@ -9,6 +9,7 @@ import {
   aiActionCancellationToPresentationBlock,
   aiActionExecutionToPresentationBlock,
 } from "../actions/presentation";
+import { canUseInternalAiAction } from "../security/permissions.server";
 
 const safeActionPayloadSchema = z.object({
   proposalId: z.string().trim().min(1).max(320).optional(),
@@ -147,6 +148,14 @@ async function confirmAiAction(
   payload: z.infer<typeof safeActionPayloadSchema>,
   actionRegistry: AiActionRegistry,
 ): Promise<ChatKitActionResult> {
+  const permission = canUseInternalAiAction(context);
+  if (!permission.allowed) {
+    return {
+      status: "error",
+      code: permission.code || "AI_INTERNAL_ACTIONS_DISABLED",
+      message: permission.message || "AI internal actions are disabled.",
+    };
+  }
   if (!payload.proposalId) {
     return {
       status: "error",
@@ -179,6 +188,14 @@ async function cancelAiAction(
   payload: z.infer<typeof safeActionPayloadSchema>,
   actionRegistry: AiActionRegistry,
 ): Promise<ChatKitActionResult> {
+  const permission = canUseInternalAiAction(context);
+  if (!permission.allowed) {
+    return {
+      status: "error",
+      code: permission.code || "AI_INTERNAL_ACTIONS_DISABLED",
+      message: permission.message || "AI internal actions are disabled.",
+    };
+  }
   if (!payload.proposalId) {
     return {
       status: "error",

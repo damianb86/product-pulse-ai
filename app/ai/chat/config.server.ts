@@ -1,4 +1,9 @@
+import { getAiFeatureFlags } from "../security/featureFlags.server";
+
 export interface AiChatConfig {
+  assistantEnabled: boolean;
+  internalActionsEnabled: boolean;
+  actionConfirmationsEnabled: boolean;
   defaultModel: string;
   strongModel: string;
   cheapModel: string;
@@ -16,7 +21,11 @@ export interface AiChatConfig {
 
 export function getAiChatConfig(env: NodeJS.ProcessEnv = process.env): AiChatConfig {
   const defaultModel = stringEnv(env.AI_CHAT_MODEL) || stringEnv(env.OPENAI_CHAT_MODEL) || "gpt-5.4-mini";
+  const flags = getAiFeatureFlags(env);
   return {
+    assistantEnabled: flags.assistantEnabled,
+    internalActionsEnabled: flags.internalActionsEnabled,
+    actionConfirmationsEnabled: flags.actionConfirmationsEnabled,
     defaultModel,
     strongModel: stringEnv(env.AI_CHAT_STRONG_MODEL) || stringEnv(env.OPENAI_PREMIUM_MODEL) || "gpt-5.4",
     cheapModel: stringEnv(env.AI_CHAT_CHEAP_MODEL) || stringEnv(env.OPENAI_BASIC_MODEL) || defaultModel,

@@ -92,18 +92,27 @@ Relevant env vars:
 
 ```bash
 OPENAI_API_KEY=
+AI_ASSISTANT_ENABLED=true
 AI_CHAT_MODEL=gpt-5.4-mini
 AI_CHAT_MAX_TOOL_CALLS_PER_TURN=5
 AI_CHAT_MAX_OUTPUT_TOKENS=1600
+AI_RATE_LIMIT_ENABLED=true
+AI_CHAT_RATE_LIMIT_PER_MINUTE=20
+AI_ACTION_RATE_LIMIT_PER_MINUTE=30
 AI_COST_TRACKING_ENABLED=true
 AI_DEBUG_COSTS=false
+AI_DEBUG_MODE=false
 AI_COST_DASHBOARD_ENABLED=false
 AI_CHATKIT_ENABLED=true
 AI_CHATKIT_API_URL=/api/ai/chatkit/message
 AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
+AI_INTERNAL_ACTIONS_ENABLED=true
+AI_ACTION_CONFIRMATIONS_ENABLED=true
 ```
 
 The browser receives only safe ChatKit config, including the public ChatKit domain key from OpenAI's domain allowlist. OpenAI inference runs server-side through the existing `/api/ai/chatkit/message` adapter and `AiChatOrchestrator`.
+
+`AI_ASSISTANT_ENABLED=false` disables all assistant endpoints. `AI_INTERNAL_ACTIONS_ENABLED=false` keeps read-only chat available while blocking internal app action proposals and confirmations. `AI_CHATKIT_WORKFLOW_ID` is intentionally not required for the default custom-backend architecture.
 
 AI cost/eval tooling:
 
@@ -121,6 +130,9 @@ Set `AI_COST_DASHBOARD_ENABLED=true` to show the internal `AI Costs` menu item a
 - `docs/architecture.md`
 - `docs/ai-cost-and-call-flow.md`
 - `docs/ai-cost-evaluation-observability.md`
+- `docs/ai-env-config.md`
+- `docs/ai-production-readiness.md`
+- `docs/ai-rollout-plan.md`
 - `docs/shopify-integration.md`
 - `docs/qa-plan.md`
 - `docs/requirement-traceability-matrix.md`

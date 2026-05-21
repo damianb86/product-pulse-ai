@@ -15,6 +15,7 @@ import type {
   AiActionProposal,
   AiActionSafeResult,
 } from "./types";
+import { canUseInternalAiAction } from "../security/permissions.server";
 
 export const AI_ACTION_PROPOSAL_TOOL_NAME = "product_pulse_propose_internal_action";
 
@@ -367,11 +368,8 @@ function proposalStatusError(status: string): AiToolSafeError {
   };
 }
 
-function canUseAiAction(_context: AiToolContext, _definition: AnyAiActionDefinition): boolean {
-  // ProductPulse does not have app-level roles yet. Authenticated embedded app users are allowed for now.
-  void _context;
-  void _definition;
-  return true;
+function canUseAiAction(context: AiToolContext, definition: AnyAiActionDefinition): boolean {
+  return canUseInternalAiAction(context, definition).allowed;
 }
 
 function unauthorizedActionError(): AiToolSafeError {

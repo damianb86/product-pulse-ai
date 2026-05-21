@@ -1,7 +1,10 @@
 import {
   aiChatKitSessionRequestSchema,
-  createAiChatKitSessionFromRequest,
+  createAiChatKitSession,
 } from "../ai/chatkit/session.server";
+import { createAiToolContextFromAuthenticatedRequest } from "../ai/context.server";
+import { canUseAiAssistant } from "../ai/security/permissions.server";
+import { checkAiRateLimit, rateLimitResponse } from "../ai/security/rateLimit.server";
 
 export const loader = async () => Response.json(
   { status: "error", message: "Method not allowed." },
@@ -34,10 +37,20 @@ export const action = async ({ request }) => {
     );
   }
 
-  const result = await createAiChatKitSessionFromRequest({
-    request,
-    sessionInput: parsed.data,
+  const context = await createAiToolContextFromAuthenticatedRequest(request, {
+    conversationId: parsed.data.conversationId,
   });
+  const permission = canUseAiAssistant(context);
+  if (!permission.allowed) {
+    return Response.json(
+      { status: "disabled", enabled: false, conversationId: "", pageContext: { type: "unknown" }, warnings: [], message: permission.message },
+      { status: permission.code === "AI_AUTH_REQUIRED" ? 401 : 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const rateLimit = checkAiRateLimit({ context, bucket: "chatkit_session" });
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit);
+
+  const result = await createAiChatKitSession(context, parsed.data);
 
   if (!result.enabled) {
     return Response.json(

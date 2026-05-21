@@ -1,11 +1,18 @@
 /* eslint-env node */
 import { z } from "zod";
 import { AiChatOrchestrator } from "../ai/chat/aiChatOrchestrator.server";
+import { createAiToolContextFromAuthenticatedRequest } from "../ai/context.server";
+import { canUseAiAssistant } from "../ai/security/permissions.server";
+import { checkAiRateLimit, rateLimitResponse } from "../ai/security/rateLimit.server";
+import { AI_MAX_PAGE_CONTEXT_CHARACTERS, isJsonWithinCharacterLimit } from "../ai/security/jsonLimits";
 
 const aiChatRequestSchema = z.object({
   conversationId: z.string().trim().max(320).optional(),
   message: z.string().trim().min(1).max(3000),
-  pageContext: z.unknown().optional(),
+  pageContext: z.unknown().optional().refine(
+    (value) => isJsonWithinCharacterLimit(value, AI_MAX_PAGE_CONTEXT_CHARACTERS),
+    "pageContext is too large.",
+  ),
   userIntentMetadata: z.unknown().optional(),
 }).strict();
 
@@ -40,9 +47,21 @@ export const action = async ({ request }) => {
     );
   }
 
+  const context = await createAiToolContextFromAuthenticatedRequest(request, {
+    conversationId: parsed.data.conversationId,
+  });
+  const permission = canUseAiAssistant(context);
+  if (!permission.allowed) {
+    return Response.json(
+      { status: "disabled", message: permission.message },
+      { status: permission.code === "AI_AUTH_REQUIRED" ? 401 : 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const rateLimit = checkAiRateLimit({ context, bucket: "chat" });
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit);
+
   const orchestrator = new AiChatOrchestrator();
-  const result = await orchestrator.runAiChatTurn({
-    request,
+  const result = await orchestrator.runAiChatTurnWithContext(context, {
     ...parsed.data,
   });
 

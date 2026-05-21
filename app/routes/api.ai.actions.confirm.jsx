@@ -6,6 +6,8 @@ import {
   aiActionProposalToSafeSummary,
 } from "../ai/actions/presentation";
 import { mapAiPresentationBlockToChatKitWidget } from "../ai/chatkit/widgets";
+import { canUseInternalAiAction } from "../ai/security/permissions.server";
+import { checkAiRateLimit, rateLimitResponse } from "../ai/security/rateLimit.server";
 
 const aiActionConfirmRequestSchema = z.object({
   proposalId: z.string().trim().min(1).max(320),
@@ -36,6 +38,16 @@ export const action = async ({ request }) => {
   const context = await createAiToolContextFromAuthenticatedRequest(request, {
     conversationId: parsed.data.conversationId,
   });
+  const permission = canUseInternalAiAction(context);
+  if (!permission.allowed) {
+    return Response.json(
+      { status: "disabled", message: permission.message, error: { code: permission.code, message: permission.message } },
+      { status: permission.code === "AI_AUTH_REQUIRED" ? 401 : 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const rateLimit = checkAiRateLimit({ context, bucket: "action_confirm" });
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit);
+
   const registry = createAiActionRegistry();
   const result = await registry.confirmAiActionProposal(context, parsed.data.proposalId);
 

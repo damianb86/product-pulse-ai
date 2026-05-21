@@ -1,7 +1,10 @@
 import {
   chatKitActionRequestSchema,
-  handleChatKitActionFromRequest,
+  handleChatKitAction,
 } from "../ai/chatkit/actions.server";
+import { createAiToolContextFromAuthenticatedRequest } from "../ai/context.server";
+import { canUseAiAssistant } from "../ai/security/permissions.server";
+import { checkAiRateLimit, rateLimitResponse } from "../ai/security/rateLimit.server";
 
 export const loader = async () => Response.json(
   { status: "error", message: "Method not allowed." },
@@ -34,10 +37,20 @@ export const action = async ({ request }) => {
     );
   }
 
-  const result = await handleChatKitActionFromRequest({
-    request,
-    actionInput: parsed.data,
+  const context = await createAiToolContextFromAuthenticatedRequest(request, {
+    conversationId: parsed.data.conversationId,
   });
+  const permission = canUseAiAssistant(context);
+  if (!permission.allowed) {
+    return Response.json(
+      { status: "disabled", message: permission.message },
+      { status: permission.code === "AI_AUTH_REQUIRED" ? 401 : 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const rateLimit = checkAiRateLimit({ context, bucket: "chatkit_action" });
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit);
+
+  const result = await handleChatKitAction(context, parsed.data);
 
   return Response.json(result, {
     status: result.status === "success" ? 200 : 400,
