@@ -25,6 +25,8 @@ The registry is separate from:
 - `product_pulse_create_seo_draft`: stores SEO title/description draft fields in ProductPulse only.
 - `product_pulse_create_metafield_value_draft`: stores an allowlisted metafield value draft in ProductPulse only. Default allowlist: `productpulse.faq_html` with type `multi_line_text_field`.
 - `product_pulse_create_recommended_action`: creates an app-owned `ProductAction` recommendation record.
+- `product_pulse_create_product_action`: creates a new ProductPulse product action with action payload fields such as generated text, target field, description operation, media update metadata, FAQ items, or tags.
+- `product_pulse_update_recommended_action_draft`: rewrites an existing ProductPulse recommendation/action by `actionId`, records a `ProductAction` draft, and updates the latest stored diagnosis recommendation JSON with AI provenance when available.
 - `product_pulse_mark_recommended_action_status`: records an app-owned recommendation status change.
 
 ## Blocked Shopify Mutations
@@ -46,6 +48,17 @@ The AI assistant flow must not update Shopify product descriptions, SEO fields, 
 `app_draft_proposal` maps to a ChatKit `Card` with a `Form`, validated fields, a “Save draft in app” submit button, and a cancel button. Payloads contain `proposalId` plus edited field values. The target product and mutation metadata are reloaded server-side.
 
 `app_draft_result` shows saved/cancelled/failed outcomes. It never reports Shopify changes.
+
+## Editing ProductPulse Actions From Chat
+
+The assistant can create or rewrite ProductPulse actions only through the app-only mutation proposal tool. The model must pass a product reference returned by read-only ProductPulse tools and, for rewrites, the recommendation `actionId`. The user then confirms the editable ChatKit card.
+
+Saved action edits:
+- create a `ProductAction` row scoped to the authenticated shop;
+- update the latest stored diagnosis recommendation JSON when the action exists there;
+- mark payloads with `aiGeneratedBy` or `aiRegeneratedBy`;
+- store fields such as `draftText`, `field`, `descriptionOperation`, `mediaUpdates`, `descriptionChanges`, `faqItems`, and `tags` as ProductPulse data only;
+- never include `applyMode=apply` and never call Shopify Admin mutation helpers.
 
 ## Security
 
