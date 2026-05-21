@@ -113,6 +113,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(latestQuery).toContain("customerNote");
     expect(latestQuery).toContain("sortKey: UPDATED_AT");
     expect(latestQuery).toContain("orders(first: $ordersFirst");
+    expect(latestQuery).toContain("processedAt");
     expect(latestQuery).toContain("returns(first: $returnsFirst");
     expect(latestQuery).toContain("returnLineItems(first: $returnLineItemsFirst");
     expect(legacyQuery).not.toContain("returnReasonDefinition");
@@ -1464,6 +1465,41 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("uses Shopify order date for monthly activity when returns and refunds are captured later", () => {
+    const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 180,
+      sales: [],
+      returns: [
+        {
+          id: "return-1",
+          orderId: "order-jan",
+          orderDate: "2026-01-20T10:00:00.000Z",
+          createdAt: "2026-05-05T10:00:00.000Z",
+          quantity: 1,
+        },
+      ],
+      refunds: [
+        {
+          id: "refund-1",
+          orderId: "order-feb",
+          orderDate: "2026-02-15T10:00:00.000Z",
+          processedAt: "2026-05-06T10:00:00.000Z",
+          quantity: 1,
+          amount: 120,
+        },
+      ],
+    });
+
+    const january = activity.months.find((month) => month.key === "2026-01");
+    const february = activity.months.find((month) => month.key === "2026-02");
+    const may = activity.months.find((month) => month.key === "2026-05");
+
+    expect(january).toMatchObject({ orders: 1, returnedOrders: 1, returnedUnits: 1 });
+    expect(february).toMatchObject({ orders: 1, refundedOrders: 1, refundedUnits: 1, refundAmount: 120 });
+    expect(may).toMatchObject({ orders: 0, returnedOrders: 0, refundedOrders: 0 });
+  });
+
   it("counts return-only Shopify events as order activity for rate denominators", () => {
     const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
       now: "2026-05-16T12:00:00.000Z",
@@ -1520,6 +1556,29 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(prediction.forecastPoints).toHaveLength(13);
     expect(prediction.forecastPoints[0]).toMatchObject({ kind: "forecast" });
     expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
+  });
+
+  it("uses Shopify order date for return-rate prediction cohorts when return capture is later", () => {
+    const prediction = __productPulseDiagnosisTestHooks.buildReturnRatePrediction({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 90,
+      sales: [],
+      returns: [
+        {
+          id: "return-1",
+          orderId: "order-mar",
+          orderDate: "2026-03-03T10:00:00.000Z",
+          createdAt: "2026-05-06T10:00:00.000Z",
+          quantity: 1,
+        },
+      ],
+    });
+
+    const marchWeek = prediction.observedPoints.find((point) => point.key === "2026-03-02");
+    const mayWeek = prediction.observedPoints.find((point) => point.key === "2026-05-04");
+
+    expect(marchWeek).toMatchObject({ orders: 1, returnedOrders: 1, returnedUnits: 1 });
+    expect(mayWeek).toMatchObject({ orders: 0, returnedOrders: 0 });
   });
 
   it("keeps the return-rate forecast stable when recent return behavior is flat", () => {

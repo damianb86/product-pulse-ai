@@ -649,7 +649,7 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
   const events = [];
   let ordersCursor;
   let hasNextOrdersPage = true;
-  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
+  const orderQuery = `processed_at:>=${getSinceDate(windowDays)}`;
 
   while (hasNextOrdersPage) {
     const data = await shopifyGraphql(
@@ -664,6 +664,7 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
           nodes {
             id
             createdAt
+            processedAt
             lineItems(first: $lineItemsFirst) {
               nodes {
                 id
@@ -703,7 +704,12 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
     );
 
     (data?.orders?.nodes || []).forEach((order) => {
-      const orderContext = { id: order.id, createdAt: order.createdAt };
+      const orderContext = {
+        id: order.id,
+        createdAt: getShopifyOrderDate(order),
+        processedAt: order.processedAt,
+        originalCreatedAt: order.createdAt,
+      };
       getNodes(order.lineItems).forEach((lineItem) => {
         events.push(normalizeOrderLineItemEvent(lineItem, orderContext));
       });
@@ -748,6 +754,9 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
             if (refundLineItem.id) seenRefundLineItemIds.add(refundLineItem.id);
             const event = normalizeRefundLineItemEvent(refundLineItem, {
               id: refund.id,
+              orderDate: getShopifyOrderDate(order),
+              orderProcessedAt: order.processedAt,
+              orderCreatedAt: order.createdAt,
               createdAt: refund.processedAt || refund.createdAt || order.createdAt,
               updatedAt: refund.updatedAt || refund.processedAt || refund.createdAt || order.createdAt,
               orderId: order.id,
@@ -806,6 +815,7 @@ function buildPaginatedRefundsQuery() {
             id
             name
             createdAt
+            processedAt
             updatedAt
             displayFinancialStatus
             totalRefundedSet {
@@ -950,6 +960,7 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
           nodes {
             id
             createdAt
+            processedAt
             returns(first: $returnsFirst) {
               nodes {
                 id
@@ -1006,7 +1017,14 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
     (data?.orders?.nodes || []).forEach((order) => {
       getNodes(order.returns).forEach((itemReturn) => {
         getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
-          events.push(normalizeReturnLineItemEvent(returnLineItem, { id: itemReturn.id, createdAt: itemReturn.createdAt || order.createdAt, orderId: order.id }));
+          events.push(normalizeReturnLineItemEvent(returnLineItem, {
+            id: itemReturn.id,
+            orderDate: getShopifyOrderDate(order),
+            orderProcessedAt: order.processedAt,
+            orderCreatedAt: order.createdAt,
+            createdAt: itemReturn.createdAt || order.createdAt,
+            orderId: order.id,
+          }));
         });
       });
     });
@@ -1074,7 +1092,12 @@ function normalizeBulkOrderEvents(lines) {
     if (!line?.id) return;
 
     if (line.__typename === "Order" || ("createdAt" in line && !line.__parentId)) {
-      const order = { id: line.id, createdAt: line.createdAt };
+      const order = {
+        id: line.id,
+        createdAt: getShopifyOrderDate(line),
+        processedAt: line.processedAt,
+        originalCreatedAt: line.createdAt,
+      };
       orders.set(line.id, order);
       appendGroupedOrderEvents(line, order, events);
       return;
@@ -1082,13 +1105,28 @@ function normalizeBulkOrderEvents(lines) {
 
     if (line.__typename === "Refund") {
       const order = orders.get(line.__parentId);
-      refunds.set(line.id, { id: line.id, createdAt: line.createdAt || order?.createdAt, orderId: line.__parentId, note: line.note });
+      refunds.set(line.id, {
+        id: line.id,
+        orderDate: order?.createdAt || null,
+        orderProcessedAt: order?.processedAt || null,
+        orderCreatedAt: order?.originalCreatedAt || null,
+        createdAt: line.createdAt || order?.createdAt,
+        orderId: line.__parentId,
+        note: line.note,
+      });
       return;
     }
 
     if (line.__typename === "Return") {
       const order = orders.get(line.__parentId);
-      returns.set(line.id, { id: line.id, createdAt: line.createdAt || order?.createdAt, orderId: line.__parentId });
+      returns.set(line.id, {
+        id: line.id,
+        orderDate: order?.createdAt || null,
+        orderProcessedAt: order?.processedAt || null,
+        orderCreatedAt: order?.originalCreatedAt || null,
+        createdAt: line.createdAt || order?.createdAt,
+        orderId: line.__parentId,
+      });
       return;
     }
 
@@ -1122,6 +1160,9 @@ function appendGroupedOrderEvents(orderLine, order, events) {
     getNodes(refund.refundLineItems).forEach((refundLineItem) => {
       events.push(normalizeRefundLineItemEvent(refundLineItem, {
         id: refund.id,
+        orderDate: order.createdAt,
+        orderProcessedAt: order.processedAt,
+        orderCreatedAt: order.originalCreatedAt,
         createdAt: refund.createdAt || order.createdAt,
         orderId: order.id,
         note: refund.note,
@@ -1132,6 +1173,9 @@ function appendGroupedOrderEvents(orderLine, order, events) {
   getNodes(orderLine.returns).forEach((itemReturn) => {
     const returnContext = {
       id: itemReturn.id,
+      orderDate: order.createdAt,
+      orderProcessedAt: order.processedAt,
+      orderCreatedAt: order.originalCreatedAt,
       createdAt: itemReturn.createdAt || order.createdAt,
       orderId: order.id,
     };
@@ -1144,12 +1188,16 @@ function appendGroupedOrderEvents(orderLine, order, events) {
 function normalizeOrderLineItemEvent(lineItem, order) {
   const product = lineItem.product || {};
   const variant = lineItem.variant || {};
+  const orderDate = order?.createdAt || order?.processedAt || order?.originalCreatedAt || null;
 
   return {
     type: "sale",
     id: lineItem.id,
     orderId: order?.id,
-    occurredAt: order?.createdAt,
+    occurredAt: orderDate,
+    orderDate,
+    orderProcessedAt: order?.processedAt || null,
+    orderCreatedAt: order?.originalCreatedAt || null,
     productId: product.id,
     variantId: variant.id,
     handle: product.handle,
@@ -1160,6 +1208,10 @@ function normalizeOrderLineItemEvent(lineItem, order) {
     variantSku: variant.sku || lineItem.sku,
     variantOptions: variant.selectedOptions || [],
   };
+}
+
+function getShopifyOrderDate(order = {}) {
+  return order?.processedAt || order?.createdAt || order?.updatedAt || null;
 }
 
 function normalizeRefundLineItemEvent(refundLineItem, refund) {
@@ -1176,6 +1228,9 @@ function normalizeRefundLineItemEvent(refundLineItem, refund) {
   return {
     type: "refund",
     occurredAt: refundLineItem.createdAt || refund?.createdAt,
+    orderDate: refund?.orderDate || null,
+    orderProcessedAt: refund?.orderProcessedAt || null,
+    orderCreatedAt: refund?.orderCreatedAt || null,
     productId: product.id || variant.product?.id,
     variantId: variant.id,
     handle: product.handle || variant.product?.handle,
@@ -1205,6 +1260,9 @@ function buildOrderLevelRefundFallbackEvents({
   const totalRefundedAmount = getOrderLevelRefundAmount(order, refund, lineItems);
   const context = {
     id: refund?.id || `order-refund:${order?.id || ""}`,
+    orderDate: getShopifyOrderDate(order),
+    orderProcessedAt: order?.processedAt,
+    orderCreatedAt: order?.createdAt,
     createdAt: refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt,
     updatedAt: refund?.updatedAt || refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt,
     orderId: order?.id,
@@ -1235,6 +1293,9 @@ function normalizeOrderLevelRefundLineItemEvent(lineItem, refund) {
   return {
     type: "refund",
     occurredAt: refund?.createdAt,
+    orderDate: refund?.orderDate || null,
+    orderProcessedAt: refund?.orderProcessedAt || null,
+    orderCreatedAt: refund?.orderCreatedAt || null,
     productId: product.id || variant.product?.id,
     variantId: variant.id,
     handle: product.handle || variant.product?.handle,
@@ -1344,6 +1405,9 @@ function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
   return {
     type: "return",
     occurredAt: returnLineItem.createdAt || itemReturn?.createdAt,
+    orderDate: itemReturn?.orderDate || null,
+    orderProcessedAt: itemReturn?.orderProcessedAt || null,
+    orderCreatedAt: itemReturn?.orderCreatedAt || null,
     productId: product.id,
     variantId: variant.id,
     handle: product.handle,
@@ -1493,6 +1557,9 @@ function applyEventToAggregate(aggregate, event) {
         id: event.id || `${event.productId || aggregate.product.id}:${event.variantId || ""}:${event.occurredAt}:${aggregate.salesEvents.length}`,
         orderId: event.orderId || event.id || `${event.productId || aggregate.product.id}:${event.occurredAt}:${aggregate.salesEvents.length}`,
         createdAt: event.occurredAt,
+        orderDate: event.orderDate || event.occurredAt,
+        orderProcessedAt: event.orderProcessedAt || null,
+        orderCreatedAt: event.orderCreatedAt || null,
         quantity,
         amount: toNumber(event.amount),
       });
@@ -2199,12 +2266,13 @@ const PRODUCT_CATALOG_BULK_QUERY = `{
 
 export function buildOrdersBulkQuery(windowDays) {
   return `{
-    orders(query: "created_at:>=${getSinceDate(windowDays)}") {
+    orders(query: "processed_at:>=${getSinceDate(windowDays)}") {
       edges {
         node {
           __typename
           id
           createdAt
+          processedAt
           lineItems {
             edges {
               node {

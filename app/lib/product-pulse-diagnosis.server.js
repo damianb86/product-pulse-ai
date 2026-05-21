@@ -621,7 +621,7 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
         buildDiagnosisSalesQuery({ includeGeography }),
         {
           after: cursor,
-          query: `created_at:>=${querySinceDate}`,
+          query: `processed_at:>=${querySinceDate}`,
           ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
           lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
         },
@@ -639,12 +639,16 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
 
     (data?.orders?.nodes || []).forEach((order) => {
       const geography = getOrderAddressGeography(order);
+      const orderDate = toIso(getShopifyOrderDate(order));
       getNodes(order.lineItems).forEach((lineItem) => {
         if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
         events.push({
           id: lineItem.id,
           orderId: order.id,
-          createdAt: toIso(order.createdAt),
+          createdAt: orderDate,
+          orderDate,
+          orderProcessedAt: toIso(order.processedAt),
+          orderCreatedAt: toIso(order.createdAt),
           quantity: Number(lineItem.quantity || 0),
           amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
           title: lineItem.title || product.title,
@@ -680,6 +684,7 @@ function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
           nodes {
             id
             createdAt
+            processedAt
             ${includeGeography ? `
             shippingAddress {
               country
@@ -732,6 +737,10 @@ function getOrderAddressGeography(order = {}) {
   return normalizeOrderAddressGeography(order.shippingAddress)
     || normalizeOrderAddressGeography(order.billingAddress)
     || null;
+}
+
+function getShopifyOrderDate(order = {}) {
+  return order?.processedAt || order?.createdAt || order?.updatedAt || null;
 }
 
 function normalizeOrderAddressGeography(address = {}) {
@@ -896,6 +905,9 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
               id: refundLineItem.id,
               refundId: refund.id,
               orderId: order.id,
+              orderDate: toIso(getShopifyOrderDate(order)),
+              orderProcessedAt: toIso(order.processedAt),
+              orderCreatedAt: toIso(order.createdAt),
               createdAt: toIso(refund.processedAt || refund.createdAt || order.createdAt),
               processedAt: toIso(refund.processedAt || refund.createdAt || order.createdAt),
               updatedAt: toIso(refund.updatedAt || refund.processedAt || refund.createdAt || order.createdAt),
@@ -983,6 +995,9 @@ function addDiagnosisOrderLevelRefundFallbackEvents({
   const totalRefundedAmount = getDiagnosisOrderLevelRefundAmount(order, refund, lineItems);
   const context = {
     id: refund?.id || `order-refund:${order?.id || ""}`,
+    orderDate: toIso(getShopifyOrderDate(order)),
+    orderProcessedAt: toIso(order?.processedAt),
+    orderCreatedAt: toIso(order?.createdAt),
     createdAt: toIso(refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt),
     processedAt: toIso(refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt),
     updatedAt: toIso(refund?.updatedAt || refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt),
@@ -1059,6 +1074,9 @@ function normalizeDiagnosisOrderLevelRefundLineItemEvent(lineItem, refund, produ
     refundId: refund?.id || null,
     orderId: refund?.orderId || null,
     orderName: refund?.orderName || "",
+    orderDate: refund?.orderDate || null,
+    orderProcessedAt: refund?.orderProcessedAt || null,
+    orderCreatedAt: refund?.orderCreatedAt || null,
     createdAt: refund?.createdAt,
     processedAt: refund?.processedAt || refund?.createdAt,
     updatedAt: refund?.updatedAt || refund?.createdAt,
@@ -1153,6 +1171,7 @@ function buildDiagnosisRefundsQuery({ includeVariantProduct = true, includeAdjus
             id
             name
             createdAt
+            processedAt
             updatedAt
             displayFinancialStatus
             totalRefundedSet {
@@ -1402,6 +1421,9 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
               id: returnLineItem.id,
               returnId: itemReturn.id,
               orderId: order.id,
+              orderDate: toIso(getShopifyOrderDate(order)),
+              orderProcessedAt: toIso(order.processedAt),
+              orderCreatedAt: toIso(order.createdAt),
               createdAt: toIso(itemReturn.createdAt || order.createdAt),
               status: itemReturn.status || "",
               quantity: Number(returnLineItem.quantity || returnLineItem.processedQuantity || returnLineItem.refundedQuantity || 0),
@@ -1459,6 +1481,7 @@ function buildDiagnosisReturnsQuery({ includeReasonDefinition = true, includeVar
           nodes {
             id
             createdAt
+            processedAt
             returns(first: $returnsFirst) {
               nodes {
                 id
@@ -8421,6 +8444,9 @@ function trimSourceEventForCache(item = {}, type) {
     cacheKey,
     id: item.id || null,
     orderId: item.orderId || null,
+    orderDate: toIso(item.orderDate || item.orderProcessedAt || item.orderCreatedAt),
+    orderProcessedAt: toIso(item.orderProcessedAt),
+    orderCreatedAt: toIso(item.orderCreatedAt),
     createdAt: toIso(item.createdAt || item.processedAt || item.updatedAt),
     updatedAt: toIso(item.updatedAt || item.processedAt || item.createdAt),
     quantity: Number(item.quantity || 0),
@@ -8699,6 +8725,9 @@ function buildDiagnosisSourceFingerprint({
       "provinceCode",
       "country",
       "province",
+      "orderDate",
+      "orderProcessedAt",
+      "orderCreatedAt",
       "createdAt",
       "updatedAt",
     ]),
@@ -8714,6 +8743,9 @@ function buildDiagnosisSourceFingerprint({
       "customerNote",
       "quantity",
       "amount",
+      "orderDate",
+      "orderProcessedAt",
+      "orderCreatedAt",
       "createdAt",
       "updatedAt",
       "processedAt",
@@ -8731,6 +8763,9 @@ function buildDiagnosisSourceFingerprint({
       "restockType",
       "quantity",
       "amount",
+      "orderDate",
+      "orderProcessedAt",
+      "orderCreatedAt",
       "createdAt",
       "updatedAt",
       "processedAt",
@@ -10678,7 +10713,7 @@ function buildMonthlyOrderActivity({
   const orderMonthById = new Map();
 
   sales.forEach((event, index) => {
-    const monthKey = getEventMonthKey(event.createdAt);
+    const monthKey = getEventMonthKey(getOrderCohortDate(event, { includeEventDate: true }));
     if (!buckets.has(monthKey)) return;
     if (event.orderId) orderMonthById.set(event.orderId, monthKey);
     const bucket = buckets.get(monthKey);
@@ -10772,7 +10807,7 @@ function buildReturnRatePrediction({
   const orderWeekById = new Map();
 
   sales.forEach((event, index) => {
-    const weekKey = getEventWeekKey(event.createdAt);
+    const weekKey = getEventWeekKey(getOrderCohortDate(event, { includeEventDate: true }));
     if (!buckets.has(weekKey)) return;
     if (event.orderId) orderWeekById.set(event.orderId, weekKey);
     const bucket = buckets.get(weekKey);
@@ -11507,12 +11542,24 @@ function getOperationalEventQuantity(event = {}) {
 
 function getOperationalEventMonthKey(event, orderMonthById) {
   if (event?.orderId && orderMonthById.has(event.orderId)) return orderMonthById.get(event.orderId);
+  const cohortMonthKey = getEventMonthKey(getOrderCohortDate(event));
+  if (cohortMonthKey) return cohortMonthKey;
   return getEventMonthKey(event?.createdAt || event?.processedAt || event?.updatedAt);
 }
 
 function getOperationalEventWeekKey(event, orderWeekById) {
   if (event?.orderId && orderWeekById.has(event.orderId)) return orderWeekById.get(event.orderId);
+  const cohortWeekKey = getEventWeekKey(getOrderCohortDate(event));
+  if (cohortWeekKey) return cohortWeekKey;
   return getEventWeekKey(event?.createdAt || event?.processedAt || event?.updatedAt);
+}
+
+function getOrderCohortDate(event = {}, { includeEventDate = false } = {}) {
+  return event.orderDate
+    || event.orderProcessedAt
+    || event.orderCreatedAt
+    || event.orderCreated_at
+    || (includeEventDate ? event.processedAt || event.createdAt || event.updatedAt : null);
 }
 
 function getEventMonthKey(value) {

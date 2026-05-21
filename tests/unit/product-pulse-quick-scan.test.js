@@ -455,6 +455,8 @@ describe("ProductPulse QuickScan", () => {
   it("keeps refund line item connections out of the orders bulk query", () => {
     const query = buildOrdersBulkQuery(60);
 
+    expect(query).toContain("processed_at:>=");
+    expect(query).toContain("processedAt");
     expect(query).toContain("lineItems");
     expect(query).toContain("returns");
     expect(query).not.toMatch(/\brefunds\s*\{/);
