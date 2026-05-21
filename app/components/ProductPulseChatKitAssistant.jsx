@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatKit, useChatKit } from "@openai/chatkit-react";
+import { useNavigate } from "react-router";
 
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -112,19 +114,19 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     }
 
     if (body.action?.type === "navigate" && body.action.url) {
-      navigateToProductPulseUrl(body.action.url, setStatusMessage);
+      navigateToProductPulseUrl(body.action.url, setStatusMessage, navigate);
       return;
     }
 
     if (body.action?.type === "send_message" && body.action.message) {
       await chatKitMethodsRef.current?.sendUserMessage({ text: body.action.message });
     }
-  }, []);
+  }, [navigate]);
 
   const handleEffect = useCallback((event) => {
     if (event?.name !== "product_pulse.navigate") return;
-    navigateToProductPulseUrl(event?.data?.url, setStatusMessage);
-  }, []);
+    navigateToProductPulseUrl(event?.data?.url, setStatusMessage, navigate);
+  }, [navigate]);
 
   const chatKit = useChatKit({
     api: {
@@ -260,12 +262,15 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   );
 }
 
-function navigateToProductPulseUrl(url, setStatusMessage) {
+function navigateToProductPulseUrl(url, setStatusMessage, navigate) {
   if (typeof url !== "string" || !isSafeProductPulsePath(url)) {
     setStatusMessage("That assistant navigation is not available.");
     return;
   }
-  window.location.assign(url);
+  window.dispatchEvent(new CustomEvent("productpulse:chatkit-navigate", {
+    detail: { url },
+  }));
+  navigate(url);
 }
 
 function isSafeProductPulsePath(url) {

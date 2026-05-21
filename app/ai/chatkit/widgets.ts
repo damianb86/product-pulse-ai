@@ -7,6 +7,7 @@ const MAX_DETAIL_LENGTH = 220;
 const MAX_LIST_ITEMS = 6;
 const MAX_EVIDENCE_ITEMS = 5;
 const MAX_METRIC_ROWS = 8;
+const MAX_RECOMMENDATION_ITEMS = 10;
 
 export function mapAiPresentationBlocksToChatKitWidgets(blocks: readonly unknown[]): Widgets.WidgetRoot[] {
   return blocks.map(mapAiPresentationBlockToChatKitWidget);
@@ -204,25 +205,47 @@ function recommendationListWidget(block: Extract<AiPresentationBlock, { type: "r
     });
   }
 
-  return card([
-    title(block.title || "Recommended actions", { key: "title" }),
-    ...block.items.slice(0, MAX_LIST_ITEMS).map((item, index) => {
-      const meta = [item.status, item.effort, item.issue].filter(Boolean).join(" · ");
-      return row([
-        icon("check-circle", { key: "icon" }),
-        col([
-          text(item.label, { key: "label", weight: "medium", maxLength: 160 }),
-          ...(meta ? [caption(meta, { key: "meta", maxLength: MAX_DETAIL_LENGTH })] : []),
+  const visibleItems = block.items.slice(0, MAX_RECOMMENDATION_ITEMS);
+  return {
+    type: "ListView",
+    id: block.productGid ? `recommendations-${stableId(block.productGid)}` : undefined,
+    key: "recommendation-list",
+    status: { text: block.title || "Recommended actions", icon: "lightbulb" },
+    limit: "auto",
+    children: visibleItems.map((item, index) => {
+      const actionPayload = compactPayload({
+        productRef: block.productGid,
+        productGid: block.productGid,
+        recommendationId: item.id,
+      });
+      return {
+        type: "ListViewItem" as const,
+        id: `recommendation-${stableId(item.id || `${index}`)}`,
+        key: `recommendation-${index}-${stableId(item.id || item.label)}`,
+        gap: 6,
+        onClickAction: block.productGid
+          ? { type: "open_recommendation", payload: actionPayload }
+          : undefined,
+        children: [
+          row([
+            text(item.label, { key: "label", weight: "medium", maxLength: 180 }),
+            row([
+              ...(item.status ? [badge(item.status, statusBadgeColor(item.status), { key: "status" })] : []),
+              ...(item.effort ? [badge(`${item.effort} effort`, "secondary", { key: "effort" })] : []),
+            ], { key: "badges", gap: 4, wrap: "wrap" }),
+          ], { key: "heading", justify: "between", align: "start" }),
+          ...(item.issue ? [caption(`Issue: ${item.issue}`, { key: "issue", maxLength: MAX_DETAIL_LENGTH })] : []),
           ...(item.draftPreview ? [text(item.draftPreview, { key: "preview", maxLength: MAX_SNIPPET_LENGTH })] : []),
-        ], { key: "body", gap: 3, flex: 1 }),
-      ], { key: `recommendation-${index}`, align: "start" });
+          ...(block.productGid ? [
+            actionRow([
+              button("Review action", "open_recommendation", actionPayload, "external-link"),
+              button("Open product", "open_product", { productRef: block.productGid }, "profile-card"),
+            ], { key: "actions" }),
+          ] : []),
+        ],
+      };
     }),
-    ...(block.productGid ? [
-      actionRow([
-        button("Open product", "open_product", { productRef: block.productGid }, "external-link"),
-      ], { key: "actions" }),
-    ] : []),
-  ], { status: { text: "Recommendations", icon: "lightbulb" } });
+  };
 }
 
 function emptyStateWidget(block: Extract<AiPresentationBlock, { type: "unavailable_state" }>): Widgets.Card {

@@ -387,15 +387,38 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "ListView", "Card", "Card", "Card", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "ListView", "ListView", "Card", "Card", "Card"]);
     expect(widgets.every((widget) => widget.type !== "Card" || widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence");
+    expect(JSON.stringify(widgets)).toContain("open_recommendation");
     expect(JSON.stringify(widgets)).toContain("show_more_evidence");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
     expect(JSON.stringify(widgets)).toContain("Action completed");
     expect(JSON.stringify(widgets)).not.toContain(longEvidence);
+  });
+
+  it("renders recommended actions as detailed rows with review actions", () => {
+    const widget = mapAiPresentationBlockToChatKitWidget({
+      type: "recommendation_list",
+      productGid: "gid://shopify/Product/1",
+      title: "Recommended actions",
+      items: Array.from({ length: 8 }, (_, index) => ({
+        id: `rec-${index + 1}`,
+        label: `Recommended action ${index + 1}`,
+        status: index % 2 === 0 ? "active" : "reviewed",
+        issue: `Issue ${index + 1}`,
+        effort: "Low",
+        draftPreview: "Explain what this action would change before the merchant reviews it.",
+      })),
+    });
+
+    expect(widget.type).toBe("ListView");
+    expect(widget.children).toHaveLength(8);
+    expect(JSON.stringify(widget)).toContain("Review action");
+    expect(JSON.stringify(widget)).toContain("\"type\":\"open_recommendation\"");
+    expect(JSON.stringify(widget)).toContain("\"recommendationId\":\"rec-8\"");
   });
 
   it("falls back safely for unsupported presentation blocks without leaking raw JSON", () => {
@@ -494,6 +517,40 @@ describe("ProductPulse ChatKit integration", () => {
       action: {
         type: "navigate",
         url: "/app/products/core-linen-trouser/evidence?source=Returns",
+      },
+    });
+    expect(registry.executeAiTool).toHaveBeenCalledWith(
+      PRODUCT_PULSE_AI_TOOL_NAMES.getProductRiskDetail,
+      expect.objectContaining({ shop: baseContext.shop }),
+      { productRef: "core-linen-trouser" },
+    );
+  });
+
+  it("validates product ownership before returning recommendation modal navigation", async () => {
+    const registry = createRegistry({
+      product: {
+        productGid: "gid://shopify/Product/1",
+        handle: "core-linen-trouser",
+      },
+    });
+
+    const result = await handleChatKitAction(baseContext, {
+      action: {
+        type: "open_recommendation",
+        payload: {
+          productRef: "core-linen-trouser",
+          recommendationId: "rewrite-product-description",
+        },
+      },
+    }, {
+      toolRegistry: registry,
+    });
+
+    expect(result).toEqual({
+      status: "success",
+      action: {
+        type: "navigate",
+        url: "/app/products/core-linen-trouser?assistantAction=open_recommendation&recommendationId=rewrite-product-description",
       },
     });
     expect(registry.executeAiTool).toHaveBeenCalledWith(

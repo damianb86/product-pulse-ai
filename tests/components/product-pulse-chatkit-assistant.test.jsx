@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatKit } from "@openai/chatkit-react";
+import { MemoryRouter, useLocation } from "react-router";
 import { ProductPulseChatKitAssistant } from "../../app/components/ProductPulseChatKitAssistant";
 
 vi.mock("@openai/chatkit-react", async () => {
@@ -23,7 +24,7 @@ describe("ProductPulseChatKitAssistant", () => {
   });
 
   it("renders a disabled assistant state when ChatKit is not configured", () => {
-    render(
+    renderWithRouter(
       <ProductPulseChatKitAssistant
         config={{ enabled: false, disabledReason: "ChatKit requires OPENAI_API_KEY on the server." }}
         pageContext={{ type: "dashboard" }}
@@ -42,7 +43,7 @@ describe("ProductPulseChatKitAssistant", () => {
   });
 
   it("lets the assistant drawer switch between default and wide widths", () => {
-    render(
+    renderWithRouter(
       <ProductPulseChatKitAssistant
         config={{ enabled: false, disabledReason: "ChatKit requires OPENAI_API_KEY on the server." }}
         pageContext={{ type: "dashboard" }}
@@ -62,7 +63,7 @@ describe("ProductPulseChatKitAssistant", () => {
   });
 
   it("mounts ChatKit inside the assistant drawer when enabled", async () => {
-    render(
+    renderWithRouter(
       <ProductPulseChatKitAssistant
         config={{
           enabled: true,
@@ -91,16 +92,20 @@ describe("ProductPulseChatKitAssistant", () => {
   });
 
   it("handles ChatKit navigation effects from server-validated actions", async () => {
-    render(
-      <ProductPulseChatKitAssistant
-        config={{
-          enabled: true,
-          apiUrl: "/api/ai/chatkit/message",
-          domainKey: "domain_pk_test",
-          disabledReason: null,
-        }}
-        pageContext={{ type: "product", entityId: "core-linen-trouser" }}
-      />,
+    const locations = [];
+    renderWithRouter(
+      <>
+        <LocationProbe onChange={(location) => locations.push(`${location.pathname}${location.search}`)} />
+        <ProductPulseChatKitAssistant
+          config={{
+            enabled: true,
+            apiUrl: "/api/ai/chatkit/message",
+            domainKey: "domain_pk_test",
+            disabledReason: null,
+          }}
+          pageContext={{ type: "product", entityId: "core-linen-trouser" }}
+        />
+      </>,
     );
 
     const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
@@ -116,5 +121,28 @@ describe("ProductPulseChatKitAssistant", () => {
     });
 
     expect(await screen.findByText("That assistant navigation is not available.")).toBeVisible();
+
+    await act(async () => {
+      useChatKit.mock.calls.at(-1)[0].onEffect({
+        name: "product_pulse.navigate",
+        data: { url: "/app/products/core-linen-trouser?assistantAction=open_recommendation&recommendationId=fit-note" },
+      });
+    });
+
+    expect(locations.at(-1)).toBe("/app/products/core-linen-trouser?assistantAction=open_recommendation&recommendationId=fit-note");
   });
 });
+
+function renderWithRouter(ui, options = {}) {
+  return render(
+    <MemoryRouter initialEntries={options.initialEntries || ["/app"]}>
+      {ui}
+    </MemoryRouter>,
+  );
+}
+
+function LocationProbe({ onChange }) {
+  const location = useLocation();
+  onChange(location);
+  return null;
+}

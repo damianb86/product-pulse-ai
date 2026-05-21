@@ -15,6 +15,8 @@ const safeActionPayloadSchema = z.object({
   productRef: z.string().trim().min(1).max(320).optional(),
   productGid: z.string().trim().min(1).max(320).optional(),
   handle: z.string().trim().min(1).max(180).optional(),
+  recommendationId: z.string().trim().min(1).max(160).optional(),
+  actionId: z.string().trim().min(1).max(160).optional(),
   source: z.string().trim().max(120).optional(),
   message: z.string().trim().min(1).max(500).optional(),
 }).strict();
@@ -121,6 +123,8 @@ async function dispatchSafeAction(
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "product");
     case "open_evidence":
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "evidence");
+    case "open_recommendation":
+      return productNavigationAction(context, input.action.payload || {}, toolRegistry, "recommendation");
     case "open_analytics":
       return { status: "success", action: { type: "navigate", url: "/app/analytics" } };
     case "open_watchlist":
@@ -206,7 +210,7 @@ async function productNavigationAction(
   context: AiToolContext,
   payload: z.infer<typeof safeActionPayloadSchema>,
   toolRegistry: AiToolRegistry,
-  destination: "product" | "evidence",
+  destination: "product" | "evidence" | "recommendation",
 ): Promise<ChatKitActionResult> {
   const productRef = payload.productRef || payload.productGid || payload.handle || "";
   if (!productRef) {
@@ -235,6 +239,23 @@ async function productNavigationAction(
   const baseUrl = `/app/products/${encodeURIComponent(pathId)}`;
   if (destination === "product") {
     return { status: "success", action: { type: "navigate", url: baseUrl } };
+  }
+
+  if (destination === "recommendation") {
+    const recommendationId = payload.recommendationId || payload.actionId || "";
+    if (!recommendationId) {
+      return {
+        status: "error",
+        code: "VALIDATION_ERROR",
+        message: "The assistant action is missing a recommended action ID.",
+      };
+    }
+
+    const search = new URLSearchParams({
+      assistantAction: "open_recommendation",
+      recommendationId,
+    });
+    return { status: "success", action: { type: "navigate", url: `${baseUrl}?${search.toString()}` } };
   }
 
   const search = payload.source ? `?source=${encodeURIComponent(payload.source)}` : "";

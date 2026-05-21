@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Form, Link, useFetcher, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
+import { Form, Link, useFetcher, useLocation, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
   buildConnectViewData,
   chatMeConnectionLinks,
@@ -7096,6 +7096,7 @@ function getActionIconSymbol(type) {
 
 export function ProductDiagnosisScreen({ product, actionData }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const navigation = useNavigation();
   const revalidator = useRevalidator();
   const submit = useSubmit();
@@ -7121,6 +7122,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const productRef = useRef(product);
   const minimizedActionStatesRef = useRef(minimizedActionStates);
   const lastDismissFetcherDataKeyRef = useRef("");
+  const lastChatRecommendationKeyRef = useRef("");
   const productIdentityKey = product?.slug || product?.handle || product?.id || product?.productGid || "";
   const productResolvedAt = product?.resolvedAt || "";
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
@@ -7232,6 +7234,43 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     lastDismissFetcherDataKeyRef.current = dataKey;
     revalidator.revalidate();
   }, [dismissFetcher.data, dismissFetcher.state, revalidator]);
+
+  useEffect(() => {
+    const openRecommendedActionFromUrl = (url) => {
+      if (!product) return;
+      const recommendationId = getChatRecommendationIdFromUrl(url);
+      if (!recommendationId) return;
+      const openKey = `${productIdentityKey}:${recommendationId}:${url}`;
+      if (lastChatRecommendationKeyRef.current === openKey) return;
+      const detailModel = getProductDetailModel(product);
+      const action = findRecommendedActionByReference(detailModel.recommendedActions, recommendationId);
+      if (!action) {
+        lastChatRecommendationKeyRef.current = openKey;
+        setToastData({
+          status: "validation_error",
+          message: "That recommended action is not available for this product.",
+        });
+        return;
+      }
+      lastChatRecommendationKeyRef.current = openKey;
+      setRecommendedActionsCollapsed(false);
+      setRecommendedActionsExpanded(true);
+      setEditingAction(null);
+      setActionConfirmation(null);
+      setSelectedRecommendedAction(action);
+      window.requestAnimationFrame(() => {
+        document.querySelector(".ppRecommendedActionsPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+
+    openRecommendedActionFromUrl(`${location.pathname}${location.search}`);
+
+    const handleChatKitNavigation = (event) => {
+      openRecommendedActionFromUrl(event?.detail?.url || "");
+    };
+    window.addEventListener("productpulse:chatkit-navigate", handleChatKitNavigation);
+    return () => window.removeEventListener("productpulse:chatkit-navigate", handleChatKitNavigation);
+  }, [location.pathname, location.search, product, productIdentityKey]);
 
   if (!product) {
     return (
@@ -14119,6 +14158,39 @@ function RecommendedActionsCompleteModal({ productTitle, onClose }) {
 
 function getRecommendedActionKey(action = {}) {
   return action.id || action.title || action.label || "recommended-action";
+}
+
+function findRecommendedActionByReference(actions = [], reference = "") {
+  const normalizedReference = normalizeRecommendedActionReference(reference);
+  if (!normalizedReference) return null;
+  return actions.find((action) => {
+    const candidates = [
+      action.id,
+      action.actionId,
+      action.canonicalActionId,
+      action.sourceActionId,
+      action.payload?.actionId,
+      action.payload?.canonicalActionId,
+      action.title,
+      action.label,
+    ];
+    return candidates.some((candidate) => normalizeRecommendedActionReference(candidate) === normalizedReference);
+  }) || null;
+}
+
+function normalizeRecommendedActionReference(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getChatRecommendationIdFromUrl(url = "") {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url, "https://productpulse.local");
+    if (parsed.searchParams.get("assistantAction") !== "open_recommendation") return "";
+    return parsed.searchParams.get("recommendationId") || parsed.searchParams.get("actionId") || "";
+  } catch {
+    return "";
+  }
 }
 
 function willCompleteProductRecommendedActions(product, archivedActionKey, minimizedActionStates = {}) {

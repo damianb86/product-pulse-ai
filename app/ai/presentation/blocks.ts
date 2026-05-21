@@ -76,7 +76,7 @@ const recommendationListBlockSchema = z.object({
     issue: z.string().max(220).nullable().optional(),
     effort: z.string().max(80).nullable().optional(),
     draftPreview: z.string().max(320).nullable().optional(),
-  }).strict()).max(6),
+  }).strict()).max(10),
 }).strict();
 
 const unavailableStateBlockSchema = z.object({
