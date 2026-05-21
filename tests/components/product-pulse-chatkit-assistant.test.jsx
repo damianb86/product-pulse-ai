@@ -22,6 +22,7 @@ describe("ProductPulseChatKitAssistant", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it("renders a disabled assistant state when ChatKit is not configured", () => {
@@ -91,6 +92,41 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(useChatKit.mock.calls.at(-1)[0].onClientTool).toBeUndefined();
     expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe(null);
     expect(useChatKit.mock.calls.at(-1)[0].thread.autoScroll).toBe(false);
+    expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("light");
+  });
+
+  it("lets the assistant header switch between light and dark themes", async () => {
+    renderWithRouter(
+      <ProductPulseChatKitAssistant
+        config={{
+          enabled: true,
+          apiUrl: "/api/ai/chatkit/message",
+          domainKey: "domain_pk_test",
+          disabledReason: null,
+        }}
+        pageContext={{ type: "dashboard" }}
+      />,
+    );
+
+    const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
+    fireEvent.load(script);
+    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    await screen.findByTestId("chatkit");
+
+    const assistant = screen.getByLabelText("ProductPulse AI assistant");
+    const switchButton = screen.getByRole("switch", { name: "Use dark AI Assistant theme" });
+    expect(switchButton).toHaveAttribute("aria-checked", "false");
+    expect(assistant).toHaveClass("ppChatKitAssistant-light");
+
+    fireEvent.click(switchButton);
+
+    expect(screen.getByRole("switch", { name: "Use light AI Assistant theme" })).toHaveAttribute("aria-checked", "true");
+    expect(assistant).toHaveClass("ppChatKitAssistant-dark");
+    expect(window.localStorage.getItem("productPulse.chatkit.theme.v1")).toBe("dark");
+
+    await waitFor(() => {
+      expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("dark");
+    });
   });
 
   it("restores the active ChatKit thread when the drawer is closed and reopened", async () => {

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
+const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v1";
 let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
@@ -14,6 +15,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const [chatKitScriptReady, setChatKitScriptReady] = useState(false);
   const [conversationId, setConversationId] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [themeMode, setThemeMode] = useState("light");
   const chatKitMethodsRef = useRef(null);
   const conversationIdRef = useRef("");
   const pageContextRef = useRef(pageContext || { type: "unknown" });
@@ -21,9 +23,11 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const normalizedPageContext = useMemo(() => pageContext || { type: "unknown" }, [pageContext]);
   const pageContextKey = useMemo(() => JSON.stringify(normalizedPageContext), [normalizedPageContext]);
   const enabled = Boolean(config?.enabled);
+  const isDarkTheme = themeMode === "dark";
 
   useEffect(() => {
     setIsMounted(true);
+    setThemeMode(readStoredThemeMode());
     const storedConversationId = readStoredConversationId();
     if (storedConversationId && !conversationIdRef.current) {
       conversationIdRef.current = storedConversationId;
@@ -135,6 +139,14 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     navigateToProductPulseUrl(event?.data?.url, setStatusMessage, navigate);
   }, [navigate]);
 
+  const toggleThemeMode = useCallback(() => {
+    setThemeMode((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      writeStoredThemeMode(next);
+      return next;
+    });
+  }, []);
+
   const chatKit = useChatKit({
     api: {
       url: config?.apiUrl || "/api/ai/chatkit/message",
@@ -145,7 +157,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       onAction: handleWidgetAction,
     },
     theme: {
-      colorScheme: "light",
+      colorScheme: themeMode,
       color: {
         accent: {
           primary: "#1f7a6f",
@@ -216,6 +228,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     "ppChatKitAssistant",
     isOpen ? "ppChatKitAssistant-open" : "",
     isExpanded ? "ppChatKitAssistant-expanded" : "",
+    isDarkTheme ? "ppChatKitAssistant-dark" : "ppChatKitAssistant-light",
   ].filter(Boolean).join(" ");
 
   return (
@@ -228,6 +241,22 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
               <span>{enabled ? "Backend AI" : "Unavailable"}</span>
             </div>
             <div className="ppChatKitPanelActions">
+              <div className="ppChatKitThemeControl" aria-label="AI Assistant theme">
+                <span>Theme</span>
+                <button
+                  type="button"
+                  className="ppChatKitThemeSwitch"
+                  role="switch"
+                  aria-checked={isDarkTheme}
+                  aria-label={isDarkTheme ? "Use light AI Assistant theme" : "Use dark AI Assistant theme"}
+                  onClick={toggleThemeMode}
+                >
+                  <span className="ppChatKitThemeSwitchTrack" aria-hidden="true">
+                    <span className="ppChatKitThemeSwitchThumb" />
+                  </span>
+                  <strong>{isDarkTheme ? "Dark" : "Light"}</strong>
+                </button>
+              </div>
               <button
                 type="button"
                 className="ppChatKitTextButton"
@@ -303,6 +332,25 @@ function writeStoredConversationId(conversationId) {
     } else {
       window.sessionStorage?.removeItem(CHATKIT_CONVERSATION_STORAGE_KEY);
     }
+  } catch {
+    // Storage can be unavailable in embedded browser privacy modes.
+  }
+}
+
+function readStoredThemeMode() {
+  if (typeof window === "undefined") return "light";
+  try {
+    const value = String(window.localStorage?.getItem(CHATKIT_THEME_STORAGE_KEY) || "").trim();
+    return value === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function writeStoredThemeMode(themeMode) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem(CHATKIT_THEME_STORAGE_KEY, themeMode === "dark" ? "dark" : "light");
   } catch {
     // Storage can be unavailable in embedded browser privacy modes.
   }
