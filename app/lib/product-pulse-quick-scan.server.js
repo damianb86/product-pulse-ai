@@ -19,6 +19,7 @@ import {
 } from "./product-pulse-trends.server";
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
+import { buildReturnRefundRelationshipSummaries } from "./product-pulse-return-refund-relationship.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
@@ -242,6 +243,10 @@ export function buildQuickScanCandidates({
   applyCsvReviewRatingsToAggregates({ aggregates, productIndex, csvReviewRatings });
 
   const aggregateList = Array.from(aggregates.values());
+  const returnRefundRelationshipSummaries = buildReturnRefundRelationshipSummaries({
+    products: Array.from(productIndex.values()),
+    events,
+  });
   const storeTotals = getStoreTotals(aggregateList);
   const now = new Date();
   const momentumBaselineSnapshots = buildQuickScanMomentumBaselineSnapshots(aggregateList, windowDays, now);
@@ -256,6 +261,7 @@ export function buildQuickScanCandidates({
       riskMinimumScore,
       momentumMinimumScore,
       now,
+      returnRefundRelationshipSummary: returnRefundRelationshipSummaries.get(aggregate.product.id) || null,
     }))
     .filter((candidate) => isPersistableCandidate(candidate, settings))
     .sort((a, b) => b.metrics.quickScanCandidateScore - a.metrics.quickScanCandidateScore)
@@ -1023,6 +1029,7 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
             orderProcessedAt: order.processedAt,
             orderCreatedAt: order.createdAt,
             createdAt: itemReturn.createdAt || order.createdAt,
+            status: itemReturn.status || "",
             orderId: order.id,
           }));
         });
@@ -1125,6 +1132,7 @@ function normalizeBulkOrderEvents(lines) {
         orderProcessedAt: order?.processedAt || null,
         orderCreatedAt: order?.originalCreatedAt || null,
         createdAt: line.createdAt || order?.createdAt,
+        status: line.status || "",
         orderId: line.__parentId,
       });
       return;
@@ -1177,6 +1185,7 @@ function appendGroupedOrderEvents(orderLine, order, events) {
       orderProcessedAt: order.processedAt,
       orderCreatedAt: order.originalCreatedAt,
       createdAt: itemReturn.createdAt || order.createdAt,
+      status: itemReturn.status || "",
       orderId: order.id,
     };
     getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
@@ -1194,6 +1203,7 @@ function normalizeOrderLineItemEvent(lineItem, order) {
     type: "sale",
     id: lineItem.id,
     orderId: order?.id,
+    lineItemId: lineItem.id,
     occurredAt: orderDate,
     orderDate,
     orderProcessedAt: order?.processedAt || null,
@@ -1227,6 +1237,12 @@ function normalizeRefundLineItemEvent(refundLineItem, refund) {
 
   return {
     type: "refund",
+    id: refundLineItem.id,
+    refundId: refund?.id || null,
+    refundLineItemId: refundLineItem.id,
+    orderId: refund?.orderId || null,
+    orderName: refund?.orderName || "",
+    lineItemId: lineItem.id || null,
     occurredAt: refundLineItem.createdAt || refund?.createdAt,
     orderDate: refund?.orderDate || null,
     orderProcessedAt: refund?.orderProcessedAt || null,
@@ -1292,6 +1308,11 @@ function normalizeOrderLevelRefundLineItemEvent(lineItem, refund) {
 
   return {
     type: "refund",
+    id: `order-level-refund:${refund?.orderId || ""}:${refund?.id || ""}:${lineItem?.id || ""}`,
+    refundId: refund?.id || null,
+    orderId: refund?.orderId || null,
+    orderName: refund?.orderName || "",
+    lineItemId: lineItem.id || null,
     occurredAt: refund?.createdAt,
     orderDate: refund?.orderDate || null,
     orderProcessedAt: refund?.orderProcessedAt || null,
@@ -1404,6 +1425,11 @@ function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
   const variant = lineItem.variant || {};
   return {
     type: "return",
+    id: returnLineItem.id,
+    returnId: itemReturn?.id || null,
+    returnLineItemId: returnLineItem.id,
+    orderId: itemReturn?.orderId || null,
+    lineItemId: lineItem.id || null,
     occurredAt: returnLineItem.createdAt || itemReturn?.createdAt,
     orderDate: itemReturn?.orderDate || null,
     orderProcessedAt: itemReturn?.orderProcessedAt || null,
@@ -1412,7 +1438,10 @@ function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
     variantId: variant.id,
     handle: product.handle,
     title: product.title || lineItem.title,
+    status: itemReturn?.status || "",
     quantity: toNumber(returnLineItem.quantity || returnLineItem.processedQuantity || returnLineItem.refundedQuantity),
+    processedQuantity: toNumber(returnLineItem.processedQuantity),
+    refundedQuantity: toNumber(returnLineItem.refundedQuantity),
     amount: moneyAmount(returnLineItem.withCodeDiscountedTotalPriceSet),
     reason: returnLineItem.returnReason || "Return",
     reasonHandle: returnLineItem.returnReason,
@@ -1656,6 +1685,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
   riskMinimumScore = getQuickScanMinimumRiskScore(),
   momentumMinimumScore = getQuickScanMinimumMomentumScore(),
   now = new Date(),
+  returnRefundRelationshipSummary = null,
 }) {
   const returnRate = safeRate(aggregate.returnUnits, aggregate.soldUnits);
   const refundRate = safeRate(aggregate.refundUnits, aggregate.soldUnits);
@@ -1778,6 +1808,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
       refundNoteCount: aggregate.refundNotes.length,
       refundNotes: aggregate.refundNotes.slice(0, 5),
       refundPressure: getRefundPressureSummary({ aggregate, refundRate: refundRatePercent }),
+      returnRefundRelationshipSummary,
       revenueAtRisk: roundMoney(impactFactors.revenueAtRisk),
       marginAtRisk: roundMoney(impactFactors.marginAtRisk),
       estimatedImpact: roundMoney(impactFactors.estimatedImpact),

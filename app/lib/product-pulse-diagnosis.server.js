@@ -12,6 +12,7 @@ import {
 } from "./product-pulse-trends.server";
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
+import { buildReturnRefundRelationshipSummary } from "./product-pulse-return-refund-relationship.server";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const MAX_ORDER_PAGES = 12;
@@ -645,6 +646,8 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
         events.push({
           id: lineItem.id,
           orderId: order.id,
+          lineItemId: lineItem.id,
+          productId: lineItem.product?.id || product.id || snapshot.productGid,
           createdAt: orderDate,
           orderDate,
           orderProcessedAt: toIso(order.processedAt),
@@ -904,7 +907,10 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
             events.push({
               id: refundLineItem.id,
               refundId: refund.id,
+              refundLineItemId: refundLineItem.id,
               orderId: order.id,
+              lineItemId: lineItem.id || null,
+              productId: lineItem.product?.id || lineItem.variant?.product?.id || product.id || snapshot.productGid,
               orderDate: toIso(getShopifyOrderDate(order)),
               orderProcessedAt: toIso(order.processedAt),
               orderCreatedAt: toIso(order.createdAt),
@@ -1073,6 +1079,8 @@ function normalizeDiagnosisOrderLevelRefundLineItemEvent(lineItem, refund, produ
     id: `order-level-refund:${refund?.orderId || ""}:${refund?.id || ""}:${lineItem?.id || ""}`,
     refundId: refund?.id || null,
     orderId: refund?.orderId || null,
+    lineItemId: lineItem.id || null,
+    productId: lineItem.product?.id || lineItem.variant?.product?.id || product?.id || null,
     orderName: refund?.orderName || "",
     orderDate: refund?.orderDate || null,
     orderProcessedAt: refund?.orderProcessedAt || null,
@@ -1420,7 +1428,10 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
             events.push({
               id: returnLineItem.id,
               returnId: itemReturn.id,
+              returnLineItemId: returnLineItem.id,
               orderId: order.id,
+              lineItemId: lineItem.id || null,
+              productId: lineItem.product?.id || product.id || snapshot.productGid,
               orderDate: toIso(getShopifyOrderDate(order)),
               orderProcessedAt: toIso(order.processedAt),
               orderCreatedAt: toIso(order.createdAt),
@@ -1844,6 +1855,14 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   });
   const refundInsights = refundTextState.refundInsights;
   const returnRatePrediction = buildReturnRatePrediction({ sales, returns, refunds, windowDays });
+  const returnRefundRelationshipSummary = buildReturnRefundRelationshipSummary({
+    shop: snapshot.shop,
+    productId: product.id || snapshot.productGid,
+    products: [product],
+    sales,
+    returns,
+    refunds,
+  });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
@@ -2050,6 +2069,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       avgUnitRevenue: estimatedImpact.avgUnitRevenue,
       refundAmount,
       refundInsights,
+      returnRefundRelationshipSummary,
       monthlyOrderActivity,
       orderGeography,
       returnRatePrediction,
