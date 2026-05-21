@@ -41,6 +41,7 @@ const looseAppValueSchema = z.union([
   z.string().trim().min(1).max(8000),
   z.record(z.string(), z.unknown()),
 ]);
+const optionalLooseAppValueSchema = z.preprocess(emptyStringToUndefined, looseAppValueSchema.optional());
 
 const appActionStatusSchema = z.enum(["draft", "active", "reviewed", "dismissed", "completed"]);
 const editableActionStatusSchema = z.enum(["draft", "active", "reviewed", "dismissed"]);
@@ -58,22 +59,22 @@ const compactStringRecordSchema = z.record(
 );
 
 const actionPayloadDraftFields = {
-  actionId: z.string().trim().min(1).max(180).optional(),
+  actionId: optionalNonEmptyString(180),
   sourceRecommendationId: z.string().trim().max(180).optional(),
   sourceActionId: z.string().trim().max(180).optional(),
   actionType: z.string().trim().max(180).optional(),
   type: z.string().trim().max(180).optional(),
   draftType: z.string().trim().max(120).optional(),
-  label: z.string().trim().min(3).max(180).optional(),
-  title: z.string().trim().min(3).max(180).optional(),
-  actionTitle: z.string().trim().min(3).max(180).optional(),
-  description: z.string().trim().min(1).max(3000).optional(),
-  text: z.string().trim().min(1).max(5000).optional(),
-  draftText: z.string().trim().min(1).max(5000).optional(),
-  proposedText: z.string().trim().min(1).max(5000).optional(),
-  proposedValue: looseAppValueSchema.optional(),
-  value: looseAppValueSchema.optional(),
-  note: z.string().trim().min(1).max(5000).optional(),
+  label: optionalNonEmptyString(180, 3),
+  title: optionalNonEmptyString(180, 3),
+  actionTitle: optionalNonEmptyString(180, 3),
+  description: optionalNonEmptyString(3000),
+  text: optionalNonEmptyString(5000),
+  draftText: optionalNonEmptyString(5000),
+  proposedText: optionalNonEmptyString(5000),
+  proposedValue: optionalLooseAppValueSchema,
+  value: optionalLooseAppValueSchema,
+  note: optionalNonEmptyString(5000),
   field: z.string().trim().max(180).optional(),
   targetField: z.string().trim().max(180).optional(),
   target: z.string().trim().max(180).optional(),
@@ -98,11 +99,11 @@ const productDescriptionDraftSchema = z.object({
   ...productReferenceFields,
   draftType: z.string().trim().max(120).optional(),
   title: z.string().trim().max(180).optional(),
-  text: z.string().trim().min(1).max(5000).optional(),
-  draftText: z.string().trim().min(1).max(5000).optional(),
-  proposedText: z.string().trim().min(1).max(5000).optional(),
-  proposedValue: looseAppValueSchema.optional(),
-  value: looseAppValueSchema.optional(),
+  text: optionalNonEmptyString(5000),
+  draftText: optionalNonEmptyString(5000),
+  proposedText: optionalNonEmptyString(5000),
+  proposedValue: optionalLooseAppValueSchema,
+  value: optionalLooseAppValueSchema,
   actionId: z.string().trim().max(180).optional(),
   sourceRecommendationId: z.string().trim().max(180).optional(),
   field: z.string().trim().max(180).optional(),
@@ -117,12 +118,12 @@ const seoDraftSchema = z.object({
   ...productReferenceFields,
   draftType: z.string().trim().max(120).optional(),
   title: z.string().trim().max(180).optional(),
-  seoTitle: z.string().trim().min(1).max(90).optional(),
-  seoDescription: z.string().trim().min(1).max(220).optional(),
-  text: z.string().trim().min(1).max(220).optional(),
-  proposedText: z.string().trim().min(1).max(220).optional(),
-  proposedValue: looseAppValueSchema.optional(),
-  value: looseAppValueSchema.optional(),
+  seoTitle: optionalNonEmptyString(90),
+  seoDescription: optionalNonEmptyString(220),
+  text: optionalNonEmptyString(220),
+  proposedText: optionalNonEmptyString(220),
+  proposedValue: optionalLooseAppValueSchema,
+  value: optionalLooseAppValueSchema,
   field: z.string().trim().max(180).optional(),
   targetField: z.string().trim().max(180).optional(),
   priority: actionPrioritySchema.optional(),
@@ -834,6 +835,18 @@ function requireActionTitleOrText(input: Record<string, unknown>, ctx: z.Refinem
   });
 }
 
+function emptyStringToUndefined(value: unknown): unknown {
+  if (typeof value === "string" && !value.trim()) return undefined;
+  return value;
+}
+
+function optionalNonEmptyString(maxLength: number, minLength = 1) {
+  return z.preprocess(
+    emptyStringToUndefined,
+    z.string().trim().min(minLength).max(maxLength).optional(),
+  );
+}
+
 function requireActionPatch(input: Record<string, unknown>, ctx: z.RefinementCtx) {
   const hasPatch = [
     "title",
@@ -1003,7 +1016,8 @@ function buildActionProposedValue(
     || inferActionTitle(input, product);
   const draftText = getDraftText(input)
     || String(existingAction && "draftPreview" in existingAction ? existingAction.draftPreview || "" : "").trim()
-    || String(input.description || "").trim();
+    || String(input.description || "").trim()
+    || inferActionDraftText(input, product, title);
   const description = String(input.description || existingPayload.description || input.reason || "").trim()
     || (draftText ? "AI-regenerated app-owned action text." : `App-owned action for ${product.title}.`);
   const field = getTargetField(input) || String(existingPayload.field || "").trim();
@@ -1357,12 +1371,48 @@ function recommendationIdMatches(recommendation: unknown, actionId: string): boo
 }
 
 function inferActionTitle(input: Record<string, unknown>, product: AiProductRiskDetail): string {
-  const field = String(input.field || input.shopifyField || "").toLowerCase();
-  if (field.includes("seo") || field.includes("meta")) return "Update SEO recommendation";
-  if (field.includes("media") || field.includes("alt")) return "Update image guidance";
-  if (field.includes("description")) return "Update product description guidance";
-  if (String(input.type || input.actionType || "").toLowerCase().includes("media")) return "Update image guidance";
+  const text = actionInferenceText(input);
+  if (text.includes("seo") || text.includes("meta")) return "Update SEO recommendation";
+  if (text.includes("media") || text.includes("image") || text.includes("alt")) return "Update image guidance";
+  if (text.includes("description") || text.includes("copy") || text.includes("pdp")) return "Update product description guidance";
+  if (isQaActionText(text)) return "Supplier / QA review";
   return `Create ProductPulse action for ${product.title}`;
+}
+
+function inferActionDraftText(input: Record<string, unknown>, product: AiProductRiskDetail, title: string): string {
+  const expectedResult = String(input.expectedResult || "").trim();
+  if (expectedResult) return expectedResult;
+  const reason = String(input.reason || "").trim();
+  const primaryIssue = product.primaryIssue || product.diagnosis?.likelyCause || "the ProductPulse evidence";
+  if (isQaActionText(`${title} ${actionInferenceText(input)}`)) {
+    return [
+      `Review ${product.title} with the supplier or QA team.`,
+      `Focus on ${reason || primaryIssue}.`,
+      "Keep the result inside ProductPulse until a merchant reviews any Shopify-facing change separately.",
+    ].join(" ");
+  }
+  if (reason) return `Review this ProductPulse action for ${product.title}: ${reason}.`;
+  return `Review this ProductPulse action for ${product.title} before making any merchant-facing changes.`;
+}
+
+function actionInferenceText(input: Record<string, unknown>): string {
+  return [
+    input.field,
+    input.targetField,
+    input.shopifyField,
+    input.type,
+    input.actionType,
+    input.draftType,
+    input.title,
+    input.label,
+    input.actionTitle,
+    input.reason,
+    input.expectedResult,
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+}
+
+function isQaActionText(value: string): boolean {
+  return /\b(qa|quality|supplier|safety|durability|defect|defective|refund|return|inspection|inspect|review)\b/.test(value.toLowerCase());
 }
 
 function inferStoredActionType(input: Record<string, unknown>): string {

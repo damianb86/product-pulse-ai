@@ -482,12 +482,16 @@ function resolveAppMutationName(mutationName: string, rawInput: unknown): string
     ? rawInput as Record<string, unknown>
     : {};
   const inputText = `${normalized} ${String(input.draftType || "")} ${String(input.field || input.targetField || "")}`.toLowerCase();
+  const searchableInputText = inputText.replace(/_/g, " ");
   if (inputText.includes("metafield")) return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createMetafieldValueDraft;
   if (inputText.includes("seo") || inputText.includes("meta")) return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createSeoDraft;
   if (inputText.includes("rewrite") || inputText.includes("update") || inputText.includes("edit")) {
     return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.updateRecommendedActionDraft;
   }
   if (inputText.includes("action") || inputText.includes("recommend")) return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction;
+  if (/\b(qa|quality|supplier|safety|durability|defect|refund|return|inspection|review)\b/.test(searchableInputText)) {
+    return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction;
+  }
   if (inputText.includes("description") || inputText.includes("copy") || inputText.includes("draft")) {
     return PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft;
   }

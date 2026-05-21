@@ -225,6 +225,59 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(serializedCall).not.toContain("admin.graphql");
   });
 
+  it("creates QA/internal review actions even when the model sends an empty draftText", async () => {
+    const { registry, db } = createAppMutationRegistry();
+
+    const proposal = await registry.createAiAppMutationProposal(
+      context,
+      PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction,
+      {
+        productRef: "core-linen-trouser",
+        title: "Supplier / QA review",
+        draftText: "",
+        reason: "Returns and refunds point to a product quality issue.",
+        expectedResult: "QA should inspect supplier, packaging, and defect evidence before any Shopify-facing change.",
+        priority: "high",
+      },
+    );
+
+    expect(proposal.ok).toBe(true);
+    expect(proposal.data.proposal.proposedValue.draftText).toContain("QA should inspect supplier");
+
+    const result = await registry.saveAiAppMutation(context, proposal.data.proposal.id, {
+      title: "Supplier / QA review",
+      status: "draft",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(db.productAction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        label: "Supplier / QA review",
+        payload: expect.objectContaining({
+          draftText: expect.stringContaining("QA should inspect supplier"),
+          reason: "Returns and refunds point to a product quality issue.",
+          shopifyMutationBlocked: true,
+        }),
+      }),
+    });
+  });
+
+  it("routes QA-like loose mutation names to ProductPulse product actions", async () => {
+    const { registry } = createAppMutationRegistry();
+
+    const result = await registry.executeProposalTool(context, {
+      mutationName: "supplier_qa_review",
+      productRef: "core-linen-trouser",
+      title: "Supplier / QA review",
+      draftText: "",
+      reason: "Quality defect evidence needs internal review.",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.proposal.mutationName).toBe(PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction);
+    expect(result.data.proposal.editableFields.find((field) => field.name === "draftText").value).toContain("Quality defect evidence");
+  });
+
   it("accepts real ProductPulse action draft fields when creating app-owned actions", async () => {
     const { registry, db } = createAppMutationRegistry();
     const proposal = await registry.createAiAppMutationProposal(
