@@ -10757,11 +10757,16 @@ function ProductInsightMetric({ title, value, detail, footnote, meta, tone = "ne
 
 function InsightInfoButton({ title, help }) {
   const [tooltipStyle, setTooltipStyle] = useState(null);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const tooltipId = useId();
+  const triggerRef = useRef(null);
 
-  const updateTooltipPosition = (event) => {
+  const updateTooltipPosition = () => {
     if (typeof window === "undefined") return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
     const sideGap = 16;
     const viewportWidth = window.innerWidth || 0;
     const viewportHeight = window.innerHeight || 0;
@@ -10782,32 +10787,55 @@ function InsightInfoButton({ title, help }) {
     });
   };
 
+  const openTooltip = () => {
+    updateTooltipPosition();
+    setTooltipOpen(true);
+  };
+  const closeTooltip = () => setTooltipOpen(false);
+
   return (
     <button
+      ref={triggerRef}
       className="ppInsightInfoWrap"
       type="button"
       aria-label={`What ${title} means`}
-      onClick={updateTooltipPosition}
-      onFocus={updateTooltipPosition}
-      onPointerEnter={updateTooltipPosition}
+      aria-describedby={tooltipOpen ? tooltipId : undefined}
+      onClick={openTooltip}
+      onFocus={openTooltip}
+      onPointerEnter={openTooltip}
+      onPointerLeave={closeTooltip}
+      onBlur={closeTooltip}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") closeTooltip();
+      }}
     >
       <s-icon type="info" size="small" color="subdued"></s-icon>
-      <InsightMetricTooltip help={help} style={tooltipStyle} />
+      {tooltipOpen && <InsightMetricTooltipPortal id={tooltipId} help={help} style={tooltipStyle} />}
     </button>
   );
 }
 
-function InsightMetricTooltip({ help, style }) {
+function InsightMetricTooltipPortal({ id, help, style }) {
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <InsightMetricTooltip id={id} help={help} style={style} visible />,
+    document.body,
+  );
+}
+
+function InsightMetricTooltip({ id, help, style, visible = false }) {
+  const className = `ppInsightTooltip${visible ? " isVisible" : ""}`;
+
   if (!help || typeof help === "string") {
     return (
-      <span className="ppInsightTooltip" role="tooltip" style={style}>
+      <span id={id} className={className} role="tooltip" style={style}>
         <span className="ppInsightTooltipText">{help || "Product-specific signal summary calculated from stored evidence."}</span>
       </span>
     );
   }
 
   return (
-    <span className="ppInsightTooltip" role="tooltip" style={style}>
+    <span id={id} className={className} role="tooltip" style={style}>
       <span className="ppInsightTooltipSection">
         <span className="ppInsightTooltipLabel">What it shows</span>
         <span className="ppInsightTooltipText">{help.what}</span>

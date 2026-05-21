@@ -1146,23 +1146,19 @@ describe("ProductPulse screens", () => {
     expect(within(riskSnapshot).getByText("Evidence strength")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Customer signals")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Negative review pressure")).toBeInTheDocument();
-    [
-      /how severe the product problem is over time/i,
-      /commercial strength from sales velocity/i,
-      /how reliable the diagnosis is/i,
-      /money at risk from refunds/i,
-      /customer-friction index/i,
-      /sales value is leaking into refunds/i,
-      /broad and useful the product evidence is/i,
-      /volume of customer-facing signals/i,
-      /share of connected reviews that are negative/i,
-      /strongest issue category currently detected/i,
-    ].forEach((tooltipCopy) => {
-      expect(within(riskSnapshot).getByText(tooltipCopy)).toBeInTheDocument();
-    });
+    const primaryInfoButton = within(riskSnapshot).getByRole("button", { name: "What Product risk means" });
+    fireEvent.pointerEnter(primaryInfoButton);
+    expect(screen.getByText(/how severe the product problem is over time/i)).toBeInTheDocument();
+    fireEvent.pointerLeave(primaryInfoButton);
     fireEvent.click(within(riskSnapshot).getByRole("button", { name: /view more/i }));
     expect(riskSnapshot).toHaveClass("isExpanded");
     expect(within(riskSnapshot).getByRole("button", { name: /show less/i })).toHaveAttribute("aria-expanded", "true");
+    const hiddenInfoButton = within(riskSnapshot).getByRole("button", { name: "What Refund leakage means" });
+    fireEvent.pointerEnter(hiddenInfoButton);
+    const expandedTooltip = screen.getByText(/sales value is leaking into refunds/i).closest("[role='tooltip']");
+    expect(expandedTooltip).toHaveTextContent(/sales value is leaking into refunds/i);
+    expect(riskSnapshot).not.toContainElement(expandedTooltip);
+    fireEvent.pointerLeave(hiddenInfoButton);
     fireEvent.click(within(riskSnapshot).getByRole("button", { name: /show less/i }));
     expect(riskSnapshot).not.toHaveClass("isExpanded");
   });

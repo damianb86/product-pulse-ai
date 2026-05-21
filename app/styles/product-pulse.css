@@ -3869,6 +3869,7 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 16px 38px rgba(var(--pp-shadow-rgb), 0.24);
 }
 
+.ppInsightTooltip.isVisible,
 .ppInsightInfoWrap:hover .ppInsightTooltip,
 .ppInsightInfoWrap:focus .ppInsightTooltip,
 .ppInsightInfoWrap:focus-visible .ppInsightTooltip {
