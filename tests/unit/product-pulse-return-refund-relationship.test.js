@@ -222,7 +222,7 @@ describe("return/refund relationship analysis", () => {
     expect(summary.relationship_unknown_count).toBe(0);
   });
 
-  it("stores the relationship summary on QuickScan candidate metrics without changing scoring inputs", () => {
+  it("stores the relationship summary and relationship-aware scoring factors on QuickScan candidate metrics", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
       settings: { risk: { minimumScore: 0 }, momentum: { minimumScore: 101 } },
@@ -245,6 +245,7 @@ describe("return/refund relationship analysis", () => {
       returned_and_refunded_units: 1,
       relationship_match_confidence_avg: 1,
     });
+    expect(candidates[0].metrics.returnRefundRelationshipFactors.productRisk.score).toBeGreaterThan(0);
   });
 
   it("keeps the repository read-only and scoped by tenant", async () => {

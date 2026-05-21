@@ -9,6 +9,24 @@ export const SOURCE_WEIGHTS = {
   pdpQuestions: 6,
 };
 
+export const PRODUCT_PULSE_SCORING_VERSION = "return_refund_relationship_v2";
+
+const PRODUCT_REASON_CATEGORIES = new Set([
+  "product_quality",
+  "damaged_or_defective",
+  "not_as_described",
+  "size_or_fit",
+  "wrong_item",
+]);
+
+const OPERATIONAL_REASON_CATEGORIES = new Set([
+  "shipping_issue",
+  "fulfillment_issue",
+  "customer_service",
+  "billing_or_adjustment",
+  "goodwill",
+]);
+
 export function calculateCoverageScore(sources) {
   const totalWeight = sources.reduce((sum, source) => sum + source.weight, 0);
   if (!totalWeight) return 0;
@@ -57,6 +75,8 @@ export function calculateProductScoreModel(input = {}, options = {}) {
   const riskComponents = calculateRiskComponents(metrics, options);
   const impactFactors = calculateFinancialImpact(metrics, options);
   const confidenceFactors = calculateDiagnosisConfidence(metrics, riskComponents, options);
+  const relationshipFactors = calculateRelationshipFactors(metrics, riskComponents, impactFactors, confidenceFactors);
+  const relationshipExplanations = buildReturnRefundScoringExplanations(relationshipFactors);
   const priorityScore = calculatePriorityScore({
     riskScore: riskComponents.riskScore,
     confidenceScore: confidenceFactors.confidenceScore,
@@ -73,7 +93,44 @@ export function calculateProductScoreModel(input = {}, options = {}) {
     riskComponents,
     confidenceFactors,
     impactFactors,
+    relationshipFactors,
+    relationshipExplanations,
+    scoringVersion: PRODUCT_PULSE_SCORING_VERSION,
   };
+}
+
+export function buildReturnRefundScoringExplanations(relationshipFactors = {}) {
+  if (!relationshipFactors.hasRelationshipSummary) return [];
+  const relationship = relationshipFactors.customerSignalBreakdown || {};
+  const leakage = relationshipFactors.refundLeakage || {};
+  const confidence = relationshipFactors.diagnosisConfidence || {};
+  const explanations = [];
+
+  if (relationship.linkedReturnRefundCount > 0) {
+    explanations.push(`Risk increased because ${relationship.linkedReturnRefundCount} returned unit${relationship.linkedReturnRefundCount === 1 ? "" : "s"} also had attributed refunds.`);
+  }
+
+  if (relationship.returnOnlyCount > 0) {
+    explanations.push(`Returns are present without matching refunds for ${relationship.returnOnlyCount} unit${relationship.returnOnlyCount === 1 ? "" : "s"}, so they are treated as product friction instead of confirmed financial loss.`);
+  }
+
+  if (relationship.refundOnlyCount > 0) {
+    explanations.push(`Refund leakage includes ${relationship.refundOnlyCount} refunded unit${relationship.refundOnlyCount === 1 ? "" : "s"} without a matching return.`);
+  }
+
+  if (leakage.unattributedRefundAmount > 0) {
+    explanations.push(`Confidence is lower because ${formatMoneyForExplanation(leakage.unattributedRefundAmount)} in refunds could not be safely attributed to this product.`);
+  }
+
+  if (confidence.pendingRelationshipPenalty > 0) {
+    explanations.push("Pending returns are included as unresolved friction and are not overweighted until their financial outcome is known.");
+  }
+
+  if (relationship.linkedReturnRefundCount > 0 || leakage.attributedRefundAmount > 0) {
+    explanations.push("Financial exposure separates confirmed attributed refunds from return-only future risk and unattributed refund context.");
+  }
+
+  return explanations;
 }
 
 export function getRiskTone(score) {
@@ -144,6 +201,7 @@ function normalizeScoreInput(input = {}, options = {}) {
     : refundUnits > 0 && refundAmount > 0
       ? refundAmount / refundUnits
       : 0);
+  const returnRefundRelationship = normalizeReturnRefundRelationshipSummary(input.returnRefundRelationshipSummary);
 
   return {
     soldUnits,
@@ -193,16 +251,20 @@ function normalizeScoreInput(input = {}, options = {}) {
     singleSource: Boolean(input.singleSource),
     calculationState: input.calculationState || "calculated_from_persisted_components",
     windowDays: number(input.windowDays) || 90,
+    returnRefundRelationshipSummary: input.returnRefundRelationshipSummary || null,
+    returnRefundRelationship,
   };
 }
 
 function calculateRiskComponents(metrics, options = {}) {
+  const relationshipRisk = calculateRelationshipRiskAdjustment(metrics);
   const hasEvidence = metrics.returnUnits
     || metrics.refundUnits
     || metrics.negativeReviewCount
     || metrics.sentimentNegativeCount
     || metrics.contentIssueCount
-    || metrics.refundAmount;
+    || metrics.refundAmount
+    || relationshipRisk.relationshipScore;
   const base = hasEvidence ? clamp(number(options.baseRisk ?? 6), 5, 8) : 0;
   const returnsRateScore = calculateSmoothedRateRisk({
     events: metrics.returnUnits,
@@ -231,7 +293,8 @@ function calculateRiskComponents(metrics, options = {}) {
   const highRefundPressure = metrics.soldUnits > 10 && metrics.refundRate > 0.2 && metrics.refundUnits >= 3
     ? clamp(7 + (metrics.refundRate - 0.2) * 34 + Math.log1p(metrics.refundUnits) * 1.1, 0, 20)
     : 0;
-  const refund_score = clamp(Math.max(refundRateScore, highRefundPressure), 0, 20);
+  const rawRefundScore = clamp(Math.max(refundRateScore, highRefundPressure), 0, 20);
+  const refund_score = clamp(rawRefundScore * relationshipRisk.refundScoreMultiplier, 0, 20);
   const reviews_score = calculateReviewRisk(metrics, options);
   const sentiment_score = calculateSentimentRisk(metrics, options);
   const content_gap_score = clamp(Math.max(
@@ -246,6 +309,7 @@ function calculateRiskComponents(metrics, options = {}) {
     content_gap_score,
     refund_score,
     variant_score,
+    relationshipRisk.relationshipScore,
   ];
   const activeFamilyCount = familyRisks.filter((score) => score >= 3).length;
   const agreement_points = (metrics.sourceAgreement ? 4 : 0) + Math.max(0, activeFamilyCount - 1) * 2.2;
@@ -260,6 +324,7 @@ function calculateRiskComponents(metrics, options = {}) {
     + content_gap_score
     + refund_score
     + variant_score
+    + relationshipRisk.relationshipScore
     + agreement_bonus
     + recency_bonus;
   const riskScore = Math.round(clamp(rawScore, 0, 100));
@@ -271,13 +336,82 @@ function calculateRiskComponents(metrics, options = {}) {
     sentimentScore: roundScore(sentiment_score),
     contentGapScore: roundScore(content_gap_score),
     refundScore: roundScore(refund_score),
+    rawRefundScore: roundScore(rawRefundScore),
     variantScore: roundScore(variant_score),
+    relationshipScore: roundScore(relationshipRisk.relationshipScore),
+    returnedAndRefundedRisk: roundScore(relationshipRisk.returnedAndRefundedRisk),
+    returnOnlyRisk: roundScore(relationshipRisk.returnOnlyRisk),
+    refundOnlyProductRisk: roundScore(relationshipRisk.refundOnlyProductRisk),
+    exchangeOrReplacementRisk: roundScore(relationshipRisk.exchangeOrReplacementRisk),
+    pendingReturnRisk: roundScore(relationshipRisk.pendingReturnRisk),
+    refundScoreMultiplier: roundScore(relationshipRisk.refundScoreMultiplier),
+    refundAttributionRate: roundScore(relationshipRisk.refundAttributionRate * 100),
+    relationshipMatchConfidence: roundScore(relationshipRisk.relationshipMatchConfidence * 100),
     agreementBonus: roundScore(agreement_bonus),
     recencyBonus: roundScore(recency_bonus),
     rawScore: roundScore(rawScore),
     calculated: riskScore,
     riskScore,
     calculationState: metrics.calculationState,
+  };
+}
+
+function calculateRelationshipRiskAdjustment(metrics) {
+  const relationship = metrics.returnRefundRelationship;
+  if (!relationship?.hasRelationshipSignals) {
+    return {
+      relationshipScore: 0,
+      returnedAndRefundedRisk: 0,
+      returnOnlyRisk: 0,
+      refundOnlyProductRisk: 0,
+      exchangeOrReplacementRisk: 0,
+      pendingReturnRisk: 0,
+      refundScoreMultiplier: 1,
+      refundAttributionRate: relationship?.refundAttributionRate || 0,
+      relationshipMatchConfidence: relationship?.relationshipMatchConfidenceAvg || 0,
+    };
+  }
+
+  const soldUnits = Math.max(metrics.soldUnits, relationship.soldUnits, 1);
+  const confidenceSupport = 0.65 + 0.35 * relationship.relationshipMatchConfidenceAvg;
+  const reason = relationship.reasonProfile;
+  const productReasonWeight = reason.reasonedUnits
+    ? clamp(0.55 + reason.productReasonShare * 0.72 - reason.operationalReasonShare * 0.38, 0.25, 1.2)
+    : 0.74;
+
+  const returnedAndRefundedRisk = calculateRateSeverity(relationship.returnedAndRefundedUnits / soldUnits, 14, 0.055) * confidenceSupport;
+  const returnOnlyRisk = calculateRateSeverity(relationship.returnedNotRefundedUnits / soldUnits, 7, 0.11) * (0.75 + 0.25 * relationship.relationshipMatchConfidenceAvg);
+  const refundOnlyProductRisk = calculateRateSeverity(relationship.refundedWithoutReturnUnits / soldUnits, 12, 0.05) * productReasonWeight;
+  const exchangeOrReplacementRisk = calculateRateSeverity(relationship.exchangeOrReplacementUnits / soldUnits, 5, 0.1) * 0.75;
+  const pendingReturnRisk = calculateRateSeverity(relationship.pendingReturnUnits / soldUnits, 3, 0.16) * 0.5;
+  const relationshipScore = clamp(
+    returnedAndRefundedRisk
+    + returnOnlyRisk
+    + refundOnlyProductRisk
+    + exchangeOrReplacementRisk
+    + pendingReturnRisk,
+    0,
+    24,
+  );
+
+  const hasRefundRelationshipData = relationship.totalRefundAmountRelated > 0 || relationship.refundedUnits > 0 || metrics.refundAmount > 0;
+  const refundAttributionRate = hasRefundRelationshipData
+    ? clamp(relationship.refundAttributionRate || 0, 0, 1)
+    : 1;
+  const refundScoreMultiplier = hasRefundRelationshipData
+    ? clamp(0.35 + refundAttributionRate * 0.65 - reason.operationalReasonShare * 0.35, 0.2, 1)
+    : 1;
+
+  return {
+    relationshipScore,
+    returnedAndRefundedRisk,
+    returnOnlyRisk,
+    refundOnlyProductRisk,
+    exchangeOrReplacementRisk,
+    pendingReturnRisk,
+    refundScoreMultiplier,
+    refundAttributionRate,
+    relationshipMatchConfidence: relationship.relationshipMatchConfidenceAvg,
   };
 }
 
@@ -369,9 +503,10 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
   const independentSourceScore = clamp(metrics.independentSourceCount * 7, 0, 18);
   const effectiveSampleScore = clamp(sampleSufficiency(metrics.effectiveSampleSize, 80) * 24, 0, 24);
   const productMatchScore = clamp(metrics.productMatchConfidence * 14, 0, 14);
+  const relationshipConfidence = calculateRelationshipConfidenceFactors(metrics);
   const agreementScore = clamp(
     (metrics.sourceAgreement ? 8 : 0)
-    + Math.max(0, [riskComponents.returnsScore, riskComponents.reviewsScore, riskComponents.refundScore, riskComponents.sentimentScore, riskComponents.contentGapScore].filter((score) => score >= 3).length - 1) * 2.2,
+    + Math.max(0, [riskComponents.returnsScore, riskComponents.reviewsScore, riskComponents.refundScore, riskComponents.sentimentScore, riskComponents.contentGapScore, riskComponents.relationshipScore].filter((score) => score >= 3).length - 1) * 2.2,
     0,
     15,
   );
@@ -389,6 +524,10 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     singleSourcePenalty: metrics.independentSourceCount < 2 ? 7 : 0,
     subjectiveOnlyIssuePenalty: metrics.subjectiveOnlyIssue ? 10 : 0,
     reconstructedScorePenalty: metrics.scoreBreakdownReconstructed ? 5 : 0,
+    refundAttributionPenalty: relationshipConfidence.refundAttributionPenalty,
+    pendingRelationshipPenalty: relationshipConfidence.pendingRelationshipPenalty,
+    relationshipUnknownPenalty: relationshipConfidence.relationshipUnknownPenalty,
+    missingRelationshipReasonPenalty: relationshipConfidence.missingRelationshipReasonPenalty,
   };
   const penaltyTotal = Object.values(penalties).reduce((sum, value) => sum + value, 0);
   const confidenceRaw = coverageScore
@@ -397,6 +536,8 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     + productMatchScore
     + agreementScore
     + freshnessScore
+    + relationshipConfidence.relationshipMatchScore
+    + relationshipConfidence.relationshipReasonScore
     - penaltyTotal;
   const strongReviewFallback = metrics.soldUnits < 5 && metrics.reviewCount >= 10 && agreementScore >= 10;
   const sampleSizeCap = metrics.soldUnits < 5 && metrics.reviewCount < 5
@@ -426,7 +567,9 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     signalVolumeScore * 1.3
     + independentSourceScore * 1.4
     + sourceAgreementScore * 1.3
-    + recencyScore * 1.1,
+    + recencyScore * 1.1
+    + relationshipConfidence.relationshipMatchScore * 1.2
+    + relationshipConfidence.relationshipReasonScore,
     0,
     100,
   ));
@@ -436,6 +579,8 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     independentSourceScore: roundScore(independentSourceScore),
     effectiveSampleScore: roundScore(effectiveSampleScore),
     productMatchScore: roundScore(productMatchScore),
+    relationshipMatchScore: roundScore(relationshipConfidence.relationshipMatchScore),
+    relationshipReasonScore: roundScore(relationshipConfidence.relationshipReasonScore),
     agreementScore: roundScore(agreementScore),
     freshnessScore: roundScore(freshnessScore),
     signalVolumeScore: roundScore(signalVolumeScore),
@@ -452,8 +597,52 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     reconstructionCap,
     effectiveSampleSize: roundScore(metrics.effectiveSampleSize),
     independentSourceCount: metrics.independentSourceCount,
+    relationshipMatchConfidenceAvg: roundScore((metrics.returnRefundRelationship?.relationshipMatchConfidenceAvg || 0) * 100),
+    refundAttributionRate: roundScore((metrics.returnRefundRelationship?.refundAttributionRate || 0) * 100),
     evidenceStrengthScore,
     calculationState: metrics.calculationState,
+  };
+}
+
+function calculateRelationshipConfidenceFactors(metrics) {
+  const relationship = metrics.returnRefundRelationship;
+  if (!relationship?.hasRelationshipSignals) {
+    return {
+      relationshipMatchScore: 0,
+      relationshipReasonScore: 0,
+      refundAttributionPenalty: 0,
+      pendingRelationshipPenalty: 0,
+      relationshipUnknownPenalty: 0,
+      missingRelationshipReasonPenalty: 0,
+    };
+  }
+
+  const relationshipSignalCount = Math.max(relationship.totalRelationshipSignalUnits, relationship.relationshipUnknownCount, 1);
+  const signalSupport = sampleSufficiency(relationshipSignalCount, 8);
+  const relationshipMatchScore = clamp(relationship.relationshipMatchConfidenceAvg * 10 * signalSupport, 0, 10);
+  const relationshipReasonScore = relationship.reasonProfile.reasonedUnits
+    ? clamp(4 * (relationship.reasonProfile.reasonedUnits / relationshipSignalCount), 0, 4)
+    : 0;
+  const refundAttributionPenalty = relationship.totalRefundAmountRelated > 0
+    ? clamp((1 - relationship.refundAttributionRate) * 8, 0, 8)
+    : 0;
+  const pendingRelationshipPenalty = relationship.pendingReturnUnits > 0
+    ? clamp(1.5 + relationship.pendingReturnUnits * 1.2, 0, 5)
+    : 0;
+  const relationshipUnknownPenalty = relationship.relationshipUnknownCount > 0
+    ? clamp(relationship.relationshipUnknownCount * 2, 0, 6)
+    : 0;
+  const missingRelationshipReasonPenalty = relationship.totalRelationshipSignalUnits > 0 && !relationship.reasonProfile.reasonedUnits
+    ? 3
+    : 0;
+
+  return {
+    relationshipMatchScore,
+    relationshipReasonScore,
+    refundAttributionPenalty,
+    pendingRelationshipPenalty,
+    relationshipUnknownPenalty,
+    missingRelationshipReasonPenalty,
   };
 }
 
@@ -478,6 +667,8 @@ function calculateFinancialImpact(metrics, options = {}) {
   const projectedReturnLoss = projectedFutureUnits * excessReturnRate * lossPerReturn;
   const projectedLostRevenue = projectedFutureUnits * excessReturnRate * avgUnitRevenue;
   const projectedLostMargin = projectedFutureUnits * excessReturnRate * avgUnitRevenue * marginRate;
+  const relationshipExposure = calculateRelationshipFinancialExposure(metrics, { avgUnitRevenue });
+  const confirmedRefundAmount = relationshipExposure.confirmedRefundAmount;
   const ratingDeficit = metrics.avgRating > 0 ? clamp((4.2 - metrics.avgRating) / 3.2, 0, 1) : 0;
   const reviewSampleSupport = sampleSufficiency(metrics.reviewCount, 25);
   const estimatedConversionDelta = clamp((Math.max(metrics.negativeReviewRate - metrics.storeNegativeReviewBaseline, 0) * 0.12 + ratingDeficit * 0.035) * reviewSampleSupport, 0, 0.14);
@@ -485,18 +676,21 @@ function calculateFinancialImpact(metrics, options = {}) {
   const reviewConversionRevenueDrag = revenueWindow * estimatedConversionDelta;
   const reviewConversionMarginDrag = reviewConversionRevenueDrag * marginRate;
   const returnRevenueExposure = metrics.returnUnits * avgUnitRevenue;
-  const refundMarginLoss = metrics.refundAmount * marginRate;
-  const calculatedRevenueAtRisk = projectedLostRevenue + returnRevenueExposure + reviewConversionRevenueDrag + metrics.refundAmount;
+  const refundMarginLoss = confirmedRefundAmount * marginRate;
+  const observedLossAdjusted = confirmedRefundAmount + returnProcessingCost + lostMarginFromReturnedUnits;
+  const calculatedRevenueAtRisk = projectedLostRevenue + returnRevenueExposure + reviewConversionRevenueDrag + relationshipExposure.relationshipAdjustedRefundAmount;
   const calculatedMarginAtRisk = projectedLostMargin + refundMarginLoss + returnProcessingCost + reviewConversionMarginDrag;
   const revenueAtRisk = roundMoney(Math.max(calculatedRevenueAtRisk, metrics.revenueAtRisk));
   const marginAtRisk = roundMoney(Math.max(calculatedMarginAtRisk, metrics.marginAtRisk));
-  const impactMid = roundMoney(Math.max(observedLoss + projectedReturnLoss + reviewConversionMarginDrag, marginAtRisk, metrics.refundAmount, metrics.marginAtRisk));
+  const impactMid = roundMoney(Math.max(observedLossAdjusted + projectedReturnLoss + reviewConversionMarginDrag, marginAtRisk, confirmedRefundAmount, metrics.marginAtRisk));
   const sampleMultiplier = metrics.effectiveSampleSize < 10 ? { low: 0.55, high: 1.75 } : metrics.effectiveSampleSize < 25 ? { low: 0.7, high: 1.45 } : { low: 0.84, high: 1.22 };
 
   return {
-    observedLoss: roundMoney(observedLoss),
-    refunds: roundMoney(metrics.refundAmount),
-    refundValueAtRisk: roundMoney(metrics.refundAmount),
+    observedLoss: roundMoney(observedLossAdjusted),
+    rawObservedLoss: roundMoney(observedLoss),
+    refunds: roundMoney(confirmedRefundAmount),
+    refundValueAtRisk: roundMoney(relationshipExposure.relationshipAdjustedRefundAmount),
+    relationshipExposure,
     returnProcessingCost: roundMoney(returnProcessingCost),
     lostMarginFromReturnedUnits: roundMoney(lostMarginFromReturnedUnits),
     projectedReturnLoss: roundMoney(projectedReturnLoss),
@@ -518,6 +712,145 @@ function calculateFinancialImpact(metrics, options = {}) {
     marginRate,
     excessReturnRate: roundScore(excessReturnRate * 100),
     projectedFutureUnits: roundScore(projectedFutureUnits),
+  };
+}
+
+function calculateRelationshipFinancialExposure(metrics, { avgUnitRevenue = 0 } = {}) {
+  const relationship = metrics.returnRefundRelationship;
+  if (!relationship?.hasRelationshipSignals && !relationship?.hasData) {
+    return {
+      hasRelationshipSummary: false,
+      confirmedRefundAmount: roundMoney(metrics.refundAmount),
+      attributedRefundAmount: roundMoney(metrics.refundAmount),
+      refundAmountWithReturn: 0,
+      refundAmountWithoutReturn: 0,
+      unattributedRefundAmount: 0,
+      estimatedFutureRefundFromReturnOnlyCases: 0,
+      relationshipAdjustedRefundAmount: roundMoney(metrics.refundAmount),
+      refundAttributionRate: 0,
+      totalRefundAmountRelated: roundMoney(metrics.refundAmount),
+    };
+  }
+
+  const attributedRefundAmount = roundMoney(relationship.attributedRefundAmount);
+  const unattributedRefundAmount = roundMoney(relationship.unattributedRefundAmount);
+  const returnOnlyRefundProbability = clamp(
+    relationship.returnToRefundRate || metrics.storeRefundBaseline || 0.2,
+    0.05,
+    0.85,
+  );
+  const estimatedFutureRefundFromReturnOnlyCases = roundMoney(
+    relationship.returnedNotRefundedUnits * avgUnitRevenue * returnOnlyRefundProbability,
+  );
+  const relationshipAdjustedRefundAmount = roundMoney(
+    attributedRefundAmount
+    + estimatedFutureRefundFromReturnOnlyCases
+    + unattributedRefundAmount * 0.25,
+  );
+
+  return {
+    hasRelationshipSummary: true,
+    confirmedRefundAmount: attributedRefundAmount,
+    attributedRefundAmount,
+    refundAmountWithReturn: roundMoney(relationship.refundAmountWithReturn),
+    refundAmountWithoutReturn: roundMoney(relationship.refundAmountWithoutReturn),
+    unattributedRefundAmount,
+    estimatedFutureRefundFromReturnOnlyCases,
+    relationshipAdjustedRefundAmount,
+    refundAttributionRate: roundScore(relationship.refundAttributionRate * 100),
+    totalRefundAmountRelated: roundMoney(relationship.totalRefundAmountRelated),
+  };
+}
+
+function calculateRelationshipFactors(metrics, riskComponents, impactFactors, confidenceFactors) {
+  const relationship = metrics.returnRefundRelationship;
+  if (!relationship?.hasData) {
+    return {
+      version: PRODUCT_PULSE_SCORING_VERSION,
+      hasRelationshipSummary: false,
+      productRisk: null,
+      returnPressure: null,
+      refundLeakage: null,
+      financialExposure: impactFactors.relationshipExposure,
+      diagnosisConfidence: null,
+      customerSignalBreakdown: null,
+    };
+  }
+
+  const productFrictionUnits = relationship.returnedAndRefundedUnits
+    + relationship.returnedNotRefundedUnits
+    + relationship.exchangeOrReplacementUnits
+    + relationship.pendingReturnUnits;
+  const soldUnits = Math.max(metrics.soldUnits, relationship.soldUnits, 1);
+  const returnFrictionRate = productFrictionUnits / soldUnits;
+  const returnPressureScore = clamp(
+    100 * (1 - Math.exp(-returnFrictionRate / 0.18))
+    + relationship.reasonProfile.productReasonShare * 10
+    + Math.min(8, relationship.pendingReturnUnits * 1.4),
+    0,
+    100,
+  );
+  const refundRateRevenue = relationship.totalProductRevenue > 0
+    ? relationship.attributedRefundAmount / relationship.totalProductRevenue
+    : 0;
+  const refundLeakageScore = clamp(
+    100 * (1 - Math.exp(-refundRateRevenue / 0.18))
+    + relationship.refundWithoutReturnRate * 28
+    + (1 - (relationship.refundAttributionRate || 1)) * 10,
+    0,
+    100,
+  );
+
+  return {
+    version: PRODUCT_PULSE_SCORING_VERSION,
+    hasRelationshipSummary: true,
+    productRisk: {
+      score: riskComponents.relationshipScore,
+      returnedAndRefundedRisk: riskComponents.returnedAndRefundedRisk,
+      returnOnlyRisk: riskComponents.returnOnlyRisk,
+      refundOnlyProductRisk: riskComponents.refundOnlyProductRisk,
+      exchangeOrReplacementRisk: riskComponents.exchangeOrReplacementRisk,
+      pendingReturnRisk: riskComponents.pendingReturnRisk,
+      refundScoreMultiplier: riskComponents.refundScoreMultiplier,
+    },
+    returnPressure: {
+      score: Math.round(returnPressureScore),
+      productFrictionUnits,
+      returnRateUnits: roundScore(relationship.returnRateUnits * 100),
+      returnedAndRefundedUnits: relationship.returnedAndRefundedUnits,
+      returnedNotRefundedUnits: relationship.returnedNotRefundedUnits,
+      exchangeOrReplacementUnits: relationship.exchangeOrReplacementUnits,
+      pendingReturnUnits: relationship.pendingReturnUnits,
+      productReasonShare: roundScore(relationship.reasonProfile.productReasonShare * 100),
+    },
+    refundLeakage: {
+      score: Math.round(refundLeakageScore),
+      refundRateRevenue: roundScore(refundRateRevenue * 100),
+      attributedRefundAmount: roundMoney(relationship.attributedRefundAmount),
+      refundAmountWithReturn: roundMoney(relationship.refundAmountWithReturn),
+      refundAmountWithoutReturn: roundMoney(relationship.refundAmountWithoutReturn),
+      unattributedRefundAmount: roundMoney(relationship.unattributedRefundAmount),
+      refundAttributionRate: roundScore(relationship.refundAttributionRate * 100),
+    },
+    financialExposure: impactFactors.relationshipExposure,
+    diagnosisConfidence: {
+      relationshipMatchScore: confidenceFactors.relationshipMatchScore,
+      relationshipReasonScore: confidenceFactors.relationshipReasonScore,
+      refundAttributionPenalty: confidenceFactors.refundAttributionPenalty,
+      pendingRelationshipPenalty: confidenceFactors.pendingRelationshipPenalty,
+      relationshipUnknownPenalty: confidenceFactors.relationshipUnknownPenalty,
+      missingRelationshipReasonPenalty: confidenceFactors.missingRelationshipReasonPenalty,
+      relationshipMatchConfidenceAvg: confidenceFactors.relationshipMatchConfidenceAvg,
+      refundAttributionRate: confidenceFactors.refundAttributionRate,
+    },
+    customerSignalBreakdown: {
+      linkedReturnRefundCount: relationship.returnedAndRefundedUnits,
+      returnOnlyCount: relationship.returnedNotRefundedUnits,
+      refundOnlyCount: relationship.refundedWithoutReturnUnits,
+      exchangeOrReplacementCount: relationship.exchangeOrReplacementUnits,
+      pendingOrUnknownCount: relationship.pendingReturnUnits + relationship.relationshipUnknownCount,
+      unattributedRefundCount: relationship.unattributedRefundOrders,
+    },
   };
 }
 
@@ -545,6 +878,138 @@ function calculateSmoothedRateRisk({ events, population, observedRate, baseline,
   const sampleSupport = sampleSufficiency(population + events, targetSampleSize);
   const severity = maxScore * (1 - Math.exp(-excessRate / Math.max(severityScale, 0.001)));
   return clamp(severity * sampleSupport, 0, maxScore);
+}
+
+function calculateRateSeverity(rate, maxScore, severityScale) {
+  return clamp(maxScore * (1 - Math.exp(-Math.max(0, number(rate)) / Math.max(severityScale, 0.001))), 0, maxScore);
+}
+
+function normalizeReturnRefundRelationshipSummary(summary) {
+  if (!summary || typeof summary !== "object") return null;
+  const buckets = summary.relationship_buckets || {};
+  const soldUnits = number(summary.sold_units);
+  const totalProductRevenue = number(summary.total_product_revenue);
+  const attributedRefundAmount = number(summary.attributed_refund_amount);
+  const unattributedRefundAmount = number(summary.unattributed_refund_amount);
+  const returnedAndRefundedUnits = number(summary.returned_and_refunded_units);
+  const returnedNotRefundedUnits = number(summary.returned_not_refunded_units);
+  const refundedWithoutReturnUnits = number(summary.refunded_without_return_units);
+  const exchangeOrReplacementUnits = number(summary.exchange_or_replacement_units);
+  const pendingReturnUnits = number(summary.pending_return_units);
+  const relationshipUnknownCount = number(summary.relationship_unknown_count);
+  const totalRefundAmountRelated = number(summary.total_refund_amount_related_to_product_or_orders)
+    || attributedRefundAmount + unattributedRefundAmount;
+  const reasonProfile = buildRelationshipReasonProfile(summary);
+  const totalRelationshipSignalUnits = returnedAndRefundedUnits
+    + returnedNotRefundedUnits
+    + refundedWithoutReturnUnits
+    + exchangeOrReplacementUnits
+    + pendingReturnUnits;
+  const hasRelationshipSignals = Boolean(totalRelationshipSignalUnits || relationshipUnknownCount || unattributedRefundAmount);
+  const hasData = Boolean(
+    soldUnits
+    || number(summary.sold_orders)
+    || totalRelationshipSignalUnits
+    || attributedRefundAmount
+    || unattributedRefundAmount
+    || totalProductRevenue
+    || relationshipUnknownCount,
+  );
+
+  return {
+    hasData,
+    hasRelationshipSignals,
+    soldUnits,
+    soldOrders: number(summary.sold_orders),
+    returnedUnits: number(summary.returned_units),
+    returnedOrders: number(summary.returned_orders),
+    refundedUnits: number(summary.refunded_units),
+    refundedOrders: number(summary.refunded_orders),
+    returnedAndRefundedUnits,
+    returnedAndRefundedOrders: number(summary.returned_and_refunded_orders),
+    returnedNotRefundedUnits,
+    returnedNotRefundedOrders: number(summary.returned_not_refunded_orders),
+    refundedWithoutReturnUnits,
+    refundedWithoutReturnOrders: number(summary.refunded_without_return_orders),
+    exchangeOrReplacementUnits,
+    exchangeOrReplacementOrders: number(summary.exchange_or_replacement_orders),
+    pendingReturnUnits,
+    pendingReturnOrders: number(summary.pending_return_orders),
+    unattributedRefundAmount,
+    attributedRefundAmount,
+    refundAmountWithReturn: number(summary.refund_amount_with_return),
+    refundAmountWithoutReturn: number(summary.refund_amount_without_return),
+    totalProductRevenue,
+    totalRefundAmountRelated,
+    relationshipMatchConfidenceAvg: normalizeConfidence(summary.relationship_match_confidence_avg),
+    relationshipMatchConfidenceMin: normalizeConfidence(summary.relationship_match_confidence_min),
+    relationshipUnknownCount,
+    returnRateUnits: normalizeRelationshipRate(summary.return_rate_units, number(summary.returned_units), soldUnits),
+    returnRateOrders: normalizeRelationshipRate(summary.return_rate_orders, number(summary.returned_orders), number(summary.sold_orders)),
+    refundRateRevenue: normalizeRelationshipRate(summary.refund_rate_revenue, attributedRefundAmount, totalProductRevenue),
+    refundRateUnits: normalizeRelationshipRate(summary.refund_rate_units, number(summary.refunded_units), soldUnits),
+    returnToRefundRate: normalizeRelationshipRate(summary.return_to_refund_rate, returnedAndRefundedUnits, number(summary.returned_units)),
+    refundWithReturnRate: normalizeRelationshipRate(summary.refund_with_return_rate, returnedAndRefundedUnits, number(summary.refunded_units)),
+    refundWithoutReturnRate: normalizeRelationshipRate(summary.refund_without_return_rate, refundedWithoutReturnUnits, soldUnits),
+    returnWithoutRefundRate: normalizeRelationshipRate(summary.return_without_refund_rate, returnedNotRefundedUnits, soldUnits),
+    exchangeRate: normalizeRelationshipRate(summary.exchange_rate, exchangeOrReplacementUnits, soldUnits),
+    unattributedRefundRate: normalizeRelationshipRate(summary.unattributed_refund_rate, unattributedRefundAmount, totalProductRevenue),
+    refundAttributionRate: totalRefundAmountRelated > 0
+      ? normalizeRelationshipRate(summary.refund_attribution_rate, attributedRefundAmount, totalRefundAmountRelated)
+      : 0,
+    reasonProfile,
+    totalRelationshipSignalUnits,
+    unattributedRefundOrders: number(buckets.unattributed_refund?.orders),
+  };
+}
+
+function buildRelationshipReasonProfile(summary = {}) {
+  const categories = mergeReasonCategories(summary.return_reason_categories, summary.refund_reason_categories);
+  let productReasonUnits = 0;
+  let operationalReasonUnits = 0;
+  let unknownReasonUnits = 0;
+  let reasonedUnits = 0;
+
+  Object.entries(categories).forEach(([category, value]) => {
+    const units = number(value);
+    if (!units) return;
+    reasonedUnits += units;
+    if (PRODUCT_REASON_CATEGORIES.has(category)) {
+      productReasonUnits += units;
+    } else if (OPERATIONAL_REASON_CATEGORIES.has(category)) {
+      operationalReasonUnits += units;
+    } else if (category === "unknown") {
+      unknownReasonUnits += units;
+    }
+  });
+
+  return {
+    categories,
+    productReasonUnits,
+    operationalReasonUnits,
+    unknownReasonUnits,
+    reasonedUnits,
+    productReasonShare: reasonedUnits ? productReasonUnits / reasonedUnits : 0,
+    operationalReasonShare: reasonedUnits ? operationalReasonUnits / reasonedUnits : 0,
+    unknownReasonShare: reasonedUnits ? unknownReasonUnits / reasonedUnits : 0,
+  };
+}
+
+function mergeReasonCategories(...categoryObjects) {
+  return categoryObjects.reduce((merged, categoryObject) => {
+    if (!categoryObject || typeof categoryObject !== "object") return merged;
+    Object.entries(categoryObject).forEach(([key, value]) => {
+      const units = number(value);
+      if (units > 0) merged[key] = (merged[key] || 0) + units;
+    });
+    return merged;
+  }, {});
+}
+
+function normalizeRelationshipRate(value, numerator, denominator) {
+  const numeric = normalizeRate(value, 0, 0);
+  if (numeric > 0) return numeric;
+  return denominator > 0 ? clamp(number(numerator) / denominator, 0, 1) : 0;
 }
 
 function smoothRate({ events, population, baseline, priorStrength }) {
@@ -599,4 +1064,8 @@ function roundScore(value) {
 
 function roundMoney(value) {
   return Math.round(number(value) * 100) / 100;
+}
+
+function formatMoneyForExplanation(value) {
+  return `$${Math.round(number(value)).toLocaleString("en-US")}`;
 }

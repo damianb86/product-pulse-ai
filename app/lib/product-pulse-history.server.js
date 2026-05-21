@@ -135,6 +135,8 @@ function buildHistoryMetrics(snapshot = {}) {
     customerSignalCount: nullableInteger(metrics.customerSignalCount),
     priorityScore: nullableInteger(metrics.priorityScore),
     evidenceStrengthScore: nullableInteger(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore),
+    scoringVersion: metrics.scoringVersion || metrics.returnRefundRelationshipFactors?.version || null,
+    returnRefundRelationship: buildRelationshipHistoryMetrics(metrics),
     productMomentumScore: nullableInteger(metrics.productMomentumScore || metrics.productMomentum?.score),
     productMomentumTier: metrics.productMomentumTier || metrics.productMomentum?.tier || null,
     momentumDirection: metrics.momentumDirection || metrics.productMomentum?.direction || null,
@@ -173,6 +175,28 @@ function buildReconstructedHistoryMetrics(point = {}, snapshot = {}) {
     recentSignalUnits: nullableInteger(pointMetrics.recentSignalUnits),
     riskComponents: pointMetrics.riskComponents || null,
     confidenceFactors: pointMetrics.confidenceFactors || null,
+  };
+}
+
+function buildRelationshipHistoryMetrics(metrics = {}) {
+  const summary = metrics.returnRefundRelationshipSummary || {};
+  const factors = metrics.returnRefundRelationshipFactors || {};
+  if (!summary.product_id && !factors.hasRelationshipSummary) return null;
+
+  return {
+    returnedAndRefundedUnits: nullableNumber(summary.returned_and_refunded_units),
+    returnedNotRefundedUnits: nullableNumber(summary.returned_not_refunded_units),
+    refundedWithoutReturnUnits: nullableNumber(summary.refunded_without_return_units),
+    exchangeOrReplacementUnits: nullableNumber(summary.exchange_or_replacement_units),
+    pendingReturnUnits: nullableNumber(summary.pending_return_units),
+    unattributedRefundAmount: nullableNumber(summary.unattributed_refund_amount),
+    attributedRefundAmount: nullableNumber(summary.attributed_refund_amount),
+    returnToRefundRate: nullableNumber(summary.return_to_refund_rate),
+    refundAttributionRate: nullableNumber(summary.refund_attribution_rate),
+    matchConfidenceAvg: nullableNumber(summary.relationship_match_confidence_avg),
+    returnPressureScore: nullableInteger(factors.returnPressure?.score),
+    refundLeakageScore: nullableInteger(factors.refundLeakage?.score),
+    relationshipRiskScore: nullableNumber(factors.productRisk?.score),
   };
 }
 

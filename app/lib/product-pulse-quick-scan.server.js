@@ -1737,6 +1737,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
     missingOrders: extractionMode === "catalog-only",
     calculationState: "calculated_from_persisted_components",
     windowDays,
+    returnRefundRelationshipSummary,
   }, { sentimentSharesReviewSource: true });
   const riskScore = scoreModel.riskScore;
   const riskComponents = {
@@ -1809,6 +1810,13 @@ function scoreProductAggregate(aggregate, storeTotals, {
       refundNotes: aggregate.refundNotes.slice(0, 5),
       refundPressure: getRefundPressureSummary({ aggregate, refundRate: refundRatePercent }),
       returnRefundRelationshipSummary,
+      returnRefundRelationshipFactors: scoreModel.relationshipFactors,
+      returnRefundScoringImpact: scoreModel.relationshipExplanations,
+      returnPressure: scoreModel.relationshipFactors.returnPressure,
+      refundLeakage: scoreModel.relationshipFactors.refundLeakage,
+      customerSignalBreakdown: scoreModel.relationshipFactors.customerSignalBreakdown,
+      financialExposureBreakdown: scoreModel.relationshipFactors.financialExposure,
+      scoringVersion: scoreModel.scoringVersion,
       revenueAtRisk: roundMoney(impactFactors.revenueAtRisk),
       marginAtRisk: roundMoney(impactFactors.marginAtRisk),
       estimatedImpact: roundMoney(impactFactors.estimatedImpact),

@@ -1982,6 +1982,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
     calculationState: "calculated_from_persisted_components",
     windowDays,
+    returnRefundRelationshipSummary,
   }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
   const riskComponents = scoreModel.riskComponents;
   const riskScore = scoreModel.riskScore;
@@ -2070,6 +2071,13 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundAmount,
       refundInsights,
       returnRefundRelationshipSummary,
+      returnRefundRelationshipFactors: scoreModel.relationshipFactors,
+      returnRefundScoringImpact: scoreModel.relationshipExplanations,
+      returnPressure: scoreModel.relationshipFactors.returnPressure,
+      refundLeakage: scoreModel.relationshipFactors.refundLeakage,
+      customerSignalBreakdown: scoreModel.relationshipFactors.customerSignalBreakdown,
+      financialExposureBreakdown: scoreModel.relationshipFactors.financialExposure,
+      scoringVersion: scoreModel.scoringVersion,
       monthlyOrderActivity,
       orderGeography,
       returnRatePrediction,

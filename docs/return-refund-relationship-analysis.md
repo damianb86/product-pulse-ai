@@ -1,6 +1,6 @@
 # Return/refund relationship analysis
 
-This document describes the Phase 1 backend model for classifying how returns and refunds relate to each product/order line. It is intentionally read-only and does not change Product Risk, UI cards, Shopify data, or Shopify mutations.
+This document describes the backend model for classifying how returns and refunds relate to each product/order line and how Phase 2 feeds that data into existing ProductPulse scoring. It remains read-only with respect to Shopify: no Shopify mutations or Shopify writes are performed.
 
 ## Relationship buckets
 
@@ -103,6 +103,76 @@ Supported broad categories:
 
 The classifier uses existing reason, note, restock type, adjustment reason, status, and customer-note fields only.
 
+## Scoring integration
+
+Relationship data is consumed by the existing `calculateProductScoreModel` flow in `app/lib/product-pulse-scoring.js`. The current scoring version is `return_refund_relationship_v2`.
+
+Persisted fields added in Phase 2:
+
+- `metrics.scoringVersion`
+- `metrics.returnRefundRelationshipFactors`
+- `metrics.returnRefundScoringImpact`
+- `metrics.returnPressure`
+- `metrics.refundLeakage`
+- `metrics.customerSignalBreakdown`
+- `metrics.financialExposureBreakdown`
+
+These are written by QuickScan and deep diagnosis. Recompute support lives in `app/lib/product-pulse-recalculation.server.js`.
+
+## Scoring impact
+
+Product Risk:
+
+- `returned_and_refunded` increases product risk strongly because product friction and confirmed financial loss align.
+- `refunded_without_return` increases product risk when reason categories are product-quality, damaged/defective, not-as-described, size/fit, or wrong-item.
+- `refunded_without_return` with shipping, fulfillment, customer-service, billing, or goodwill reasons is treated as lower product-specific risk and stronger financial context.
+- `returned_not_refunded` increases product friction moderately without treating it as confirmed refund loss.
+- `exchange_or_replacement` is medium friction with lower direct financial loss.
+- `pending_return_resolution` is intentionally small until resolved.
+- `unattributed_refund` lowers confidence and contributes to financial context but does not directly blame the product.
+
+Financial Exposure:
+
+- confirmed loss uses `attributed_refund_amount`;
+- `refund_amount_with_return` and `refund_amount_without_return` are stored separately;
+- `estimatedFutureRefundFromReturnOnlyCases` estimates potential future refund loss from unresolved return-only cases;
+- `unattributed_refund_amount` remains separate and low-confidence.
+
+Return Pressure:
+
+- focuses on product friction: returns, return-only cases, linked return/refund cases, exchanges, pending returns, and product-related reasons;
+- does not primarily use refund amount.
+
+Refund Leakage:
+
+- focuses on money: attributed refunds, refunds with returns, refunds without returns, unattributed refund amount, and attribution confidence.
+
+Diagnosis Confidence:
+
+- increases with exact/strong relationship matching and clear reasons;
+- decreases with unattributed refunds, unknown relationships, missing reasons, and pending relationships.
+
+Customer Signals:
+
+- exposes linked return/refund count, return-only count, refund-only count, exchange/replacement count, pending/unknown count, and unattributed refund count for future UI.
+
+Return Rate Prediction:
+
+- remains return-focused;
+- relationship data may later become a severity feature or feed a separate refund leakage/financial exposure forecast.
+
+## Recalculation and backfill
+
+`app/lib/product-pulse-recalculation.server.js` can recompute:
+
+- one product by `shop + productGid`;
+- one shop with a bounded limit;
+- all shops with a bounded limit capped at `250`.
+
+Recompute updates `ProductRiskSnapshot` risk, impact, confidence, score components, relationship factors, and scoring version. It does not call Shopify, mutate Shopify data, or create Shopify write payloads.
+
+Existing snapshots without `returnRefundRelationshipSummary` cannot reconstruct line-level relationships because raw source events are not persisted. They are still recalculated under v2, but relationship-aware impact becomes meaningful after QuickScan or deep diagnosis stores the summary.
+
 ## Current limitations
 
 - Raw Shopify source records are not persisted as relational rows.
@@ -110,46 +180,4 @@ The classifier uses existing reason, note, restock type, adjustment reason, stat
 - Exchange/replacement is inferred from source text only.
 - Product-scoped deep diagnosis may have less cross-product order context than QuickScan.
 - Order-level refund fallback remains weak and is intentionally not over-attributed.
-- The summary is not yet used in Product Risk, charts, cards, or labels.
-
-## Future scoring impact
-
-Product Risk:
-
-- Increase risk when `returned_and_refunded_units` is high and match confidence is strong.
-- Treat `returned_not_refunded` differently from `returned_and_refunded`; a return without refund can be operationally different from a financially confirmed product issue.
-- Penalize `refunded_without_return` when repeated, because it can indicate goodwill refunds, billing adjustments, damage claims, or support escalations that do not appear in return data.
-- Do not let `unattributed_refund_amount` directly blame a product; use it as uncertainty or diagnostic context.
-
-Financial Exposure:
-
-- Prefer `attributed_refund_amount` over raw `refundAmount`.
-- Split exposure into `refund_amount_with_return` and `refund_amount_without_return`.
-- Keep `unattributed_refund_amount` separate from product-attributed exposure.
-
-Return Pressure:
-
-- Replace the current independent return/refund blend with a relationship-aware pressure model.
-- Weight `returned_and_refunded`, `refunded_without_return`, and `pending_return_resolution` differently.
-
-Refund Leakage:
-
-- Use `refund_rate_revenue` and `refund_attribution_rate`.
-- Display or score leakage only from attributed refunds, with unattributed refunds as context.
-
-Diagnosis Confidence:
-
-- Increase confidence for exact line item matches.
-- Reduce confidence when `relationship_unknown_count` is high or `refund_attribution_rate` is low.
-- Treat single-product order fallback as usable but not equal to exact line attribution.
-
-Customer Signals:
-
-- Avoid double-counting a return and its matching refund as two independent product complaints.
-- Count `returned_and_refunded` as one confirmed relationship signal plus financial severity.
-- Keep `refunded_without_return` as a separate operational signal.
-
-Monthly Order Activity and Return Rate Prediction:
-
-- Continue to keep units, orders, and revenue separate.
-- Later revisions can show relationship-aware overlays, such as attributed refunds with returns vs refunds without returns.
+- UI cards and labels are intentionally unchanged in Phase 2.
