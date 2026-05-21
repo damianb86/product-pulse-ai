@@ -92,6 +92,7 @@ export function aiAppMutationResultToPresentationBlock(
       label: entity.label || null,
     })),
     savedRecordId: result.savedRecordId || null,
+    primaryAction: buildAppDraftResultPrimaryAction(result),
   };
 }
 
@@ -114,6 +115,46 @@ function safePresentationValue(value: unknown): Record<string, string> {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
     .filter(([key]) => !["shop", "shopId", "storeId", "merchantId", "userId"].includes(key))
     .map(([key, item]) => [key, stringifyValue(item).slice(0, 1200)]));
+}
+
+function buildAppDraftResultPrimaryAction(result: AiAppMutationSaveResult): {
+  label: string;
+  type: "open_product" | "open_recommendation";
+  payload: Record<string, string>;
+} | null {
+  if (result.status !== "success") return null;
+  const product = result.affectedEntities.find((entity) => entity.type === "product" && entity.id);
+  if (!product) return null;
+  const productRef = String(product.id);
+  const productAction = result.affectedEntities.find((entity) => entity.type === "product_action" && entity.id);
+  const savedData = result.savedData && typeof result.savedData === "object" && !Array.isArray(result.savedData)
+    ? result.savedData as Record<string, unknown>
+    : {};
+  const recommendationId = String(
+    savedData.sourceActionId
+      || savedData.canonicalActionId
+      || savedData.actionId
+      || productAction?.id
+      || result.savedRecordId
+      || "",
+  ).trim();
+
+  if (productAction && recommendationId) {
+    return {
+      label: "Open action",
+      type: "open_recommendation",
+      payload: {
+        productRef,
+        recommendationId,
+      },
+    };
+  }
+
+  return {
+    label: "Open product",
+    type: "open_product",
+    payload: { productRef },
+  };
 }
 
 function stringifyValue(value: unknown): string {

@@ -190,6 +190,11 @@ const appDraftResultBlockSchema = z.object({
     label: z.string().max(220).nullable().optional(),
   }).strict()).max(6).default([]),
   savedRecordId: z.string().max(320).nullable().optional(),
+  primaryAction: z.object({
+    label: z.string().max(80),
+    type: z.enum(["open_product", "open_recommendation"]),
+    payload: z.record(z.string(), z.string().max(320)).default({}),
+  }).strict().nullable().optional(),
 }).strict();
 
 export const aiPresentationBlockSchema = z.discriminatedUnion("type", [

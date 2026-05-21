@@ -448,6 +448,15 @@ function appDraftResultWidget(block: Extract<AiPresentationBlock, { type: "app_d
         gap: 1,
       }),
     ] : []),
+    ...(block.primaryAction ? [
+      button(block.primaryAction.label, block.primaryAction.type, block.primaryAction.payload, "chevron-right", {
+        key: "primary-action",
+        style: "primary",
+        variant: "solid",
+        color: "primary",
+        block: true,
+      }),
+    ] : []),
   ], {
     status: {
       text: isSuccess ? "Draft saved" : block.status === "cancelled" ? "Draft cancelled" : "Draft failed",

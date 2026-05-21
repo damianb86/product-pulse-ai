@@ -29,6 +29,9 @@ const {
   mapAiPresentationBlocksToChatKitWidgets,
 } = await import("../../app/ai/chatkit/widgets");
 const {
+  aiAppMutationResultToPresentationBlock,
+} = await import("../../app/ai/appMutations/presentation");
+const {
   PRODUCT_PULSE_AI_TOOL_NAMES,
 } = await import("../../app/ai/tools/productPulseTools.server");
 
@@ -368,6 +371,52 @@ describe("ProductPulse ChatKit integration", () => {
     expect(text).toContain("\"widget\"");
     expect(text).toContain("Recommended action updated in ProductPulse");
     expect(text).not.toContain("ChatKit action request is invalid");
+  });
+
+  it("adds open-product and open-action buttons to saved app draft result widgets", () => {
+    const productDraftBlock = aiAppMutationResultToPresentationBlock({
+      mutationName: "product_pulse_create_product_description_draft",
+      status: "success",
+      summary: "Product description draft saved in ProductPulse.",
+      safeMessage: "Product description draft saved in ProductPulse. Shopify was not modified.",
+      affectedEntities: [{
+        type: "product",
+        id: "gid://shopify/Product/8631416979535",
+        label: "Mona Lisa",
+      }],
+      savedRecordId: "proposal-1",
+    });
+    const productWidget = mapAiPresentationBlockToChatKitWidget(productDraftBlock);
+    expect(JSON.stringify(productWidget)).toContain("\"label\":\"Open product\"");
+    expect(JSON.stringify(productWidget)).toContain("\"type\":\"open_product\"");
+    expect(JSON.stringify(productWidget)).toContain("\"productRef\":\"gid://shopify/Product/8631416979535\"");
+
+    const actionDraftBlock = aiAppMutationResultToPresentationBlock({
+      mutationName: "product_pulse_create_product_action",
+      status: "success",
+      summary: "ProductPulse action saved.",
+      safeMessage: "ProductPulse action saved. Shopify was not modified.",
+      affectedEntities: [
+        {
+          type: "product",
+          id: "gid://shopify/Product/8631416979535",
+          label: "Mona Lisa",
+        },
+        {
+          type: "product_action",
+          id: "product-action-1",
+          label: "Add text to end of description",
+        },
+      ],
+      savedRecordId: "product-action-1",
+      savedData: {
+        sourceActionId: "rewrite-product-description",
+      },
+    });
+    const actionWidget = mapAiPresentationBlockToChatKitWidget(actionDraftBlock);
+    expect(JSON.stringify(actionWidget)).toContain("\"label\":\"Open action\"");
+    expect(JSON.stringify(actionWidget)).toContain("\"type\":\"open_recommendation\"");
+    expect(JSON.stringify(actionWidget)).toContain("\"recommendationId\":\"rewrite-product-description\"");
   });
 
   it("converts neutral presentation blocks into ChatKit widgets", () => {
