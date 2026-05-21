@@ -71,6 +71,13 @@ The scoring knowledge currently documents:
 - confidence score;
 - evidence strength;
 - impact / estimated impact;
+- revenue at risk;
+- margin at risk;
+- return rate;
+- refund rate;
+- review rating;
+- negative review rate;
+- QuickScan candidate score;
 - priority score;
 - Product Momentum.
 

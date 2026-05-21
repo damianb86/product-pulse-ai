@@ -117,6 +117,100 @@ Defaults:
 
 The impact model estimates observed refunds, return processing cost, lost margin, projected future return loss, and review conversion drag. It uses the maximum of calculated values and stored risk-money metrics when present.
 
+Revenue and margin exposure are calculated in the same financial impact model.
+
+### Revenue At Risk
+
+Revenue at risk is an estimated gross revenue exposure, rounded to money.
+
+Formula:
+
+`revenueAtRisk = roundMoney(max(calculatedRevenueAtRisk, storedRevenueAtRisk))`
+
+`calculatedRevenueAtRisk = projectedLostRevenue + returnRevenueExposure + reviewConversionRevenueDrag + refundAmount`
+
+Where:
+
+- `projectedLostRevenue = projectedFutureUnits * excessReturnRate * avgUnitRevenue`
+- `returnRevenueExposure = returnUnits * avgUnitRevenue`
+- `reviewConversionRevenueDrag = revenueWindow * estimatedConversionDelta`
+- `revenueWindow = salesAmount > 0 ? (salesAmount / windowDays) * projectionDays : 0`
+- `projectedFutureUnits = soldUnits > 0 ? (soldUnits / windowDays) * projectionDays : 0`
+- `excessReturnRate = max(smoothedReturnRate - storeReturnBaseline, 0)`
+
+Defaults:
+
+- Projection days fallback: 90.
+
+Caveats:
+
+- Revenue at risk is revenue exposure, not guaranteed lost revenue.
+- It includes refund amount and conversion drag estimates.
+- It uses the maximum of calculated exposure and any stored `revenueAtRisk` value.
+
+### Margin At Risk
+
+Margin at risk is estimated margin/cost exposure, rounded to money.
+
+Formula:
+
+`marginAtRisk = roundMoney(max(calculatedMarginAtRisk, storedMarginAtRisk))`
+
+`calculatedMarginAtRisk = projectedLostMargin + refundMarginLoss + returnProcessingCost + reviewConversionMarginDrag`
+
+Where:
+
+- `projectedLostMargin = projectedFutureUnits * excessReturnRate * avgUnitRevenue * marginRate`
+- `refundMarginLoss = refundAmount * marginRate`
+- `returnProcessingCost = returnUnits * processingCostPerReturn`
+- `reviewConversionMarginDrag = reviewConversionRevenueDrag * marginRate`
+
+Defaults:
+
+- Margin rate fallback: 45%.
+- Return processing cost fallback: 8.
+
+### Estimated Impact / Impact Score
+
+Estimated impact is the money value used as `impactScore`.
+
+Formula:
+
+`estimatedImpact = roundMoney(max(observedLoss + projectedReturnLoss + reviewConversionMarginDrag, marginAtRisk, refundAmount, storedMarginAtRisk))`
+
+Where:
+
+- `observedLoss = refundAmount + returnProcessingCost + lostMarginFromReturnedUnits`
+- `lostMarginFromReturnedUnits = returnUnits * avgUnitRevenue * marginRate`
+- `projectedReturnLoss = projectedFutureUnits * excessReturnRate * (avgUnitRevenue * marginRate + returnProcessingCost)`
+
+The impact range uses sample-size multipliers:
+
+- effective sample size below 10: low 0.55x, high 1.75x.
+- effective sample size below 25: low 0.70x, high 1.45x.
+- otherwise: low 0.84x, high 1.22x.
+
+### Return And Refund Rates
+
+QuickScan stores return and refund rates as percentages.
+
+Formula:
+
+- `returnRate = roundPercent(returnUnits / soldUnits)`
+- `refundRate = roundPercent(refundUnits / soldUnits)`
+- `roundPercent(rate) = round(rate * 1000) / 10`
+
+If sold units are zero, the rate is 0.
+
+### Review Rating And Negative Review Rate
+
+For QuickScan CSV review ratings:
+
+- `reviewRating = roundRating(csvReviewRatingSum / csvReviewRatingCount)`
+- `negativeReviewRate = roundPercent(csvLowRatingCount / csvReviewRatingCount)`
+
+If review count is zero, rating and negative rate are 0.
+
 ## Priority Score
 
 Range: 0 to 100.

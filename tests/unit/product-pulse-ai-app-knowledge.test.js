@@ -60,11 +60,24 @@ describe("ProductPulse AI app knowledge repository", () => {
     const repository = new AppKnowledgeRepository();
 
     const risk = repository.getScoreExplanation("risk score");
+    const revenueAtRisk = repository.getScoreExplanation("Revenue at risk");
+    const marginAtRisk = repository.getScoreExplanation("margin at risk");
+    const refundRate = repository.getScoreExplanation("refund rate");
+    const candidateScore = repository.getScoreExplanation("QuickScan candidate score");
     const unknown = repository.getScoreExplanation("magic conversion score");
 
     expect(risk.found).toBe(true);
     expect(risk.formula).toContain("riskScore");
     expect(risk.thresholds.map((threshold) => threshold.value)).toContain(">= 75");
+    expect(revenueAtRisk.found).toBe(true);
+    expect(revenueAtRisk.formula).toContain("projectedLostRevenue");
+    expect(revenueAtRisk.caveats.join(" ")).toContain("stored revenueAtRisk");
+    expect(marginAtRisk.found).toBe(true);
+    expect(marginAtRisk.formula).toContain("projectedLostMargin");
+    expect(refundRate.found).toBe(true);
+    expect(refundRate.formula).toContain("refundUnits / soldUnits");
+    expect(candidateScore.found).toBe(true);
+    expect(candidateScore.formula).toContain("max(riskScore, productMomentum.score)");
     expect(JSON.stringify(risk)).not.toContain("app/lib/");
     expect(unknown.found).toBe(false);
     expect(unknown.logic).toContain("Unknown");
