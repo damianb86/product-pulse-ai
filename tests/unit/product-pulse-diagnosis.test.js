@@ -99,6 +99,35 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(__productPulseDiagnosisTestHooks.lineItemMatchesProduct(lineItem, product, snapshot)).toBe(true);
   });
 
+  it("does not match different Shopify products only because titles overlap", () => {
+    const lineItem = {
+      title: "Transformers Generation Project Storm Autobot Optimus Prime",
+      sku: "TOY259",
+      product: {
+        id: "gid://shopify/Product/999",
+        handle: "transformers-project-storm-optimus-prime",
+      },
+      variant: {
+        id: "gid://shopify/ProductVariant/999",
+        sku: "TOY259",
+      },
+    };
+    const product = {
+      id: "gid://shopify/Product/123",
+      numericId: "123",
+      title: "Transformers Power of the Primes Voyager Terrorcon Hun-Gurrr",
+      handle: "transformers-power-of-the-primes-voyager-terrorcon-hun-gurrr",
+      variants: [{ id: "gid://shopify/ProductVariant/123", sku: "TOY251" }],
+    };
+    const snapshot = {
+      productGid: "gid://shopify/Product/123",
+      productTitle: product.title,
+      handle: product.handle,
+    };
+
+    expect(__productPulseDiagnosisTestHooks.lineItemMatchesProduct(lineItem, product, snapshot)).toBe(false);
+  });
+
   it("reads GraphQL connections returned as either nodes or edges", () => {
     expect(__productPulseDiagnosisTestHooks.getNodes({ edges: [{ node: { id: "1" } }, { node: null }] })).toEqual([{ id: "1" }]);
     expect(__productPulseDiagnosisTestHooks.getNodes({ nodes: [{ id: "2" }] })).toEqual([{ id: "2" }]);
@@ -155,11 +184,75 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
   it("requests Shopify order geography for sales extraction", () => {
     const query = __productPulseDiagnosisTestHooks.buildDiagnosisSalesQuery();
 
+    expect(query).toContain("sortKey: PROCESSED_AT");
+    expect(query).toContain("reverse: true");
     expect(query).toContain("shippingAddress");
     expect(query).toContain("billingAddress");
     expect(query).toContain("countryCodeV2");
     expect(query).toContain("provinceCode");
     expect(query).toContain("city");
+  });
+
+  it("backfills missing sale lines from matched return and refund evidence", () => {
+    const product = {
+      id: "gid://shopify/Product/123",
+      title: "GEN CloudSoft Yoga Mat 12mm",
+      variants: [{ id: "gid://shopify/ProductVariant/456", sku: "GEN-MAT-CHAR" }],
+    };
+    const snapshot = {
+      productGid: product.id,
+      productTitle: product.title,
+      handle: "gen-soft-yoga-mat",
+    };
+    const operational = {
+      orderId: "gid://shopify/Order/1",
+      lineItemId: "gid://shopify/LineItem/1",
+      productId: product.id,
+      variantId: "gid://shopify/ProductVariant/456",
+      title: product.title,
+      sku: "GEN-MAT-CHAR",
+      quantity: 2,
+      orderDate: "2026-05-21T19:19:49.000Z",
+      orderProcessedAt: "2026-05-21T19:19:49.000Z",
+      orderCreatedAt: "2026-05-21T19:19:49.000Z",
+      selectedOptions: [{ name: "Color", value: "Charcoal" }],
+    };
+
+    const sales = __productPulseDiagnosisTestHooks.backfillMissingSalesFromOperationalEvents({
+      product,
+      snapshot,
+      sales: [],
+      returns: [{ ...operational, id: "return-1", amount: 0 }],
+      refunds: [{ ...operational, id: "refund-1", amount: 84 }],
+    });
+
+    expect(sales).toHaveLength(1);
+    expect(sales[0]).toMatchObject({
+      orderId: operational.orderId,
+      lineItemId: operational.lineItemId,
+      productId: product.id,
+      quantity: 2,
+      amount: 84,
+      createdAt: "2026-05-21T19:19:49.000Z",
+      source: "operational_event_derived_sale",
+      derivedFromOperationalEventCount: 2,
+    });
+
+    const deduped = __productPulseDiagnosisTestHooks.backfillMissingSalesFromOperationalEvents({
+      product,
+      snapshot,
+      sales,
+      returns: [{ ...operational, id: "return-1", amount: 0 }],
+      refunds: [{ ...operational, id: "refund-1", amount: 84 }],
+    });
+    expect(deduped).toHaveLength(1);
+
+    const filtered = __productPulseDiagnosisTestHooks.filterDiagnosisEventsForProduct([
+      { ...operational, id: "matching-refund" },
+      { ...operational, id: "other-transformer", productId: "gid://shopify/Product/999", variantId: "gid://shopify/ProductVariant/999", sku: "OTHER" },
+    ], product, snapshot);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].id).toBe("matching-refund");
   });
 
   it("can normalize order-level refunded line items when refundLineItems are missing", () => {

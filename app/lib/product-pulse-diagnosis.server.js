@@ -311,9 +311,10 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     refundEvents: refunds.length,
     returnEvents: returns.length,
   };
-  sales = mergedSourceEvents.sales;
-  refunds = mergedSourceEvents.refunds;
-  returns = mergedSourceEvents.returns;
+  sales = filterDiagnosisEventsForProduct(mergedSourceEvents.sales, product, snapshot);
+  refunds = filterDiagnosisEventsForProduct(mergedSourceEvents.refunds, product, snapshot);
+  returns = filterDiagnosisEventsForProduct(mergedSourceEvents.returns, product, snapshot);
+  sales = backfillMissingSalesFromOperationalEvents({ product, snapshot, sales, returns, refunds });
 
   await recordJobLog({
     shop,
@@ -697,10 +698,126 @@ function normalizeDiagnosisBasketLineItems(lineItems = []) {
   }));
 }
 
+function backfillMissingSalesFromOperationalEvents({
+  product = {},
+  snapshot = {},
+  sales = [],
+  returns = [],
+  refunds = [],
+} = {}) {
+  const normalizedSales = Array.isArray(sales) ? [...sales] : [];
+  const existingSaleKeys = new Set(normalizedSales.map(getSaleLineIdentity).filter(Boolean));
+  const candidateByKey = new Map();
+
+  [...(Array.isArray(returns) ? returns : []), ...(Array.isArray(refunds) ? refunds : [])]
+    .filter((event) => operationalEventMatchesDiagnosisProduct(event, product, snapshot))
+    .forEach((event, index) => {
+      const identity = getSaleLineIdentity(event);
+      if (!identity || existingSaleKeys.has(identity)) return;
+      const orderDate = toIso(getOrderCohortDate(event, { includeEventDate: true }));
+      if (!orderDate) return;
+      const current = candidateByKey.get(identity) || {
+        id: `derived-sale:${identity}`,
+        orderId: event.orderId || null,
+        lineItemId: event.lineItemId || null,
+        productId: event.productId || product.id || snapshot.productGid || null,
+        createdAt: orderDate,
+        orderDate,
+        orderProcessedAt: toIso(event.orderProcessedAt),
+        orderCreatedAt: toIso(event.orderCreatedAt),
+        quantity: 0,
+        amount: 0,
+        title: event.title || product.title || snapshot.productTitle || "",
+        sku: event.sku || "",
+        variantId: event.variantId || null,
+        variantTitle: event.variantTitle || "",
+        selectedOptions: Array.isArray(event.selectedOptions) ? event.selectedOptions : [],
+        basketLineItems: Array.isArray(event.basketLineItems) ? event.basketLineItems : [],
+        basketFingerprint: "",
+        geography: normalizeSalesEventGeography(event),
+        country: event.country || event.geography?.country || "",
+        countryCode: event.countryCode || event.geography?.countryCode || "",
+        province: event.province || event.geography?.province || "",
+        provinceCode: event.provinceCode || event.geography?.provinceCode || "",
+        city: event.city || event.geography?.city || "",
+        source: "operational_event_derived_sale",
+        derivedFromOperationalEvidence: true,
+        derivedFromOperationalEventIds: [],
+        derivedFromOperationalEventCount: 0,
+      };
+      current.quantity = Math.max(current.quantity, getOperationalEventQuantity(event));
+      current.amount = Math.max(current.amount, Number(event.amount || event.totalRefundedAmount || 0));
+      current.derivedFromOperationalEventCount += 1;
+      current.derivedFromOperationalEventIds.push(event.id || `${event.orderId || "order"}:${index}`);
+      if (!current.variantId && event.variantId) current.variantId = event.variantId;
+      if (!current.variantTitle && event.variantTitle) current.variantTitle = event.variantTitle;
+      if (!current.sku && event.sku) current.sku = event.sku;
+      candidateByKey.set(identity, current);
+    });
+
+  if (!candidateByKey.size) return normalizedSales;
+  return [...normalizedSales, ...candidateByKey.values()]
+    .sort((left, right) => {
+      const leftDate = parseValidDate(left.createdAt || left.orderDate)?.getTime() || 0;
+      const rightDate = parseValidDate(right.createdAt || right.orderDate)?.getTime() || 0;
+      if (leftDate !== rightDate) return leftDate - rightDate;
+      return String(left.id || "").localeCompare(String(right.id || ""));
+    });
+}
+
+function filterDiagnosisEventsForProduct(events = [], product = {}, snapshot = {}) {
+  return (Array.isArray(events) ? events : []).filter((event) => {
+    if (diagnosisEventMatchesProduct(event, product, snapshot)) return true;
+    return !hasStableDiagnosisEventProductIdentifier(event);
+  });
+}
+
+function getSaleLineIdentity(event = {}) {
+  const orderId = String(event.orderId || "").trim();
+  const lineItemId = String(event.lineItemId || event.orderLineItemId || "").trim();
+  if (orderId && lineItemId) return `${orderId}:${lineItemId}`;
+  const productId = String(event.productId || "").trim();
+  const variantId = String(event.variantId || "").trim();
+  if (orderId && productId && variantId) return `${orderId}:${productId}:${variantId}`;
+  if (orderId && productId) return `${orderId}:${productId}`;
+  return "";
+}
+
+function operationalEventMatchesDiagnosisProduct(event = {}, product = {}, snapshot = {}) {
+  return diagnosisEventMatchesProduct(event, product, snapshot);
+}
+
+function diagnosisEventMatchesProduct(event = {}, product = {}, snapshot = {}) {
+  const productIds = new Set([
+    product.id,
+    snapshot.productGid,
+    String(product.numericId || ""),
+    extractNumericShopifyId(product.id),
+    extractNumericShopifyId(snapshot.productGid),
+  ].filter(Boolean).map(String));
+  const eventProductId = String(event.productId || "").trim();
+  if (eventProductId && (productIds.has(eventProductId) || productIds.has(extractNumericShopifyId(eventProductId)))) return true;
+
+  const variantIds = new Set((product.variants || []).flatMap((variant) => [
+    variant.id,
+    variant.numericId,
+    extractNumericShopifyId(variant.id),
+  ]).filter(Boolean).map(String));
+  const eventVariantId = String(event.variantId || "").trim();
+  if (eventVariantId && (variantIds.has(eventVariantId) || variantIds.has(extractNumericShopifyId(eventVariantId)))) return true;
+
+  if (eventProductId || eventVariantId) return false;
+  return false;
+}
+
+function hasStableDiagnosisEventProductIdentifier(event = {}) {
+  return Boolean(event.productId || event.variantId || event.sku);
+}
+
 function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
   return `#graphql
       query ProductPulseDiagnosisSales($after: String, $query: String!, $ordersFirst: Int!, $lineItemsFirst: Int!) {
-        orders(first: $ordersFirst, after: $after, query: $query) {
+        orders(first: $ordersFirst, after: $after, query: $query, sortKey: PROCESSED_AT, reverse: true) {
           pageInfo {
             hasNextPage
             endCursor
@@ -2013,6 +2130,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     calculationState: "calculated_from_persisted_components",
     windowDays,
     returnRefundRelationshipSummary,
+    productPurchaseContextSummary,
   }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
   const riskComponents = scoreModel.riskComponents;
   const riskScore = scoreModel.riskScore;
@@ -7378,6 +7496,17 @@ function lineItemMatchesProduct(lineItem, product, snapshot) {
   ]).filter(Boolean));
   if (lineVariantId && productVariantIds.has(lineVariantId)) return true;
 
+  const hasStableIdentifier = Boolean(
+    lineProduct.id
+      || variantProduct.id
+      || lineProduct.handle
+      || variantProduct.handle
+      || lineItem?.variant?.id
+      || lineItem?.sku
+      || lineItem?.variant?.sku,
+  );
+  if (hasStableIdentifier) return false;
+
   const lineTitle = normalizeText(lineItem?.title);
   const productTitle = normalizeText(product.title || snapshot.productTitle);
   if (lineTitle && productTitle && (lineTitle === productTitle || lineTitle.includes(productTitle) || productTitle.includes(lineTitle))) return true;
@@ -12269,6 +12398,8 @@ export const __productPulseDiagnosisTestHooks = {
   getNoChangeDiagnosisReuseDecision,
   getIncrementalSourceFetchContext,
   mergeIncrementalSourceEvents,
+  filterDiagnosisEventsForProduct,
+  backfillMissingSalesFromOperationalEvents,
   buildSourceEventCache,
   buildIncrementalSinceDate,
   buildDiagnosisSourceFingerprint,

@@ -1746,6 +1746,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
     calculationState: "calculated_from_persisted_components",
     windowDays,
     returnRefundRelationshipSummary,
+    productPurchaseContextSummary,
   }, { sentimentSharesReviewSource: true });
   const riskScore = scoreModel.riskScore;
   const riskComponents = {
