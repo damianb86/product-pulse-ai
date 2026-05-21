@@ -149,6 +149,8 @@ Labels:
 
 Phase 1 does not change scoring.
 
+Phase 2 integrates the summary as a bounded diagnostic modifier under scoring version `purchase_context_v3`.
+
 Future Product Risk use:
 
 - high return/refund rates in solo purchases may point more directly at product fit, quality, or expectation issues;
@@ -156,10 +158,25 @@ Future Product Risk use:
 - bulk purchases with returns may indicate reseller/customer-type behavior rather than ordinary product quality;
 - multi-variant same-product purchases can explain sizing/color exploration and may need separate interpretation from ordinary returns.
 
+Implemented Product Risk use:
+
+- solo purchases strengthen attribution only when negative signals already exist;
+- multi-product baskets reduce confidence in weak order-level refunds;
+- multi-variant orders add a small variant/fit/expectation modifier when returns are present;
+- bulk purchases add bounded severity only when return/refund evidence exists;
+- healthy bulk behavior with low return/refund rates does not increase risk.
+
 Future Diagnosis Confidence use:
 
 - confidence should rise when basket context is complete and relationship-aware return/refund data aligns with basket patterns;
 - confidence should fall when basket context is unknown, co-purchase data is sparse, or return/refund outcomes cannot be joined to order lines.
+
+Implemented Diagnosis Confidence use:
+
+- purchase-context confidence contributes to evidence strength;
+- mostly solo purchases can increase attribution confidence;
+- incomplete basket context and small samples reduce confidence;
+- multi-product baskets with weak refund attribution reduce product-specific confidence.
 
 ## Future return/refund integration
 
@@ -174,6 +191,39 @@ Phase 2 can combine this summary with `returnRefundRelationshipSummary` to calcu
 - confidence penalties for unresolved basket context.
 
 The join should be deterministic by `orderId + lineItemId` where possible and conservative when attribution is weak.
+
+Implemented in Phase 2:
+
+- return/refund outcome segments by bought-alone, bought-with-others, single-unit, multi-unit, bulk, and multi-variant contexts;
+- segment rates are exposed in backend scoring factors;
+- segments are marked with `sufficient_data` and should only drive explanations or actions when data volume is adequate.
+
+## Recalculation
+
+Recompute/backfill updates ProductPulse snapshot metrics with:
+
+- `productPurchaseContextFactors`;
+- `productPurchaseContextScoringImpact`;
+- `purchaseContextSignalBreakdown`;
+- updated risk, impact, confidence, evidence strength, and scoring version.
+
+Scopes:
+
+- one product;
+- one shop;
+- all shops with bounded limits.
+
+Snapshots without `productPurchaseContextSummary` cannot reconstruct historical basket context because raw orders are not stored.
+
+## Minimum sample rules
+
+Most purchase-context scoring and recommendation boosts require:
+
+- at least 5 product-containing orders;
+- purchase-context confidence of at least 55%;
+- existing negative evidence such as returns, refunds, or reviews.
+
+Weak purchase context may still lower confidence when it reveals incomplete baskets or ambiguous multi-product refund attribution.
 
 ## Future UI ideas
 

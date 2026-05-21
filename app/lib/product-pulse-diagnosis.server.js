@@ -1889,6 +1889,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     productId: product.id || snapshot.productGid,
     products: [product],
     sales,
+    returns,
+    refunds,
     assumeCompleteOrderEvents: false,
   });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
@@ -2100,6 +2102,9 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       refundInsights,
       returnRefundRelationshipSummary,
       productPurchaseContextSummary,
+      productPurchaseContextFactors: scoreModel.purchaseContextFactors,
+      productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
+      purchaseContextSignalBreakdown: scoreModel.purchaseContextFactors.customerSignalBreakdown,
       returnRefundRelationshipFactors: scoreModel.relationshipFactors,
       returnRefundScoringImpact: scoreModel.relationshipExplanations,
       returnPressure: scoreModel.relationshipFactors.returnPressure,
@@ -4764,6 +4769,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const refundInsights = metrics.refundInsights || {};
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, sourceMismatchSignals);
+  const purchaseContextSignals = getPurchaseContextRecommendationSignals(deterministic);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
   const missingSourceSignals = getMissingSourceSignals(deterministic);
   const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
@@ -4793,15 +4799,26 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The product URL handle is confusing, inconsistent with the title, or missing useful product keywords.",
     },
     specs: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && metrics.specsBlockRecommended && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
-      reason: "A compact specs/details block would clarify dimensions, compatibility, materials, care, included items or product limits.",
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && (
+        metrics.specsBlockRecommended
+        || purchaseContextSignals.productLevelPriority.shouldRecommend
+        || purchaseContextSignals.basketContext.shouldRecommend
+      ) && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
+      reason: purchaseContextSignals.basketContext.shouldRecommend
+        ? purchaseContextSignals.basketContext.reason
+        : purchaseContextSignals.productLevelPriority.shouldRecommend
+          ? purchaseContextSignals.productLevelPriority.reason
+          : "A compact specs/details block would clarify dimensions, compatibility, materials, care, included items or product limits.",
     },
     variants: {
       shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && (
         variantConcentrationNeedsOptionFix
         || (hasVariantNamingProblem && !subjectiveExpectationOnly)
+        || purchaseContextSignals.variantClarity.shouldRecommend
       ) && (hasCustomerEvidence || hasVariantNamingProblem)),
-      reason: hasVariantConcentration && affectedVariantCount
+      reason: purchaseContextSignals.variantClarity.shouldRecommend
+        ? purchaseContextSignals.variantClarity.reason
+        : hasVariantConcentration && affectedVariantCount
         ? "Signals are concentrated in specific variants, SKUs or options."
         : "Variant names or option labels are unclear enough to review.",
     },
@@ -4880,12 +4897,56 @@ function getRecommendationRecipeSignals(deterministic = {}) {
         ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
         || (highRiskOperationalIssue && operationalQualityTextSignals)
         || (refundInsights.shouldSurface && operationalQualityTextSignals)
+        || purchaseContextSignals.bulkReview.shouldRecommend
       )),
-      reason: refundInsights.shouldSurface
+      reason: purchaseContextSignals.bulkReview.shouldRecommend
+        ? purchaseContextSignals.bulkReview.reason
+        : refundInsights.shouldSurface
         ? "Refund pressure or refund notes point to an operational quality review."
         : "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
     },
   };
+}
+
+function getPurchaseContextRecommendationSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const context = metrics.productPurchaseContextSummary || {};
+  const factors = metrics.productPurchaseContextFactors || {};
+  const actionSignals = factors.recommendedActionSignals || {};
+  const confidence = normalizePercentLike(context.purchase_context_confidence);
+  const totalOrders = Number(context.total_orders_containing_product || 0);
+  const enoughContext = totalOrders >= 5 && confidence >= 55;
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const refundUnits = Number(metrics.refundUnits || 0);
+  const highReturnOrRefundEvidence = returnUnits + refundUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE;
+  const topPairing = Array.isArray(context.top_co_purchased_products) ? context.top_co_purchased_products[0] : null;
+
+  return {
+    variantClarity: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.variantClarity),
+      reason: "Multi-variant purchases are common and returns are elevated, so size, color, option labels, variant photos or comparison guidance should be reviewed.",
+    },
+    basketContext: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.basketContext && topPairing),
+      reason: topPairing
+        ? `Returns are high in basket context; review compatibility, cross-sell copy or expectations for purchases with ${topPairing.title || "a commonly paired product"}.`
+        : "Returns are high in basket context; review compatibility, cross-sell copy or bundle expectations.",
+    },
+    bulkReview: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.bulkReview),
+      reason: "Bulk or multi-unit purchases have enough return/refund evidence to review packaging, fulfillment consistency, batch quality or B2B usage expectations.",
+    },
+    productLevelPriority: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.productLevelPriority),
+      reason: "The product is usually bought alone, so product-page expectations, quality notes, photos or description gaps are more directly attributable to this product.",
+    },
+  };
+}
+
+function normalizePercentLike(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return numeric <= 1 ? numeric * 100 : numeric;
 }
 
 function getActionableContentIssues(metrics = {}) {

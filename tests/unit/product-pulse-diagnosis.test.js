@@ -2400,6 +2400,65 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).toContain("add-specs-details-block");
   });
 
+  it("uses reliable purchase context to recommend variant clarity for multi-variant return patterns", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      riskScore: 68,
+      confidence: 82,
+      evidenceSnippets: [{ text: "Customers bought two sizes and returned the one that did not fit." }],
+      issueSignalCounts: { fit_sizing: 5 },
+      product: {
+        title: "Core Linen Trouser",
+        description: "Linen trouser.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "S", sku: "LIN-S" },
+          { id: "gid://shopify/ProductVariant/2", title: "M", sku: "LIN-M" },
+          { id: "gid://shopify/ProductVariant/3", title: "L", sku: "LIN-L" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 6,
+        signalCount: 8,
+        returnUnits: 5,
+        refundUnits: 0,
+        returnRate: 16,
+        negativeReviewCount: 1,
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        variantCount: 3,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        productPurchaseContextSummary: {
+          total_orders_containing_product: 24,
+          total_units_sold: 58,
+          multi_variant_order_count: 6,
+          multi_variant_order_rate: 0.25,
+          purchase_context_confidence: 84,
+        },
+        productPurchaseContextFactors: {
+          recommendedActionSignals: {
+            variantClarity: true,
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/variant-context",
+        productTitle: "Core Linen Trouser",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const variantAction = recommendations.find((item) => item.id === "correct-variant-options");
+    expect(variantAction).toBeTruthy();
+    expect(variantAction.payload.trigger).toContain("Multi-variant purchases");
+  });
+
   it("builds specs details blocks as technical placeholders instead of catalog metadata", () => {
     const deterministic = {
       mainIssue: "quality_defect",

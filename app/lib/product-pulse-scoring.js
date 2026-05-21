@@ -9,7 +9,7 @@ export const SOURCE_WEIGHTS = {
   pdpQuestions: 6,
 };
 
-export const PRODUCT_PULSE_SCORING_VERSION = "return_refund_relationship_v2";
+export const PRODUCT_PULSE_SCORING_VERSION = "purchase_context_v3";
 
 const PRODUCT_REASON_CATEGORIES = new Set([
   "product_quality",
@@ -76,7 +76,9 @@ export function calculateProductScoreModel(input = {}, options = {}) {
   const impactFactors = calculateFinancialImpact(metrics, options);
   const confidenceFactors = calculateDiagnosisConfidence(metrics, riskComponents, options);
   const relationshipFactors = calculateRelationshipFactors(metrics, riskComponents, impactFactors, confidenceFactors);
+  const purchaseContextFactors = calculatePurchaseContextFactors(metrics, riskComponents, impactFactors, confidenceFactors);
   const relationshipExplanations = buildReturnRefundScoringExplanations(relationshipFactors);
+  const purchaseContextExplanations = buildPurchaseContextScoringExplanations(purchaseContextFactors);
   const priorityScore = calculatePriorityScore({
     riskScore: riskComponents.riskScore,
     confidenceScore: confidenceFactors.confidenceScore,
@@ -94,7 +96,9 @@ export function calculateProductScoreModel(input = {}, options = {}) {
     confidenceFactors,
     impactFactors,
     relationshipFactors,
+    purchaseContextFactors,
     relationshipExplanations,
+    purchaseContextExplanations,
     scoringVersion: PRODUCT_PULSE_SCORING_VERSION,
   };
 }
@@ -128,6 +132,44 @@ export function buildReturnRefundScoringExplanations(relationshipFactors = {}) {
 
   if (relationship.linkedReturnRefundCount > 0 || leakage.attributedRefundAmount > 0) {
     explanations.push("Financial exposure separates confirmed attributed refunds from return-only future risk and unattributed refund context.");
+  }
+
+  return explanations;
+}
+
+export function buildPurchaseContextScoringExplanations(purchaseContextFactors = {}) {
+  const context = purchaseContextFactors.context || {};
+  const confidence = purchaseContextFactors.diagnosisConfidence || {};
+  const explanations = [];
+
+  if (!purchaseContextFactors.hasPurchaseContextSummary) return explanations;
+
+  if (confidence.lowSamplePenalty > 0) {
+    explanations.push("Purchase context was not used strongly because the order sample is small.");
+  }
+
+  if (confidence.basketIncompletePenalty > 0) {
+    explanations.push("Purchase context confidence is lower because basket composition is incomplete for some orders.");
+  }
+
+  if (confidence.soloAttributionScore > 0) {
+    explanations.push("This product is usually bought alone, so negative signals are easier to attribute to the product.");
+  }
+
+  if (confidence.multiProductAttributionPenalty > 0) {
+    explanations.push("This product is often bought with other products, so weak order-level refunds are less conclusive.");
+  }
+
+  if (context.multiVariantOrderRate >= 12 && purchaseContextFactors.productRisk?.multiVariantRisk > 0) {
+    explanations.push("Multi-variant orders are common, which can indicate size, color, variant clarity, photo or expectation problems when returns are high.");
+  }
+
+  if (purchaseContextFactors.financialExposure?.bulkQuantityExposure > 0) {
+    explanations.push("Bulk purchases increase potential exposure because each affected order can represent more units.");
+  }
+
+  if (purchaseContextFactors.context?.healthyBulkSignal) {
+    explanations.push("Bulk purchase behavior is treated as a positive reliability signal because return and refund rates are low.");
   }
 
   return explanations;
@@ -202,6 +244,7 @@ function normalizeScoreInput(input = {}, options = {}) {
       ? refundAmount / refundUnits
       : 0);
   const returnRefundRelationship = normalizeReturnRefundRelationshipSummary(input.returnRefundRelationshipSummary);
+  const productPurchaseContext = normalizeProductPurchaseContextSummary(input.productPurchaseContextSummary);
 
   return {
     soldUnits,
@@ -253,11 +296,14 @@ function normalizeScoreInput(input = {}, options = {}) {
     windowDays: number(input.windowDays) || 90,
     returnRefundRelationshipSummary: input.returnRefundRelationshipSummary || null,
     returnRefundRelationship,
+    productPurchaseContextSummary: input.productPurchaseContextSummary || null,
+    productPurchaseContext,
   };
 }
 
 function calculateRiskComponents(metrics, options = {}) {
   const relationshipRisk = calculateRelationshipRiskAdjustment(metrics);
+  const purchaseRisk = calculatePurchaseContextRiskAdjustment(metrics, relationshipRisk);
   const hasEvidence = metrics.returnUnits
     || metrics.refundUnits
     || metrics.negativeReviewCount
@@ -279,7 +325,7 @@ function calculateRiskComponents(metrics, options = {}) {
   const highReturnPressure = metrics.returnUnits >= 3 && metrics.soldUnits >= 5 && metrics.returnRate > metrics.storeReturnBaseline + 0.25
     ? clamp(8 + (metrics.returnRate - metrics.storeReturnBaseline) * 14 + Math.log1p(metrics.returnUnits) * 1.2, 0, 25)
     : 0;
-  const returnsScore = clamp(Math.max(returnsRateScore, highReturnPressure), 0, 25);
+  const returnsScore = clamp(Math.max(returnsRateScore, highReturnPressure) * purchaseRisk.returnScoreMultiplier, 0, 27);
   const refundRateScore = calculateSmoothedRateRisk({
     events: metrics.refundUnits,
     population: metrics.soldUnits,
@@ -294,14 +340,16 @@ function calculateRiskComponents(metrics, options = {}) {
     ? clamp(7 + (metrics.refundRate - 0.2) * 34 + Math.log1p(metrics.refundUnits) * 1.1, 0, 20)
     : 0;
   const rawRefundScore = clamp(Math.max(refundRateScore, highRefundPressure), 0, 20);
-  const refund_score = clamp(rawRefundScore * relationshipRisk.refundScoreMultiplier, 0, 20);
+  const refund_score = clamp(rawRefundScore * relationshipRisk.refundScoreMultiplier * purchaseRisk.refundScoreMultiplier, 0, 20);
   const reviews_score = calculateReviewRisk(metrics, options);
   const sentiment_score = calculateSentimentRisk(metrics, options);
   const content_gap_score = clamp(Math.max(
     number(metrics.contentQualityRisk),
     metrics.contentIssueCount ? 4 + Math.log1p(metrics.contentIssueCount) * 4.5 : 0,
   ), 0, 15);
-  const variant_score = calculateVariantRisk(metrics);
+  const variant_score = clamp(calculateVariantRisk(metrics) + purchaseRisk.multiVariantRisk, 0, 12);
+  const purchase_context_score = purchaseRisk.soloAttributionRisk + purchaseRisk.bulkSeverityRisk;
+  const relationship_score = clamp(relationshipRisk.relationshipScore + purchase_context_score, 0, 26);
   const familyRisks = [
     returnsScore,
     reviews_score,
@@ -309,7 +357,7 @@ function calculateRiskComponents(metrics, options = {}) {
     content_gap_score,
     refund_score,
     variant_score,
-    relationshipRisk.relationshipScore,
+    relationship_score,
   ];
   const activeFamilyCount = familyRisks.filter((score) => score >= 3).length;
   const agreement_points = (metrics.sourceAgreement ? 4 : 0) + Math.max(0, activeFamilyCount - 1) * 2.2;
@@ -324,7 +372,7 @@ function calculateRiskComponents(metrics, options = {}) {
     + content_gap_score
     + refund_score
     + variant_score
-    + relationshipRisk.relationshipScore
+    + relationship_score
     + agreement_bonus
     + recency_bonus;
   const riskScore = Math.round(clamp(rawScore, 0, 100));
@@ -338,13 +386,23 @@ function calculateRiskComponents(metrics, options = {}) {
     refundScore: roundScore(refund_score),
     rawRefundScore: roundScore(rawRefundScore),
     variantScore: roundScore(variant_score),
-    relationshipScore: roundScore(relationshipRisk.relationshipScore),
+    relationshipScore: roundScore(relationship_score),
+    returnRefundRelationshipScore: roundScore(relationshipRisk.relationshipScore),
     returnedAndRefundedRisk: roundScore(relationshipRisk.returnedAndRefundedRisk),
     returnOnlyRisk: roundScore(relationshipRisk.returnOnlyRisk),
     refundOnlyProductRisk: roundScore(relationshipRisk.refundOnlyProductRisk),
     exchangeOrReplacementRisk: roundScore(relationshipRisk.exchangeOrReplacementRisk),
     pendingReturnRisk: roundScore(relationshipRisk.pendingReturnRisk),
     refundScoreMultiplier: roundScore(relationshipRisk.refundScoreMultiplier),
+    purchaseContextScore: roundScore(purchase_context_score + purchaseRisk.multiVariantRisk),
+    soloAttributionRisk: roundScore(purchaseRisk.soloAttributionRisk),
+    multiVariantPurchaseRisk: roundScore(purchaseRisk.multiVariantRisk),
+    bulkQuantitySeverityRisk: roundScore(purchaseRisk.bulkSeverityRisk),
+    purchaseReturnScoreMultiplier: roundScore(purchaseRisk.returnScoreMultiplier),
+    purchaseRefundScoreMultiplier: roundScore(purchaseRisk.refundScoreMultiplier),
+    purchaseContextConfidence: roundScore(purchaseRisk.purchaseContextConfidence * 100),
+    purchaseContextSampleSize: purchaseRisk.totalOrders,
+    healthyBulkSignal: purchaseRisk.healthyBulkSignal,
     refundAttributionRate: roundScore(relationshipRisk.refundAttributionRate * 100),
     relationshipMatchConfidence: roundScore(relationshipRisk.relationshipMatchConfidence * 100),
     agreementBonus: roundScore(agreement_bonus),
@@ -412,6 +470,62 @@ function calculateRelationshipRiskAdjustment(metrics) {
     refundScoreMultiplier,
     refundAttributionRate,
     relationshipMatchConfidence: relationship.relationshipMatchConfidenceAvg,
+  };
+}
+
+function calculatePurchaseContextRiskAdjustment(metrics, relationshipRisk = {}) {
+  const context = metrics.productPurchaseContext;
+  if (!context?.hasData) {
+    return {
+      soloAttributionRisk: 0,
+      multiVariantRisk: 0,
+      bulkSeverityRisk: 0,
+      returnScoreMultiplier: 1,
+      refundScoreMultiplier: 1,
+      purchaseContextConfidence: 0,
+      totalOrders: 0,
+      healthyBulkSignal: false,
+    };
+  }
+
+  const confidenceSupport = context.reliable ? 0.55 + context.purchaseContextConfidence * 0.45 : 0.25 + context.purchaseContextConfidence * 0.25;
+  const negativeSignalUnits = metrics.returnUnits + metrics.refundUnits + metrics.negativeReviewCount + metrics.sentimentNegativeCount;
+  const hasNegativeSignals = negativeSignalUnits >= 2 || metrics.returnRate >= 0.08 || metrics.refundRate >= 0.05;
+  const hasStrongRelationshipAttribution = (metrics.returnRefundRelationship?.relationshipMatchConfidenceAvg || 0) >= 0.75
+    && (metrics.returnRefundRelationship?.refundAttributionRate || 0) >= 0.75;
+  const weakOrderLevelRefundContext = metrics.returnRefundRelationship?.unattributedRefundAmount > 0
+    || relationshipRisk.refundAttributionRate < 0.65
+    || relationshipRisk.relationshipMatchConfidence < 0.6;
+  const soloAttributionRisk = context.soloPurchaseRate >= 0.65 && hasNegativeSignals
+    ? clamp((context.soloPurchaseRate - 0.55) * 5.5 + Math.log1p(negativeSignalUnits) * 0.55, 0, 3.8) * confidenceSupport
+    : 0;
+  const multiProductUncertainty = context.multiProductBasketRate >= 0.65 && weakOrderLevelRefundContext
+    ? clamp((context.multiProductBasketRate - 0.55) * 0.42 + (1 - relationshipRisk.refundAttributionRate) * 0.18, 0, 0.24) * confidenceSupport
+    : 0;
+  const variantReasonShare = metrics.returnRefundRelationship?.reasonProfile?.categories?.size_or_fit
+    ? clamp(metrics.returnRefundRelationship.reasonProfile.categories.size_or_fit / Math.max(1, metrics.returnUnits), 0, 1)
+    : 0;
+  const variantAlignment = 0.65 + variantReasonShare * 0.35;
+  const multiVariantRisk = context.multiVariantOrderRate >= 0.08 && metrics.returnUnits >= 2
+    ? calculateRateSeverity(context.multiVariantReturnRate || metrics.returnRate, 4.8, 0.12) * variantAlignment * confidenceSupport
+    : 0;
+  const bulkSeverityRisk = context.bulkPurchaseRate >= 0.15 && (metrics.returnUnits + metrics.refundUnits) >= 2 && !context.healthyBulkSignal
+    ? clamp((context.avgProductQuantityPerOrder - 1) * 0.7 + context.bulkPurchaseRate * 2.4, 0, 2.6) * confidenceSupport
+    : 0;
+  const soloReturnMultiplier = soloAttributionRisk > 0 && hasStrongRelationshipAttribution ? clamp(1 + soloAttributionRisk / 60, 1, 1.08) : 1;
+  const multiVariantReturnMultiplier = multiVariantRisk > 0 ? clamp(1 + multiVariantRisk / 80, 1, 1.05) : 1;
+  const returnScoreMultiplier = clamp(soloReturnMultiplier * multiVariantReturnMultiplier, 0.92, 1.12);
+  const refundScoreMultiplier = clamp(1 - multiProductUncertainty, 0.76, 1);
+
+  return {
+    soloAttributionRisk,
+    multiVariantRisk,
+    bulkSeverityRisk,
+    returnScoreMultiplier,
+    refundScoreMultiplier,
+    purchaseContextConfidence: context.purchaseContextConfidence,
+    totalOrders: context.totalOrdersContainingProduct,
+    healthyBulkSignal: context.healthyBulkSignal,
   };
 }
 
@@ -504,6 +618,7 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
   const effectiveSampleScore = clamp(sampleSufficiency(metrics.effectiveSampleSize, 80) * 24, 0, 24);
   const productMatchScore = clamp(metrics.productMatchConfidence * 14, 0, 14);
   const relationshipConfidence = calculateRelationshipConfidenceFactors(metrics);
+  const purchaseConfidence = calculatePurchaseContextConfidenceFactors(metrics);
   const agreementScore = clamp(
     (metrics.sourceAgreement ? 8 : 0)
     + Math.max(0, [riskComponents.returnsScore, riskComponents.reviewsScore, riskComponents.refundScore, riskComponents.sentimentScore, riskComponents.contentGapScore, riskComponents.relationshipScore].filter((score) => score >= 3).length - 1) * 2.2,
@@ -528,6 +643,10 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     pendingRelationshipPenalty: relationshipConfidence.pendingRelationshipPenalty,
     relationshipUnknownPenalty: relationshipConfidence.relationshipUnknownPenalty,
     missingRelationshipReasonPenalty: relationshipConfidence.missingRelationshipReasonPenalty,
+    purchaseContextLowSamplePenalty: purchaseConfidence.lowSamplePenalty,
+    purchaseContextBasketIncompletePenalty: purchaseConfidence.basketIncompletePenalty,
+    purchaseContextMultiProductAttributionPenalty: purchaseConfidence.multiProductAttributionPenalty,
+    purchaseContextAmbiguousCoPurchasePenalty: purchaseConfidence.ambiguousCoPurchasePenalty,
   };
   const penaltyTotal = Object.values(penalties).reduce((sum, value) => sum + value, 0);
   const confidenceRaw = coverageScore
@@ -538,6 +657,9 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     + freshnessScore
     + relationshipConfidence.relationshipMatchScore
     + relationshipConfidence.relationshipReasonScore
+    + purchaseConfidence.purchaseContextScore
+    + purchaseConfidence.soloAttributionScore
+    + purchaseConfidence.multiVariantAlignmentScore
     - penaltyTotal;
   const strongReviewFallback = metrics.soldUnits < 5 && metrics.reviewCount >= 10 && agreementScore >= 10;
   const sampleSizeCap = metrics.soldUnits < 5 && metrics.reviewCount < 5
@@ -569,7 +691,10 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     + sourceAgreementScore * 1.3
     + recencyScore * 1.1
     + relationshipConfidence.relationshipMatchScore * 1.2
-    + relationshipConfidence.relationshipReasonScore,
+    + relationshipConfidence.relationshipReasonScore
+    + purchaseConfidence.purchaseContextScore
+    + purchaseConfidence.soloAttributionScore
+    + purchaseConfidence.multiVariantAlignmentScore,
     0,
     100,
   ));
@@ -581,6 +706,10 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     productMatchScore: roundScore(productMatchScore),
     relationshipMatchScore: roundScore(relationshipConfidence.relationshipMatchScore),
     relationshipReasonScore: roundScore(relationshipConfidence.relationshipReasonScore),
+    purchaseContextScore: roundScore(purchaseConfidence.purchaseContextScore),
+    purchaseContextConfidenceScore: roundScore(purchaseConfidence.rawPurchaseContextConfidence * 100),
+    soloPurchaseAttributionScore: roundScore(purchaseConfidence.soloAttributionScore),
+    multiVariantPurchaseAlignmentScore: roundScore(purchaseConfidence.multiVariantAlignmentScore),
     agreementScore: roundScore(agreementScore),
     freshnessScore: roundScore(freshnessScore),
     signalVolumeScore: roundScore(signalVolumeScore),
@@ -646,6 +775,61 @@ function calculateRelationshipConfidenceFactors(metrics) {
   };
 }
 
+function calculatePurchaseContextConfidenceFactors(metrics) {
+  const context = metrics.productPurchaseContext;
+  if (!context?.hasData) {
+    return {
+      purchaseContextScore: 0,
+      soloAttributionScore: 0,
+      multiVariantAlignmentScore: 0,
+      lowSamplePenalty: 0,
+      basketIncompletePenalty: 0,
+      multiProductAttributionPenalty: 0,
+      ambiguousCoPurchasePenalty: 0,
+      rawPurchaseContextConfidence: 0,
+    };
+  }
+
+  const sampleSupport = sampleSufficiency(context.totalOrdersContainingProduct, 20);
+  const purchaseContextScore = clamp(context.purchaseContextConfidence * 8 * sampleSupport, 0, 8);
+  const negativeSignalUnits = metrics.returnUnits + metrics.refundUnits + metrics.negativeReviewCount + metrics.sentimentNegativeCount;
+  const soloAttributionScore = context.reliable && context.soloPurchaseRate >= 0.65 && negativeSignalUnits >= 2
+    ? clamp((context.soloPurchaseRate - 0.55) * 6 + Math.log1p(negativeSignalUnits) * 0.45, 0, 4)
+    : 0;
+  const hasVariantReason = Number(metrics.returnRefundRelationship?.reasonProfile?.categories?.size_or_fit || 0) > 0
+    || metrics.returnRate >= 0.08;
+  const multiVariantAlignmentScore = context.reliable && context.multiVariantOrderRate >= 0.08 && hasVariantReason
+    ? clamp(context.multiVariantOrderRate * 10 + sampleSupport * 1.5, 0, 3.5)
+    : 0;
+  const lowSamplePenalty = context.totalOrdersContainingProduct > 0 && context.totalOrdersContainingProduct < 5
+    ? clamp(5 - context.totalOrdersContainingProduct, 1, 5)
+    : 0;
+  const basketIncompletePenalty = context.unknownOrIncompleteOrderRate > 0
+    ? clamp(context.unknownOrIncompleteOrderRate * 9, 0, 9)
+    : 0;
+  const weakRefundAttribution = metrics.returnRefundRelationship?.totalRefundAmountRelated > 0
+    && (metrics.returnRefundRelationship.refundAttributionRate < 0.7 || metrics.returnRefundRelationship.relationshipMatchConfidenceAvg < 0.65);
+  const multiProductAttributionPenalty = context.multiProductBasketRate >= 0.65 && weakRefundAttribution
+    ? clamp((context.multiProductBasketRate - 0.55) * 7 + (1 - metrics.returnRefundRelationship.refundAttributionRate) * 5, 0, 7)
+    : 0;
+  const ambiguousCoPurchasePenalty = context.multiProductBasketRate >= 0.75
+    && context.topCoPurchasedProducts.length >= 3
+    && metrics.returnRefundRelationship?.relationshipUnknownCount > 0
+    ? clamp(context.topCoPurchasedProducts.length * 0.8, 0, 4)
+    : 0;
+
+  return {
+    purchaseContextScore,
+    soloAttributionScore,
+    multiVariantAlignmentScore,
+    lowSamplePenalty,
+    basketIncompletePenalty,
+    multiProductAttributionPenalty,
+    ambiguousCoPurchasePenalty,
+    rawPurchaseContextConfidence: context.purchaseContextConfidence,
+  };
+}
+
 function calculateFinancialImpact(metrics, options = {}) {
   const marginRate = clamp(number(options.marginRate ?? metrics.marginRate ?? 0.45), 0.05, 0.9);
   const processingCostPerReturn = number(options.returnProcessingCost ?? metrics.returnProcessingCost ?? 8);
@@ -668,6 +852,11 @@ function calculateFinancialImpact(metrics, options = {}) {
   const projectedLostRevenue = projectedFutureUnits * excessReturnRate * avgUnitRevenue;
   const projectedLostMargin = projectedFutureUnits * excessReturnRate * avgUnitRevenue * marginRate;
   const relationshipExposure = calculateRelationshipFinancialExposure(metrics, { avgUnitRevenue });
+  const purchaseContextExposure = calculatePurchaseContextFinancialExposure(metrics, {
+    avgUnitRevenue,
+    processingCostPerReturn,
+    marginRate,
+  });
   const confirmedRefundAmount = relationshipExposure.confirmedRefundAmount;
   const ratingDeficit = metrics.avgRating > 0 ? clamp((4.2 - metrics.avgRating) / 3.2, 0, 1) : 0;
   const reviewSampleSupport = sampleSufficiency(metrics.reviewCount, 25);
@@ -678,11 +867,24 @@ function calculateFinancialImpact(metrics, options = {}) {
   const returnRevenueExposure = metrics.returnUnits * avgUnitRevenue;
   const refundMarginLoss = confirmedRefundAmount * marginRate;
   const observedLossAdjusted = confirmedRefundAmount + returnProcessingCost + lostMarginFromReturnedUnits;
-  const calculatedRevenueAtRisk = projectedLostRevenue + returnRevenueExposure + reviewConversionRevenueDrag + relationshipExposure.relationshipAdjustedRefundAmount;
-  const calculatedMarginAtRisk = projectedLostMargin + refundMarginLoss + returnProcessingCost + reviewConversionMarginDrag;
+  const calculatedRevenueAtRisk = projectedLostRevenue
+    + returnRevenueExposure
+    + reviewConversionRevenueDrag
+    + relationshipExposure.relationshipAdjustedRefundAmount
+    + purchaseContextExposure.bulkRevenueExposure;
+  const calculatedMarginAtRisk = projectedLostMargin
+    + refundMarginLoss
+    + returnProcessingCost
+    + reviewConversionMarginDrag
+    + purchaseContextExposure.bulkQuantityExposure;
   const revenueAtRisk = roundMoney(Math.max(calculatedRevenueAtRisk, metrics.revenueAtRisk));
   const marginAtRisk = roundMoney(Math.max(calculatedMarginAtRisk, metrics.marginAtRisk));
-  const impactMid = roundMoney(Math.max(observedLossAdjusted + projectedReturnLoss + reviewConversionMarginDrag, marginAtRisk, confirmedRefundAmount, metrics.marginAtRisk));
+  const impactMid = roundMoney(Math.max(
+    observedLossAdjusted + projectedReturnLoss + reviewConversionMarginDrag + purchaseContextExposure.bulkQuantityExposure,
+    marginAtRisk,
+    confirmedRefundAmount,
+    metrics.marginAtRisk,
+  ));
   const sampleMultiplier = metrics.effectiveSampleSize < 10 ? { low: 0.55, high: 1.75 } : metrics.effectiveSampleSize < 25 ? { low: 0.7, high: 1.45 } : { low: 0.84, high: 1.22 };
 
   return {
@@ -691,6 +893,7 @@ function calculateFinancialImpact(metrics, options = {}) {
     refunds: roundMoney(confirmedRefundAmount),
     refundValueAtRisk: roundMoney(relationshipExposure.relationshipAdjustedRefundAmount),
     relationshipExposure,
+    purchaseContextExposure,
     returnProcessingCost: roundMoney(returnProcessingCost),
     lostMarginFromReturnedUnits: roundMoney(lostMarginFromReturnedUnits),
     projectedReturnLoss: roundMoney(projectedReturnLoss),
@@ -762,6 +965,46 @@ function calculateRelationshipFinancialExposure(metrics, { avgUnitRevenue = 0 } 
   };
 }
 
+function calculatePurchaseContextFinancialExposure(metrics, {
+  avgUnitRevenue = 0,
+  processingCostPerReturn = 8,
+  marginRate = 0.45,
+} = {}) {
+  const context = metrics.productPurchaseContext;
+  if (!context?.hasData) {
+    return {
+      hasPurchaseContextSummary: false,
+      bulkQuantityExposure: 0,
+      bulkRevenueExposure: 0,
+      avgProductQuantityPerOrder: 0,
+      bulkPurchaseRate: 0,
+      healthyBulkSignal: false,
+    };
+  }
+
+  const badUnits = metrics.returnUnits + metrics.refundUnits;
+  const contextSupport = context.reliable ? context.purchaseContextConfidence : context.purchaseContextConfidence * 0.35;
+  const bulkSeverity = context.bulkPurchaseRate >= 0.15 && badUnits >= 2 && !context.healthyBulkSignal
+    ? clamp((context.avgProductQuantityPerOrder - 1) * context.bulkPurchaseRate, 0, 2.5)
+    : 0;
+  const bulkQuantityExposure = roundMoney(
+    badUnits * bulkSeverity * contextSupport * (processingCostPerReturn + avgUnitRevenue * marginRate * 0.18),
+  );
+  const bulkRevenueExposure = roundMoney(
+    badUnits * bulkSeverity * contextSupport * avgUnitRevenue * 0.18,
+  );
+
+  return {
+    hasPurchaseContextSummary: true,
+    bulkQuantityExposure,
+    bulkRevenueExposure,
+    avgProductQuantityPerOrder: roundScore(context.avgProductQuantityPerOrder),
+    bulkPurchaseRate: roundScore(context.bulkPurchaseRate * 100),
+    bulkOrderCount: context.bulkOrderCount,
+    healthyBulkSignal: context.healthyBulkSignal,
+  };
+}
+
 function calculateRelationshipFactors(metrics, riskComponents, impactFactors, confidenceFactors) {
   const relationship = metrics.returnRefundRelationship;
   if (!relationship?.hasData) {
@@ -805,7 +1048,7 @@ function calculateRelationshipFactors(metrics, riskComponents, impactFactors, co
     version: PRODUCT_PULSE_SCORING_VERSION,
     hasRelationshipSummary: true,
     productRisk: {
-      score: riskComponents.relationshipScore,
+      score: riskComponents.returnRefundRelationshipScore ?? riskComponents.relationshipScore,
       returnedAndRefundedRisk: riskComponents.returnedAndRefundedRisk,
       returnOnlyRisk: riskComponents.returnOnlyRisk,
       refundOnlyProductRisk: riskComponents.refundOnlyProductRisk,
@@ -851,6 +1094,139 @@ function calculateRelationshipFactors(metrics, riskComponents, impactFactors, co
       pendingOrUnknownCount: relationship.pendingReturnUnits + relationship.relationshipUnknownCount,
       unattributedRefundCount: relationship.unattributedRefundOrders,
     },
+  };
+}
+
+function calculatePurchaseContextFactors(metrics, riskComponents, impactFactors, confidenceFactors) {
+  const context = metrics.productPurchaseContext;
+  if (!context?.hasData) {
+    return {
+      version: PRODUCT_PULSE_SCORING_VERSION,
+      hasPurchaseContextSummary: false,
+      context: null,
+      productRisk: null,
+      diagnosisConfidence: null,
+      financialExposure: impactFactors.purchaseContextExposure,
+      returnPressure: null,
+      refundLeakage: null,
+      customerSignalBreakdown: null,
+      recommendedActionSignals: null,
+    };
+  }
+
+  const segments = context.segments || {};
+  const returnPressureSegments = buildPurchaseContextReturnPressureSegments(segments);
+  const refundLeakageSegments = buildPurchaseContextRefundLeakageSegments(segments);
+
+  return {
+    version: PRODUCT_PULSE_SCORING_VERSION,
+    hasPurchaseContextSummary: true,
+    context: {
+      totalOrdersContainingProduct: context.totalOrdersContainingProduct,
+      totalUnitsSold: context.totalUnitsSold,
+      soloPurchaseRate: roundScore(context.soloPurchaseRate * 100),
+      multiProductBasketRate: roundScore(context.multiProductBasketRate * 100),
+      singleUnitPurchaseRate: roundScore(context.singleUnitPurchaseRate * 100),
+      multiUnitPurchaseRate: roundScore(context.multiUnitPurchaseRate * 100),
+      bulkPurchaseRate: roundScore(context.bulkPurchaseRate * 100),
+      multiVariantOrderRate: roundScore(context.multiVariantOrderRate * 100),
+      avgProductQuantityPerOrder: roundScore(context.avgProductQuantityPerOrder),
+      avgDistinctProductsPerOrder: roundScore(context.avgDistinctProductsPerOrder),
+      purchaseContextConfidence: roundScore(context.purchaseContextConfidence * 100),
+      unknownOrIncompleteOrderCount: context.unknownOrIncompleteOrderCount,
+      healthyBulkSignal: context.healthyBulkSignal,
+      topCoPurchasedProducts: context.topCoPurchasedProducts,
+    },
+    productRisk: {
+      score: riskComponents.purchaseContextScore,
+      soloAttributionRisk: riskComponents.soloAttributionRisk,
+      multiVariantRisk: riskComponents.multiVariantPurchaseRisk,
+      bulkQuantitySeverityRisk: riskComponents.bulkQuantitySeverityRisk,
+      returnScoreMultiplier: riskComponents.purchaseReturnScoreMultiplier,
+      refundScoreMultiplier: riskComponents.purchaseRefundScoreMultiplier,
+      healthyBulkSignal: riskComponents.healthyBulkSignal,
+    },
+    diagnosisConfidence: {
+      purchaseContextScore: confidenceFactors.purchaseContextScore,
+      purchaseContextConfidenceScore: confidenceFactors.purchaseContextConfidenceScore,
+      soloAttributionScore: confidenceFactors.soloPurchaseAttributionScore,
+      multiVariantAlignmentScore: confidenceFactors.multiVariantPurchaseAlignmentScore,
+      lowSamplePenalty: confidenceFactors.purchaseContextLowSamplePenalty,
+      basketIncompletePenalty: confidenceFactors.purchaseContextBasketIncompletePenalty,
+      multiProductAttributionPenalty: confidenceFactors.purchaseContextMultiProductAttributionPenalty,
+      ambiguousCoPurchasePenalty: confidenceFactors.purchaseContextAmbiguousCoPurchasePenalty,
+    },
+    financialExposure: impactFactors.purchaseContextExposure,
+    returnPressure: returnPressureSegments,
+    refundLeakage: refundLeakageSegments,
+    customerSignalBreakdown: {
+      primaryContext: getPrimaryPurchaseContextLabel(context),
+      quantityContext: getQuantityPurchaseContextLabel(context),
+      multiVariantOrdersDetected: context.multiVariantOrderCount > 0,
+      multiVariantOrderCount: context.multiVariantOrderCount,
+      bulkOrdersDetected: context.bulkOrderCount > 0,
+      bulkOrderCount: context.bulkOrderCount,
+      weakBasketContext: context.unknownOrIncompleteOrderCount > 0 || context.purchaseContextConfidence < 0.55,
+      topCoPurchasedProductCount: context.topCoPurchasedProducts.length,
+    },
+    recommendedActionSignals: buildPurchaseContextRecommendedActionSignals(metrics, context),
+  };
+}
+
+function buildPurchaseContextReturnPressureSegments(segments = {}) {
+  return {
+    returnRateWhenBoughtAlone: percentSegmentRate(segments.boughtAlone?.returnRateUnits),
+    returnRateWhenBoughtWithOthers: percentSegmentRate(segments.boughtWithOthers?.returnRateUnits),
+    returnRateForSingleUnitOrders: percentSegmentRate(segments.singleUnitOrders?.returnRateUnits),
+    returnRateForMultiUnitOrders: percentSegmentRate(segments.multiUnitOrders?.returnRateUnits),
+    returnRateForBulkOrders: percentSegmentRate(segments.bulkOrders?.returnRateUnits),
+    returnRateForMultiVariantOrders: percentSegmentRate(segments.multiVariantOrders?.returnRateUnits),
+    sufficientSegments: getSufficientPurchaseContextSegments(segments, "return"),
+  };
+}
+
+function buildPurchaseContextRefundLeakageSegments(segments = {}) {
+  return {
+    refundRateWhenBoughtAlone: percentSegmentRate(segments.boughtAlone?.refundRateUnits),
+    refundRateWhenBoughtWithOthers: percentSegmentRate(segments.boughtWithOthers?.refundRateUnits),
+    refundRateForBulkOrders: percentSegmentRate(segments.bulkOrders?.refundRateUnits),
+    refundAmountForBulkOrders: roundMoney(segments.bulkOrders?.refundAmount),
+    refundRateForMultiVariantOrders: percentSegmentRate(segments.multiVariantOrders?.refundRateUnits),
+    sufficientSegments: getSufficientPurchaseContextSegments(segments, "refund"),
+  };
+}
+
+function getSufficientPurchaseContextSegments(segments = {}, type = "return") {
+  return Object.entries(segments)
+    .filter(([, segment]) => segment?.sufficientData && number(type === "refund" ? segment.refundedUnits : segment.returnedUnits) > 0)
+    .map(([key]) => key);
+}
+
+function percentSegmentRate(value) {
+  return roundScore(normalizeRate(value, 0, 0) * 100);
+}
+
+function getPrimaryPurchaseContextLabel(context) {
+  if (context.soloPurchaseRate >= 0.65) return "Mostly bought alone";
+  if (context.multiProductBasketRate >= 0.65) return "Often bought with other products";
+  return "Mixed basket context";
+}
+
+function getQuantityPurchaseContextLabel(context) {
+  if (context.bulkPurchaseRate >= 0.15) return "Frequent bulk purchases";
+  if (context.multiUnitPurchaseRate >= 0.5) return "Frequent multi-unit purchases";
+  return "Mostly single-unit purchases";
+}
+
+function buildPurchaseContextRecommendedActionSignals(metrics, context) {
+  const enoughContext = context.reliable && context.totalOrdersContainingProduct >= 5;
+  const highReturn = metrics.returnRate >= Math.max(metrics.storeReturnBaseline + 0.04, 0.08) && metrics.returnUnits >= 2;
+  const highRefund = metrics.refundRate >= Math.max(metrics.storeRefundBaseline + 0.03, 0.05) && metrics.refundUnits >= 2;
+  return {
+    variantClarity: Boolean(enoughContext && context.multiVariantOrderRate >= 0.08 && highReturn),
+    basketContext: Boolean(enoughContext && context.multiProductBasketRate >= 0.65 && highReturn && context.topCoPurchasedProducts.length > 0),
+    bulkReview: Boolean(enoughContext && context.bulkPurchaseRate >= 0.15 && (highReturn || highRefund)),
+    productLevelPriority: Boolean(enoughContext && context.soloPurchaseRate >= 0.65 && (highReturn || highRefund)),
   };
 }
 
@@ -961,6 +1337,112 @@ function normalizeReturnRefundRelationshipSummary(summary) {
     totalRelationshipSignalUnits,
     unattributedRefundOrders: number(buckets.unattributed_refund?.orders),
   };
+}
+
+function normalizeProductPurchaseContextSummary(summary) {
+  if (!summary || typeof summary !== "object") return null;
+  const totalOrdersContainingProduct = number(summary.total_orders_containing_product);
+  const totalUnitsSold = number(summary.total_units_sold);
+  const purchaseContextConfidence = normalizeConfidence(summary.purchase_context_confidence);
+  const unknownOrIncompleteOrderCount = number(summary.unknown_or_incomplete_order_count);
+  const hasData = Boolean(totalOrdersContainingProduct || totalUnitsSold || number(summary.total_revenue_if_available));
+  const segments = normalizePurchaseContextSegments(summary.purchase_context_segments || {});
+  const returnRate = Math.max(
+    segments.boughtAlone.returnRateUnits || 0,
+    segments.boughtWithOthers.returnRateUnits || 0,
+    segments.bulkOrders.returnRateUnits || 0,
+    segments.multiVariantOrders.returnRateUnits || 0,
+  );
+  const refundRate = Math.max(
+    segments.boughtAlone.refundRateUnits || 0,
+    segments.boughtWithOthers.refundRateUnits || 0,
+    segments.bulkOrders.refundRateUnits || 0,
+    segments.multiVariantOrders.refundRateUnits || 0,
+  );
+
+  return {
+    hasData,
+    reliable: hasData && purchaseContextConfidence >= 0.55 && totalOrdersContainingProduct >= 5,
+    productId: summary.product_id || null,
+    totalOrdersContainingProduct,
+    totalUnitsSold,
+    totalRevenueIfAvailable: number(summary.total_revenue_if_available),
+    soloProductOrderCount: number(summary.solo_product_order_count),
+    multiProductOrderCount: number(summary.multi_product_order_count),
+    singleUnitOrderCount: number(summary.single_unit_order_count),
+    multiUnitOrderCount: number(summary.multi_unit_order_count),
+    bulkOrderCount: number(summary.bulk_order_count),
+    multiVariantOrderCount: number(summary.multi_variant_order_count),
+    avgProductQuantityPerOrder: number(summary.avg_product_quantity_per_order ?? summary.avg_product_qty_per_order),
+    medianProductQuantityPerOrder: number(summary.median_product_quantity_per_order),
+    avgDistinctProductsPerOrder: number(summary.avg_distinct_products_per_order),
+    avgTotalUnitsPerOrder: number(summary.avg_total_units_per_order),
+    purchaseContextConfidence,
+    unknownOrIncompleteOrderCount,
+    unknownOrIncompleteOrderRate: normalizeRelationshipRate(0, unknownOrIncompleteOrderCount, totalOrdersContainingProduct),
+    bulkPurchaseThreshold: number(summary.bulk_purchase_threshold),
+    soloPurchaseRate: normalizeRelationshipRate(summary.solo_purchase_rate, number(summary.solo_product_order_count), totalOrdersContainingProduct),
+    multiProductBasketRate: normalizeRelationshipRate(summary.multi_product_basket_rate, number(summary.multi_product_order_count), totalOrdersContainingProduct),
+    singleUnitPurchaseRate: normalizeRelationshipRate(summary.single_unit_purchase_rate, number(summary.single_unit_order_count), totalOrdersContainingProduct),
+    multiUnitPurchaseRate: normalizeRelationshipRate(summary.multi_unit_purchase_rate, number(summary.multi_unit_order_count), totalOrdersContainingProduct),
+    bulkPurchaseRate: normalizeRelationshipRate(summary.bulk_purchase_rate, number(summary.bulk_order_count), totalOrdersContainingProduct),
+    multiVariantOrderRate: normalizeRelationshipRate(summary.multi_variant_order_rate, number(summary.multi_variant_order_count), totalOrdersContainingProduct),
+    quantityDistribution: summary.quantity_distribution || {},
+    topCoPurchasedProducts: normalizeTopCoPurchasedProducts(summary.top_co_purchased_products),
+    monthlyContext: Array.isArray(summary.monthly_context) ? summary.monthly_context : [],
+    segments,
+    multiVariantReturnRate: segments.multiVariantOrders.returnRateUnits,
+    bulkReturnRate: segments.bulkOrders.returnRateUnits,
+    bulkRefundRate: segments.bulkOrders.refundRateUnits,
+    maxSegmentReturnRate: returnRate,
+    maxSegmentRefundRate: refundRate,
+    healthyBulkSignal: number(summary.bulk_order_count) > 0
+      && normalizeRelationshipRate(summary.bulk_purchase_rate, number(summary.bulk_order_count), totalOrdersContainingProduct) >= 0.15
+      && returnRate <= 0.03
+      && refundRate <= 0.02,
+  };
+}
+
+function normalizePurchaseContextSegments(segments = {}) {
+  return {
+    boughtAlone: normalizePurchaseContextSegment(segments.bought_alone),
+    boughtWithOthers: normalizePurchaseContextSegment(segments.bought_with_others),
+    singleUnitOrders: normalizePurchaseContextSegment(segments.single_unit_orders),
+    multiUnitOrders: normalizePurchaseContextSegment(segments.multi_unit_orders),
+    bulkOrders: normalizePurchaseContextSegment(segments.bulk_orders),
+    multiVariantOrders: normalizePurchaseContextSegment(segments.multi_variant_orders),
+  };
+}
+
+function normalizePurchaseContextSegment(segment = {}) {
+  const orders = number(segment.orders);
+  const soldUnits = number(segment.sold_units);
+  const returnedUnits = number(segment.returned_units);
+  const refundedUnits = number(segment.refunded_units);
+  const affectedOrders = number(segment.affected_orders);
+  return {
+    orders,
+    soldUnits,
+    returnedUnits,
+    refundedUnits,
+    refundAmount: number(segment.refund_amount),
+    affectedOrders,
+    returnRateUnits: normalizeRelationshipRate(segment.return_rate_units, returnedUnits, soldUnits),
+    refundRateUnits: normalizeRelationshipRate(segment.refund_rate_units, refundedUnits, soldUnits),
+    affectedOrderRate: normalizeRelationshipRate(segment.affected_order_rate, affectedOrders, orders),
+    sufficientData: Boolean(segment.sufficient_data || orders >= 5 || soldUnits >= 10),
+  };
+}
+
+function normalizeTopCoPurchasedProducts(products = []) {
+  return (Array.isArray(products) ? products : []).slice(0, 8).map((product) => ({
+    productId: product.productId || product.product_id || "",
+    title: product.title || "Unknown product",
+    handle: product.handle || "",
+    coOrderCount: number(product.co_order_count),
+    coOrderRate: normalizeRate(product.co_order_rate, 0, 0),
+    affinityScore: number(product.affinity_score),
+  }));
 }
 
 function buildRelationshipReasonProfile(summary = {}) {

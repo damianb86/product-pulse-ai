@@ -100,6 +100,30 @@ describe("ProductPulse relationship-aware recalculation", () => {
     expect(snapshot.metrics.scoringVersion).toBeUndefined();
   });
 
+  it("recalculates Product Risk and Diagnosis Confidence when purchase context changes", () => {
+    const withoutContext = snapshotFor("shop-a.myshopify.com", "gid://shopify/Product/1", {
+      riskScore: 5,
+      confidence: 5,
+      metrics: metricsWithLinkedReturnRefunds(),
+    });
+    const withContext = snapshotFor("shop-a.myshopify.com", "gid://shopify/Product/1", {
+      riskScore: 5,
+      confidence: 5,
+      metrics: {
+        ...metricsWithLinkedReturnRefunds(),
+        productPurchaseContextSummary: purchaseContextSummary(),
+      },
+    });
+
+    const base = recalculateProductPulseSnapshotMetrics(withoutContext);
+    const recalculated = recalculateProductPulseSnapshotMetrics(withContext);
+
+    expect(recalculated.riskScore).toBeGreaterThan(base.riskScore);
+    expect(recalculated.confidence).toBeGreaterThan(base.confidence);
+    expect(recalculated.metrics.productPurchaseContextFactors.productRisk.soloAttributionRisk).toBeGreaterThan(0);
+    expect(recalculated.metrics.productPurchaseContextScoringImpact.join(" ")).toContain("usually bought alone");
+  });
+
   it("does not contain Shopify mutations or direct Shopify write calls", () => {
     const source = readFileSync(
       join(cwd(), "app/lib/product-pulse-recalculation.server.js"),
@@ -182,6 +206,39 @@ function metricsWithLinkedReturnRefunds() {
       return_reason_categories: { damaged_or_defective: 6 },
       refund_reason_categories: { damaged_or_defective: 6 },
     },
+  };
+}
+
+function purchaseContextSummary() {
+  return {
+    schema_version: 1,
+    product_id: "gid://shopify/Product/1",
+    total_orders_containing_product: 30,
+    total_units_sold: 50,
+    total_revenue_if_available: 5000,
+    solo_product_order_count: 24,
+    multi_product_order_count: 6,
+    single_unit_order_count: 14,
+    multi_unit_order_count: 16,
+    bulk_order_count: 0,
+    multi_variant_order_count: 0,
+    avg_product_quantity_per_order: 1.67,
+    median_product_quantity_per_order: 1,
+    avg_distinct_products_per_order: 1.2,
+    avg_total_units_per_order: 1.7,
+    purchase_context_confidence: 88,
+    unknown_or_incomplete_order_count: 0,
+    solo_purchase_rate: 0.8,
+    multi_product_basket_rate: 0.2,
+    single_unit_purchase_rate: 14 / 30,
+    multi_unit_purchase_rate: 16 / 30,
+    bulk_purchase_rate: 0,
+    multi_variant_order_rate: 0,
+    top_co_purchased_products: [],
+    quantity_distribution: {},
+    purchase_context_segments: {},
+    monthly_context: [],
+    context_buckets: {},
   };
 }
 

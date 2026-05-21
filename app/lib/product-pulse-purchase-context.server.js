@@ -20,6 +20,8 @@ export function buildProductPurchaseContextSummary({
   products = [],
   events = [],
   sales = [],
+  returns = [],
+  refunds = [],
   assumeCompleteOrderEvents = false,
   bulkPurchaseThreshold = null,
   topCoPurchasedLimit = DEFAULT_TOP_CO_PURCHASED_LIMIT,
@@ -29,6 +31,8 @@ export function buildProductPurchaseContextSummary({
     products,
     events,
     sales,
+    returns,
+    refunds,
     assumeCompleteOrderEvents,
     bulkPurchaseThreshold,
     topCoPurchasedLimit,
@@ -41,6 +45,8 @@ export function buildProductPurchaseContextSummaries({
   products = [],
   events = [],
   sales = [],
+  returns = [],
+  refunds = [],
   assumeCompleteOrderEvents = true,
   bulkPurchaseThreshold = null,
   topCoPurchasedLimit = DEFAULT_TOP_CO_PURCHASED_LIMIT,
@@ -50,6 +56,13 @@ export function buildProductPurchaseContextSummaries({
     shop,
     events,
     sales,
+    productIndex,
+  });
+  const operationalEvents = normalizePurchaseContextOperationalEvents({
+    shop,
+    events,
+    returns,
+    refunds,
     productIndex,
   });
   const orderState = buildPurchaseContextOrderState({
@@ -69,6 +82,7 @@ export function buildProductPurchaseContextSummaries({
       productId,
       productIndex,
       orderState,
+      operationalEvents,
       bulkPurchaseThreshold,
       topCoPurchasedLimit,
     }));
@@ -125,6 +139,17 @@ function normalizePurchaseContextSourceEvents({ shop, events = [], sales = [], p
   ]
     .map((event, index) => normalizePurchaseContextSaleEvent(event, index, productIndex))
     .filter((event) => event.type === "sale")
+    .filter((event) => !shop || !event.shop || event.shop === shop);
+}
+
+function normalizePurchaseContextOperationalEvents({ shop, events = [], returns = [], refunds = [], productIndex }) {
+  return [
+    ...getArray(events),
+    ...getArray(returns).map((event) => ({ ...event, type: "return" })),
+    ...getArray(refunds).map((event) => ({ ...event, type: "refund" })),
+  ]
+    .map((event, index) => normalizePurchaseContextOperationalEvent(event, index, productIndex))
+    .filter((event) => event.type === "return" || event.type === "refund")
     .filter((event) => !shop || !event.shop || event.shop === shop);
 }
 
@@ -209,7 +234,32 @@ function normalizeBasketLineItem(lineItem = {}, index, productIndex) {
 function normalizeEventType(type) {
   const normalized = String(type || "sale").toLowerCase();
   if (["sale", "order", "order_line_item", ""].includes(normalized)) return "sale";
+  if (["return", "return_line_item"].includes(normalized)) return "return";
+  if (["refund", "refund_line_item"].includes(normalized)) return "refund";
   return normalized;
+}
+
+function normalizePurchaseContextOperationalEvent(event = {}, index, productIndex) {
+  const type = normalizeEventType(event.type);
+  const variantId = stringOrNull(event.variantId || event.variantGid || event.variant_id);
+  const productId = stringOrNull(event.productId || event.productGid || event.product_id)
+    || productIndex.productIdByVariantId.get(variantId)
+    || null;
+  const quantity = Math.max(0, number(firstDefined(event.quantity, event.processedQuantity, event.refundedQuantity)));
+
+  return {
+    ...event,
+    type,
+    id: stringOrNull(event.id) || `${type || "event"}:${index}`,
+    shop: stringOrNull(event.shop),
+    orderId: stringOrNull(event.orderId || event.orderGid || event.order_id),
+    lineItemId: stringOrNull(event.lineItemId || event.orderLineItemId || event.line_item_id),
+    productId,
+    variantId,
+    quantity,
+    amount: Math.max(0, number(firstDefined(event.amount, event.totalRefundedAmount, event.refundAmount))),
+    fallbackSource: stringOrNull(event.fallbackSource),
+  };
 }
 
 function buildPurchaseContextOrderState({ saleEvents, productIndex, assumeCompleteOrderEvents }) {
@@ -308,6 +358,7 @@ function finalizeProductPurchaseContextSummary({
   productId,
   productIndex,
   orderState,
+  operationalEvents = [],
   bulkPurchaseThreshold,
   topCoPurchasedLimit,
 }) {
@@ -347,6 +398,12 @@ function finalizeProductPurchaseContextSummary({
     orderState,
     limit: topCoPurchasedLimit,
   });
+  summary.purchase_context_segments = buildPurchaseContextOutcomeSegments({
+    productId,
+    orderRows,
+    operationalEvents,
+    threshold,
+  });
   summary.monthly_context = buildMonthlyPurchaseContext(orderRows, threshold);
   summary.purchase_context_confidence = calculatePurchaseContextConfidence({
     totalOrders: summary.total_orders_containing_product,
@@ -368,6 +425,7 @@ function buildProductOrderContextRow(productId, order) {
   const productQuantity = productLines.reduce((total, line) => total + line.quantity, 0);
   const productRevenue = productLines.reduce((total, line) => total + line.amount, 0);
   const productVariantIds = new Set(productLines.map((line) => line.variantId).filter(Boolean));
+  const productLineItemIds = new Set(productLines.map((line) => line.lineItemId).filter(Boolean));
   const distinctProductIds = new Set(lines.map((line) => line.productId).filter(Boolean));
   const hasKnownBasket = Boolean(order.basketKnown && !order.incompleteLineCount);
   const totalUnitsInOrder = lines.reduce((total, line) => total + (line.hasQuantity ? line.quantity : 0), 0);
@@ -381,9 +439,101 @@ function buildProductOrderContextRow(productId, order) {
     productQuantity,
     productRevenue,
     productVariantCount: productVariantIds.size,
+    productLineItemIds,
     distinctProductCount: hasKnownBasket ? distinctProductIds.size : 0,
     distinctProductIds,
     totalUnitsInOrder,
+  };
+}
+
+function buildPurchaseContextOutcomeSegments({ productId, orderRows = [], operationalEvents = [], threshold }) {
+  const eventsByOrderId = new Map();
+  operationalEvents.forEach((event) => {
+    if (!event.orderId) return;
+    addToMapArray(eventsByOrderId, event.orderId, event);
+  });
+
+  const segments = {
+    bought_alone: createOutcomeSegment(),
+    bought_with_others: createOutcomeSegment(),
+    single_unit_orders: createOutcomeSegment(),
+    multi_unit_orders: createOutcomeSegment(),
+    bulk_orders: createOutcomeSegment(),
+    multi_variant_orders: createOutcomeSegment(),
+  };
+
+  orderRows.forEach((row) => {
+    const matchingEvents = getProductOperationalEventsForOrder(productId, row, eventsByOrderId.get(row.orderId));
+    const returnedUnits = matchingEvents
+      .filter((event) => event.type === "return")
+      .reduce((total, event) => total + event.quantity, 0);
+    const refundedUnits = matchingEvents
+      .filter((event) => event.type === "refund")
+      .reduce((total, event) => total + event.quantity, 0);
+    const refundAmount = matchingEvents
+      .filter((event) => event.type === "refund")
+      .reduce((total, event) => total + event.amount, 0);
+
+    if (row.hasKnownBasket && row.distinctProductCount <= 1) {
+      addOrderToOutcomeSegment(segments.bought_alone, row, { returnedUnits, refundedUnits, refundAmount });
+    }
+    if (row.hasKnownBasket && row.distinctProductCount > 1) {
+      addOrderToOutcomeSegment(segments.bought_with_others, row, { returnedUnits, refundedUnits, refundAmount });
+    }
+    if (row.hasKnownQuantity && row.productQuantity === 1) {
+      addOrderToOutcomeSegment(segments.single_unit_orders, row, { returnedUnits, refundedUnits, refundAmount });
+    }
+    if (row.hasKnownQuantity && row.productQuantity > 1) {
+      addOrderToOutcomeSegment(segments.multi_unit_orders, row, { returnedUnits, refundedUnits, refundAmount });
+    }
+    if (row.hasKnownQuantity && row.productQuantity >= threshold) {
+      addOrderToOutcomeSegment(segments.bulk_orders, row, { returnedUnits, refundedUnits, refundAmount });
+    }
+    if (row.productVariantCount > 1) {
+      addOrderToOutcomeSegment(segments.multi_variant_orders, row, { returnedUnits, refundedUnits, refundAmount });
+    }
+  });
+
+  return Object.fromEntries(Object.entries(segments).map(([key, segment]) => [key, finalizeOutcomeSegment(segment)]));
+}
+
+function getProductOperationalEventsForOrder(productId, row, events = []) {
+  return getArray(events).filter((event) => {
+    if (event.lineItemId && row.productLineItemIds?.has(event.lineItemId)) return true;
+    if (event.productId === productId) return true;
+    if (!event.productId && row.hasKnownBasket && row.distinctProductCount === 1) return true;
+    return false;
+  });
+}
+
+function createOutcomeSegment() {
+  return {
+    orders: 0,
+    sold_units: 0,
+    returned_units: 0,
+    refunded_units: 0,
+    refund_amount: 0,
+    affected_orders: 0,
+  };
+}
+
+function addOrderToOutcomeSegment(segment, row, { returnedUnits = 0, refundedUnits = 0, refundAmount = 0 } = {}) {
+  segment.orders += 1;
+  segment.sold_units += row.hasKnownQuantity ? row.productQuantity : 0;
+  segment.returned_units += returnedUnits;
+  segment.refunded_units += refundedUnits;
+  segment.refund_amount += refundAmount;
+  if (returnedUnits > 0 || refundedUnits > 0 || refundAmount > 0) segment.affected_orders += 1;
+}
+
+function finalizeOutcomeSegment(segment) {
+  return {
+    ...segment,
+    refund_amount: roundMoney(segment.refund_amount),
+    return_rate_units: roundRate(safeDivide(segment.returned_units, segment.sold_units)),
+    refund_rate_units: roundRate(safeDivide(segment.refunded_units, segment.sold_units)),
+    affected_order_rate: roundRate(safeDivide(segment.affected_orders, segment.orders)),
+    sufficient_data: segment.orders >= 5 || segment.sold_units >= 10,
   };
 }
 
@@ -638,6 +788,12 @@ function addSetValue(map, key, value) {
 function incrementMap(map, key, amount = 1) {
   if (!key) return;
   map.set(key, (map.get(key) || 0) + amount);
+}
+
+function addToMapArray(map, key, value) {
+  if (!key) return;
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(value);
 }
 
 function confidenceLabel(score) {

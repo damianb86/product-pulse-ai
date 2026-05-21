@@ -168,6 +168,49 @@ describe("product purchase context analysis", () => {
     ]);
   });
 
+  it("segments return and refund outcomes by basket, quantity, bulk, and multi-variant context", () => {
+    const summary = summaryFor([
+      sale({ orderId: "solo", lineItemId: "line-a-solo", quantity: 1, amount: 100 }),
+      { type: "return", shop: SHOP, orderId: "solo", lineItemId: "line-a-solo", productId: PRODUCT_A, quantity: 1 },
+      sale({ orderId: "basket", lineItemId: "line-a-basket", quantity: 2, amount: 200 }),
+      sale({ orderId: "basket", lineItemId: "line-b-basket", productId: PRODUCT_B, variantId: VARIANT_B, quantity: 1, amount: 40 }),
+      { type: "refund", shop: SHOP, orderId: "basket", lineItemId: "line-a-basket", productId: PRODUCT_A, quantity: 1, amount: 100 },
+      sale({ orderId: "bulk", lineItemId: "line-a-bulk", quantity: 4, amount: 400 }),
+      { type: "return", shop: SHOP, orderId: "bulk", lineItemId: "line-a-bulk", productId: PRODUCT_A, quantity: 2 },
+      { type: "refund", shop: SHOP, orderId: "bulk", lineItemId: "line-a-bulk", productId: PRODUCT_A, quantity: 1, amount: 100 },
+      sale({ orderId: "variant", lineItemId: "line-a-v1", variantId: VARIANT_A_1, quantity: 1, amount: 100 }),
+      sale({ orderId: "variant", lineItemId: "line-a-v2", variantId: VARIANT_A_2, quantity: 1, amount: 90 }),
+      { type: "return", shop: SHOP, orderId: "variant", lineItemId: "line-a-v2", productId: PRODUCT_A, variantId: VARIANT_A_2, quantity: 1 },
+    ]);
+
+    expect(summary.purchase_context_segments.bought_alone).toMatchObject({
+      orders: 3,
+      sold_units: 7,
+      returned_units: 4,
+      refunded_units: 1,
+      refund_amount: 100,
+    });
+    expect(summary.purchase_context_segments.bought_with_others).toMatchObject({
+      orders: 1,
+      sold_units: 2,
+      returned_units: 0,
+      refunded_units: 1,
+      refund_amount: 100,
+    });
+    expect(summary.purchase_context_segments.bulk_orders).toMatchObject({
+      orders: 1,
+      sold_units: 4,
+      returned_units: 2,
+      refunded_units: 1,
+      refund_amount: 100,
+    });
+    expect(summary.purchase_context_segments.multi_variant_orders).toMatchObject({
+      orders: 1,
+      sold_units: 2,
+      returned_units: 1,
+    });
+  });
+
   it("uses explicit basket line items for product-scoped diagnosis events", () => {
     const summary = buildProductPurchaseContextSummary({
       shop: SHOP,

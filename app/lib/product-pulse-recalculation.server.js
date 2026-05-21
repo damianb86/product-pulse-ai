@@ -13,11 +13,15 @@ export function recalculateProductPulseSnapshotMetrics(snapshot = {}, options = 
   const scoreModel = calculateProductScoreModel(metrics, options.scoringOptions || {});
   const impactFactors = scoreModel.impactFactors || {};
   const relationshipFactors = scoreModel.relationshipFactors || {};
+  const purchaseContextFactors = scoreModel.purchaseContextFactors || {};
   const updatedMetrics = {
     ...metrics,
     scoringVersion: PRODUCT_PULSE_SCORING_VERSION,
     returnRefundRelationshipFactors: relationshipFactors,
     returnRefundScoringImpact: scoreModel.relationshipExplanations,
+    productPurchaseContextFactors: purchaseContextFactors,
+    productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
+    purchaseContextSignalBreakdown: purchaseContextFactors.customerSignalBreakdown,
     returnPressure: relationshipFactors.returnPressure,
     refundLeakage: relationshipFactors.refundLeakage,
     customerSignalBreakdown: relationshipFactors.customerSignalBreakdown,
