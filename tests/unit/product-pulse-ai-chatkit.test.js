@@ -396,6 +396,8 @@ describe("ProductPulse ChatKit integration", () => {
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
     expect(JSON.stringify(widgets)).toContain("Action completed");
+    expect(JSON.stringify(widgets)).not.toContain("\"type\":\"Table");
+    expect(JSON.stringify(widgets)).not.toContain("\"type\":\"Box\"");
     expect(JSON.stringify(widgets)).not.toContain(longEvidence);
   });
 
@@ -452,11 +454,16 @@ describe("ProductPulse ChatKit integration", () => {
       expiresAt: "2026-05-20T12:15:00.000Z",
     });
 
-    const actionButtons = JSON.stringify(widget).match(/"onClickAction":\{[^}]+\}/g) || [];
-    expect(actionButtons.length).toBe(2);
-    expect(actionButtons.every((button) => button.includes("\"proposalId\":\"proposal-1\""))).toBe(true);
-    expect(actionButtons.some((button) => button.includes("product_pulse_archive_internal_product_analysis"))).toBe(false);
-    expect(actionButtons.some((button) => button.includes("gid://shopify/Product/1"))).toBe(false);
+    expect(widget.confirm).toEqual({
+      label: "Confirm",
+      action: { type: "confirm_ai_action", payload: { proposalId: "proposal-1" } },
+    });
+    expect(widget.cancel).toEqual({
+      label: "Cancel",
+      action: { type: "cancel_ai_action", payload: { proposalId: "proposal-1" } },
+    });
+    expect(JSON.stringify(widget.confirm)).not.toContain("product_pulse_archive_internal_product_analysis");
+    expect(JSON.stringify(widget.cancel)).not.toContain("gid://shopify/Product/1");
   });
 
   it("renders user-provided text as widget text, not HTML or markdown components", () => {

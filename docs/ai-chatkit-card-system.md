@@ -39,7 +39,8 @@ It does not parse assistant natural language and does not build cards from raw d
 
 `metric_table`
 
-- Renders a compact Table/Data card with metric, value, and detail columns.
+- Renders a compact Table/Data-style card with header and row panels built from `Row`/`Col` primitives.
+- It intentionally does not emit `Table`, `Table.Row`, or `Table.Cell` widget nodes because the public ChatKit widget reference centers the stable renderer on `Card`, `ListView`, `Row`, `Col`, `Box`, text, badges, buttons, images, and forms.
 - Does not add chart visuals yet because there is no validated neutral chart block and no shared chart library.
 
 `entity_list`
@@ -60,7 +61,8 @@ It does not parse assistant natural language and does not build cards from raw d
 
 - Renders the Expanded Action Detail confirmation card pattern.
 - Shows summary, target, reason, expected result, risks, confirmation level, side-effect level, reversibility, and expiry.
-- Confirm/Cancel buttons send only `proposalId`.
+- Uses ChatKit `Card.confirm` and `Card.cancel` actions so the buttons render through ChatKit's native confirmation area.
+- Confirm/Cancel actions send only `proposalId`.
 
 `action_result`
 
@@ -78,6 +80,26 @@ ChatKit widgets are JSON payloads, so existing React/Polaris components cannot b
 - metric key/value rows;
 - explicit empty states;
 - confirmation language from the internal action flow.
+
+## ChatKit Rendering Constraints
+
+Reference sources:
+
+- OpenAI ChatKit widgets guide: `https://developers.openai.com/api/docs/guides/chatkit-widgets`
+- OpenAI ChatKit actions guide: `https://developers.openai.com/api/docs/guides/chatkit-actions`
+- Installed package types: `node_modules/@openai/chatkit/types/widgets.d.ts`
+
+Practical constraints for this app:
+
+- ChatKit does not render arbitrary HTML, CSS classes, Polaris components, or React components inside a message.
+- Widgets must be JSON objects made from supported widget primitives.
+- The closest approximation to ProductPulse cards is a composition of `Card`, `Row`, `Col`, `Title`, `Text`, `Caption`, `Badge`, `Icon`, `Image`, `Divider`, and `Button`.
+- Exact mockup details such as custom shadows, gradients, chart rendering, pixel-perfect card borders, bespoke SVG sparklines, and CSS hover states are outside the widget payload model.
+- Widget actions are client-originated payloads and must be treated as untrusted. They continue to route through ProductPulse backend validation.
+- Complex forms are not a good fit for widgets; the ChatKit actions docs recommend client-side modals when a workflow needs richer validation.
+- Images must be hosted by the backend or otherwise be stable public URLs before they are referenced by ChatKit.
+
+The adapter now avoids `Table.*` and generic `Box` output because those are more likely to differ between the installed TypeScript types, public docs, and the CDN renderer. Rows that visually look like tables are built from `Row` and `Col` primitives instead.
 
 ## Mapping Flow
 

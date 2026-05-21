@@ -212,18 +212,10 @@ function metricTableWidget(block: Extract<AiPresentationBlock, { type: "metric_t
       title(block.title || "Metrics", { key: "title" }),
       badge(`${block.rows.length} rows`, "secondary", { key: "count" }),
     ], { key: "heading", justify: "between", align: "center" }),
-    table([
-      tableRow([
-        tableCell([caption("Metric", { key: "metric" })], { key: "metric", width: "42%" }),
-        tableCell([caption("Value", { key: "value" })], { key: "value", width: "22%", align: "end" }),
-        tableCell([caption("Detail", { key: "detail" })], { key: "detail" }),
-      ], { key: "header", header: true }),
-      ...visibleRows.map((metric, index) => tableRow([
-        tableCell([text(metric.label, { key: "label", weight: "medium", maxLength: 90 })], { key: "label", width: "42%" }),
-        tableCell([text(formatMetricValue(metric.value), { key: "value", weight: "semibold", textAlign: "end", maxLength: 80 })], { key: "value", width: "22%", align: "end" }),
-        tableCell(metric.detail ? [caption(metric.detail, { key: "detail", maxLength: 120 })] : [caption("—", { key: "empty" })], { key: "detail" }),
-      ], { key: `metric-${index}` })),
-    ], { key: "table" }),
+    col([
+      metricHeaderRow("metric-header"),
+      ...visibleRows.map((metric, index) => metricDataRow(metric, index)),
+    ], { key: "metric-rows", gap: 0 }),
     ...(block.rows.length > visibleRows.length ? [caption(`Showing ${visibleRows.length} of ${block.rows.length} metrics.`, { key: "more" })] : []),
   ], { status: { text: "Metrics", icon: "chart" } });
 }
@@ -317,20 +309,19 @@ function actionProposalWidget(block: Extract<AiPresentationBlock, { type: "actio
       { label: "Expires", value: block.expiresAt },
     ], { key: "impact" }),
     ...(block.risks.length ? [col(block.risks.slice(0, 4).map((risk, index) => bulletRow(risk, `risk-${index}`, "info")), { key: "risks", gap: 5 })] : []),
-    actionFooter([
-      button("Cancel", "cancel_ai_action", { proposalId: block.proposalId }, "empty-circle", { key: "cancel", block: true }),
-      button("Confirm", "confirm_ai_action", { proposalId: block.proposalId }, "check", {
-        key: "confirm",
-        style: "primary",
-        color: block.confirmationLevel === "high" ? "danger" : "primary",
-        block: true,
-      }),
-    ], "actions"),
     caption("Only ProductPulse internal data can be changed. Shopify product data is not modified.", { key: "safety" }),
   ], {
     status: {
       text: "Action proposal",
       icon: block.confirmationLevel === "high" ? "info" : "check-circle",
+    },
+    cancel: {
+      label: "Cancel",
+      action: { type: "cancel_ai_action", payload: { proposalId: block.proposalId } },
+    },
+    confirm: {
+      label: "Confirm",
+      action: { type: "confirm_ai_action", payload: { proposalId: block.proposalId } },
     },
   });
 }
@@ -433,12 +424,8 @@ function col(children: Widgets.WidgetComponent[], options: Partial<Widgets.Col> 
   return { type: "Col", gap: 6, align: "stretch", children, ...options };
 }
 
-function box(children: Widgets.WidgetComponent[], options: Partial<Widgets.Box> = {}): Widgets.Box {
-  return { type: "Box", direction: "col", gap: 6, padding: 0, children, ...options };
-}
-
-function sectionBox(children: Widgets.WidgetComponent[], options: Partial<Widgets.Box> = {}): Widgets.Box {
-  return box(children, {
+function sectionBox(children: Widgets.WidgetComponent[], options: Partial<Widgets.Col> = {}): Widgets.Col {
+  return col(children, {
     padding: 12,
     background: COLORS.panel,
     border: { size: 1, color: COLORS.border },
@@ -455,8 +442,8 @@ function icon(name: Widgets.WidgetIcon, options: Partial<Widgets.Icon> = {}): Wi
   return { type: "Icon", name, size: "xs", ...options };
 }
 
-function iconTile(name: Widgets.WidgetIcon, options: Partial<Widgets.Box> = {}): Widgets.Box {
-  return box([
+function iconTile(name: Widgets.WidgetIcon, options: Partial<Widgets.Col> = {}): Widgets.Col {
+  return col([
     icon(name, { key: "icon", color: "#ffffff", size: "md" }),
   ], {
     key: "icon-tile",
@@ -475,10 +462,10 @@ function iconTile(name: Widgets.WidgetIcon, options: Partial<Widgets.Box> = {}):
 function productImageOrIcon(
   block: Extract<AiPresentationBlock, { type: "product_reference" }>,
   key: string,
-): Widgets.Image | Widgets.Box {
+): Widgets.Image | Widgets.Col {
   const imageUrl = safeImageUrl(block.imageUrl);
   if (!imageUrl) {
-    return box([
+    return col([
       icon("profile-card", { key: "icon", color: COLORS.accent, size: "lg" }),
     ], {
       width: 88,
@@ -508,10 +495,9 @@ function productImageOrIcon(
 
 function metricGrid(
   metrics: Array<{ label: string; value: string | number | boolean | null; detail?: string | null; trend?: string | null }>,
-  options: Partial<Widgets.Box> = {},
-): Widgets.Box {
-  return box(metrics.map((metric, index) => metricTile(metric, index)), {
-    direction: "row",
+  options: Partial<Widgets.Row> = {},
+): Widgets.Row {
+  return row(metrics.map((metric, index) => metricTile(metric, index)), {
     gap: 8,
     wrap: "wrap",
     ...options,
@@ -521,8 +507,8 @@ function metricGrid(
 function metricTile(
   metric: { label: string; value: string | number | boolean | null; detail?: string | null; trend?: string | null },
   index: number,
-): Widgets.Box {
-  return box([
+): Widgets.Col {
+  return col([
     caption(metric.label, { key: "label", maxLength: 80 }),
     text(formatMetricValue(metric.value), { key: "value", size: "lg", weight: "bold", maxLength: 80 }),
     ...(metric.trend ? [caption(metric.trend, { key: "trend", maxLength: 80, color: "#0f9f5f" })] : []),
@@ -543,7 +529,7 @@ function evidenceRow(
   item: Extract<AiPresentationBlock, { type: "evidence_list" }>["items"][number],
   index: number,
   productGid?: string,
-): Widgets.Box {
+): Widgets.Col {
   return sectionBox([
     row([
       badge(item.source, "info", { key: "source" }),
@@ -561,7 +547,7 @@ function evidenceRow(
 function entityPanel(
   item: Extract<AiPresentationBlock, { type: "entity_list" }>["items"][number],
   index: number,
-): Widgets.Box {
+): Widgets.Col {
   const productRef = item.productGid || item.handle;
   return sectionBox([
     row([
@@ -587,7 +573,7 @@ function recommendationPanel(
   block: Extract<AiPresentationBlock, { type: "recommendation_list" }>,
   item: Extract<AiPresentationBlock, { type: "recommendation_list" }>["items"][number],
   index: number,
-): Widgets.Box {
+): Widgets.Col {
   const actionPayload = compactPayload({
     productRef: block.productGid,
     productGid: block.productGid,
@@ -627,7 +613,7 @@ function actionFooter(children: Widgets.WidgetComponent[], key: string): Widgets
   return row(children, { key, gap: 8, align: "center", wrap: "wrap" });
 }
 
-function emptyInline(message: string, key: string): Widgets.Box {
+function emptyInline(message: string, key: string): Widgets.Col {
   return sectionBox([
     caption(message, { key: "message" }),
   ], { key });
@@ -647,23 +633,52 @@ function bulletRow(value: string, key: string, iconName: Widgets.WidgetIcon = "d
   ], { key, align: "start", wrap: "nowrap" });
 }
 
+function metricHeaderRow(key: string): Widgets.Row {
+  return row([
+    caption("Metric", { key: "metric", weight: "semibold", maxLength: 80 }),
+    caption("Value", { key: "value", weight: "semibold", textAlign: "end", maxLength: 80 }),
+  ], {
+    key,
+    justify: "between",
+    align: "center",
+    padding: { top: 6, right: 10, bottom: 6, left: 10 },
+    border: { bottom: { size: 1, color: COLORS.divider } },
+    background: COLORS.soft,
+    radius: "md",
+  });
+}
+
+function metricDataRow(
+  metric: Extract<AiPresentationBlock, { type: "metric_table" }>["rows"][number],
+  index: number,
+): Widgets.Row {
+  return row([
+    col([
+      text(metric.label, { key: "label", weight: "medium", maxLength: 96 }),
+      ...(metric.detail ? [caption(metric.detail, { key: "detail", maxLength: 150 })] : []),
+    ], { key: "label-col", gap: 2, flex: 1 }),
+    text(formatMetricValue(metric.value), {
+      key: "value",
+      weight: "semibold",
+      textAlign: "end",
+      maxLength: 80,
+      width: 96,
+    }),
+  ], {
+    key: `metric-${index}`,
+    justify: "between",
+    align: "start",
+    wrap: "nowrap",
+    padding: { top: 9, right: 10, bottom: 9, left: 10 },
+    border: { bottom: { size: 1, color: COLORS.divider } },
+  });
+}
+
 function riskBadges(label?: string | null, score?: number | null): Widgets.Badge[] {
   return [
     ...(label ? [badge(label, riskBadgeColor(label), { key: "risk-label" })] : []),
     ...(typeof score === "number" ? [badge(`Risk ${formatNumber(score)}`, riskBadgeColor(label || String(score)), { key: "risk-score" })] : []),
   ];
-}
-
-function table(children: Widgets.WidgetComponent[], options: Record<string, unknown> = {}): Widgets.WidgetComponent {
-  return { type: "Table", children, ...options } as Widgets.WidgetComponent;
-}
-
-function tableRow(children: Widgets.WidgetComponent[], options: Record<string, unknown> = {}): Widgets.WidgetComponent {
-  return { type: "Table.Row", children, ...options } as Widgets.WidgetComponent;
-}
-
-function tableCell(children: Widgets.WidgetComponent[], options: Record<string, unknown> = {}): Widgets.WidgetComponent {
-  return { type: "Table.Cell", children, ...options } as Widgets.WidgetComponent;
 }
 
 function normalizeProductMetrics(block: Extract<AiPresentationBlock, { type: "product_reference" }>): Array<{
