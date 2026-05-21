@@ -18,6 +18,7 @@ import { estimateAiTurnCost, type AiEstimatedCost } from "../observability/prici
 import type { AiChatTrace } from "../observability/trace";
 import { AI_TRACE_SCHEMA_VERSION, compactAiChatTraceForMetadata } from "../observability/trace";
 import { combineOpenAiTokenUsage, type AiTokenUsage } from "../observability/tokenUsage";
+import { recordAiUsageEvent } from "../observability/usageEvents.server";
 import { getAiChatConfig, hasOpenAiApiKey, type AiChatConfig } from "./config.server";
 import {
   buildStructuredMessageContent,
@@ -278,6 +279,22 @@ export class AiChatOrchestrator {
         runResult.response.id || null,
         trace,
       );
+      const usageEntity = getUsageEntityFromPageContext(pageContext);
+      await recordAiUsageEvent({
+        shop: chatContext.shop,
+        userId: chatContext.userId,
+        source: "chat",
+        operation: "chat_turn",
+        provider: "openai",
+        model: this.config.defaultModel,
+        task: "chat_turn",
+        conversationId: conversation.id,
+        messageId: assistantMessage.id,
+        entityType: usageEntity.entityType,
+        entityId: usageEntity.entityId,
+        usage,
+        estimatedCost,
+      });
 
       return buildTurnResult({
         response: parseResult.response,
@@ -834,6 +851,19 @@ function buildAiChatTrace(input: {
 function createMessageId(prefix: string, now: () => Date): string {
   const random = Math.random().toString(36).slice(2, 10);
   return `${prefix}_${now().getTime().toString(36)}_${random}`;
+}
+
+function getUsageEntityFromPageContext(pageContext: AiPageContext): {
+  entityType?: string;
+  entityId?: string;
+} {
+  if (pageContext.type === "product" && pageContext.entityId) {
+    return {
+      entityType: "product",
+      entityId: pageContext.entityId,
+    };
+  }
+  return {};
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

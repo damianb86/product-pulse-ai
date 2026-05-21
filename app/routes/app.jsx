@@ -3,6 +3,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
 import { getAiChatKitClientConfig } from "../ai/chatkit/config.server";
+import { isAiCostDashboardEnabled } from "../ai/observability/usageEvents.server";
 import { ProductPulseChatKitAssistant } from "../components/ProductPulseChatKitAssistant";
 import { ProductPulseJobMonitor } from "../components/ProductPulseJobMonitor";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
@@ -17,13 +18,14 @@ export const loader = async ({ request }) => {
   return {
     apiKey,
     developmentMode,
+    aiCostDashboardEnabled: isAiCostDashboardEnabled(),
     chatKit: getAiChatKitClientConfig(),
     jobMonitor: await getJobMonitorForShop(session.shop),
   };
 };
 
 export default function App() {
-  const { apiKey, developmentMode, chatKit, jobMonitor } = useLoaderData();
+  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, jobMonitor } = useLoaderData();
   const location = useLocation();
   const activeSection = getActiveNavSection(location.pathname);
   const aiPageContext = getAiPageContext(location);
@@ -35,6 +37,9 @@ export default function App() {
         <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
         <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
         <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
+        {aiCostDashboardEnabled ? (
+          <s-link href="/app/ai-costs" data-active={activeSection === "ai-costs" ? "true" : undefined}>AI Costs</s-link>
+        ) : null}
         <s-link href="/app/connect" data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
         <s-link href="/app/settings" data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
         <s-link href="/app/help" data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
@@ -51,6 +56,7 @@ function getActiveNavSection(pathname) {
   if (pathname.startsWith("/app/products")) return "products";
   if (pathname.startsWith("/app/watchlist")) return "watchlist";
   if (pathname.startsWith("/app/analytics")) return "analytics";
+  if (pathname.startsWith("/app/ai-costs")) return "ai-costs";
   if (pathname.startsWith("/app/connect")) return "connect";
   if (pathname.startsWith("/app/settings")) return "settings";
   if (pathname.startsWith("/app/help")) return "help";
@@ -76,6 +82,7 @@ function getAiPageContext(location) {
   if (pathname.startsWith("/app/products")) return { type: "products", filters };
   if (pathname.startsWith("/app/watchlist")) return { type: "watchlist", filters };
   if (pathname.startsWith("/app/analytics")) return { type: "analytics", filters };
+  if (pathname.startsWith("/app/ai-costs")) return { type: "analytics", filters };
   if (pathname.startsWith("/app/connect")) return { type: "connect", filters };
   if (pathname.startsWith("/app/settings")) return { type: "settings", filters };
   return { type: "unknown", filters };

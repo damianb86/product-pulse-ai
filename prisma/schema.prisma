@@ -138,6 +138,39 @@ model AiConversationToolCall {
   @@index([messageId])
 }
 
+model AiUsageEvent {
+  id                String   @id @default(cuid())
+  shop              String
+  userId            String?
+  source            String
+  operation         String
+  provider          String
+  model             String
+  task              String?
+  requestContext    String?
+  conversationId    String?
+  messageId         String?
+  jobId             String?
+  entityType        String?
+  entityId          String?
+  status            String   @default("success")
+  usage             Json?
+  inputTokens       Int?
+  outputTokens      Int?
+  cachedInputTokens Int?
+  reasoningTokens   Int?
+  totalTokens       Int?
+  estimatedCost     Json?
+  estimatedTotalUsd Float?
+  createdAt         DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, source, createdAt])
+  @@index([shop, provider, model])
+  @@index([shop, conversationId, createdAt])
+  @@index([shop, jobId, createdAt])
+}
+
 model AiActionProposal {
   id                           String             @id @default(cuid())
   shop                         String

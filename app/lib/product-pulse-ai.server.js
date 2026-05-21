@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import { createAiUsageTracker, normalizeAiUsageCall } from "./product-pulse-ai-usage.server";
+import { recordAiUsageEvent } from "../ai/observability/usageEvents.server";
 import { isProductPulseDevelopment } from "./product-pulse-dev.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 
@@ -679,9 +680,32 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
     },
   });
 
-  return provider === GEMINI_PROVIDER
+  const response = provider === GEMINI_PROVIDER
     ? generateWithGemini({ shop, jobId, task, taskConfig, prompt, usageTracker })
     : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, usageTracker });
+  const resolvedResponse = await response;
+
+  if (!usageTracker) {
+    await recordAiUsageEvent({
+      shop,
+      jobId,
+      source: getUsageEventSourceForTask(task),
+      operation: task,
+      provider: resolvedResponse.provider,
+      model: resolvedResponse.model,
+      task,
+      requestContext: resolvedResponse.usage?.requestContext || "primary",
+      usage: resolvedResponse.usage,
+    });
+  }
+
+  return resolvedResponse;
+}
+
+function getUsageEventSourceForTask(task) {
+  if (task === "watch_change_report") return "watchlist";
+  if (task === "test_text") return "ai_test";
+  return "product_diagnosis";
 }
 
 function isProductionAiEnabled() {

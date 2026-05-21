@@ -97,6 +97,7 @@ AI_CHAT_MAX_TOOL_CALLS_PER_TURN=5
 AI_CHAT_MAX_OUTPUT_TOKENS=1600
 AI_COST_TRACKING_ENABLED=true
 AI_DEBUG_COSTS=false
+AI_COST_DASHBOARD_ENABLED=false
 AI_CHATKIT_ENABLED=true
 AI_CHATKIT_API_URL=/api/ai/chatkit/message
 AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
@@ -111,6 +112,8 @@ npm run ai:eval
 ```
 
 The eval runner uses mocked OpenAI responses by default. Internal traces with token usage and estimated cost are stored server-side on assistant messages; normal ChatKit responses do not expose token or cost data.
+
+Set `AI_COST_DASHBOARD_ENABLED=true` to show the internal `AI Costs` menu item at `/app/ai-costs`. The dashboard aggregates tracked chat, diagnosis, CSV import, watchlist and other AI usage for the authenticated shop. USD values are estimates from token usage and the configured pricing table.
 
 ## Documentation
 - `docs/product-brief.md`

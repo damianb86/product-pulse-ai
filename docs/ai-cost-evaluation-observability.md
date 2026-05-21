@@ -35,10 +35,13 @@ Supported configuration:
 
 - `AI_COST_TRACKING_ENABLED`: default `true`.
 - `AI_DEBUG_COSTS`: exposes debug cost metadata only in development API responses.
+- `AI_COST_DASHBOARD_ENABLED`: shows the authenticated `/app/ai-costs` dashboard and `AI Costs` menu item when set to `true`.
 - `AI_MODEL_PRICING_JSON`: JSON map for model pricing overrides.
 - `AI_CHAT_INPUT_PRICE_PER_MILLION`, `AI_CHAT_CACHED_INPUT_PRICE_PER_MILLION`, `AI_CHAT_OUTPUT_PRICE_PER_MILLION`: simple override for the configured `AI_CHAT_MODEL`.
 
 Estimates are marked as estimates and stored in the internal trace. Missing usage or unknown pricing produces a non-crashing trace with `missingUsage` or `missingPricing`.
+
+Persistent usage events live in `AiUsageEvent`. New chat turns, product diagnosis AI calls, CSV mapping calls, watchlist narratives, and connection-test AI calls write compact token and cost metadata there. The cost dashboard also reads legacy chat traces and development job logs so older local data can still appear without double-counting message IDs or job IDs already covered by usage events.
 
 ## Cost Guardrails
 
@@ -151,12 +154,19 @@ It is available only in development mode or when `AI_DEBUG_COSTS=true`. It shows
 
 Normal ChatKit UI and normal `/api/ai/chat` responses do not expose token usage or estimated cost unless development debug is explicitly enabled.
 
+Internal cost dashboard:
+
+- `/app/ai-costs`
+
+It is available only when `AI_COST_DASHBOARD_ENABLED=true`. It shows shop-scoped estimated total AI spend, recent periods, spend by AI area, spend by model, task mix, token totals, and recent tracked AI calls. It does not expose API keys, raw prompts, raw provider payloads, or cross-shop data.
+
 ## Known Limitations
 
 - Cost estimates depend on OpenAI usage payloads and locally configured pricing.
 - Real-model eval execution is intentionally not wired into the default runner.
 - Hallucination checks are deterministic and fixture-based.
-- There is no merchant-facing cost dashboard in this phase.
+- Costs are estimates, not invoices. Provider billing remains the source of truth.
+- Gemini or other non-OpenAI model costs require `AI_MODEL_PRICING_JSON` entries before they can be included in USD totals.
 
 ## Future Improvements
 

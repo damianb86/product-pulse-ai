@@ -1,4 +1,5 @@
 import { recordJobLog } from "./product-pulse-job-logs.server";
+import { recordAiUsageEvent } from "../ai/observability/usageEvents.server";
 
 const TOKEN_FIELDS = [
   "inputTokens",
@@ -25,6 +26,20 @@ export function createAiUsageTracker({ shop, jobId, operation = "ai_operation", 
     },
     async logSummary({ level = "info", event, message, data = {} } = {}) {
       const summary = summarizeAiUsage(calls, metadata);
+      await Promise.all(summary.calls.map((call) => recordAiUsageEvent({
+        shop,
+        jobId,
+        source: getUsageEventSource(operation, call.task),
+        operation,
+        provider: call.provider,
+        model: call.model,
+        task: call.task,
+        requestContext: call.requestContext,
+        entityType: metadata.productGid ? "product" : undefined,
+        entityId: metadata.productGid || undefined,
+        status: level === "error" ? "error" : "success",
+        usage: call,
+      })));
       await recordJobLog({
         shop,
         jobId,
@@ -39,6 +54,13 @@ export function createAiUsageTracker({ shop, jobId, operation = "ai_operation", 
       return summary;
     },
   };
+}
+
+function getUsageEventSource(operation, task) {
+  if (operation === "product_diagnosis") return "product_diagnosis";
+  if (task === "watch_change_report") return "watchlist";
+  if (task === "test_text") return "ai_test";
+  return operation || "unknown";
 }
 
 export function normalizeAiUsageCall(call = {}) {

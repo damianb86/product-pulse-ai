@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import prisma from "../db.server";
+import { recordAiUsageEvent } from "../ai/observability/usageEvents.server";
 
 const REQUIRED_MAPPING_FIELDS = ["review_body", "rating"];
 const PRODUCT_RELATION_FIELDS = ["product_handle", "shopify_product_id"];
@@ -37,7 +38,7 @@ export async function processCsvReviewUpload({ shop, file }) {
   const csvText = await file.text();
   const checksum = createHash("sha256").update(csvText).digest("hex");
   const parsed = parseCsvText(csvText);
-  const mapping = await inferCsvReviewColumnMapping(parsed.headers);
+  const mapping = await inferCsvReviewColumnMapping(parsed.headers, { shop });
   const validation = validateCsvReviewColumnMapping(mapping, parsed.headers);
   if (!validation.valid) {
     throw new CsvReviewImportError(
@@ -212,7 +213,7 @@ function parseCsvRecords(text) {
   return records;
 }
 
-export async function inferCsvReviewColumnMapping(headers) {
+export async function inferCsvReviewColumnMapping(headers, options = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new CsvReviewImportError("No se pudo analizar el CSV porque OPENAI_API_KEY no está configurada.", "OPENAI_API_KEY_MISSING");
@@ -227,8 +228,17 @@ export async function inferCsvReviewColumnMapping(headers) {
   let lastError = null;
   for (const model of models) {
     try {
-      const text = await requestOpenAiCsvMapping({ apiKey, model, prompt });
-      return parseJsonObject(text);
+      const result = await requestOpenAiCsvMapping({ apiKey, model, prompt });
+      await recordAiUsageEvent({
+        shop: options.shop,
+        source: "csv_import",
+        operation: "csv_column_mapping",
+        provider: "openai",
+        model,
+        task: "csv_column_mapping",
+        usage: result.usage,
+      });
+      return parseJsonObject(result.text);
     } catch (error) {
       lastError = error;
     }
@@ -302,7 +312,10 @@ async function requestOpenAiCsvMapping({ apiKey, model, prompt }) {
 
   const text = extractOpenAiText(json);
   if (!text) throw new Error("OpenAI returned an empty CSV column mapping.");
-  return text;
+  return {
+    text,
+    usage: json.usage || null,
+  };
 }
 
 function extractOpenAiText(response) {
