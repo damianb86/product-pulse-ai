@@ -7,7 +7,8 @@ export type AiToolCategory =
   | "diagnosis"
   | "evidence"
   | "analytics"
-  | "watchlist";
+  | "watchlist"
+  | "app_knowledge";
 
 export interface AiToolContext {
   shop: string;

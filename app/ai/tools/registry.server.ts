@@ -12,10 +12,15 @@ import {
   createProductPulseAiToolDefinitions,
   type ProductPulseAiToolDependencies,
 } from "./productPulseTools.server";
+import {
+  createAppKnowledgeToolDefinitions,
+  type AppKnowledgeToolDependencies,
+} from "../appKnowledge/tools.server";
 
 export interface AiToolRegistryOptions {
   logger?: AiToolCallLogger;
   productPulse?: ProductPulseAiToolDependencies;
+  appKnowledge?: AppKnowledgeToolDependencies;
   definitions?: AnyAiToolDefinition[];
 }
 
@@ -141,7 +146,10 @@ export class AiToolRegistry {
 }
 
 export function createAiToolRegistry(options: AiToolRegistryOptions = {}): AiToolRegistry {
-  const definitions = options.definitions || createProductPulseAiToolDefinitions(options.productPulse);
+  const definitions = options.definitions || [
+    ...createProductPulseAiToolDefinitions(options.productPulse),
+    ...createAppKnowledgeToolDefinitions(options.appKnowledge),
+  ];
   return new AiToolRegistry(definitions, options.logger || noopAiToolCallLogger);
 }
 

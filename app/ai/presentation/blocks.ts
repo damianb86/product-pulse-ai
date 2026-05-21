@@ -197,6 +197,56 @@ const appDraftResultBlockSchema = z.object({
   }).strict().nullable().optional(),
 }).strict();
 
+const scoreExplanationBlockSchema = z.object({
+  type: z.literal("score_explanation"),
+  scoreName: z.string().max(160),
+  meaning: z.string().max(500),
+  logic: z.string().max(900),
+  formula: z.string().max(500).nullable().optional(),
+  range: z.string().max(120).nullable().optional(),
+  inputs: z.array(z.string().max(180)).max(8).default([]),
+  thresholds: z.array(z.object({
+    label: z.string().max(120),
+    value: z.string().max(120),
+    meaning: z.string().max(220),
+  }).strict()).max(8).default([]),
+  interpretation: z.array(z.string().max(260)).max(6).default([]),
+  caveats: z.array(z.string().max(260)).max(6).default([]),
+}).strict();
+
+const processGuideBlockSchema = z.object({
+  type: z.literal("process_guide"),
+  title: z.string().max(180),
+  summary: z.string().max(700),
+  steps: z.array(z.object({
+    label: z.string().max(120),
+    detail: z.string().max(260),
+  }).strict()).max(8).default([]),
+  inputs: z.array(z.string().max(180)).max(8).default([]),
+  outputs: z.array(z.string().max(180)).max(8).default([]),
+  limitations: z.array(z.string().max(260)).max(6).default([]),
+}).strict();
+
+const screenGuideBlockSchema = z.object({
+  type: z.literal("screen_guide"),
+  screenName: z.string().max(160),
+  purpose: z.string().max(600),
+  dataShown: z.array(z.string().max(180)).max(8).default([]),
+  howToRead: z.array(z.string().max(220)).max(8).default([]),
+  commonActions: z.array(z.string().max(180)).max(8).default([]),
+  caveats: z.array(z.string().max(260)).max(6).default([]),
+}).strict();
+
+const settingExplanationBlockSchema = z.object({
+  type: z.literal("setting_explanation"),
+  settingName: z.string().max(160),
+  meaning: z.string().max(600),
+  defaultValue: z.string().max(120).nullable().optional(),
+  allowedValues: z.array(z.string().max(160)).max(8).default([]),
+  effect: z.string().max(700),
+  caveats: z.array(z.string().max(260)).max(6).default([]),
+}).strict();
+
 export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   textBlockSchema,
   productReferenceBlockSchema,
@@ -210,6 +260,10 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   actionResultBlockSchema,
   appDraftProposalBlockSchema,
   appDraftResultBlockSchema,
+  scoreExplanationBlockSchema,
+  processGuideBlockSchema,
+  screenGuideBlockSchema,
+  settingExplanationBlockSchema,
 ]);
 
 export type AiPresentationBlock = z.infer<typeof aiPresentationBlockSchema>;

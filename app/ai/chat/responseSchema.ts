@@ -74,6 +74,15 @@ function recoverPresentationBlock(value: unknown): AiAssistantResponse["blocks"]
   trimArrayField(block, "affectedEntities", 6);
   trimArrayField(block, "editableFields", 8);
   trimArrayField(block, "validationWarnings", 8);
+  trimArrayField(block, "inputs", 8);
+  trimArrayField(block, "outputs", 8);
+  trimArrayField(block, "thresholds", 8);
+  trimArrayField(block, "interpretation", 6);
+  trimArrayField(block, "caveats", 6);
+  trimArrayField(block, "steps", 8);
+  trimArrayField(block, "dataShown", 8);
+  trimArrayField(block, "howToRead", 8);
+  trimArrayField(block, "commonActions", 8);
 
   const parsed = aiPresentationBlockSchema.safeParse(block);
   return parsed.success ? parsed.data : null;
@@ -212,5 +221,44 @@ const PRESENTATION_BLOCK_KEYS: Record<string, string[]> = {
     "sideEffectLevel",
     "affectedEntities",
     "savedRecordId",
+  ],
+  score_explanation: [
+    "type",
+    "scoreName",
+    "meaning",
+    "logic",
+    "formula",
+    "range",
+    "inputs",
+    "thresholds",
+    "interpretation",
+    "caveats",
+  ],
+  process_guide: [
+    "type",
+    "title",
+    "summary",
+    "steps",
+    "inputs",
+    "outputs",
+    "limitations",
+  ],
+  screen_guide: [
+    "type",
+    "screenName",
+    "purpose",
+    "dataShown",
+    "howToRead",
+    "commonActions",
+    "caveats",
+  ],
+  setting_explanation: [
+    "type",
+    "settingName",
+    "meaning",
+    "defaultValue",
+    "allowedValues",
+    "effect",
+    "caveats",
   ],
 };

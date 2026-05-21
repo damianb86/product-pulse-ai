@@ -71,6 +71,14 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return appDraftProposalWidget(block);
     case "app_draft_result":
       return appDraftResultWidget(block);
+    case "score_explanation":
+      return scoreExplanationWidget(block);
+    case "process_guide":
+      return processGuideWidget(block);
+    case "screen_guide":
+      return screenGuideWidget(block);
+    case "setting_explanation":
+      return settingExplanationWidget(block);
     case "summary":
     default:
       return summaryWidget(block);
@@ -463,6 +471,129 @@ function appDraftResultWidget(block: Extract<AiPresentationBlock, { type: "app_d
       icon: isSuccess ? "check-circle" : "info",
     },
   });
+}
+
+function scoreExplanationWidget(block: Extract<AiPresentationBlock, { type: "score_explanation" }>): Widgets.Card {
+  return productPulseCard([
+    row([
+      iconTile("analytics", { key: "icon", background: COLORS.infoSoft, iconColor: COLORS.infoText }),
+      col([
+        title(block.scoreName, { key: "title", size: "md", weight: "bold" }),
+        caption([block.range, "ProductPulse scoring"].filter(Boolean).join(" · "), { key: "range" }),
+      ], { key: "heading-copy", gap: 1, flex: 1 }),
+      badge("Methodology", "info", { key: "badge" }),
+    ], { key: "heading", gap: 5, align: "start", wrap: "nowrap" }),
+    text(block.meaning, { key: "meaning", maxLength: 360 }),
+    sectionBox([
+      ...(block.formula ? [
+        caption("Formula / logic", { key: "formula-label", color: COLORS.infoText, weight: "bold" }),
+        text(block.formula, { key: "formula", maxLength: 420, color: COLORS.text }),
+      ] : []),
+      text(block.logic, { key: "logic", maxLength: 520 }),
+    ], { key: "logic-box", background: COLORS.soft }),
+    ...(block.thresholds.length ? [
+      col(block.thresholds.slice(0, 5).map((threshold, index) => compactInfoLine(
+        threshold.label,
+        `${threshold.value}: ${threshold.meaning}`,
+        `threshold-${index}`,
+        COLORS.infoText,
+      )), { key: "thresholds", gap: 0 }),
+    ] : []),
+    ...(block.inputs.length ? [
+      caption(`Inputs: ${block.inputs.slice(0, 5).join(", ")}`, { key: "inputs", maxLength: 260 }),
+    ] : []),
+    ...(block.caveats.length ? [
+      col(block.caveats.slice(0, 3).map((caveat, index) => bulletRow(caveat, `caveat-${index}`, "info")), {
+        key: "caveats",
+        gap: 1,
+      }),
+    ] : []),
+  ], { size: "full", status: { text: "Score explanation", icon: "analytics" } });
+}
+
+function processGuideWidget(block: Extract<AiPresentationBlock, { type: "process_guide" }>): Widgets.Card {
+  return productPulseCard([
+    row([
+      iconTile("sparkle", { key: "icon", background: COLORS.accentSoft, iconColor: COLORS.accentStrong }),
+      col([
+        title(block.title, { key: "title", size: "md", weight: "bold" }),
+        text(block.summary, { key: "summary", maxLength: 520 }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+    ], { key: "heading", gap: 5, align: "start", wrap: "nowrap" }),
+    ...(block.steps.length ? [
+      col(block.steps.slice(0, 6).map((step, index) => compactInfoLine(
+        `${index + 1}. ${step.label}`,
+        step.detail,
+        `step-${index}`,
+        COLORS.accent,
+      )), { key: "steps", gap: 0 }),
+    ] : []),
+    ...(block.inputs.length || block.outputs.length ? [
+      sectionBox([
+        ...(block.inputs.length ? [caption(`Inputs: ${block.inputs.slice(0, 5).join(", ")}`, { key: "inputs", maxLength: 260 })] : []),
+        ...(block.outputs.length ? [caption(`Outputs: ${block.outputs.slice(0, 5).join(", ")}`, { key: "outputs", maxLength: 260 })] : []),
+      ], { key: "io", background: COLORS.soft }),
+    ] : []),
+    ...(block.limitations.length ? [
+      col(block.limitations.slice(0, 3).map((limitation, index) => bulletRow(limitation, `limitation-${index}`, "info")), {
+        key: "limitations",
+        gap: 1,
+      }),
+    ] : []),
+  ], { size: "full", status: { text: "Process guide", icon: "sparkle-double" } });
+}
+
+function screenGuideWidget(block: Extract<AiPresentationBlock, { type: "screen_guide" }>): Widgets.Card {
+  return productPulseCard([
+    row([
+      iconTile("profile-card", { key: "icon", background: COLORS.accentSoft, iconColor: COLORS.accentStrong }),
+      col([
+        title(block.screenName, { key: "title", size: "md", weight: "bold" }),
+        text(block.purpose, { key: "purpose", maxLength: 420 }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+    ], { key: "heading", gap: 5, align: "start", wrap: "nowrap" }),
+    ...(block.howToRead.length ? [
+      col(block.howToRead.slice(0, 5).map((item, index) => bulletRow(item, `read-${index}`, "check-circle")), {
+        key: "how-to-read",
+        gap: 1,
+      }),
+    ] : []),
+    ...(block.dataShown.length || block.commonActions.length ? [
+      sectionBox([
+        ...(block.dataShown.length ? [caption(`Shows: ${block.dataShown.slice(0, 5).join(", ")}`, { key: "shown", maxLength: 260 })] : []),
+        ...(block.commonActions.length ? [caption(`Actions: ${block.commonActions.slice(0, 5).join(", ")}`, { key: "actions", maxLength: 260 })] : []),
+      ], { key: "screen-facts", background: COLORS.soft }),
+    ] : []),
+    ...(block.caveats.length ? [
+      caption(`Note: ${block.caveats[0]}`, { key: "caveat", maxLength: 220 }),
+    ] : []),
+  ], { size: "full", status: { text: "Screen guide", icon: "profile-card" } });
+}
+
+function settingExplanationWidget(block: Extract<AiPresentationBlock, { type: "setting_explanation" }>): Widgets.Card {
+  return productPulseCard([
+    row([
+      iconTile("settings-slider", { key: "icon", background: COLORS.infoSoft, iconColor: COLORS.infoText }),
+      col([
+        title(block.settingName, { key: "title", size: "md", weight: "bold" }),
+        text(block.meaning, { key: "meaning", maxLength: 420 }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+    ], { key: "heading", gap: 5, align: "start", wrap: "nowrap" }),
+    sectionBox([
+      compactInfoLine("Default", block.defaultValue || "Not documented", "default", COLORS.infoText),
+      divider("setting-divider", 1),
+      compactInfoLine("Effect", block.effect, "effect", COLORS.infoText),
+    ], { key: "details", background: COLORS.soft }),
+    ...(block.allowedValues.length ? [
+      caption(`Allowed values: ${block.allowedValues.join(", ")}`, { key: "allowed", maxLength: 220 }),
+    ] : []),
+    ...(block.caveats.length ? [
+      col(block.caveats.slice(0, 3).map((caveat, index) => bulletRow(caveat, `caveat-${index}`, "info")), {
+        key: "caveats",
+        gap: 1,
+      }),
+    ] : []),
+  ], { size: "full", status: { text: "Setting", icon: "settings-slider" } });
 }
 
 function unsupportedBlockWidget(block: unknown): Widgets.Card {
