@@ -76,10 +76,11 @@ function summaryWidget(block: Extract<AiPresentationBlock, { type: "summary" }>)
   return productPulseCard([
     row([
       box([
-        icon("sparkle", { key: "icon", size: "md", color: COLORS.accent }),
+        icon("sparkle", { key: "icon", size: "sm", color: COLORS.accent }),
       ], {
         key: "icon",
-        size: 36,
+        size: 28,
+        minWidth: 28,
         radius: "lg",
         background: COLORS.accentSoft,
         align: "center",
@@ -91,8 +92,8 @@ function summaryWidget(block: Extract<AiPresentationBlock, { type: "summary" }>)
           badge("Today", "discovery", { key: "badge" }),
         ], { key: "heading", justify: "between", align: "start", gap: 8 }),
         text(block.text, { key: "body", maxLength: MAX_SUMMARY_LENGTH, color: COLORS.text }),
-      ], { key: "content", gap: 6, flex: 1 }),
-    ], { key: "main", align: "start", gap: 12, wrap: "nowrap" }),
+      ], { key: "content", gap: 4, flex: 1 }),
+    ], { key: "main", align: "start", gap: 8, wrap: "nowrap" }),
   ], { status: { text: "AI summary", icon: "sparkle-double" } });
 }
 
@@ -110,9 +111,9 @@ function productReferenceWidget(block: Extract<AiPresentationBlock, { type: "pro
           ...(block.status ? [badge(block.status, statusBadgeColor(block.status), { key: "status" })] : []),
         ], { key: "badges", gap: 6 }),
         caption(buildProductSummaryCaption(block), { key: "caption", color: COLORS.muted }),
-      ], { key: "copy", gap: 7, flex: 1 }),
-    ], { key: "top", align: "start", gap: 14, wrap: "nowrap" }),
-    divider("metrics-divider", 12),
+      ], { key: "copy", gap: 4, flex: 1 }),
+    ], { key: "top", align: "start", gap: 10, wrap: "nowrap" }),
+    divider("metrics-divider", 6),
     ...(metrics.length ? [metricGrid(metrics.slice(0, 4), { key: "metrics" })] : []),
     ...(productRef ? [button("Open product", "open_product", compactPayload({ productRef, productGid: block.productGid, handle: block.handle }), "chevron-right", {
       key: "view",
@@ -133,9 +134,9 @@ function diagnosisSummaryWidget(block: Extract<AiPresentationBlock, { type: "dia
       col([
         title("Product diagnosis", { key: "title", size: "md", weight: "bold" }),
         caption([block.title, block.updatedAt].filter(Boolean).join(" · ") || "ProductPulse analysis", { key: "subtitle", color: COLORS.muted }),
-      ], { key: "heading", gap: 6, flex: 1 }),
+      ], { key: "heading", gap: 3, flex: 1 }),
       badge(diagnosisAttentionLabel(block), diagnosisBadgeColor(block), { key: "attention" }),
-    ], { key: "top", justify: "between", align: "start", gap: 12 }),
+    ], { key: "top", justify: "between", align: "start", gap: 8 }),
     ...(hasDiagnosisContent ? [
       box([
         caption("AI summary", { key: "label", color: COLORS.accent, weight: "bold" }),
@@ -147,8 +148,8 @@ function diagnosisSummaryWidget(block: Extract<AiPresentationBlock, { type: "dia
         }),
       ], {
         key: "summary-box",
-        padding: 12,
-        radius: "xl",
+        padding: 8,
+        radius: "lg",
         background: COLORS.panel,
         border: { size: 1, color: COLORS.diagnosisBorder },
       }),
@@ -293,39 +294,15 @@ function actionProposalWidget(block: Extract<AiPresentationBlock, { type: "actio
   return productPulseCard([
     title(block.title || "Preview internal change", { key: "title", size: "md", weight: "bold" }),
     caption(block.summary, { key: "caption", color: COLORS.muted, maxLength: 220 }),
-    row([
-      box([
-        caption("Reason", { key: "label", weight: "bold", color: COLORS.muted }),
-        text(block.reason || block.summary, { key: "body", size: "sm", maxLines: 4, maxLength: MAX_DETAIL_LENGTH }),
-      ], {
-        key: "current",
-        flex: 1,
-        padding: 12,
-        radius: "lg",
-        background: COLORS.soft,
-        border: { size: 1, color: COLORS.border },
-      }),
-      box([
-        caption("Expected", { key: "label", weight: "bold", color: COLORS.accent }),
-        text(block.expectedResult || "ProductPulse will execute this internal app action after confirmation.", {
-          key: "body",
-          size: "sm",
-          maxLines: 5,
-          maxLength: MAX_DETAIL_LENGTH,
-        }),
-      ], {
-        key: "proposed",
-        flex: 1,
-        padding: 12,
-        radius: "lg",
-        background: COLORS.panel,
-        border: { size: 1, color: "#C4B5FD" },
-      }),
-    ], { key: "preview", gap: 10, align: "stretch" }),
+    sectionBox([
+      compactInfoLine("Reason", block.reason || block.summary, "reason"),
+      divider("reason-divider", 2),
+      compactInfoLine("Expected", block.expectedResult || "ProductPulse will execute this internal app action after confirmation.", "expected", COLORS.accent),
+    ], { key: "preview", background: COLORS.soft }),
     ...(block.risks.length ? [col(block.risks.slice(0, 3).map((risk, index) => bulletRow(risk, `risk-${index}`, "info")), { key: "risks", gap: 5 })] : []),
     caption("This action affects ProductPulse internal data only. Shopify product data is not modified.", { key: "safety" }),
   ], {
-    size: "lg",
+    size: "md",
     status: {
       text: "Action proposal",
       icon: block.confirmationLevel === "high" ? "info" : "check-circle",
@@ -388,7 +365,7 @@ function productPulseCard(children: Widgets.WidgetComponent[], options: Partial<
     type: "Card",
     size: "md",
     theme: "light",
-    padding: 16,
+    padding: 8,
     background: COLORS.card,
     children,
     ...options,
@@ -432,20 +409,20 @@ function button(
 }
 
 function row(children: Widgets.WidgetComponent[], options: Partial<Widgets.Row> = {}): Widgets.Row {
-  return { type: "Row", gap: 8, align: "center", wrap: "wrap", children, ...options };
+  return { type: "Row", gap: 6, align: "center", wrap: "wrap", children, ...options };
 }
 
 function col(children: Widgets.WidgetComponent[], options: Partial<Widgets.Col> = {}): Widgets.Col {
-  return { type: "Col", gap: 6, align: "stretch", children, ...options };
+  return { type: "Col", gap: 4, align: "stretch", children, ...options };
 }
 
 function box(children: Widgets.WidgetComponent[], options: Partial<Widgets.Box> = {}): Widgets.Box {
   return { type: "Box", children, ...options };
 }
 
-function sectionBox(children: Widgets.WidgetComponent[], options: Partial<Widgets.Box> = {}): Widgets.Box {
-  return box(children, {
-    padding: 12,
+function sectionBox(children: Widgets.WidgetComponent[], options: Partial<Widgets.Col> = {}): Widgets.Col {
+  return col(children, {
+    padding: 6,
     background: COLORS.panel,
     border: { size: 1, color: COLORS.border },
     radius: "md",
@@ -463,12 +440,12 @@ function icon(name: Widgets.WidgetIcon, options: Partial<Widgets.Icon> = {}): Wi
 
 function iconTile(name: Widgets.WidgetIcon, options: Partial<Widgets.Box> = {}): Widgets.Box {
   return box([
-    icon(name, { key: "icon", color: "#ffffff", size: "md" }),
+    icon(name, { key: "icon", color: "#ffffff", size: "sm" }),
   ], {
     key: "icon-tile",
-    width: 42,
-    height: 42,
-    minWidth: 42,
+    width: 32,
+    height: 32,
+    minWidth: 32,
     align: "center",
     justify: "center",
     radius: "lg",
@@ -485,11 +462,11 @@ function productImageOrIcon(
   const imageUrl = safeImageUrl(block.imageUrl);
   if (!imageUrl) {
     return box([
-      icon("profile-card", { key: "icon", color: COLORS.accent, size: "lg" }),
+      icon("profile-card", { key: "icon", color: COLORS.accent, size: "md" }),
     ], {
-      width: 72,
-      height: 72,
-      minWidth: 72,
+      width: 56,
+      height: 56,
+      minWidth: 56,
       align: "center",
       justify: "center",
       radius: "lg",
@@ -503,9 +480,9 @@ function productImageOrIcon(
     key,
     src: imageUrl,
     alt: sanitizeText(block.imageAlt || block.title, 180),
-    width: 72,
-    height: 72,
-    minWidth: 72,
+    width: 56,
+    height: 56,
+    minWidth: 56,
     radius: "lg",
     fit: "cover",
     frame: false,
@@ -514,11 +491,10 @@ function productImageOrIcon(
 
 function metricGrid(
   metrics: Array<{ label: string; value: string | number | boolean | null; detail?: string | null; trend?: string | null; tone?: "danger" | "success" | "info" | "neutral" }>,
-  options: Partial<Widgets.Row> = {},
-): Widgets.Row {
-  return row(metrics.map((metric, index) => metricTile(metric, index)), {
-    gap: 8,
-    wrap: "wrap",
+  options: Partial<Widgets.Col> = {},
+): Widgets.Col {
+  return col(metrics.map((metric, index) => metricTile(metric, index)), {
+    gap: 2,
     ...options,
   });
 }
@@ -526,19 +502,28 @@ function metricGrid(
 function metricTile(
   metric: { label: string; value: string | number | boolean | null; detail?: string | null; trend?: string | null; tone?: "danger" | "success" | "info" | "neutral" },
   index: number,
-): Widgets.Box {
-  return box([
-    caption(metric.label, { key: "label", maxLength: 80, color: metricCaptionColor(metric.tone) }),
-    text(formatMetricValue(metric.value), { key: "value", size: "lg", weight: "bold", maxLength: 80 }),
-    ...(metric.trend ? [caption(metric.trend, { key: "trend", maxLength: 80, color: "#0f9f5f" })] : []),
-    ...(metric.detail ? [caption(metric.detail, { key: "detail", maxLength: 120 })] : []),
+): Widgets.Row {
+  return row([
+    col([
+      caption(metric.label, { key: "label", maxLength: 80, color: metricCaptionColor(metric.tone), maxLines: 1 }),
+      ...(metric.detail ? [caption(metric.detail, { key: "detail", maxLength: 96, maxLines: 1 })] : []),
+      ...(metric.trend ? [caption(metric.trend, { key: "trend", maxLength: 80, maxLines: 1, color: "#0f9f5f" })] : []),
+    ], { key: "copy", gap: 0, flex: 1 }),
+    text(formatMetricValue(metric.value), {
+      key: "value",
+      weight: "bold",
+      textAlign: "end",
+      maxLength: 64,
+      maxLines: 1,
+      color: metricCaptionColor(metric.tone),
+    }),
   ], {
     key: `metric-${index}`,
-    flex: 1,
-    minWidth: 116,
-    padding: 10,
-    radius: "lg",
-    background: metricBackground(metric.tone),
+    justify: "between",
+    align: "center",
+    wrap: "nowrap",
+    padding: { top: 4, right: 0, bottom: 4, left: 0 },
+    border: { bottom: { size: 1, color: COLORS.divider } },
   });
 }
 
@@ -563,13 +548,6 @@ function evidenceBadgeColor(index: number): NonNullable<Widgets.Badge["color"]> 
   if (index === 1) return "danger";
   if (index === 2) return "info";
   return "secondary";
-}
-
-function metricBackground(tone?: "danger" | "success" | "info" | "neutral"): string {
-  if (tone === "danger") return COLORS.dangerSoft;
-  if (tone === "success") return COLORS.successSoft;
-  if (tone === "info") return COLORS.infoSoft;
-  return COLORS.soft;
 }
 
 function metricCaptionColor(tone?: "danger" | "success" | "info" | "neutral"): string {
@@ -621,7 +599,7 @@ function riskLevelLabel(score: number): string {
 function entityPanel(
   item: Extract<AiPresentationBlock, { type: "entity_list" }>["items"][number],
   index: number,
-): Widgets.Box {
+): Widgets.Col {
   const productRef = item.productGid || item.handle;
   return sectionBox([
     row([
@@ -647,7 +625,7 @@ function recommendationPanel(
   block: Extract<AiPresentationBlock, { type: "recommendation_list" }>,
   item: Extract<AiPresentationBlock, { type: "recommendation_list" }>["items"][number],
   index: number,
-): Widgets.Box {
+): Widgets.Col {
   const actionPayload = compactPayload({
     productRef: block.productGid,
     productGid: block.productGid,
@@ -664,11 +642,11 @@ function recommendationPanel(
   return sectionBox([
     row([
       box([
-        icon("sparkle", { key: "icon", size: "md", color: COLORS.accent }),
+        icon("sparkle", { key: "icon", size: "sm", color: COLORS.accent }),
       ], {
         key: "icon",
-        size: 44,
-        minWidth: 44,
+        size: 32,
+        minWidth: 32,
         radius: "lg",
         background: COLORS.accentSoft,
         align: "center",
@@ -688,8 +666,8 @@ function recommendationPanel(
           ...(item.status ? [badge(item.status, statusBadgeColor(item.status), { key: "status" })] : []),
         ], { key: "badges", gap: 6, wrap: "wrap" }),
       ], { key: "copy", gap: 4, flex: 1 }),
-    ], { key: "top", gap: 10, align: "start", wrap: "nowrap" }),
-    divider("action-divider", 12),
+    ], { key: "top", gap: 8, align: "start", wrap: "nowrap" }),
+    divider("action-divider", 6),
     ...(block.productGid ? [
       actionFooter([
         button("Review", "review_action", actionPayload, "chevron-right", {
@@ -720,10 +698,17 @@ function actionFooter(children: Widgets.WidgetComponent[], key: string): Widgets
   return row(children, { key, gap: 8, align: "center", wrap: "wrap" });
 }
 
-function emptyInline(message: string, key: string): Widgets.Box {
+function emptyInline(message: string, key: string): Widgets.Col {
   return sectionBox([
     caption(message, { key: "message" }),
   ], { key });
+}
+
+function compactInfoLine(label: string, value: string, key: string, labelColor = COLORS.muted): Widgets.Row {
+  return row([
+    text(label, { key: "label", weight: "bold", color: labelColor, maxLength: 72, width: 78, maxLines: 1 }),
+    text(value, { key: "value", size: "sm", maxLines: 2, maxLength: MAX_DETAIL_LENGTH }),
+  ], { key, align: "start", wrap: "nowrap", gap: 8 });
 }
 
 function bulletRow(value: string, key: string, iconName: Widgets.WidgetIcon = "dot"): Widgets.Row {
