@@ -388,6 +388,8 @@ describe("ProductPulse ChatKit integration", () => {
     ]);
 
     expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card"]);
+    expect(widgets.filter((widget) => widget.type === "Card").every((widget) => widget.size === "full")).toBe(true);
+    expect(JSON.stringify(widgets)).toContain("#4C1D95");
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence_source");
     expect(JSON.stringify(widgets)).toContain("review_action");

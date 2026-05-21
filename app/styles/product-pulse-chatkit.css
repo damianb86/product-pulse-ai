@@ -313,9 +313,21 @@
   display: block;
   flex: 1;
   width: 100%;
+  max-width: none;
   height: 100%;
   min-height: 0;
   min-width: 0;
+}
+
+.ppChatKitSurface,
+.ppChatKitSurface::part(root),
+.ppChatKitSurface::part(thread),
+.ppChatKitSurface::part(message),
+.ppChatKitSurface::part(content),
+.ppChatKitSurface::part(widget),
+.ppChatKitSurface::part(card) {
+  width: 100%;
+  max-width: none;
 }
 
 .ppChatKitStatus,

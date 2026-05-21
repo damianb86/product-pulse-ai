@@ -12,20 +12,21 @@ const MAX_RECOMMENDATION_ITEMS = 10;
 const COLORS = {
   card: "#FFFFFF",
   soft: "#F8FAFC",
-  panel: "#F8F7FF",
+  panel: "#F5F0FF",
   border: "#E2E8F0",
   divider: "#E5E7EB",
   text: "#0F172A",
   muted: "#64748B",
-  accent: "#7C5CFF",
-  accentSoft: "#F3EFFF",
+  accent: "#5B2FE8",
+  accentStrong: "#4C1D95",
+  accentSoft: "#EDE9FE",
   diagnosisBorder: "#DDD6FE",
-  successSoft: "#DCFCE7",
-  successText: "#166534",
-  dangerSoft: "#FEE2E2",
-  dangerText: "#991B1B",
-  infoSoft: "#EEF4FF",
-  infoText: "#2563EB",
+  successSoft: "#BBF7D0",
+  successText: "#15803D",
+  dangerSoft: "#FECACA",
+  dangerText: "#DC2626",
+  infoSoft: "#DBEAFE",
+  infoText: "#1D4ED8",
 };
 
 export function mapAiPresentationBlocksToChatKitWidgets(blocks: readonly unknown[]): Widgets.WidgetRoot[] {
@@ -80,11 +81,11 @@ function summaryWidget(block: Extract<AiPresentationBlock, { type: "summary" }>)
   return productPulseCard([
     row([
       box([
-        icon("sparkle", { key: "icon", size: "sm", color: COLORS.accent }),
+        icon("sparkle", { key: "icon", size: "lg", color: COLORS.accentStrong }),
       ], {
         key: "icon",
-        size: 28,
-        minWidth: 28,
+        size: 34,
+        minWidth: 34,
         radius: "lg",
         background: COLORS.accentSoft,
         align: "center",
@@ -466,12 +467,12 @@ function unsupportedBlockWidget(block: unknown): Widgets.Card {
 function productPulseCard(children: Widgets.WidgetComponent[], options: Partial<Widgets.Card> = {}): Widgets.Card {
   return {
     type: "Card",
-    size: "md",
     theme: "light",
     padding: 4,
     background: COLORS.card,
     ...options,
-    children: [col(children, { key: "card-content", gap: 1 })],
+    size: "full",
+    children: [col(children, { key: "card-content", gap: 1, width: "100%" })],
   };
 }
 
@@ -512,11 +513,11 @@ function button(
 }
 
 function row(children: Widgets.WidgetComponent[], options: Partial<Widgets.Row> = {}): Widgets.Row {
-  return { type: "Row", gap: 3, align: "center", wrap: "wrap", children, ...options };
+  return { type: "Row", gap: 3, align: "center", wrap: "wrap", width: "100%", children, ...options };
 }
 
 function col(children: Widgets.WidgetComponent[], options: Partial<Widgets.Col> = {}): Widgets.Col {
-  return { type: "Col", gap: 1, align: "stretch", children, ...options };
+  return { type: "Col", gap: 1, align: "stretch", width: "100%", children, ...options };
 }
 
 function box(children: Widgets.WidgetComponent[], options: Partial<Widgets.Box> = {}): Widgets.Box {
@@ -538,24 +539,39 @@ function divider(key?: string, spacing = 4): Widgets.WidgetComponent {
 }
 
 function icon(name: Widgets.WidgetIcon, options: Partial<Widgets.Icon> = {}): Widgets.Icon {
-  return { type: "Icon", name, size: "xs", ...options };
+  return { type: "Icon", name, size: "sm", color: COLORS.accentStrong, ...options };
 }
 
-function iconTile(name: Widgets.WidgetIcon, options: Partial<Widgets.Box> = {}): Widgets.Box {
+function iconTile(
+  name: Widgets.WidgetIcon,
+  options: Partial<Widgets.Box> & { iconColor?: string; iconSize?: Widgets.Icon["size"] } = {},
+): Widgets.Box {
+  const { iconColor, iconSize, ...boxOptions } = options;
+  const background = boxOptions.background || COLORS.accent;
+  const resolvedIconColor = iconColor || iconColorForBackground(background);
   return box([
-    icon(name, { key: "icon", color: "#ffffff", size: "sm" }),
+    icon(name, { key: "icon", color: resolvedIconColor, size: iconSize || "xl" }),
   ], {
     key: "icon-tile",
-    width: 24,
-    height: 24,
-    minWidth: 24,
+    width: 34,
+    height: 34,
+    minWidth: 34,
     align: "center",
     justify: "center",
     radius: "lg",
-    background: COLORS.accent,
+    background,
     padding: 0,
-    ...options,
+    ...boxOptions,
   });
+}
+
+function iconColorForBackground(background: unknown): string {
+  const value = String(background || "");
+  if (value === COLORS.accent || value === COLORS.infoText || value === COLORS.successText || value === COLORS.dangerText) return "#FFFFFF";
+  if (value === COLORS.successSoft) return COLORS.successText;
+  if (value === COLORS.dangerSoft) return COLORS.dangerText;
+  if (value === COLORS.infoSoft) return COLORS.infoText;
+  return COLORS.accentStrong;
 }
 
 function productImageOrIcon(
@@ -565,11 +581,11 @@ function productImageOrIcon(
   const imageUrl = safeImageUrl(block.imageUrl);
   if (!imageUrl) {
     return box([
-      icon("profile-card", { key: "icon", color: COLORS.accent, size: "md" }),
+      icon("profile-card", { key: "icon", color: COLORS.accentStrong, size: "xl" }),
     ], {
-      width: 40,
-      height: 40,
-      minWidth: 40,
+      width: 44,
+      height: 44,
+      minWidth: 44,
       align: "center",
       justify: "center",
       radius: "lg",
@@ -583,9 +599,9 @@ function productImageOrIcon(
     key,
     src: imageUrl,
     alt: sanitizeText(block.imageAlt || block.title, 180),
-    width: 40,
-    height: 40,
-    minWidth: 40,
+    width: 44,
+    height: 44,
+    minWidth: 44,
     radius: "lg",
     fit: "cover",
     frame: false,
@@ -749,11 +765,11 @@ function recommendationPanel(
   return sectionBox([
     row([
       box([
-        icon("sparkle", { key: "icon", size: "sm", color: COLORS.accent }),
+        icon("sparkle", { key: "icon", size: "lg", color: COLORS.accentStrong }),
       ], {
         key: "icon",
-        size: 32,
-        minWidth: 32,
+        size: 38,
+        minWidth: 38,
         radius: "lg",
         background: COLORS.accentSoft,
         align: "center",
