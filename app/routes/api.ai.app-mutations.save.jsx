@@ -33,7 +33,7 @@ export const action = async ({ request }) => {
   }
 
   const parsed = aiAppMutationSaveRequestSchema.safeParse(body);
-  if (!parsed.success) return validationResponse("AI app draft save request is invalid.", parsed.error.issues);
+  if (!parsed.success) return validationResponse("AI app mutation save request is invalid.", parsed.error.issues);
 
   const context = await createAiToolContextFromAuthenticatedRequest(request, {
     conversationId: parsed.data.conversationId,
@@ -49,7 +49,7 @@ export const action = async ({ request }) => {
   if (!rateLimit.allowed) return rateLimitResponse(rateLimit);
 
   const registry = createAiAppMutationRegistry();
-  const result = await registry.saveAiAppMutationDraft(
+  const result = await registry.saveAiAppMutation(
     context,
     parsed.data.proposalId,
     parsed.data.editedFields || {},

@@ -169,7 +169,7 @@ const appDraftProposalBlockSchema = z.object({
   currentAppValueSnapshot: z.record(z.string(), z.string().max(1200)).default({}),
   generatedReason: z.string().max(700).nullable().optional(),
   validationWarnings: z.array(z.string().max(260)).max(8).default([]),
-  editableFields: z.array(appDraftEditableFieldSchema).max(6),
+  editableFields: z.array(appDraftEditableFieldSchema).max(8),
   confirmationLevel: z.enum(["low", "medium", "high"]),
   sideEffectLevel: z.enum(["low", "medium", "high"]),
   reversible: z.boolean(),

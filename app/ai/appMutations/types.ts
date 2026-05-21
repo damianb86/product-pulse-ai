@@ -79,7 +79,7 @@ export interface AiAppMutationProposal {
   currentAppValueSnapshot: unknown;
   proposedValue: unknown;
   userEditedValue: unknown;
-  finalDraftValue: unknown;
+  finalValue: unknown;
   generatedReason: string | null;
   evidenceReferences: unknown;
   validationWarnings: string[];
@@ -121,7 +121,7 @@ export interface AiAppMutationDefinition<TInput = unknown, TEditable = unknown> 
   targetType: string;
   description: string;
   inputSchema: z.ZodType<TInput>;
-  editableDraftSchema: z.ZodType<TEditable>;
+  editableSchema: z.ZodType<TEditable>;
   requiredPermission: "merchant";
   confirmationLevel: AiAppMutationConfirmationLevel;
   sideEffectLevel: AiAppMutationSideEffectLevel;
@@ -129,7 +129,7 @@ export interface AiAppMutationDefinition<TInput = unknown, TEditable = unknown> 
   allowedFields: string[];
   blockedFields: string[];
   buildProposal: (context: AiToolContext, input: TInput) => Promise<AiAppMutationProposalDraft<TInput>>;
-  validateEditableDraft?: (
+  validateEditable?: (
     context: AiToolContext,
     proposal: AiAppMutationProposal,
     editable: TEditable,

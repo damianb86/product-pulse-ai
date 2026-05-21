@@ -381,7 +381,7 @@ function appDraftProposalWidget(block: Extract<AiPresentationBlock, { type: "app
       key: "draft-form",
       direction: "col",
       gap: 1,
-      onSubmitAction: { type: "save_ai_app_draft", payload: { proposalId: block.proposalId } },
+      onSubmitAction: { type: "save_ai_app_mutation", payload: { proposalId: block.proposalId } },
       children: [
         ...fieldControls,
         row([
@@ -389,14 +389,14 @@ function appDraftProposalWidget(block: Extract<AiPresentationBlock, { type: "app
             type: "Button",
             key: "save",
             submit: true,
-            label: "Save draft in app",
+            label: "Save in ProductPulse",
             style: "primary",
             variant: "solid",
             color: "primary",
             size: "xs",
             block: true,
           },
-          button("Cancel", "cancel_ai_app_draft", { proposalId: block.proposalId }, "chevron-right", {
+          button("Cancel", "cancel_ai_app_mutation", { proposalId: block.proposalId }, "chevron-right", {
             key: "cancel",
             style: "secondary",
             variant: "outline",
@@ -411,11 +411,11 @@ function appDraftProposalWidget(block: Extract<AiPresentationBlock, { type: "app
         gap: 1,
       }),
     ] : []),
-    caption("This saves data inside ProductPulse only. It does not update Shopify.", { key: "safety" }),
+    caption("This saves ProductPulse app data only. It does not update Shopify.", { key: "safety" }),
   ], {
     size: "lg",
     status: {
-      text: "App-only draft",
+      text: "ProductPulse action",
       icon: "document",
     },
   });
@@ -459,7 +459,7 @@ function appDraftResultWidget(block: Extract<AiPresentationBlock, { type: "app_d
     ] : []),
   ], {
     status: {
-      text: isSuccess ? "Draft saved" : block.status === "cancelled" ? "Draft cancelled" : "Draft failed",
+      text: isSuccess ? "Saved" : block.status === "cancelled" ? "Cancelled" : "Save failed",
       icon: isSuccess ? "check-circle" : "info",
     },
   });

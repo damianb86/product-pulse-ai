@@ -28,7 +28,7 @@ export const action = async ({ request }) => {
   }
 
   const parsed = aiAppMutationCancelRequestSchema.safeParse(body);
-  if (!parsed.success) return validationResponse("AI app draft cancel request is invalid.", parsed.error.issues);
+  if (!parsed.success) return validationResponse("AI app mutation cancel request is invalid.", parsed.error.issues);
 
   const context = await createAiToolContextFromAuthenticatedRequest(request, {
     conversationId: parsed.data.conversationId,
@@ -44,7 +44,7 @@ export const action = async ({ request }) => {
   if (!rateLimit.allowed) return rateLimitResponse(rateLimit);
 
   const registry = createAiAppMutationRegistry();
-  const result = await registry.cancelAiAppMutationDraft(context, parsed.data.proposalId);
+  const result = await registry.cancelAiAppMutation(context, parsed.data.proposalId);
   if (!result.ok) {
     return Response.json(
       { status: "error", message: result.error.message, error: result.error },

@@ -111,7 +111,7 @@ export class AiAppMutationRegistry {
     }
   }
 
-  async updateAiAppMutationDraft(
+  async updateAiAppMutation(
     context: AiToolContext,
     proposalId: string,
     rawEditable: unknown = {},
@@ -148,7 +148,7 @@ export class AiAppMutationRegistry {
     return { ok: true, data: { proposal: updated } };
   }
 
-  async saveAiAppMutationDraft(
+  async saveAiAppMutation(
     context: AiToolContext,
     proposalId: string,
     rawEditable: unknown = {},
@@ -189,7 +189,7 @@ export class AiAppMutationRegistry {
         status: finalStatus,
         allowedCurrentStatuses: ["draft", "edited", "pending_confirmation"],
         userEditedValue: warnings.data.editable,
-        finalDraftValue: mapSaveResultToFinalValue(result),
+        finalValue: mapSaveResultToFinalValue(result),
         validationWarnings: warnings.data.warnings,
         safeError,
         savedAt: finalStatus === "saved" ? this.now() : null,
@@ -236,7 +236,7 @@ export class AiAppMutationRegistry {
     }
   }
 
-  async cancelAiAppMutationDraft(
+  async cancelAiAppMutation(
     context: AiToolContext,
     proposalId: string,
   ): Promise<AiAppMutationSafeResult<{ proposal: AiAppMutationProposal }>> {
@@ -303,7 +303,7 @@ export class AiAppMutationRegistry {
       data: {
         proposal: aiAppMutationProposalToSafeSummary(result.data.proposal),
         block,
-        instruction: "Include this app_draft_proposal block in the final response. Do not claim it was saved until the user confirms Save draft in app.",
+        instruction: "Include this editable confirmation block in the final response. Do not claim it was saved until the user confirms Save in ProductPulse.",
       },
       metadata: { resultCount: 1 },
     };
@@ -342,7 +342,7 @@ export class AiAppMutationRegistry {
         ok: false,
         error: {
           code: "APP_MUTATION_PROPOSAL_EXPIRED",
-          message: "That app draft proposal has expired.",
+          message: "That ProductPulse mutation proposal has expired.",
           retryable: false,
         },
       };
@@ -366,7 +366,7 @@ export class AiAppMutationRegistry {
     rawEditable: unknown,
   ): AiAppMutationSafeResult<unknown> {
     const normalized = normalizeEditableInput(proposal, rawEditable);
-    const parsed = definition.editableDraftSchema.safeParse(normalized);
+    const parsed = definition.editableSchema.safeParse(normalized);
     if (!parsed.success) return { ok: false, error: validationError(parsed.error, "Draft edits failed validation.") };
     return { ok: true, data: parsed.data };
   }
@@ -377,10 +377,10 @@ export class AiAppMutationRegistry {
     definition: AnyAiAppMutationDefinition,
     editable: unknown,
   ): Promise<AiAppMutationSafeResult<{ editable: unknown; warnings: string[] }>> {
-    if (!definition.validateEditableDraft) {
+    if (!definition.validateEditable) {
       return { ok: true, data: { editable, warnings: proposal.validationWarnings } };
     }
-    const validated = await definition.validateEditableDraft(context, proposal, editable);
+    const validated = await definition.validateEditable(context, proposal, editable);
     return { ok: true, data: validated };
   }
 
@@ -416,7 +416,7 @@ export function buildAppMutationProposalOpenAiToolDefinition(sanitizeSchema: (sc
   return {
     type: "function",
     name: AI_APP_MUTATION_PROPOSAL_TOOL_NAME,
-    description: "Create an editable ProductPulse app-only draft or app-owned mutation proposal. This never updates Shopify and does not save until the user confirms.",
+    description: "Create an editable ProductPulse app-owned mutation proposal. This never updates Shopify and does not save until the user confirms.",
     parameters: sanitizeSchema(z.toJSONSchema(appMutationProposalToolInputSchema)),
     strict: false,
   };
@@ -434,7 +434,7 @@ export function aiAppMutationErrorToPresentationBlock(input: {
     safeMessage: input.message,
     affectedEntities: [],
   }, {
-    title: input.title || "Draft unavailable",
+    title: input.title || "ProductPulse mutation unavailable",
     targetLabel: null,
     sideEffectLevel: null,
   });
@@ -448,6 +448,9 @@ function normalizeEditableInput(proposal: AiAppMutationProposal, rawEditable: un
     ? raw.editedFields as Record<string, unknown>
     : {};
   const merged = { ...raw, ...nested };
+  if (merged.draftText === undefined && merged.text !== undefined) merged.draftText = merged.text;
+  if (merged.draftText === undefined && merged.value !== undefined) merged.draftText = merged.value;
+  if (merged.field === undefined && merged.targetField !== undefined) merged.field = merged.targetField;
   const defaults = Object.fromEntries(proposal.editableFields.map((field) => [field.name, field.value]));
   return Object.fromEntries(proposal.allowedFields.map((fieldName) => {
     const value = Object.prototype.hasOwnProperty.call(merged, fieldName) ? merged[fieldName] : defaults[fieldName];
@@ -514,7 +517,7 @@ function validationError(error: z.ZodError, message: string): AiToolSafeError {
 function proposalNotFoundError(): AiToolSafeError {
   return {
     code: "APP_MUTATION_PROPOSAL_NOT_FOUND",
-    message: "That app draft proposal was not found.",
+    message: "That ProductPulse mutation proposal was not found.",
     retryable: false,
   };
 }
@@ -522,7 +525,7 @@ function proposalNotFoundError(): AiToolSafeError {
 function proposalStatusError(status: string): AiToolSafeError {
   return {
     code: "APP_MUTATION_PROPOSAL_NOT_PENDING",
-    message: `That app draft proposal is already ${status}.`,
+    message: `That ProductPulse mutation proposal is already ${status}.`,
     retryable: false,
   };
 }
@@ -530,7 +533,7 @@ function proposalStatusError(status: string): AiToolSafeError {
 function unauthorizedMutationError(): AiToolSafeError {
   return {
     code: "APP_MUTATION_NOT_AUTHORIZED",
-    message: "You are not allowed to save ProductPulse app-only drafts.",
+    message: "You are not allowed to save ProductPulse app mutations.",
     retryable: false,
   };
 }

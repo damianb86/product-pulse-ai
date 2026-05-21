@@ -149,12 +149,12 @@ async function dispatchSafeAction(
       return confirmAiAction(context, input.action.payload || {}, actionRegistry);
     case "cancel_ai_action":
       return cancelAiAction(context, input.action.payload || {}, actionRegistry);
-    case "save_ai_app_draft":
-      return saveAiAppDraft(context, input.action.payload || {}, appMutationRegistry);
-    case "update_ai_app_draft":
-      return updateAiAppDraft(context, input.action.payload || {}, appMutationRegistry);
-    case "cancel_ai_app_draft":
-      return cancelAiAppDraft(context, input.action.payload || {}, appMutationRegistry);
+    case "save_ai_app_mutation":
+      return saveAiAppMutationAction(context, input.action.payload || {}, appMutationRegistry);
+    case "update_ai_app_mutation":
+      return updateAiAppMutationAction(context, input.action.payload || {}, appMutationRegistry);
+    case "cancel_ai_app_mutation":
+      return cancelAiAppMutationAction(context, input.action.payload || {}, appMutationRegistry);
     case "open_product":
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "product");
     case "open_evidence":
@@ -190,7 +190,7 @@ async function dispatchSafeAction(
   }
 }
 
-async function saveAiAppDraft(
+async function saveAiAppMutationAction(
   context: AiToolContext,
   payload: z.infer<typeof safeActionPayloadSchema>,
   registry: AiAppMutationRegistry,
@@ -200,18 +200,18 @@ async function saveAiAppDraft(
     return {
       status: "error",
       code: permission.code || "AI_APP_MUTATIONS_DISABLED",
-      message: permission.message || "AI app-only drafts are disabled.",
+      message: permission.message || "AI ProductPulse mutations are disabled.",
     };
   }
   if (!payload.proposalId) {
     return {
       status: "error",
       code: "VALIDATION_ERROR",
-      message: "The draft action is missing a proposal ID.",
+      message: "The ProductPulse mutation is missing a proposal ID.",
     };
   }
 
-  const result = await registry.saveAiAppMutationDraft(context, payload.proposalId, editablePayload(payload));
+  const result = await registry.saveAiAppMutation(context, payload.proposalId, editablePayload(payload));
   if (!result.ok) {
     return {
       status: "error",
@@ -233,7 +233,7 @@ async function saveAiAppDraft(
   };
 }
 
-async function updateAiAppDraft(
+async function updateAiAppMutationAction(
   context: AiToolContext,
   payload: z.infer<typeof safeActionPayloadSchema>,
   registry: AiAppMutationRegistry,
@@ -243,17 +243,17 @@ async function updateAiAppDraft(
     return {
       status: "error",
       code: permission.code || "AI_APP_MUTATIONS_DISABLED",
-      message: permission.message || "AI app-only drafts are disabled.",
+      message: permission.message || "AI ProductPulse mutations are disabled.",
     };
   }
   if (!payload.proposalId) {
     return {
       status: "error",
       code: "VALIDATION_ERROR",
-      message: "The draft action is missing a proposal ID.",
+      message: "The ProductPulse mutation is missing a proposal ID.",
     };
   }
-  const result = await registry.updateAiAppMutationDraft(context, payload.proposalId, editablePayload(payload));
+  const result = await registry.updateAiAppMutation(context, payload.proposalId, editablePayload(payload));
   if (!result.ok) {
     return {
       status: "error",
@@ -271,7 +271,7 @@ async function updateAiAppDraft(
   };
 }
 
-async function cancelAiAppDraft(
+async function cancelAiAppMutationAction(
   context: AiToolContext,
   payload: z.infer<typeof safeActionPayloadSchema>,
   registry: AiAppMutationRegistry,
@@ -281,17 +281,17 @@ async function cancelAiAppDraft(
     return {
       status: "error",
       code: permission.code || "AI_APP_MUTATIONS_DISABLED",
-      message: permission.message || "AI app-only drafts are disabled.",
+      message: permission.message || "AI ProductPulse mutations are disabled.",
     };
   }
   if (!payload.proposalId) {
     return {
       status: "error",
       code: "VALIDATION_ERROR",
-      message: "The draft action is missing a proposal ID.",
+      message: "The ProductPulse mutation is missing a proposal ID.",
     };
   }
-  const result = await registry.cancelAiAppMutationDraft(context, payload.proposalId);
+  const result = await registry.cancelAiAppMutation(context, payload.proposalId);
   if (!result.ok) {
     return {
       status: "error",

@@ -24,7 +24,7 @@ export interface AiAppMutationProposalStore {
     status?: AiAppMutationProposalStatus;
     allowedCurrentStatuses?: AiAppMutationProposalStatus[];
     userEditedValue?: unknown;
-    finalDraftValue?: unknown;
+    finalValue?: unknown;
     validationWarnings?: string[];
     safeError?: AiToolSafeError | null;
     savedAt?: Date | null;
@@ -92,7 +92,7 @@ export class PrismaAiAppMutationProposalStore implements AiAppMutationProposalSt
     status?: AiAppMutationProposalStatus;
     allowedCurrentStatuses?: AiAppMutationProposalStatus[];
     userEditedValue?: unknown;
-    finalDraftValue?: unknown;
+    finalValue?: unknown;
     validationWarnings?: string[];
     safeError?: AiToolSafeError | null;
     savedAt?: Date | null;
@@ -109,7 +109,7 @@ export class PrismaAiAppMutationProposalStore implements AiAppMutationProposalSt
       data: {
         status: input.status,
         userEditedValue: input.userEditedValue === undefined ? undefined : toPrismaJson(input.userEditedValue),
-        finalDraftValue: input.finalDraftValue === undefined ? undefined : toPrismaJson(input.finalDraftValue),
+        finalDraftValue: input.finalValue === undefined ? undefined : toPrismaJson(input.finalValue),
         validationWarnings: input.validationWarnings === undefined ? undefined : toPrismaJson(input.validationWarnings),
         safeError: input.safeError === undefined ? undefined : toPrismaJson(input.safeError),
         savedAt: input.savedAt === undefined ? undefined : input.savedAt,
@@ -158,7 +158,7 @@ function mapProposal(row: Record<string, unknown>): AiAppMutationProposal {
     userId: optionalString(row.userId),
     conversationId: optionalString(row.conversationId),
     mutationName: String(row.mutationName || ""),
-    category: String(row.category || "draft") as AiAppMutationProposal["category"],
+    category: String(row.category || "recommendation") as AiAppMutationProposal["category"],
     targetType: String(row.targetType || ""),
     targetId: String(row.targetId || ""),
     targetLabel: optionalString(row.targetLabel),
@@ -167,7 +167,7 @@ function mapProposal(row: Record<string, unknown>): AiAppMutationProposal {
     currentAppValueSnapshot: nullIfJsonNull(row.currentAppValueSnapshot),
     proposedValue: nullIfJsonNull(row.proposedValue),
     userEditedValue: nullIfJsonNull(row.userEditedValue),
-    finalDraftValue: nullIfJsonNull(row.finalDraftValue),
+    finalValue: nullIfJsonNull(row.finalDraftValue),
     generatedReason: optionalString(row.generatedReason),
     evidenceReferences: nullIfJsonNull(row.evidenceReferences),
     validationWarnings: arrayOfStrings(row.validationWarnings),

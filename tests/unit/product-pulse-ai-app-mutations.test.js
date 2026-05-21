@@ -33,7 +33,7 @@ const context = {
 };
 
 describe("ProductPulse AI app-only mutation registry", () => {
-  it("creates tenant-scoped editable app draft proposals without accepting tenant input", async () => {
+  it("creates tenant-scoped editable app action proposals without accepting tenant input", async () => {
     const { registry, store, productRepository } = createAppMutationRegistry();
 
     const result = await registry.createAiAppMutationProposal(
@@ -52,7 +52,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
       mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
       targetId: "gid://shopify/Product/1",
       status: "draft",
-      draftType: "product_description",
+      draftType: "recommendation_text",
     });
     expect(productRepository.getProductRiskDetail).toHaveBeenCalledWith(
       expect.objectContaining({ shop: context.shop }),
@@ -74,7 +74,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(invalid.error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("saves edited product description drafts server-side only", async () => {
+  it("saves edited product description proposals as real ProductPulse actions", async () => {
     const { registry, store, db } = createAppMutationRegistry();
     const proposal = await registry.createAiAppMutationProposal(
       context,
@@ -85,10 +85,10 @@ describe("ProductPulse AI app-only mutation registry", () => {
       },
     );
 
-    const result = await registry.saveAiAppMutationDraft(
+    const result = await registry.saveAiAppMutation(
       context,
       proposal.data.proposal.id,
-      { text: "Merchant edited app-only draft." },
+      { text: "Merchant edited ProductPulse action text." },
     );
 
     expect(result.ok).toBe(true);
@@ -96,9 +96,38 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(result.data.result.safeMessage).toContain("Shopify was not modified");
     expect(store.proposals.get(proposal.data.proposal.id)).toMatchObject({
       status: "saved",
-      userEditedValue: { text: "Merchant edited app-only draft." },
+      userEditedValue: expect.objectContaining({
+        draftText: "Merchant edited ProductPulse action text.",
+        field: "product.description",
+      }),
     });
-    expect(db.productAction.create).not.toHaveBeenCalled();
+    expect(db.productDiagnosis.update).toHaveBeenCalledWith({
+      where: { id: "diagnosis-1" },
+      data: {
+        recommendations: expect.arrayContaining([
+          expect.objectContaining({
+            title: "Update product description",
+            payload: expect.objectContaining({
+              draftText: "Merchant edited ProductPulse action text.",
+              source: "ai_app_only_action_create",
+              shopifyMutationBlocked: true,
+            }),
+          }),
+        ]),
+      },
+    });
+    expect(db.productAction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        productGid: "gid://shopify/Product/1",
+        label: "Update product description",
+        status: "draft",
+        payload: expect.objectContaining({
+          draftText: "Merchant edited ProductPulse action text.",
+          shopifyMutationBlocked: true,
+        }),
+      }),
+    });
+    expect(JSON.stringify(db.productAction.create.mock.calls[0])).not.toContain("proposalId");
     expect(JSON.stringify(result)).not.toContain("evil.myshopify.com");
   });
 
@@ -122,7 +151,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(result.ok).toBe(true);
     expect(result.data.proposal.proposedInput).toMatchObject({
       productRef: "gid://shopify/Product/1",
-      text: "Add a clear expectation note before purchase.",
+      draftText: "Add a clear expectation note before purchase.",
       field: "product.description",
     });
   });
@@ -142,7 +171,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
 
     expect(result.ok).toBe(true);
     expect(result.data.proposal.mutationName).toBe(PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft);
-    expect(result.data.proposal.title).toBe("Save product description draft");
+    expect(result.data.proposal.title).toBe("Description draft");
   });
 
   it("creates app-owned recommended action records without Shopify apply mode", async () => {
@@ -158,7 +187,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
       },
     );
 
-    const result = await registry.saveAiAppMutationDraft(context, proposal.data.proposal.id, {
+    const result = await registry.saveAiAppMutation(context, proposal.data.proposal.id, {
       title: "Review sizing guidance",
       description: "Clarify product fit expectations before purchase.",
       priority: "high",
@@ -215,7 +244,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
 
     expect(proposal.ok).toBe(true);
 
-    const result = await registry.saveAiAppMutationDraft(context, proposal.data.proposal.id, {
+    const result = await registry.saveAiAppMutation(context, proposal.data.proposal.id, {
       title: "Add expectation note",
       description: "Add a short note before the current description.",
       draftText: "Please confirm sizing before checkout.",
@@ -259,7 +288,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
 
     expect(proposal.ok).toBe(true);
 
-    const result = await registry.saveAiAppMutationDraft(context, proposal.data.proposal.id, {
+    const result = await registry.saveAiAppMutation(context, proposal.data.proposal.id, {
       title: "Rewrite sizing guidance",
       description: "AI-regenerated size note.",
       draftText: "Fit runs small. Review the size chart before buying.",
@@ -318,7 +347,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
 
     expect(proposal.ok).toBe(true);
 
-    const result = await registry.saveAiAppMutationDraft(context, proposal.data.proposal.id, {
+    const result = await registry.saveAiAppMutation(context, proposal.data.proposal.id, {
       title: "Review size chart",
       description: "AI-regenerated size note.",
       draftText: "Fit runs small. Check the size chart before buying.",
@@ -341,8 +370,8 @@ describe("ProductPulse AI app-only mutation registry", () => {
     });
   });
 
-  it("rejects arbitrary metafields and accepts allowlisted app-only metafield drafts", async () => {
-    const { registry } = createAppMutationRegistry();
+  it("rejects arbitrary metafields and saves allowlisted metafield proposals as ProductPulse actions", async () => {
+    const { registry, db } = createAppMutationRegistry();
 
     const rejected = await registry.createAiAppMutationProposal(
       context,
@@ -366,16 +395,27 @@ describe("ProductPulse AI app-only mutation registry", () => {
         namespace: "productpulse",
         key: "faq_html",
         type: "multi_line_text_field",
-        value: "<p>FAQ draft saved in app only.</p>",
+        value: "<p>FAQ content saved as a ProductPulse action only.</p>",
       },
     );
     expect(allowed.ok).toBe(true);
 
-    const saved = await registry.saveAiAppMutationDraft(context, allowed.data.proposal.id, {
-      value: "<p>Edited FAQ draft saved in app only.</p>",
+    const saved = await registry.saveAiAppMutation(context, allowed.data.proposal.id, {
+      draftText: "<p>Edited FAQ content tracked as a ProductPulse action.</p>",
     });
     expect(saved.ok).toBe(true);
     expect(saved.data.result.safeMessage).toContain("Shopify was not modified");
+    expect(db.productAction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        productGid: "gid://shopify/Product/1",
+        payload: expect.objectContaining({
+          draftText: "<p>Edited FAQ content tracked as a ProductPulse action.</p>",
+          metafieldNamespace: "productpulse",
+          metafieldKey: "faq_html",
+          metafieldType: "multi_line_text_field",
+        }),
+      }),
+    });
   });
 
   it("prevents cross-tenant and expired proposal saves", async () => {
@@ -389,7 +429,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
       },
     );
 
-    const crossTenant = await registry.saveAiAppMutationDraft({
+    const crossTenant = await registry.saveAiAppMutation({
       ...context,
       shop: "other-shop.myshopify.com",
     }, proposal.data.proposal.id, { text: "Tampered" });
@@ -397,13 +437,13 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(crossTenant.error.code).toBe("APP_MUTATION_PROPOSAL_NOT_FOUND");
 
     store.proposals.get(proposal.data.proposal.id).expiresAt = "2026-05-20T11:59:00.000Z";
-    const expired = await registry.saveAiAppMutationDraft(context, proposal.data.proposal.id, { text: "Late edit" });
+    const expired = await registry.saveAiAppMutation(context, proposal.data.proposal.id, { text: "Late edit" });
     expect(expired.ok).toBe(false);
     expect(expired.error.code).toBe("APP_MUTATION_PROPOSAL_EXPIRED");
     expect(db.productAction.create).not.toHaveBeenCalled();
   });
 
-  it("saves ChatKit app draft actions through proposalId and ignores tampered product fields", async () => {
+  it("saves ChatKit app mutation actions through proposalId and ignores tampered product fields", async () => {
     const { registry, db } = createAppMutationRegistry();
     const proposal = await registry.createAiAppMutationProposal(
       context,
@@ -417,7 +457,7 @@ describe("ProductPulse AI app-only mutation registry", () => {
 
     const result = await handleChatKitAction(context, {
       action: {
-        type: "save_ai_app_draft",
+        type: "save_ai_app_mutation",
         payload: {
           proposalId: proposal.data.proposal.id,
           productRef: "tampered-product",
@@ -447,14 +487,14 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(JSON.stringify(result.action.blocks[0])).not.toContain("tampered-product");
   });
 
-  it("renders editable draft cards with safe save/cancel payloads", async () => {
+  it("renders editable ProductPulse mutation cards with safe save/cancel payloads", async () => {
     const { registry } = createAppMutationRegistry();
     const proposal = await registry.createAiAppMutationProposal(
       context,
       PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
       {
         productRef: "core-linen-trouser",
-        text: "Editable app-only draft.",
+        text: "Editable ProductPulse action.",
       },
     );
     const block = aiAppMutationProposalToPresentationBlock(proposal.data.proposal);
@@ -463,8 +503,8 @@ describe("ProductPulse AI app-only mutation registry", () => {
     expect(widget.type).toBe("Card");
     expect(JSON.stringify(widget)).toContain("\"type\":\"Form\"");
     expect(JSON.stringify(widget)).toContain("\"type\":\"Textarea\"");
-    expect(JSON.stringify(widget)).toContain("\"type\":\"save_ai_app_draft\"");
-    expect(JSON.stringify(widget)).toContain("\"type\":\"cancel_ai_app_draft\"");
+    expect(JSON.stringify(widget)).toContain("\"type\":\"save_ai_app_mutation\"");
+    expect(JSON.stringify(widget)).toContain("\"type\":\"cancel_ai_app_mutation\"");
     expect(JSON.stringify(widget)).toContain("\"proposalId\":\"proposal-1\"");
     expect(JSON.stringify(widget)).not.toContain("gid://shopify/Product/1\"");
     expect(JSON.stringify(widget)).not.toContain(context.shop);
@@ -565,7 +605,7 @@ class InMemoryAppMutationProposalStore {
       sourceContext: draft.sourceContext || null,
       currentAppValueSnapshot: draft.currentAppValueSnapshot || null,
       userEditedValue: null,
-      finalDraftValue: null,
+      finalValue: null,
       generatedReason: draft.generatedReason || null,
       evidenceReferences: draft.evidenceReferences || null,
       validationWarnings: draft.validationWarnings || [],
@@ -602,7 +642,7 @@ class InMemoryAppMutationProposalStore {
       updatedAt: "2026-05-20T12:00:00.000Z",
     });
     if (input.userEditedValue !== undefined) proposal.userEditedValue = input.userEditedValue;
-    if (input.finalDraftValue !== undefined) proposal.finalDraftValue = input.finalDraftValue;
+    if (input.finalValue !== undefined) proposal.finalValue = input.finalValue;
     if (input.validationWarnings !== undefined) proposal.validationWarnings = input.validationWarnings;
     if (input.safeError !== undefined) proposal.safeError = input.safeError;
     if (input.savedAt !== undefined) proposal.savedAt = input.savedAt?.toISOString() || null;

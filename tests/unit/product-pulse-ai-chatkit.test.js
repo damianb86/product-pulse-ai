@@ -286,7 +286,7 @@ describe("ProductPulse ChatKit integration", () => {
     expect(JSON.stringify(store.messages)).toContain("action_result");
   });
 
-  it("accepts ChatKit editable app draft submissions through the message endpoint", async () => {
+  it("accepts ChatKit editable app mutation submissions through the message endpoint", async () => {
     const store = new InMemoryConversationStore();
     store.conversations.push({
       id: "conversation-1",
@@ -297,7 +297,7 @@ describe("ProductPulse ChatKit integration", () => {
       updatedAt: "2026-05-20T12:00:00.000Z",
     });
     const appMutationRegistry = {
-      saveAiAppMutationDraft: vi.fn().mockResolvedValue({
+      saveAiAppMutation: vi.fn().mockResolvedValue({
         ok: true,
         data: {
           proposal: {
@@ -336,7 +336,7 @@ describe("ProductPulse ChatKit integration", () => {
         thread_id: "conversation-1",
         item_id: "ai_msg_widget-1",
         action: {
-          type: "save_ai_app_draft",
+          type: "save_ai_app_mutation",
           payload: {
             proposalId: "proposal-1",
             title: "Add text to end of description",
@@ -355,7 +355,7 @@ describe("ProductPulse ChatKit integration", () => {
     });
 
     const text = await response.text();
-    expect(appMutationRegistry.saveAiAppMutationDraft).toHaveBeenCalledWith(
+    expect(appMutationRegistry.saveAiAppMutation).toHaveBeenCalledWith(
       expect.objectContaining({ shop: baseContext.shop }),
       "proposal-1",
       {
@@ -373,12 +373,12 @@ describe("ProductPulse ChatKit integration", () => {
     expect(text).not.toContain("ChatKit action request is invalid");
   });
 
-  it("adds open-product and open-action buttons to saved app draft result widgets", () => {
+  it("adds open-product and open-action buttons to saved app mutation result widgets", () => {
     const productDraftBlock = aiAppMutationResultToPresentationBlock({
       mutationName: "product_pulse_create_product_description_draft",
       status: "success",
-      summary: "Product description draft saved in ProductPulse.",
-      safeMessage: "Product description draft saved in ProductPulse. Shopify was not modified.",
+      summary: "ProductPulse action saved.",
+      safeMessage: "ProductPulse action saved. Shopify was not modified.",
       affectedEntities: [{
         type: "product",
         id: "gid://shopify/Product/8631416979535",

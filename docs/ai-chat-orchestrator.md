@@ -4,7 +4,7 @@
 
 The AI chat orchestrator is the backend-only Phase 2 layer for ProductPulse AI chat. It receives a user message, authenticates the Shopify embedded app request, creates a server-side AI context, exposes Phase 1 read-only ProductPulse tools to OpenAI, executes requested tools through the internal registry, and returns a UI-neutral structured response.
 
-It does not render UI, stream responses, integrate ChatKit widgets, create Polaris chat components, perform Shopify mutations, or run autonomous workflows. Phase 4 adds internal action proposal support on top of this orchestrator, but confirmed execution remains backend-only. The app-only draft phase adds editable draft proposal support; those proposals save ProductPulse app data only and never apply to Shopify.
+It does not render UI, stream responses, integrate ChatKit widgets, create Polaris chat components, perform Shopify mutations, or run autonomous workflows. Phase 4 adds internal action proposal support on top of this orchestrator, but confirmed execution remains backend-only. The ProductPulse app mutation phase adds editable confirmation support; confirmed saves create or update app-visible ProductPulse action records and never apply to Shopify.
 
 ## Main Modules
 
@@ -126,11 +126,11 @@ Actual execution only happens through backend confirmation handling. The backend
 
 ## App-Only Draft Proposals
 
-The orchestrator also exposes one controlled model-facing draft proposal tool:
+The orchestrator also exposes one controlled model-facing ProductPulse mutation proposal tool:
 
 - `product_pulse_propose_app_only_mutation`
 
-This tool can create editable server-stored draft proposals for supported ProductPulse app-owned data, such as product description drafts, SEO drafts, allowlisted metafield value drafts, and app-owned recommendations. It cannot save the draft and cannot update Shopify. ChatKit save/cancel actions reload the proposal by `proposalId` and validate edited fields server-side.
+This tool can create editable server-stored confirmation proposals for supported ProductPulse app-owned data, such as product description actions, SEO actions, allowlisted metafield actions, and app-owned recommendations. It cannot save data until the user confirms and cannot update Shopify. ChatKit save/cancel actions reload the proposal by `proposalId` and validate edited fields server-side.
 
 If the model returns invalid structured output, the orchestrator retries once. If the retry also fails, it returns a safe text-only fallback.
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import prisma from "../../db.server";
@@ -107,6 +108,8 @@ const productDescriptionDraftSchema = z.object({
   field: z.string().trim().max(180).optional(),
   targetField: z.string().trim().max(180).optional(),
   descriptionOperation: descriptionOperationSchema.optional(),
+  priority: actionPrioritySchema.optional(),
+  status: appActionStatusSchema.optional(),
   reason: z.string().trim().max(700).optional(),
 }).strict().superRefine(requireProductReference).superRefine(requireDraftText);
 
@@ -122,6 +125,8 @@ const seoDraftSchema = z.object({
   value: looseAppValueSchema.optional(),
   field: z.string().trim().max(180).optional(),
   targetField: z.string().trim().max(180).optional(),
+  priority: actionPrioritySchema.optional(),
+  status: appActionStatusSchema.optional(),
   reason: z.string().trim().max(700).optional(),
   sourceRecommendationId: z.string().trim().max(160).optional(),
 }).strict().superRefine(requireProductReference).superRefine((input, ctx) => {
@@ -137,6 +142,8 @@ const metafieldDraftSchema = z.object({
   type: z.string().trim().min(1).max(120),
   value: z.string().trim().min(1).max(8000),
   label: z.string().trim().max(160).optional(),
+  priority: actionPrioritySchema.optional(),
+  status: appActionStatusSchema.optional(),
   reason: z.string().trim().max(700).optional(),
 }).strict().superRefine(requireProductReference);
 
@@ -161,22 +168,6 @@ const markRecommendedActionStatusSchema = z.object({
   status: z.enum(["active", "reviewed", "dismissed", "completed"]),
   reason: z.string().trim().max(700).optional(),
 }).strict().superRefine(requireProductReference);
-
-const textEditableSchema = z.object({
-  text: z.string().trim().min(1).max(5000),
-}).strict();
-
-const seoEditableSchema = z.object({
-  seoTitle: z.string().trim().max(90).optional(),
-  seoDescription: z.string().trim().max(220).optional(),
-}).strict().superRefine((input, ctx) => {
-  if (input.seoTitle || input.seoDescription) return;
-  ctx.addIssue({ code: "custom", path: ["seoTitle"], message: "Provide seoTitle or seoDescription." });
-});
-
-const metafieldEditableSchema = z.object({
-  value: z.string().trim().min(1).max(8000),
-}).strict();
 
 const recommendationEditableSchema = z.object({
   title: z.string().trim().min(3).max(180),
@@ -211,93 +202,162 @@ export function createProductPulseAiAppMutationDefinitions(
   return [
     {
       mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
-      category: "draft",
+      category: "recommendation",
       targetType: "product",
-      description: "Create an editable ProductPulse-only product description draft. This does not update Shopify.",
+      description: "Create a ProductPulse product-description action record. This does not update Shopify.",
       inputSchema: productDescriptionDraftSchema,
-      editableDraftSchema: textEditableSchema,
+      editableSchema: recommendationEditableSchema,
       requiredPermission: "merchant",
       confirmationLevel: "medium",
-      sideEffectLevel: "low",
+      sideEffectLevel: "medium",
       reversible: true,
-      allowedFields: ["text"],
+      allowedFields: ["title", "description", "draftText", "field", "descriptionOperation", "priority", "status"],
       blockedFields: blockedShopifyFields(),
       async buildProposal(context, input: ProductDescriptionDraftInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
         const text = getDraftText(input);
-        const field = getTargetField(input);
+        const proposedValue = buildActionProposedValue({
+          ...input,
+          title: getActionTitle(input) || "Update product description",
+          draftText: text,
+          field: getTargetField(input) || "product.description",
+          descriptionOperation: input.descriptionOperation || "append",
+          priority: input.priority || "medium",
+          status: input.status || "draft",
+        }, product);
         return baseDraftProposal({
           mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
           product,
           input: normalizeProductInput(input, product.productGid, {
+            title: proposedValue.title,
             text,
-            ...(field ? { field } : {}),
+            draftText: proposedValue.draftText,
+            field: proposedValue.field,
+            descriptionOperation: proposedValue.descriptionOperation,
+            priority: proposedValue.priority,
+            status: proposedValue.status,
           }),
-          draftType: "product_description",
-          title: "Save product description draft",
-          summary: `Save an editable description draft for ${product.title} inside ProductPulse only.`,
-          proposedValue: { text },
+          draftType: "recommendation_text",
+          title: proposedValue.title,
+          summary: `Create a ProductPulse product-description action for ${product.title}.`,
+          proposedValue,
           generatedReason: input.reason || product.primaryIssue || null,
-          editableFields: [textareaField("text", "Draft description", text, 5000)],
-          allowedFields: ["text"],
+          editableFields: [
+            textField("title", "Action title", proposedValue.title, 180),
+            textareaField("description", "Action detail", proposedValue.description, 3000, false),
+            textareaField("draftText", "Action text", proposedValue.draftText, 5000, false),
+            textField("field", "Target field", proposedValue.field, 180, false),
+            selectField("descriptionOperation", "Description operation", proposedValue.descriptionOperation, ["prepend", "append", "replace"], false),
+            selectField("priority", "Priority", proposedValue.priority, ["low", "medium", "high"]),
+            selectField("status", "Status", proposedValue.status, ["draft", "active", "reviewed", "dismissed"]),
+          ],
+          allowedFields: ["title", "description", "draftText", "field", "descriptionOperation", "priority", "status"],
           expiresAt: getProposalExpiry(),
+          sideEffectLevel: "medium",
         });
       },
-      async save(_context, proposal, editable) {
-        const fields = textEditableSchema.parse(editable);
-        return savedDraftResult(proposal, fields, "Product description draft saved in ProductPulse.");
+      async save(context, proposal, editable) {
+        const fields = recommendationEditableSchema.parse(editable);
+        const originalInput = buildCreateActionInputForSave(proposal, fields);
+        return saveCreatedProductAction({
+          context,
+          productRepository,
+          db,
+          proposal,
+          originalInput,
+          fields,
+          source: "ai_app_only_action_create",
+        });
       },
     },
     {
       mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createSeoDraft,
-      category: "draft",
+      category: "recommendation",
       targetType: "product",
-      description: "Create editable SEO title/description draft fields inside ProductPulse only. This does not update Shopify.",
+      description: "Create a ProductPulse SEO recommendation/action record. This does not update Shopify.",
       inputSchema: seoDraftSchema,
-      editableDraftSchema: seoEditableSchema,
+      editableSchema: recommendationEditableSchema,
       requiredPermission: "merchant",
       confirmationLevel: "medium",
-      sideEffectLevel: "low",
+      sideEffectLevel: "medium",
       reversible: true,
-      allowedFields: ["seoTitle", "seoDescription"],
+      allowedFields: ["title", "description", "draftText", "field", "descriptionOperation", "priority", "status"],
       blockedFields: blockedShopifyFields(),
       async buildProposal(context, input: SeoDraftInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
-        const proposedValue = getSeoDraftFields(input);
+        const seoFields = getSeoDraftFields(input);
+        const field = getSeoActionField(input, seoFields);
+        const draftText = buildSeoActionDraftText(seoFields);
+        const proposedValue = buildActionProposedValue({
+          ...input,
+          title: getActionTitle(input) || getSeoActionTitle(seoFields),
+          description: input.reason || "Save this SEO recommendation as a ProductPulse action.",
+          draftText,
+          field,
+          descriptionOperation: "replace",
+          priority: input.priority || "medium",
+          status: input.status || "draft",
+        }, product);
         return baseDraftProposal({
           mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createSeoDraft,
           product,
-          input: normalizeProductInput(input, product.productGid, proposedValue),
-          draftType: "seo",
-          title: "Save SEO draft",
-          summary: `Save SEO draft text for ${product.title} inside ProductPulse only.`,
+          input: normalizeProductInput({
+            ...input,
+            seoTitle: seoFields.seoTitle,
+            seoDescription: seoFields.seoDescription,
+          }, product.productGid, {
+            title: proposedValue.title,
+            seoTitle: seoFields.seoTitle,
+            seoDescription: seoFields.seoDescription,
+            field: proposedValue.field,
+            priority: proposedValue.priority,
+            status: proposedValue.status,
+          }),
+          draftType: "recommendation_text",
+          title: proposedValue.title,
+          summary: `Create a ProductPulse SEO action for ${product.title}.`,
           proposedValue,
           generatedReason: input.reason || product.primaryIssue || null,
           editableFields: [
-            textField("seoTitle", "SEO title", proposedValue.seoTitle, 90, false),
-            textareaField("seoDescription", "SEO description", proposedValue.seoDescription, 220, false),
+            textField("title", "Action title", proposedValue.title, 180),
+            textareaField("description", "Action detail", proposedValue.description, 3000, false),
+            textareaField("draftText", "Action text", proposedValue.draftText, 5000, false),
+            textField("field", "Target field", proposedValue.field, 180, false),
+            selectField("descriptionOperation", "Description operation", proposedValue.descriptionOperation, ["prepend", "append", "replace"], false),
+            selectField("priority", "Priority", proposedValue.priority, ["low", "medium", "high"]),
+            selectField("status", "Status", proposedValue.status, ["draft", "active", "reviewed", "dismissed"]),
           ],
-          allowedFields: ["seoTitle", "seoDescription"],
+          allowedFields: ["title", "description", "draftText", "field", "descriptionOperation", "priority", "status"],
           expiresAt: getProposalExpiry(),
+          sideEffectLevel: "medium",
         });
       },
-      async save(_context, proposal, editable) {
-        const fields = seoEditableSchema.parse(editable);
-        return savedDraftResult(proposal, fields, "SEO draft saved in ProductPulse.");
+      async save(context, proposal, editable) {
+        const fields = recommendationEditableSchema.parse(editable);
+        const originalInput = buildCreateActionInputForSave(proposal, fields);
+        return saveCreatedProductAction({
+          context,
+          productRepository,
+          db,
+          proposal,
+          originalInput,
+          fields,
+          source: "ai_app_only_action_create",
+        });
       },
     },
     {
       mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createMetafieldValueDraft,
-      category: "draft",
+      category: "recommendation",
       targetType: "product",
-      description: "Create an editable allowlisted metafield value draft inside ProductPulse only. This does not update Shopify.",
+      description: "Create a ProductPulse allowlisted metafield recommendation/action record. This does not update Shopify.",
       inputSchema: metafieldDraftSchema,
-      editableDraftSchema: metafieldEditableSchema,
+      editableSchema: recommendationEditableSchema,
       requiredPermission: "merchant",
       confirmationLevel: "medium",
-      sideEffectLevel: "low",
+      sideEffectLevel: "medium",
       reversible: true,
-      allowedFields: ["value"],
+      allowedFields: ["title", "description", "draftText", "field", "descriptionOperation", "priority", "status"],
       blockedFields: blockedShopifyFields(),
       async buildProposal(context, input: MetafieldDraftInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
@@ -308,40 +368,77 @@ export function createProductPulseAiAppMutationDefinitions(
         if (!allowed) {
           throw new AiToolExecutionError(
             "METAFIELD_DRAFT_NOT_ALLOWLISTED",
-            "That metafield is not allowlisted for AI app-only drafts.",
+            "That metafield is not allowlisted for AI ProductPulse mutations.",
           );
         }
+        const field = `product.metafield.${input.namespace}.${input.key}`;
+        const proposedValue = buildActionProposedValue({
+          ...input,
+          title: getActionTitle(input) || `Update ${input.label || allowed.label || `${input.namespace}.${input.key}`}`,
+          description: input.reason || "Save this allowlisted metafield recommendation as a ProductPulse action.",
+          draftText: input.value,
+          field,
+          shopifyField: field,
+          metafieldNamespace: input.namespace,
+          metafieldKey: input.key,
+          metafieldType: input.type,
+          descriptionOperation: "replace",
+          priority: input.priority || "medium",
+          status: input.status || "draft",
+        }, product);
         return baseDraftProposal({
           mutationName: PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createMetafieldValueDraft,
           product,
-          input: normalizeProductInput(input, product.productGid, {
-            namespace: input.namespace,
-            key: input.key,
-            type: input.type,
-            value: input.value,
-          }),
-          draftType: "metafield_value",
-          title: "Save metafield draft",
-          summary: `Save a ${allowed.label || `${input.namespace}.${input.key}`} draft for ${product.title} inside ProductPulse only.`,
-          proposedValue: {
+          input: normalizeProductInput({
+            ...input,
+            metafieldNamespace: input.namespace,
+            metafieldKey: input.key,
+            metafieldType: input.type,
+          }, product.productGid, {
             namespace: input.namespace,
             key: input.key,
             type: input.type,
             value: input.value,
             label: input.label || allowed.label || `${input.namespace}.${input.key}`,
-          },
+            priority: proposedValue.priority,
+            status: proposedValue.status,
+          }),
+          draftType: "recommendation_text",
+          title: proposedValue.title,
+          summary: `Create a ProductPulse metafield action for ${product.title}.`,
+          proposedValue,
           generatedReason: input.reason || product.primaryIssue || null,
-          editableFields: [textareaField("value", input.label || allowed.label || "Metafield value", input.value, 8000)],
-          allowedFields: ["value"],
+          editableFields: [
+            textField("title", "Action title", proposedValue.title, 180),
+            textareaField("description", "Action detail", proposedValue.description, 3000, false),
+            textareaField("draftText", input.label || allowed.label || "Action text", proposedValue.draftText, 5000, false),
+            textField("field", "Target field", proposedValue.field, 180, false),
+            selectField("descriptionOperation", "Description operation", proposedValue.descriptionOperation, ["prepend", "append", "replace"], false),
+            selectField("priority", "Priority", proposedValue.priority, ["low", "medium", "high"]),
+            selectField("status", "Status", proposedValue.status, ["draft", "active", "reviewed", "dismissed"]),
+          ],
+          allowedFields: ["title", "description", "draftText", "field", "descriptionOperation", "priority", "status"],
           expiresAt: getProposalExpiry(),
+          sideEffectLevel: "medium",
         });
       },
-      async save(_context, proposal, editable) {
-        const fields = metafieldEditableSchema.parse(editable);
-        return savedDraftResult(proposal, {
-          ...(asRecord(proposal.proposedValue)),
-          ...fields,
-        }, "Metafield draft saved in ProductPulse.");
+      async save(context, proposal, editable) {
+        const fields = recommendationEditableSchema.parse(editable);
+        const proposedInput = asRecord(proposal.proposedInput);
+        const originalInput = buildCreateActionInputForSave(proposal, fields, {
+          metafieldNamespace: proposedInput.namespace || proposedInput.metafieldNamespace,
+          metafieldKey: proposedInput.key || proposedInput.metafieldKey,
+          metafieldType: proposedInput.type || proposedInput.metafieldType,
+        });
+        return saveCreatedProductAction({
+          context,
+          productRepository,
+          db,
+          proposal,
+          originalInput,
+          fields,
+          source: "ai_app_only_action_create",
+        });
       },
     },
     {
@@ -350,7 +447,7 @@ export function createProductPulseAiAppMutationDefinitions(
       targetType: "product",
       description: "Create an app-owned ProductPulse recommendation/action record for one stored product.",
       inputSchema: createRecommendedActionSchema,
-      editableDraftSchema: recommendationEditableSchema,
+      editableSchema: recommendationEditableSchema,
       requiredPermission: "merchant",
       confirmationLevel: "medium",
       sideEffectLevel: "medium",
@@ -403,7 +500,7 @@ export function createProductPulseAiAppMutationDefinitions(
       targetType: "product_action",
       description: "Rewrite or update an existing ProductPulse recommendation/action draft for a stored product. This does not update Shopify.",
       inputSchema: updateRecommendedActionDraftSchema,
-      editableDraftSchema: recommendationEditableSchema,
+      editableSchema: recommendationEditableSchema,
       requiredPermission: "merchant",
       confirmationLevel: "medium",
       sideEffectLevel: "medium",
@@ -506,7 +603,7 @@ export function createProductPulseAiAppMutationDefinitions(
       targetType: "product",
       description: "Create a new app-owned ProductPulse action for a stored product. This does not update Shopify.",
       inputSchema: createProductActionSchema,
-      editableDraftSchema: recommendationEditableSchema,
+      editableSchema: recommendationEditableSchema,
       requiredPermission: "merchant",
       confirmationLevel: "medium",
       sideEffectLevel: "medium",
@@ -559,7 +656,7 @@ export function createProductPulseAiAppMutationDefinitions(
       targetType: "product_action",
       description: "Mark an app-owned ProductPulse recommendation/action status. This does not update Shopify.",
       inputSchema: markRecommendedActionStatusSchema,
-      editableDraftSchema: recommendationStatusEditableSchema,
+      editableSchema: recommendationStatusEditableSchema,
       requiredPermission: "merchant",
       confirmationLevel: "medium",
       sideEffectLevel: "medium",
@@ -611,7 +708,6 @@ export function createProductPulseAiAppMutationDefinitions(
             status,
             payload: {
               source: "ai_app_only_status",
-              proposalId: proposal.id,
               sourceActionId: originalInput.actionId,
               requestedStatus: fields.status,
               reason: fields.reason || proposal.generatedReason,
@@ -842,6 +938,27 @@ function getSeoDraftFields(input: Record<string, unknown>): { seoTitle: string; 
   };
 }
 
+function getSeoActionTitle(fields: { seoTitle: string; seoDescription: string }): string {
+  if (fields.seoTitle && fields.seoDescription) return "Update SEO title and description";
+  if (fields.seoTitle) return "Update SEO title";
+  return "Update SEO description";
+}
+
+function getSeoActionField(input: Record<string, unknown>, fields: { seoTitle: string; seoDescription: string }): string {
+  const targetField = getTargetField(input);
+  if (targetField) return targetField;
+  if (fields.seoTitle && fields.seoDescription) return "seo.title_description";
+  if (fields.seoTitle) return "seo.title";
+  return "seo.description";
+}
+
+function buildSeoActionDraftText(fields: { seoTitle: string; seoDescription: string }): string {
+  return [
+    fields.seoTitle ? `SEO title: ${fields.seoTitle}` : "",
+    fields.seoDescription ? `SEO description: ${fields.seoDescription}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function normalizeProductInput<T extends Record<string, unknown>>(
   input: T,
   productGid: string,
@@ -915,10 +1032,11 @@ async function saveCreatedProductAction(input: {
   source: "ai_app_only_action_create";
 }): Promise<AiAppMutationSaveResult> {
   const product = await requireProduct(input.context, input.productRepository, getProductReference(input.originalInput));
+  const actionType = getPersistedProductActionType(input.originalInput, input.fields);
   const latestDiagnosis = await appendLatestDiagnosisRecommendation(input.db, input.context.shop, product.productGid, {
     ...input.originalInput,
     ...input.fields,
-    actionId: String(input.originalInput.actionId || `ai-action-${input.proposal.id}`),
+    actionId: actionType,
     title: input.fields.title,
     description: input.fields.description,
     draftText: input.fields.draftText,
@@ -926,7 +1044,6 @@ async function saveCreatedProductAction(input: {
     status: input.fields.status || "draft",
     reason: input.originalInput.reason || input.proposal.generatedReason || "",
   });
-  const actionType = String(input.originalInput.actionId || `ai-action-${input.proposal.id}`);
   const payload = buildProductActionPayload({
     proposal: input.proposal,
     input: input.originalInput,
@@ -965,6 +1082,35 @@ async function saveCreatedProductAction(input: {
   };
 }
 
+function buildCreateActionInputForSave(
+  proposal: AiAppMutationProposal,
+  fields: z.infer<typeof recommendationEditableSchema>,
+  extra: Record<string, unknown> = {},
+): CreateProductActionInput {
+  const proposedInput = asRecord(proposal.proposedInput);
+  return createProductActionSchema.parse({
+    productRef: proposedInput.productRef,
+    productGid: proposedInput.productGid,
+    handle: proposedInput.handle,
+    actionId: proposedInput.actionId,
+    sourceRecommendationId: proposedInput.sourceRecommendationId,
+    sourceActionId: proposedInput.sourceActionId,
+    actionType: proposedInput.actionType,
+    type: proposedInput.type,
+    draftType: proposedInput.draftType,
+    reason: proposedInput.reason,
+    title: fields.title,
+    description: fields.description,
+    draftText: fields.draftText,
+    field: fields.field,
+    shopifyField: fields.field || proposedInput.shopifyField,
+    descriptionOperation: fields.descriptionOperation,
+    priority: fields.priority,
+    status: fields.status,
+    ...extra,
+  });
+}
+
 function buildProductActionPayload(input: {
   proposal: AiAppMutationProposal;
   input: Record<string, unknown>;
@@ -978,7 +1124,6 @@ function buildProductActionPayload(input: {
   return stripEmptyObject({
     ...copyDefinedActionInput(input.input),
     source: input.source,
-    proposalId: input.proposal.id,
     sourceActionId: input.sourceActionId,
     canonicalActionId: input.sourceActionId,
     actionAliases: [
@@ -1001,6 +1146,15 @@ function buildProductActionPayload(input: {
     aiCreatedAt: input.source.includes("create") ? new Date().toISOString() : undefined,
     shopifyMutationBlocked: true,
   });
+}
+
+function getPersistedProductActionType(
+  input: Record<string, unknown>,
+  fields: Pick<z.infer<typeof recommendationEditableSchema>, "title">,
+): string {
+  const explicit = String(input.actionId || input.sourceActionId || input.sourceRecommendationId || input.actionType || "").trim();
+  if (explicit) return explicit;
+  return `ai-action-${slugifyActionId(fields.title || input.title || "productpulse-action")}-${randomUUID().slice(0, 8)}`;
 }
 
 async function appendLatestDiagnosisRecommendation(
@@ -1303,22 +1457,6 @@ function blockedShopifyFields(): string[] {
     "productUpdate",
     "metafieldsSet",
   ];
-}
-
-function savedDraftResult(
-  proposal: AiAppMutationProposal,
-  savedData: unknown,
-  message: string,
-): AiAppMutationSaveResult {
-  return {
-    mutationName: proposal.mutationName,
-    status: "success",
-    summary: `${message} Shopify was not modified.`,
-    safeMessage: `${message} Shopify was not modified.`,
-    affectedEntities: [{ type: proposal.targetType, id: proposal.targetId, label: proposal.targetLabel }],
-    savedRecordId: proposal.id,
-    savedData,
-  };
 }
 
 function productEntity(product: AiProductRiskDetail) {

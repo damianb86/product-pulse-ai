@@ -67,7 +67,7 @@ export function canUseAiAppMutation(
     return {
       allowed: false,
       code: "AI_APP_MUTATIONS_DISABLED",
-      message: "AI app-only drafts are disabled.",
+      message: "AI ProductPulse mutations are disabled.",
     };
   }
   if (!flags.actionConfirmationsEnabled) {

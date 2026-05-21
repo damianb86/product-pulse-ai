@@ -72,7 +72,7 @@ function recoverPresentationBlock(value: unknown): AiAssistantResponse["blocks"]
   trimArrayField(block, "rows", 12);
   trimArrayField(block, "risks", 6);
   trimArrayField(block, "affectedEntities", 6);
-  trimArrayField(block, "editableFields", 6);
+  trimArrayField(block, "editableFields", 8);
   trimArrayField(block, "validationWarnings", 8);
 
   const parsed = aiPresentationBlockSchema.safeParse(block);
