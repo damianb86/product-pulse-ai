@@ -248,10 +248,6 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       {isOpen ? (
         <div className="ppChatKitPanel" role="dialog" aria-modal="false" aria-label="AI Assistant">
           <div className="ppChatKitPanelHeader">
-            <div>
-              <strong>AI Assistant</strong>
-              <span>{enabled ? "Backend AI" : "Unavailable"}</span>
-            </div>
             <div className="ppChatKitPanelActions">
               <div className="ppChatKitThemeControl" aria-label="AI Assistant theme">
                 <span>Theme</span>
