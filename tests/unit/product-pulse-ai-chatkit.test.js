@@ -387,7 +387,7 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "ListView", "ListView", "Card", "Card", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
     expect(widgets.every((widget) => widget.type !== "Card" || widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence");
@@ -414,9 +414,9 @@ describe("ProductPulse ChatKit integration", () => {
       })),
     });
 
-    expect(widget.type).toBe("ListView");
-    expect(widget.children).toHaveLength(8);
-    expect(JSON.stringify(widget)).toContain("Review action");
+    expect(widget.type).toBe("Card");
+    expect(JSON.stringify(widget)).toContain("Recommended action 8");
+    expect(JSON.stringify(widget)).toContain("Review");
     expect(JSON.stringify(widget)).toContain("\"type\":\"open_recommendation\"");
     expect(JSON.stringify(widget)).toContain("\"recommendationId\":\"rec-8\"");
   });

@@ -11,24 +11,41 @@ const productReferenceBlockSchema = z.object({
   productGid: z.string().max(320).optional(),
   title: z.string().max(220),
   handle: z.string().max(180).optional(),
+  subtitle: z.string().max(260).nullable().optional(),
+  imageUrl: z.string().max(1000).nullable().optional(),
+  imageAlt: z.string().max(220).nullable().optional(),
+  vendor: z.string().max(180).nullable().optional(),
+  productType: z.string().max(180).nullable().optional(),
+  price: z.string().max(80).nullable().optional(),
+  status: z.string().max(80).nullable().optional(),
   riskScore: z.number().min(0).max(100).nullable().optional(),
   riskLabel: z.string().max(40).nullable().optional(),
+  updatedAt: z.string().max(80).nullable().optional(),
+  metrics: z.array(z.object({
+    label: z.string().max(80),
+    value: z.union([z.string().max(120), z.number(), z.boolean(), z.null()]),
+    detail: z.string().max(160).nullable().optional(),
+    trend: z.string().max(80).nullable().optional(),
+  }).strict()).max(4).optional(),
 }).strict();
 
 const diagnosisSummaryBlockSchema = z.object({
   type: z.literal("diagnosis_summary"),
   productGid: z.string().max(320).optional(),
   title: z.string().max(220).optional(),
+  summary: z.string().max(500).nullable().optional(),
   likelyCause: z.string().max(260).nullable().optional(),
   riskScore: z.number().min(0).max(100).nullable().optional(),
   confidence: z.number().min(0).max(100).nullable().optional(),
   issues: z.array(z.string().max(220)).max(8).optional(),
+  updatedAt: z.string().max(80).nullable().optional(),
 }).strict();
 
 const evidenceListBlockSchema = z.object({
   type: z.literal("evidence_list"),
   productGid: z.string().max(320).optional(),
   title: z.string().max(160).optional(),
+  summary: z.string().max(520).nullable().optional(),
   items: z.array(z.object({
     source: z.string().max(120),
     quote: z.string().max(420),
@@ -75,6 +92,10 @@ const recommendationListBlockSchema = z.object({
     status: z.string().max(80).nullable().optional(),
     issue: z.string().max(220).nullable().optional(),
     effort: z.string().max(80).nullable().optional(),
+    impact: z.string().max(120).nullable().optional(),
+    risk: z.string().max(80).nullable().optional(),
+    confidence: z.string().max(80).nullable().optional(),
+    expectedResult: z.string().max(260).nullable().optional(),
     draftPreview: z.string().max(320).nullable().optional(),
   }).strict()).max(10),
 }).strict();

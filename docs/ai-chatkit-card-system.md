@@ -20,8 +20,10 @@ It does not parse assistant natural language and does not build cards from raw d
 
 `product_reference`
 
-- Renders product title, risk label/score when available, handle when available, and safe navigation buttons.
-- Does not require image, vendor, type, or status because those fields are not in the AI presentation block today.
+- Renders the Product Summary / Product Detail visual pattern from the supplied ProductPulse card mockup.
+- Supports optional product image, subtitle, vendor, type, price, status, updated-at text, and up to four metrics when those fields are present.
+- Falls back to a ProductPulse icon tile when no validated image URL is available.
+- Includes safe navigation buttons only when a product reference is present.
 
 `diagnosis_summary`
 
@@ -31,23 +33,23 @@ It does not parse assistant natural language and does not build cards from raw d
 
 `evidence_list`
 
-- Renders bounded evidence snippets in a ChatKit `ListView`.
+- Renders the Evidence Summary card pattern with source/signal counters, bounded snippets, and safe evidence navigation.
 - Caps visible evidence rows and text length.
 - Adds a read-only “show more evidence” action only when a product reference exists.
 
 `metric_table`
 
-- Renders compact key/value metric rows with optional detail text.
+- Renders a compact Table/Data card with metric, value, and detail columns.
 - Does not add chart visuals yet because there is no validated neutral chart block and no shared chart library.
 
 `entity_list`
 
-- Renders compact product/watchlist/activity/ranked lists using title, subtitle, detail, status, risk, and optional product references.
+- Renders compact panel rows for product/watchlist/activity/ranked lists using title, subtitle, detail, status, risk, and optional product references.
 - Product rows can navigate through the existing backend action validation path.
 
 `recommendation_list`
 
-- Renders read-only recommendation summaries using label, status, issue, effort, and draft preview.
+- Renders Recommended Action card rows with an icon tile, status/issue badges, optional impact/risk/effort/confidence fields, and review/open-product actions.
 - Does not mark recommendations or execute actions directly.
 
 `unavailable_state`
@@ -56,7 +58,7 @@ It does not parse assistant natural language and does not build cards from raw d
 
 `action_proposal`
 
-- Renders pending internal app action confirmation cards.
+- Renders the Expanded Action Detail confirmation card pattern.
 - Shows summary, target, reason, expected result, risks, confirmation level, side-effect level, reversibility, and expiry.
 - Confirm/Cancel buttons send only `proposalId`.
 
@@ -119,8 +121,8 @@ The existing app has custom SVG charts in React screens, but the AI presentation
 
 ## Known Limitations
 
-- Product images are not rendered because they are not part of `product_reference`.
-- Vendor/type/status are not rendered on product cards until the AI presentation schema exposes them.
+- Product images render only when a safe `http` or `https` image URL is present in the validated block.
+- Vendor/type/status render only when present in the validated block.
 - Charts/sparklines are intentionally omitted.
 - The adapter cannot reuse Polaris components inside ChatKit.
 - ChatKit widget styling is constrained to ChatKit’s widget primitives.
