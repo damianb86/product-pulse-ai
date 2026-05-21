@@ -7477,10 +7477,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     recommendedActionSort,
     product,
   );
-  const displayedRecommendedActions = recommendedActionsExpanded
-    ? visibleRecommendedActions
-    : visibleRecommendedActions.slice(0, 3);
-  const hiddenVisibleRecommendedActionCount = Math.max(visibleRecommendedActions.length - displayedRecommendedActions.length, 0);
+  const primaryRecommendedActions = visibleRecommendedActions.slice(0, 3);
+  const hiddenRecommendedActions = visibleRecommendedActions.slice(3);
+  const hiddenVisibleRecommendedActionCount = hiddenRecommendedActions.length;
   const minimizedRecommendedActions = sortRecommendedActionsForPanel(
     activeRecommendedActions.filter((action) => isActionArchived(action)),
     recommendedActionSort,
@@ -7982,7 +7981,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                         variant="recommendedActions"
                       />
                     )}
-                    {displayedRecommendedActions.map((action, index) => (
+                    {primaryRecommendedActions.map((action, index) => (
                       <ProductRecommendedActionCompact
                         key={getRecommendedActionKey(action)}
                         action={action}
@@ -7992,18 +7991,32 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                     ))}
                   </div>
                   {visibleRecommendedActions.length > 3 && (
-                    <button
-                      className="ppRecommendedActionsMore"
-                      type="button"
-                      onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
-                    >
-                      <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
-                      <span className="ppRecommendedActionsMoreLabel">
-                        {recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}
-                        <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
-                      </span>
-                      <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
-                    </button>
+                    <>
+                      <div className={`ppRecommendedActionsOverflow${recommendedActionsExpanded ? " isExpanded" : ""}`} aria-hidden={!recommendedActionsExpanded}>
+                        <div className="ppRecommendedActionList ppRecommendedActionList-extra">
+                          {hiddenRecommendedActions.map((action, index) => (
+                            <ProductRecommendedActionCompact
+                              key={getRecommendedActionKey(action)}
+                              action={action}
+                              index={index + primaryRecommendedActions.length}
+                              onOpen={handleOpenRecommendedAction}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        className="ppRecommendedActionsMore"
+                        type="button"
+                        onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
+                      >
+                        <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
+                        <span className="ppRecommendedActionsMoreLabel">
+                          {recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}
+                          <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                        </span>
+                        <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
+                      </button>
+                    </>
                   )}
                   {minimizedRecommendedActions.length > 0 && (
                     <MinimizedRecommendedActionsTray

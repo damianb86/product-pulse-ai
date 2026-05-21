@@ -118,6 +118,7 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe(null);
     expect(useChatKit.mock.calls.at(-1)[0].thread.autoScroll).toBe(false);
     expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("light");
+    expect(useChatKit.mock.calls.at(-1)[0].header.enabled).toBe(false);
   });
 
   it("lets the assistant header switch between light and dark themes", async () => {

@@ -331,6 +331,12 @@
   max-width: none;
 }
 
+.ppChatKitSurface::part(header),
+.ppChatKitSurface::part(title),
+.ppChatKitSurface::part(subtitle) {
+  display: none;
+}
+
 .ppChatKitStatus,
 .ppChatKitDisabled {
   margin: 12px;

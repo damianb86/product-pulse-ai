@@ -9425,6 +9425,35 @@ s-page[inline-size="large-500"] {
   grid-template-columns: 1fr;
 }
 
+.ppRecommendedActionList-extra {
+  margin-top: 12px;
+}
+
+.ppRecommendedActionsOverflow {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition:
+    max-height 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease,
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 360ms;
+}
+
+.ppRecommendedActionsOverflow.isExpanded {
+  max-height: 900px;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    max-height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease,
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+
 .ppProductDetailSidebar .ppRecommendedActionsPanel {
   position: relative;
   overflow: visible;

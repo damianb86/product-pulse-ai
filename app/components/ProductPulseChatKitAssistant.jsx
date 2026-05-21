@@ -183,15 +183,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       },
     },
     header: {
-      enabled: true,
-      title: {
-        enabled: true,
-        text: "ProductPulse AI",
-      },
-      rightAction: {
-        icon: "close",
-        onClick: () => setIsOpen(false),
-      },
+      enabled: false,
     },
     history: {
       enabled: true,

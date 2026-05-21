@@ -1308,7 +1308,8 @@ describe("ProductPulse screens", () => {
       ],
     };
 
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const recommendedActionsOverflow = container.querySelector(".ppRecommendedActionsOverflow");
 
     const actionButtons = screen.getAllByRole("button", { name: /Open recommended action/ });
     expect(actionButtons[0]).toHaveAccessibleName("Open recommended action Add product FAQ");
@@ -1327,9 +1328,11 @@ describe("ProductPulse screens", () => {
       "Open recommended action Supplier / QA review",
       "Open recommended action Change product status",
     ]);
+    expect(recommendedActionsOverflow).not.toHaveClass("isExpanded");
     expect(screen.queryByRole("button", { name: "Open recommended action Add internal risk tags" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "View more (1)" }));
+    expect(recommendedActionsOverflow).toHaveClass("isExpanded");
     const expandedActionButtons = screen.getAllByRole("button", { name: /Open recommended action/ });
     expect(expandedActionButtons.map((button) => button.getAttribute("aria-label"))).toEqual([
       "Open recommended action Add product FAQ",
@@ -1338,6 +1341,7 @@ describe("ProductPulse screens", () => {
       "Open recommended action Add internal risk tags",
     ]);
     fireEvent.click(screen.getByRole("button", { name: "View less" }));
+    expect(recommendedActionsOverflow).not.toHaveClass("isExpanded");
     expect(screen.getAllByRole("button", { name: /Open recommended action/ })).toHaveLength(3);
     expect(screen.queryByRole("button", { name: "Open recommended action Add internal risk tags" })).not.toBeInTheDocument();
 
