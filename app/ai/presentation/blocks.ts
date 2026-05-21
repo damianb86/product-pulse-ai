@@ -63,6 +63,18 @@ const metricTableBlockSchema = z.object({
   }).strict()).max(12),
 }).strict();
 
+const returnRefundResolutionBlockSchema = z.object({
+  type: z.literal("return_refund_resolution"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  returnAndRefundCount: z.number().min(0).max(100000).default(0),
+  returnOnlyCount: z.number().min(0).max(100000).default(0),
+  refundOnlyCount: z.number().min(0).max(100000).default(0),
+  unattributedCount: z.number().min(0).max(100000).default(0),
+  attributionConfidence: z.string().max(80).nullable().optional(),
+  interpretation: z.string().max(420).nullable().optional(),
+}).strict();
+
 const entityListBlockSchema = z.object({
   type: z.literal("entity_list"),
   title: z.string().max(160).optional(),
@@ -270,6 +282,7 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   diagnosisSummaryBlockSchema,
   evidenceListBlockSchema,
   metricTableBlockSchema,
+  returnRefundResolutionBlockSchema,
   entityListBlockSchema,
   recommendationListBlockSchema,
   unavailableStateBlockSchema,

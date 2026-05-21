@@ -96,6 +96,79 @@ export interface AiProductMetricSummary {
   marginAtRisk: number | null;
   productMomentumScore: number | null;
   productMomentumTier: string | null;
+  returnRefundRelationship: AiReturnRefundRelationshipSummary | null;
+  financialExposureBreakdown: AiFinancialExposureBreakdown | null;
+}
+
+export interface AiReturnRefundRelationshipSummary {
+  available: boolean;
+  status: string;
+  soldUnits: number;
+  soldOrders: number;
+  returnedUnits: number;
+  returnedOrders: number;
+  refundedUnits: number;
+  refundedOrders: number;
+  returnedAndRefundedUnits: number;
+  returnedNotRefundedUnits: number;
+  refundedWithoutReturnUnits: number;
+  exchangeOrReplacementUnits: number;
+  pendingOrUnknownCount: number;
+  unattributedRefundAmount: number;
+  attributedRefundAmount: number;
+  refundAmountWithReturn: number;
+  refundAmountWithoutReturn: number;
+  totalProductRevenue: number;
+  returnRateUnits: number;
+  returnToRefundRate: number;
+  refundWithoutReturnRate: number;
+  refundRateRevenue: number;
+  refundAttributionRate: number;
+  relationshipMatchConfidenceAvg: number;
+  attributionConfidence: "High" | "Medium" | "Low" | "Unavailable";
+  interpretation: string;
+}
+
+export interface AiReturnRefundResolutionSummary {
+  productGid: string;
+  title: string;
+  handle: string | null;
+  available: boolean;
+  status: string;
+  matrix: {
+    returnYesRefundYes: number;
+    returnYesRefundNo: number;
+    returnNoRefundYes: number;
+  };
+  buckets: {
+    returnAndRefund: number;
+    returnOnly: number;
+    refundOnly: number;
+    exchangeOrReplacement: number;
+    pendingOrUnknown: number;
+    unattributedRefundAmount: number;
+  };
+  rates: {
+    returnedUnitsRefunded: number;
+    refundsWithoutReturn: number;
+    refundAttribution: number;
+  };
+  attributionConfidence: "High" | "Medium" | "Low" | "Unavailable";
+  interpretation: string;
+}
+
+export interface AiFinancialExposureBreakdown {
+  available: boolean;
+  estimatedExposure: number;
+  confirmedRefundAmount: number;
+  attributedRefundAmount: number;
+  refundAmountWithReturn: number;
+  refundAmountWithoutReturn: number;
+  unattributedRefundAmount: number;
+  returnRelatedRiskAmount: number;
+  estimatedFutureRefundFromReturnOnlyCases: number;
+  refundAttributionRate: number;
+  interpretation: string;
 }
 
 export interface AiProductRiskSummary {

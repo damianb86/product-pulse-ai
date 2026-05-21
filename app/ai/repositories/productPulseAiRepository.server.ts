@@ -10,8 +10,11 @@ import type {
   AiProductMetricSummary,
   AiProductRiskDetail,
   AiProductRiskSummary,
+  AiFinancialExposureBreakdown,
   AiRecentActivityItem,
   AiRecommendationSummary,
+  AiReturnRefundRelationshipSummary,
+  AiReturnRefundResolutionSummary,
   AiSourceSummary,
   AiToolContext,
   AiWatchlistItemSummary,
@@ -221,6 +224,45 @@ export class ProductPulseAiRepository {
     return {
       product: stripProductDetail(detail),
       evidence: evidence.slice(0, normalizeLimit(options.limit, AI_DEFAULT_EVIDENCE_LIMIT, AI_MAX_EVIDENCE_LIMIT)),
+    };
+  }
+
+  async getReturnRefundRelationshipSummary(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<{ product: AiProductRiskSummary; relationship: AiReturnRefundRelationshipSummary } | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    const settings = await this.getRiskSettings(context);
+    const product = mapProductSummary({ snapshot, settings });
+    return {
+      product,
+      relationship: product.metrics.returnRefundRelationship
+        || buildAiReturnRefundRelationshipSummary(asRecord(snapshot.metrics))
+        || buildUnavailableAiReturnRefundRelationshipSummary(),
+    };
+  }
+
+  async getProductReturnRefundResolution(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiReturnRefundResolutionSummary | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    return buildAiReturnRefundResolution(snapshot);
+  }
+
+  async getProductFinancialExposureBreakdown(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<{ product: AiProductRiskSummary; financialExposure: AiFinancialExposureBreakdown } | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    const settings = await this.getRiskSettings(context);
+    const product = mapProductSummary({ snapshot, settings });
+    return {
+      product,
+      financialExposure: product.metrics.financialExposureBreakdown || buildAiFinancialExposureBreakdown(asRecord(snapshot.metrics)),
     };
   }
 
@@ -501,6 +543,7 @@ function mapProductSummary(input: {
 
 function mapMetricSummary(metrics: Record<string, unknown>): AiProductMetricSummary {
   const monthlySummary = asRecord(asRecord(metrics.monthlyOrderActivity).summary);
+  const relationship = buildAiReturnRefundRelationshipSummary(metrics);
   return {
     returnRate: toNullableNumber(monthlySummary.returnRate ?? metrics.returnRate),
     refundRate: toNullableNumber(monthlySummary.refundRate ?? metrics.refundRate),
@@ -516,7 +559,167 @@ function mapMetricSummary(metrics: Record<string, unknown>): AiProductMetricSumm
     marginAtRisk: toNullableNumber(metrics.marginAtRisk),
     productMomentumScore: toNullableNumber(metrics.productMomentumScore ?? asRecord(metrics.productMomentum).score),
     productMomentumTier: optionalText(metrics.productMomentumTier ?? asRecord(metrics.productMomentum).tier),
+    returnRefundRelationship: relationship,
+    financialExposureBreakdown: buildAiFinancialExposureBreakdown(metrics, relationship),
   };
+}
+
+function buildAiReturnRefundRelationshipSummary(metrics: Record<string, unknown>): AiReturnRefundRelationshipSummary | null {
+  const summary = asRecord(metrics.returnRefundRelationshipSummary);
+  const factors = asRecord(metrics.returnRefundRelationshipFactors);
+  const returnPressure = asRecord(metrics.returnPressure || factors.returnPressure);
+  const refundLeakage = asRecord(metrics.refundLeakage || factors.refundLeakage);
+  const customerSignals = asRecord(metrics.customerSignalBreakdown || factors.customerSignalBreakdown);
+  const monthlySummary = asRecord(asRecord(metrics.monthlyOrderActivity).summary);
+  const available = Boolean(Object.keys(summary).length || factors.hasRelationshipSummary || returnPressure.returnedAndRefundedUnits || refundLeakage.attributedRefundAmount);
+  const soldUnits = firstNumber(summary.sold_units, metrics.soldUnits, monthlySummary.totalOrderUnits);
+  const soldOrders = firstNumber(summary.sold_orders, monthlySummary.totalOrders);
+  const returnedUnits = firstNumber(summary.returned_units, metrics.returnUnits, monthlySummary.totalReturnedUnits);
+  const returnedOrders = firstNumber(summary.returned_orders, monthlySummary.totalReturnedOrders);
+  const refundedUnits = firstNumber(summary.refunded_units, metrics.refundUnits, monthlySummary.totalRefundedUnits);
+  const refundedOrders = firstNumber(summary.refunded_orders, monthlySummary.totalRefundedOrders);
+  const returnedAndRefundedUnits = firstNumber(summary.returned_and_refunded_units, returnPressure.returnedAndRefundedUnits, customerSignals.linkedReturnRefundCount);
+  const returnedNotRefundedUnits = firstNumber(summary.returned_not_refunded_units, returnPressure.returnedNotRefundedUnits, customerSignals.returnOnlyCount);
+  const refundedWithoutReturnUnits = firstNumber(summary.refunded_without_return_units, customerSignals.refundOnlyCount);
+  const exchangeOrReplacementUnits = firstNumber(summary.exchange_or_replacement_units, returnPressure.exchangeOrReplacementUnits, customerSignals.exchangeOrReplacementCount);
+  const pendingOrUnknownCount = firstNumber(
+    customerSignals.pendingOrUnknownCount,
+    firstNumber(summary.pending_return_units, returnPressure.pendingReturnUnits) + firstNumber(summary.relationship_unknown_count),
+  );
+  const attributedRefundAmount = firstNumber(summary.attributed_refund_amount, refundLeakage.attributedRefundAmount, metrics.refundAmount);
+  const unattributedRefundAmount = firstNumber(summary.unattributed_refund_amount, refundLeakage.unattributedRefundAmount);
+  const refundAmountWithReturn = firstNumber(summary.refund_amount_with_return, refundLeakage.refundAmountWithReturn);
+  const refundAmountWithoutReturn = firstNumber(summary.refund_amount_without_return, refundLeakage.refundAmountWithoutReturn);
+  const totalProductRevenue = firstNumber(summary.total_product_revenue, metrics.salesAmount, monthlySummary.totalRevenue);
+  const totalRefundAmountRelated = firstNumber(summary.total_refund_amount_related_to_product_or_orders, attributedRefundAmount + unattributedRefundAmount);
+  const confidenceAvg = normalizeAiConfidence(firstNumber(
+    summary.relationship_match_confidence_avg,
+    asRecord(factors.diagnosisConfidence).relationshipMatchConfidenceAvg,
+  ));
+  const relationship: AiReturnRefundRelationshipSummary = {
+    available,
+    status: available ? "Relationship matching available" : "Refund relationship not matched yet",
+    soldUnits,
+    soldOrders,
+    returnedUnits,
+    returnedOrders,
+    refundedUnits,
+    refundedOrders,
+    returnedAndRefundedUnits,
+    returnedNotRefundedUnits,
+    refundedWithoutReturnUnits,
+    exchangeOrReplacementUnits,
+    pendingOrUnknownCount,
+    unattributedRefundAmount,
+    attributedRefundAmount,
+    refundAmountWithReturn,
+    refundAmountWithoutReturn,
+    totalProductRevenue,
+    returnRateUnits: ratePercent(summary.return_rate_units, returnedUnits, soldUnits),
+    returnToRefundRate: ratePercent(summary.return_to_refund_rate, returnedAndRefundedUnits, returnedUnits),
+    refundWithoutReturnRate: ratePercent(summary.refund_without_return_rate, refundedWithoutReturnUnits, soldUnits),
+    refundRateRevenue: ratePercent(summary.refund_rate_revenue, attributedRefundAmount, totalProductRevenue),
+    refundAttributionRate: ratePercent(summary.refund_attribution_rate ?? refundLeakage.refundAttributionRate, attributedRefundAmount, totalRefundAmountRelated),
+    relationshipMatchConfidenceAvg: confidenceAvg,
+    attributionConfidence: getAiAttributionConfidence(confidenceAvg, available),
+    interpretation: "",
+  };
+  relationship.interpretation = getAiRelationshipInterpretation(relationship);
+  return relationship;
+}
+
+function buildAiReturnRefundResolution(snapshot: DbRecord): AiReturnRefundResolutionSummary {
+  const metrics = asRecord(snapshot.metrics);
+  const relationship = buildAiReturnRefundRelationshipSummary(metrics);
+  const safeRelationship = relationship || buildUnavailableAiReturnRefundRelationshipSummary();
+  return {
+    productGid: String(snapshot.productGid || ""),
+    title: String(snapshot.productTitle || "Shopify product"),
+    handle: optionalText(snapshot.handle),
+    available: safeRelationship.available,
+    status: safeRelationship.status,
+    matrix: {
+      returnYesRefundYes: safeRelationship.returnedAndRefundedUnits,
+      returnYesRefundNo: safeRelationship.returnedNotRefundedUnits,
+      returnNoRefundYes: safeRelationship.refundedWithoutReturnUnits,
+    },
+    buckets: {
+      returnAndRefund: safeRelationship.returnedAndRefundedUnits,
+      returnOnly: safeRelationship.returnedNotRefundedUnits,
+      refundOnly: safeRelationship.refundedWithoutReturnUnits,
+      exchangeOrReplacement: safeRelationship.exchangeOrReplacementUnits,
+      pendingOrUnknown: safeRelationship.pendingOrUnknownCount,
+      unattributedRefundAmount: safeRelationship.unattributedRefundAmount,
+    },
+    rates: {
+      returnedUnitsRefunded: safeRelationship.returnToRefundRate,
+      refundsWithoutReturn: safeRelationship.refundWithoutReturnRate,
+      refundAttribution: safeRelationship.refundAttributionRate,
+    },
+    attributionConfidence: safeRelationship.attributionConfidence,
+    interpretation: safeRelationship.interpretation,
+  };
+}
+
+function buildUnavailableAiReturnRefundRelationshipSummary(): AiReturnRefundRelationshipSummary {
+  return {
+    available: false,
+    status: "Refund relationship not matched yet",
+    soldUnits: 0,
+    soldOrders: 0,
+    returnedUnits: 0,
+    returnedOrders: 0,
+    refundedUnits: 0,
+    refundedOrders: 0,
+    returnedAndRefundedUnits: 0,
+    returnedNotRefundedUnits: 0,
+    refundedWithoutReturnUnits: 0,
+    exchangeOrReplacementUnits: 0,
+    pendingOrUnknownCount: 0,
+    unattributedRefundAmount: 0,
+    attributedRefundAmount: 0,
+    refundAmountWithReturn: 0,
+    refundAmountWithoutReturn: 0,
+    totalProductRevenue: 0,
+    returnRateUnits: 0,
+    returnToRefundRate: 0,
+    refundWithoutReturnRate: 0,
+    refundRateRevenue: 0,
+    refundAttributionRate: 0,
+    relationshipMatchConfidenceAvg: 0,
+    attributionConfidence: "Unavailable",
+    interpretation: "Return/refund relationship matching is not available for this product yet.",
+  };
+}
+
+function buildAiFinancialExposureBreakdown(
+  metrics: Record<string, unknown>,
+  relationship: AiReturnRefundRelationshipSummary | null = buildAiReturnRefundRelationshipSummary(metrics),
+): AiFinancialExposureBreakdown {
+  const breakdown = asRecord(metrics.financialExposureBreakdown || asRecord(metrics.returnRefundRelationshipFactors).financialExposure);
+  const confirmedRefundAmount = firstNumber(breakdown.confirmedRefundAmount, relationship?.attributedRefundAmount, metrics.refundAmount);
+  const estimatedFutureRefundFromReturnOnlyCases = firstNumber(breakdown.estimatedFutureRefundFromReturnOnlyCases);
+  const returnRelatedRiskAmount = firstNumber(breakdown.returnRelatedRiskAmount, estimatedFutureRefundFromReturnOnlyCases);
+  const estimatedExposure = firstNumber(breakdown.relationshipAdjustedRefundAmount, metrics.estimatedImpact, metrics.revenueAtRisk, confirmedRefundAmount + returnRelatedRiskAmount);
+  const totalRefundAmountRelated = firstNumber(
+    breakdown.totalRefundAmountRelated,
+    Number(relationship?.attributedRefundAmount || 0) + Number(relationship?.unattributedRefundAmount || 0),
+  );
+  const exposure: AiFinancialExposureBreakdown = {
+    available: Boolean(Object.keys(breakdown).length || relationship?.available || estimatedExposure || confirmedRefundAmount),
+    estimatedExposure,
+    confirmedRefundAmount,
+    attributedRefundAmount: firstNumber(breakdown.attributedRefundAmount, confirmedRefundAmount),
+    refundAmountWithReturn: firstNumber(breakdown.refundAmountWithReturn, relationship?.refundAmountWithReturn),
+    refundAmountWithoutReturn: firstNumber(breakdown.refundAmountWithoutReturn, relationship?.refundAmountWithoutReturn),
+    unattributedRefundAmount: firstNumber(breakdown.unattributedRefundAmount, relationship?.unattributedRefundAmount),
+    returnRelatedRiskAmount,
+    estimatedFutureRefundFromReturnOnlyCases,
+    refundAttributionRate: ratePercent(breakdown.refundAttributionRate, relationship?.attributedRefundAmount, totalRefundAmountRelated),
+    interpretation: "",
+  };
+  exposure.interpretation = getAiFinancialExposureInterpretation(exposure);
+  return exposure;
 }
 
 function mapDiagnosisSummary(
@@ -846,6 +1049,67 @@ function toInteger(value: unknown, fallback: number): number {
 function toNullableNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function firstNumber(...values: unknown[]): number {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function ratePercent(value: unknown, numerator = 0, denominator = 0): number {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) return round(parsed <= 1 ? parsed * 100 : parsed, 1);
+  const count = Number(numerator || 0);
+  const population = Number(denominator || 0);
+  return population > 0 ? round((count / population) * 100, 1) : 0;
+}
+
+function normalizeAiConfidence(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return round(parsed <= 1 ? parsed * 100 : parsed, 1);
+}
+
+function getAiAttributionConfidence(confidence: number, available: boolean): AiReturnRefundRelationshipSummary["attributionConfidence"] {
+  if (!available) return "Unavailable";
+  if (confidence >= 80) return "High";
+  if (confidence >= 55) return "Medium";
+  return "Low";
+}
+
+function getAiRelationshipInterpretation(relationship: AiReturnRefundRelationshipSummary): string {
+  if (!relationship.available) return "Return/refund relationship matching is not available for this product yet.";
+  if (!relationship.returnedUnits && !relationship.refundedUnits && !relationship.unattributedRefundAmount) {
+    return "No return or refund events were matched in the stored analysis window.";
+  }
+  if (relationship.returnedAndRefundedUnits > 0) {
+    return "Returns are leading to attributed refunds, so product friction is also creating confirmed financial loss.";
+  }
+  if (relationship.refundedWithoutReturnUnits > 0) {
+    return "Refunds are happening without matching returns, which points to compensation or product-attributed refund leakage.";
+  }
+  if (relationship.returnedNotRefundedUnits > 0) {
+    return "Returns exist without matching refunds, so the product is creating friction but not all cases are confirmed loss.";
+  }
+  if (relationship.unattributedRefundAmount > 0) {
+    return "Some refund amount is unattributed, so it should lower confidence rather than directly blame this product.";
+  }
+  return "Return/refund relationship data is available and does not show unresolved financial loss.";
+}
+
+function getAiFinancialExposureInterpretation(exposure: AiFinancialExposureBreakdown): string {
+  if (!exposure.available) return "Financial exposure relationship breakdown is not available yet.";
+  if (exposure.confirmedRefundAmount > 0 && exposure.returnRelatedRiskAmount > 0) {
+    return "Financial exposure separates confirmed refunds from potential return-related risk.";
+  }
+  if (exposure.confirmedRefundAmount > 0) return "Financial exposure is mostly confirmed refund loss.";
+  if (exposure.returnRelatedRiskAmount > 0) return "Financial exposure is mostly potential return-related risk, not confirmed refund loss.";
+  if (exposure.unattributedRefundAmount > 0) return "Unattributed refunds are present and should be treated as lower-confidence financial context.";
+  return "No meaningful financial exposure is stored for this product.";
 }
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {

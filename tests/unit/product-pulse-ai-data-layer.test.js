@@ -135,6 +135,66 @@ describe("ProductPulse AI data repositories", () => {
     expect(JSON.stringify(detail)).not.toContain("secret-credentials");
   });
 
+  it("returns compact relationship and financial exposure summaries for one scoped product", async () => {
+    const db = createRepositoryDbMock();
+    const snapshot = buildSnapshot({
+      productGid: "gid://shopify/Product/relationship",
+      handle: "relationship-product",
+      metrics: {
+        soldUnits: 19,
+        salesAmount: 800,
+        refundAmount: 84,
+        returnRefundRelationshipSummary: relationshipSummaryFixture({
+          sold_units: 19,
+          sold_orders: 14,
+          returned_units: 6,
+          returned_orders: 5,
+          refunded_units: 2,
+          refunded_orders: 2,
+          returned_and_refunded_units: 2,
+          returned_not_refunded_units: 4,
+          attributed_refund_amount: 84,
+          refund_amount_with_return: 84,
+          total_product_revenue: 800,
+          relationship_match_confidence_avg: 1,
+        }),
+        financialExposureBreakdown: {
+          hasRelationshipSummary: true,
+          confirmedRefundAmount: 84,
+          estimatedFutureRefundFromReturnOnlyCases: 180,
+          returnRelatedRiskAmount: 180,
+          relationshipAdjustedRefundAmount: 264,
+        },
+      },
+    });
+    db.productRiskSnapshot.findFirst.mockResolvedValue(snapshot);
+
+    const repository = new ProductPulseAiRepository(db);
+    const relationship = await repository.getReturnRefundRelationshipSummary(context, "relationship-product");
+    const resolution = await repository.getProductReturnRefundResolution(context, "relationship-product");
+    const exposure = await repository.getProductFinancialExposureBreakdown(context, "relationship-product");
+
+    expect(db.productRiskSnapshot.findFirst.mock.calls[0][0].where.shop).toBe(context.shop);
+    expect(relationship.relationship).toMatchObject({
+      available: true,
+      returnedAndRefundedUnits: 2,
+      returnedNotRefundedUnits: 4,
+      returnRateUnits: 31.6,
+      attributionConfidence: "High",
+    });
+    expect(resolution.matrix).toEqual({
+      returnYesRefundYes: 2,
+      returnYesRefundNo: 4,
+      returnNoRefundYes: 0,
+    });
+    expect(exposure.financialExposure).toMatchObject({
+      confirmedRefundAmount: 84,
+      returnRelatedRiskAmount: 180,
+      estimatedExposure: 264,
+    });
+    expect(JSON.stringify(relationship)).not.toContain("shop-a.myshopify.com");
+  });
+
   it("does not expose watch alert recipient emails", async () => {
     const db = createRepositoryDbMock();
     db.productWatchlistItem.findMany.mockResolvedValue([]);
@@ -237,6 +297,59 @@ describe("ProductPulse AI tool registry", () => {
     expect(result.error.message).not.toContain(context.shop);
   });
 
+  it("exposes return/refund AI tools as read-only scoped compact summaries", async () => {
+    const productRepository = {
+      getReturnRefundRelationshipSummary: vi.fn().mockResolvedValue({
+        product: { productGid: "gid://shopify/Product/1", updatedAt: "2026-05-20T12:00:00.000Z", calculatedAt: null },
+        relationship: { available: false, status: "Refund relationship not matched yet" },
+      }),
+      getProductReturnRefundResolution: vi.fn().mockResolvedValue({
+        productGid: "gid://shopify/Product/1",
+        title: "Product",
+        handle: "product",
+        available: true,
+        status: "Relationship matching available",
+        matrix: { returnYesRefundYes: 1, returnYesRefundNo: 2, returnNoRefundYes: 0 },
+        buckets: { returnAndRefund: 1, returnOnly: 2, refundOnly: 0, exchangeOrReplacement: 0, pendingOrUnknown: 0, unattributedRefundAmount: 0 },
+        rates: { returnedUnitsRefunded: 33.3, refundsWithoutReturn: 0, refundAttribution: 100 },
+        attributionConfidence: "High",
+        interpretation: "Returns are leading to attributed refunds.",
+      }),
+      getProductFinancialExposureBreakdown: vi.fn().mockResolvedValue({
+        product: { productGid: "gid://shopify/Product/1", updatedAt: null, calculatedAt: null },
+        financialExposure: { available: true, confirmedRefundAmount: 84, returnRelatedRiskAmount: 180, estimatedExposure: 264 },
+      }),
+    };
+    const registry = createRegistryWithRepositories({ productRepository });
+
+    const relationshipResult = await registry.executeAiTool(
+      PRODUCT_PULSE_AI_TOOL_NAMES.getReturnRefundRelationshipSummary,
+      context,
+      { productRef: "product", shop: "evil-shop.myshopify.com" },
+    );
+    const resolutionResult = await registry.executeAiTool(
+      PRODUCT_PULSE_AI_TOOL_NAMES.getProductReturnRefundResolution,
+      context,
+      { productRef: "product" },
+    );
+    const exposureResult = await registry.executeAiTool(
+      PRODUCT_PULSE_AI_TOOL_NAMES.getProductFinancialExposureBreakdown,
+      context,
+      { productRef: "product" },
+    );
+
+    expect(relationshipResult.ok).toBe(true);
+    expect(resolutionResult.ok).toBe(true);
+    expect(exposureResult.ok).toBe(true);
+    expect(productRepository.getReturnRefundRelationshipSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: context.shop }),
+      "product",
+    );
+    expect(productRepository.getReturnRefundRelationshipSummary.mock.calls[0][0]).not.toHaveProperty("shop", "evil-shop.myshopify.com");
+    expect(resolutionResult.data.resolution.matrix.returnYesRefundYes).toBe(1);
+    expect(exposureResult.data.financialExposure.confirmedRefundAmount).toBe(84);
+  });
+
   it("masks raw repository/database errors", async () => {
     const productRepository = {
       listProductRiskSummaries: vi.fn().mockRejectedValue(new Error("database password leaked stack")),
@@ -270,6 +383,9 @@ function createRegistryWithRepositories(overrides = {}) {
         }),
         getProductRiskDetail: vi.fn().mockResolvedValue(null),
         getProductEvidenceSnippets: vi.fn().mockResolvedValue(null),
+        getReturnRefundRelationshipSummary: vi.fn().mockResolvedValue(null),
+        getProductReturnRefundResolution: vi.fn().mockResolvedValue(null),
+        getProductFinancialExposureBreakdown: vi.fn().mockResolvedValue(null),
         ...overrides.productRepository,
       },
       analyticsRepository: {
@@ -377,4 +493,36 @@ function buildSnapshot(overrides = {}) {
     updatedAt: new Date("2026-05-18T12:00:00.000Z"),
     ...overrides,
   };
+}
+
+function relationshipSummaryFixture(overrides = {}) {
+  const summary = {
+    sold_units: 10,
+    sold_orders: 8,
+    returned_units: 0,
+    returned_orders: 0,
+    refunded_units: 0,
+    refunded_orders: 0,
+    returned_and_refunded_units: 0,
+    returned_not_refunded_units: 0,
+    refunded_without_return_units: 0,
+    exchange_or_replacement_units: 0,
+    pending_return_units: 0,
+    unattributed_refund_amount: 0,
+    attributed_refund_amount: 0,
+    refund_amount_with_return: 0,
+    refund_amount_without_return: 0,
+    total_product_revenue: 1000,
+    relationship_match_confidence_avg: 0,
+    relationship_match_confidence_min: 0,
+    relationship_unknown_count: 0,
+    relationship_buckets: {},
+    ...overrides,
+  };
+  summary.return_rate_units = summary.sold_units ? summary.returned_units / summary.sold_units : 0;
+  summary.return_to_refund_rate = summary.returned_units ? summary.returned_and_refunded_units / summary.returned_units : 0;
+  summary.refund_without_return_rate = summary.sold_units ? summary.refunded_without_return_units / summary.sold_units : 0;
+  summary.refund_rate_revenue = summary.total_product_revenue ? summary.attributed_refund_amount / summary.total_product_revenue : 0;
+  summary.refund_attribution_rate = 1;
+  return summary;
 }

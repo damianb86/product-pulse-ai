@@ -57,6 +57,8 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return evidenceListWidget(block);
     case "metric_table":
       return metricTableWidget(block);
+    case "return_refund_resolution":
+      return returnRefundResolutionWidget(block);
     case "entity_list":
       return entityListWidget(block);
     case "recommendation_list":
@@ -249,6 +251,31 @@ function metricTableWidget(block: Extract<AiPresentationBlock, { type: "metric_t
     col(visibleRows.map((metric, index) => compactIssueRow(metric, index)), { key: "metric-rows", gap: 0 }),
     ...(block.rows.length > visibleRows.length ? [caption(`Showing ${visibleRows.length} of ${block.rows.length} metrics.`, { key: "more" })] : []),
   ], { size: "md", status: { text: "Data", icon: "chart" } });
+}
+
+function returnRefundResolutionWidget(block: Extract<AiPresentationBlock, { type: "return_refund_resolution" }>): Widgets.Card {
+  const confidence = block.attributionConfidence || "Unavailable";
+  return productPulseCard([
+    row([
+      col([
+        title(block.title || "Return & refund resolution", { key: "title" }),
+        caption(block.interpretation || "Matched return/refund outcomes for this product.", { key: "caption", maxLength: 220 }),
+      ], { key: "heading", gap: 2, flex: 1 }),
+      badge(confidence, confidenceBadgeColor(confidence), { key: "confidence" }),
+    ], { key: "top", justify: "between", align: "start", gap: 6 }),
+    metricGrid([
+      { label: "Return + refund", value: block.returnAndRefundCount, detail: "linked units", tone: "danger" },
+      { label: "Return only", value: block.returnOnlyCount, detail: "friction", tone: "info" },
+      { label: "Refund only", value: block.refundOnlyCount, detail: "compensation", tone: "info" },
+      { label: "Unattributed", value: block.unattributedCount, detail: "unknown", tone: "neutral" },
+    ], { key: "relationship-metrics" }),
+    ...(block.productGid ? [button("Open product", "open_product", { productRef: block.productGid }, "chevron-right", {
+      key: "open-product",
+      style: "secondary",
+      variant: "outline",
+      block: true,
+    })] : []),
+  ], { size: "md", status: { text: "Return/refund", icon: "analytics" } });
 }
 
 function entityListWidget(block: Extract<AiPresentationBlock, { type: "entity_list" }>): Widgets.Card {
@@ -874,6 +901,14 @@ function diagnosisBadgeColor(block: Extract<AiPresentationBlock, { type: "diagno
   if (typeof block.riskScore === "number" && block.riskScore >= 70) return "warning";
   if (typeof block.riskScore === "number" && block.riskScore <= 35) return "success";
   return "info";
+}
+
+function confidenceBadgeColor(value: string): NonNullable<Widgets.Badge["color"]> {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("high") || normalized.includes("strong")) return "success";
+  if (normalized.includes("medium") || normalized.includes("partial")) return "warning";
+  if (normalized.includes("low")) return "info";
+  return "secondary";
 }
 
 function riskMetricValue(block: Extract<AiPresentationBlock, { type: "diagnosis_summary" }>): string {

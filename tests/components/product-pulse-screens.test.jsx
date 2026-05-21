@@ -974,6 +974,22 @@ describe("ProductPulse screens", () => {
             maxOrders: 8,
           },
         },
+        returnRefundRelationshipSummary: relationshipSummaryFixture({
+          sold_units: 15,
+          sold_orders: 12,
+          returned_units: 3,
+          returned_orders: 3,
+          refunded_units: 2,
+          refunded_orders: 2,
+          returned_and_refunded_units: 1,
+          returned_not_refunded_units: 2,
+          refunded_without_return_units: 1,
+          attributed_refund_amount: 150,
+          refund_amount_with_return: 90,
+          refund_amount_without_return: 60,
+          total_product_revenue: 1850,
+          relationship_match_confidence_avg: 0.9,
+        }),
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
@@ -983,8 +999,9 @@ describe("ProductPulse screens", () => {
     expect(within(orderPanel).getByText("Monthly order activity")).toBeInTheDocument();
     expect(within(orderPanel).getByText("365-day window")).toBeInTheDocument();
     expect(within(orderPanel).getAllByText("Total orders").length).toBeGreaterThan(0);
-    expect(within(orderPanel).getAllByText("Returned orders").length).toBeGreaterThan(0);
-    expect(within(orderPanel).getAllByText("Refunded orders").length).toBeGreaterThan(0);
+    expect(within(orderPanel).getAllByText("Returned units").length).toBeGreaterThan(0);
+    expect(within(orderPanel).getAllByText("Refunded units").length).toBeGreaterThan(0);
+    expect(within(orderPanel).getByText("Cohort month")).toBeInTheDocument();
     expect(within(orderPanel).getByText("$150")).toBeInTheDocument();
     expect(within(orderPanel).getByText("Apr")).toBeInTheDocument();
     expect(within(orderPanel).getByText("May")).toBeInTheDocument();
@@ -994,6 +1011,119 @@ describe("ProductPulse screens", () => {
     expect(orderPanel.querySelectorAll(".ppOrderActivityBarRefunds")).toHaveLength(1);
     expect(orderPanel.querySelectorAll(".ppOrderActivityBarReturns")).toHaveLength(2);
     expect(orderPanel.querySelectorAll(".ppOrderActivityBarTotal")).toHaveLength(2);
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Resolution" }));
+    expect(within(orderPanel).getByText("Return + refund")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("Return only")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("Refund only")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("33.3%")).toBeInTheDocument();
+  });
+
+  it("renders relationship-aware top cards and return/refund resolution panel", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        soldUnits: 19,
+        signalCount: 41,
+        returnUnits: 6,
+        refundUnits: 2,
+        refundAmount: 84,
+        salesAmount: 800,
+        returnRefundRelationshipSummary: relationshipSummaryFixture({
+          sold_units: 19,
+          sold_orders: 14,
+          returned_units: 6,
+          returned_orders: 5,
+          refunded_units: 2,
+          refunded_orders: 2,
+          returned_and_refunded_units: 2,
+          returned_not_refunded_units: 4,
+          refunded_without_return_units: 0,
+          exchange_or_replacement_units: 1,
+          pending_return_units: 1,
+          attributed_refund_amount: 84,
+          refund_amount_with_return: 84,
+          refund_amount_without_return: 0,
+          total_product_revenue: 800,
+          relationship_match_confidence_avg: 1,
+        }),
+        returnRefundRelationshipFactors: {
+          hasRelationshipSummary: true,
+          returnPressure: {
+            returnRateUnits: 31.6,
+            returnedAndRefundedUnits: 2,
+            returnedNotRefundedUnits: 4,
+          },
+          refundLeakage: {
+            refundRateRevenue: 10.5,
+            attributedRefundAmount: 84,
+            refundAmountWithReturn: 84,
+            refundAmountWithoutReturn: 0,
+            unattributedRefundAmount: 0,
+            refundAttributionRate: 100,
+          },
+          financialExposure: {
+            hasRelationshipSummary: true,
+            confirmedRefundAmount: 84,
+            estimatedFutureRefundFromReturnOnlyCases: 180,
+            returnRelatedRiskAmount: 180,
+            relationshipAdjustedRefundAmount: 264,
+          },
+          customerSignalBreakdown: {
+            linkedReturnRefundCount: 2,
+            returnOnlyCount: 4,
+            refundOnlyCount: 0,
+          },
+        },
+        financialExposureBreakdown: {
+          hasRelationshipSummary: true,
+          confirmedRefundAmount: 84,
+          estimatedFutureRefundFromReturnOnlyCases: 180,
+          returnRelatedRiskAmount: 180,
+          relationshipAdjustedRefundAmount: 264,
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
+    const resolutionPanel = container.querySelector(".ppReturnRefundResolutionPanel");
+
+    expect(within(riskSnapshot).getByText("Product friction")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("6 of 19 units returned")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("2 linked refunds · 4 return-only")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("$84 confirmed refunds")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("$180 return-related risk")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("With return $84 · Without $0")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("2 linked · 4 return-only · 0 refund-only")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Based on 41 signals · strong refund attribution")).toBeInTheDocument();
+
+    expect(resolutionPanel).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Return & refund resolution")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Refund yes")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Refund no")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Return + refund")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Return only")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Refund only")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("33.3% of returned units were refunded")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("0% of refunds happened without a return")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Attribution confidence: High")).toBeInTheDocument();
+  });
+
+  it("handles missing return/refund relationship data without fake zeros", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        returnRefundRelationshipSummary: null,
+        returnRefundRelationshipFactors: null,
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const resolutionPanel = container.querySelector(".ppReturnRefundResolutionPanel");
+
+    expect(resolutionPanel).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Refund relationship not matched yet. Run a diagnosis after Shopify order, return and refund evidence is available.")).toBeInTheDocument();
+    expect(within(resolutionPanel).queryByText("Return + refund")).not.toBeInTheDocument();
   });
 
   it("renders return-rate prediction for product diagnosis", () => {
@@ -2720,3 +2850,45 @@ describe("ProductPulse screens", () => {
   });
 
 });
+
+function relationshipSummaryFixture(overrides = {}) {
+  const summary = {
+    sold_units: 10,
+    sold_orders: 8,
+    returned_units: 0,
+    returned_orders: 0,
+    refunded_units: 0,
+    refunded_orders: 0,
+    returned_and_refunded_units: 0,
+    returned_and_refunded_orders: 0,
+    returned_not_refunded_units: 0,
+    returned_not_refunded_orders: 0,
+    refunded_without_return_units: 0,
+    refunded_without_return_orders: 0,
+    exchange_or_replacement_units: 0,
+    exchange_or_replacement_orders: 0,
+    pending_return_units: 0,
+    pending_return_orders: 0,
+    unattributed_refund_amount: 0,
+    attributed_refund_amount: 0,
+    refund_amount_with_return: 0,
+    refund_amount_without_return: 0,
+    total_product_revenue: 1000,
+    relationship_match_confidence_avg: 0,
+    relationship_match_confidence_min: 0,
+    relationship_unknown_count: 0,
+    refund_attribution_rate: 1,
+    relationship_buckets: {},
+    ...overrides,
+  };
+  summary.return_rate_units = summary.sold_units ? summary.returned_units / summary.sold_units : 0;
+  summary.refund_rate_units = summary.sold_units ? summary.refunded_units / summary.sold_units : 0;
+  summary.refund_rate_revenue = summary.total_product_revenue ? summary.attributed_refund_amount / summary.total_product_revenue : 0;
+  summary.return_to_refund_rate = summary.returned_units ? summary.returned_and_refunded_units / summary.returned_units : 0;
+  summary.refund_with_return_rate = summary.refunded_units ? summary.returned_and_refunded_units / summary.refunded_units : 0;
+  summary.refund_without_return_rate = summary.sold_units ? summary.refunded_without_return_units / summary.sold_units : 0;
+  summary.return_without_refund_rate = summary.sold_units ? summary.returned_not_refunded_units / summary.sold_units : 0;
+  summary.exchange_rate = summary.sold_units ? summary.exchange_or_replacement_units / summary.sold_units : 0;
+  summary.unattributed_refund_rate = summary.total_product_revenue ? summary.unattributed_refund_amount / summary.total_product_revenue : 0;
+  return summary;
+}

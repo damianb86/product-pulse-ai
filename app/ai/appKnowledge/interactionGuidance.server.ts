@@ -261,6 +261,16 @@ function productInformationOptions(): AppInteractionGuidanceOption[] {
       requiresConfirmation: false,
       backendCapability: { kind: "tool", name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductRiskDetail },
     },
+    {
+      id: "return_refund_resolution",
+      label: "Returns y refunds",
+      description: "Explica cuántos refunds están vinculados a returns, cuáles son return-only, refund-only o no atribuibles.",
+      examplePrompt: "¿Los refunds de este producto están pasando después de returns?",
+      category: "read",
+      requiresProductContext: true,
+      requiresConfirmation: false,
+      backendCapability: { kind: "tool", name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductReturnRefundResolution },
+    },
   ];
 }
 

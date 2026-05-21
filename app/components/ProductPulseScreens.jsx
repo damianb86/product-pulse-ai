@@ -3749,6 +3749,17 @@ function getProductDetailModel(product) {
   const monthlyOrderActivity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
   const returnRatePrediction = normalizeProductReturnRatePrediction(metrics.returnRatePrediction);
   const productMomentum = normalizeProductMomentum(metrics.productMomentum);
+  const returnRefundRelationshipFactors = asPlainObject(metrics.returnRefundRelationshipFactors);
+  const returnRefundRelationship = normalizeProductReturnRefundRelationship(
+    metrics.returnRefundRelationshipSummary,
+    returnRefundRelationshipFactors,
+    metrics,
+  );
+  const financialExposureBreakdown = normalizeProductFinancialExposureBreakdown(
+    metrics.financialExposureBreakdown || returnRefundRelationshipFactors.financialExposure,
+    metrics,
+    returnRefundRelationship,
+  );
   const hasMonthlyOrderActivity = hasProductMonthlyOrderActivity(monthlyOrderActivity);
   const hasReturnRatePrediction = hasProductReturnRatePrediction(returnRatePrediction);
   const productStatus = product.status || metrics.productStatus || "";
@@ -3812,6 +3823,13 @@ function getProductDetailModel(product) {
       mid: metrics.impactFactors?.impactMid,
       high: metrics.impactFactors?.impactHigh,
     },
+    scoringVersion: metrics.scoringVersion || returnRefundRelationshipFactors.version || null,
+    returnRefundRelationship,
+    returnRefundRelationshipFactors,
+    returnPressureBreakdown: asPlainObject(metrics.returnPressure || returnRefundRelationshipFactors.returnPressure),
+    refundLeakageBreakdown: asPlainObject(metrics.refundLeakage || returnRefundRelationshipFactors.refundLeakage),
+    customerSignalBreakdown: asPlainObject(metrics.customerSignalBreakdown || returnRefundRelationshipFactors.customerSignalBreakdown),
+    financialExposureBreakdown,
     priorityScore: Number(metrics.priorityScore || 0),
     evidenceStrengthScore: Number(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore || 0),
     scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
@@ -3916,6 +3934,228 @@ function clampPercentValue(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return clampNumber(number, 0, 100);
+}
+
+function asPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function firstFiniteMetricNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
+}
+
+function relationshipRatePercent(value, numerator = 0, denominator = 0) {
+  const raw = Number(value);
+  if (Number.isFinite(raw)) {
+    return clampPercentValue(Math.abs(raw) <= 1 ? raw * 100 : raw);
+  }
+  const count = Number(numerator || 0);
+  const population = Number(denominator || 0);
+  if (population > 0) return clampPercentValue((count / population) * 100);
+  return 0;
+}
+
+function normalizeProductReturnRefundRelationship(summaryValue = null, factorsValue = null, metrics = {}) {
+  const summary = asPlainObject(summaryValue);
+  const buckets = asPlainObject(summary.relationship_buckets || summary.relationshipBuckets);
+  const factors = asPlainObject(factorsValue);
+  const returnPressure = asPlainObject(factors.returnPressure || metrics.returnPressure);
+  const refundLeakage = asPlainObject(factors.refundLeakage || metrics.refundLeakage);
+  const customerSignals = asPlainObject(factors.customerSignalBreakdown || metrics.customerSignalBreakdown);
+  const monthlySummary = asPlainObject(asPlainObject(metrics.monthlyOrderActivity).summary);
+  const hasStoredSummary = Object.keys(summary).length > 0;
+  const soldUnits = firstFiniteMetricNumber(summary.sold_units, summary.soldUnits, metrics.soldUnits, monthlySummary.totalOrderUnits);
+  const soldOrders = firstFiniteMetricNumber(summary.sold_orders, summary.soldOrders, monthlySummary.totalOrders);
+  const returnedUnits = firstFiniteMetricNumber(summary.returned_units, summary.returnedUnits, metrics.returnUnits, monthlySummary.totalReturnedUnits);
+  const returnedOrders = firstFiniteMetricNumber(summary.returned_orders, summary.returnedOrders, monthlySummary.totalReturnedOrders);
+  const refundedUnits = firstFiniteMetricNumber(summary.refunded_units, summary.refundedUnits, metrics.refundUnits, monthlySummary.totalRefundedUnits);
+  const refundedOrders = firstFiniteMetricNumber(summary.refunded_orders, summary.refundedOrders, monthlySummary.totalRefundedOrders);
+  const returnedAndRefundedUnits = firstFiniteMetricNumber(
+    summary.returned_and_refunded_units,
+    summary.returnedAndRefundedUnits,
+    returnPressure.returnedAndRefundedUnits,
+    customerSignals.linkedReturnRefundCount,
+  );
+  const returnedAndRefundedOrders = firstFiniteMetricNumber(summary.returned_and_refunded_orders, summary.returnedAndRefundedOrders);
+  const returnedNotRefundedUnits = firstFiniteMetricNumber(
+    summary.returned_not_refunded_units,
+    summary.returnedNotRefundedUnits,
+    returnPressure.returnedNotRefundedUnits,
+    customerSignals.returnOnlyCount,
+  );
+  const returnedNotRefundedOrders = firstFiniteMetricNumber(summary.returned_not_refunded_orders, summary.returnedNotRefundedOrders);
+  const refundedWithoutReturnUnits = firstFiniteMetricNumber(
+    summary.refunded_without_return_units,
+    summary.refundedWithoutReturnUnits,
+    customerSignals.refundOnlyCount,
+  );
+  const refundedWithoutReturnOrders = firstFiniteMetricNumber(summary.refunded_without_return_orders, summary.refundedWithoutReturnOrders);
+  const exchangeOrReplacementUnits = firstFiniteMetricNumber(
+    summary.exchange_or_replacement_units,
+    summary.exchangeOrReplacementUnits,
+    returnPressure.exchangeOrReplacementUnits,
+    customerSignals.exchangeOrReplacementCount,
+  );
+  const exchangeOrReplacementOrders = firstFiniteMetricNumber(summary.exchange_or_replacement_orders, summary.exchangeOrReplacementOrders);
+  const pendingReturnUnits = firstFiniteMetricNumber(
+    summary.pending_return_units,
+    summary.pendingReturnUnits,
+    returnPressure.pendingReturnUnits,
+  );
+  const pendingReturnOrders = firstFiniteMetricNumber(summary.pending_return_orders, summary.pendingReturnOrders);
+  const relationshipUnknownCount = firstFiniteMetricNumber(summary.relationship_unknown_count, summary.relationshipUnknownCount);
+  const unattributedRefundAmount = firstFiniteMetricNumber(
+    summary.unattributed_refund_amount,
+    summary.unattributedRefundAmount,
+    refundLeakage.unattributedRefundAmount,
+  );
+  const attributedRefundAmount = firstFiniteMetricNumber(
+    summary.attributed_refund_amount,
+    summary.attributedRefundAmount,
+    refundLeakage.attributedRefundAmount,
+  );
+  const refundAmountWithReturn = firstFiniteMetricNumber(
+    summary.refund_amount_with_return,
+    summary.refundAmountWithReturn,
+    refundLeakage.refundAmountWithReturn,
+  );
+  const refundAmountWithoutReturn = firstFiniteMetricNumber(
+    summary.refund_amount_without_return,
+    summary.refundAmountWithoutReturn,
+    refundLeakage.refundAmountWithoutReturn,
+  );
+  const totalProductRevenue = firstFiniteMetricNumber(summary.total_product_revenue, summary.totalProductRevenue, metrics.salesAmount, monthlySummary.totalRevenue);
+  const totalRefundAmountRelated = firstFiniteMetricNumber(
+    summary.total_refund_amount_related_to_product_or_orders,
+    summary.totalRefundAmountRelated,
+    attributedRefundAmount + unattributedRefundAmount,
+    metrics.refundAmount,
+  );
+  const unattributedRefundBucket = asPlainObject(buckets.unattributed_refund || buckets.unattributedRefund);
+  const pendingOrUnknownCount = firstFiniteMetricNumber(
+    customerSignals.pendingOrUnknownCount,
+    pendingReturnUnits + relationshipUnknownCount,
+  );
+  const relationshipMatchConfidenceAvg = firstFiniteMetricNumber(
+    summary.relationship_match_confidence_avg,
+    summary.relationshipMatchConfidenceAvg,
+    asPlainObject(factors.diagnosisConfidence).relationshipMatchConfidenceAvg,
+  );
+  const confidencePercent = relationshipRatePercent(relationshipMatchConfidenceAvg);
+  const hasRelationshipEvents = Boolean(
+    returnedAndRefundedUnits
+    || returnedNotRefundedUnits
+    || refundedWithoutReturnUnits
+    || exchangeOrReplacementUnits
+    || pendingReturnUnits
+    || relationshipUnknownCount
+    || (hasStoredSummary && (returnedUnits || refundedUnits || attributedRefundAmount || unattributedRefundAmount)),
+  );
+  const available = Boolean(
+    hasStoredSummary
+    || factors.hasRelationshipSummary === true
+    || hasRelationshipEvents,
+  );
+
+  return {
+    available,
+    hasEventData: hasRelationshipEvents,
+    statusText: available
+      ? (hasRelationshipEvents ? "Relationship matching available" : "No matched return or refund events in this window")
+      : "Refund relationship not matched yet",
+    soldUnits,
+    soldOrders,
+    returnedUnits,
+    returnedOrders,
+    refundedUnits,
+    refundedOrders,
+    returnedAndRefundedUnits,
+    returnedAndRefundedOrders,
+    returnedNotRefundedUnits,
+    returnedNotRefundedOrders,
+    refundedWithoutReturnUnits,
+    refundedWithoutReturnOrders,
+    exchangeOrReplacementUnits,
+    exchangeOrReplacementOrders,
+    pendingReturnUnits,
+    pendingReturnOrders,
+    relationshipUnknownCount,
+    pendingOrUnknownCount,
+    unattributedRefundOrders: firstFiniteMetricNumber(unattributedRefundBucket.orders, customerSignals.unattributedRefundCount),
+    unattributedRefundAmount,
+    attributedRefundAmount,
+    refundAmountWithReturn,
+    refundAmountWithoutReturn,
+    totalProductRevenue,
+    totalRefundAmountRelated,
+    returnRateUnitsPercent: relationshipRatePercent(summary.return_rate_units ?? summary.returnRateUnits, returnedUnits, soldUnits),
+    returnRateOrdersPercent: relationshipRatePercent(summary.return_rate_orders ?? summary.returnRateOrders, returnedOrders, soldOrders),
+    refundRateRevenuePercent: relationshipRatePercent(summary.refund_rate_revenue ?? summary.refundRateRevenue, attributedRefundAmount, totalProductRevenue),
+    refundRateUnitsPercent: relationshipRatePercent(summary.refund_rate_units ?? summary.refundRateUnits, refundedUnits, soldUnits),
+    returnToRefundRatePercent: relationshipRatePercent(summary.return_to_refund_rate ?? summary.returnToRefundRate, returnedAndRefundedUnits, returnedUnits),
+    refundWithReturnRatePercent: relationshipRatePercent(summary.refund_with_return_rate ?? summary.refundWithReturnRate, returnedAndRefundedUnits, refundedUnits),
+    refundWithoutReturnRatePercent: relationshipRatePercent(summary.refund_without_return_rate ?? summary.refundWithoutReturnRate, refundedWithoutReturnUnits, soldUnits),
+    returnWithoutRefundRatePercent: relationshipRatePercent(summary.return_without_refund_rate ?? summary.returnWithoutRefundRate, returnedNotRefundedUnits, soldUnits),
+    exchangeRatePercent: relationshipRatePercent(summary.exchange_rate ?? summary.exchangeRate, exchangeOrReplacementUnits, soldUnits),
+    unattributedRefundRatePercent: relationshipRatePercent(summary.unattributed_refund_rate ?? summary.unattributedRefundRate, unattributedRefundAmount, totalProductRevenue),
+    refundAttributionRatePercent: relationshipRatePercent(summary.refund_attribution_rate ?? summary.refundAttributionRate ?? refundLeakage.refundAttributionRate, attributedRefundAmount, totalRefundAmountRelated),
+    relationshipMatchConfidenceAvg,
+    relationshipMatchConfidenceMin: firstFiniteMetricNumber(summary.relationship_match_confidence_min, summary.relationshipMatchConfidenceMin),
+    confidencePercent,
+    confidenceLabel: getRelationshipConfidenceLabel(confidencePercent, available),
+  };
+}
+
+function getRelationshipConfidenceLabel(confidencePercent, available = true) {
+  if (!available) return "Unavailable";
+  const confidence = Number(confidencePercent || 0);
+  if (confidence >= 80) return "High";
+  if (confidence >= 55) return "Medium";
+  if (confidence > 0) return "Low";
+  return "Low";
+}
+
+function normalizeProductFinancialExposureBreakdown(value = null, metrics = {}, relationship = {}) {
+  const breakdown = asPlainObject(value);
+  const confirmedRefundAmount = firstFiniteMetricNumber(
+    breakdown.confirmedRefundAmount,
+    breakdown.confirmed_refund_amount,
+    relationship.attributedRefundAmount,
+    metrics.refundAmount,
+  );
+  const estimatedFutureRefundFromReturnOnlyCases = firstFiniteMetricNumber(
+    breakdown.estimatedFutureRefundFromReturnOnlyCases,
+    breakdown.estimated_future_refund_from_return_only_cases,
+  );
+  const relationshipAdjustedRefundAmount = firstFiniteMetricNumber(
+    breakdown.relationshipAdjustedRefundAmount,
+    breakdown.relationship_adjusted_refund_amount,
+    confirmedRefundAmount + estimatedFutureRefundFromReturnOnlyCases + (Number(relationship.unattributedRefundAmount || 0) * 0.25),
+  );
+  const returnRelatedRiskAmount = firstFiniteMetricNumber(
+    breakdown.returnRelatedRiskAmount,
+    breakdown.return_related_risk_amount,
+    estimatedFutureRefundFromReturnOnlyCases,
+  );
+
+  return {
+    hasRelationshipSummary: breakdown.hasRelationshipSummary === true || relationship.available === true,
+    confirmedRefundAmount,
+    attributedRefundAmount: firstFiniteMetricNumber(breakdown.attributedRefundAmount, breakdown.attributed_refund_amount, confirmedRefundAmount),
+    refundAmountWithReturn: firstFiniteMetricNumber(breakdown.refundAmountWithReturn, breakdown.refund_amount_with_return, relationship.refundAmountWithReturn),
+    refundAmountWithoutReturn: firstFiniteMetricNumber(breakdown.refundAmountWithoutReturn, breakdown.refund_amount_without_return, relationship.refundAmountWithoutReturn),
+    unattributedRefundAmount: firstFiniteMetricNumber(breakdown.unattributedRefundAmount, breakdown.unattributed_refund_amount, relationship.unattributedRefundAmount),
+    estimatedFutureRefundFromReturnOnlyCases,
+    returnRelatedRiskAmount,
+    relationshipAdjustedRefundAmount,
+    refundAttributionRate: relationshipRatePercent(breakdown.refundAttributionRate ?? breakdown.refund_attribution_rate, relationship.attributedRefundAmount, relationship.totalRefundAmountRelated),
+    totalRefundAmountRelated: firstFiniteMetricNumber(breakdown.totalRefundAmountRelated, breakdown.total_refund_amount_related, relationship.totalRefundAmountRelated),
+  };
 }
 
 function calculateClientUnitRatePercent(numeratorUnits, denominatorUnits, fallbackPercent = 0) {
@@ -4322,6 +4562,10 @@ function getValidatedMomentumDirection({ momentum = {}, score = 0, unitsPrevious
 }
 
 function getFinancialExposureFootnote(detail = {}) {
+  const breakdown = detail.financialExposureBreakdown || {};
+  if (breakdown.hasRelationshipSummary) {
+    return `${formatMoney(breakdown.returnRelatedRiskAmount || breakdown.estimatedFutureRefundFromReturnOnlyCases || 0)} return-related risk`;
+  }
   const range = detail.impactRange || {};
   const low = Number(range.low || 0);
   const high = Number(range.high || 0);
@@ -4341,10 +4585,117 @@ function getFinancialExposureRangeLabel(detail = {}) {
   return "No range available";
 }
 
+function getProductRiskRelationshipFootnote(detail = {}) {
+  const relationship = detail.returnRefundRelationship || {};
+  if (!relationship.available) return detail.riskTrendLabel;
+  if (relationship.returnedAndRefundedUnits > 0) {
+    return `${formatInteger(relationship.returnedAndRefundedUnits)} return+refund severity`;
+  }
+  if (relationship.returnedNotRefundedUnits > 0) {
+    return `${formatInteger(relationship.returnedNotRefundedUnits)} return-only friction`;
+  }
+  if (relationship.refundedWithoutReturnUnits > 0) {
+    return `${formatInteger(relationship.refundedWithoutReturnUnits)} refund-only compensation`;
+  }
+  return detail.riskTrendLabel;
+}
+
+function getReturnPressureCardData(detail = {}, fallbackScore = 0) {
+  const relationship = detail.returnRefundRelationship || {};
+  const breakdown = detail.returnPressureBreakdown || {};
+  if (!relationship.available) {
+    return {
+      value: `${formatInteger(breakdown.score ?? fallbackScore)} / 100`,
+      detail: "Refund relationship not matched yet",
+      footnote: "Product friction from returns",
+      tone: fallbackScore >= 55 ? "orange" : "blue",
+      chartTone: "orange",
+    };
+  }
+
+  const returnRate = firstFiniteMetricNumber(breakdown.returnRateUnits, relationship.returnRateUnitsPercent, detail.returnRate);
+  const linked = firstFiniteMetricNumber(breakdown.returnedAndRefundedUnits, relationship.returnedAndRefundedUnits);
+  const returnOnly = firstFiniteMetricNumber(breakdown.returnedNotRefundedUnits, relationship.returnedNotRefundedUnits);
+  const refundOnly = relationship.refundedWithoutReturnUnits;
+  const footnoteParts = [];
+  if (linked || returnOnly || refundOnly) {
+    footnoteParts.push(`${formatInteger(linked)} linked refund${linked === 1 ? "" : "s"}`);
+    footnoteParts.push(`${formatInteger(returnOnly)} return-only`);
+    if (refundOnly > 0) footnoteParts.push(`${formatInteger(refundOnly)} refund-only`);
+  }
+  return {
+    value: formatPercent(returnRate),
+    detail: relationship.soldUnits
+      ? `${formatInteger(relationship.returnedUnits)} of ${formatInteger(relationship.soldUnits)} units returned`
+      : `${formatInteger(relationship.returnedUnits)} returned units`,
+    footnote: footnoteParts.length ? footnoteParts.join(" · ") : "No return/refund events matched",
+    tone: returnRate >= 20 ? "orange" : "blue",
+    chartTone: "orange",
+  };
+}
+
+function getRefundLeakageCardData(detail = {}, fallbackLeakage = 0) {
+  const relationship = detail.returnRefundRelationship || {};
+  const leakage = detail.refundLeakageBreakdown || {};
+  const leakageRate = firstFiniteMetricNumber(leakage.refundRateRevenue, relationship.refundRateRevenuePercent, fallbackLeakage);
+  if (!relationship.available && !leakage.attributedRefundAmount) {
+    return {
+      value: formatPercent(fallbackLeakage),
+      detail: `${formatCompactMoney(detail.refundAmount)} refunded`,
+      footnote: "Refund relationship not matched yet",
+      tone: fallbackLeakage >= 8 ? "red" : "blue",
+    };
+  }
+  const amount = firstFiniteMetricNumber(leakage.attributedRefundAmount, relationship.attributedRefundAmount, detail.refundAmount);
+  const withReturn = firstFiniteMetricNumber(leakage.refundAmountWithReturn, relationship.refundAmountWithReturn);
+  const withoutReturn = firstFiniteMetricNumber(leakage.refundAmountWithoutReturn, relationship.refundAmountWithoutReturn);
+  const unattributed = firstFiniteMetricNumber(leakage.unattributedRefundAmount, relationship.unattributedRefundAmount);
+  const footnoteParts = [
+    `With return ${formatCompactMoney(withReturn)}`,
+    `Without ${formatCompactMoney(withoutReturn)}`,
+  ];
+  if (unattributed > 0) footnoteParts.push(`Unattributed ${formatCompactMoney(unattributed)}`);
+  return {
+    value: formatPercent(leakageRate),
+    detail: `${formatCompactMoney(amount)} refunded`,
+    footnote: footnoteParts.join(" · "),
+    tone: leakageRate >= 8 ? "red" : "blue",
+  };
+}
+
+function getCustomerSignalsFootnote(detail = {}) {
+  const breakdown = detail.customerSignalBreakdown || {};
+  const relationship = detail.returnRefundRelationship || {};
+  if (relationship.available) {
+    return `${formatInteger(breakdown.linkedReturnRefundCount ?? relationship.returnedAndRefundedUnits)} linked · ${formatInteger(breakdown.returnOnlyCount ?? relationship.returnedNotRefundedUnits)} return-only · ${formatInteger(breakdown.refundOnlyCount ?? relationship.refundedWithoutReturnUnits)} refund-only`;
+  }
+  return `${formatInteger(detail.returnUnits)} returns · ${formatInteger(detail.refundUnits)} refunds · ${formatInteger(detail.negativeReviewCount)} negative reviews`;
+}
+
+function getDiagnosisConfidenceFootnote(detail = {}) {
+  const relationship = detail.returnRefundRelationship || {};
+  if (!relationship.available) return `Based on ${formatInteger(detail.signalCount)} signals`;
+  if (relationship.unattributedRefundAmount > 0 || relationship.relationshipUnknownCount > 0) {
+    return "Some refunds are not product-attributed";
+  }
+  if (relationship.confidencePercent >= 80) {
+    return `Based on ${formatInteger(detail.signalCount)} signals · strong refund attribution`;
+  }
+  return "Return/refund relationship partially matched";
+}
+
+function getFinancialExposureDetail(detail = {}) {
+  const breakdown = detail.financialExposureBreakdown || {};
+  if (breakdown.hasRelationshipSummary) return `${formatMoney(breakdown.confirmedRefundAmount || 0)} confirmed refunds`;
+  return `${formatMoney(detail.marginAtRisk)} margin at risk`;
+}
+
 function getProductDetailInsightCards(detail = {}) {
   const history = Array.isArray(detail.riskHistory) ? detail.riskHistory : [];
   const returnPressure = calculateReturnPressureIndex(detail);
   const refundLeakage = calculateRefundLeakageRate(detail);
+  const returnPressureCard = getReturnPressureCardData(detail, returnPressure);
+  const refundLeakageCard = getRefundLeakageCardData(detail, refundLeakage);
   const sourceCount = Math.max(0, Number(detail.sourceCount || detail.sourceCoverage?.length || detail.evidenceSources?.length || 0));
   const customerSignalCount = getCustomerSignalCount(detail);
   const momentumScore = detail.productMomentum ? Number(detail.productMomentum.score || 0) : 0;
@@ -4355,7 +4706,7 @@ function getProductDetailInsightCards(detail = {}) {
       meta: "Risk score history",
       value: detail.riskScoreLabel,
       detail: `${formatInteger(detail.riskScore)} / 100`,
-      footnote: detail.riskTrendLabel,
+      footnote: getProductRiskRelationshipFootnote(detail),
       tone: detail.riskTone,
       sparkline: getInsightSeries(history, (entry) => entry.riskScore, detail.riskScore),
       icon: "product-risk",
@@ -4366,7 +4717,7 @@ function getProductDetailInsightCards(detail = {}) {
       title: "Financial exposure",
       meta: "Revenue exposure trend",
       value: formatMoney(detail.estimatedImpact),
-      detail: `${formatMoney(detail.marginAtRisk)} margin at risk`,
+      detail: getFinancialExposureDetail(detail),
       footnote: getFinancialExposureFootnote(detail),
       tone: "red",
       sparkline: getInsightSeries(history, (entry) => firstFiniteNumber(entry.financialExposure, entry.revenueAtRisk, entry.marginAtRisk), detail.estimatedImpact),
@@ -4376,15 +4727,15 @@ function getProductDetailInsightCards(detail = {}) {
     },
     {
       title: "Return pressure",
-      meta: "Returns + refunds + reviews",
-      value: `${formatInteger(returnPressure)} / 100`,
-      detail: `${formatPercent(detail.returnRate)} return · ${formatPercent(detail.refundRate)} refund`,
-      footnote: "Blended customer pressure index",
-      tone: returnPressure >= 55 ? "orange" : "blue",
-      sparkline: getInsightSeries(history, calculateReturnPressureIndex, returnPressure),
+      meta: "Product friction",
+      value: returnPressureCard.value,
+      detail: returnPressureCard.detail,
+      footnote: returnPressureCard.footnote,
+      tone: returnPressureCard.tone,
+      sparkline: getInsightSeries(history, (entry) => firstFiniteNumber(entry.returnPressureScore, calculateReturnPressureIndex(entry)), returnPressure),
       icon: "shopify-returns",
       chartStyle: "area",
-      chartTone: "orange",
+      chartTone: returnPressureCard.chartTone,
     },
     {
       title: "Product Momentum",
@@ -4405,7 +4756,7 @@ function getProductDetailInsightCards(detail = {}) {
       meta: "Evidence reliability",
       value: detail.confidenceLabel,
       detail: `${formatInteger(detail.confidence)}%`,
-      footnote: `Based on ${formatInteger(detail.signalCount)} signals`,
+      footnote: getDiagnosisConfidenceFootnote(detail),
       tone: "green",
       sparkline: getInsightSeries(history, (entry) => entry.confidence, detail.confidence),
       icon: "diagnostic-confidence",
@@ -4415,11 +4766,11 @@ function getProductDetailInsightCards(detail = {}) {
     {
       title: "Refund leakage",
       meta: "Refunds vs revenue",
-      value: formatPercent(refundLeakage),
-      detail: `${formatCompactMoney(detail.refundAmount)} refunded`,
-      footnote: `${formatCompactMoney(detail.salesAmount)} sales in window`,
-      tone: refundLeakage >= 8 ? "red" : "blue",
-      sparkline: getInsightSeries(history, calculateRefundLeakageRate, refundLeakage),
+      value: refundLeakageCard.value,
+      detail: refundLeakageCard.detail,
+      footnote: refundLeakageCard.footnote,
+      tone: refundLeakageCard.tone,
+      sparkline: getInsightSeries(history, (entry) => firstFiniteNumber(entry.refundLeakageRate, calculateRefundLeakageRate(entry)), refundLeakage),
       icon: "refund-leakage",
       chartStyle: "area",
       chartTone: "maroon",
@@ -4441,7 +4792,7 @@ function getProductDetailInsightCards(detail = {}) {
       meta: "Returns, refunds, reviews",
       value: formatInteger(customerSignalCount),
       detail: "customer signals",
-      footnote: `${formatInteger(detail.returnUnits)} returns · ${formatInteger(detail.refundUnits)} refunds · ${formatInteger(detail.negativeReviewCount)} negative reviews`,
+      footnote: getCustomerSignalsFootnote(detail),
       tone: customerSignalCount > 0 ? "blue" : "neutral",
       sparkline: getInsightSeries(history, getCustomerSignalCount, customerSignalCount),
       icon: "customer-language-analysis",
@@ -7820,6 +8171,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </div>
 
+        <ProductReturnRefundResolutionPanel detail={detail} />
+
         <div className="ppProductDetailLayout">
           <main className="ppProductDetailPrimary">
             <div className="ppMainFindingCard">
@@ -8119,6 +8472,158 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   );
 }
 
+const RETURN_REFUND_HELP = {
+  linked: "Returned units that also had an attributed refund.",
+  returnOnly: "Returned units without an attributed refund. These may be exchanges, pending refunds, replacements, or return-only cases.",
+  refundOnly: "Refunds attributed to this product without a matching return event.",
+  exchange: "Return outcomes classified as exchange or replacement when source data supports it.",
+  unknown: "Pending return outcomes or relationship events that could not be fully resolved yet.",
+  unattributed: "Refund amount that could not be confidently assigned to a specific product or line item.",
+  confidence: "How confidently refunds and returns were matched to this product.",
+};
+
+function ProductReturnRefundResolutionPanel({ detail }) {
+  const relationship = detail.returnRefundRelationship || normalizeProductReturnRefundRelationship(null);
+  const hasData = relationship.available;
+  const returnedRefunded = relationship.returnedAndRefundedUnits;
+  const returnOnly = relationship.returnedNotRefundedUnits;
+  const refundOnly = relationship.refundedWithoutReturnUnits;
+  const exchangeCount = relationship.exchangeOrReplacementUnits;
+  const unknownCount = relationship.pendingOrUnknownCount;
+  const refundedReturnRate = relationship.returnToRefundRatePercent;
+  const refundWithoutReturnRate = relationship.refundWithoutReturnRatePercent;
+
+  return (
+    <section className={`ppProductPanel ppReturnRefundResolutionPanel${hasData ? "" : " isUnavailable"}`} aria-label="Return and refund resolution">
+      <div className="ppReturnRefundResolutionHeader">
+        <div>
+          <span className="ppReturnRefundResolutionEyebrow">
+            <ProductPulseGlyph type="shopify-returns" />
+            Relationship analysis
+          </span>
+          <h2>Return & refund resolution</h2>
+          <p>Shows whether product friction became confirmed financial loss, stayed return-only, or remained unattributed.</p>
+        </div>
+        <span className={`ppReturnRefundConfidence ppReturnRefundConfidence-${String(relationship.confidenceLabel || "unavailable").toLowerCase()}`}>
+          {hasData ? relationship.confidenceLabel : "Unavailable"} confidence
+        </span>
+      </div>
+
+      {!hasData ? (
+        <EmptyProductDetailState message="Refund relationship not matched yet. Run a diagnosis after Shopify order, return and refund evidence is available." />
+      ) : (
+        <>
+          <div className="ppReturnRefundResolutionBody">
+            <div className="ppReturnRefundMatrix" role="table" aria-label="Return and refund resolution matrix">
+              <div className="ppReturnRefundMatrixHeader" role="row">
+                <span aria-hidden="true"></span>
+                <strong>Refund yes</strong>
+                <strong>Refund no</strong>
+              </div>
+              <div className="ppReturnRefundMatrixRow" role="row">
+                <strong>Return yes</strong>
+                <RelationshipMatrixCell label="Return + refund" value={returnedRefunded} tone="red" help={RETURN_REFUND_HELP.linked} />
+                <RelationshipMatrixCell label="Return only" value={returnOnly} tone="amber" help={RETURN_REFUND_HELP.returnOnly} />
+              </div>
+              <div className="ppReturnRefundMatrixRow" role="row">
+                <strong>Return no</strong>
+                <RelationshipMatrixCell label="Refund only" value={refundOnly} tone="blue" help={RETURN_REFUND_HELP.refundOnly} />
+                <span className="ppReturnRefundMatrixEmpty" aria-label="No return and no refund">-</span>
+              </div>
+            </div>
+
+            <div className="ppReturnRefundResolutionSide">
+              <div className="ppReturnRefundStackedBar" aria-label="Return and refund bucket distribution">
+                {getReturnRefundResolutionBuckets(relationship).map((bucket) => (
+                  <span
+                    key={bucket.key}
+                    className={`ppReturnRefundStackedSegment ppReturnRefundStackedSegment-${bucket.tone}`}
+                    style={{ width: `${bucket.width}%` }}
+                    title={`${bucket.label}: ${bucket.displayValue}`}
+                  />
+                ))}
+              </div>
+              <div className="ppReturnRefundResolutionStats">
+                <span>{formatPercent(refundedReturnRate)} of returned units were refunded</span>
+                <span>{formatPercent(refundWithoutReturnRate)} of refunds happened without a return</span>
+                <span>Attribution confidence: {relationship.confidenceLabel}</span>
+              </div>
+              <div className="ppReturnRefundResolutionChips">
+                <RelationshipChip label="Exchange/replacement" value={formatInteger(exchangeCount)} help={RETURN_REFUND_HELP.exchange} />
+                <RelationshipChip label="Pending/unknown" value={formatInteger(unknownCount)} help={RETURN_REFUND_HELP.unknown} />
+                <RelationshipChip label="Unattributed refunds" value={formatCompactMoney(relationship.unattributedRefundAmount)} help={RETURN_REFUND_HELP.unattributed} />
+              </div>
+            </div>
+          </div>
+          {!relationship.hasEventData && (
+            <p className="ppReturnRefundResolutionEmptyNote">No return or refund events were matched in the stored analysis window.</p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function RelationshipMatrixCell({ label, value, tone, help }) {
+  return (
+    <span className={`ppReturnRefundMatrixCell ppReturnRefundMatrixCell-${tone}`} role="cell">
+      <RelationshipInfoLabel label={label} help={help} />
+      <strong>{formatInteger(value)}</strong>
+      <small>units</small>
+    </span>
+  );
+}
+
+function RelationshipChip({ label, value, help }) {
+  return (
+    <span className="ppReturnRefundChip">
+      <RelationshipInfoLabel label={label} help={help} />
+      <strong>{value}</strong>
+    </span>
+  );
+}
+
+function RelationshipInfoLabel({ label, help }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="ppReturnRefundInfoLabel">
+      <span>{label}</span>
+      <button
+        type="button"
+        ref={triggerRef}
+        aria-label={`${label} explanation`}
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <s-icon type="info" size="small"></s-icon>
+      </button>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppReturnRefundTooltipPopover" width={280} estimatedHeight={116} placement="top-center">
+        <strong>{label}</strong>
+        <small>{help}</small>
+      </FloatingTablePopover>
+    </span>
+  );
+}
+
+function getReturnRefundResolutionBuckets(relationship = {}) {
+  const buckets = [
+    { key: "linked", label: "Return + refund", value: relationship.returnedAndRefundedUnits, displayValue: `${formatInteger(relationship.returnedAndRefundedUnits)} units`, tone: "red" },
+    { key: "return-only", label: "Return only", value: relationship.returnedNotRefundedUnits, displayValue: `${formatInteger(relationship.returnedNotRefundedUnits)} units`, tone: "amber" },
+    { key: "refund-only", label: "Refund only", value: relationship.refundedWithoutReturnUnits, displayValue: `${formatInteger(relationship.refundedWithoutReturnUnits)} units`, tone: "blue" },
+    { key: "exchange", label: "Exchange/replacement", value: relationship.exchangeOrReplacementUnits, displayValue: `${formatInteger(relationship.exchangeOrReplacementUnits)} units`, tone: "green" },
+    { key: "unknown", label: "Pending/unknown", value: relationship.pendingOrUnknownCount, displayValue: `${formatInteger(relationship.pendingOrUnknownCount)} cases`, tone: "slate" },
+  ];
+  const total = buckets.reduce((sum, bucket) => sum + Math.max(0, Number(bucket.value || 0)), 0);
+  if (!total) return buckets.map((bucket) => ({ ...bucket, width: bucket.key === "unknown" ? 100 : 0 }));
+  return buckets.map((bucket) => ({
+    ...bucket,
+    width: Math.max(Number(bucket.value || 0) > 0 ? 5 : 0, (Number(bucket.value || 0) / total) * 100),
+  }));
+}
+
 function ProductDeepDiagnosisDataPlaceholder({ detail }) {
   return (
     <section className="ppProductDeepDiagnosisPlaceholder" aria-label="Full diagnosis required for commercial charts">
@@ -8138,14 +8643,19 @@ function ProductDeepDiagnosisDataPlaceholder({ detail }) {
 }
 
 function ProductOrderActivityPanel({ detail }) {
+  const [activityView, setActivityView] = useState("volume");
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
   const months = activity.months || [];
   const summary = activity.summary || {};
   const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders || month.revenue);
+  const relationship = detail.returnRefundRelationship || normalizeProductReturnRefundRelationship(null);
   const maxOrders = Math.max(Number(summary.maxOrders || 0), ...months.map((month) => getOrderActivityStackTotal(month)), 1);
   const maxRevenue = Math.max(Number(summary.maxRevenue || 0), ...months.map((month) => Number(month.revenue || 0)), 1);
   const windowLabel = activity.windowDays ? `${activity.windowDays}-day window` : "Stored window";
   const rangeLabel = getMonthlyOrderActivityRangeLabel(months);
+  const chartDescription = activityView === "resolution"
+    ? "Relationship buckets for matched order-line outcomes in the stored product window."
+    : "Orders, returned order cohorts, refunded order cohorts and revenue grouped by cohort order month.";
 
   return (
     <section className="ppProductOrderActivityPanel" aria-label="Monthly order activity">
@@ -8153,31 +8663,44 @@ function ProductOrderActivityPanel({ detail }) {
         <div>
           <span>Deep research</span>
           <h2>Monthly order activity</h2>
-          <p>Orders, returns and refunds for this product, grouped by the order month inside the configured analysis window.</p>
+          <p>{chartDescription}</p>
         </div>
-        <div className="ppOrderActivityWindow">
-          <s-icon type="calendar" size="small"></s-icon>
-          <span>{windowLabel}</span>
-          {rangeLabel && <small>{rangeLabel}</small>}
+        <div className="ppOrderActivityControls">
+          <div className="ppOrderActivitySegmented" role="group" aria-label="Monthly order activity view">
+            <button type="button" className={activityView === "volume" ? "isActive" : ""} onClick={() => setActivityView("volume")}>Volume</button>
+            <button type="button" className={activityView === "resolution" ? "isActive" : ""} onClick={() => setActivityView("resolution")}>Resolution</button>
+          </div>
+          <div className="ppOrderActivityWindow">
+            <s-icon type="calendar" size="small"></s-icon>
+            <span>{windowLabel}</span>
+            {rangeLabel && <small>{rangeLabel}</small>}
+            <b>Cohort month</b>
+          </div>
         </div>
       </div>
 
       <div className="ppOrderActivitySummary">
         <OrderActivityStat label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
-        <OrderActivityStat label="Returned orders" value={formatInteger(summary.totalReturnedOrders)} detail={`${formatPercent(summary.returnRate)} of orders`} tone="amber" />
-        <OrderActivityStat label="Refunded orders" value={formatInteger(summary.totalRefundedOrders)} detail={`${formatPercent(summary.refundRate)} of orders`} tone="red" />
+        <OrderActivityStat label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />
+        <OrderActivityStat label="Refunded units" value={formatInteger(summary.totalRefundedUnits)} detail={`${formatPercent(summary.refundRate)} of ordered units`} tone="red" />
         <OrderActivityStat label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
       </div>
 
       {hasActivity ? (
-        <div className="ppOrderActivityChart" role="img" aria-label={`Monthly Shopify orders chart for ${detail.title}`}>
-          <OrderActivityComboChart months={months} maxOrders={maxOrders} maxRevenue={maxRevenue} />
-          <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
-            <span><i className="ppOrderActivityLegendTotal" />Orders</span>
-            <span><i className="ppOrderActivityLegendReturns" />Returned orders</span>
-            <span><i className="ppOrderActivityLegendRefunds" />Refunded orders</span>
-            <span><i className="ppOrderActivityLegendRevenue" />Revenue</span>
-          </div>
+        <div className="ppOrderActivityChart" role="img" aria-label={`Monthly Shopify ${activityView} chart for ${detail.title}`}>
+          {activityView === "resolution" ? (
+            <OrderActivityResolutionChart relationship={relationship} />
+          ) : (
+            <>
+              <OrderActivityComboChart months={months} maxOrders={maxOrders} maxRevenue={maxRevenue} />
+              <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
+                <span><i className="ppOrderActivityLegendTotal" />Orders</span>
+                <span><i className="ppOrderActivityLegendReturns" />Returned order cohorts</span>
+                <span><i className="ppOrderActivityLegendRefunds" />Refunded order cohorts</span>
+                <span><i className="ppOrderActivityLegendRevenue" />Revenue</span>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
@@ -8806,6 +9329,44 @@ function OrderActivityComboChart({ months = [], maxOrders = 1, maxRevenue = 1 })
   );
 }
 
+function OrderActivityResolutionChart({ relationship = {} }) {
+  if (!relationship.available) {
+    return <EmptyProductDetailState message="Refund relationship not matched yet. Resolution view will appear after return/refund matching is available." />;
+  }
+  const buckets = getReturnRefundResolutionBuckets(relationship);
+  const maxValue = Math.max(...buckets.map((bucket) => Number(bucket.value || 0)), 1);
+
+  return (
+    <div className="ppOrderResolutionChart">
+      <div className="ppOrderResolutionBars" aria-label="Return and refund resolution buckets">
+        {buckets.map((bucket) => (
+          <div className={`ppOrderResolutionBucket ppOrderResolutionBucket-${bucket.tone}`} key={bucket.key}>
+            <span className="ppOrderResolutionBucketLabel">{bucket.label}</span>
+            <div className="ppOrderResolutionTrack">
+              <span style={{ width: `${Math.max(Number(bucket.value || 0) ? 5 : 0, (Number(bucket.value || 0) / maxValue) * 100)}%` }} />
+            </div>
+            <strong>{bucket.displayValue}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="ppOrderResolutionSummary">
+        <span>
+          <b>{formatPercent(relationship.returnToRefundRatePercent)}</b>
+          returned units refunded
+        </span>
+        <span>
+          <b>{formatPercent(relationship.refundWithoutReturnRatePercent)}</b>
+          refund without return rate
+        </span>
+        <span>
+          <b>{relationship.confidenceLabel}</b>
+          attribution confidence
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function OrderActivityMonthBar({ month, maxOrders }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
@@ -8843,8 +9404,8 @@ function OrderActivityMonthBar({ month, maxOrders }) {
         </span>
         <span className="ppOrderActivityPopoverRows">
           <span><b>Total orders</b><strong>{formatInteger(month.orders)}</strong><small>{formatInteger(month.orderUnits)} units</small></span>
-          <span><b>Returns</b><strong>{formatInteger(month.returnedOrders)}</strong><small>{formatPercent(month.returnRate)}</small></span>
-          <span><b>Refunds</b><strong>{formatInteger(month.refundedOrders)}</strong><small>{formatPercent(month.refundRate)}</small></span>
+          <span><b>Returned order cohorts</b><strong>{formatInteger(month.returnedOrders)}</strong><small>{formatInteger(month.returnedUnits)} units · {formatPercent(month.returnRate)}</small></span>
+          <span><b>Refunded order cohorts</b><strong>{formatInteger(month.refundedOrders)}</strong><small>{formatInteger(month.refundedUnits)} units · {formatPercent(month.refundRate)}</small></span>
         </span>
         <span className="ppOrderActivityPopoverFooter">
           Refund value: <strong>{formatMoney(month.refundAmount || 0)}</strong>
@@ -10884,9 +11445,9 @@ function getInsightMetricHelp(title) {
   switch (title) {
     case "Product risk":
       return {
-        what: "Shows how severe the product problem is over time, separate from financial impact.",
+        what: "Shows how severe the product problem is over time, including linked return+refund severity, return-only friction and refund-only compensation when matched.",
         why: "It is the fastest way to understand whether the product itself needs attention before looking at money or operational context.",
-        graph: "Read it left to right. A rising line means product risk is increasing; a falling line means the product is improving.",
+        graph: "Read it left to right. A rising line means product risk is increasing; a falling line means the product is improving. Relationship-aware notes only appear when refunds can be safely attributed.",
       };
     case "Product Momentum":
       return {
@@ -10896,26 +11457,26 @@ function getInsightMetricHelp(title) {
       };
     case "Diagnosis confidence":
       return {
-        what: "Shows how reliable the diagnosis is based on source coverage, sample size, product match quality, source agreement and freshness.",
-        why: "It helps decide whether the diagnosis is ready for action or still needs more connected evidence.",
+        what: "Shows how reliable the diagnosis is based on source coverage, sample size, product match quality, source agreement, freshness and return/refund attribution quality.",
+        why: "It helps decide whether the diagnosis is ready for action or still needs more connected evidence. Unattributed refunds reduce confidence instead of being over-blamed on the product.",
         graph: "Read it left to right. A rising line means the evidence behind the diagnosis is getting stronger.",
       };
     case "Financial exposure":
       return {
-        what: "Shows estimated money at risk from refunds, return handling, returned-unit margin loss and review conversion drag.",
-        why: "It turns product signals into business impact, making it clearer which problems deserve priority.",
+        what: "Shows estimated money at risk while separating confirmed refunds from return-related risk and unattributed refund uncertainty.",
+        why: "It turns product signals into business impact without implying every return is already a confirmed financial loss.",
         graph: "Read it left to right. Higher points mean more financial exposure, so a downward line is usually healthier.",
       };
     case "Return pressure":
       return {
-        what: "Blends return rate, refund rate and negative review pressure into one customer-friction index.",
-        why: "It captures friction that may be split across different sources, so operational issues are easier to detect early.",
-        graph: "Read it left to right. A rising line means more pressure is building around returns, refunds or dissatisfaction.",
+        what: "Shows product friction from returned units, linked return+refund cases, return-only cases, exchanges and pending returns.",
+        why: "It keeps return pressure focused on customer friction instead of mixing in refund dollars, which belong to Refund leakage and Financial exposure.",
+        graph: "Read it left to right. A rising line means return-related friction is building around this product.",
       };
     case "Refund leakage":
       return {
-        what: "Shows how much sales value is leaking into refunds, using refund amount as a share of product revenue when available.",
-        why: "It highlights when revenue is being lost after purchase, even if order volume still looks healthy.",
+        what: "Shows how much sales value is leaking into refunds, split between refunds with returns, refunds without returns and unattributed refunds.",
+        why: "It highlights confirmed financial loss after purchase while keeping product-attributed and weakly attributed money separate.",
         graph: "Read it left to right. A rising line means refunds are taking a larger share of sales.",
       };
     case "Evidence strength":
@@ -10926,8 +11487,8 @@ function getInsightMetricHelp(title) {
       };
     case "Customer signals":
       return {
-        what: "Shows the volume of customer-facing signals behind the diagnosis, including returns, refunds and negative reviews when available.",
-        why: "It gives scale to the issue, so one-off noise is easier to separate from repeated customer friction.",
+        what: "Shows the volume of customer-facing signals behind the diagnosis, including returns, refunds, negative reviews and matched return/refund relationship counts.",
+        why: "It gives scale to the issue and separates linked return+refunds, return-only friction and refund-only compensation.",
         graph: "Read it left to right. A rising line means more customers are generating signals that deserve attention.",
       };
     case "Negative review pressure":

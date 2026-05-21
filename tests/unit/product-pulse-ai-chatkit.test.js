@@ -456,6 +456,16 @@ describe("ProductPulse ChatKit integration", () => {
         rows: [{ label: "Return rate", value: "12%", detail: "Above store baseline" }],
       },
       {
+        type: "return_refund_resolution",
+        productGid: "gid://shopify/Product/1",
+        returnAndRefundCount: 2,
+        returnOnlyCount: 4,
+        refundOnlyCount: 1,
+        unattributedCount: 0,
+        attributionConfidence: "High",
+        interpretation: "Returns are leading to attributed refunds.",
+      },
+      {
         type: "entity_list",
         title: "High risk products",
         items: [{
@@ -523,13 +533,15 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
     expect(widgets.filter((widget) => widget.type === "Card").every((widget) => widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("#4C1D95");
     expect(JSON.stringify(widgets)).toContain("open_product");
     expect(JSON.stringify(widgets)).toContain("open_evidence_source");
     expect(JSON.stringify(widgets)).toContain("review_action");
     expect(JSON.stringify(widgets)).toContain("prepare_apply_action");
+    expect(JSON.stringify(widgets)).toContain("Return & refund resolution");
+    expect(JSON.stringify(widgets)).toContain("Return + refund");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
     expect(JSON.stringify(widgets)).toContain("Action completed");

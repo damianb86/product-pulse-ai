@@ -180,4 +180,64 @@ Existing snapshots without `returnRefundRelationshipSummary` cannot reconstruct 
 - Exchange/replacement is inferred from source text only.
 - Product-scoped deep diagnosis may have less cross-product order context than QuickScan.
 - Order-level refund fallback remains weak and is intentionally not over-attributed.
-- UI cards and labels are intentionally unchanged in Phase 2.
+
+## Phase 3 UI integration
+
+Product detail now exposes relationship-aware data without changing scoring logic.
+
+Top cards:
+
+- Return Pressure is product-friction focused. It shows return rate, returned units, linked refunds, return-only cases, and refund-only cases when matched.
+- Refund Leakage is financial-loss focused. It shows refund leakage as revenue rate plus refund amount split into with-return, without-return, and unattributed buckets.
+- Customer Signals keeps returns, refunds, and negative reviews, and adds linked, return-only, and refund-only relationship counts.
+- Diagnosis Confidence includes refund attribution quality in the subtext and lowers clarity when refunds are unattributed.
+- Financial Exposure separates confirmed refunds from return-related risk.
+- Product Risk tooltip now explains return+refund severity, return-only friction, refund-only compensation, and attribution uncertainty.
+
+New product detail section:
+
+- `Return & refund resolution` appears after the top metric cards.
+- The matrix reads:
+  - Return yes / Refund yes: returned + refunded units.
+  - Return yes / Refund no: returned, not refunded units.
+  - Return no / Refund yes: refund without return units.
+  - Return no / Refund no: intentionally shown as `-` because normal sold units are not a problem bucket.
+- Supporting stats show percent of returned units that were refunded, percent of refunds without returns, attribution confidence, exchange/replacement count, pending/unknown count, and unattributed refund amount.
+- Missing relationship data shows “Refund relationship not matched yet” instead of fake zero buckets.
+
+Monthly Order Activity:
+
+- Volume view keeps the existing orders / returned order cohorts / refunded order cohorts / revenue chart.
+- Summary labels now distinguish unit-based rates from order-count bars: returned and refunded summary tiles use units and say “of ordered units.”
+- Resolution view uses relationship buckets: return+refund, return-only, refund-only, exchange/replacement, and pending/unknown.
+- The chart is labeled as cohort month. Event-month grouping is not currently implemented, so the UI does not present an event-month toggle.
+
+Tooltip wording:
+
+- Return + refund: “Returned units that also had an attributed refund.”
+- Return only: “Returned units without an attributed refund. These may be exchanges, pending refunds, replacements, or return-only cases.”
+- Refund without return: “Refunds attributed to this product without a matching return event.”
+- Unattributed refund: “Refund amount that could not be confidently assigned to a specific product or line item.”
+- Attribution confidence: “How confidently refunds and returns were matched to this product.”
+
+## Phase 3 AI assistant integration
+
+New read-only AI tools:
+
+- `product_pulse_get_return_refund_relationship_summary`
+- `product_pulse_get_product_return_refund_resolution`
+- `product_pulse_get_product_financial_exposure_breakdown`
+
+These tools return compact summaries only. They are scoped by server tenant context, do not accept client tenant overrides, do not expose raw order/refund datasets, and do not perform Shopify mutations.
+
+The assistant can now answer:
+
+- How many refunds were linked to returns.
+- Whether refunds are happening without returns.
+- Whether returns are leading to refunds.
+- Whether the product is creating confirmed financial loss or mostly friction.
+- Why refund leakage is high.
+- Why diagnosis confidence is lower.
+- How to interpret return pressure.
+
+ChatKit now supports a compact `return_refund_resolution` card with return+refund, return-only, refund-only, unattributed count, attribution confidence, and a short interpretation.

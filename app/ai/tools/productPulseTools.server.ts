@@ -4,8 +4,11 @@ import type {
   AnyAiToolDefinition,
   AiAnalyticsSnapshot,
   AiEvidenceSnippet,
+  AiFinancialExposureBreakdown,
   AiProductRiskDetail,
   AiProductRiskSummary,
+  AiReturnRefundRelationshipSummary,
+  AiReturnRefundResolutionSummary,
   AiToolDefinition,
   AiWatchlistSnapshot,
 } from "../domain/types";
@@ -25,6 +28,9 @@ export const PRODUCT_PULSE_AI_TOOL_NAMES = {
   listProductRiskSummaries: "product_pulse_list_product_risk_summaries",
   getProductRiskDetail: "product_pulse_get_product_risk_detail",
   getProductEvidenceSnippets: "product_pulse_get_product_evidence_snippets",
+  getReturnRefundRelationshipSummary: "product_pulse_get_return_refund_relationship_summary",
+  getProductReturnRefundResolution: "product_pulse_get_product_return_refund_resolution",
+  getProductFinancialExposureBreakdown: "product_pulse_get_product_financial_exposure_breakdown",
   getStoreAnalyticsSnapshot: "product_pulse_get_store_analytics_snapshot",
   getWatchlistSnapshot: "product_pulse_get_watchlist_snapshot",
 } as const;
@@ -76,6 +82,9 @@ type EmptyInput = z.infer<typeof emptyInputSchema>;
 type WatchlistInput = z.infer<typeof watchlistInputSchema>;
 type ProductRiskListData = { products: AiProductRiskSummary[]; totalCount: number };
 type ProductRiskDetailData = { product: AiProductRiskDetail };
+type RelationshipSummaryData = { product: AiProductRiskSummary; relationship: AiReturnRefundRelationshipSummary };
+type ReturnRefundResolutionData = { resolution: AiReturnRefundResolutionSummary };
+type FinancialExposureBreakdownData = { product: AiProductRiskSummary; financialExposure: AiFinancialExposureBreakdown };
 type StoreAnalyticsData = { analytics: AiAnalyticsSnapshot };
 type WatchlistData = { watchlist: AiWatchlistSnapshot };
 
@@ -187,6 +196,90 @@ export function createProductPulseAiToolDefinitions(
       },
     };
 
+  const getReturnRefundRelationshipSummaryTool: AiToolDefinition<ProductEvidenceInput, RelationshipSummaryData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getReturnRefundRelationshipSummary,
+      description: "Get a compact read-only return/refund relationship summary for one stored ProductPulse product, including linked returns, return-only, refund-only and attribution confidence.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiReturnRefundRelationshipSummary",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const result = await productRepository.getReturnRefundRelationshipSummary(context, input.productRef);
+        if (!result) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: result,
+          metadata: {
+            resultCount: 1,
+            dataFreshness: [{ source: "ProductPulse", updatedAt: result.product.updatedAt || result.product.calculatedAt }],
+          },
+        };
+      },
+    };
+
+  const getProductReturnRefundResolutionTool: AiToolDefinition<ProductEvidenceInput, ReturnRefundResolutionData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductReturnRefundResolution,
+      description: "Get the compact return/refund resolution matrix for one stored ProductPulse product.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiReturnRefundResolutionSummary",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const resolution = await productRepository.getProductReturnRefundResolution(context, input.productRef);
+        if (!resolution) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: { resolution },
+          metadata: {
+            resultCount: 1,
+            dataFreshness: [{ source: "ProductPulse", updatedAt: null }],
+          },
+        };
+      },
+    };
+
+  const getProductFinancialExposureBreakdownTool: AiToolDefinition<ProductEvidenceInput, FinancialExposureBreakdownData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductFinancialExposureBreakdown,
+      description: "Get a compact read-only financial exposure breakdown separating confirmed refunds, return-related risk, unattributed refunds, and attribution confidence.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiFinancialExposureBreakdown",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const result = await productRepository.getProductFinancialExposureBreakdown(context, input.productRef);
+        if (!result) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: result,
+          metadata: {
+            resultCount: 1,
+            dataFreshness: [{ source: "ProductPulse", updatedAt: result.product.updatedAt || result.product.calculatedAt }],
+          },
+        };
+      },
+    };
+
   const getStoreAnalyticsSnapshotTool: AiToolDefinition<EmptyInput, StoreAnalyticsData> = {
       name: PRODUCT_PULSE_AI_TOOL_NAMES.getStoreAnalyticsSnapshot,
       description: "Get compact store-level ProductPulse analytics for the authenticated shop.",
@@ -248,6 +341,9 @@ export function createProductPulseAiToolDefinitions(
     listProductRiskSummariesTool,
     getProductRiskDetailTool,
     getProductEvidenceSnippetsTool,
+    getReturnRefundRelationshipSummaryTool,
+    getProductReturnRefundResolutionTool,
+    getProductFinancialExposureBreakdownTool,
     getStoreAnalyticsSnapshotTool,
     getWatchlistSnapshotTool,
   ] as unknown as AnyAiToolDefinition[];

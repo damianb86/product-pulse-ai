@@ -4567,6 +4567,312 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
+.ppReturnRefundResolutionPanel {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  overflow: visible;
+}
+
+.ppReturnRefundResolutionHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ppReturnRefundResolutionHeader > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ppReturnRefundResolutionEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppReturnRefundResolutionEyebrow .ppPulseGlyph {
+  width: 18px;
+  height: 18px;
+}
+
+.ppReturnRefundResolutionHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppReturnRefundResolutionHeader p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppReturnRefundConfidence {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--pp-slate-200);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppReturnRefundConfidence-high {
+  border-color: rgba(var(--pp-success-green-rgb), 0.22);
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppReturnRefundConfidence-medium {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.24);
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppReturnRefundConfidence-low,
+.ppReturnRefundConfidence-unavailable {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppReturnRefundResolutionBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.ppReturnRefundMatrix {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-subcard-bg);
+}
+
+.ppReturnRefundMatrixHeader,
+.ppReturnRefundMatrixRow {
+  display: grid;
+  grid-template-columns: 104px repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ppReturnRefundMatrixHeader strong,
+.ppReturnRefundMatrixRow > strong {
+  display: flex;
+  align-items: center;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ppReturnRefundMatrixHeader strong {
+  justify-content: center;
+}
+
+.ppReturnRefundMatrixCell,
+.ppReturnRefundMatrixEmpty {
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppReturnRefundMatrixCell strong {
+  color: var(--pp-slate-900);
+  font-size: 28px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppReturnRefundMatrixCell small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppReturnRefundMatrixCell-red {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.18);
+  background: rgba(var(--pp-risk-red-rgb), 0.05);
+}
+
+.ppReturnRefundMatrixCell-amber {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.22);
+  background: rgba(var(--pp-warning-amber-rgb), 0.07);
+}
+
+.ppReturnRefundMatrixCell-blue {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
+}
+
+.ppReturnRefundMatrixEmpty {
+  place-items: center;
+  color: var(--pp-slate-400);
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.ppReturnRefundInfoLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppReturnRefundInfoLabel > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppReturnRefundInfoLabel button {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-slate-400);
+  cursor: help;
+}
+
+.ppReturnRefundTooltipPopover {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.2);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 18px 42px rgba(var(--pp-shadow-rgb), 0.2);
+}
+
+.ppReturnRefundTooltipPopover strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppReturnRefundTooltipPopover small {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.42;
+  white-space: normal;
+}
+
+.ppReturnRefundResolutionSide {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppReturnRefundStackedBar {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppReturnRefundStackedSegment {
+  min-width: 0;
+  height: 100%;
+}
+
+.ppReturnRefundStackedSegment-red {
+  background: var(--pp-risk-red);
+}
+
+.ppReturnRefundStackedSegment-amber {
+  background: var(--pp-warning-amber);
+}
+
+.ppReturnRefundStackedSegment-blue {
+  background: var(--pp-pulse-blue);
+}
+
+.ppReturnRefundStackedSegment-green {
+  background: var(--pp-success-green);
+}
+
+.ppReturnRefundStackedSegment-slate {
+  background: var(--pp-slate-400);
+}
+
+.ppReturnRefundResolutionStats {
+  display: grid;
+  gap: 7px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.ppReturnRefundResolutionChips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppReturnRefundChip {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-subcard-bg);
+}
+
+.ppReturnRefundChip strong {
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.ppReturnRefundResolutionEmptyNote {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .ppProductOrderActivityPanel {
   display: grid;
   gap: 16px;
@@ -4612,6 +4918,38 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
+.ppOrderActivityControls {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 230px;
+}
+
+.ppOrderActivitySegmented {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+}
+
+.ppOrderActivitySegmented button {
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.ppOrderActivitySegmented button.isActive {
+  background: var(--pp-dark-cta);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.12);
+}
+
 .ppOrderActivityWindow {
   display: inline-flex;
   align-items: center;
@@ -4638,6 +4976,15 @@ s-page[inline-size="large-500"] {
   font-size: 11px;
   font-weight: 750;
   text-align: right;
+}
+
+.ppOrderActivityWindow b {
+  width: 100%;
+  color: var(--pp-pulse-blue);
+  font-size: 10px;
+  font-weight: 900;
+  text-align: right;
+  text-transform: uppercase;
 }
 
 .ppOrderActivitySummary {
@@ -5008,6 +5355,105 @@ s-page[inline-size="large-500"] {
   height: 4px;
   border-radius: 999px;
   background: var(--pp-signal-teal);
+}
+
+.ppOrderResolutionChart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 16px;
+  align-items: stretch;
+  min-height: 232px;
+}
+
+.ppOrderResolutionBars {
+  display: grid;
+  gap: 10px;
+  align-content: center;
+  min-width: 0;
+}
+
+.ppOrderResolutionBucket {
+  display: grid;
+  grid-template-columns: 146px minmax(0, 1fr) 88px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ppOrderResolutionBucketLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppOrderResolutionTrack {
+  height: 13px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppOrderResolutionTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 180ms ease;
+}
+
+.ppOrderResolutionBucket strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ppOrderResolutionBucket-red .ppOrderResolutionTrack span {
+  background: var(--pp-risk-red);
+}
+
+.ppOrderResolutionBucket-amber .ppOrderResolutionTrack span {
+  background: var(--pp-warning-amber);
+}
+
+.ppOrderResolutionBucket-blue .ppOrderResolutionTrack span {
+  background: var(--pp-pulse-blue);
+}
+
+.ppOrderResolutionBucket-green .ppOrderResolutionTrack span {
+  background: var(--pp-success-green);
+}
+
+.ppOrderResolutionBucket-slate .ppOrderResolutionTrack span {
+  background: var(--pp-slate-400);
+}
+
+.ppOrderResolutionSummary {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppOrderResolutionSummary span {
+  display: grid;
+  gap: 2px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppOrderResolutionSummary b {
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
 }
 
 .ppProductReturnPredictionPanel {
@@ -5404,6 +5850,15 @@ s-page[inline-size="large-500"] {
   gap: 10px;
 }
 
+.ppProductDeepResearchGrid .ppOrderActivityControls {
+  min-width: 176px;
+}
+
+.ppProductDeepResearchGrid .ppOrderActivitySegmented button {
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
 .ppProductDeepResearchGrid .ppOrderActivityHeader h2,
 .ppProductDeepResearchGrid .ppReturnPredictionHeader h2 {
   font-size: 15px;
@@ -5431,6 +5886,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityWindow small {
+  display: none;
+}
+
+.ppProductDeepResearchGrid .ppOrderActivityWindow b {
   display: none;
 }
 
@@ -5535,6 +5994,20 @@ s-page[inline-size="large-500"] {
 .ppProductDeepResearchGrid .ppOrderActivityLegend {
   justify-content: center;
   gap: 12px;
+}
+
+.ppProductDeepResearchGrid .ppOrderResolutionChart {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 176px;
+}
+
+.ppProductDeepResearchGrid .ppOrderResolutionBucket {
+  grid-template-columns: 104px minmax(0, 1fr) 70px;
+}
+
+.ppProductDeepResearchGrid .ppOrderResolutionSummary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 10px;
 }
 
 .ppProductDeepResearchGrid .ppReturnPredictionPlot {
@@ -6223,6 +6696,11 @@ s-page[inline-size="large-500"] {
   .ppProductMomentumBreakdown {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .ppReturnRefundResolutionBody,
+  .ppOrderResolutionChart {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 760px) {
@@ -6253,6 +6731,28 @@ s-page[inline-size="large-500"] {
   }
 
   .ppOrderActivityWindow small {
+    text-align: left;
+  }
+
+  .ppReturnRefundResolutionHeader {
+    display: grid;
+  }
+
+  .ppReturnRefundMatrixHeader,
+  .ppReturnRefundMatrixRow {
+    grid-template-columns: 86px repeat(2, minmax(0, 1fr));
+  }
+
+  .ppReturnRefundResolutionChips,
+  .ppOrderResolutionSummary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppOrderResolutionBucket {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppOrderResolutionBucket strong {
     text-align: left;
   }
 }
