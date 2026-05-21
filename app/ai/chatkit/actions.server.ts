@@ -14,10 +14,13 @@ import { canUseInternalAiAction } from "../security/permissions.server";
 const safeActionPayloadSchema = z.object({
   proposalId: z.string().trim().min(1).max(320).optional(),
   productRef: z.string().trim().min(1).max(320).optional(),
+  product_id: z.string().trim().min(1).max(320).optional(),
   productGid: z.string().trim().min(1).max(320).optional(),
   handle: z.string().trim().min(1).max(180).optional(),
   recommendationId: z.string().trim().min(1).max(160).optional(),
   actionId: z.string().trim().min(1).max(160).optional(),
+  action_id: z.string().trim().min(1).max(160).optional(),
+  preview_id: z.string().trim().min(1).max(160).optional(),
   source: z.string().trim().max(120).optional(),
   message: z.string().trim().min(1).max(500).optional(),
 }).strict();
@@ -124,8 +127,20 @@ async function dispatchSafeAction(
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "product");
     case "open_evidence":
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "evidence");
+    case "open_evidence_source":
+      return productNavigationAction(context, input.action.payload || {}, toolRegistry, "evidence");
     case "open_recommendation":
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "recommendation");
+    case "review_action":
+      return productNavigationAction(context, input.action.payload || {}, toolRegistry, "recommendation");
+    case "prepare_apply_action":
+      return productNavigationAction(context, input.action.payload || {}, toolRegistry, "recommendation");
+    case "open_action_editor":
+      return productNavigationAction(context, input.action.payload || {}, toolRegistry, "recommendation");
+    case "open_issues":
+      return productNavigationAction(context, input.action.payload || {}, toolRegistry, "product");
+    case "open_momentum":
+      return productNavigationAction(context, input.action.payload || {}, toolRegistry, "product");
     case "open_analytics":
       return { status: "success", action: { type: "navigate", url: "/app/analytics" } };
     case "open_watchlist":
@@ -229,7 +244,7 @@ async function productNavigationAction(
   toolRegistry: AiToolRegistry,
   destination: "product" | "evidence" | "recommendation",
 ): Promise<ChatKitActionResult> {
-  const productRef = payload.productRef || payload.productGid || payload.handle || "";
+  const productRef = payload.productRef || payload.productGid || payload.handle || payload.product_id || "";
   if (!productRef) {
     return {
       status: "error",
@@ -259,7 +274,7 @@ async function productNavigationAction(
   }
 
   if (destination === "recommendation") {
-    const recommendationId = payload.recommendationId || payload.actionId || "";
+    const recommendationId = payload.recommendationId || payload.actionId || payload.action_id || "";
     if (!recommendationId) {
       return {
         status: "error",

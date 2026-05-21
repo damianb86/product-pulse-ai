@@ -27,15 +27,15 @@ It does not parse assistant natural language and does not build cards from raw d
 
 `diagnosis_summary`
 
-- Renders risk score, confidence, likely cause, and primary issues.
+- Renders the compact Product Diagnosis detail pattern with a summary panel, risk/confidence/evidence tiles, likely cause, and primary issues.
 - Handles missing risk/confidence gracefully.
 - Includes evidence/product navigation only when `productGid` exists.
 
 `evidence_list`
 
-- Renders the Evidence Summary card pattern with source/signal counters, bounded snippets, and safe evidence navigation.
+- Renders the Evidence Summary pattern as a `ListView` because ChatKit handles compact source lists better than large nested cards.
 - Caps visible evidence rows and text length.
-- Adds a read-only “show more evidence” action only when a product reference exists.
+- Evidence source clicks route through backend validation before navigation.
 
 `metric_table`
 
@@ -50,7 +50,8 @@ It does not parse assistant natural language and does not build cards from raw d
 
 `recommendation_list`
 
-- Renders Recommended Action card rows with an icon tile, status/issue badges, optional impact/risk/effort/confidence fields, and review/open-product actions.
+- Renders Recommended Action rows with a sparkle icon tile, deterministic description, impact/risk/effort/confidence badges when present, and Review/Apply buttons.
+- The Apply button is a safe `prepare_apply_action` navigation/preparation action. It does not execute Shopify mutations and does not bypass confirmation flows.
 - Does not mark recommendations or execute actions directly.
 
 `unavailable_state`
@@ -93,13 +94,13 @@ Practical constraints for this app:
 
 - ChatKit does not render arbitrary HTML, CSS classes, Polaris components, or React components inside a message.
 - Widgets must be JSON objects made from supported widget primitives.
-- The closest approximation to ProductPulse cards is a composition of `Card`, `Row`, `Col`, `Title`, `Text`, `Caption`, `Badge`, `Icon`, `Image`, `Divider`, and `Button`.
+- The closest approximation to ProductPulse cards is a composition of `Card`, `ListView`, `ListViewItem`, `Box`, `Row`, `Col`, `Title`, `Text`, `Caption`, `Badge`, `Icon`, `Image`, `Divider`, and `Button`.
 - Exact mockup details such as custom shadows, gradients, chart rendering, pixel-perfect card borders, bespoke SVG sparklines, and CSS hover states are outside the widget payload model.
 - Widget actions are client-originated payloads and must be treated as untrusted. They continue to route through ProductPulse backend validation.
 - Complex forms are not a good fit for widgets; the ChatKit actions docs recommend client-side modals when a workflow needs richer validation.
 - Images must be hosted by the backend or otherwise be stable public URLs before they are referenced by ChatKit.
 
-The adapter now avoids `Table.*` and generic `Box` output because those are more likely to differ between the installed TypeScript types, public docs, and the CDN renderer. Rows that visually look like tables are built from `Row` and `Col` primitives instead.
+The adapter avoids `Table.*` output. Rows that visually look like tables are built from `Row`, `Col`, and small bounded `Box` panels instead. `Box` is used only as a supported layout primitive, not as a vehicle for arbitrary HTML or custom CSS.
 
 ## Mapping Flow
 
@@ -119,6 +120,13 @@ All widget actions continue through ProductPulse backend validation:
 
 - `open_product`
 - `open_evidence`
+- `open_evidence_source`
+- `review_action`
+- `prepare_apply_action`
+- `open_action_editor`
+- `open_issues`
+- `open_momentum`
+- `open_analytics`
 - `show_more_evidence`
 - `confirm_ai_action`
 - `cancel_ai_action`
@@ -127,11 +135,11 @@ Navigation actions are validated server-side and emitted back as ChatKit client 
 
 Confirm/cancel responses are deterministic backend responses. They emit `action_result` widgets directly and do not make a second OpenAI call after the user clicks Confirm or Cancel.
 
-## Chart Cards
+## Momentum And Chart Cards
 
-No standalone chart card is implemented in this phase.
+No standalone momentum or chart card is implemented in this phase.
 
-The existing app has custom SVG charts in React screens, but the AI presentation schema does not expose validated chart series yet. The ChatKit adapter therefore renders metrics as compact rows. A future chart block should define validated series, labels, units, and caps before any visual chart is added.
+The existing app has custom SVG charts in React screens, but the AI presentation schema does not expose validated trend series, chart image URLs, or weekly momentum buckets yet. The ChatKit adapter therefore renders metrics as compact cards/rows. A future chart block should define validated series, labels, units, caps, and optional backend-generated chart image URLs before any visual chart is added.
 
 ## Security Rules
 

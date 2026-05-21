@@ -387,17 +387,15 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
-    expect(widgets.every((widget) => widget.type !== "Card" || widget.size === "full")).toBe(true);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card"]);
     expect(JSON.stringify(widgets)).toContain("open_product");
-    expect(JSON.stringify(widgets)).toContain("open_evidence");
-    expect(JSON.stringify(widgets)).toContain("open_recommendation");
-    expect(JSON.stringify(widgets)).toContain("show_more_evidence");
+    expect(JSON.stringify(widgets)).toContain("open_evidence_source");
+    expect(JSON.stringify(widgets)).toContain("review_action");
+    expect(JSON.stringify(widgets)).toContain("prepare_apply_action");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");
     expect(JSON.stringify(widgets)).toContain("Action completed");
     expect(JSON.stringify(widgets)).not.toContain("\"type\":\"Table");
-    expect(JSON.stringify(widgets)).not.toContain("\"type\":\"Box\"");
     expect(JSON.stringify(widgets)).not.toContain(longEvidence);
   });
 
@@ -419,8 +417,9 @@ describe("ProductPulse ChatKit integration", () => {
     expect(widget.type).toBe("Card");
     expect(JSON.stringify(widget)).toContain("Recommended action 8");
     expect(JSON.stringify(widget)).toContain("Review");
-    expect(JSON.stringify(widget)).toContain("\"type\":\"open_recommendation\"");
-    expect(JSON.stringify(widget)).toContain("\"recommendationId\":\"rec-8\"");
+    expect(JSON.stringify(widget)).toContain("\"type\":\"review_action\"");
+    expect(JSON.stringify(widget)).toContain("\"type\":\"prepare_apply_action\"");
+    expect(JSON.stringify(widget)).toContain("\"action_id\":\"rec-8\"");
   });
 
   it("falls back safely for unsupported presentation blocks without leaking raw JSON", () => {
@@ -455,7 +454,7 @@ describe("ProductPulse ChatKit integration", () => {
     });
 
     expect(widget.confirm).toEqual({
-      label: "Confirm",
+      label: "Apply change",
       action: { type: "confirm_ai_action", payload: { proposalId: "proposal-1" } },
     });
     expect(widget.cancel).toEqual({
@@ -547,6 +546,50 @@ describe("ProductPulse ChatKit integration", () => {
         payload: {
           productRef: "core-linen-trouser",
           recommendationId: "rewrite-product-description",
+        },
+      },
+    }, {
+      toolRegistry: registry,
+    });
+
+    expect(result).toEqual({
+      status: "success",
+      action: {
+        type: "navigate",
+        url: "/app/products/core-linen-trouser?assistantAction=open_recommendation&recommendationId=rewrite-product-description",
+      },
+    });
+    expect(registry.executeAiTool).toHaveBeenCalledWith(
+      PRODUCT_PULSE_AI_TOOL_NAMES.getProductRiskDetail,
+      expect.objectContaining({ shop: baseContext.shop }),
+      { productRef: "core-linen-trouser" },
+    );
+  });
+
+  it("accepts card-template action aliases without trusting tenant payloads", async () => {
+    expect(chatKitActionRequestSchema.safeParse({
+      action: {
+        type: "prepare_apply_action",
+        payload: {
+          product_id: "core-linen-trouser",
+          action_id: "rewrite-product-description",
+        },
+      },
+    }).success).toBe(true);
+
+    const registry = createRegistry({
+      product: {
+        productGid: "gid://shopify/Product/1",
+        handle: "core-linen-trouser",
+      },
+    });
+
+    const result = await handleChatKitAction(baseContext, {
+      action: {
+        type: "prepare_apply_action",
+        payload: {
+          product_id: "core-linen-trouser",
+          action_id: "rewrite-product-description",
         },
       },
     }, {
