@@ -4,7 +4,7 @@
 
 The AI chat orchestrator is the backend-only Phase 2 layer for ProductPulse AI chat. It receives a user message, authenticates the Shopify embedded app request, creates a server-side AI context, exposes Phase 1 read-only ProductPulse tools to OpenAI, executes requested tools through the internal registry, and returns a UI-neutral structured response.
 
-It does not render UI, stream responses, integrate ChatKit widgets, create Polaris chat components, perform Shopify mutations, or run autonomous workflows. Phase 4 adds internal action proposal support on top of this orchestrator, but confirmed execution remains backend-only.
+It does not render UI, stream responses, integrate ChatKit widgets, create Polaris chat components, perform Shopify mutations, or run autonomous workflows. Phase 4 adds internal action proposal support on top of this orchestrator, but confirmed execution remains backend-only. The app-only draft phase adds editable draft proposal support; those proposals save ProductPulse app data only and never apply to Shopify.
 
 ## Main Modules
 
@@ -109,6 +109,8 @@ Blocks are UI-neutral and can later be rendered by either a custom Polaris chat 
 - `evidence_list`
 - `metric_table`
 - `action_proposal`
+- `app_draft_proposal`
+- `app_draft_result`
 
 No HTML, Polaris component descriptors, or ChatKit widget descriptors are returned.
 
@@ -121,6 +123,14 @@ Phase 4 adds one controlled model-facing proposal tool:
 This tool can create a pending server-stored proposal for a supported ProductPulse internal action. It cannot execute the action. The proposal is rendered as an `action_proposal` neutral block and later as a ChatKit confirmation card.
 
 Actual execution only happens through backend confirmation handling. The backend reloads the proposal by `proposalId`, checks shop ownership, status, expiry, entity ownership, and stored validated input, then runs the action executor. The model does not receive authority to run mutations directly.
+
+## App-Only Draft Proposals
+
+The orchestrator also exposes one controlled model-facing draft proposal tool:
+
+- `product_pulse_propose_app_only_mutation`
+
+This tool can create editable server-stored draft proposals for supported ProductPulse app-owned data, such as product description drafts, SEO drafts, allowlisted metafield value drafts, and app-owned recommendations. It cannot save the draft and cannot update Shopify. ChatKit save/cancel actions reload the proposal by `proposalId` and validate edited fields server-side.
 
 If the model returns invalid structured output, the orchestrator retries once. If the retry also fails, it returns a safe text-only fallback.
 

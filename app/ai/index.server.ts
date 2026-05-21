@@ -20,6 +20,11 @@ export {
   listAiActions,
 } from "./actions/registry.server";
 export { PRODUCT_PULSE_AI_ACTION_NAMES } from "./actions/productPulseActions.server";
+export {
+  AI_APP_MUTATION_PROPOSAL_TOOL_NAME,
+  createAiAppMutationRegistry,
+} from "./appMutations/registry.server";
+export { PRODUCT_PULSE_AI_APP_MUTATION_NAMES } from "./appMutations/productPulseAppMutations.server";
 export type {
   AiToolContext,
   AiToolDefinition,
@@ -31,5 +36,10 @@ export type {
   AiActionExecutionResult,
   AiActionProposal,
 } from "./actions/types";
+export type {
+  AiAppMutationDefinition,
+  AiAppMutationProposal,
+  AiAppMutationSaveResult,
+} from "./appMutations/types";
 export type { AiChatTurnResult, RunAiChatTurnInput } from "./chat/aiChatOrchestrator.server";
 export type { AiChatKitSessionResponse } from "./chatkit/session.server";

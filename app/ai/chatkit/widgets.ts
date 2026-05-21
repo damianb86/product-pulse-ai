@@ -66,6 +66,10 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return actionProposalWidget(block);
     case "action_result":
       return actionResultWidget(block);
+    case "app_draft_proposal":
+      return appDraftProposalWidget(block);
+    case "app_draft_result":
+      return appDraftResultWidget(block);
     case "summary":
     default:
       return summaryWidget(block);
@@ -348,6 +352,105 @@ function actionResultWidget(block: Extract<AiPresentationBlock, { type: "action_
     status: {
       text: block.status === "cancelled" ? "Action cancelled" : block.status === "success" ? "Action completed" : "Action failed",
       icon: block.status === "success" ? "check-circle" : "info",
+    },
+  });
+}
+
+function appDraftProposalWidget(block: Extract<AiPresentationBlock, { type: "app_draft_proposal" }>): Widgets.Card {
+  const fieldControls = block.editableFields.flatMap((field, index) => editableFieldControl(field, index));
+  return productPulseCard([
+    row([
+      iconTile(block.draftType === "metafield_value" ? "document" : "sparkle", {
+        key: "icon",
+        background: COLORS.accentSoft,
+      }),
+      col([
+        title(block.title, { key: "title", size: "md", weight: "bold", maxLines: 2 }),
+        caption(block.summary, { key: "summary", color: COLORS.muted, maxLength: 260 }),
+      ], { key: "heading-copy", gap: 1, flex: 1 }),
+    ], { key: "heading", gap: 6, align: "start", wrap: "nowrap" }),
+    ...(block.generatedReason ? [
+      sectionBox([
+        caption("Reason", { key: "label", color: COLORS.accent, weight: "bold" }),
+        text(block.generatedReason, { key: "reason", maxLength: MAX_DETAIL_LENGTH, maxLines: 3 }),
+      ], { key: "reason-box", background: COLORS.panel }),
+    ] : []),
+    {
+      type: "Form",
+      key: "draft-form",
+      direction: "col",
+      gap: 1,
+      onSubmitAction: { type: "save_ai_app_draft", payload: { proposalId: block.proposalId } },
+      children: [
+        ...fieldControls,
+        row([
+          {
+            type: "Button",
+            key: "save",
+            submit: true,
+            label: "Save draft in app",
+            style: "primary",
+            variant: "solid",
+            color: "primary",
+            size: "xs",
+            block: true,
+          },
+          button("Cancel", "cancel_ai_app_draft", { proposalId: block.proposalId }, "chevron-right", {
+            key: "cancel",
+            style: "secondary",
+            variant: "outline",
+            block: true,
+          }),
+        ], { key: "buttons", gap: 3, wrap: "wrap" }),
+      ],
+    },
+    ...(block.validationWarnings.length ? [
+      col(block.validationWarnings.slice(0, 3).map((warning, index) => bulletRow(warning, `warning-${index}`, "info")), {
+        key: "warnings",
+        gap: 1,
+      }),
+    ] : []),
+    caption("This saves data inside ProductPulse only. It does not update Shopify.", { key: "safety" }),
+  ], {
+    size: "lg",
+    status: {
+      text: "App-only draft",
+      icon: "document",
+    },
+  });
+}
+
+function appDraftResultWidget(block: Extract<AiPresentationBlock, { type: "app_draft_result" }>): Widgets.Card {
+  const isSuccess = block.status === "success";
+  return productPulseCard([
+    row([
+      iconTile(isSuccess ? "check-circle" : "info", {
+        key: "icon",
+        background: isSuccess ? COLORS.successSoft : block.status === "error" ? COLORS.dangerSoft : COLORS.soft,
+      }),
+      col([
+        title(block.title, { key: "title", size: "md", weight: "bold" }),
+        row([
+          badge(appDraftStatusLabel(block.status), appDraftStatusColor(block.status), { key: "status" }),
+          ...(block.sideEffectLevel ? [badge(`${capitalize(block.sideEffectLevel)} app effect`, sideEffectBadgeColor(block.sideEffectLevel), { key: "side-effect" })] : []),
+        ], { key: "badges", gap: 4 }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+    ], { key: "top", gap: 6, align: "start", wrap: "nowrap" }),
+    sectionBox([
+      text(block.summary, { key: "summary", maxLength: MAX_SUMMARY_LENGTH, color: COLORS.text }),
+      ...(block.targetLabel ? [caption(`Target: ${block.targetLabel}`, { key: "target" })] : []),
+      ...(block.savedRecordId ? [caption(`Saved record: ${block.savedRecordId}`, { key: "record", maxLength: 120 })] : []),
+    ], { key: "summary-box" }),
+    ...(block.affectedEntities.length ? [
+      col(block.affectedEntities.slice(0, 4).map((entity, index) => bulletRow(entity.label || entity.id, `affected-${index}`, "check-circle")), {
+        key: "affected",
+        gap: 1,
+      }),
+    ] : []),
+  ], {
+    status: {
+      text: isSuccess ? "Draft saved" : block.status === "cancelled" ? "Draft cancelled" : "Draft failed",
+      icon: isSuccess ? "check-circle" : "info",
     },
   });
 }
@@ -702,6 +805,70 @@ function actionFooter(children: Widgets.WidgetComponent[], key: string): Widgets
   return row(children, { key, gap: 3, align: "center", wrap: "wrap" });
 }
 
+function editableFieldControl(
+  field: Extract<AiPresentationBlock, { type: "app_draft_proposal" }>["editableFields"][number],
+  index: number,
+): Widgets.WidgetComponent[] {
+  const key = `field-${index}-${stableId(field.name)}`;
+  const label = {
+    type: "Label",
+    key: `${key}-label`,
+    value: field.label,
+    fieldName: field.name,
+    size: "sm",
+    weight: "semibold",
+    color: COLORS.text,
+  } as Widgets.WidgetComponent;
+
+  if (field.fieldType === "select") {
+    return [
+      label,
+      {
+        type: "Select",
+        key,
+        name: field.name,
+        options: field.options || [],
+        defaultValue: field.value,
+        size: "sm",
+        variant: "outline",
+        block: true,
+      } as Widgets.WidgetComponent,
+    ];
+  }
+
+  if (field.fieldType === "text") {
+    return [
+      label,
+      {
+        type: "Input",
+        key,
+        name: field.name,
+        inputType: "text",
+        defaultValue: field.value,
+        required: field.required,
+        size: "sm",
+        variant: "outline",
+      } as Widgets.WidgetComponent,
+    ];
+  }
+
+  return [
+    label,
+    {
+      type: "Textarea",
+      key,
+      name: field.name,
+      defaultValue: field.value,
+      required: field.required,
+      size: "sm",
+      variant: "outline",
+      rows: field.value.length > 280 ? 6 : 4,
+      autoResize: true,
+      maxRows: 10,
+    } as Widgets.WidgetComponent,
+  ];
+}
+
 function emptyInline(message: string, key: string): Widgets.Col {
   return sectionBox([
     caption(message, { key: "message" }),
@@ -799,6 +966,18 @@ function actionResultStatusLabel(status: "success" | "error" | "cancelled"): str
   if (status === "success") return "Completed";
   if (status === "error") return "Failed";
   return "Cancelled";
+}
+
+function appDraftStatusLabel(status: "success" | "error" | "cancelled"): string {
+  if (status === "success") return "Saved";
+  if (status === "error") return "Failed";
+  return "Cancelled";
+}
+
+function appDraftStatusColor(status: "success" | "error" | "cancelled"): NonNullable<Widgets.Badge["color"]> {
+  if (status === "success") return "success";
+  if (status === "error") return "danger";
+  return "secondary";
 }
 
 function compactPayload(payload: Record<string, unknown>): Record<string, unknown> {

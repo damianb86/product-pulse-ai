@@ -9,7 +9,12 @@ import {
   aiActionCancellationToPresentationBlock,
   aiActionExecutionToPresentationBlock,
 } from "../actions/presentation";
-import { canUseInternalAiAction } from "../security/permissions.server";
+import { createAiAppMutationRegistry, type AiAppMutationRegistry } from "../appMutations/registry.server";
+import {
+  aiAppMutationCancellationToPresentationBlock,
+  aiAppMutationResultToPresentationBlock,
+} from "../appMutations/presentation";
+import { canUseAiAppMutation, canUseInternalAiAction } from "../security/permissions.server";
 
 const safeActionPayloadSchema = z.object({
   proposalId: z.string().trim().min(1).max(320).optional(),
@@ -23,6 +28,17 @@ const safeActionPayloadSchema = z.object({
   preview_id: z.string().trim().min(1).max(160).optional(),
   source: z.string().trim().max(120).optional(),
   message: z.string().trim().min(1).max(500).optional(),
+  text: z.string().trim().max(8000).optional(),
+  seoTitle: z.string().trim().max(90).optional(),
+  seoDescription: z.string().trim().max(220).optional(),
+  value: z.string().trim().max(8000).optional(),
+  title: z.string().trim().max(180).optional(),
+  description: z.string().trim().max(800).optional(),
+  priority: z.enum(["low", "medium", "high"]).optional(),
+  status: z.enum(["draft", "active", "reviewed", "dismissed", "completed"]).optional(),
+  reason: z.string().trim().max(700).optional(),
+  editedFields: z.record(z.string(), z.unknown()).optional(),
+  formData: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
 export const chatKitActionRequestSchema = z.object({
@@ -68,6 +84,7 @@ export const noopChatKitActionLogger: ChatKitActionLogger = {
 export interface HandleChatKitActionDependencies {
   toolRegistry?: AiToolRegistry;
   actionRegistry?: AiActionRegistry;
+  appMutationRegistry?: AiAppMutationRegistry;
   logger?: ChatKitActionLogger;
 }
 
@@ -101,6 +118,7 @@ export async function handleChatKitAction(
     input,
     dependencies.toolRegistry || createAiToolRegistry(),
     dependencies.actionRegistry || createAiActionRegistry(),
+    dependencies.appMutationRegistry || createAiAppMutationRegistry(),
   );
   await safeLog(() => logger.logActionAttempt({
     context,
@@ -117,12 +135,19 @@ async function dispatchSafeAction(
   input: ChatKitActionRequest,
   toolRegistry: AiToolRegistry,
   actionRegistry: AiActionRegistry,
+  appMutationRegistry: AiAppMutationRegistry,
 ): Promise<ChatKitActionResult> {
   switch (input.action.type) {
     case "confirm_ai_action":
       return confirmAiAction(context, input.action.payload || {}, actionRegistry);
     case "cancel_ai_action":
       return cancelAiAction(context, input.action.payload || {}, actionRegistry);
+    case "save_ai_app_draft":
+      return saveAiAppDraft(context, input.action.payload || {}, appMutationRegistry);
+    case "update_ai_app_draft":
+      return updateAiAppDraft(context, input.action.payload || {}, appMutationRegistry);
+    case "cancel_ai_app_draft":
+      return cancelAiAppDraft(context, input.action.payload || {}, appMutationRegistry);
     case "open_product":
       return productNavigationAction(context, input.action.payload || {}, toolRegistry, "product");
     case "open_evidence":
@@ -156,6 +181,125 @@ async function dispatchSafeAction(
         message: "That assistant action is not available yet.",
       };
   }
+}
+
+async function saveAiAppDraft(
+  context: AiToolContext,
+  payload: z.infer<typeof safeActionPayloadSchema>,
+  registry: AiAppMutationRegistry,
+): Promise<ChatKitActionResult> {
+  const permission = canUseAiAppMutation(context);
+  if (!permission.allowed) {
+    return {
+      status: "error",
+      code: permission.code || "AI_APP_MUTATIONS_DISABLED",
+      message: permission.message || "AI app-only drafts are disabled.",
+    };
+  }
+  if (!payload.proposalId) {
+    return {
+      status: "error",
+      code: "VALIDATION_ERROR",
+      message: "The draft action is missing a proposal ID.",
+    };
+  }
+
+  const result = await registry.saveAiAppMutationDraft(context, payload.proposalId, editablePayload(payload));
+  if (!result.ok) {
+    return {
+      status: "error",
+      code: result.error.code,
+      message: result.error.message,
+    };
+  }
+
+  return {
+    status: "success",
+    action: {
+      type: "assistant_response",
+      message: result.data.result.safeMessage,
+      blocks: [aiAppMutationResultToPresentationBlock(result.data.result, {
+        targetLabel: result.data.proposal.targetLabel,
+        sideEffectLevel: result.data.proposal.sideEffectLevel,
+      })],
+    },
+  };
+}
+
+async function updateAiAppDraft(
+  context: AiToolContext,
+  payload: z.infer<typeof safeActionPayloadSchema>,
+  registry: AiAppMutationRegistry,
+): Promise<ChatKitActionResult> {
+  const permission = canUseAiAppMutation(context);
+  if (!permission.allowed) {
+    return {
+      status: "error",
+      code: permission.code || "AI_APP_MUTATIONS_DISABLED",
+      message: permission.message || "AI app-only drafts are disabled.",
+    };
+  }
+  if (!payload.proposalId) {
+    return {
+      status: "error",
+      code: "VALIDATION_ERROR",
+      message: "The draft action is missing a proposal ID.",
+    };
+  }
+  const result = await registry.updateAiAppMutationDraft(context, payload.proposalId, editablePayload(payload));
+  if (!result.ok) {
+    return {
+      status: "error",
+      code: result.error.code,
+      message: result.error.message,
+    };
+  }
+  return {
+    status: "success",
+    action: {
+      type: "assistant_response",
+      message: `${result.data.proposal.title} was updated. It has not been saved to Shopify.`,
+      blocks: [],
+    },
+  };
+}
+
+async function cancelAiAppDraft(
+  context: AiToolContext,
+  payload: z.infer<typeof safeActionPayloadSchema>,
+  registry: AiAppMutationRegistry,
+): Promise<ChatKitActionResult> {
+  const permission = canUseAiAppMutation(context);
+  if (!permission.allowed) {
+    return {
+      status: "error",
+      code: permission.code || "AI_APP_MUTATIONS_DISABLED",
+      message: permission.message || "AI app-only drafts are disabled.",
+    };
+  }
+  if (!payload.proposalId) {
+    return {
+      status: "error",
+      code: "VALIDATION_ERROR",
+      message: "The draft action is missing a proposal ID.",
+    };
+  }
+  const result = await registry.cancelAiAppMutationDraft(context, payload.proposalId);
+  if (!result.ok) {
+    return {
+      status: "error",
+      code: result.error.code,
+      message: result.error.message,
+    };
+  }
+  return {
+    status: "success",
+    action: {
+      type: "assistant_response",
+      message: `${result.data.proposal.title} was cancelled. No app data or Shopify data was changed.`,
+      blocks: [aiAppMutationCancellationToPresentationBlock(result.data.proposal)],
+    },
+  };
 }
 
 async function confirmAiAction(
@@ -319,6 +463,24 @@ function refineQueryAction(payload: z.infer<typeof safeActionPayloadSchema>): Ch
       type: "send_message",
       message: payload.message,
     },
+  };
+}
+
+function editablePayload(payload: z.infer<typeof safeActionPayloadSchema>): Record<string, unknown> {
+  const nested = payload.editedFields && typeof payload.editedFields === "object" ? payload.editedFields : {};
+  const formData = payload.formData && typeof payload.formData === "object" ? payload.formData : {};
+  return {
+    ...nested,
+    ...formData,
+    ...(payload.text !== undefined ? { text: payload.text } : {}),
+    ...(payload.seoTitle !== undefined ? { seoTitle: payload.seoTitle } : {}),
+    ...(payload.seoDescription !== undefined ? { seoDescription: payload.seoDescription } : {}),
+    ...(payload.value !== undefined ? { value: payload.value } : {}),
+    ...(payload.title !== undefined ? { title: payload.title } : {}),
+    ...(payload.description !== undefined ? { description: payload.description } : {}),
+    ...(payload.priority !== undefined ? { priority: payload.priority } : {}),
+    ...(payload.status !== undefined ? { status: payload.status } : {}),
+    ...(payload.reason !== undefined ? { reason: payload.reason } : {}),
   };
 }
 

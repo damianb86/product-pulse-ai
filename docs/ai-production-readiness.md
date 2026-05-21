@@ -8,6 +8,7 @@ ProductPulse uses:
 - OpenAI APIs for inference.
 - ProductPulse AI tool registry for read-only app data.
 - ProductPulse internal action registry for confirmed app-internal side effects.
+- ProductPulse app-only draft mutation registry for editable drafts that never apply to Shopify.
 
 The default architecture does not use Agent Builder hosted workflows and does not require `AI_CHATKIT_WORKFLOW_ID`.
 
@@ -16,6 +17,7 @@ The default architecture does not use Agent Builder hosted workflows and does no
 - `AI_ASSISTANT_ENABLED`: global kill switch.
 - `AI_CHATKIT_ENABLED`: ChatKit UI/session switch.
 - `AI_INTERNAL_ACTIONS_ENABLED`: internal action proposal switch.
+- `AI_APP_MUTATIONS_ENABLED`: editable app-only draft proposal/save switch.
 - `AI_ACTION_CONFIRMATIONS_ENABLED`: internal action confirmation/execution switch.
 - `AI_RATE_LIMIT_ENABLED`: request protection switch.
 - `AI_COST_TRACKING_ENABLED`: token/cost logging switch.
@@ -29,6 +31,7 @@ Current permission model:
 - Tenant context is derived from server session.
 - Authenticated app users can use read-only chat.
 - Authenticated app users can use internal actions only when action flags are enabled.
+- Authenticated app users can save app-only AI drafts only when app mutation and confirmation flags are enabled.
 
 Future extension:
 - Add merchant role checks to `app/ai/security/permissions.server.ts`.

@@ -14,6 +14,12 @@ import {
   aiActionProposalToPresentationBlock,
   aiActionProposalToSafeSummary,
 } from "../actions/presentation";
+import {
+  AI_APP_MUTATION_PROPOSAL_TOOL_NAME,
+  buildAppMutationProposalOpenAiToolDefinition,
+  createAiAppMutationRegistry,
+  type AiAppMutationRegistry,
+} from "../appMutations/registry.server";
 import { estimateAiTurnCost, type AiEstimatedCost } from "../observability/pricing";
 import type { AiChatTrace } from "../observability/trace";
 import { AI_TRACE_SCHEMA_VERSION, compactAiChatTraceForMetadata } from "../observability/trace";
@@ -83,6 +89,7 @@ export interface AiChatOrchestratorDependencies {
   openAiClient?: OpenAiResponsesClient;
   toolRegistry?: AiToolRegistry;
   actionRegistry?: AiActionRegistry;
+  appMutationRegistry?: AiAppMutationRegistry;
   conversationStore?: AiConversationStore;
   config?: AiChatConfig;
   env?: NodeJS.ProcessEnv;
@@ -110,6 +117,7 @@ export class AiChatOrchestrator {
   private openAiClient?: OpenAiResponsesClient;
   private toolRegistry: AiToolRegistry;
   private actionRegistry: AiActionRegistry;
+  private appMutationRegistry: AiAppMutationRegistry;
   private conversationStore: AiConversationStore;
   private config: AiChatConfig;
   private env: NodeJS.ProcessEnv;
@@ -119,6 +127,7 @@ export class AiChatOrchestrator {
     this.openAiClient = dependencies.openAiClient;
     this.toolRegistry = dependencies.toolRegistry || createAiToolRegistry();
     this.actionRegistry = dependencies.actionRegistry || createAiActionRegistry();
+    this.appMutationRegistry = dependencies.appMutationRegistry || createAiAppMutationRegistry({ env: dependencies.env });
     this.conversationStore = dependencies.conversationStore || new PrismaAiConversationStore();
     this.config = { ...getAiChatConfig(dependencies.env), ...(dependencies.config || {}) };
     this.env = dependencies.env || process.env;
@@ -260,10 +269,15 @@ export class AiChatOrchestrator {
     const actionDefinitions = this.config.internalActionsEnabled && this.config.actionConfirmationsEnabled
       ? this.actionRegistry.listAiActions()
       : [];
+    const appMutationDefinitions = this.config.appMutationsEnabled && this.config.actionConfirmationsEnabled
+      ? this.appMutationRegistry.listAiAppMutations()
+      : [];
+    const appMutationProposalTool = buildAppMutationProposalOpenAiToolDefinition(sanitizeJsonSchemaForOpenAi);
     const instructions = buildAiChatInstructions({
       pageContext,
       toolNames: adapter.tools.map((tool) => tool.name),
       actionNames: actionDefinitions.map((definition) => definition.actionName),
+      appMutationNames: appMutationDefinitions.map((definition) => definition.mutationName),
     });
     const inputItems = buildOpenAiInputItems({
       messages: recentMessages,
@@ -279,7 +293,11 @@ export class AiChatOrchestrator {
         userMessageId: userMessage.id,
         instructions,
         inputItems,
-        tools: actionDefinitions.length ? [...adapter.tools, actionProposalTool] : adapter.tools,
+        tools: [
+          ...adapter.tools,
+          ...(actionDefinitions.length ? [actionProposalTool] : []),
+          ...(appMutationDefinitions.length ? [appMutationProposalTool] : []),
+        ],
         openAiNameToInternalName: adapter.openAiNameToInternalName,
       });
       const parseResult = await this.parseOrRecoverAssistantResponse({
@@ -488,6 +506,8 @@ export class AiChatOrchestrator {
 
     const result = internalToolName === AI_ACTION_PROPOSAL_TOOL_NAME
       ? await this.executeActionProposalTool(input.chatContext, rawArguments)
+      : internalToolName === AI_APP_MUTATION_PROPOSAL_TOOL_NAME
+      ? await this.appMutationRegistry.executeProposalTool(input.chatContext, rawArguments)
       : await this.toolRegistry.executeAiTool(internalToolName, input.chatContext, rawArguments);
     const durationMs = Date.now() - startedAt;
     const output = compactToolExecutionResult(result, this.config.maxToolResultCharacters);
@@ -816,7 +836,7 @@ function enforceAssistantResponseGuardrails(
   if (config.maxActionProposalsPerTurn < 0) return response;
   let actionProposalCount = 0;
   const blocks = response.blocks.filter((block) => {
-    if (block.type !== "action_proposal") return true;
+    if (block.type !== "action_proposal" && block.type !== "app_draft_proposal") return true;
     actionProposalCount += 1;
     return actionProposalCount <= config.maxActionProposalsPerTurn;
   });

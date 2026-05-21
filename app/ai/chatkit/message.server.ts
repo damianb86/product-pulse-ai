@@ -11,6 +11,7 @@ import { AiChatOrchestrator, type AiChatTurnResult } from "../chat/aiChatOrchest
 import type { AiPageContext } from "../chat/pageContext";
 import type { AiPresentationBlock } from "../presentation/blocks";
 import type { AiActionRegistry } from "../actions/registry.server";
+import type { AiAppMutationRegistry } from "../appMutations/registry.server";
 import { aiActionErrorToPresentationBlock } from "../actions/presentation";
 import { createAiToolRegistry, type AiToolRegistry } from "../tools/registry.server";
 import { chatKitActionRequestSchema, handleChatKitAction } from "./actions.server";
@@ -138,6 +139,7 @@ export interface HandleChatKitMessageDependencies {
   conversationStore?: AiConversationStore;
   toolRegistry?: AiToolRegistry;
   actionRegistry?: AiActionRegistry;
+  appMutationRegistry?: AiAppMutationRegistry;
   now?: () => Date;
 }
 
@@ -278,6 +280,7 @@ async function runChatKitAction(input: {
   const result = await handleChatKitAction(input.context, parsed.data, {
     toolRegistry: input.dependencies.toolRegistry,
     actionRegistry: input.dependencies.actionRegistry,
+    appMutationRegistry: input.dependencies.appMutationRegistry,
   });
   if (result.status === "error") {
     return assistantBlockResponseEvents({

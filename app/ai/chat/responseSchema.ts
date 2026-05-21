@@ -72,6 +72,8 @@ function recoverPresentationBlock(value: unknown): AiAssistantResponse["blocks"]
   trimArrayField(block, "rows", 12);
   trimArrayField(block, "risks", 6);
   trimArrayField(block, "affectedEntities", 6);
+  trimArrayField(block, "editableFields", 6);
+  trimArrayField(block, "validationWarnings", 8);
 
   const parsed = aiPresentationBlockSchema.safeParse(block);
   return parsed.success ? parsed.data : null;
@@ -179,5 +181,36 @@ const PRESENTATION_BLOCK_KEYS: Record<string, string[]> = {
     "sideEffectLevel",
     "affectedEntities",
     "createdJobId",
+  ],
+  app_draft_proposal: [
+    "type",
+    "proposalId",
+    "mutationName",
+    "draftType",
+    "title",
+    "summary",
+    "targetType",
+    "targetId",
+    "targetLabel",
+    "proposedValue",
+    "currentAppValueSnapshot",
+    "generatedReason",
+    "validationWarnings",
+    "editableFields",
+    "confirmationLevel",
+    "sideEffectLevel",
+    "reversible",
+    "expiresAt",
+  ],
+  app_draft_result: [
+    "type",
+    "mutationName",
+    "status",
+    "title",
+    "summary",
+    "targetLabel",
+    "sideEffectLevel",
+    "affectedEntities",
+    "savedRecordId",
   ],
 };

@@ -142,6 +142,56 @@ const actionResultBlockSchema = z.object({
   createdJobId: z.string().max(320).nullable().optional(),
 }).strict();
 
+const appDraftEditableFieldSchema = z.object({
+  name: z.string().max(80),
+  label: z.string().max(160),
+  value: z.string().max(8000),
+  fieldType: z.enum(["text", "textarea", "select"]),
+  required: z.boolean().optional(),
+  maxLength: z.number().int().min(1).max(10000).optional(),
+  options: z.array(z.object({
+    label: z.string().max(120),
+    value: z.string().max(120),
+  }).strict()).max(12).optional(),
+}).strict();
+
+const appDraftProposalBlockSchema = z.object({
+  type: z.literal("app_draft_proposal"),
+  proposalId: z.string().max(320),
+  mutationName: z.string().max(180),
+  draftType: z.enum(["product_description", "seo", "metafield_value", "recommendation_text", "internal_note", "other"]),
+  title: z.string().max(220),
+  summary: z.string().max(800),
+  targetType: z.string().max(80),
+  targetId: z.string().max(320),
+  targetLabel: z.string().max(220).nullable().optional(),
+  proposedValue: z.record(z.string(), z.string().max(1200)).default({}),
+  currentAppValueSnapshot: z.record(z.string(), z.string().max(1200)).default({}),
+  generatedReason: z.string().max(700).nullable().optional(),
+  validationWarnings: z.array(z.string().max(260)).max(8).default([]),
+  editableFields: z.array(appDraftEditableFieldSchema).max(6),
+  confirmationLevel: z.enum(["low", "medium", "high"]),
+  sideEffectLevel: z.enum(["low", "medium", "high"]),
+  reversible: z.boolean(),
+  expiresAt: z.string().max(80),
+}).strict();
+
+const appDraftResultBlockSchema = z.object({
+  type: z.literal("app_draft_result"),
+  mutationName: z.string().max(180),
+  status: z.enum(["success", "error", "cancelled"]),
+  title: z.string().max(220),
+  summary: z.string().max(800),
+  targetLabel: z.string().max(220).nullable().optional(),
+  sideEffectLevel: z.enum(["low", "medium", "high"]).nullable().optional(),
+  affectedEntities: z.array(z.object({
+    type: z.string().max(80),
+    id: z.string().max(320),
+    label: z.string().max(220).nullable().optional(),
+  }).strict()).max(6).default([]),
+  savedRecordId: z.string().max(320).nullable().optional(),
+}).strict();
+
 export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   textBlockSchema,
   productReferenceBlockSchema,
@@ -153,6 +203,8 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   unavailableStateBlockSchema,
   actionProposalBlockSchema,
   actionResultBlockSchema,
+  appDraftProposalBlockSchema,
+  appDraftResultBlockSchema,
 ]);
 
 export type AiPresentationBlock = z.infer<typeof aiPresentationBlockSchema>;

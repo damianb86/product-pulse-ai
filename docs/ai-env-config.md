@@ -21,6 +21,7 @@ AI_CHATKIT_DOMAIN_KEY=
 AI_ASSISTANT_ENABLED=true
 AI_CHATKIT_ENABLED=true
 AI_INTERNAL_ACTIONS_ENABLED=true
+AI_APP_MUTATIONS_ENABLED=true
 AI_ACTION_CONFIRMATIONS_ENABLED=true
 AI_DEBUG_MODE=false
 AI_EVAL_MODE=false
@@ -29,6 +30,7 @@ AI_EVAL_MODE=false
 - `AI_ASSISTANT_ENABLED=false`: disables assistant endpoints.
 - `AI_CHATKIT_ENABLED=false`: disables ChatKit UI/session while leaving backend code deployable.
 - `AI_INTERNAL_ACTIONS_ENABLED=false`: keeps read-only chat available but blocks internal action proposals and confirmations.
+- `AI_APP_MUTATIONS_ENABLED=false`: keeps read-only chat available but blocks editable app-only draft proposals and saves.
 - `AI_ACTION_CONFIRMATIONS_ENABLED=false`: blocks confirmation/execution even if proposals are otherwise available.
 - `AI_DEBUG_MODE=true`: internal debugging only. Keep off in production.
 - `AI_EVAL_MODE=true`: eval-specific mode; keep off in production runtime.
@@ -47,6 +49,7 @@ AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES=1
 AI_CHAT_MAX_ACTION_PROPOSALS_PER_TURN=1
 AI_CHAT_OPENAI_TIMEOUT_MS=30000
 AI_CHAT_TEMPERATURE=0.2
+AI_ALLOWED_METAFIELD_DRAFTS='[{"namespace":"productpulse","key":"faq_html","type":"multi_line_text_field","label":"ProductPulse FAQ HTML"}]'
 ```
 
 These limits bound normal chat cost and prevent unbounded tool loops/history growth.
