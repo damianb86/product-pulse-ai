@@ -6227,14 +6227,15 @@ s-page[inline-size="large-500"] {
   position: relative;
   display: grid;
   grid-template-columns: minmax(270px, 0.94fr) minmax(320px, 0.9fr) minmax(270px, 0.94fr);
+  grid-auto-rows: minmax(305px, auto);
   align-items: stretch;
   gap: 66px;
-  min-height: 428px;
+  min-height: 305px;
 }
 
 .ppProductRelationshipTimelineLines {
   position: absolute;
-  inset: 4px 0 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -6281,7 +6282,7 @@ s-page[inline-size="large-500"] {
   display: grid;
   align-content: start;
   gap: 18px;
-  min-height: 396px;
+  min-height: 305px;
   padding: 20px 16px 16px;
   border: 1px solid rgba(221, 229, 239, 0.92);
   border-radius: 12px;
@@ -6292,7 +6293,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRelationshipTimelineSide-together {
-  min-height: 406px;
+  min-height: 305px;
   padding-top: 54px;
   border: 1.5px solid rgba(124, 92, 255, 0.48);
   border-radius: 14px;

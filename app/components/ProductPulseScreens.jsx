@@ -9571,7 +9571,7 @@ function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount 
   const afterVisible = afterCount > 0 && togetherCount > 0;
 
   return (
-    <svg className="ppProductRelationshipTimelineLines" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    <svg className="ppProductRelationshipTimelineLines" viewBox="0 0 1200 305" preserveAspectRatio="none" aria-hidden="true" focusable="false">
       <defs>
         <marker id="ppProductRelationshipArrowBefore" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
           <path className="ppProductRelationshipTimelineArrowBefore" d="M0 0 L10 5 L0 10 Z" />
@@ -9583,7 +9583,7 @@ function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount 
       {beforeVisible && beforeYs.map((y, index) => (
         <path
           className="ppProductRelationshipTimelineLineBefore"
-          d={`M330 ${y} H364 C414 ${y} 392 210 444 210 H488`}
+          d={`M330 ${y} H364 C414 ${y} 392 152 444 152 H488`}
           markerEnd="url(#ppProductRelationshipArrowBefore)"
           key={`before-${index}`}
         />
@@ -9591,7 +9591,7 @@ function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount 
       {afterVisible && afterYs.map((y, index) => (
         <path
           className="ppProductRelationshipTimelineLineTogether"
-          d={`M712 210 H756 C808 210 786 ${y} 836 ${y} H870`}
+          d={`M712 152 H756 C808 152 786 ${y} 836 ${y} H870`}
           markerEnd="url(#ppProductRelationshipArrowAfter)"
           key={`after-${index}`}
         />
@@ -9603,10 +9603,10 @@ function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount 
 function getProductRelationshipConnectorRows(count = 0) {
   const visibleCount = Math.max(1, Math.min(Number(count || 0), 4));
   const rowsByCount = {
-    1: [210],
-    2: [164, 256],
-    3: [128, 210, 292],
-    4: [98, 176, 254, 332],
+    1: [152],
+    2: [116, 188],
+    3: [88, 152, 216],
+    4: [70, 125, 180, 235],
   };
   return rowsByCount[visibleCount] || rowsByCount[1];
 }
