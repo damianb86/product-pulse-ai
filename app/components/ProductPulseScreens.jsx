@@ -9496,6 +9496,7 @@ const PRODUCT_RELATIONSHIP_TIMELINE_ASSETS = {
   before: "/assets/product-relationships/bought-before.png",
   after: "/assets/product-relationships/bought-after.png",
   sameCart: "/assets/product-relationships/same-cart.png",
+  signal: "/assets/product-relationships/relationship-signal.png",
 };
 
 function ProductRelationshipsPanel({ detail }) {
@@ -9508,10 +9509,101 @@ function ProductRelationshipsPanel({ detail }) {
       {!hasData ? (
         <EmptyProductDetailState message={emptyMessage} />
       ) : (
-        <ProductRelationshipTimelineCard detail={detail} relationship={relationship} />
+        <>
+          <ProductRelationshipSignalCard detail={detail} relationship={relationship} />
+          <ProductRelationshipTimelineCard detail={detail} relationship={relationship} />
+        </>
       )}
     </section>
   );
+}
+
+function ProductRelationshipSignalCard({ detail, relationship }) {
+  const currentIdentity = getProductRelationshipCurrentIdentity(detail, relationship);
+  const boughtTogether = getProductRelationshipTimelineItems(relationship.topBoughtTogether, currentIdentity);
+  const boughtBefore = getProductRelationshipTimelineItems(relationship.topBoughtBefore, currentIdentity);
+  const boughtAfter = getProductRelationshipTimelineItems(relationship.topBoughtAfter, currentIdentity);
+  const strongestRelationships = getProductRelationshipTimelineItems(relationship.strongestRelationships, currentIdentity);
+  const sameCartLinks = getStrongSameCartRelationshipCount(boughtTogether);
+  const afterPurchasePaths = getProductRelationshipPathCount(boughtAfter);
+  const topRelated = getProductRelationshipSignalTopRelated({ boughtTogether, boughtAfter, boughtBefore, strongestRelationships });
+  const topRelatedHref = topRelated ? getProductRelationshipDiagnosticHref(topRelated) : "";
+  const sameCartLabel = sameCartLinks === 1 ? "strong same-cart link" : "strong same-cart links";
+  const afterPathLabel = afterPurchasePaths === 1 ? "after-purchase path" : "after-purchase paths";
+
+  return (
+    <article className="ppProductRelationshipSignalCard" aria-label="Relationship signal">
+      <div className="ppProductRelationshipSignalContent">
+        <div className="ppProductRelationshipSignalHeader">
+          <span className="ppProductRelationshipSignalIcon" aria-hidden="true">
+            <ProductRelationshipSignalGlyph />
+          </span>
+          <ProductRelationshipInfoLabel
+            label="Relationship signal"
+            help="Compact summary of the strongest same-cart relationship, after-purchase paths, and the top related product."
+          />
+        </div>
+        <div className="ppProductRelationshipSignalMetrics" aria-label="Relationship signal metrics">
+          <div className="ppProductRelationshipSignalMetric">
+            <strong className="isSameCart">{formatInteger(sameCartLinks)}</strong>
+            <span>{sameCartLabel}</span>
+          </div>
+          <div className="ppProductRelationshipSignalMetric">
+            <strong className="isAfter">{formatInteger(afterPurchasePaths)}</strong>
+            <span>{afterPathLabel}</span>
+          </div>
+        </div>
+        <div className="ppProductRelationshipSignalTop">
+          <span>Top related:</span>
+          {topRelated ? (
+            <Link to={topRelatedHref}>
+              {topRelated.title}
+              <s-icon type="external" size="small"></s-icon>
+            </Link>
+          ) : (
+            <em>No reliable related product yet</em>
+          )}
+        </div>
+        <a className="ppProductRelationshipSignalFooter" href="#product-relationship-timeline">
+          <span>Nearby product relationships</span>
+          <i aria-hidden="true"><s-icon type="arrow-right" size="small"></s-icon></i>
+        </a>
+      </div>
+      <figure className="ppProductRelationshipSignalVisual" aria-hidden="true">
+        <img src={PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.signal} alt="" />
+      </figure>
+    </article>
+  );
+}
+
+function ProductRelationshipSignalGlyph() {
+  return (
+    <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-relationshipSignal" width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d="M12 5.2L6.7 15.8H17.3L12 5.2Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+      <circle cx="12" cy="5.2" r="2.6" fill="white" stroke="currentColor" strokeWidth="1.9" />
+      <circle cx="6.7" cy="15.8" r="2.6" fill="white" stroke="currentColor" strokeWidth="1.9" />
+      <circle cx="17.3" cy="15.8" r="2.6" fill="white" stroke="currentColor" strokeWidth="1.9" />
+    </svg>
+  );
+}
+
+function getStrongSameCartRelationshipCount(items = []) {
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const strength = String(item?.relationshipStrength || "").toLowerCase();
+    return strength === "strong" || strength === "very_strong";
+  }).length;
+}
+
+function getProductRelationshipPathCount(items = []) {
+  return (Array.isArray(items) ? items : []).filter(Boolean).length;
+}
+
+function getProductRelationshipSignalTopRelated({ boughtTogether = [], boughtAfter = [], boughtBefore = [], strongestRelationships = [] } = {}) {
+  return boughtTogether[0]
+    || boughtAfter[0]
+    || boughtBefore[0]
+    || strongestRelationships[0]
+    || null;
 }
 
 function ProductRelationshipTimelineCard({ detail, relationship }) {
@@ -9520,7 +9612,7 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
   const boughtBefore = getProductRelationshipTimelineItems(relationship.topBoughtBefore, currentIdentity);
   const boughtAfter = getProductRelationshipTimelineItems(relationship.topBoughtAfter, currentIdentity);
   return (
-    <article className="ppProductRelationshipTimelineCard">
+    <article className="ppProductRelationshipTimelineCard" id="product-relationship-timeline">
       <div className="ppProductRelationshipTimelineHeader">
         <div>
           <ProductRelationshipInfoLabel label="Product relationship timeline" help="Shows relationship context before, in the same cart, and after the current product purchase." />

@@ -1292,6 +1292,13 @@ describe("ProductPulse screens", () => {
     const panel = container.querySelector(".ppProductRelationshipsPanel");
 
     expect(panel).toBeInTheDocument();
+    expect(within(panel).getByText("Relationship signal")).toBeInTheDocument();
+    expect(within(panel).getAllByText("1").length).toBeGreaterThanOrEqual(2);
+    expect(within(panel).getByText("strong same-cart link")).toBeInTheDocument();
+    expect(within(panel).getByText("after-purchase path")).toBeInTheDocument();
+    expect(within(panel).getByText("Top related:")).toBeInTheDocument();
+    expect(within(panel).getByText("Nearby product relationships")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
     expect(within(panel).getByText("Product relationship timeline")).toBeInTheDocument();
     expect(within(panel).getAllByText("Same cart").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Bought before").length).toBeGreaterThan(0);
