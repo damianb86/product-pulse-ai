@@ -793,7 +793,8 @@ describe("ProductPulse screens", () => {
     const historyPanel = container.querySelector(".ppProductRiskHistoryPanel");
 
     expect(historyPanel).toBeInTheDocument();
-    expect(historyPanel.closest(".ppProductDetailSidebar")).toBeInTheDocument();
+    expect(historyPanel.closest(".ppProductDetailPrimary")).toBeInTheDocument();
+    expect(historyPanel.closest(".ppProductDetailSidebar")).not.toBeInTheDocument();
     expect(within(historyPanel).getByText("Product risk over time")).toBeInTheDocument();
     expect(within(historyPanel).getByText("88 / 100")).toBeInTheDocument();
     expect(within(historyPanel).getByText("Up 16 pts since last analysis")).toBeInTheDocument();
@@ -841,6 +842,7 @@ describe("ProductPulse screens", () => {
     const panel = container.querySelector(".ppProductMomentumPanel");
     const sidebar = panel.closest(".ppProductDetailSidebar");
     const sidebarPanels = Array.from(sidebar.children);
+    const recommendedPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppRecommendedActionsPanel"));
     const momentumPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppProductMomentumPanel"));
     const basketPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppBasketContextPanel"));
     const gauge = panel.querySelector(".ppProductMomentumGauge");
@@ -848,7 +850,8 @@ describe("ProductPulse screens", () => {
 
     expect(screen.getAllByText("Product Momentum").length).toBeGreaterThan(0);
     expect(sidebar).toBeInTheDocument();
-    expect(momentumPanelIndex).toBe(0);
+    expect(recommendedPanelIndex).toBe(0);
+    expect(momentumPanelIndex).toBeGreaterThan(recommendedPanelIndex);
     expect(basketPanelIndex).toBeGreaterThan(momentumPanelIndex);
     expect(gauge.querySelector(".ppProductMomentumGaugeCenter strong")).toHaveTextContent(/\d+\s*\/\s*100/);
     expect(within(gauge).getByText("/ 100")).toBeInTheDocument();

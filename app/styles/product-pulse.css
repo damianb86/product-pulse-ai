@@ -3326,27 +3326,27 @@ s-page[inline-size="large-500"] {
   line-height: 1.5;
 }
 
-.ppProductDetailTopLayout .ppMainFindingCard {
+.ppProductDetailOverviewFinding {
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 14px;
   padding: 18px 20px;
 }
 
-.ppProductDetailTopLayout .ppMainFindingCard .ppDashboardIcon {
+.ppProductDetailOverviewFinding .ppDashboardIcon {
   width: 38px;
   height: 38px;
 }
 
-.ppProductDetailTopLayout .ppMainFindingCard > div > span {
+.ppProductDetailOverviewFinding > div > span {
   font-size: 14px;
 }
 
-.ppProductDetailTopLayout .ppMainFindingCard h2 {
+.ppProductDetailOverviewFinding h2 {
   font-size: 18px;
   line-height: 1.22;
 }
 
-.ppProductDetailTopLayout .ppMainFindingText p {
+.ppProductDetailOverviewFinding .ppMainFindingText p {
   font-size: 13.5px;
   line-height: 1.55;
 }
@@ -4486,6 +4486,11 @@ s-page[inline-size="large-500"] {
   overflow: hidden;
 }
 
+.ppProductDetailPrimary > .ppProductRiskHistoryPanel {
+  width: 100%;
+  padding: 18px;
+}
+
 .ppProductRiskHistoryHeader {
   display: flex;
   align-items: start;
@@ -4515,13 +4520,13 @@ s-page[inline-size="large-500"] {
 
 .ppProductRiskHistoryChart {
   height: 116px;
-  padding: 10px 8px;
+  padding: 12px 10px;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 11px;
+  border-radius: 12px;
   background:
-    linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 0 / 100% 25%,
-    linear-gradient(90deg, var(--pp-slate-200) 1px, transparent 1px) 0 0 / 25% 100%,
-    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-100));
+    linear-gradient(rgba(var(--pp-slate-500-rgb), 0.12) 1px, transparent 1px) 0 0 / 100% 25%,
+    linear-gradient(90deg, rgba(var(--pp-slate-500-rgb), 0.09) 1px, transparent 1px) 0 0 / 20% 100%,
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
 }
 
 .ppProductRiskHistoryChart svg {

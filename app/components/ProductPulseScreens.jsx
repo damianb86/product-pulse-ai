@@ -8756,7 +8756,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
 
   const overviewPanel = (
-    <div className="ppMainFindingCard">
+    <div className="ppMainFindingCard ppProductDetailOverviewFinding">
       <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
       <div>
         <span>Overview</span>
@@ -9029,19 +9029,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </div>
 
-        <div className="ppProductDetailLayout ppProductDetailTopLayout">
-          <main className="ppProductDetailPrimary">
-            {overviewPanel}
-          </main>
-          <aside className="ppProductDetailSidebar">
-            {recommendedActionsPanel}
-          </aside>
-        </div>
-
-        <ProductRelationshipsPanel detail={detail} />
-
         <div className="ppProductDetailLayout">
           <main className="ppProductDetailPrimary">
+            {overviewPanel}
+
             <div className="ppProductPanel ppIssuesOverviewPanel">
                 <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
                 <div className="ppIssuesTableWrap">
@@ -9108,6 +9099,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 </div>
               </div>
 
+            <ProductRiskHistoryPanel detail={detail} />
+
             {!detail.hasFullDiagnosis ? (
               <ProductDeepDiagnosisDataPlaceholder detail={detail} />
             ) : (detail.hasMonthlyOrderActivity || detail.hasReturnRatePrediction) ? (
@@ -9119,13 +9112,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </main>
 
           <aside className="ppProductDetailSidebar">
+            {recommendedActionsPanel}
             <ProductMomentumPanel detail={detail} />
             <ProductBasketContextPanel detail={detail} />
 
             <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
-            <ProductRiskHistoryPanel detail={detail} />
           </aside>
         </div>
+
+        <ProductRelationshipsPanel detail={detail} />
 
         <div className="ppProductDetailFullWidth">
           <div ref={evidencePanelRef}>
