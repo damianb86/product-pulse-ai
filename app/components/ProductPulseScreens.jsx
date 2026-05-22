@@ -3838,6 +3838,12 @@ function getProductDetailModel(product) {
     productPurchaseContextFactors,
     metrics,
   );
+  const productRelationshipFactors = asPlainObject(metrics.productRelationshipFactors);
+  const productRelationshipIntelligence = normalizeProductRelationshipIntelligence(
+    metrics.productRelationshipIntelligenceSummary,
+    productRelationshipFactors,
+    metrics,
+  );
   const hasMonthlyOrderActivity = hasProductMonthlyOrderActivity(monthlyOrderActivity);
   const hasReturnRatePrediction = hasProductReturnRatePrediction(returnRatePrediction);
   const productStatus = product.status || metrics.productStatus || "";
@@ -3914,6 +3920,11 @@ function getProductDetailModel(product) {
       ? metrics.productPurchaseContextScoringImpact.filter(Boolean).map(String)
       : [],
     purchaseContextSignalBreakdown: asPlainObject(metrics.purchaseContextSignalBreakdown || productPurchaseContextFactors.customerSignalBreakdown),
+    productRelationshipIntelligence,
+    productRelationshipFactors,
+    productRelationshipScoringImpact: Array.isArray(metrics.productRelationshipScoringImpact)
+      ? metrics.productRelationshipScoringImpact.filter(Boolean).map(String)
+      : [],
     priorityScore: Number(metrics.priorityScore || 0),
     evidenceStrengthScore: Number(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore || 0),
     scoreCalculationStatus: metrics.scoreCalculationStatus || getScoreCalculationStatus(metrics),
@@ -4387,6 +4398,260 @@ function normalizePurchaseContextSegments(value = {}) {
       sufficientData: Boolean(item.sufficient_data ?? item.sufficientData),
     }];
   }));
+}
+
+function normalizeProductRelationshipIntelligence(summaryValue = null, factorsValue = null, metrics = {}) {
+  const summary = asPlainObject(summaryValue);
+  const factors = asPlainObject(factorsValue);
+  const context = asPlainObject(factors.context);
+  const dataBasis = asPlainObject(summary.data_basis || summary.dataBasis || context.dataBasis);
+  const confidence = asPlainObject(summary.confidence || context.confidence);
+  const diagnosisReport = asPlainObject(metrics.diagnosisReport);
+  const aiInsights = normalizeProductRelationshipAiInsights(metrics.productRelationshipAiInsights || diagnosisReport.relationshipInsights);
+  const topBoughtTogether = normalizeProductRelationshipItems(summary.top_bought_together || summary.same_order_relationships || context.topBoughtTogether);
+  const topBoughtBefore = normalizeProductRelationshipItems(summary.top_bought_before || summary.previous_purchase_relationships || context.topBoughtBefore);
+  const topBoughtAfter = normalizeProductRelationshipItems(summary.top_bought_after || summary.next_purchase_relationships || context.topBoughtAfter);
+  const strongestRelationships = normalizeProductRelationshipItems(summary.strongest_relationships || context.strongestRelationships);
+  const relationshipsWithReturnRiskImpact = normalizeProductRelationshipItems(
+    summary.relationships_with_return_risk_impact || asPlainObject(factors.aiInsightInput).riskRelationships,
+  ).filter(isMeaningfulProductRelationshipRiskImpact);
+  const relationshipsWithCrossSellOpportunity = normalizeProductRelationshipItems(
+    summary.relationships_with_cross_sell_opportunity || asPlainObject(factors.aiInsightInput).crossSellOpportunities,
+  );
+  const relationshipTrends = normalizeProductRelationshipTrends(
+    summary.relationship_trends || summary.relationshipTrends,
+    [...topBoughtTogether, ...topBoughtBefore, ...topBoughtAfter, ...strongestRelationships],
+  );
+  const warnings = arrayOfStrings(summary.warnings || context.warnings);
+  const available = Boolean(
+    Object.keys(summary).length
+    || factors.hasProductRelationshipSummary === true
+    || context.strongestRelationships
+    || topBoughtTogether.length
+    || topBoughtBefore.length
+    || topBoughtAfter.length
+  );
+  const confidenceScore = clampPercentValue(firstFiniteMetricNumber(confidence.score, context.confidenceScore));
+  const confidenceLabel = firstNonEmptyString(
+    confidence.label,
+    context.confidenceLabel,
+    getRelationshipConfidenceLabel(confidenceScore, available),
+  );
+  const hasMeaningfulRelationships = Boolean(topBoughtTogether.length || topBoughtBefore.length || topBoughtAfter.length || strongestRelationships.length);
+  const interpretation = firstNonEmptyString(
+    summary.interpretation,
+    context.interpretation,
+    getProductRelationshipInterpretation({
+      available,
+      relationshipsWithReturnRiskImpact,
+      topBoughtAfter,
+      topBoughtTogether,
+      warnings,
+    }),
+  );
+
+  return {
+    available,
+    hasMeaningfulRelationships,
+    statusText: available
+      ? (hasMeaningfulRelationships ? "Product relationship metrics available" : "No strong product relationships detected")
+      : "Product relationship metrics not calculated yet",
+    sameOrderAvailable: Boolean(dataBasis.same_order_available ?? dataBasis.sameOrderAvailable),
+    customerSequenceAvailable: Boolean(dataBasis.customer_sequence_available ?? dataBasis.customerSequenceAvailable),
+    orderCount: firstFiniteMetricNumber(dataBasis.order_count, dataBasis.orderCount, context.orderCount),
+    customerCount: firstFiniteMetricNumber(dataBasis.customer_count, dataBasis.customerCount, context.customerCount),
+    knownBasketOrderCount: firstFiniteMetricNumber(dataBasis.known_basket_order_count, dataBasis.knownBasketOrderCount),
+    unknownBasketOrderCount: firstFiniteMetricNumber(dataBasis.unknown_basket_order_count, dataBasis.unknownBasketOrderCount),
+    confidenceScore,
+    confidenceLabel,
+    topBoughtTogether,
+    topBoughtBefore,
+    topBoughtAfter,
+    strongestRelationships,
+    emergingRelationships: normalizeProductRelationshipItems(summary.emerging_relationships || context.emergingRelationships),
+    relationshipsWithReturnRiskImpact,
+    relationshipsWithCrossSellOpportunity,
+    relationshipTrends,
+    relationshipImpact: asPlainObject(summary.relationship_impact || summary.relationshipImpact),
+    riskImpact: asPlainObject(factors.productRiskContext),
+    diagnosisConfidenceImpact: asPlainObject(factors.diagnosisConfidence),
+    recommendedActionSignals: asPlainObject(factors.recommendedActionSignals),
+    scoringImpact: arrayOfStrings(metrics.productRelationshipScoringImpact),
+    aiInsights,
+    warnings,
+    interpretation,
+  };
+}
+
+function normalizeProductRelationshipItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const direction = firstNonEmptyString(item.relationship_direction, item.relationshipDirection, item.direction);
+      const relationshipType = firstNonEmptyString(item.relationship_type, item.relationshipType);
+      const timeWindow = firstNonEmptyString(item.time_window, item.timeWindow);
+      const title = firstNonEmptyString(item.related_product_title, item.relatedProductTitle, item.title, "Unknown product");
+      const medianDaysBefore = firstFiniteMetricNumber(item.median_days_before, item.medianDaysBefore);
+      const medianDaysAfter = firstFiniteMetricNumber(item.median_days_after, item.medianDaysAfter);
+      const confidenceValue = clampPercentValue(firstFiniteMetricNumber(item.confidence));
+      return {
+        relatedProductId: firstNonEmptyString(item.related_product_id, item.relatedProductId, item.productId),
+        relatedProductHandle: firstNonEmptyString(item.related_product_handle, item.relatedProductHandle, item.handle),
+        title,
+        relationshipType,
+        direction,
+        directionLabel: getProductRelationshipDirectionLabel(direction || relationshipType),
+        timeWindow,
+        timeWindowLabel: getProductRelationshipWindowLabel(timeWindow),
+        relationshipRatePercent: relationshipRatePercent(item.relationship_rate ?? item.relationshipRate),
+        attachRatePercent: relationshipRatePercent(item.attach_rate ?? item.attachRate),
+        relatedProductBaseRatePercent: relationshipRatePercent(item.related_product_base_rate ?? item.relatedProductBaseRate),
+        lift: toNullableFiniteNumber(item.lift),
+        confidence: confidenceValue,
+        confidenceLabel: firstNonEmptyString(item.confidence_label, item.confidenceLabel, getRelationshipConfidenceLabel(confidenceValue, true)),
+        sampleSize: firstFiniteMetricNumber(item.sample_size, item.sampleSize, item.order_count, item.orderCount, item.customer_count, item.customerCount),
+        coOrderCount: firstFiniteMetricNumber(item.co_order_count, item.coOrderCount, item.order_count, item.orderCount),
+        coCustomerCount: firstFiniteMetricNumber(item.co_customer_count, item.coCustomerCount, item.customer_count, item.customerCount),
+        orderCount: firstFiniteMetricNumber(item.order_count, item.orderCount, item.co_order_count, item.coOrderCount),
+        customerCount: firstFiniteMetricNumber(item.customer_count, item.customerCount, item.co_customer_count, item.coCustomerCount),
+        relationshipStrength: firstNonEmptyString(item.relationship_strength, item.relationshipStrength, "insufficient_data"),
+        relationshipStrengthLabel: getProductRelationshipStrengthLabel(firstNonEmptyString(item.relationship_strength, item.relationshipStrength)),
+        trend: firstNonEmptyString(item.trend, "insufficient_data"),
+        trendLabel: getProductRelationshipTrendLabel(firstNonEmptyString(item.trend, "insufficient_data")),
+        medianDaysBefore,
+        medianDaysAfter,
+        avgDaysBefore: firstFiniteMetricNumber(item.avg_days_before, item.avgDaysBefore),
+        avgDaysAfter: firstFiniteMetricNumber(item.avg_days_after, item.avgDaysAfter),
+        followOnRevenue: firstFiniteMetricNumber(item.follow_on_revenue, item.followOnRevenue),
+        deltaReturnRatePercent: relationshipDeltaPercent(item.delta_return_rate ?? item.deltaReturnRate),
+        deltaRefundRatePercent: relationshipDeltaPercent(item.delta_refund_rate ?? item.deltaRefundRate),
+        returnRateWhenBoughtTogetherPercent: relationshipRatePercent(item.return_rate_when_bought_together ?? item.returnRateWhenBoughtTogether),
+        refundRateWhenBoughtTogetherPercent: relationshipRatePercent(item.refund_rate_when_bought_together ?? item.refundRateWhenBoughtTogether),
+        monthly: normalizeProductRelationshipMonthlyRows(item.monthly),
+        warnings: arrayOfStrings(item.warnings),
+      };
+    })
+    .filter((item) => item.relatedProductId || item.title !== "Unknown product")
+    .slice(0, 8);
+}
+
+function normalizeProductRelationshipMonthlyRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => row && typeof row === "object")
+    .map((row) => ({
+      key: String(row.month || row.key || row.label || "").trim(),
+      label: String(row.label || row.month || row.key || "").trim(),
+      sourceProductOrders: firstFiniteMetricNumber(row.source_product_orders, row.sourceProductOrders),
+      relatedOrderCount: firstFiniteMetricNumber(row.related_order_count, row.relatedOrderCount, row.order_count, row.orderCount),
+      customerCount: firstFiniteMetricNumber(row.customer_count, row.customerCount),
+      relationshipRatePercent: relationshipRatePercent(row.relationship_rate ?? row.relationshipRate),
+      lift: toNullableFiniteNumber(row.lift),
+      confidence: firstFiniteMetricNumber(row.confidence),
+    }))
+    .filter((row) => row.key || row.label);
+}
+
+function normalizeProductRelationshipTrends(trends = [], fallbackItems = []) {
+  const trendRecords = normalizeProductRelationshipItems(trends).filter((item) => item.monthly.length >= 2);
+  const fallbackTrendRecords = fallbackItems.filter((item) => item.monthly?.length >= 2);
+  const seen = new Set();
+  return [...trendRecords, ...fallbackTrendRecords]
+    .filter((item) => {
+      const key = `${item.relatedProductId || item.title}:${item.direction}:${item.timeWindow}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3);
+}
+
+function normalizeProductRelationshipAiInsights(value = null) {
+  const record = asPlainObject(value);
+  const insights = (Array.isArray(record.insights) ? record.insights : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item, index) => ({
+      id: firstNonEmptyString(item.id, `relationship-insight-${index + 1}`),
+      type: firstNonEmptyString(item.type, "relationship_context"),
+      sourceRelationshipId: firstNonEmptyString(item.sourceRelationshipId, item.source_relationship_id),
+      relatedProductTitle: firstNonEmptyString(item.relatedProductTitle, item.related_product_title, "Related product"),
+      summary: firstNonEmptyString(item.summary),
+      recommendation: firstNonEmptyString(item.recommendation),
+      caveat: firstNonEmptyString(item.caveat),
+      metrics: asPlainObject(item.metrics),
+    }))
+    .filter((item) => item.summary)
+    .slice(0, 3);
+  return {
+    available: Boolean(record.available && insights.length),
+    status: firstNonEmptyString(record.status, insights.length ? "available" : "not_available"),
+    generatedAt: firstNonEmptyString(record.generatedAt, record.generated_at),
+    model: firstNonEmptyString(record.model),
+    insights,
+  };
+}
+
+function relationshipDeltaPercent(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return clampNumber(Math.abs(number) <= 1 ? number * 100 : number, -100, 100);
+}
+
+function toNullableFiniteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function arrayOfStrings(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function isMeaningfulProductRelationshipRiskImpact(item = {}) {
+  const sampleSize = Number(item.sampleSize || 0);
+  const confidence = Number(item.confidence || 0);
+  const returnDelta = Number(item.deltaReturnRatePercent || 0);
+  const refundDelta = Number(item.deltaRefundRatePercent || 0);
+  return sampleSize >= 3 && confidence >= 55 && (returnDelta > 0 || refundDelta > 0);
+}
+
+function getProductRelationshipInterpretation({ available, relationshipsWithReturnRiskImpact = [], topBoughtAfter = [], topBoughtTogether = [], warnings = [] } = {}) {
+  if (!available) return "Product relationship metrics are not available for this product yet.";
+  if (relationshipsWithReturnRiskImpact.length) {
+    return `Return/refund pressure is higher in a related-product context led by ${relationshipsWithReturnRiskImpact[0].title}. Treat this as association, not causality.`;
+  }
+  if (topBoughtAfter.length) return `${topBoughtAfter[0].title} is a follow-on purchase candidate after this product.`;
+  if (topBoughtTogether.length) return `${topBoughtTogether[0].title} is a same-order relationship candidate for merchandising review.`;
+  if (warnings.includes("customer_identity_unavailable")) return "Same-order relationships can be analyzed, but before/after journeys need customer identity data.";
+  return "Relationship data is available but does not show a strong actionable pattern yet.";
+}
+
+function getProductRelationshipDirectionLabel(direction = "") {
+  const normalized = String(direction || "").toLowerCase();
+  if (normalized.includes("before") || normalized.includes("previous")) return "Before";
+  if (normalized.includes("after") || normalized.includes("next")) return "After";
+  return "Together";
+}
+
+function getProductRelationshipWindowLabel(window = "") {
+  const normalized = String(window || "").replace(/_/g, " ");
+  if (!normalized) return "Same order";
+  if (normalized === "same order") return "Same order";
+  return normalized.replace(/(\d+)d\b/g, "$1 days").replace(/\bd\b/g, "days");
+}
+
+function getProductRelationshipStrengthLabel(value = "") {
+  const normalized = String(value || "").replace(/_/g, " ");
+  if (!normalized || normalized === "insufficient data") return "Insufficient data";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function getProductRelationshipTrendLabel(value = "") {
+  const normalized = String(value || "").replace(/_/g, " ");
+  if (!normalized) return "Insufficient data";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function firstNonEmptyString(...values) {
@@ -5012,6 +5277,29 @@ function getPurchaseContextReturnPressureNote(detail = {}) {
   return "";
 }
 
+function getProductRelationshipRiskFootnote(detail = {}) {
+  const relationship = detail.productRelationshipIntelligence || {};
+  if (!relationship.available || !relationship.relationshipsWithReturnRiskImpact?.length) return "";
+  const item = relationship.relationshipsWithReturnRiskImpact[0];
+  return `Relationship risk context: ${getProductRelationshipRiskLine(item)} with ${item.title}`;
+}
+
+function getProductRelationshipConfidenceFootnote(detail = {}) {
+  const relationship = detail.productRelationshipIntelligence || {};
+  const confidence = relationship.diagnosisConfidenceImpact || {};
+  if (!relationship.available) return "";
+  if (Number(confidence.complexBasketAmbiguityPenalty || 0) > 0) {
+    return "Relationship-heavy baskets lower attribution confidence";
+  }
+  if (Number(confidence.sequenceStabilityScore || 0) > 0) {
+    return "Stable product relationship patterns support confidence";
+  }
+  if (relationship.confidenceScore < 55) {
+    return `Product relationship evidence is low-confidence · ${formatInteger(relationship.orderCount)} orders`;
+  }
+  return "";
+}
+
 function getProductDetailInsightCards(detail = {}) {
   const history = Array.isArray(detail.riskHistory) ? detail.riskHistory : [];
   const returnPressure = calculateReturnPressureIndex(detail);
@@ -5154,6 +5442,14 @@ function getProductRiskInsightHelp(detail = {}) {
   const base = getInsightMetricHelp("Product risk");
   const context = detail.productPurchaseContext || {};
   const contextText = context.scoringImpact?.[0] || getPurchaseContextRiskFootnote(detail);
+  const relationshipText = getProductRelationshipRiskFootnote(detail);
+  if (relationshipText) {
+    return {
+      ...base,
+      what: `${base.what} Product relationships are included as context when they affect attribution or pairing risk.`,
+      why: `${base.why} ${relationshipText}`,
+    };
+  }
   if (!context.available || !contextText) return base;
   return {
     ...base,
@@ -5166,6 +5462,14 @@ function getDiagnosisConfidenceInsightHelp(detail = {}) {
   const base = getInsightMetricHelp("Diagnosis confidence");
   const context = detail.productPurchaseContext || {};
   const contextText = getPurchaseContextConfidenceFootnote(detail) || context.scoringImpact?.[0];
+  const relationshipText = getProductRelationshipConfidenceFootnote(detail);
+  if (relationshipText) {
+    return {
+      ...base,
+      what: `${base.what} Product relationships also explain whether related-product baskets make attribution clearer or less conclusive.`,
+      why: `${base.why} ${relationshipText}`,
+    };
+  }
   if (!context.available || !contextText) return base;
   return {
     ...base,
@@ -8521,6 +8825,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
         <ProductPurchaseContextPanel detail={detail} />
 
+        <ProductRelationshipsPanel detail={detail} />
+
         <ProductReturnRefundResolutionPanel detail={detail} />
 
         <div className="ppProductDetailLayout">
@@ -9066,6 +9372,407 @@ function getPurchaseContextMonthlyRows(context = {}) {
         avgQuantity: month.avgProductQuantityPerOrder,
       };
     });
+}
+
+const PRODUCT_RELATIONSHIP_HELP = {
+  attachRate: "Share of source-product orders that also included the related product.",
+  lift: "How much more often this relationship appears versus the related product baseline.",
+  before: "Products bought by the same customer before buying the current product, grouped by timing window.",
+  after: "Products bought by the same customer after buying the current product, grouped by timing window.",
+  risk: "Return/refund deltas are associative context. They do not prove that the related product caused the outcome.",
+  confidence: "Confidence reflects sample size, customer identity availability, basket completeness and trend consistency.",
+};
+
+function ProductRelationshipsPanel({ detail }) {
+  const relationship = detail.productRelationshipIntelligence || normalizeProductRelationshipIntelligence(null);
+  const [activeView, setActiveView] = useState("together");
+  const hasData = relationship.available;
+  const hasRelationships = hasData && relationship.hasMeaningfulRelationships;
+  const riskItem = relationship.relationshipsWithReturnRiskImpact[0] || null;
+  const trendRows = getProductRelationshipTrendRows(relationship);
+  const tableRows = getProductRelationshipTableRows(relationship, activeView);
+  const timelineNodes = getProductRelationshipTimelineNodes(detail, relationship);
+  const emptyMessage = getProductRelationshipEmptyMessage(relationship);
+
+  return (
+    <section className={`ppProductPanel ppProductRelationshipsPanel${hasRelationships ? "" : " isUnavailable"}`} aria-label="Product relationships">
+      <div className="ppProductRelationshipsHeader">
+        <div>
+          <span className="ppProductRelationshipsEyebrow">
+            <ProductPulseGlyph type="shopify-product" />
+            Relationship intelligence
+          </span>
+          <h2>Product relationships</h2>
+          <p>Shows what customers buy with this product, before it, and after it.</p>
+        </div>
+        <span className={`ppProductRelationshipsConfidence ppProductRelationshipsConfidence-${String(relationship.confidenceLabel || "unavailable").toLowerCase()}`}>
+          {hasData ? relationship.confidenceLabel : "Unavailable"} confidence
+        </span>
+      </div>
+
+      {!hasData ? (
+        <EmptyProductDetailState message={emptyMessage} />
+      ) : !hasRelationships ? (
+        <EmptyProductDetailState message={emptyMessage} />
+      ) : (
+        <>
+          <div className={`ppProductRelationshipsMainGrid${riskItem ? "" : " noRisk"}`}>
+            <ProductRelationshipMetricCard
+              title="Bought together"
+              help={PRODUCT_RELATIONSHIP_HELP.attachRate}
+              icon="shopify-orders"
+              item={relationship.topBoughtTogether[0]}
+              emptyMessage="No strong same-order relationship detected."
+              kind="together"
+            />
+            <ProductRelationshipMetricCard
+              title="Bought before"
+              help={PRODUCT_RELATIONSHIP_HELP.before}
+              icon="calendar"
+              item={relationship.topBoughtBefore[0]}
+              emptyMessage={relationship.customerSequenceAvailable ? "No reliable before-purchase pattern detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
+              kind="before"
+            />
+            <ProductRelationshipMetricCard
+              title="Bought after"
+              help={PRODUCT_RELATIONSHIP_HELP.after}
+              icon="product-momentum"
+              item={relationship.topBoughtAfter[0]}
+              emptyMessage={relationship.customerSequenceAvailable ? "No reliable after-purchase pattern detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
+              kind="after"
+            />
+            {riskItem ? <ProductRelationshipRiskCard item={riskItem} /> : null}
+          </div>
+
+          <div className="ppProductRelationshipsSecondaryGrid">
+            {timelineNodes.length ? <ProductRelationshipTimeline nodes={timelineNodes} /> : null}
+            {relationship.aiInsights.available ? <ProductRelationshipInsights insights={relationship.aiInsights.insights} /> : null}
+          </div>
+
+          {trendRows.length ? <ProductRelationshipTrendChart rows={trendRows} /> : null}
+
+          <div className="ppProductRelationshipsTablePanel">
+            <div className="ppProductRelationshipsTableHeader">
+              <div>
+                <strong>Relationship details</strong>
+                <span>Compact view of rate, lift, confidence and return/refund context.</span>
+              </div>
+              <div className="ppProductRelationshipsSegmented" role="tablist" aria-label="Product relationship detail view">
+                {[
+                  ["together", "Together"],
+                  ["before", "Before"],
+                  ["after", "After"],
+                  ["risk", "Risk impact"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={activeView === key ? "isActive" : ""}
+                    aria-selected={activeView === key}
+                    onClick={() => setActiveView(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ProductRelationshipTable rows={tableRows} activeView={activeView} />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ProductRelationshipMetricCard({ title, help, icon, item, emptyMessage, kind }) {
+  return (
+    <article className="ppProductRelationshipCard">
+      <div className="ppProductRelationshipCardHeader">
+        <span><ProductPulseGlyph type={icon} /></span>
+        <div>
+          <ProductRelationshipInfoLabel label={title} help={help} />
+          <small>{item ? `${item.relationshipStrengthLabel} · ${item.trendLabel}` : "Unavailable"}</small>
+        </div>
+      </div>
+      {item ? (
+        <>
+          <div className="ppProductRelationshipPrimary">
+            <strong>{item.title}</strong>
+            <span>{getProductRelationshipPrimaryLine(item, kind)}</span>
+          </div>
+          <div className="ppProductRelationshipMeta">
+            <span>{getProductRelationshipSecondaryLine(item, kind)}</span>
+            <RelationshipConfidenceBadge label={item.confidenceLabel} />
+          </div>
+        </>
+      ) : (
+        <p className="ppProductRelationshipEmptyText">{emptyMessage}</p>
+      )}
+    </article>
+  );
+}
+
+function ProductRelationshipRiskCard({ item }) {
+  return (
+    <article className="ppProductRelationshipCard ppProductRelationshipRiskCard">
+      <div className="ppProductRelationshipCardHeader">
+        <span><ProductPulseGlyph type="product-risk" /></span>
+        <div>
+          <ProductRelationshipInfoLabel label="Risk context" help={PRODUCT_RELATIONSHIP_HELP.risk} />
+          <small>{item.relationshipStrengthLabel} · {item.confidenceLabel} confidence</small>
+        </div>
+      </div>
+      <div className="ppProductRelationshipPrimary">
+        <strong>{item.title}</strong>
+        <span>{getProductRelationshipRiskLine(item)}</span>
+      </div>
+      <p className="ppProductRelationshipCardNote">Review compatibility messaging and expectations for this pairing.</p>
+    </article>
+  );
+}
+
+function ProductRelationshipTimeline({ nodes }) {
+  return (
+    <article className="ppProductRelationshipTimeline" aria-label="Product relationship timeline">
+      <div>
+        <strong>Relationship timeline</strong>
+        <span>Before · same order · after</span>
+      </div>
+      <div className="ppProductRelationshipTimelineTrack">
+        {nodes.map((node) => (
+          <div className={`ppProductRelationshipTimelineNode ppProductRelationshipTimelineNode-${node.tone}`} key={`${node.key}-${node.label}`}>
+            <span>{node.window}</span>
+            <strong>{node.label}</strong>
+            <small>{node.detail}</small>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function ProductRelationshipInsights({ insights }) {
+  return (
+    <article className="ppProductRelationshipInsights">
+      <div>
+        <strong>Relationship insights</strong>
+        <span>AI-written from deterministic metrics</span>
+      </div>
+      <div className="ppProductRelationshipInsightList">
+        {insights.slice(0, 3).map((insight) => (
+          <div className="ppProductRelationshipInsight" key={insight.id}>
+            <span>{insight.relatedProductTitle}</span>
+            <p>{renderAnalysisText(insight.summary)}</p>
+            {insight.caveat ? <small>{insight.caveat}</small> : null}
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function ProductRelationshipTrendChart({ rows }) {
+  return (
+    <div className="ppProductRelationshipTrend" aria-label="Relationship trend chart">
+      <div>
+        <strong>Relationship trend</strong>
+        <span>Top {rows.length} relationships by stored monthly rate</span>
+      </div>
+      <div className="ppProductRelationshipTrendRows">
+        {rows.map((row) => (
+          <div className="ppProductRelationshipTrendRow" key={row.key}>
+            <span>{row.title}</span>
+            <div aria-hidden="true">
+              {row.points.map((point) => (
+                <i key={point.key} style={{ height: `${point.height}%` }} title={`${point.label}: ${formatPercent(point.rate)}`} />
+              ))}
+            </div>
+            <strong>{row.trendLabel}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProductRelationshipTable({ rows, activeView }) {
+  if (!rows.length) {
+    return <EmptyProductDetailState message={activeView === "risk" ? "No meaningful return/refund relationship impact detected." : "No relationships available for this view."} />;
+  }
+  return (
+    <div className="ppProductRelationshipTableWrap">
+      <table className="ppProductRelationshipTable">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Relationship</th>
+            <th>Window</th>
+            <th>Rate</th>
+            <th>Lift</th>
+            <th>Strength</th>
+            <th>Confidence</th>
+            <th>Risk impact</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 8).map((item) => (
+            <tr key={`${item.relatedProductId || item.title}-${item.direction}-${item.timeWindow}`}>
+              <td>{item.title}</td>
+              <td>{item.directionLabel}</td>
+              <td>{item.timeWindowLabel}</td>
+              <td>{formatPercent(item.attachRatePercent || item.relationshipRatePercent)}</td>
+              <td>{formatRelationshipLift(item.lift)}</td>
+              <td>{item.relationshipStrengthLabel}</td>
+              <td><RelationshipConfidenceBadge label={item.confidenceLabel} /></td>
+              <td>{getProductRelationshipRiskImpactLabel(item)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductRelationshipInfoLabel({ label, help }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="ppProductRelationshipInfoLabel">
+      <span>{label}</span>
+      <button
+        type="button"
+        ref={triggerRef}
+        aria-label={`${label} explanation`}
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <s-icon type="info" size="small"></s-icon>
+      </button>
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppProductRelationshipTooltipPopover" width={300} estimatedHeight={122} placement="top-center">
+        <strong>{label}</strong>
+        <small>{help}</small>
+      </FloatingTablePopover>
+    </span>
+  );
+}
+
+function RelationshipConfidenceBadge({ label }) {
+  return <span className={`ppProductRelationshipBadge ppProductRelationshipBadge-${String(label || "unavailable").toLowerCase()}`}>{label || "Unavailable"}</span>;
+}
+
+function getProductRelationshipPrimaryLine(item = {}, kind = "together") {
+  if (kind === "before") return `${formatPercent(item.relationshipRatePercent)} within ${item.timeWindowLabel}`;
+  if (kind === "after") return `${formatPercent(item.relationshipRatePercent)} within ${item.timeWindowLabel}`;
+  return `${formatPercent(item.attachRatePercent || item.relationshipRatePercent)} attach rate`;
+}
+
+function getProductRelationshipSecondaryLine(item = {}, kind = "together") {
+  if (kind === "before") {
+    return `Median ${formatInteger(item.medianDaysBefore)} days before · ${formatRelationshipLift(item.lift)}`;
+  }
+  if (kind === "after") {
+    const revenue = item.followOnRevenue ? ` · ${formatCompactMoney(item.followOnRevenue)} follow-on` : "";
+    return `Median ${formatInteger(item.medianDaysAfter)} days after · ${formatRelationshipLift(item.lift)}${revenue}`;
+  }
+  return `${formatRelationshipLift(item.lift)} · ${formatInteger(item.coOrderCount || item.sampleSize)} orders`;
+}
+
+function getProductRelationshipRiskLine(item = {}) {
+  const returnDelta = Number(item.deltaReturnRatePercent || 0);
+  const refundDelta = Number(item.deltaRefundRatePercent || 0);
+  if (returnDelta > 0) return `Returns are ${formatSignedPercent(returnDelta)} higher when bought together`;
+  if (refundDelta > 0) return `Refunds are ${formatSignedPercent(refundDelta)} higher when bought together`;
+  return "Return/refund context is elevated for this pairing";
+}
+
+function getProductRelationshipRiskImpactLabel(item = {}) {
+  const returnDelta = Number(item.deltaReturnRatePercent || 0);
+  const refundDelta = Number(item.deltaRefundRatePercent || 0);
+  if (returnDelta > 0) return `${formatSignedPercent(returnDelta)} returns`;
+  if (refundDelta > 0) return `${formatSignedPercent(refundDelta)} refunds`;
+  return "-";
+}
+
+function formatRelationshipLift(value) {
+  if (value === null || value === undefined) return "Lift unavailable";
+  return `${formatDecimal(value, 1)}x lift`;
+}
+
+function getProductRelationshipTimelineNodes(detail = {}, relationship = {}) {
+  const nodes = [];
+  const before = relationship.topBoughtBefore?.[0];
+  const together = relationship.topBoughtTogether?.[0];
+  const after = relationship.topBoughtAfter?.[0];
+  if (before) nodes.push({
+    key: "before",
+    window: before.timeWindowLabel,
+    label: before.title,
+    detail: `${formatPercent(before.relationshipRatePercent)} before`,
+    tone: "blue",
+  });
+  if (together) nodes.push({
+    key: "together",
+    window: "Same order",
+    label: together.title,
+    detail: `${formatPercent(together.attachRatePercent || together.relationshipRatePercent)} attach`,
+    tone: "purple",
+  });
+  nodes.push({
+    key: "current",
+    window: "Current product",
+    label: detail.title || "Current product",
+    detail: "Source product",
+    tone: "dark",
+  });
+  if (after) nodes.push({
+    key: "after",
+    window: after.timeWindowLabel,
+    label: after.title,
+    detail: `${formatPercent(after.relationshipRatePercent)} after`,
+    tone: "green",
+  });
+  return nodes.length > 1 ? nodes : [];
+}
+
+function getProductRelationshipTrendRows(relationship = {}) {
+  return (relationship.relationshipTrends || [])
+    .filter((item) => item.monthly?.length >= 2)
+    .slice(0, 3)
+    .map((item) => {
+      const points = item.monthly.slice(-6);
+      const maxRate = Math.max(...points.map((point) => Number(point.relationshipRatePercent || 0)), 1);
+      return {
+        key: `${item.relatedProductId || item.title}-${item.direction}-${item.timeWindow}`,
+        title: item.title,
+        trendLabel: item.trendLabel,
+        points: points.map((point) => ({
+          key: point.key || point.label,
+          label: point.label || point.key,
+          rate: point.relationshipRatePercent,
+          height: Math.max(Number(point.relationshipRatePercent || 0) ? 14 : 4, (Number(point.relationshipRatePercent || 0) / maxRate) * 100),
+        })),
+      };
+    });
+}
+
+function getProductRelationshipTableRows(relationship = {}, activeView = "together") {
+  if (activeView === "before") return relationship.topBoughtBefore || [];
+  if (activeView === "after") return relationship.topBoughtAfter || [];
+  if (activeView === "risk") return relationship.relationshipsWithReturnRiskImpact || [];
+  return relationship.topBoughtTogether || [];
+}
+
+function getProductRelationshipEmptyMessage(relationship = {}) {
+  if (!relationship.available) return "Not enough order history to detect product relationships yet.";
+  if (!relationship.customerSequenceAvailable && !relationship.sameOrderAvailable) {
+    return "Order basket and customer identity data are unavailable, so product relationships cannot be calculated yet.";
+  }
+  if (!relationship.customerSequenceAvailable && relationship.sameOrderAvailable) {
+    return "No strong same-order relationships detected. Customer identity is unavailable, so before/after relationships cannot be calculated.";
+  }
+  return "No strong product relationships detected.";
 }
 
 const RETURN_REFUND_HELP = {

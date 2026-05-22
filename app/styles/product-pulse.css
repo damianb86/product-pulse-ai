@@ -4958,6 +4958,505 @@ s-page[inline-size="large-500"] {
   height: 100%;
 }
 
+.ppProductRelationshipsPanel {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  overflow: visible;
+}
+
+.ppProductRelationshipsHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ppProductRelationshipsHeader > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ppProductRelationshipsEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppProductRelationshipsEyebrow .ppPulseGlyph,
+.ppProductRelationshipsEyebrow .ppProductPulseSvgIcon {
+  width: 18px;
+  height: 18px;
+}
+
+.ppProductRelationshipsHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppProductRelationshipsHeader p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppProductRelationshipsConfidence,
+.ppProductRelationshipBadge {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppProductRelationshipBadge {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.ppProductRelationshipsConfidence-high,
+.ppProductRelationshipBadge-high {
+  border-color: rgba(var(--pp-success-green-rgb), 0.22);
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppProductRelationshipsConfidence-medium,
+.ppProductRelationshipBadge-medium {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.24);
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppProductRelationshipsConfidence-low,
+.ppProductRelationshipsConfidence-unavailable,
+.ppProductRelationshipBadge-low,
+.ppProductRelationshipBadge-unavailable {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductRelationshipsMainGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ppProductRelationshipsMainGrid.noRisk {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ppProductRelationshipCard,
+.ppProductRelationshipTimeline,
+.ppProductRelationshipInsights,
+.ppProductRelationshipTrend,
+.ppProductRelationshipsTablePanel {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppProductRelationshipRiskCard {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.18);
+  background: rgba(var(--pp-risk-red-rgb), 0.04);
+}
+
+.ppProductRelationshipCardHeader {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.ppProductRelationshipCardHeader > span:first-child {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-purple-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductRelationshipCardHeader .ppProductPulseSvgIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.ppProductRelationshipCardHeader > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.ppProductRelationshipCardHeader small,
+.ppProductRelationshipEmptyText,
+.ppProductRelationshipCardNote {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.ppProductRelationshipInfoLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ppProductRelationshipInfoLabel > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductRelationshipInfoLabel button {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-slate-400);
+  cursor: help;
+}
+
+.ppProductRelationshipTooltipPopover {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.2);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 18px 42px rgba(var(--pp-shadow-rgb), 0.2);
+}
+
+.ppProductRelationshipTooltipPopover strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppProductRelationshipTooltipPopover small {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.42;
+  white-space: normal;
+}
+
+.ppProductRelationshipPrimary {
+  display: grid;
+  gap: 4px;
+}
+
+.ppProductRelationshipPrimary strong {
+  overflow: hidden;
+  color: var(--pp-slate-950);
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.14;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductRelationshipPrimary span {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
+.ppProductRelationshipMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ppProductRelationshipMeta > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductRelationshipsSecondaryGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 12px;
+}
+
+.ppProductRelationshipTimeline > div:first-child,
+.ppProductRelationshipInsights > div:first-child,
+.ppProductRelationshipTrend > div:first-child,
+.ppProductRelationshipsTableHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ppProductRelationshipTimeline strong,
+.ppProductRelationshipInsights strong,
+.ppProductRelationshipTrend strong,
+.ppProductRelationshipsTableHeader strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppProductRelationshipTimeline span,
+.ppProductRelationshipInsights span,
+.ppProductRelationshipTrend span,
+.ppProductRelationshipsTableHeader span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppProductRelationshipTimelineTrack {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppProductRelationshipTimelineTrack::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  right: 9%;
+  left: 9%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--pp-slate-200), transparent);
+}
+
+.ppProductRelationshipTimelineNode {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-subcard-bg);
+}
+
+.ppProductRelationshipTimelineNode strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductRelationshipTimelineNode small {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.ppProductRelationshipTimelineNode-dark {
+  border-color: rgba(var(--pp-shadow-rgb), 0.18);
+  background: var(--pp-dark-cta);
+}
+
+.ppProductRelationshipTimelineNode-dark span,
+.ppProductRelationshipTimelineNode-dark strong,
+.ppProductRelationshipTimelineNode-dark small {
+  color: var(--pp-cloud-white);
+}
+
+.ppProductRelationshipTimelineNode-blue {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background: var(--pp-blue-soft);
+}
+
+.ppProductRelationshipTimelineNode-purple {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.18);
+  background: var(--pp-purple-soft);
+}
+
+.ppProductRelationshipTimelineNode-green {
+  border-color: rgba(var(--pp-success-green-rgb), 0.18);
+  background: var(--pp-green-soft);
+}
+
+.ppProductRelationshipInsightList,
+.ppProductRelationshipTrendRows {
+  display: grid;
+  gap: 8px;
+}
+
+.ppProductRelationshipInsight {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-subcard-bg);
+}
+
+.ppProductRelationshipInsight p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.42;
+}
+
+.ppProductRelationshipInsight small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.ppProductRelationshipTrendRow {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 82px;
+  gap: 10px;
+  align-items: end;
+}
+
+.ppProductRelationshipTrendRow > span {
+  overflow: hidden;
+  color: var(--pp-slate-700);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductRelationshipTrendRow div {
+  height: 42px;
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--pp-subcard-bg);
+}
+
+.ppProductRelationshipTrendRow i {
+  width: 100%;
+  min-height: 4px;
+  border-radius: 999px 999px 4px 4px;
+  background: linear-gradient(180deg, var(--pp-insight-violet), var(--pp-pulse-blue));
+}
+
+.ppProductRelationshipTrendRow strong {
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  text-align: right;
+}
+
+.ppProductRelationshipsTablePanel {
+  gap: 12px;
+  padding: 14px;
+}
+
+.ppProductRelationshipsTableHeader > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.ppProductRelationshipsSegmented {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+}
+
+.ppProductRelationshipsSegmented button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.ppProductRelationshipsSegmented button.isActive {
+  background: var(--pp-dark-cta);
+  color: var(--pp-cloud-white);
+}
+
+.ppProductRelationshipTableWrap {
+  overflow-x: auto;
+}
+
+.ppProductRelationshipTable {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.ppProductRelationshipTable th,
+.ppProductRelationshipTable td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 760;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ppProductRelationshipTable th {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ppProductRelationshipTable td:first-child {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-weight: 900;
+  text-overflow: ellipsis;
+}
+
 .ppReturnRefundResolutionPanel {
   display: grid;
   gap: 18px;
@@ -7096,6 +7595,16 @@ s-page[inline-size="large-500"] {
   .ppPurchaseContextGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .ppProductRelationshipsMainGrid,
+  .ppProductRelationshipsMainGrid.noRisk,
+  .ppProductRelationshipsSecondaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppProductRelationshipTimelineTrack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -7137,9 +7646,27 @@ s-page[inline-size="large-500"] {
     display: grid;
   }
 
+  .ppProductRelationshipsHeader,
+  .ppProductRelationshipsTableHeader {
+    display: grid;
+  }
+
   .ppPurchaseContextGrid,
+  .ppProductRelationshipsMainGrid,
+  .ppProductRelationshipsMainGrid.noRisk,
+  .ppProductRelationshipsSecondaryGrid,
+  .ppProductRelationshipTimelineTrack,
   .ppPurchaseContextTimelineRow {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppProductRelationshipTrendRow {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .ppProductRelationshipTrendRow strong {
+    text-align: left;
   }
 
   .ppPurchaseContextCard-wide,

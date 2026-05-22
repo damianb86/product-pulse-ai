@@ -142,6 +142,59 @@ const productRelationshipSummaryBlockSchema = z.object({
   }).strict()).max(6),
 }).strict();
 
+const productRelationshipTimelineBlockSchema = z.object({
+  type: z.literal("product_relationship_timeline"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  currentProductTitle: z.string().max(220),
+  before: z.array(z.object({
+    title: z.string().max(220),
+    timeWindow: z.string().max(80).nullable().optional(),
+    relationshipRate: z.number().min(0).max(100).nullable().optional(),
+    lift: z.number().min(0).max(100000).nullable().optional(),
+    confidence: z.string().max(80).nullable().optional(),
+  }).strict()).max(3).default([]),
+  together: z.array(z.object({
+    title: z.string().max(220),
+    attachRate: z.number().min(0).max(100).nullable().optional(),
+    lift: z.number().min(0).max(100000).nullable().optional(),
+    confidence: z.string().max(80).nullable().optional(),
+  }).strict()).max(3).default([]),
+  after: z.array(z.object({
+    title: z.string().max(220),
+    timeWindow: z.string().max(80).nullable().optional(),
+    relationshipRate: z.number().min(0).max(100).nullable().optional(),
+    lift: z.number().min(0).max(100000).nullable().optional(),
+    confidence: z.string().max(80).nullable().optional(),
+  }).strict()).max(3).default([]),
+}).strict();
+
+const productRelationshipRiskBlockSchema = z.object({
+  type: z.literal("product_relationship_risk"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  relatedProductTitle: z.string().max(220),
+  returnDelta: z.number().min(-100).max(100).nullable().optional(),
+  refundDelta: z.number().min(-100).max(100).nullable().optional(),
+  confidence: z.string().max(80).nullable().optional(),
+  summary: z.string().max(420),
+  recommendation: z.string().max(320).nullable().optional(),
+  caveat: z.string().max(260).nullable().optional(),
+}).strict();
+
+const productRelationshipOpportunityBlockSchema = z.object({
+  type: z.literal("product_relationship_opportunity"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  relatedProductTitle: z.string().max(220),
+  opportunityType: z.enum(["cross_sell", "bundle", "journey", "merchandising"]),
+  timing: z.string().max(120).nullable().optional(),
+  lift: z.number().min(0).max(100000).nullable().optional(),
+  confidence: z.string().max(80).nullable().optional(),
+  summary: z.string().max(420),
+  caveat: z.string().max(260).nullable().optional(),
+}).strict();
+
 const entityListBlockSchema = z.object({
   type: z.literal("entity_list"),
   title: z.string().max(160).optional(),
@@ -355,6 +408,9 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   coPurchaseSummaryBlockSchema,
   purchaseContextRiskImpactBlockSchema,
   productRelationshipSummaryBlockSchema,
+  productRelationshipTimelineBlockSchema,
+  productRelationshipRiskBlockSchema,
+  productRelationshipOpportunityBlockSchema,
   entityListBlockSchema,
   recommendationListBlockSchema,
   unavailableStateBlockSchema,

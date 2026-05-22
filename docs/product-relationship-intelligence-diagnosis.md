@@ -2,6 +2,8 @@
 
 Phase 3 scope: use deterministic product relationship metrics as diagnosis context, recommendation inputs, compact AI-written insights, read-only assistant tools, and assistant-only ChatKit cards. No product detail UI changes and no Shopify mutations.
 
+Phase 4 presents these metrics in the product detail UI and adds richer ChatKit relationship cards. See `docs/product-relationship-intelligence-presentation.md`.
+
 ## Product Risk
 
 Product relationships are contextual signals. They do not directly overwrite Product Risk and they do not add a blind risk-score lift.

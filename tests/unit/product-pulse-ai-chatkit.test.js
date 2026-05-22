@@ -516,6 +516,36 @@ describe("ProductPulse ChatKit integration", () => {
         ],
       },
       {
+        type: "product_relationship_timeline",
+        productGid: "gid://shopify/Product/1",
+        currentProductTitle: "Core Linen Trouser",
+        before: [{ title: "Starter Guide", timeWindow: "30d before", relationshipRate: 18, lift: 3.2, confidence: "Medium" }],
+        together: [{ title: "Care Kit", attachRate: 24, lift: 2.4, confidence: "High" }],
+        after: [{ title: "Refill Pack", timeWindow: "30d after", relationshipRate: 21, lift: 4.1, confidence: "High" }],
+      },
+      {
+        type: "product_relationship_risk",
+        productGid: "gid://shopify/Product/1",
+        relatedProductTitle: "Compatibility Kit",
+        returnDelta: 14,
+        refundDelta: 4,
+        confidence: "Medium",
+        summary: "Returns are higher when this product is bought with Compatibility Kit.",
+        recommendation: "Review compatibility messaging for this pairing.",
+        caveat: "Association only.",
+      },
+      {
+        type: "product_relationship_opportunity",
+        productGid: "gid://shopify/Product/1",
+        relatedProductTitle: "Refill Pack",
+        opportunityType: "cross_sell",
+        timing: "30d after",
+        lift: 4.1,
+        confidence: "High",
+        summary: "Refill Pack is a follow-on cross-sell candidate.",
+        caveat: "Use as merchandising context.",
+      },
+      {
         type: "purchase_context_risk_impact",
         productGid: "gid://shopify/Product/1",
         riskImpact: "Solo-purchase behavior strengthens product-specific attribution.",
@@ -590,7 +620,7 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
     expect(widgets.filter((widget) => widget.type === "Card").every((widget) => widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("#4C1D95");
     expect(JSON.stringify(widgets)).toContain("open_product");
@@ -602,8 +632,12 @@ describe("ProductPulse ChatKit integration", () => {
     expect(JSON.stringify(widgets)).toContain("Purchase context");
     expect(JSON.stringify(widgets)).toContain("Co-purchased products");
     expect(JSON.stringify(widgets)).toContain("Product relationships");
+    expect(JSON.stringify(widgets)).toContain("Product relationship timeline");
+    expect(JSON.stringify(widgets)).toContain("Relationship risk context");
+    expect(JSON.stringify(widgets)).toContain("Cross-sell opportunity");
     expect(JSON.stringify(widgets)).toContain("Care Kit");
     expect(JSON.stringify(widgets)).toContain("Compatibility Kit");
+    expect(JSON.stringify(widgets)).toContain("Refill Pack");
     expect(JSON.stringify(widgets)).toContain("Solo-purchase behavior");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");

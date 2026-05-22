@@ -69,6 +69,12 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return purchaseContextRiskImpactWidget(block);
     case "product_relationship_summary":
       return productRelationshipSummaryWidget(block);
+    case "product_relationship_timeline":
+      return productRelationshipTimelineWidget(block);
+    case "product_relationship_risk":
+      return productRelationshipRiskWidget(block);
+    case "product_relationship_opportunity":
+      return productRelationshipOpportunityWidget(block);
     case "entity_list":
       return entityListWidget(block);
     case "recommendation_list":
@@ -427,6 +433,67 @@ function productRelationshipSummaryWidget(block: Extract<AiPresentationBlock, { 
       block: true,
     })] : []),
   ], { size: "md", status: { text: "Product relationships", icon: "analytics" } });
+}
+
+function productRelationshipTimelineWidget(block: Extract<AiPresentationBlock, { type: "product_relationship_timeline" }>): Widgets.Card {
+  const nodes = [
+    ...block.before.slice(0, 2).map((item) => relationshipTimelineNode("Before", item.title, relationshipTimelineDetail(item, "before"), "info")),
+    ...block.together.slice(0, 2).map((item) => relationshipTimelineNode("Same order", item.title, relationshipTimelineDetail(item, "together"), "discovery")),
+    relationshipTimelineNode("Current", block.currentProductTitle, "Source product", "secondary"),
+    ...block.after.slice(0, 2).map((item) => relationshipTimelineNode("After", item.title, relationshipTimelineDetail(item, "after"), "success")),
+  ];
+  return productPulseCard([
+    row([
+      title(block.title || "Product relationship timeline", { key: "title" }),
+      badge(`${nodes.length} nodes`, "secondary", { key: "count" }),
+    ], { key: "heading", justify: "between" }),
+    col(nodes, { key: "timeline", gap: 1 }),
+    ...(block.productGid ? [button("Open product", "open_product", { productRef: block.productGid }, "chevron-right", {
+      key: "open-product",
+      style: "secondary",
+      variant: "outline",
+      block: true,
+    })] : []),
+  ], { size: "md", status: { text: "Customer journey", icon: "chart" } });
+}
+
+function productRelationshipRiskWidget(block: Extract<AiPresentationBlock, { type: "product_relationship_risk" }>): Widgets.Card {
+  return productPulseCard([
+    row([
+      iconTile("analytics", { key: "icon", background: COLORS.dangerSoft, iconColor: COLORS.dangerText }),
+      col([
+        title(block.title || "Relationship risk context", { key: "title" }),
+        caption(block.relatedProductTitle, { key: "related", color: COLORS.muted }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+      badge(block.confidence || "Unavailable", confidenceBadgeColor(block.confidence || ""), { key: "confidence" }),
+    ], { key: "top", align: "start", gap: 6, wrap: "nowrap" }),
+    metricGrid([
+      { label: "Return delta", value: signedPercentLabel(block.returnDelta), detail: "association", tone: "danger" },
+      { label: "Refund delta", value: signedPercentLabel(block.refundDelta), detail: "association", tone: "danger" },
+    ], { key: "risk-metrics" }),
+    text(block.summary, { key: "summary", maxLength: 260 }),
+    ...(block.recommendation ? [caption(block.recommendation, { key: "recommendation", color: COLORS.dangerText, maxLength: 220 })] : []),
+    ...(block.caveat ? [caption(block.caveat, { key: "caveat", maxLength: 220 })] : []),
+  ], { size: "md", status: { text: "Relationship risk", icon: "analytics" } });
+}
+
+function productRelationshipOpportunityWidget(block: Extract<AiPresentationBlock, { type: "product_relationship_opportunity" }>): Widgets.Card {
+  return productPulseCard([
+    row([
+      iconTile("sparkle", { key: "icon", background: COLORS.successSoft, iconColor: COLORS.successText }),
+      col([
+        title(block.title || relationshipOpportunityTitle(block.opportunityType), { key: "title" }),
+        caption(block.relatedProductTitle, { key: "related", color: COLORS.muted }),
+      ], { key: "copy", gap: 1, flex: 1 }),
+      badge(block.confidence || "Unavailable", confidenceBadgeColor(block.confidence || ""), { key: "confidence" }),
+    ], { key: "top", align: "start", gap: 6, wrap: "nowrap" }),
+    metricGrid([
+      { label: "Timing", value: block.timing || "Relationship", detail: relationshipOpportunityLabel(block.opportunityType), tone: "success" },
+      { label: "Lift", value: typeof block.lift === "number" ? `${formatNumber(block.lift)}x` : "Unavailable", detail: "affinity", tone: "info" },
+    ], { key: "opportunity-metrics" }),
+    text(block.summary, { key: "summary", maxLength: 260 }),
+    ...(block.caveat ? [caption(block.caveat, { key: "caveat", maxLength: 220 })] : []),
+  ], { size: "md", status: { text: "Relationship opportunity", icon: "sparkle-double" } });
 }
 
 function entityListWidget(block: Extract<AiPresentationBlock, { type: "entity_list" }>): Widgets.Card {
@@ -1058,6 +1125,55 @@ function productRelationshipOpportunityCount(block: Extract<AiPresentationBlock,
     const direction = item.direction.toLowerCase();
     return (direction.includes("after") || direction.includes("together")) && (item.deltaReturnRate || 0) <= 0 && (item.deltaRefundRate || 0) <= 0;
   }).length;
+}
+
+function relationshipTimelineNode(label: string, titleValue: string, detail: string, badgeColor: NonNullable<Widgets.Badge["color"]>): Widgets.Row {
+  return row([
+    badge(label, badgeColor, { key: "badge" }),
+    col([
+      text(titleValue, { key: "title", weight: "semibold", maxLength: 150, maxLines: 1 }),
+      caption(detail, { key: "detail", maxLength: 180 }),
+    ], { key: "copy", gap: 0, flex: 1 }),
+  ], {
+    key: `${label}-${stableId(titleValue)}`,
+    justify: "between",
+    align: "center",
+    wrap: "nowrap",
+    padding: { top: 1, right: 0, bottom: 1, left: 0 },
+    border: { bottom: { size: 1, color: COLORS.divider } },
+  });
+}
+
+function relationshipTimelineDetail(
+  item: { timeWindow?: string | null; relationshipRate?: number | null; attachRate?: number | null; lift?: number | null; confidence?: string | null },
+  direction: "before" | "together" | "after",
+): string {
+  const rate = typeof item.attachRate === "number" ? item.attachRate : item.relationshipRate;
+  const rateLabel = typeof rate === "number" ? `${formatNumber(rate)}%` : "";
+  const windowLabel = item.timeWindow || (direction === "together" ? "same order" : direction);
+  const liftLabel = typeof item.lift === "number" ? `${formatNumber(item.lift)}x lift` : "";
+  return [rateLabel, windowLabel, liftLabel, item.confidence || ""].filter(Boolean).join(" · ");
+}
+
+function signedPercentLabel(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Unavailable";
+  if (value > 0) return `+${formatNumber(value)}%`;
+  if (value < 0) return `-${formatNumber(Math.abs(value))}%`;
+  return "0%";
+}
+
+function relationshipOpportunityTitle(value: string): string {
+  if (value === "cross_sell") return "Cross-sell opportunity";
+  if (value === "bundle") return "Bundle opportunity";
+  if (value === "journey") return "Journey insight";
+  return "Merchandising opportunity";
+}
+
+function relationshipOpportunityLabel(value: string): string {
+  if (value === "cross_sell") return "follow-on";
+  if (value === "bundle") return "bought together";
+  if (value === "journey") return "sequence";
+  return "relationship";
 }
 
 function buildProductSummaryCaption(block: Extract<AiPresentationBlock, { type: "product_reference" }>): string {

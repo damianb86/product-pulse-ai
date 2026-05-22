@@ -1260,6 +1260,90 @@ describe("ProductPulse screens", () => {
     expect(within(missingPanel).getByText("Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available.")).toBeInTheDocument();
   });
 
+  it("renders product relationship cards, timeline, trend, table and AI insights", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productRelationshipIntelligenceSummary: productRelationshipSummaryFixture(),
+        productRelationshipAiInsights: {
+          available: true,
+          insights: [{
+            id: "relationship-insight-1",
+            relatedProductTitle: "Refill Pack",
+            summary: "Customers who buy this product are more likely to buy Refill Pack within 30 days.",
+            caveat: "Association only; do not treat this as causality.",
+          }],
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const panel = container.querySelector(".ppProductRelationshipsPanel");
+
+    expect(panel).toBeInTheDocument();
+    expect(within(panel).getByText("Product relationships")).toBeInTheDocument();
+    expect(within(panel).getByText("Bought together")).toBeInTheDocument();
+    expect(within(panel).getByText("Bought before")).toBeInTheDocument();
+    expect(within(panel).getByText("Bought after")).toBeInTheDocument();
+    expect(within(panel).getByText("Risk context")).toBeInTheDocument();
+    expect(within(panel).getAllByText("Care Kit").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("Starter Guide").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("Refill Pack").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("42% attach rate")).toBeInTheDocument();
+    expect(within(panel).getByText("2.4x lift · 5 orders")).toBeInTheDocument();
+    expect(within(panel).getByText("Relationship timeline")).toBeInTheDocument();
+    expect(within(panel).getByText("Relationship trend")).toBeInTheDocument();
+    expect(panel.querySelectorAll(".ppProductRelationshipTrendRow")).toHaveLength(3);
+    expect(within(panel).getByText(/more likely to buy Refill Pack/i)).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: "After" }));
+    expect(within(panel).getAllByText("30 days after").length).toBeGreaterThan(0);
+    fireEvent.click(within(panel).getByRole("button", { name: "Risk impact" }));
+    expect(within(panel).getByText("+8% returns")).toBeInTheDocument();
+  });
+
+  it("handles missing and low-confidence product relationship data without overemphasis", () => {
+    const lowConfidenceProduct = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productRelationshipIntelligenceSummary: productRelationshipSummaryFixture({
+          confidence: { score: 42, label: "Low", reasons: ["low_sample_size"] },
+          relationships_with_return_risk_impact: [{
+            related_product_id: "gid://shopify/Product/noisy-pair",
+            related_product_title: "Noisy Pair",
+            relationship_type: "same_order",
+            relationship_direction: "together",
+            time_window: "same_order",
+            attach_rate: 0.4,
+            relationship_rate: 0.4,
+            lift: 3.1,
+            confidence: 35,
+            confidence_label: "Low",
+            sample_size: 1,
+            relationship_strength: "weak",
+            trend: "insufficient_data",
+            delta_return_rate: 0.28,
+          }],
+        }),
+      },
+    };
+    const lowRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={lowConfidenceProduct} />);
+    const lowPanel = lowRender.container.querySelector(".ppProductRelationshipsPanel");
+    expect(lowPanel).toBeInTheDocument();
+    expect(lowPanel.querySelector(".ppProductRelationshipRiskCard")).not.toBeInTheDocument();
+
+    const missingProduct = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productRelationshipIntelligenceSummary: null,
+      },
+    };
+    const missingRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={missingProduct} />);
+    const missingPanel = missingRender.container.querySelector(".ppProductRelationshipsPanel");
+    expect(within(missingPanel).getByText("Not enough order history to detect product relationships yet.")).toBeInTheDocument();
+  });
+
   it("renders return-rate prediction for product diagnosis", () => {
     const product = {
       ...defaultView.startHere,
@@ -3071,4 +3155,134 @@ function purchaseContextSummaryFixture(overrides = {}) {
     four_plus_unit_rate: summary.total_orders_containing_product ? summary.quantity_distribution.four_plus_unit_count / summary.total_orders_containing_product : 0,
   };
   return summary;
+}
+
+function productRelationshipSummaryFixture(overrides = {}) {
+  const careKitMonthly = [
+    { month: "2026-03", source_product_orders: 4, related_order_count: 1, relationship_rate: 0.25 },
+    { month: "2026-04", source_product_orders: 5, related_order_count: 2, relationship_rate: 0.4 },
+    { month: "2026-05", source_product_orders: 7, related_order_count: 3, relationship_rate: 0.428 },
+  ];
+  const starterMonthly = [
+    { month: "2026-03", source_product_orders: 4, related_order_count: 1, relationship_rate: 0.25 },
+    { month: "2026-04", source_product_orders: 5, related_order_count: 2, relationship_rate: 0.4 },
+  ];
+  const refillMonthly = [
+    { month: "2026-04", source_product_orders: 5, related_order_count: 1, relationship_rate: 0.2 },
+    { month: "2026-05", source_product_orders: 7, related_order_count: 2, relationship_rate: 0.286 },
+  ];
+  return {
+    source_product_id: "gid://shopify/Product/relationship-detail",
+    relationship_model_version: "product_relationship_v1",
+    data_basis: {
+      same_order_available: true,
+      customer_sequence_available: true,
+      order_count: 14,
+      customer_count: 10,
+      known_basket_order_count: 14,
+      unknown_basket_order_count: 0,
+    },
+    confidence: { score: 82, label: "High", reasons: [] },
+    top_bought_together: [{
+      related_product_id: "gid://shopify/Product/care-kit",
+      related_product_title: "Care Kit",
+      relationship_type: "same_order",
+      relationship_direction: "together",
+      time_window: "same_order",
+      relationship_rate: 0.42,
+      attach_rate: 0.42,
+      lift: 2.4,
+      confidence: 82,
+      confidence_label: "High",
+      sample_size: 5,
+      co_order_count: 5,
+      co_customer_count: 4,
+      relationship_strength: "strong",
+      trend: "stable",
+      delta_return_rate: 0.08,
+      delta_refund_rate: 0.02,
+      monthly: careKitMonthly,
+    }],
+    top_bought_before: [{
+      related_product_id: "gid://shopify/Product/starter-guide",
+      related_product_title: "Starter Guide",
+      relationship_type: "previous_purchase",
+      relationship_direction: "before",
+      time_window: "30d_before",
+      relationship_rate: 0.3,
+      lift: 3.2,
+      median_days_before: 12,
+      confidence: 72,
+      confidence_label: "Medium",
+      sample_size: 3,
+      customer_count: 3,
+      relationship_strength: "moderate",
+      trend: "increasing",
+      monthly: starterMonthly,
+    }],
+    top_bought_after: [{
+      related_product_id: "gid://shopify/Product/refill-pack",
+      related_product_title: "Refill Pack",
+      relationship_type: "next_purchase",
+      relationship_direction: "after",
+      time_window: "30d_after",
+      relationship_rate: 0.25,
+      lift: 1.7,
+      median_days_after: 9,
+      follow_on_revenue: 280,
+      confidence: 76,
+      confidence_label: "Medium",
+      sample_size: 4,
+      customer_count: 4,
+      relationship_strength: "moderate",
+      trend: "increasing",
+      monthly: refillMonthly,
+    }],
+    strongest_relationships: [
+      { related_product_id: "gid://shopify/Product/care-kit", related_product_title: "Care Kit", relationship_direction: "together", time_window: "same_order", relationship_rate: 0.42, attach_rate: 0.42, lift: 2.4, confidence: 82, confidence_label: "High", sample_size: 5, relationship_strength: "strong", trend: "stable", monthly: careKitMonthly },
+      { related_product_id: "gid://shopify/Product/starter-guide", related_product_title: "Starter Guide", relationship_direction: "before", time_window: "30d_before", relationship_rate: 0.3, lift: 3.2, confidence: 72, confidence_label: "Medium", sample_size: 3, relationship_strength: "moderate", trend: "increasing", monthly: starterMonthly },
+      { related_product_id: "gid://shopify/Product/refill-pack", related_product_title: "Refill Pack", relationship_direction: "after", time_window: "30d_after", relationship_rate: 0.25, lift: 1.7, confidence: 76, confidence_label: "Medium", sample_size: 4, relationship_strength: "moderate", trend: "increasing", monthly: refillMonthly },
+      { related_product_id: "gid://shopify/Product/noise", related_product_title: "Fourth hidden trend", relationship_direction: "together", time_window: "same_order", relationship_rate: 0.18, lift: 1.4, confidence: 70, confidence_label: "Medium", sample_size: 3, relationship_strength: "weak", trend: "stable", monthly: careKitMonthly },
+    ],
+    relationship_trends: [
+      { related_product_id: "gid://shopify/Product/care-kit", related_product_title: "Care Kit", relationship_direction: "together", time_window: "same_order", monthly: careKitMonthly, trend: "stable", confidence: 82 },
+      { related_product_id: "gid://shopify/Product/starter-guide", related_product_title: "Starter Guide", relationship_direction: "before", time_window: "30d_before", monthly: starterMonthly, trend: "increasing", confidence: 72 },
+      { related_product_id: "gid://shopify/Product/refill-pack", related_product_title: "Refill Pack", relationship_direction: "after", time_window: "30d_after", monthly: refillMonthly, trend: "increasing", confidence: 76 },
+      { related_product_id: "gid://shopify/Product/noise", related_product_title: "Fourth hidden trend", relationship_direction: "together", time_window: "same_order", monthly: careKitMonthly, trend: "stable", confidence: 70 },
+    ],
+    relationships_with_return_risk_impact: [{
+      related_product_id: "gid://shopify/Product/care-kit",
+      related_product_title: "Care Kit",
+      relationship_type: "same_order",
+      relationship_direction: "together",
+      time_window: "same_order",
+      relationship_rate: 0.42,
+      attach_rate: 0.42,
+      lift: 2.4,
+      confidence: 82,
+      confidence_label: "High",
+      sample_size: 5,
+      relationship_strength: "strong",
+      trend: "stable",
+      delta_return_rate: 0.08,
+      delta_refund_rate: 0.02,
+      monthly: careKitMonthly,
+    }],
+    relationships_with_cross_sell_opportunity: [{
+      related_product_id: "gid://shopify/Product/refill-pack",
+      related_product_title: "Refill Pack",
+      relationship_type: "next_purchase",
+      relationship_direction: "after",
+      time_window: "30d_after",
+      relationship_rate: 0.25,
+      lift: 1.7,
+      confidence: 76,
+      confidence_label: "Medium",
+      sample_size: 4,
+      relationship_strength: "moderate",
+      trend: "increasing",
+    }],
+    warnings: [],
+    ...overrides,
+  };
 }
