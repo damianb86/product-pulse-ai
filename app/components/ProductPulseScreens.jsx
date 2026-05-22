@@ -3802,7 +3802,11 @@ function getProductDetailModel(product) {
   const metrics = { ...(product.metrics || {}) };
   metrics.returnRate = clampPercentValue(metrics.returnRate || 0);
   metrics.refundRate = clampPercentValue(metrics.refundRate || 0);
-  const sourceCoverage = product.sourceCoverage || [];
+  const sourceCoverage = Array.isArray(product.sourceCoverage)
+    ? product.sourceCoverage
+    : Array.isArray(metrics.sourceCoverage)
+      ? metrics.sourceCoverage
+      : [];
   const hasRiskSnapshot = product.hasRiskSnapshot !== false;
   const analysisStatus = getProductAnalysisDisplay(product);
   const hasFullDiagnosis = analysisStatus.depth === "full";
@@ -3850,6 +3854,41 @@ function getProductDetailModel(product) {
   const productCollections = Array.isArray(metrics.collections) && metrics.collections.length
     ? metrics.collections
     : [product.collection].filter(Boolean);
+  const reviewSourceStats = asPlainObject(metrics.reviewSourceStats);
+  const totalReviewStats = asPlainObject(reviewSourceStats.total);
+  const providerReviewCount = maxFiniteMetricNumber(
+    Number(metrics.csvReviewRatingCount || metrics.csvReviewCount || 0)
+      + Number(metrics.judgeMeReviewCount || 0)
+      + Number(metrics.chatMeReviewCount || 0),
+    Number(asPlainObject(reviewSourceStats.csv).reviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.judgeMe).reviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.chatMe).reviewCount || 0),
+  );
+  const providerNegativeReviewCount = maxFiniteMetricNumber(
+    Number(metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || 0)
+      + Number(metrics.judgeMeNegativeReviewCount || 0)
+      + Number(metrics.chatMeNegativeReviewCount || 0),
+    Number(asPlainObject(reviewSourceStats.csv).negativeReviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.judgeMe).negativeReviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.chatMe).negativeReviewCount || 0),
+  );
+  const reviewCount = maxFiniteMetricNumber(metrics.reviewCount, totalReviewStats.reviewCount, providerReviewCount);
+  const negativeReviewCount = maxFiniteMetricNumber(metrics.negativeReviewCount, totalReviewStats.negativeReviewCount, providerNegativeReviewCount);
+  const negativeReviewRate = getNegativeReviewRate(metrics, negativeReviewCount, reviewCount);
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const refundUnits = Number(metrics.refundUnits || 0);
+  const customerSignalBreakdown = asPlainObject(metrics.customerSignalBreakdown || returnRefundRelationshipFactors.customerSignalBreakdown);
+  const signalCount = maxFiniteMetricNumber(metrics.signalCount, metrics.signalsCount, metrics.issueCount);
+  const customerSignalCount = getCustomerSignalCount({
+    ...metrics,
+    customerSignalBreakdown,
+    returnRefundRelationship,
+    returnUnits,
+    refundUnits,
+    negativeReviewCount,
+    signalCount,
+  });
+  const averageRating = getProductAverageRating(metrics);
 
   return {
     productGid: product.productGid || product.id || "",
@@ -3886,24 +3925,23 @@ function getProductDetailModel(product) {
     riskTone: riskDisplay.tone,
     confidence: product.confidence || 0,
     confidenceLabel: getConfidenceLabel(product.confidence || 0, hasRiskSnapshot),
-    signalCount: metrics.signalCount || 0,
+    signalCount,
     sourceCoverage,
     sourceCount: sourceCoverage.length,
     returnRate: metrics.returnRate || 0,
     refundRate: metrics.refundRate || 0,
-    negativeReviewRate: metrics.negativeReviewRate || 0,
-    returnUnits: metrics.returnUnits || 0,
-    refundUnits: metrics.refundUnits || 0,
+    negativeReviewRate,
+    returnUnits,
+    refundUnits,
     refundAmount: metrics.refundAmount || 0,
     salesAmount: metrics.salesAmount || 0,
-    reviewCount: metrics.reviewCount || 0,
-    negativeReviewCount: metrics.negativeReviewCount || 0,
-    customerSignalCount: Number(metrics.customerSignalCount || 0)
-      || (Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) + Number(metrics.negativeReviewCount || 0)),
-    averageRating: getProductAverageRating(metrics),
+    reviewCount,
+    negativeReviewCount,
+    customerSignalCount,
+    averageRating,
     reviewRatingTrend: getReviewRatingTrendData(metrics.textInsights || {}, "", {
-      averageRating: getProductAverageRating(metrics),
-      reviewCount: metrics.reviewCount || 0,
+      averageRating,
+      reviewCount,
     }),
     estimatedImpact: getEstimatedImpactValue(metrics),
     marginAtRisk: getEstimatedMarginValue(metrics),
@@ -3918,7 +3956,7 @@ function getProductDetailModel(product) {
     returnRefundRelationshipFactors,
     returnPressureBreakdown: asPlainObject(metrics.returnPressure || returnRefundRelationshipFactors.returnPressure),
     refundLeakageBreakdown: asPlainObject(metrics.refundLeakage || returnRefundRelationshipFactors.refundLeakage),
-    customerSignalBreakdown: asPlainObject(metrics.customerSignalBreakdown || returnRefundRelationshipFactors.customerSignalBreakdown),
+    customerSignalBreakdown,
     financialExposureBreakdown,
     productPurchaseContext,
     productPurchaseContextFactors,
@@ -4014,11 +4052,11 @@ function getConfidenceLabel(confidence, hasRiskSnapshot = true) {
 }
 
 function getEstimatedImpactValue(metrics = {}) {
-  return Number(metrics.estimatedImpact || metrics.revenueAtRisk || metrics.refundAmount || 0);
+  return Number(metrics.estimatedImpact || metrics.financialExposure || metrics.revenueAtRisk || metrics.marginAtRisk || metrics.refundAmount || 0);
 }
 
 function getEstimatedRevenueValue(metrics = {}) {
-  return Number(metrics.revenueAtRisk || metrics.estimatedImpact || metrics.refundAmount || 0);
+  return Number(metrics.revenueAtRisk || metrics.estimatedImpact || metrics.financialExposure || metrics.refundAmount || 0);
 }
 
 function getScoreCalculationStatus(metrics = {}) {
@@ -5149,7 +5187,7 @@ function getFinancialExposureFootnote(detail = {}) {
   if (low > 0 && high > 0 && high > low) {
     return `Likely range ${formatMoney(low)} - ${formatMoney(high)}`;
   }
-  return `${detail.returnRate}% return rate`;
+  return `${formatPercent(detail.returnRate)} return rate`;
 }
 
 function getFinancialExposureRangeLabel(detail = {}) {
@@ -5245,12 +5283,21 @@ function getRefundLeakageCardData(detail = {}, fallbackLeakage = 0) {
 }
 
 function getCustomerSignalsFootnote(detail = {}) {
-  const breakdown = detail.customerSignalBreakdown || {};
   const relationship = detail.returnRefundRelationship || {};
+  const relationshipSignals = getRelationshipCustomerSignalParts(detail);
   const purchaseLine = getPurchaseContextCompactLine(detail);
-  if (relationship.available) {
+  if (relationshipSignals.available || relationship.available) {
+    const signalParts = [
+      `${formatInteger(relationshipSignals.linked)} linked`,
+      `${formatInteger(relationshipSignals.returnOnly)} return-only`,
+      `${formatInteger(relationshipSignals.refundOnly)} refund-only`,
+    ];
+    if (relationshipSignals.exchangeOrReplacement > 0) signalParts.push(`${formatInteger(relationshipSignals.exchangeOrReplacement)} exchange/replacement`);
+    if (relationshipSignals.pendingOrUnknown > 0) signalParts.push(`${formatInteger(relationshipSignals.pendingOrUnknown)} pending/unknown`);
+    if (relationshipSignals.unattributedRefund > 0) signalParts.push(`${formatInteger(relationshipSignals.unattributedRefund)} unattributed refund`);
+    if (Number(detail.negativeReviewCount || 0) > 0) signalParts.push(`${formatInteger(detail.negativeReviewCount)} negative review${Number(detail.negativeReviewCount || 0) === 1 ? "" : "s"}`);
     return [
-      `${formatInteger(breakdown.linkedReturnRefundCount ?? relationship.returnedAndRefundedUnits)} linked · ${formatInteger(breakdown.returnOnlyCount ?? relationship.returnedNotRefundedUnits)} return-only · ${formatInteger(breakdown.refundOnlyCount ?? relationship.refundedWithoutReturnUnits)} refund-only`,
+      signalParts.join(" · "),
       purchaseLine,
     ].filter(Boolean).join(" · ");
   }
@@ -5461,12 +5508,12 @@ function getProductDetailInsightCards(detail = {}) {
     },
     {
       title: "Evidence strength",
-      meta: "Source breadth trend",
-      value: formatInteger(sourceCount),
-      detail: `${sourceCount === 1 ? "source" : "sources"} · ${formatInteger(detail.signalCount)} stored signals`,
+      meta: "Evidence quality trend",
+      value: detail.evidenceStrengthScore ? `${formatInteger(detail.evidenceStrengthScore)} / 100` : formatInteger(sourceCount),
+      detail: `${formatInteger(sourceCount)} ${sourceCount === 1 ? "source" : "sources"} · ${formatInteger(detail.signalCount)} stored signals`,
       footnote: detail.evidenceLabel || "Evidence coverage",
-      tone: sourceCount >= 3 ? "green" : "blue",
-      sparkline: getInsightSeries(history, (entry) => entry.sourceCount, sourceCount),
+      tone: getEvidenceStrengthTone(detail.evidenceStrengthScore, sourceCount),
+      sparkline: getInsightSeries(history, (entry) => firstFiniteNumber(entry.evidenceStrengthScore, entry.sourceCount), detail.evidenceStrengthScore || sourceCount),
       icon: "ai-evidence-synthesis",
       chartStyle: "area",
       chartTone: "primary",
@@ -5603,6 +5650,13 @@ function getAverageRatingInsightSeries(detail = {}, history = [], fallbackRating
   return getInsightSeries(history, (entry) => firstFiniteNumber(entry.avgRating, entry.reviewRating, entry.csvAverageRating), fallbackRating);
 }
 
+function getEvidenceStrengthTone(score = 0, sourceCount = 0) {
+  const normalizedScore = Number(score || 0);
+  if (normalizedScore >= 70) return "green";
+  if (normalizedScore >= 35) return "blue";
+  return Number(sourceCount || 0) >= 2 ? "blue" : "neutral";
+}
+
 function getInsightSeries(history = [], selector, fallbackValue = 0) {
   const values = (Array.isArray(history) ? history : [])
     .map((entry) => {
@@ -5647,29 +5701,85 @@ function calculateRefundLeakageRate(source = {}) {
 }
 
 function getCustomerSignalCount(source = {}) {
+  const relationshipSignals = getRelationshipCustomerSignalParts(source);
+  const negativeReviewCount = Number(source.negativeReviewCount || 0);
+  if (relationshipSignals.available) return relationshipSignals.total + negativeReviewCount;
   const explicit = Number(source.customerSignalCount);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
   const returnUnits = Number(source.returnUnits || 0);
   const refundUnits = Number(source.refundUnits || 0);
-  const negativeReviewCount = Number(source.negativeReviewCount || 0);
   const total = returnUnits + refundUnits + negativeReviewCount;
   if (total > 0) return total;
   return Number(source.signalCount || 0);
 }
 
+function getRelationshipCustomerSignalParts(source = {}) {
+  const relationship = source.returnRefundRelationship || {};
+  const breakdown = asPlainObject(source.customerSignalBreakdown);
+  const hasBreakdown = Object.keys(breakdown).length > 0;
+  const readValue = (keys, fallback = 0) => {
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(breakdown, key)) {
+        const number = Number(breakdown[key]);
+        return Number.isFinite(number) ? Math.max(0, number) : 0;
+      }
+    }
+    const number = Number(fallback);
+    return Number.isFinite(number) ? Math.max(0, number) : 0;
+  };
+  const linked = readValue(["linkedReturnRefundCount", "returnedAndRefundedUnits"], relationship.returnedAndRefundedUnits);
+  const returnOnly = readValue(["returnOnlyCount", "returnedNotRefundedUnits"], relationship.returnedNotRefundedUnits);
+  const refundOnly = readValue(["refundOnlyCount", "refundedWithoutReturnUnits"], relationship.refundedWithoutReturnUnits);
+  const exchangeOrReplacement = readValue(["exchangeOrReplacementCount", "exchangeOrReplacementUnits"], hasBreakdown ? 0 : relationship.exchangeOrReplacementUnits);
+  const pendingOrUnknown = readValue(["pendingOrUnknownCount", "pendingReturnUnits", "relationshipUnknownCount"], hasBreakdown ? 0 : Number(relationship.pendingOrUnknownCount ?? relationship.pendingReturnUnits ?? 0));
+  const unattributedRefund = readValue(["unattributedRefundCount", "unattributedRefundOrders"], hasBreakdown ? 0 : relationship.unattributedRefundOrders);
+  const total = linked + returnOnly + refundOnly + exchangeOrReplacement + pendingOrUnknown + unattributedRefund;
+  return {
+    available: Boolean(hasBreakdown || relationship.available),
+    linked,
+    returnOnly,
+    refundOnly,
+    exchangeOrReplacement,
+    pendingOrUnknown,
+    unattributedRefund,
+    total,
+  };
+}
+
 function getProductAverageRating(metrics = {}) {
+  const stats = asPlainObject(metrics.reviewSourceStats);
+  const totalStats = asPlainObject(stats.total);
+  const totalRating = firstPositiveMetricNumber(totalStats.avgRating, totalStats.averageRating);
+  if (totalRating > 0) return clampNumber(totalRating, 0, 5);
+
+  const topLevelRating = firstPositiveMetricNumber(metrics.avgRating, metrics.reviewRating);
+  if (topLevelRating > 0) return clampNumber(topLevelRating, 0, 5);
+
+  const providerRating = getWeightedAverageRating([
+    {
+      rating: firstPositiveMetricNumber(asPlainObject(stats.csv).avgRating, metrics.csvAverageRating, metrics.csvReviewRating),
+      count: maxFiniteMetricNumber(asPlainObject(stats.csv).reviewCount, metrics.csvReviewRatingCount, metrics.csvReviewCount),
+    },
+    {
+      rating: firstPositiveMetricNumber(asPlainObject(stats.judgeMe).avgRating, metrics.judgeMeAverageRating),
+      count: maxFiniteMetricNumber(asPlainObject(stats.judgeMe).reviewCount, metrics.judgeMeReviewCount),
+    },
+    {
+      rating: firstPositiveMetricNumber(asPlainObject(stats.chatMe).avgRating, metrics.chatMeAverageRating),
+      count: maxFiniteMetricNumber(asPlainObject(stats.chatMe).reviewCount, metrics.chatMeReviewCount),
+    },
+  ]);
+  if (providerRating > 0) return providerRating;
+
   const values = [
-    metrics.avgRating,
-    metrics.reviewRating,
     metrics.csvAverageRating,
     metrics.judgeMeAverageRating,
-    metrics.reviewSourceStats?.total?.avgRating,
-    metrics.reviewSourceStats?.total?.averageRating,
+    metrics.chatMeAverageRating,
   ];
   const match = values
     .map((value) => Number(value))
     .find((value) => Number.isFinite(value) && value > 0);
-  return match || 0;
+  return match ? clampNumber(match, 0, 5) : 0;
 }
 
 function firstFiniteNumber(...values) {
@@ -5678,6 +5788,43 @@ function firstFiniteNumber(...values) {
     if (Number.isFinite(number)) return number;
   }
   return null;
+}
+
+function maxFiniteMetricNumber(...values) {
+  const numbers = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  return numbers.length ? Math.max(...numbers) : 0;
+}
+
+function firstPositiveMetricNumber(...values) {
+  const match = values
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value) && value > 0);
+  return match || 0;
+}
+
+function getWeightedAverageRating(rows = []) {
+  let weightedTotal = 0;
+  let countTotal = 0;
+  rows.forEach((row) => {
+    const rating = Number(row?.rating || 0);
+    const count = Number(row?.count || 0);
+    if (!Number.isFinite(rating) || rating <= 0 || !Number.isFinite(count) || count <= 0) return;
+    weightedTotal += clampNumber(rating, 0, 5) * count;
+    countTotal += count;
+  });
+  return countTotal > 0 ? Math.round((weightedTotal / countTotal) * 10) / 10 : 0;
+}
+
+function getNegativeReviewRate(metrics = {}, negativeReviewCount = 0, reviewCount = 0) {
+  const stats = asPlainObject(metrics.reviewSourceStats);
+  const explicitRate = Number(metrics.negativeReviewRate ?? metrics.csvNegativeRatingRate);
+  const totalRate = Number(asPlainObject(stats.total).negativeReviewRate);
+  if (Number.isFinite(explicitRate) && explicitRate > 0) return clampPercentValue(explicitRate);
+  if (Number.isFinite(totalRate) && totalRate > 0) return clampPercentValue(totalRate);
+  if (Number(reviewCount || 0) > 0) return clampPercentValue((Number(negativeReviewCount || 0) / Number(reviewCount || 1)) * 100);
+  return Number.isFinite(explicitRate) ? clampPercentValue(explicitRate) : 0;
 }
 
 function getEstimatedMarginValue(metrics = {}) {
@@ -5847,9 +5994,17 @@ function getTrendTone(values, fallbackScore = 0) {
 
 function getProductIssueCategory(issue) {
   if (!issue) return "No issue";
-  const normalized = issue.toLowerCase();
+  const normalized = issue.toLowerCase().replace(/[_-]+/g, " ");
   if (normalized.includes("fit") || normalized.includes("sizing") || normalized.includes("waist") || normalized.includes("inseam")) return "Fit & sizing";
   if (normalized.includes("zipper") || normalized.includes("defect")) return "Durability";
+  if (normalized.includes("quality")) return "Product quality";
+  if (normalized.includes("color") || normalized.includes("colour")) return "Color expectations";
+  if (normalized.includes("shipping") || normalized.includes("delivery")) return "Shipping or delivery";
+  if (normalized.includes("refund")) return "Refund impact";
+  if (normalized.includes("review feed") || normalized.includes("source integrity") || normalized.includes("feed mismatch")) return "Source integrity";
+  if (normalized.includes("negative sentiment")) return "Negative customer sentiment";
+  if (normalized.includes("repeated language")) return "Repeated customer language";
+  if (normalized.includes("return rate")) return "Return rate anomaly";
   if (normalized.includes("subjective") || normalized.includes("preference") || normalized.includes("dislike")) return "Subjective negative reaction";
   if (normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("safety") || normalized.includes("peligro")) return "Safety concern";
   if (normalized.includes("fear") || normalized.includes("scare") || normalized.includes("miedo") || normalized.includes("asusta")) return "Subjective negative reaction";

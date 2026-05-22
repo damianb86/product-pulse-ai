@@ -1121,6 +1121,11 @@ describe("ProductPulse screens", () => {
         refundUnits: 2,
         refundAmount: 84,
         salesAmount: 800,
+        evidenceStrengthScore: 76,
+        riskHistory: [
+          { recordedAt: "2026-04-01T00:00:00.000Z", evidenceStrengthScore: 42 },
+          { recordedAt: "2026-05-01T00:00:00.000Z", evidenceStrengthScore: 76 },
+        ],
         returnRefundRelationshipSummary: relationshipSummaryFixture({
           sold_units: 19,
           sold_orders: 14,
@@ -1186,7 +1191,8 @@ describe("ProductPulse screens", () => {
     expect(within(riskSnapshot).getByText("$84 confirmed refunds")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("$180 return-related risk")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("With return $84 · Without $0")).toBeInTheDocument();
-    expect(within(riskSnapshot).getByText("2 linked · 4 return-only · 0 refund-only")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("2 linked · 4 return-only · 0 refund-only · 18 negative reviews")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("76 / 100")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Based on 41 signals · strong refund attribution")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Resolution breakdown")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Return resolution mix")).toBeInTheDocument();
@@ -1196,6 +1202,41 @@ describe("ProductPulse screens", () => {
     expect(riskSnapshot.querySelector(".ppResolutionBreakdownInsightCard")).toBeInTheDocument();
 
     expect(resolutionPanel).not.toBeInTheDocument();
+  });
+
+  it("derives review cards from provider aggregates when top-level review totals are missing", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        reviewCount: 0,
+        negativeReviewCount: 0,
+        negativeReviewRate: 0,
+        avgRating: 0,
+        reviewRating: 0,
+        csvAverageRating: 2,
+        csvReviewCount: 2,
+        csvNegativeReviewCount: 1,
+        judgeMeAverageRating: 4,
+        judgeMeReviewCount: 2,
+        judgeMeNegativeReviewCount: 0,
+        reviewSourceStats: {
+          csv: { reviewCount: 2, negativeReviewCount: 1, avgRating: 2, negativeReviewRate: 50 },
+          judgeMe: { reviewCount: 2, negativeReviewCount: 0, avgRating: 4, negativeReviewRate: 0 },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
+    const averageRatingCard = within(riskSnapshot).getByText("Average rating").closest(".ppProductInsight");
+    const negativeReviewCard = within(riskSnapshot).getByText("Negative review pressure").closest(".ppProductInsight");
+
+    expect(averageRatingCard).toHaveTextContent("3 / 5");
+    expect(averageRatingCard).toHaveTextContent("4 reviews analyzed");
+    expect(averageRatingCard).toHaveTextContent("1 negative · 25% negative rate");
+    expect(negativeReviewCard).toHaveTextContent("25%");
+    expect(negativeReviewCard).toHaveTextContent("1 negative reviews");
+    expect(negativeReviewCard).toHaveTextContent("4 total reviews");
   });
 
   it("keeps Return pressure sparkline aligned to cumulative returns instead of refund-only events", () => {
