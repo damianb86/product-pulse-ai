@@ -6283,7 +6283,7 @@ s-page[inline-size="large-500"] {
   align-content: start;
   gap: 18px;
   min-height: 305px;
-  padding: 20px 16px 16px;
+  padding: 54px 16px 16px;
   border: 1px solid rgba(221, 229, 239, 0.92);
   border-radius: 12px;
   background:
@@ -6292,9 +6292,31 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 8px 24px rgba(15, 23, 42, 0.04);
 }
 
+.ppProductRelationshipTimelineSide::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: -43.5px;
+  left: 50%;
+  width: 86px;
+  height: 44px;
+  border: 1.5px solid rgba(128, 144, 168, 0.32);
+  border-bottom: 0;
+  border-radius: 999px 999px 0 0;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(
+      circle at 50% 110%,
+      rgba(128, 144, 168, 0.2) 0%,
+      rgba(128, 144, 168, 0.12) 35%,
+      rgba(128, 144, 168, 0.06) 55%,
+      transparent 75%
+    ),
+    linear-gradient(0deg, #F3F6FA 0%, #FBFCFE 100%);
+}
+
 .ppProductRelationshipTimelineSide-together {
   min-height: 305px;
-  padding-top: 54px;
   border: 1.5px solid rgba(124, 92, 255, 0.48);
   border-radius: 14px;
   background:
@@ -6304,24 +6326,37 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRelationshipTimelineSide-together::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: -1.5px;
-  left: 50%;
-  width: 86px;
-  height: 44px;
   border: 1.5px solid rgba(124, 92, 255, 0.48);
   border-bottom: 0;
-  border-radius: 999px 999px 0 0;
-  background: #FFFFFF;
-  transform: translateX(-50%);
+  background:
+    radial-gradient(
+      circle at 50% 110%,
+      rgba(124, 92, 255, 0.28) 0%,
+      rgba(124, 92, 255, 0.18) 35%,
+      rgba(124, 92, 255, 0.08) 55%,
+      transparent 75%
+    ),
+  linear-gradient(0deg, #F4F0FF 0%, #FBF9FF 100%);
+}
+
+.ppProductRelationshipTimelineSide-after::before {
+  border-color: rgba(45, 183, 173, 0.28);
+  border-bottom: 0;
+  background:
+    radial-gradient(
+      circle at 50% 110%,
+      rgba(45, 183, 173, 0.2) 0%,
+      rgba(45, 183, 173, 0.12) 35%,
+      rgba(45, 183, 173, 0.06) 55%,
+      transparent 75%
+    ),
+    linear-gradient(0deg, #ECFFFC 0%, #F9FFFE 100%);
 }
 
 .ppProductRelationshipTimelineCartBadge {
   position: absolute;
   z-index: 3;
-  top: -16px;
+  top: -27px;
   left: 50%;
   width: 58px;
   height: 58px;
@@ -6333,6 +6368,24 @@ s-page[inline-size="large-500"] {
   background: #F7F1FF;
   box-shadow: 0 6px 18px rgba(124, 92, 255, 0.16);
   transform: translateX(-50%);
+}
+
+.ppProductRelationshipTimelineCartBadge-before {
+  border-color: rgba(128, 144, 168, 0.34);
+  background: #F3F6FA;
+  box-shadow: 0 6px 18px rgba(100, 116, 139, 0.12);
+}
+
+.ppProductRelationshipTimelineCartBadge-together {
+  border-color: rgba(124, 92, 255, 0.45);
+  background: #F7F1FF;
+  box-shadow: 0 6px 18px rgba(124, 92, 255, 0.16);
+}
+
+.ppProductRelationshipTimelineCartBadge-after {
+  border-color: rgba(45, 183, 173, 0.28);
+  background: #ECFFFC;
+  box-shadow: 0 6px 18px rgba(45, 183, 173, 0.12);
 }
 
 .ppProductRelationshipTimelineCartBadge img {
@@ -8912,11 +8965,7 @@ s-page[inline-size="large-500"] {
 
   .ppProductRelationshipTimelineSide {
     min-height: 0;
-    padding: 22px;
-  }
-
-  .ppProductRelationshipTimelineSide-together {
-    padding-top: 54px;
+    padding: 54px 22px 22px;
   }
 
   .ppProductRelationshipTimelineProduct {

@@ -9658,14 +9658,17 @@ function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle
   const hasItems = visibleItems.length > 0;
   const isTogether = kind === "together";
   const isAfter = kind === "after";
+  const badgeAsset = isTogether
+    ? PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.sameCart
+    : isAfter
+      ? PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.after
+      : PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.before;
   const countLabel = isTogether ? "orders" : "customers";
   return (
     <div className={`ppProductRelationshipTimelineSide ppProductRelationshipTimelineSide-${kind}${hasItems ? "" : " isUnavailable"}`}>
-      {isTogether && (
-        <span className="ppProductRelationshipTimelineCartBadge" aria-hidden="true">
-          <img src={PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.sameCart} alt="" />
-        </span>
-      )}
+      <span className={`ppProductRelationshipTimelineCartBadge ppProductRelationshipTimelineCartBadge-${kind}`} aria-hidden="true">
+        <img src={badgeAsset} alt="" />
+      </span>
       <div className="ppProductRelationshipTimelineSideHeading">
         <span className="ppProductRelationshipTimelineSideLabel">{title}</span>
         <small>{subtitle}</small>
