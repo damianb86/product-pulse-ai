@@ -1291,16 +1291,20 @@ describe("ProductPulse screens", () => {
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
     const panel = container.querySelector(".ppProductRelationshipsPanel");
 
+    expect(riskSnapshot).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Relationship signal")).toBeInTheDocument();
+    expect(within(riskSnapshot).getAllByText("1").length).toBeGreaterThanOrEqual(2);
+    expect(within(riskSnapshot).getByText("strong same-cart link")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("after-purchase path")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Top related:")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Nearby product relationships")).toBeInTheDocument();
+    expect(riskSnapshot.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
     expect(panel).toBeInTheDocument();
-    expect(within(panel).getByText("Relationship signal")).toBeInTheDocument();
-    expect(within(panel).getAllByText("1").length).toBeGreaterThanOrEqual(2);
-    expect(within(panel).getByText("strong same-cart link")).toBeInTheDocument();
-    expect(within(panel).getByText("after-purchase path")).toBeInTheDocument();
-    expect(within(panel).getByText("Top related:")).toBeInTheDocument();
-    expect(within(panel).getByText("Nearby product relationships")).toBeInTheDocument();
-    expect(panel.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
+    expect(within(panel).queryByText("Relationship signal")).not.toBeInTheDocument();
+    expect(panel.querySelector(".ppProductRelationshipSignalVisual img")).not.toBeInTheDocument();
     expect(within(panel).getByText("Product relationship timeline")).toBeInTheDocument();
     expect(within(panel).getAllByText("Same cart").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Bought before").length).toBeGreaterThan(0);

@@ -8490,7 +8490,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const detail = getProductDetailModel(product);
   const ignoredIssueRows = detail.detectedIssues.filter((issue) => isIssueIgnored(issue, ignoredIssues));
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
-  const insightCards = getProductDetailInsightCards(detail);
+  const baseInsightCards = getProductDetailInsightCards(detail);
+  const relationshipInsightCard = detail.productRelationshipIntelligence?.available
+    ? { id: "relationship-signal", type: "relationship-signal" }
+    : null;
+  const insightCards = relationshipInsightCard
+    ? [...baseInsightCards.slice(0, 8), relationshipInsightCard, ...baseInsightCards.slice(8)]
+    : baseInsightCards;
   const primaryInsightCards = insightCards.slice(0, 4);
   const hiddenInsightCards = insightCards.slice(4);
   const hasHiddenInsightCards = hiddenInsightCards.length > 0;
@@ -8817,7 +8823,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           <div className={`ppRiskSnapshotBlock${insightCardsExpanded ? " isExpanded" : ""}`}>
             <div className="ppRiskSnapshot ppRiskSnapshot-primary">
               {primaryInsightCards.map((card, index) => (
-                <ProductInsightMetric key={`${card.id || card.title || "insight"}-${index}`} {...card} />
+                <ProductInsightGridCard card={card} detail={detail} index={index} key={`${card.id || card.title || "insight"}-${index}`} />
               ))}
             </div>
             {hasHiddenInsightCards && (
@@ -8825,7 +8831,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <div className="ppRiskSnapshotOverflow" aria-hidden={!insightCardsExpanded}>
                   <div className="ppRiskSnapshot ppRiskSnapshot-extra">
                     {hiddenInsightCards.map((card, index) => (
-                      <ProductInsightMetric key={`${card.id || card.title || "insight"}-${index + primaryInsightCards.length}`} {...card} />
+                      <ProductInsightGridCard card={card} detail={detail} index={index + primaryInsightCards.length} key={`${card.id || card.title || "insight"}-${index + primaryInsightCards.length}`} />
                     ))}
                   </div>
                 </div>
@@ -9520,13 +9526,17 @@ function ProductRelationshipsPanel({ detail }) {
       {!hasData ? (
         <EmptyProductDetailState message={emptyMessage} />
       ) : (
-        <>
-          <ProductRelationshipSignalCard detail={detail} relationship={relationship} />
-          <ProductRelationshipTimelineCard detail={detail} relationship={relationship} />
-        </>
+        <ProductRelationshipTimelineCard detail={detail} relationship={relationship} />
       )}
     </section>
   );
+}
+
+function ProductInsightGridCard({ card, detail }) {
+  if (card?.type === "relationship-signal") {
+    return <ProductRelationshipSignalCard detail={detail} relationship={detail.productRelationshipIntelligence} />;
+  }
+  return <ProductInsightMetric {...card} />;
 }
 
 function ProductRelationshipSignalCard({ detail, relationship }) {
