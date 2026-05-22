@@ -13035,8 +13035,6 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
     ? activeSource.cards
     : getEvidenceSourceCards(activeSource.title, activeSource.points, product);
   const reportHref = getProductEvidenceReportHref(product, activeSource);
-  const activeSourceTitle = activeSource.title || "";
-  const sourceReportKind = getEvidenceSourceReportKind(activeSourceTitle);
 
   return (
     <div className="ppProductPanel ppEvidenceObservabilityPanel">
@@ -13062,30 +13060,7 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
         ))}
       </div>
 
-      {sourceReportKind === "customer-language" && (
-        <CustomerLanguageEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
-      )}
-      {sourceReportKind === "returns" && (
-        <ShopifyReturnsEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
-      )}
-      {sourceReportKind === "reviews" && (
-        <ReviewEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
-      )}
-      {sourceReportKind === "refunds" && (
-        <RefundEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
-      )}
-      {sourceReportKind === "orders" && (
-        <OrdersEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
-      )}
-      {sourceReportKind === "shopify-product" && (
-        <ShopifyProductEvidencePanel source={activeSource} product={product} reportHref={reportHref} />
-      )}
-      {sourceReportKind === "ai-synthesis" && (
-        <AiEvidenceSynthesisPanel source={activeSource} product={product} reportHref={reportHref} />
-      )}
-      {sourceReportKind === "generic" && (
-        <GenericEvidenceSourceReportPanel source={activeSource} product={product} reportHref={reportHref} cards={activeCards} />
-      )}
+      <EvidenceSourceReportPanelContent source={activeSource} product={product} reportHref={reportHref} cards={activeCards} />
     </div>
   );
 }
@@ -13099,6 +13074,33 @@ function getEvidenceSourceReportKind(source = "") {
   if (isShopifyProductEvidenceSource(source)) return "shopify-product";
   if (isAiEvidenceSynthesisSource(source)) return "ai-synthesis";
   return "generic";
+}
+
+function EvidenceSourceReportPanelContent({ source, product, reportHref, cards = [] }) {
+  const sourceReportKind = getEvidenceSourceReportKind(source?.title || "");
+
+  if (sourceReportKind === "customer-language") {
+    return <CustomerLanguageEvidencePanel source={source} product={product} reportHref={reportHref} />;
+  }
+  if (sourceReportKind === "returns") {
+    return <ShopifyReturnsEvidencePanel source={source} product={product} reportHref={reportHref} />;
+  }
+  if (sourceReportKind === "reviews") {
+    return <ReviewEvidencePanel source={source} product={product} reportHref={reportHref} />;
+  }
+  if (sourceReportKind === "refunds") {
+    return <RefundEvidencePanel source={source} product={product} reportHref={reportHref} />;
+  }
+  if (sourceReportKind === "orders") {
+    return <OrdersEvidencePanel source={source} product={product} reportHref={reportHref} />;
+  }
+  if (sourceReportKind === "shopify-product") {
+    return <ShopifyProductEvidencePanel source={source} product={product} reportHref={reportHref} />;
+  }
+  if (sourceReportKind === "ai-synthesis") {
+    return <AiEvidenceSynthesisPanel source={source} product={product} reportHref={reportHref} />;
+  }
+  return <GenericEvidenceSourceReportPanel source={source} product={product} reportHref={reportHref} cards={cards} />;
 }
 
 function isCustomerLanguageEvidenceSource(source = "") {
@@ -15512,9 +15514,55 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
 
   const detail = getProductDetailModel(product);
   const selectedSourceName = source || "All sources";
-  const metricRows = getEvidenceReportMetricRows(product.metrics || {});
   const reportGeneratedAt = product.metrics?.lastDetailedDiagnosisAt || product.lastAnalysis;
   const scoreModel = getEvidenceReportScoreModel(product, detail);
+  const sourceSections = detail.evidenceSources.map((sourceItem, index) => ({
+    key: `source-${getEvidenceReportSectionSlug(sourceItem.title || `source-${index + 1}`)}`,
+    id: `evidence-source-${getEvidenceReportSectionSlug(sourceItem.title || `source-${index + 1}`)}`,
+    sourceItem,
+    cards: sourceItem.cards?.length ? sourceItem.cards : getEvidenceSourceCards(sourceItem.title, sourceItem.points, product),
+    reportHref: getProductEvidenceReportHref(product, sourceItem),
+  }));
+  const sourceTarget = getEvidenceReportSourceTarget(source, sourceSections);
+  const [expandedSections, setExpandedSections] = useState(() => {
+    const initial = new Set();
+    if (sourceTarget?.sectionKey) initial.add(sourceTarget.sectionKey);
+    if (sourceTarget?.sourceKey) initial.add(sourceTarget.sourceKey);
+    return initial;
+  });
+
+  useEffect(() => {
+    if (!sourceTarget?.scrollId || typeof document === "undefined") return undefined;
+    setExpandedSections((current) => {
+      const next = new Set(current);
+      if (sourceTarget.sectionKey) next.add(sourceTarget.sectionKey);
+      if (sourceTarget.sourceKey) next.add(sourceTarget.sourceKey);
+      return next;
+    });
+    const scrollToTarget = () => {
+      const target = document.getElementById(sourceTarget.scrollId);
+      if (target && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+    const frame = typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame(scrollToTarget)
+      : window.setTimeout(scrollToTarget, 0);
+    return () => {
+      if (typeof window === "undefined") return;
+      if (typeof window.cancelAnimationFrame === "function") window.cancelAnimationFrame(frame);
+      else window.clearTimeout(frame);
+    };
+  }, [sourceTarget?.scrollId, sourceTarget?.sectionKey, sourceTarget?.sourceKey]);
+
+  const toggleEvidenceReportSection = (key) => {
+    setExpandedSections((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   return (
     <FullWidthPage heading="Full Evidence Report">
@@ -15549,14 +15597,14 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
           </div>
         </div>
 
-        <section className="ppEvidenceReportSection">
-          <div className="ppEvidenceReportSectionHeader">
-            <span>01</span>
-            <div>
-              <h2>Score calculation</h2>
-              <p>Mathematical model, persisted components and theoretical rules behind the diagnosis.</p>
-            </div>
-          </div>
+        <EvidenceReportCollapsibleSection
+          id="evidence-report-score-calculation"
+          number="01"
+          title="Score calculation"
+          description="Mathematical model, persisted components and theoretical rules behind the diagnosis."
+          expanded={expandedSections.has("score-calculation")}
+          onToggle={() => toggleEvidenceReportSection("score-calculation")}
+        >
           <div className="ppEvidenceScoreTheoryGrid">
             <article>
               <h3>Product risk formula</h3>
@@ -15617,16 +15665,16 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
               footer={scoreModel.impactFooter}
             />
           </div>
-        </section>
+        </EvidenceReportCollapsibleSection>
 
-        <section className="ppEvidenceReportSection">
-          <div className="ppEvidenceReportSectionHeader">
-            <span>02</span>
-            <div>
-              <h2>Issues detected</h2>
-              <p>Every issue currently stored for this product, including confidence, severity, trend and source snippets.</p>
-            </div>
-          </div>
+        <EvidenceReportCollapsibleSection
+          id="evidence-report-issues-detected"
+          number="02"
+          title="Issues detected"
+          description="Every issue currently stored for this product, including confidence, severity, trend and source snippets."
+          expanded={expandedSections.has("issues-detected")}
+          onToggle={() => toggleEvidenceReportSection("issues-detected")}
+        >
           <div className="ppEvidenceReportIssueGrid">
             {detail.detectedIssues.length > 0 ? detail.detectedIssues.map((issue) => (
               <article className="ppEvidenceReportIssue" key={issue.issue}>
@@ -15655,81 +15703,60 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
               <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
             )}
           </div>
-        </section>
+        </EvidenceReportCollapsibleSection>
 
-        <section className="ppEvidenceReportSection">
-          <div className="ppEvidenceReportSectionHeader">
-            <span>03</span>
-            <div>
-              <h2>Evidence sources</h2>
-              <p>All source summaries, compact metrics and every stored evidence point used by the diagnosis.</p>
-            </div>
-          </div>
+        <EvidenceReportCollapsibleSection
+          id="evidence-report-evidence-sources"
+          number="03"
+          title="Evidence sources"
+          description="All source summaries, compact metrics, charts and every stored evidence point used by the diagnosis."
+          expanded={expandedSections.has("evidence-sources")}
+          onToggle={() => toggleEvidenceReportSection("evidence-sources")}
+        >
           <div className="ppEvidenceReportSourceList">
-            {detail.evidenceSources.map((sourceItem) => (
-              <article className="ppEvidenceReportSource" key={sourceItem.title}>
-                <div className="ppEvidenceReportSourceHeader">
-                  <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${sourceItem.tone}`} aria-hidden="true">
-                    <ProductPulseGlyph type={sourceItem.icon} />
-                  </span>
-                  <div>
-                    <h3>{sourceItem.title}</h3>
-                    <p>{renderAnalysisText(sourceItem.summary)}</p>
-                  </div>
-                  <strong>{sourceItem.points.length} signals</strong>
-                </div>
-                <div className="ppEvidenceMetricGrid">
-                  {(sourceItem.cards || getEvidenceSourceCards(sourceItem.title, sourceItem.points, product)).map((card) => (
-                    <EvidenceMetricCard card={card} key={`${sourceItem.title}-report-${card.label}-${card.value}`} />
-                  ))}
-                </div>
-                <div className="ppEvidenceFindingStream">
-                  {sourceItem.points.map((point, index) => (
-                    <EvidenceFinding point={point} index={index} key={`${sourceItem.title}-${point}-${index}`} />
-                  ))}
-                </div>
-              </article>
+            {sourceSections.map((sourceSection) => (
+              <EvidenceReportSourceCollapsible
+                key={sourceSection.key}
+                id={sourceSection.id}
+                source={sourceSection.sourceItem}
+                expanded={expandedSections.has(sourceSection.key)}
+                onToggle={() => toggleEvidenceReportSection(sourceSection.key)}
+              >
+                <EvidenceSourceReportPanelContent
+                  source={sourceSection.sourceItem}
+                  product={product}
+                  reportHref={sourceSection.reportHref}
+                  cards={sourceSection.cards}
+                />
+                {sourceSection.sourceItem.points.length > 0 && (
+                  <section className="ppEvidenceReportSectionCard">
+                    <div className="ppEvidenceReportSectionHeaderRow">
+                      <div>
+                        <h4>Stored evidence points</h4>
+                        <p>Every source point captured for this evidence family.</p>
+                      </div>
+                    </div>
+                    <div className="ppEvidenceFindingStream">
+                      {sourceSection.sourceItem.points.map((point, index) => (
+                        <EvidenceFinding point={point} index={index} key={`${sourceSection.sourceItem.title}-${point}-${index}`} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </EvidenceReportSourceCollapsible>
             ))}
             {detail.evidenceSources.length === 0 && <EmptyProductDetailState message="0 evidence sources stored for this product yet." />}
           </div>
-        </section>
+        </EvidenceReportCollapsibleSection>
 
-        <section className="ppEvidenceReportSection">
-          <div className="ppEvidenceReportSectionHeader">
-            <span>04</span>
-            <div>
-              <h2>Raw product metrics</h2>
-              <p>Structured metrics currently stored for scoring, confidence, impact and diagnosis generation.</p>
-            </div>
-          </div>
-          <div className="ppEvidenceRawTableWrap">
-            <table className="ppEvidenceRawTable">
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {metricRows.map((row) => (
-                  <tr key={row.key}>
-                    <td>{row.key}</td>
-                    <td>{row.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="ppEvidenceReportSection">
-          <div className="ppEvidenceReportSectionHeader">
-            <span>05</span>
-            <div>
-              <h2>Recommendations and checks</h2>
-              <p>Action context and the ProductPulse checks that were available when this report was rendered.</p>
-            </div>
-          </div>
+        <EvidenceReportCollapsibleSection
+          id="evidence-report-recommendations-and-checks"
+          number="04"
+          title="Recommendations and checks"
+          description="Action context and the ProductPulse checks that were available when this report was rendered."
+          expanded={expandedSections.has("recommendations-and-checks")}
+          onToggle={() => toggleEvidenceReportSection("recommendations-and-checks")}
+        >
           <div className="ppEvidenceReportTwoColumn">
             <div className="ppEvidenceReportBlock">
               <h3>Recommended actions</h3>
@@ -15762,10 +15789,115 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
               )) : <EmptyProductDetailState message="0 product-specific checks stored yet." />}
             </div>
           </div>
-        </section>
+        </EvidenceReportCollapsibleSection>
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+function EvidenceReportCollapsibleSection({ id, number, title, description, expanded, onToggle, children }) {
+  const panelId = `${id}-content`;
+  return (
+    <section id={id} className={`ppEvidenceReportSection ppEvidenceReportCollapsible${expanded ? " isExpanded" : ""}`}>
+      <button
+        type="button"
+        className="ppEvidenceReportSectionHeader ppEvidenceReportCollapseButton"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
+        <span>{number}</span>
+        <div>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+        <s-icon type="chevron-down" size="small"></s-icon>
+      </button>
+      <div id={panelId} className="ppEvidenceReportCollapsibleBody" aria-hidden={!expanded}>
+        <div className="ppEvidenceReportCollapsibleInner">
+          {children}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EvidenceReportSourceCollapsible({ id, source, expanded, onToggle, children }) {
+  const panelId = `${id}-content`;
+  return (
+    <article id={id} className={`ppEvidenceReportSource ppEvidenceReportSourceCollapsible${expanded ? " isExpanded" : ""}`}>
+      <button
+        type="button"
+        className="ppEvidenceReportSourceHeader ppEvidenceReportSourceToggle"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
+        <span className={`ppEvidenceSourceGlyph ppEvidenceTone-${source.tone}`} aria-hidden="true">
+          <ProductPulseGlyph type={source.icon} />
+        </span>
+        <div>
+          <h3>{source.title}</h3>
+          <p>{renderAnalysisText(source.summary)}</p>
+        </div>
+        <strong>{source.points.length} signals</strong>
+        <s-icon type="chevron-down" size="small"></s-icon>
+      </button>
+      <div id={panelId} className="ppEvidenceReportSourceBody" aria-hidden={!expanded}>
+        <div className="ppEvidenceReportSourceBodyInner">
+          {children}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function getEvidenceReportSourceTarget(source = "", sourceSections = []) {
+  const normalizedSource = normalizeEvidenceReportTarget(source);
+  if (!normalizedSource) return null;
+  const sourceMatch = sourceSections.find(({ sourceItem }) => evidenceReportSourceMatches(sourceItem, normalizedSource));
+  if (sourceMatch) {
+    return {
+      sectionKey: "evidence-sources",
+      sourceKey: sourceMatch.key,
+      scrollId: sourceMatch.id,
+    };
+  }
+
+  const mainSections = [
+    { key: "score-calculation", id: "evidence-report-score-calculation", labels: ["score calculation", "score", "product risk", "diagnosis confidence", "financial exposure"] },
+    { key: "issues-detected", id: "evidence-report-issues-detected", labels: ["issues detected", "issues"] },
+    { key: "evidence-sources", id: "evidence-report-evidence-sources", labels: ["evidence sources", "sources", "evidence"] },
+    { key: "recommendations-and-checks", id: "evidence-report-recommendations-and-checks", labels: ["recommendations and checks", "recommendations", "checks", "actions"] },
+  ];
+  const mainMatch = mainSections.find((section) => section.labels.some((label) => normalizedSource === label || normalizedSource.includes(label) || label.includes(normalizedSource)));
+  return mainMatch ? { sectionKey: mainMatch.key, scrollId: mainMatch.id } : null;
+}
+
+function evidenceReportSourceMatches(sourceItem = {}, normalizedSource = "") {
+  const candidates = [
+    sourceItem.title,
+    ...(Array.isArray(sourceItem.sourceTitles) ? sourceItem.sourceTitles : []),
+    getEvidenceSourcePanelTitle(sourceItem.title),
+  ].map(normalizeEvidenceReportTarget).filter(Boolean);
+  return candidates.some((candidate) => (
+    candidate === normalizedSource
+    || candidate.includes(normalizedSource)
+    || normalizedSource.includes(candidate)
+  ));
+}
+
+function normalizeEvidenceReportTarget(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function getEvidenceReportSectionSlug(value = "") {
+  return normalizeEvidenceReportTarget(value).replace(/\s+/g, "-") || "section";
 }
 
 function EvidenceScoreBreakdownCard({ title, subtitle, total, rows = [], footer = "" }) {

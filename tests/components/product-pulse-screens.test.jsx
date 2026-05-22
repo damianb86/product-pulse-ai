@@ -2761,24 +2761,31 @@ describe("ProductPulse screens", () => {
       ],
     };
 
-    renderWithRouter(<ProductEvidenceReportScreen product={product} source="Customer language analysis" />);
+    const { container } = renderWithRouter(<ProductEvidenceReportScreen product={product} source="Customer language analysis" />);
     expect(screen.getByText("Full Evidence Report")).toBeInTheDocument();
     expect(screen.getByText("Score calculation")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Score calculation/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: /Evidence sources/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /Customer language analysis/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Product risk formula")).toBeInTheDocument();
     expect(screen.getByText("Product risk calculation")).toBeInTheDocument();
     expect(screen.getByText("Diagnosis confidence calculation")).toBeInTheDocument();
     expect(screen.getByText("Financial exposure calculation")).toBeInTheDocument();
     expect(screen.getByText("Issues detected")).toBeInTheDocument();
     expect(screen.getByText("Evidence sources")).toBeInTheDocument();
-    expect(screen.getByText("Raw product metrics")).toBeInTheDocument();
+    expect(screen.queryByText("Raw product metrics")).not.toBeInTheDocument();
     expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
+    expect(container.querySelector("#evidence-source-customer-language-analysis")).toBeInTheDocument();
     expect(screen.getAllByText("All customer text sentiment").length).toBeGreaterThan(0);
     expect(screen.getAllByText((_, element) => element?.textContent === "3 negative, 1 neutral, 0 positive").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Deterministic emotion taxonomy").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Fear 2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent === "Fear 2").length).toBeGreaterThan(0);
     expect(screen.getAllByText((_, element) => element?.textContent === "Other return notes classified as Fit & sizing 2 times").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Other").some((element) => element.tagName.toLowerCase() === "q")).toBe(true);
     expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /Score calculation/ }));
+    expect(screen.getByRole("button", { name: /Score calculation/ })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("collapses long recommended action descriptions", () => {
