@@ -3900,6 +3900,11 @@ function getProductDetailModel(product) {
     negativeReviewCount: metrics.negativeReviewCount || 0,
     customerSignalCount: Number(metrics.customerSignalCount || 0)
       || (Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) + Number(metrics.negativeReviewCount || 0)),
+    averageRating: getProductAverageRating(metrics),
+    reviewRatingTrend: getReviewRatingTrendData(metrics.textInsights || {}, "", {
+      averageRating: getProductAverageRating(metrics),
+      reviewCount: metrics.reviewCount || 0,
+    }),
     estimatedImpact: getEstimatedImpactValue(metrics),
     marginAtRisk: getEstimatedMarginValue(metrics),
     revenueAtRisk: getEstimatedRevenueValue(metrics),
@@ -5375,6 +5380,7 @@ function getProductDetailInsightCards(detail = {}) {
   const sourceCount = Math.max(0, Number(detail.sourceCount || detail.sourceCoverage?.length || detail.evidenceSources?.length || 0));
   const customerSignalCount = getCustomerSignalCount(detail);
   const momentumScore = detail.productMomentum ? Number(detail.productMomentum.score || 0) : 0;
+  const averageRatingCard = getAverageRatingCardData(detail);
 
   return [
     {
@@ -5478,6 +5484,18 @@ function getProductDetailInsightCards(detail = {}) {
       chartTone: "dark",
     },
     {
+      title: "Average rating",
+      meta: "Review score history",
+      value: averageRatingCard.value,
+      detail: averageRatingCard.detail,
+      footnote: averageRatingCard.footnote,
+      tone: averageRatingCard.tone,
+      sparkline: getAverageRatingInsightSeries(detail, history, detail.averageRating),
+      icon: "star",
+      chartStyle: "area",
+      chartTone: "green",
+    },
+    {
       title: "Negative review pressure",
       meta: "Review sentiment trend",
       value: formatPercent(detail.negativeReviewRate),
@@ -5544,6 +5562,21 @@ function getDiagnosisConfidenceInsightHelp(detail = {}) {
   };
 }
 
+function getAverageRatingCardData(detail = {}) {
+  const averageRating = Number(detail.averageRating || 0);
+  const reviewCount = Number(detail.reviewCount || 0);
+  const negativeCount = Number(detail.negativeReviewCount || 0);
+  const negativeRate = Number(detail.negativeReviewRate || 0);
+  return {
+    value: averageRating ? `${formatDecimal(averageRating, 1)} / 5` : "0 / 5",
+    detail: reviewCount ? `${formatInteger(reviewCount)} reviews analyzed` : "No review ratings matched",
+    footnote: reviewCount
+      ? `${formatInteger(negativeCount)} negative · ${formatPercent(negativeRate)} negative rate`
+      : "Connect CSV or review sources",
+    tone: !reviewCount ? "neutral" : averageRating >= 4.2 ? "green" : averageRating >= 3.5 ? "orange" : "red",
+  };
+}
+
 function getProductMomentumInsightSeries(detail = {}, history = [], fallbackScore = 0) {
   const weeklyUnits = getMomentumWeeklySeries(detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks);
   if (weeklyUnits.length >= 2) return weeklyUnits;
@@ -5559,6 +5592,15 @@ function getMomentumWeeklySeries(values = []) {
   return values
     .map((value) => Math.max(0, Number(value || 0)))
     .filter((value) => Number.isFinite(value));
+}
+
+function getAverageRatingInsightSeries(detail = {}, history = [], fallbackRating = 0) {
+  const ratingTrend = (Array.isArray(detail.reviewRatingTrend) ? detail.reviewRatingTrend : [])
+    .map((point) => Number(point.averageRating || point.rating || point.value || 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (ratingTrend.length >= 2) return ratingTrend;
+
+  return getInsightSeries(history, (entry) => firstFiniteNumber(entry.avgRating, entry.reviewRating, entry.csvAverageRating), fallbackRating);
 }
 
 function getInsightSeries(history = [], selector, fallbackValue = 0) {
@@ -5613,6 +5655,21 @@ function getCustomerSignalCount(source = {}) {
   const total = returnUnits + refundUnits + negativeReviewCount;
   if (total > 0) return total;
   return Number(source.signalCount || 0);
+}
+
+function getProductAverageRating(metrics = {}) {
+  const values = [
+    metrics.avgRating,
+    metrics.reviewRating,
+    metrics.csvAverageRating,
+    metrics.judgeMeAverageRating,
+    metrics.reviewSourceStats?.total?.avgRating,
+    metrics.reviewSourceStats?.total?.averageRating,
+  ];
+  const match = values
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value) && value > 0);
+  return match || 0;
 }
 
 function firstFiniteNumber(...values) {
@@ -14102,6 +14159,12 @@ function getInsightMetricHelp(title) {
         why: "It gives scale to the issue and separates linked return+refunds, return-only friction and refund-only compensation.",
         graph: "Read it left to right. A rising line means more customers are generating signals that deserve attention.",
       };
+    case "Average rating":
+      return {
+        what: "Shows the product's average review rating from connected review sources.",
+        why: "It separates review score movement from return/refund behavior, so rating decline or recovery is visible even when operational signals are unchanged.",
+        graph: "Read it left to right. A rising line means the average rating is improving; a falling line means review score pressure is getting worse.",
+      };
     case "Negative review pressure":
       return {
         what: "Shows the share of connected reviews that are negative, which can reveal quality or expectation issues before operational data is complete.",
@@ -14147,6 +14210,8 @@ function getInsightMetricIcon(title) {
       return "ai-evidence-synthesis";
     case "Customer signals":
       return "customer-language-analysis";
+    case "Average rating":
+      return "star";
     case "Negative review pressure":
       return "negative-review-pressure";
     case "Main issue":
@@ -14488,6 +14553,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
   const repeatedLanguageTone = getEvidencePhraseTone(repeatedLanguage, reviewStats.negativeCount ? "red" : "teal");
   const examples = getReviewExampleRows(product.metrics?.textInsights || {}, source.points, reviewStats, source.title);
   const sentimentTrend = getReviewSentimentTrendData(product.metrics?.textInsights || {}, source.title, reviewStats);
+  const ratingTrend = getReviewRatingTrendData(product.metrics?.textInsights || {}, source.title, reviewStats);
   const insights = [
     { label: "Average rating / negative rate", value: reviewStats.negativeRateLabel, detail: "Product-level rating pressure", tone: reviewStats.negativeCount ? "red" : "teal" },
     { label: "Evidence", value: formatInteger(reviewStats.totalAnalyzed || reviewStats.reviewCount), detail: "Reviews analyzed", tone: "blue" },
@@ -14516,6 +14582,12 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
         <section className="ppEvidenceReportSectionCard">
           <h4>Review sentiment</h4>
           <EvidenceSignalDonut total={reviewStats.sentiment.total} rows={reviewStats.sentimentRows} />
+        </section>
+
+        <section className="ppEvidenceReportSectionCard ppEvidenceReviewRatingTrendCard">
+          <h4>Average rating over time</h4>
+          <p>Average star rating from first to latest review</p>
+          <EvidenceAverageRatingTrendChart trend={ratingTrend} currentRating={reviewStats.averageRating} />
         </section>
       </div>
 
@@ -15523,6 +15595,36 @@ function getReviewSentimentTrendData(textInsights = {}, sourceTitle = "", review
     neutral: sentiment.neutral,
     negative: sentiment.negative,
     total: sentiment.total,
+  }];
+}
+
+function getReviewRatingTrendData(textInsights = {}, sourceTitle = "", reviewStats = {}) {
+  const sourceSummary = getReviewSourceSummary(textInsights, sourceTitle);
+  const specificSource = isSpecificReviewSource(sourceTitle);
+  const storedTrend = getEvidenceList(
+    sourceSummary?.ratingTrend
+      || sourceSummary?.averageRatingTrend
+      || (!specificSource ? (textInsights.reviews?.ratingTrend || textInsights.reviews?.averageRatingTrend) : []),
+  );
+  const normalizedTrend = storedTrend
+    .map((row, index) => ({
+      key: row.key || row.label || `rating-trend-${index}`,
+      label: row.label || row.key || `Point ${index + 1}`,
+      date: row.date || row.createdAt || "",
+      averageRating: clampNumber(Number(row.averageRating ?? row.avgRating ?? row.rating ?? row.value ?? 0), 0, 5),
+      reviewCount: Number(row.reviewCount || row.count || row.total || 0),
+    }))
+    .filter((row) => row.averageRating > 0);
+  if (normalizedTrend.length) return normalizedTrend;
+
+  const averageRating = Number(reviewStats.averageRating || 0);
+  if (!averageRating) return [];
+  return [{
+    key: "current",
+    label: "Current",
+    date: "",
+    averageRating: clampNumber(averageRating, 0, 5),
+    reviewCount: Number(reviewStats.reviewCount || 0),
   }];
 }
 
@@ -16539,6 +16641,57 @@ function EvidenceReviewSentimentTrendChart({ trend = [] }) {
         <span><i className="ppEvidenceReviewTrendDot-positive"></i>Positive</span>
         <span><i className="ppEvidenceReviewTrendDot-neutral"></i>Neutral</span>
         <span><i className="ppEvidenceReviewTrendDot-negative"></i>Negative</span>
+      </div>
+    </div>
+  );
+}
+
+function EvidenceAverageRatingTrendChart({ trend = [], currentRating = 0 }) {
+  const rows = Array.isArray(trend) && trend.length
+    ? trend
+    : [{ key: "empty", label: "No dated ratings", averageRating: 0, reviewCount: 0 }];
+  const chartRows = rows.length === 1 && rows[0].averageRating > 0
+    ? [
+        { ...rows[0], key: `${rows[0].key}-start` },
+        { ...rows[0], key: `${rows[0].key}-end` },
+      ]
+    : rows;
+  const points = chartRows.map((row, index) => {
+    const rating = clampNumber(Number(row.averageRating || 0), 0, 5);
+    const x = chartRows.length === 1 ? 50 : Math.round((index / (chartRows.length - 1)) * 1000) / 10;
+    const y = Math.round((92 - (rating / 5) * 76) * 10) / 10;
+    return { x, y };
+  });
+  const path = buildSmoothSvgPath(points);
+  const baseline = 92;
+  const first = points[0] || { x: 0, y: baseline };
+  const last = points[points.length - 1] || { x: 100, y: baseline };
+  const areaPath = path ? `${path} L ${last.x},${baseline} L ${first.x},${baseline} Z` : "";
+  const labels = rows.length > 1
+    ? [rows[0], rows[Math.floor(rows.length / 2)], rows[rows.length - 1]].filter(Boolean)
+    : rows;
+  const latestRating = Number(rows[rows.length - 1]?.averageRating || currentRating || 0);
+
+  return (
+    <div className="ppEvidenceRatingTrendChart">
+      <div className="ppEvidenceRatingTrendPlot">
+        <div className="ppEvidenceRatingTrendYAxis" aria-hidden="true">
+          <span>5</span>
+          <span>3</span>
+          <span>1</span>
+        </div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Average rating over time">
+          {[16, 46, 76].map((line) => <line key={line} className="ppEvidenceReviewTrendGridLine" x1="0" x2="100" y1={line} y2={line} />)}
+          <path className="ppEvidenceRatingTrendArea" d={areaPath} />
+          <path className="ppEvidenceRatingTrendLine" d={path} />
+        </svg>
+      </div>
+      <div className="ppEvidenceReviewTrendXAxis" aria-hidden="true">
+        {labels.map((row, index) => <span key={`${row.key || row.label}-${index}`}>{row.label}</span>)}
+      </div>
+      <div className="ppEvidenceReviewTrendLegend ppEvidenceRatingTrendLegend">
+        <span><i className="ppEvidenceReviewTrendDot-rating"></i>Average rating</span>
+        <strong>{latestRating ? `${formatDecimal(latestRating, 1)} / 5` : "No ratings"}</strong>
       </div>
     </div>
   );

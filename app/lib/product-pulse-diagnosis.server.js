@@ -9667,6 +9667,7 @@ function summarizeTextSource(items) {
     total: items.length,
     sentiment,
     sentimentTrend: buildSentimentTrend(items),
+    ratingTrend: buildRatingTrend(items),
     emotions,
     subjectiveNegativity: summarizeSubjectiveNegativity(items),
     repeatedLanguage: extractRepeatedLanguage(items).slice(0, 5),
@@ -9726,6 +9727,48 @@ function buildSentimentTrend(items = []) {
   });
 
   return Array.from(buckets.values()).sort((first, second) => new Date(first.date).getTime() - new Date(second.date).getTime());
+}
+
+function buildRatingTrend(items = []) {
+  const rows = (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const date = parseValidDate(item.createdAt || item.updatedAt);
+      const rating = Number(item.rating || 0);
+      return date && rating > 0 ? { date, rating: clamp(rating, 0, 5) } : null;
+    })
+    .filter(Boolean)
+    .sort((first, second) => first.date.getTime() - second.date.getTime());
+  if (!rows.length) return [];
+
+  const firstDate = rows[0].date;
+  const lastDate = rows[rows.length - 1].date;
+  const spanDays = Math.max(1, (lastDate.getTime() - firstDate.getTime()) / (24 * 60 * 60 * 1000));
+  const bucketMode = spanDays > 120 ? "month" : spanDays > 28 ? "week" : "day";
+  const buckets = new Map();
+
+  rows.forEach((row) => {
+    const key = getSentimentTrendBucketKey(row.date, bucketMode);
+    const current = buckets.get(key) || {
+      key,
+      label: getSentimentTrendBucketLabel(row.date, bucketMode),
+      date: row.date.toISOString(),
+      ratingSum: 0,
+      reviewCount: 0,
+    };
+    current.ratingSum += row.rating;
+    current.reviewCount += 1;
+    buckets.set(key, current);
+  });
+
+  return Array.from(buckets.values())
+    .sort((first, second) => new Date(first.date).getTime() - new Date(second.date).getTime())
+    .map((row) => ({
+      key: row.key,
+      label: row.label,
+      date: row.date,
+      averageRating: roundRate(row.reviewCount ? row.ratingSum / row.reviewCount : 0, 1),
+      reviewCount: row.reviewCount,
+    }));
 }
 
 function getSentimentTrendBucketKey(date, bucketMode = "month") {

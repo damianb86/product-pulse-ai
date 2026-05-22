@@ -3625,6 +3625,7 @@ function formatProductRiskHistory(scoreHistory = []) {
         refundUnits: toNullableNumber(metrics.refundUnits),
         reviewCount: toNullableNumber(metrics.reviewCount),
         negativeReviewCount: toNullableNumber(metrics.negativeReviewCount),
+        avgRating: toNullableNumber(metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating),
         customerSignalCount: toNullableNumber(metrics.customerSignalCount),
         evidenceStrengthScore: toNullableNumber(metrics.evidenceStrengthScore),
         productMomentumScore: toNullableNumber(metrics.productMomentumScore),

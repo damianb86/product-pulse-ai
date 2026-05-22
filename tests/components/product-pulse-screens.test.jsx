@@ -1793,11 +1793,11 @@ describe("ProductPulse screens", () => {
     const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
 
     expect(riskSnapshot).toBeInTheDocument();
-    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea")).toHaveLength(10);
+    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea")).toHaveLength(11);
     expect(riskSnapshot.querySelectorAll(".ppRiskSnapshot-primary .ppProductInsight-withArea")).toHaveLength(4);
-    expect(riskSnapshot.querySelectorAll(".ppRiskSnapshot-extra .ppProductInsight-withArea")).toHaveLength(6);
-    expect(riskSnapshot.querySelectorAll(".ppProductInsightAreaTrend")).toHaveLength(10);
-    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea .ppInsightInfoWrap")).toHaveLength(10);
+    expect(riskSnapshot.querySelectorAll(".ppRiskSnapshot-extra .ppProductInsight-withArea")).toHaveLength(7);
+    expect(riskSnapshot.querySelectorAll(".ppProductInsightAreaTrend")).toHaveLength(11);
+    expect(riskSnapshot.querySelectorAll(".ppProductInsight-withArea .ppInsightInfoWrap")).toHaveLength(11);
     expect(within(riskSnapshot).getByRole("button", { name: /view more/i })).toHaveAttribute("aria-expanded", "false");
     expect(within(riskSnapshot).getByText("Emerging")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Improving")).toBeInTheDocument();
@@ -1805,6 +1805,7 @@ describe("ProductPulse screens", () => {
     expect(within(riskSnapshot).getByText("Refund leakage")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Evidence strength")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Customer signals")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Average rating")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Negative review pressure")).toBeInTheDocument();
     const primaryInfoButton = within(riskSnapshot).getByRole("button", { name: "What Product risk means" });
     fireEvent.pointerEnter(primaryInfoButton);
@@ -2988,6 +2989,8 @@ describe("ProductPulse screens", () => {
         judgeMeReviewCount: 4,
         judgeMeNegativeReviewCount: 1,
         judgeMeAverageRating: 4.2,
+        avgRating: 3.4,
+        reviewRating: 3.4,
         textInsights: {
           reviews: {
             bySource: {
@@ -2996,6 +2999,10 @@ describe("ProductPulse screens", () => {
                 sentimentTrend: [
                   { label: "Jan 2026", positive: 0, neutral: 1, negative: 1, total: 2 },
                   { label: "Feb 2026", positive: 0, neutral: 0, negative: 1, total: 1 },
+                ],
+                ratingTrend: [
+                  { label: "Jan 2026", averageRating: 2.8, reviewCount: 2 },
+                  { label: "Feb 2026", averageRating: 2.1, reviewCount: 1 },
                 ],
                 emotions: [{ label: "Frustration", count: 2 }],
                 repeatedLanguage: [{ term: "seam issue", count: 2, sources: ["csv_review"], sentiments: { negative: 2 } }],
@@ -3010,6 +3017,10 @@ describe("ProductPulse screens", () => {
                   { label: "Mar 2026", positive: 1, neutral: 1, negative: 0, total: 2 },
                   { label: "Apr 2026", positive: 1, neutral: 0, negative: 1, total: 2 },
                 ],
+                ratingTrend: [
+                  { label: "Mar 2026", averageRating: 4.6, reviewCount: 2 },
+                  { label: "Apr 2026", averageRating: 3.8, reviewCount: 2 },
+                ],
                 emotions: [{ label: "Concern", count: 1 }],
                 repeatedLanguage: [{ term: "packaging dents", count: 1, sources: ["judgeme_review"], sentiments: { negative: 1 } }],
                 examples: [{ source: "judgeme_review", sourceLabel: "Judge.me reviews", title: "Judge packaging note", text: "Judge.me packaging note mentioned dents.", sentiment: "negative", rating: 2 }],
@@ -3020,7 +3031,11 @@ describe("ProductPulse screens", () => {
       },
     };
 
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
+
+    expect(within(riskSnapshot).getByText("Average rating")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("3.4 / 5")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "CSV reviews" }));
     expect(screen.getByRole("heading", { name: "CSV reviews" })).toBeInTheDocument();
@@ -3031,8 +3046,10 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Judge.me packaging note mentioned dents.")).not.toBeInTheDocument();
     expect(screen.getByText("2 negative reviews")).toBeInTheDocument();
     expect(screen.getByText("Review sentiment over time")).toBeInTheDocument();
-    expect(screen.getByText("Jan 2026")).toBeInTheDocument();
+    expect(screen.getByText("Average rating over time")).toBeInTheDocument();
+    expect(screen.getAllByText("Jan 2026").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Feb 2026").length).toBeGreaterThan(0);
+    expect(screen.getByText("2.1 / 5")).toBeInTheDocument();
     expect(screen.getAllByText("Last 30 days").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "Judge.me reviews" }));
@@ -3042,8 +3059,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Judge.me packaging note mentioned dents.")).toBeInTheDocument();
     expect(screen.queryByText("CSV review seam issue was repeated.")).not.toBeInTheDocument();
     expect(screen.getByText("1 negative reviews")).toBeInTheDocument();
-    expect(screen.getByText("Mar 2026")).toBeInTheDocument();
+    expect(screen.getAllByText("Mar 2026").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Apr 2026").length).toBeGreaterThan(0);
+    expect(screen.getByText("3.8 / 5")).toBeInTheDocument();
   });
 
   it("renders the full product evidence report with raw evidence relationships", () => {

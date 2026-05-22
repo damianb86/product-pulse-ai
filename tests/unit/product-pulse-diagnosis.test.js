@@ -440,6 +440,11 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       expect.objectContaining({ label: "Mar 2026", positive: 0, neutral: 1, negative: 0, total: 1 }),
       expect.objectContaining({ label: "Jun 2026", positive: 0, neutral: 0, negative: 1, total: 1 }),
     ]);
+    expect(insights.reviews.bySource.csv.ratingTrend).toEqual([
+      expect.objectContaining({ label: "Jan 2026", averageRating: 5, reviewCount: 1 }),
+      expect.objectContaining({ label: "Mar 2026", averageRating: 3, reviewCount: 1 }),
+      expect.objectContaining({ label: "Jun 2026", averageRating: 2, reviewCount: 1 }),
+    ]);
   });
 
   it("ignores generic Other return reasons when there is no customer note", () => {
