@@ -2945,7 +2945,11 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("How this product is bought")).toBeInTheDocument();
     expect(screen.getAllByText("Why it matters").length).toBeGreaterThan(0);
     expect(screen.getByText("Return & refund resolution")).toBeInTheDocument();
-    expect(screen.getByText("Returns vs. refunds relationship")).toBeInTheDocument();
+    const returnsEvidenceReport = container.querySelector(".ppShopifyReturnsReport");
+    expect(returnsEvidenceReport).toBeInTheDocument();
+    expect(within(returnsEvidenceReport).getByText("Returns vs. refunds relationship")).toBeInTheDocument();
+    const outcomeContextSection = container.querySelector("#evidence-report-order-outcome-context");
+    expect(within(outcomeContextSection).queryByText("Returns vs. refunds relationship")).not.toBeInTheDocument();
     expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
     expect(screen.getByText("Diagnostic checks behind recommendations")).toBeInTheDocument();
     expect(screen.getByText(/These cards explain what ProductPulse inspected/)).toBeInTheDocument();

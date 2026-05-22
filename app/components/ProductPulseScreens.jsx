@@ -10789,7 +10789,7 @@ function ProductReturnRefundResolutionPanel({ detail }) {
         <EmptyProductDetailState message="Refund relationship not matched yet. Run a diagnosis after Shopify order, return and refund evidence is available." />
       ) : (
         <>
-          <ReturnRefundRelationshipVenn relationship={relationship} />
+          <ReturnRefundResolutionSummary relationship={relationship} />
           {!relationship.hasEventData && (
             <p className="ppReturnRefundResolutionEmptyNote">No return or refund events were matched in the stored analysis window.</p>
           )}
@@ -10799,10 +10799,64 @@ function ProductReturnRefundResolutionPanel({ detail }) {
   );
 }
 
-function ReturnRefundRelationshipVenn({ relationship }) {
+function ReturnRefundResolutionSummary({ relationship }) {
+  const buckets = getReturnRefundResolutionBuckets(relationship);
+  const returnedUnits = Number(relationship.returnedUnits || 0);
+  const refundedUnits = Number(relationship.refundedUnits || 0);
+  const linkedUnits = Number(relationship.returnedAndRefundedUnits || 0);
+  const refundOnlyUnits = Number(relationship.refundedWithoutReturnUnits || 0);
+  const linkedPercent = relationshipRatePercent(undefined, linkedUnits, returnedUnits);
+  const refundOnlyPercent = Number.isFinite(Number(relationship.refundWithoutReturnRatePercent))
+    ? Number(relationship.refundWithoutReturnRatePercent)
+    : relationshipRatePercent(undefined, refundOnlyUnits, Math.max(refundedUnits, linkedUnits + refundOnlyUnits));
+
+  return (
+    <div className="ppReturnRefundResolutionBody">
+      <div className="ppReturnRefundResolutionSide">
+        <div className="ppReturnRefundStackedBar" aria-label="Return and refund resolution mix">
+          {buckets.map((bucket) => (
+            <span
+              key={bucket.key}
+              className={`ppReturnRefundStackedSegment ppReturnRefundStackedSegment-${bucket.tone}`}
+              style={{ width: `${bucket.width}%` }}
+              title={`${bucket.label}: ${bucket.displayValue}`}
+            />
+          ))}
+        </div>
+        <div className="ppReturnRefundResolutionStats">
+          <span>{formatPercent(linkedPercent)} of returned units were refunded</span>
+          <span>{formatPercent(refundOnlyPercent)} refund-only cases</span>
+          <span>{relationship.confidenceLabel || "Unavailable"} attribution confidence</span>
+        </div>
+      </div>
+      <div className="ppReturnRefundResolutionChips">
+        {buckets.map((bucket) => (
+          <span className="ppReturnRefundChip" key={bucket.key}>
+            <RelationshipInfoLabel label={bucket.label} help={getReturnRefundBucketHelp(bucket.key)} />
+            <strong>{bucket.displayValue}</strong>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getReturnRefundBucketHelp(bucketKey = "") {
+  const helpKeyByBucket = {
+    linked: "linked",
+    "return-only": "returnOnly",
+    "refund-only": "refundOnly",
+    exchange: "exchange",
+    unknown: "unknown",
+  };
+  return RETURN_REFUND_HELP[helpKeyByBucket[bucketKey] || bucketKey]
+    || "Relationship bucket calculated from matched return and refund evidence.";
+}
+
+function ReturnRefundRelationshipVenn({ relationship, className = "" }) {
   const metrics = getReturnRefundVennMetrics(relationship);
   return (
-    <article className="ppReturnRefundVennCard" aria-label="Returns versus refunds relationship">
+    <article className={`ppReturnRefundVennCard${className ? ` ${className}` : ""}`} aria-label="Returns versus refunds relationship">
       <h3>
         <RelationshipInfoLabel label="Returns vs. refunds relationship" help="Shows which product outcomes were refunds without returns, returns with refunds, or returns without refunds." />
       </h3>
@@ -14088,6 +14142,8 @@ function CustomerLanguageEvidencePanel({ source, product, reportHref }) {
 
 function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
   const metrics = product.metrics || {};
+  const detail = getProductDetailModel(product);
+  const relationship = detail.returnRefundRelationship || normalizeProductReturnRefundRelationship(null);
   const textInsights = metrics.textInsights || {};
   const aiContext = getAiEvidenceContextSection(product, "returns");
   const returnsSentiment = normalizeEvidenceSentiment(textInsights.returns?.sentiment);
@@ -14110,7 +14166,10 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
         <EvidenceSourceStatCard icon="target" label="Top reason" value={topReason.label} detail={topReason.detail || "Most frequent"} tone="violet" />
       </div>
 
-      <div className="ppReturnsEvidenceGrid">
+      <div className={`ppReturnsEvidenceGrid${relationship.available ? " ppReturnsEvidenceGrid-withRelationship" : ""}`}>
+        {relationship.available && (
+          <ReturnRefundRelationshipVenn relationship={relationship} className="ppReturnRefundVennCard-evidence" />
+        )}
         <section className="ppEvidenceReportSectionCard ppReturnsOverTimeCard">
           <h4>Returns over time</h4>
           <p>Return rate trend in scan window</p>
@@ -14285,6 +14344,9 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
 
 function RefundEvidencePanel({ source, product, reportHref }) {
   const metrics = product.metrics || {};
+  const detail = getProductDetailModel(product);
+  const relationship = detail.returnRefundRelationship || normalizeProductReturnRefundRelationship(null);
+  const hasReturnsEvidenceSource = detail.evidenceSources.some((sourceItem) => isShopifyReturnsEvidenceSource(sourceItem.title));
   const refundInsights = metrics.refundInsights || {};
   const aiContext = getAiEvidenceContextSection(product, "refunds");
   const refundSentiment = normalizeEvidenceSentiment(refundInsights.sentiment);
@@ -14311,6 +14373,10 @@ function RefundEvidencePanel({ source, product, reportHref }) {
         <EvidenceSourceStatCard icon="target" label="Top refund reason" value={topReason.label} detail="Primary refund signal" tone="violet" />
         <EvidenceSourceStatCard icon="negative-review-pressure" label="Refund-note tone" value={formatInteger(refundSentiment.negative)} detail={`${formatInteger(refundSentiment.negative)} negative, ${formatInteger(refundSentiment.neutral)} neutral, ${formatInteger(refundSentiment.positive)} positive`} tone={refundSentiment.negative ? "red" : "blue"} />
       </div>
+
+      {relationship.available && !hasReturnsEvidenceSource && (
+        <ReturnRefundRelationshipVenn relationship={relationship} className="ppReturnRefundVennCard-evidence" />
+      )}
 
       <div className="ppEvidenceThreeColumnGrid ppEvidenceThreeColumnGrid-equal">
         <section className="ppEvidenceReportSectionCard">

@@ -8003,6 +8003,13 @@ s-page[inline-size="large-500"] {
   box-shadow: var(--pp-card-shadow);
 }
 
+.ppReturnRefundVennCard-evidence {
+  width: 100%;
+  justify-self: stretch;
+  align-content: start;
+  box-shadow: none;
+}
+
 .ppReturnRefundVennCard h3 {
   margin: 0;
 }
@@ -11584,6 +11591,11 @@ s-page[inline-size="large-500"] {
   display: grid;
   grid-template-columns: minmax(0, 2.1fr) minmax(260px, 0.9fr);
   gap: 14px;
+}
+
+.ppReturnsEvidenceGrid-withRelationship {
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  align-items: stretch;
 }
 
 .ppReturnsOverTimeCard,
