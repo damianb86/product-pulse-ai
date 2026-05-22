@@ -11624,7 +11624,7 @@ function getReturnRatePredictionChart(prediction = {}) {
     value: Number(point.predictedReturnRate || 0),
     date: getReturnPredictionPointDate(point),
   }));
-  const forecastRange = buildReturnPredictionForecastRange(observed, forecast, prediction.summary || {});
+  const forecastRange = buildReturnPredictionForecastRange(observed, forecast, prediction.summary || {}, prediction.actionAdjustment || null);
   const allValues = [
     ...observed.map((point) => point.value),
     ...forecast.map((point) => point.value),
@@ -11672,7 +11672,7 @@ function getReturnRatePredictionChart(prediction = {}) {
   };
 }
 
-function buildReturnPredictionForecastRange(observed = [], forecast = [], summary = {}) {
+function buildReturnPredictionForecastRange(observed = [], forecast = [], summary = {}, actionAdjustment = null) {
   if (!forecast.length) return [];
   const observedValues = observed.map((point) => Number(point.value)).filter(Number.isFinite);
   const forecastValues = forecast.map((point) => Number(point.value)).filter(Number.isFinite);
@@ -11702,6 +11702,7 @@ function buildReturnPredictionForecastRange(observed = [], forecast = [], summar
   const trendPressure = clampNumber(recentSlope * 0.34 + longSlope * 0.18, -5, 5);
   const baseError = Math.max(1.15, binomialStandardError * 0.52, observedVolatility * 0.34, slopeVolatility * 0.46);
   const confidenceMultiplier = getReturnPredictionConfidenceUncertaintyMultiplier(summary.confidence);
+  const actionUncertaintyMultiplier = getReturnPredictionActionUncertaintyMultiplier(actionAdjustment);
   const sampleMultiplier = clampNumber(Math.sqrt(64 / effectiveSample), 0.55, 1.35);
   const horizonCount = Math.max(forecast.length, 1);
 
@@ -11715,14 +11716,14 @@ function buildReturnPredictionForecastRange(observed = [], forecast = [], summar
     const lowerTrendBias = Math.max(0, -trendPressure) * (0.24 + horizonRatio * 0.66)
       + Math.max(0, recentMean - center) * 0.06 * horizonRatio;
     const upperOffset = clampNumber(
-      baseError * confidenceMultiplier * sampleMultiplier * upperPolynomial
+      baseError * confidenceMultiplier * sampleMultiplier * actionUncertaintyMultiplier * upperPolynomial
         + upwardVolatility * (0.14 + horizonRatio * 0.26)
         + upperTrendBias,
       0.9,
       22,
     );
     const lowerOffset = clampNumber(
-      baseError * confidenceMultiplier * sampleMultiplier * lowerPolynomial
+      baseError * confidenceMultiplier * sampleMultiplier * actionUncertaintyMultiplier * lowerPolynomial
         + downwardVolatility * (0.12 + horizonRatio * 0.22)
         + lowerTrendBias,
       0.75,
@@ -11736,6 +11737,15 @@ function buildReturnPredictionForecastRange(observed = [], forecast = [], summar
       upperValue: clampNumber(center + upperOffset, 0, 94),
     };
   });
+}
+
+function getReturnPredictionActionUncertaintyMultiplier(actionAdjustment = null) {
+  const explicit = Number(actionAdjustment?.uncertaintyMultiplier);
+  if (Number.isFinite(explicit) && explicit > 0) return clampNumber(explicit, 1, 1.35);
+  const beneficialHandled = Number(actionAdjustment?.beneficialHandled || 0);
+  const shift = Math.abs(Number(actionAdjustment?.adjustmentPoints || 0));
+  if (!beneficialHandled && !shift) return 1;
+  return clampNumber(1 + Math.min(0.25, shift / 60 + beneficialHandled * 0.025), 1, 1.28);
 }
 
 function getReturnPredictionConfidenceUncertaintyMultiplier(confidence = "") {
@@ -12117,6 +12127,7 @@ function ReturnPredictionActionImpact({ adjustment = null }) {
         <strong>Recommendation impact</strong>
         <p>
           Applied and reviewed recommendations pull the forecast downward on the next diagnosis refresh.
+          They also widen the forecast range slightly because action outcomes are less certain than observed returns.
           Open recommendations do not move the forecast yet; dismissed items are excluded from future action impact.
         </p>
         <span className="ppReturnPredictionImpactShift">

@@ -90,8 +90,10 @@ describe("ProductPulse product job helpers", () => {
     const adjusted = productPulseJobsTestHooks.adjustReturnRatePredictionForActions(prediction, recommendations, storedActions);
 
     expect(adjusted.actionAdjustment.direction).toBe("improving");
-    expect(adjusted.actionAdjustment.adjustmentPoints).toBeLessThan(0);
-    expect(adjusted.forecastPoints[0].predictedReturnRate).toBeLessThan(20);
+    expect(adjusted.actionAdjustment.adjustmentPoints).toBe(-5.4);
+    expect(adjusted.actionAdjustment.uncertaintyMultiplier).toBe(1.11);
+    expect(adjusted.forecastPoints[0].actionAdjustedReturnRateShift).toBeLessThan(-3.5);
+    expect(adjusted.forecastPoints[0].predictedReturnRate).toBeLessThan(16.5);
     expect(adjusted.forecastPoints[1].predictedReturnRate).toBeLessThan(adjusted.forecastPoints[0].predictedReturnRate);
   });
 

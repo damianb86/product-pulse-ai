@@ -3698,15 +3698,17 @@ function adjustReturnRatePredictionForActions(prediction = null, recommendations
     else totals.pending += 1;
     return totals;
   }, { pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
-  const mitigationPoints = clampNumber(counts.applied * 1.65 + counts.reviewed * 1.1, 0, 9);
+  const mitigationPoints = clampNumber(counts.applied * 3.25 + counts.reviewed * 2.15, 0, 15);
   const adjustmentPoints = -mitigationPoints;
+  const uncertaintyMultiplier = roundTo(1 + clampNumber(mitigationPoints / 50, 0, 0.3), 2);
   const baseForecastNext90ReturnRate = roundTo(averageNumbers(prediction.forecastPoints.map((point) => Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0))), 2);
   const forecastPoints = prediction.forecastPoints.map((point, index) => {
-    const horizonWeight = (index + 1) / prediction.forecastPoints.length;
+    const horizonWeight = getReturnPredictionActionHorizonWeight(index, prediction.forecastPoints.length);
     const basePredictedReturnRate = Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0);
     return {
       ...point,
       basePredictedReturnRate,
+      actionAdjustedReturnRateShift: roundTo(adjustmentPoints * horizonWeight, 2),
       predictedReturnRate: roundTo(clampNumber(basePredictedReturnRate + adjustmentPoints * horizonWeight, 0, 100), 2),
     };
   });
@@ -3725,11 +3727,17 @@ function adjustReturnRatePredictionForActions(prediction = null, recommendations
       handled: counts.applied + counts.reviewed + counts.dismissed,
       beneficialHandled: counts.applied + counts.reviewed,
       adjustmentPoints: roundTo(adjustmentPoints, 2),
+      uncertaintyMultiplier,
       baseForecastNext90ReturnRate,
       forecastNext90ReturnRate,
       direction: adjustmentPoints < 0 ? "improving" : adjustmentPoints > 0 ? "worsening" : "neutral",
     },
   };
+}
+
+function getReturnPredictionActionHorizonWeight(index = 0, total = 1) {
+  const horizonRatio = clampNumber((Number(index || 0) + 1) / Math.max(Number(total || 1), 1), 0, 1);
+  return clampNumber(0.34 + 0.66 * Math.pow(horizonRatio, 0.78), 0, 1);
 }
 
 function buildReturnPredictionActionDescriptors(recommendations = []) {
