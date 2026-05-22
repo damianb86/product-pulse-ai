@@ -8874,7 +8874,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </div>
 
-        <ProductPurchaseContextPanel detail={detail} />
+        <ProductBasketContextPanel detail={detail} />
 
         <ProductRelationshipsPanel detail={detail} />
 
@@ -9342,6 +9342,143 @@ function ProductPurchaseContextPanel({ detail }) {
       )}
     </section>
   );
+}
+
+function ProductBasketContextPanel({ detail }) {
+  const context = detail.productPurchaseContext || normalizeProductPurchaseContext(null);
+  const hasData = context.available && context.hasOrderData;
+  const rows = getBasketContextRows(context);
+  const strongestCoPurchase = getBasketContextStrongestCoPurchase(detail, context);
+  const strongestHref = strongestCoPurchase ? getBasketContextProductHref(strongestCoPurchase) : "";
+  const interpretation = getBasketContextInterpretation(context);
+
+  return (
+    <section className={`ppProductPanel ppBasketContextPanel${hasData ? "" : " isUnavailable"}`} aria-label="Basket context">
+      <header className="ppBasketContextHeader">
+        <span className="ppBasketContextHeaderIcon" aria-hidden="true">
+          <ProductPulseGlyph type="shopify-orders" />
+        </span>
+        <PurchaseContextInfoLabel
+          label="Basket context"
+          help="Compact summary of how this product appears in Shopify orders: solo purchases, baskets with other products, multi-unit orders, variant comparison behavior, and strongest co-purchase."
+        />
+      </header>
+
+      {!hasData ? (
+        <EmptyProductDetailState message="Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available." />
+      ) : (
+        <>
+          <div className="ppBasketContextBody">
+            <div className="ppBasketContextMetricGrid" aria-label="Basket context primary metrics">
+              <BasketContextMetric value={formatPercent(context.soloPurchaseRatePercent)} label="Solo purchase rate" tone="green" />
+              <BasketContextMetric value={formatPercent(context.multiProductBasketRatePercent)} label="Bought with other products" tone="blue" />
+              <BasketContextMetric value={formatDecimal(context.avgProductQuantityPerOrder, 1)} label="Avg qty / order" tone="slate" />
+              <BasketContextMetric value={formatPercent(context.multiVariantOrderRatePercent)} label="Multi-variant rate" tone="purple" />
+            </div>
+
+            <div className="ppBasketContextDetailColumn">
+              <div className="ppBasketContextBars" aria-label="Basket context mix">
+                {rows.map((row) => (
+                  <div className={`ppBasketContextBarRow ppBasketContextBarRow-${row.tone}${row.value <= 0 ? " isZero" : ""}`} key={row.key}>
+                    <span aria-hidden="true"></span>
+                    <strong>{row.label}</strong>
+                    <i aria-hidden="true"><b style={{ width: `${row.width}%` }}></b></i>
+                    <em>{formatPercent(row.value)}</em>
+                  </div>
+                ))}
+              </div>
+
+              <div className="ppBasketContextCoPurchase">
+                <span aria-hidden="true"><ProductPulseGlyph type="shopify-product" /></span>
+                <div>
+                  <strong>Strongest co-purchase</strong>
+                  {strongestCoPurchase ? (
+                    strongestHref ? (
+                      <Link to={strongestHref}>
+                        {strongestCoPurchase.title}
+                        <s-icon type="external" size="small"></s-icon>
+                      </Link>
+                    ) : (
+                      <em>{strongestCoPurchase.title}</em>
+                    )
+                  ) : (
+                    <em>No reliable co-purchase yet</em>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ppBasketContextInterpretation">
+            <span aria-hidden="true"><ProductPulseGlyph type="ai-evidence-synthesis" /></span>
+            <div>
+              <strong>Interpretation</strong>
+              <p>{renderAnalysisText(interpretation)}</p>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function BasketContextMetric({ value, label, tone }) {
+  return (
+    <div className={`ppBasketContextMetric ppBasketContextMetric-${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function getBasketContextRows(context = {}) {
+  return [
+    { key: "solo", label: "Solo purchases", value: Number(context.soloPurchaseRatePercent || 0), tone: "green" },
+    { key: "basket", label: "Basket purchases", value: Number(context.multiProductBasketRatePercent || 0), tone: "blue" },
+    { key: "multi-unit", label: "Multi-unit orders", value: Number(context.multiUnitPurchaseRatePercent || 0), tone: "teal" },
+    { key: "multi-variant", label: "Multi-variant rate", value: Number(context.multiVariantOrderRatePercent || 0), tone: "purple" },
+  ].map((row) => ({
+    ...row,
+    width: clampNumber(row.value, 0, 100),
+  }));
+}
+
+function getBasketContextStrongestCoPurchase(detail = {}, context = {}) {
+  const relationship = detail.productRelationshipIntelligence || {};
+  const candidates = [
+    ...(Array.isArray(context.topCoPurchasedProducts) ? context.topCoPurchasedProducts : []),
+    ...(Array.isArray(relationship.topBoughtTogether) ? relationship.topBoughtTogether : []),
+  ].filter(Boolean).map((item) => ({
+    title: firstNonEmptyString(item.title, item.productTitle, item.relatedProductTitle, item.related_product_title, "Unknown product"),
+    handle: firstNonEmptyString(item.handle, item.productHandle, item.product_handle, item.relatedProductHandle, item.related_product_handle),
+    productId: firstNonEmptyString(item.productId, item.product_id, item.relatedProductId, item.related_product_id, item.id),
+    score: Math.max(
+      Number(item.affinityScore || item.affinity_score || 0),
+      Number(item.coOrderRatePercent || item.co_order_rate_percent || 0),
+      Number(item.relationshipRatePercent || item.relationship_rate_percent || 0),
+      Number(item.attachRatePercent || item.attach_rate_percent || 0),
+      Number(item.coOrderCount || item.co_order_count || 0),
+    ),
+  })).filter((item) => item.title && item.title !== "Unknown product");
+
+  return candidates.sort((left, right) => right.score - left.score)[0] || null;
+}
+
+function getBasketContextProductHref(item = {}) {
+  const handle = String(item.handle || "").trim();
+  if (handle) return `/app/products/${encodeURIComponent(handle)}`;
+  const productId = String(item.productId || "").trim();
+  return productId ? `/app/products/${encodeURIComponent(productId)}` : "";
+}
+
+function getBasketContextInterpretation(context = {}) {
+  const interpretation = firstNonEmptyString(context.interpretation);
+  if (interpretation) return interpretation;
+  if (Number(context.multiVariantOrderRatePercent || 0) >= 10) return "Variant comparison behavior is visible in stored orders.";
+  if (Number(context.multiProductBasketRatePercent || 0) > Number(context.soloPurchaseRatePercent || 0)) return "Usually bought with other products.";
+  if (Number(context.soloPurchaseRatePercent || 0) >= 60) return "Usually bought as a standalone item.";
+  if (Number(context.multiUnitPurchaseRatePercent || 0) >= 25) return "Often purchased as multiple units in the same order.";
+  return "Basket behavior is mixed across stored Shopify orders.";
 }
 
 function PurchaseContextMetricTile({ icon, value, label }) {

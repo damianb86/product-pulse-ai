@@ -1198,28 +1198,23 @@ describe("ProductPulse screens", () => {
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    const purchasePanel = container.querySelector(".ppPurchaseContextPanel");
+    const purchasePanel = container.querySelector(".ppBasketContextPanel");
     const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
 
     expect(purchasePanel).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Purchase context")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("How this product is bought")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Bought alone")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Basket context")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Solo purchase rate")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Bought with other products")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Basket purchases")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Multi-unit orders")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("72.2%").length).toBeGreaterThan(0);
-    expect(
-      Array.from(purchasePanel.querySelectorAll(".ppPurchaseContextCompositionSegment strong"))
-        .reduce((sum, node) => sum + Number(String(node.textContent || "").replace("%", "")), 0),
-    ).toBe(100);
-    expect(within(purchasePanel).getByText("Quantity distribution")).toBeInTheDocument();
+    expect(within(purchasePanel).getAllByText("27.8%").length).toBeGreaterThan(0);
     expect(within(purchasePanel).getAllByText("1.4").length).toBeGreaterThan(0);
-    expect(within(purchasePanel).getByText("1 unit")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("4+ units")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Multi-variant orders")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Avg qty / order")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("16.7%").length).toBeGreaterThan(0);
-    expect(within(purchasePanel).getByText("What this tells us")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Why it matters")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("AI insight")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Recommended actions")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Strongest co-purchase")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Care Kit")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Interpretation")).toBeInTheDocument();
     expect(within(purchasePanel).getByText(/usually bought alone, so negative signals are easier to attribute/i)).toBeInTheDocument();
 
     expect(within(riskSnapshot).getByText("72.2% solo purchase attribution")).toBeInTheDocument();
@@ -1251,13 +1246,14 @@ describe("ProductPulse screens", () => {
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    const purchasePanel = container.querySelector(".ppPurchaseContextPanel");
+    const purchasePanel = container.querySelector(".ppBasketContextPanel");
 
+    expect(within(purchasePanel).getByText("Basket context")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Bought with other products")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("100%").length).toBeGreaterThan(0);
-    expect(purchasePanel.querySelectorAll(".ppPurchaseContextCompositionSegment.isZero").length).toBeGreaterThan(0);
-    expect(within(purchasePanel).getByText("Usually bought with other products")).toBeInTheDocument();
-    expect(within(purchasePanel).queryByText("Variant behavior")).not.toBeInTheDocument();
+    expect(purchasePanel.querySelectorAll(".ppBasketContextBarRow.isZero").length).toBeGreaterThan(0);
+    expect(within(purchasePanel).getByText(/Usually bought with other products/)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("No reliable co-purchase yet")).toBeInTheDocument();
 
     const missingProduct = {
       ...defaultView.startHere,
@@ -1267,7 +1263,7 @@ describe("ProductPulse screens", () => {
       },
     };
     const missingRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={missingProduct} />);
-    const missingPanel = missingRender.container.querySelector(".ppPurchaseContextPanel");
+    const missingPanel = missingRender.container.querySelector(".ppBasketContextPanel");
     expect(within(missingPanel).getByText("Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available.")).toBeInTheDocument();
   });
 

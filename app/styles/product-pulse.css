@@ -5577,6 +5577,275 @@ s-page[inline-size="large-500"] {
   background: radial-gradient(circle, var(--pp-pulse-blue) 0 3px, transparent 4px);
 }
 
+.ppBasketContextPanel {
+  display: grid;
+  gap: 22px;
+  padding: 28px;
+  overflow: visible;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 18px;
+  background: var(--pp-cloud-white);
+  box-shadow: var(--pp-card-shadow);
+}
+
+.ppBasketContextHeader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ppBasketContextHeaderIcon,
+.ppBasketContextCoPurchase > span,
+.ppBasketContextInterpretation > span {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppBasketContextHeaderIcon {
+  width: 56px;
+  height: 56px;
+}
+
+.ppBasketContextHeaderIcon .ppProductPulseSvgIcon {
+  width: 30px;
+  height: 30px;
+}
+
+.ppBasketContextHeader .ppPurchaseContextInfoLabel {
+  gap: 9px;
+  color: var(--pp-slate-950);
+  font-size: 22px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.ppBasketContextHeader .ppPurchaseContextInfoLabel button {
+  width: 24px;
+  height: 24px;
+  color: var(--pp-slate-500);
+}
+
+.ppBasketContextHeader .ppPurchaseContextInfoLabel button s-icon {
+  transform: scale(1.15);
+}
+
+.ppBasketContextBody {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(340px, 1.12fr);
+  gap: 30px;
+  align-items: stretch;
+}
+
+.ppBasketContextMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-right: 1px solid var(--pp-slate-200);
+}
+
+.ppBasketContextMetric {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  min-height: 128px;
+  padding: 16px 24px 16px 0;
+}
+
+.ppBasketContextMetric:nth-child(1),
+.ppBasketContextMetric:nth-child(2) {
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppBasketContextMetric:nth-child(even) {
+  padding-left: 26px;
+}
+
+.ppBasketContextMetric strong {
+  overflow: hidden;
+  color: var(--pp-slate-950);
+  font-size: 42px;
+  font-weight: 950;
+  line-height: 0.98;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppBasketContextMetric span {
+  color: var(--pp-slate-600);
+  font-size: 16px;
+  font-weight: 820;
+  line-height: 1.25;
+}
+
+.ppBasketContextMetric-green strong {
+  color: var(--pp-success-green);
+}
+
+.ppBasketContextMetric-blue strong {
+  color: var(--pp-pulse-blue);
+}
+
+.ppBasketContextMetric-purple strong {
+  color: var(--pp-insight-violet);
+}
+
+.ppBasketContextDetailColumn {
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+  align-content: center;
+}
+
+.ppBasketContextBars {
+  display: grid;
+  gap: 18px;
+}
+
+.ppBasketContextBarRow {
+  --pp-basket-row-color: var(--pp-slate-500);
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(130px, 1fr) minmax(120px, 180px) 58px;
+  gap: 14px;
+  align-items: center;
+}
+
+.ppBasketContextBarRow > span {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--pp-basket-row-color);
+  box-shadow: 0 0 0 3px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppBasketContextBarRow strong,
+.ppBasketContextBarRow em {
+  min-width: 0;
+  color: var(--pp-slate-600);
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.ppBasketContextBarRow i {
+  height: 14px;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppBasketContextBarRow i b {
+  height: 100%;
+  min-width: 0;
+  display: block;
+  border-radius: inherit;
+  background: var(--pp-basket-row-color);
+  box-shadow: 0 6px 16px rgba(var(--pp-shadow-rgb), 0.12);
+}
+
+.ppBasketContextBarRow-green {
+  --pp-basket-row-color: var(--pp-success-green);
+}
+
+.ppBasketContextBarRow-blue {
+  --pp-basket-row-color: var(--pp-pulse-blue);
+}
+
+.ppBasketContextBarRow-teal {
+  --pp-basket-row-color: var(--pp-signal-teal);
+}
+
+.ppBasketContextBarRow-purple {
+  --pp-basket-row-color: var(--pp-insight-violet);
+}
+
+.ppBasketContextBarRow.isZero i b {
+  width: 0 !important;
+}
+
+.ppBasketContextCoPurchase {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding-top: 18px;
+  border-top: 1px dashed var(--pp-slate-200);
+}
+
+.ppBasketContextCoPurchase > span,
+.ppBasketContextInterpretation > span {
+  width: 48px;
+  height: 48px;
+}
+
+.ppBasketContextCoPurchase > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.ppBasketContextCoPurchase strong {
+  color: var(--pp-slate-600);
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.ppBasketContextCoPurchase a,
+.ppBasketContextCoPurchase em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-pulse-blue);
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ppBasketContextCoPurchase a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ppBasketContextInterpretation {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 20px;
+  border-radius: 14px;
+  background: linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.035));
+}
+
+.ppBasketContextInterpretation > div {
+  min-width: 0;
+}
+
+.ppBasketContextInterpretation strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--pp-slate-950);
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.ppBasketContextInterpretation p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
 .ppProductRelationshipsPanel {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -9608,6 +9877,14 @@ s-page[inline-size="large-500"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ppBasketContextBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppBasketContextMetricGrid {
+    border-right: 0;
+  }
+
   .ppProductRelationshipsOverviewGrid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -9709,6 +9986,39 @@ s-page[inline-size="large-500"] {
 
   .ppPurchaseContextMetricTiles {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppBasketContextPanel {
+    padding: 20px;
+  }
+
+  .ppBasketContextHeader {
+    align-items: flex-start;
+  }
+
+  .ppBasketContextMetricGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppBasketContextMetric {
+    min-height: 0;
+    padding: 14px 0;
+  }
+
+  .ppBasketContextMetric:nth-child(even) {
+    padding-left: 0;
+  }
+
+  .ppBasketContextMetric:nth-child(3) {
+    border-bottom: 1px solid var(--pp-slate-200);
+  }
+
+  .ppBasketContextBarRow {
+    grid-template-columns: 18px minmax(0, 1fr) 52px;
+  }
+
+  .ppBasketContextBarRow i {
+    grid-column: 2 / -1;
   }
 
   .ppPurchaseContextMatterHeader {
