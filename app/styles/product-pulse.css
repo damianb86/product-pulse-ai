@@ -8159,13 +8159,13 @@ s-page[inline-size="large-500"] {
 }
 
 .ppReturnRefundVennCircle-refunds {
-  left: 13%;
+  left: 11%;
   border: 2px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
   background: rgba(var(--pp-pulse-blue-rgb), 0.11);
 }
 
 .ppReturnRefundVennCircle-returns {
-  right: 13%;
+  right: 11%;
   border: 2px solid rgba(var(--pp-risk-red-rgb), 0.14);
   background: rgba(var(--pp-risk-red-rgb), 0.10);
 }
@@ -8201,8 +8201,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppReturnRefundVennText-refunds {
-  top: 70px;
-  left: 13%;
+  top: 86px;
+  left: 4%;
   width: 206px;
   color: var(--pp-pulse-blue);
 }
@@ -8215,8 +8215,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppReturnRefundVennText-returns {
-  top: 70px;
-  right: 13%;
+  top: 86px;
+  right: 4%;
   width: 206px;
   color: var(--pp-risk-red);
 }
@@ -10368,11 +10368,11 @@ s-page[inline-size="large-500"] {
   }
 
   .ppReturnRefundVennCircle-refunds {
-    left: 10%;
+    left: 13%;
   }
 
   .ppReturnRefundVennCircle-returns {
-    right: 10%;
+    right: 13%;
   }
 
   .ppReturnRefundVennText span {
@@ -10389,7 +10389,7 @@ s-page[inline-size="large-500"] {
 
   .ppReturnRefundVennText-refunds {
     top: 58px;
-    left: 10%;
+    left: 6%;
     width: 175px;
   }
 
@@ -10400,7 +10400,7 @@ s-page[inline-size="large-500"] {
 
   .ppReturnRefundVennText-returns {
     top: 58px;
-    right: 10%;
+    right: 6%;
     width: 175px;
   }
 
@@ -11759,7 +11759,7 @@ s-page[inline-size="large-500"] {
 .ppEvidenceReturnChart svg {
   width: 100%;
   height: 205px;
-  overflow: visible;
+  overflow: hidden;
   border-bottom: 1px solid var(--pp-slate-200);
   background:
     linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 0 / 100% 25%,

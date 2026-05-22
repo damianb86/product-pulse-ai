@@ -11003,14 +11003,12 @@ function ReturnRefundRelationshipVenn({ relationship, className = "" }) {
 function getReturnRefundVennMetrics(relationship = {}) {
   const returnedUnits = Number(relationship.returnedUnits || 0);
   const refundedUnits = Number(relationship.refundedUnits || 0);
-  const linkedCount = Number(relationship.returnedAndRefundedUnits || 0);
-  const returnOnlyCount = Number(relationship.returnedNotRefundedUnits || 0);
-  const refundOnlyCount = Number(relationship.refundedWithoutReturnUnits || 0);
+  const linkedCount = Math.min(Number(relationship.returnedAndRefundedUnits || 0), returnedUnits, refundedUnits);
+  const returnOnlyCount = Math.max(0, returnedUnits - linkedCount);
+  const refundOnlyCount = Math.max(0, refundedUnits - linkedCount);
   const linkedPercent = relationshipRatePercent(undefined, linkedCount, returnedUnits);
   const returnOnlyPercent = relationshipRatePercent(undefined, returnOnlyCount, returnedUnits);
-  const refundOnlyPercent = Number.isFinite(Number(relationship.refundWithoutReturnRatePercent))
-    ? Number(relationship.refundWithoutReturnRatePercent)
-    : relationshipRatePercent(undefined, refundOnlyCount, Math.max(refundedUnits, linkedCount + refundOnlyCount));
+  const refundOnlyPercent = relationshipRatePercent(undefined, refundOnlyCount, refundedUnits);
   return {
     returnedUnits,
     linkedCount,
@@ -14289,7 +14287,7 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
         )}
         <section className="ppEvidenceReportSectionCard ppReturnsOverTimeCard">
           <h4>Returns over time</h4>
-          <p>Return rate trend in scan window</p>
+          <p>Cumulative return rate in scan window</p>
           <EvidenceReturnRateChart activity={metrics.monthlyOrderActivity} prediction={metrics.returnRatePrediction} returnRate={metrics.returnRate} />
         </section>
 
@@ -16311,12 +16309,20 @@ function EvidenceReasonBarList({ rows = [], total = 0 }) {
 
 function getReturnTimelinePoints(activity = null, prediction = null, fallbackReturnRate = 0) {
   const months = Array.isArray(activity?.months) ? activity.months : [];
+  const totalOrderUnits = Number(activity?.summary?.totalOrderUnits || 0);
+  let cumulativeReturnedUnits = 0;
   const monthPoints = months
     .filter((month) => month.key || month.label)
-    .map((month) => ({
-      label: month.shortLabel || month.label || month.key,
-      value: clampPercentValue(month.returnRate || 0),
-    }));
+    .map((month) => {
+      cumulativeReturnedUnits += Number(month.returnedUnits || 0);
+      const denominator = totalOrderUnits > 0
+        ? totalOrderUnits
+        : Math.max(Number(month.orderUnits || 0), cumulativeReturnedUnits);
+      return {
+        label: month.shortLabel || month.label || month.key,
+        value: denominator > 0 ? clampPercentValue((cumulativeReturnedUnits / denominator) * 100) : 0,
+      };
+    });
   if (monthPoints.length >= 2) return monthPoints;
   const observed = Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [];
   const observedPoints = observed.map((point) => ({
@@ -16337,9 +16343,7 @@ function EvidenceReturnRateChart({ activity = null, prediction = null, returnRat
     y: Math.round((100 - clampPercentValue(point.value)) * 10) / 10,
   }));
   const path = buildSmoothSvgPath(chartPoints);
-  const areaPath = chartPoints.length
-    ? `M 0,100 L ${chartPoints.map((point) => `${point.x},${point.y}`).join(" L ")} L 100,100 Z`
-    : "";
+  const areaPath = buildReturnRateAreaPath(path, chartPoints);
   const labels = [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]].filter(Boolean);
 
   return (
@@ -16360,6 +16364,14 @@ function EvidenceReturnRateChart({ activity = null, prediction = null, returnRat
       </div>
     </div>
   );
+}
+
+function buildReturnRateAreaPath(linePath = "", chartPoints = []) {
+  if (!linePath || !chartPoints.length) return "";
+  const first = chartPoints[0];
+  const last = chartPoints[chartPoints.length - 1];
+  const lineContinuation = linePath.replace(/^M\s+-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/, `L ${first.x},${first.y}`);
+  return `M ${first.x},100 ${lineContinuation} L ${last.x},100 Z`;
 }
 
 function EvidenceReviewSentimentTrendChart({ trend = [] }) {

@@ -2982,6 +2982,63 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: /Score calculation/ })).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("shows returns/refunds overlap from total outcome counts and cumulative return-rate charting", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        soldUnits: 8,
+        returnUnits: 6,
+        refundUnits: 1,
+        returnRate: 75,
+        monthlyOrderActivity: {
+          summary: {
+            totalOrderUnits: 8,
+            totalReturnedUnits: 6,
+          },
+          months: [
+            { key: "2025-06", shortLabel: "Jun", orderUnits: 0, returnedUnits: 0, returnRate: 0 },
+            { key: "2025-11", shortLabel: "Nov", orderUnits: 2, returnedUnits: 2, returnRate: 100 },
+            { key: "2025-12", shortLabel: "Dec", orderUnits: 1, returnedUnits: 1, returnRate: 100 },
+            { key: "2026-01", shortLabel: "Jan", orderUnits: 1, returnedUnits: 1, returnRate: 100 },
+            { key: "2026-02", shortLabel: "Feb", orderUnits: 1, returnedUnits: 1, returnRate: 100 },
+            { key: "2026-03", shortLabel: "Mar", orderUnits: 1, returnedUnits: 1, returnRate: 100 },
+            { key: "2026-04", shortLabel: "Apr", orderUnits: 1, returnedUnits: 0, returnRate: 0 },
+            { key: "2026-05", shortLabel: "May", orderUnits: 1, returnedUnits: 0, returnRate: 0 },
+          ],
+        },
+        returnRefundRelationshipSummary: relationshipSummaryFixture({
+          sold_units: 8,
+          returned_units: 6,
+          refunded_units: 1,
+          returned_and_refunded_units: 0,
+          returned_not_refunded_units: 0,
+          refunded_without_return_units: 1,
+          exchange_or_replacement_units: 2,
+          pending_return_units: 4,
+          relationship_match_confidence_avg: 1,
+        }),
+      },
+    };
+
+    const { container } = renderWithRouter(<ProductEvidenceReportScreen product={product} source="Customer language analysis" />);
+    const returnsEvidenceReport = container.querySelector(".ppShopifyReturnsReport");
+    const venn = returnsEvidenceReport.querySelector(".ppReturnRefundVennCard");
+    const returnLine = returnsEvidenceReport.querySelector(".ppEvidenceReturnLine");
+    const returnArea = returnsEvidenceReport.querySelector(".ppEvidenceReturnArea");
+    const lineYValues = (returnLine.getAttribute("d").match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g) || [])
+      .map((pair) => Number(pair.split(",")[1]))
+      .filter(Number.isFinite);
+
+    expect(within(returnsEvidenceReport).getByText("Cumulative return rate in scan window")).toBeInTheDocument();
+    expect(venn.querySelector(".ppReturnRefundVennText-returns strong")).toHaveTextContent("100%");
+    expect(venn.querySelector(".ppReturnRefundVennText-returns small")).toHaveTextContent("(6)");
+    expect(venn.querySelector(".ppReturnRefundVennText-refunds strong")).toHaveTextContent("100%");
+    expect(venn.querySelector(".ppReturnRefundVennText-refunds small")).toHaveTextContent("(1)");
+    expect(Math.min(...lineYValues)).toBeGreaterThan(20);
+    expect(returnArea.getAttribute("d")).toContain(" Q ");
+  });
+
   it("collapses long recommended action descriptions", () => {
     const longDetail = Array.from({ length: 12 }, (_, index) => `Sentence ${index + 1} explains a specific customer-facing product quality recommendation with enough detail to require expansion.`).join(" ");
     const product = {
