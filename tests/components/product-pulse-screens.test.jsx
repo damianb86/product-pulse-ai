@@ -1206,6 +1206,10 @@ describe("ProductPulse screens", () => {
     expect(within(purchasePanel).getByText("How this product is bought")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Bought alone")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("72.2%").length).toBeGreaterThan(0);
+    expect(
+      Array.from(purchasePanel.querySelectorAll(".ppPurchaseContextCompositionSegment strong"))
+        .reduce((sum, node) => sum + Number(String(node.textContent || "").replace("%", "")), 0),
+    ).toBe(100);
     expect(within(purchasePanel).getByText("Quantity distribution")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("1.4").length).toBeGreaterThan(0);
     expect(within(purchasePanel).getByText("1 unit")).toBeInTheDocument();
@@ -1251,6 +1255,7 @@ describe("ProductPulse screens", () => {
 
     expect(within(purchasePanel).getByText("Bought with other products")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("100%").length).toBeGreaterThan(0);
+    expect(purchasePanel.querySelectorAll(".ppPurchaseContextCompositionSegment.isZero").length).toBeGreaterThan(0);
     expect(within(purchasePanel).getByText("Usually bought with other products")).toBeInTheDocument();
     expect(within(purchasePanel).queryByText("Variant behavior")).not.toBeInTheDocument();
 

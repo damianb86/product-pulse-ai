@@ -5009,6 +5009,13 @@ s-page[inline-size="large-500"] {
   gap: 14px;
 }
 
+.ppPurchaseContextBlockHeader > div {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  align-content: center;
+}
+
 .ppPurchaseContextBlockHeader > span:first-child {
   width: 50px;
   height: 50px;
@@ -5047,9 +5054,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppPurchaseContextCompositionSegment {
-  min-width: 96px;
+  min-width: 78px;
   display: grid;
   align-content: center;
+  justify-items: start;
   gap: 9px;
   padding: 20px 22px;
   border-right: 1px solid rgba(255, 255, 255, 0.32);
@@ -5106,6 +5114,34 @@ s-page[inline-size="large-500"] {
   color: rgba(var(--pp-insight-violet-rgb), 0.76);
 }
 
+.ppPurchaseContextCompositionSegment.isZero {
+  min-width: 52px;
+  justify-items: center;
+  gap: 5px;
+  padding: 14px 9px;
+  background: linear-gradient(135deg, var(--pp-slate-100), #E8EDF3);
+  text-align: center;
+}
+
+.ppPurchaseContextCompositionSegment.isZero strong {
+  color: var(--pp-slate-400);
+  font-size: 22px;
+}
+
+.ppPurchaseContextCompositionSegment.isZero em {
+  color: var(--pp-slate-500);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+.ppPurchaseContextCompositionSegment.isZero small {
+  color: var(--pp-slate-400);
+  font-size: 8px;
+  font-weight: 760;
+  line-height: 1.05;
+}
+
 .ppPurchaseContextMetricTiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -5115,7 +5151,7 @@ s-page[inline-size="large-500"] {
 .ppPurchaseContextMetricTile {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
   align-items: center;
   min-width: 0;
   padding: 18px;
@@ -5147,6 +5183,12 @@ s-page[inline-size="large-500"] {
 .ppPurchaseContextMetricTile .ppProductPulseSvgIcon {
   width: 24px;
   height: 24px;
+}
+
+.ppPurchaseContextMetricTile > div {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
 }
 
 .ppPurchaseContextMetricTile strong {

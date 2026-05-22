@@ -9239,9 +9239,9 @@ function ProductPurchaseContextPanel({ detail }) {
                 {compositionSegments.map((segment) => (
                   <span
                     key={segment.key}
-                    className={`ppPurchaseContextCompositionSegment ppPurchaseContextCompositionSegment-${segment.tone}`}
+                    className={`ppPurchaseContextCompositionSegment ppPurchaseContextCompositionSegment-${segment.tone}${segment.isZero ? " isZero" : ""}`}
                     style={{ flexBasis: `${segment.width}%` }}
-                    title={`${segment.title}: ${segment.value}`}
+                    title={`${segment.title}: ${segment.value}${segment.count ? ` · ${formatInteger(segment.count)} orders` : ""}`}
                   >
                     <strong>{segment.value}</strong>
                     <em>{segment.title}</em>
@@ -9357,29 +9357,36 @@ function PurchaseContextMetricTile({ icon, value, label }) {
 }
 
 function getPurchaseContextCompositionSegments(context = {}) {
-  const segments = [
+  const totalOrders = Math.max(0, Math.round(Number(context.totalOrdersContainingProduct || 0)));
+  const multiVariantOrders = clampOrderCount(context.multiVariantOrderCount, totalOrders);
+  const multiUnitOrders = clampOrderCount(Number(context.multiUnitOrderCount || 0) - multiVariantOrders, totalOrders - multiVariantOrders);
+  const basketOrders = clampOrderCount(context.multiProductOrderCount, totalOrders - multiVariantOrders - multiUnitOrders);
+  const soloOrders = Math.max(0, totalOrders - basketOrders - multiUnitOrders - multiVariantOrders);
+  const counts = [soloOrders, basketOrders, multiUnitOrders, multiVariantOrders];
+  const percentages = getWholePercentPartsThatSumTo100(counts, totalOrders);
+  return [
     {
       key: "solo",
       title: "Bought alone",
-      value: formatPercent(context.soloPurchaseRatePercent),
-      detail: "Standalone purchases",
-      rate: Number(context.soloPurchaseRatePercent || 0),
+      detail: "Simple standalone",
+      count: soloOrders,
+      percent: percentages[0],
       tone: "green",
     },
     {
       key: "basket",
       title: "Bought with other products",
-      value: formatPercent(context.multiProductBasketRatePercent),
-      detail: "Co-purchase in baskets",
-      rate: Number(context.multiProductBasketRatePercent || 0),
+      detail: "Single-unit basket",
+      count: basketOrders,
+      percent: percentages[1],
       tone: "teal",
     },
     {
       key: "multi-unit",
       title: "Multi-unit orders",
-      value: formatPercent(context.multiUnitPurchaseRatePercent),
       detail: "2+ units purchased",
-      rate: Number(context.multiUnitPurchaseRatePercent || 0),
+      count: multiUnitOrders,
+      percent: percentages[2],
       tone: "blue",
     },
     {
