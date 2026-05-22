@@ -1259,11 +1259,24 @@ describe("ProductPulse screens", () => {
   });
 
   it("renders product relationship cards, timeline, trend, table and AI insights", () => {
+    const relationshipSummary = productRelationshipSummaryFixture();
+    relationshipSummary.source_product_id = defaultView.startHere.id;
+    relationshipSummary.source_product_title = defaultView.startHere.title;
+    relationshipSummary.top_bought_together = [
+      {
+        ...relationshipSummary.top_bought_together[0],
+        related_product_id: defaultView.startHere.id,
+        related_product_title: defaultView.startHere.title,
+        attach_rate: 1,
+        relationship_rate: 1,
+      },
+      ...relationshipSummary.top_bought_together,
+    ];
     const product = {
       ...defaultView.startHere,
       metrics: {
         ...defaultView.startHere.metrics,
-        productRelationshipIntelligenceSummary: productRelationshipSummaryFixture(),
+        productRelationshipIntelligenceSummary: relationshipSummary,
         productRelationshipAiInsights: {
           available: true,
           insights: [{
@@ -1287,11 +1300,15 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("Same order")).toBeInTheDocument();
     expect(within(panel).getByText("After")).toBeInTheDocument();
     expect(panel.querySelector(".ppProductRelationshipTimelineCard")).toBeInTheDocument();
+    expect(within(panel).getAllByText("Care Kit").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Starter Guide").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Refill Pack").length).toBeGreaterThan(0);
     expect(within(panel).getByText("42% attach rate")).toBeInTheDocument();
-    expect(within(panel).getByText("Current product")).toBeInTheDocument();
-    expect(within(panel).getByText("Source product")).toBeInTheDocument();
+    expect(within(panel).getByText("30% within 30 days before")).toBeInTheDocument();
+    expect(within(panel).getByText("25% within 30 days after")).toBeInTheDocument();
+    expect(within(panel).queryByText("Current product")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("Source product")).not.toBeInTheDocument();
+    expect(within(panel).queryByText(defaultView.startHere.title)).not.toBeInTheDocument();
   });
 
   it("handles missing and low-confidence product relationship data without overemphasis", () => {

@@ -4453,6 +4453,9 @@ function normalizeProductRelationshipIntelligence(summaryValue = null, factorsVa
   return {
     available,
     hasMeaningfulRelationships,
+    sourceProductId: firstNonEmptyString(summary.source_product_id, summary.sourceProductId, context.sourceProductId),
+    sourceProductHandle: firstNonEmptyString(summary.source_product_handle, summary.sourceProductHandle, context.sourceProductHandle),
+    sourceProductTitle: firstNonEmptyString(summary.source_product_title, summary.sourceProductTitle, context.sourceProductTitle),
     statusText: available
       ? (hasMeaningfulRelationships ? "Product relationship metrics available" : "No strong product relationships detected")
       : "Product relationship metrics not calculated yet",
@@ -9496,9 +9499,10 @@ function ProductRelationshipsPanel({ detail }) {
 }
 
 function ProductRelationshipTimelineCard({ detail, relationship }) {
-  const boughtTogether = relationship.topBoughtTogether[0] || null;
-  const boughtBefore = relationship.topBoughtBefore[0] || null;
-  const boughtAfter = relationship.topBoughtAfter[0] || null;
+  const currentIdentity = getProductRelationshipCurrentIdentity(detail, relationship);
+  const boughtTogether = getProductRelationshipTimelineItems(relationship.topBoughtTogether, currentIdentity);
+  const boughtBefore = getProductRelationshipTimelineItems(relationship.topBoughtBefore, currentIdentity);
+  const boughtAfter = getProductRelationshipTimelineItems(relationship.topBoughtAfter, currentIdentity);
   return (
     <article className="ppProductRelationshipTimelineCard">
       <div className="ppProductRelationshipTimelineHeader">
@@ -9518,14 +9522,19 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
           <circle className="ppProductRelationshipTimelineDot ppProductRelationshipTimelineDot-togetherRight" cx="755" cy="160" r="7" />
         </svg>
         <ProductRelationshipTimelineSideNode
-          item={boughtBefore}
+          items={boughtBefore}
           kind="before"
           title="Before"
           emptyMessage={relationship.customerSequenceAvailable ? "No reliable before relationship detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
         />
-        <ProductRelationshipTimelineCurrentNode detail={detail} item={boughtTogether} />
         <ProductRelationshipTimelineSideNode
-          item={boughtAfter}
+          items={boughtTogether}
+          kind="together"
+          title="Same order"
+          emptyMessage="No reliable same-order product relationship detected."
+        />
+        <ProductRelationshipTimelineSideNode
+          items={boughtAfter}
           kind="after"
           title="After"
           emptyMessage={relationship.customerSequenceAvailable ? "No reliable after relationship detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
@@ -9535,41 +9544,77 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
   );
 }
 
-function ProductRelationshipTimelineSideNode({ item, kind, title, emptyMessage }) {
+function getProductRelationshipTimelineItems(items = [], currentIdentity = {}) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && !isCurrentProductRelationshipItem(item, currentIdentity));
+}
+
+function getProductRelationshipCurrentIdentity(detail = {}, relationship = {}) {
+  return {
+    ids: new Set([
+      relationship.sourceProductId,
+      detail.id,
+      detail.productId,
+      detail.shopifyProductId,
+      detail.shopify_product_id,
+    ].map(normalizeRelationshipIdentityValue).filter(Boolean)),
+    handles: new Set([
+      relationship.sourceProductHandle,
+      detail.handle,
+      detail.productHandle,
+    ].map(normalizeRelationshipIdentityValue).filter(Boolean)),
+    titles: new Set([
+      relationship.sourceProductTitle,
+      detail.title,
+      detail.productTitle,
+    ].map(normalizeRelationshipIdentityValue).filter(Boolean)),
+  };
+}
+
+function isCurrentProductRelationshipItem(item = {}, currentIdentity = {}) {
+  const relatedId = normalizeRelationshipIdentityValue(item.relatedProductId || item.productId || item.id);
+  const relatedHandle = normalizeRelationshipIdentityValue(item.relatedProductHandle || item.handle);
+  const relatedTitle = normalizeRelationshipIdentityValue(item.title || item.relatedProductTitle || item.related_product_title);
+  return Boolean(
+    (relatedId && currentIdentity.ids?.has(relatedId))
+    || (relatedHandle && currentIdentity.handles?.has(relatedHandle))
+    || (relatedTitle && currentIdentity.titles?.has(relatedTitle))
+  );
+}
+
+function normalizeRelationshipIdentityValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function ProductRelationshipTimelineSideNode({ items = [], kind, title, emptyMessage }) {
+  const visibleItems = (Array.isArray(items) ? items : []).filter(Boolean).slice(0, 3);
+  const hasItems = visibleItems.length > 0;
+  const isTogether = kind === "together";
   const isAfter = kind === "after";
+  const icon = isTogether ? <ProductPulseGlyph type="shopify-orders" /> : isAfter ? <ProductPulseGlyph type="product-momentum" /> : <ProductRelationshipCalendarGlyph />;
+  const countLabel = isTogether ? "orders" : "customers";
   return (
-    <div className={`ppProductRelationshipTimelineSide ppProductRelationshipTimelineSide-${kind}${item ? "" : " isUnavailable"}`}>
+    <div className={`ppProductRelationshipTimelineSide ppProductRelationshipTimelineSide-${kind}${hasItems ? "" : " isUnavailable"}`}>
       <span className="ppProductRelationshipTimelineSideLabel">{title}</span>
       <span className="ppProductRelationshipTimelineSideIcon">
-        {isAfter ? <ProductPulseGlyph type="product-momentum" /> : <ProductRelationshipCalendarGlyph />}
+        {icon}
       </span>
-      {item ? (
-        <>
-          <strong>{item.title}</strong>
-          <p>{getProductRelationshipPrimaryLine(item, kind)}</p>
-          <small>{formatRelationshipLift(item.lift)} · {formatInteger(item.customerCount || item.coOrderCount || item.sampleSize)} {isAfter ? "customers" : "customers"}</small>
-        </>
+      {hasItems ? (
+        <div className="ppProductRelationshipTimelineProducts">
+          {visibleItems.map((item, index) => (
+            <div className="ppProductRelationshipTimelineProduct" key={`${kind}-${item.id || item.relatedProductId || item.title || index}`}>
+              <strong>{item.title}</strong>
+              <p>{getProductRelationshipPrimaryLine(item, kind)}</p>
+              <small>{formatRelationshipLift(item.lift)} · {formatInteger(item.customerCount || item.coOrderCount || item.sampleSize)} {countLabel}</small>
+            </div>
+          ))}
+        </div>
       ) : (
         <>
           <strong>Unavailable</strong>
           <p>{emptyMessage}</p>
         </>
       )}
-    </div>
-  );
-}
-
-function ProductRelationshipTimelineCurrentNode({ detail, item }) {
-  return (
-    <div className="ppProductRelationshipTimelineCurrent">
-      <span className="ppProductRelationshipTimelineSameOrder">Same order</span>
-      <div className="ppProductRelationshipTimelineCurrentCard">
-        <span className="ppProductRelationshipTimelineCurrentIcon"><ProductPulseGlyph type="shopify-orders" /></span>
-        <small>Current product</small>
-        <strong>{detail.title}</strong>
-        <em>Source product</em>
-        {item ? <span className="ppProductRelationshipTimelineAttach">{formatPercent(item.attachRatePercent || item.relationshipRatePercent)} attach rate</span> : null}
-      </div>
     </div>
   );
 }
