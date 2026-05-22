@@ -2552,6 +2552,134 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(variantAction.payload.trigger).toContain("Multi-variant purchases");
   });
 
+  it("creates relationship recommendations only from sufficiently confident actionable patterns", () => {
+    const deterministic = {
+      mainIssue: "product_quality",
+      riskScore: 62,
+      confidence: 78,
+      evidenceSnippets: [],
+      issueSignalCounts: { product_quality: 4 },
+      product: {
+        title: "Core Product",
+        description: "Core product.",
+        variants: [],
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 8,
+        returnUnits: 3,
+        refundUnits: 2,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        topReturnReasons: [],
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 18 },
+          confidence: { score: 82, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            bundleOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/care-kit",
+              relatedProductTitle: "Care Kit",
+              relationshipType: "same_order",
+              direction: "together",
+              timeWindow: "same_order",
+              lift: 2.4,
+              confidence: 82,
+              sampleSize: 5,
+              relationshipStrength: "strong",
+            },
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/refill-pack",
+              relatedProductTitle: "Refill Pack",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "30d_after",
+              lift: 1.8,
+              confidence: 76,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+            compatibilityWarningRelationship: {
+              relatedProductId: "gid://shopify/Product/accessory",
+              relatedProductTitle: "Accessory Pack",
+              relationshipType: "same_order",
+              direction: "together",
+              timeWindow: "same_order",
+              lift: 2.1,
+              confidence: 80,
+              sampleSize: 6,
+              deltaReturnRate: 12,
+              deltaRefundRate: 5,
+              relationshipStrength: "strong",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/starter",
+              relatedProductTitle: "Starter Kit",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "30d_before",
+              lift: 1.6,
+              confidence: 74,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/relationship",
+        productTitle: "Core Product",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).toEqual(expect.arrayContaining([
+      "review-product-pairing-expectations",
+      "test-product-bundle",
+      "create-post-purchase-cross-sell",
+      "position-as-upgrade-path",
+    ]));
+    expect(recommendations.find((item) => item.id === "review-product-pairing-expectations").payload).toMatchObject({
+      relatedProductTitle: "Accessory Pack",
+      recommendationKind: "compatibility_warning",
+      readOnly: true,
+    });
+    expect(recommendations.find((item) => item.id === "create-post-purchase-cross-sell").payload.relatedProductTitle).toBe("Refill Pack");
+
+    const lowConfidence = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/relationship",
+        productTitle: "Core Product",
+      },
+      deterministic: {
+        ...deterministic,
+        metrics: {
+          ...deterministic.metrics,
+          productRelationshipIntelligenceSummary: {
+            data_basis: { order_count: 18 },
+            confidence: { score: 40, label: "Low" },
+          },
+        },
+      },
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(lowConfidence.map((item) => item.id)).not.toContain("test-product-bundle");
+    expect(lowConfidence.map((item) => item.id)).not.toContain("create-post-purchase-cross-sell");
+    expect(lowConfidence.map((item) => item.id)).not.toContain("review-product-pairing-expectations");
+  });
+
   it("builds specs details blocks as technical placeholders instead of catalog metadata", () => {
     const deterministic = {
       mainIssue: "quality_defect",

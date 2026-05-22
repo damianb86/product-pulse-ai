@@ -9,6 +9,9 @@ import type {
   AiProductRiskSummary,
   AiProductPurchaseContextRiskImpact,
   AiProductPurchaseContextSummary,
+  AiProductRelationshipInsights,
+  AiProductRelationshipRiskImpact,
+  AiProductRelationshipSummary,
   AiReturnRefundRelationshipSummary,
   AiReturnRefundResolutionSummary,
   AiToolDefinition,
@@ -38,6 +41,12 @@ export const PRODUCT_PULSE_AI_TOOL_NAMES = {
   getProductQuantityDistribution: "product_pulse_get_product_quantity_distribution",
   getProductCoPurchaseSummary: "product_pulse_get_product_co_purchase_summary",
   getProductPurchaseContextRiskImpact: "product_pulse_get_product_purchase_context_risk_impact",
+  getProductRelationshipSummary: "product_pulse_get_product_relationship_summary",
+  getProductBoughtTogetherRelationships: "product_pulse_get_product_bought_together_relationships",
+  getProductPreviousPurchaseRelationships: "product_pulse_get_product_previous_purchase_relationships",
+  getProductNextPurchaseRelationships: "product_pulse_get_product_next_purchase_relationships",
+  getProductRelationshipRiskImpact: "product_pulse_get_product_relationship_risk_impact",
+  getProductRelationshipInsights: "product_pulse_get_product_relationship_insights",
   getStoreAnalyticsSnapshot: "product_pulse_get_store_analytics_snapshot",
   getWatchlistSnapshot: "product_pulse_get_watchlist_snapshot",
 } as const;
@@ -94,6 +103,9 @@ type ReturnRefundResolutionData = { resolution: AiReturnRefundResolutionSummary 
 type FinancialExposureBreakdownData = { product: AiProductRiskSummary; financialExposure: AiFinancialExposureBreakdown };
 type PurchaseContextSummaryData = { purchaseContext: AiProductPurchaseContextSummary };
 type PurchaseContextRiskImpactData = { product: AiProductRiskSummary; purchaseContextRiskImpact: AiProductPurchaseContextRiskImpact };
+type ProductRelationshipSummaryData = { productRelationship: AiProductRelationshipSummary };
+type ProductRelationshipRiskImpactData = { product: AiProductRiskSummary; relationshipRiskImpact: AiProductRelationshipRiskImpact };
+type ProductRelationshipInsightsData = { product: AiProductRiskSummary; relationshipInsights: AiProductRelationshipInsights };
 type StoreAnalyticsData = { analytics: AiAnalyticsSnapshot };
 type WatchlistData = { watchlist: AiWatchlistSnapshot };
 
@@ -420,6 +432,162 @@ export function createProductPulseAiToolDefinitions(
       },
     };
 
+  const getProductRelationshipSummaryTool: AiToolDefinition<ProductEvidenceInput, ProductRelationshipSummaryData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductRelationshipSummary,
+      description: "Get compact read-only Product Relationship Intelligence for one stored ProductPulse product, including bought-together, before, after, risk-impact and opportunity relationships.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiProductRelationshipSummary",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const productRelationship = await productRepository.getProductRelationshipSummary(context, input.productRef);
+        if (!productRelationship) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: { productRelationship },
+          metadata: { resultCount: 1, dataFreshness: [{ source: "ProductPulse", updatedAt: null }] },
+        };
+      },
+    };
+
+  const getProductBoughtTogetherRelationshipsTool: AiToolDefinition<ProductEvidenceInput, ProductRelationshipSummaryData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductBoughtTogetherRelationships,
+      description: "Get compact read-only same-order product relationships for one stored ProductPulse product.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiProductRelationshipSummary",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const productRelationship = await productRepository.getProductBoughtTogetherRelationships(context, input.productRef);
+        if (!productRelationship) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: { productRelationship },
+          metadata: { resultCount: 1, dataFreshness: [{ source: "ProductPulse", updatedAt: null }] },
+        };
+      },
+    };
+
+  const getProductPreviousPurchaseRelationshipsTool: AiToolDefinition<ProductEvidenceInput, ProductRelationshipSummaryData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductPreviousPurchaseRelationships,
+      description: "Get compact read-only products commonly bought before one stored ProductPulse product.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiProductRelationshipSummary",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const productRelationship = await productRepository.getProductPreviousPurchaseRelationships(context, input.productRef);
+        if (!productRelationship) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: { productRelationship },
+          metadata: { resultCount: 1, dataFreshness: [{ source: "ProductPulse", updatedAt: null }] },
+        };
+      },
+    };
+
+  const getProductNextPurchaseRelationshipsTool: AiToolDefinition<ProductEvidenceInput, ProductRelationshipSummaryData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductNextPurchaseRelationships,
+      description: "Get compact read-only products commonly bought after one stored ProductPulse product.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiProductRelationshipSummary",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const productRelationship = await productRepository.getProductNextPurchaseRelationships(context, input.productRef);
+        if (!productRelationship) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: { productRelationship },
+          metadata: { resultCount: 1, dataFreshness: [{ source: "ProductPulse", updatedAt: null }] },
+        };
+      },
+    };
+
+  const getProductRelationshipRiskImpactTool: AiToolDefinition<ProductEvidenceInput, ProductRelationshipRiskImpactData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductRelationshipRiskImpact,
+      description: "Get compact read-only Product Relationship Intelligence impact on Product Risk context, Diagnosis Confidence, and relationship-based opportunities.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiProductRelationshipRiskImpact",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const result = await productRepository.getProductRelationshipRiskImpact(context, input.productRef);
+        if (!result) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: result,
+          metadata: {
+            resultCount: 1,
+            dataFreshness: [{ source: "ProductPulse", updatedAt: result.product.updatedAt || result.product.calculatedAt }],
+          },
+        };
+      },
+    };
+
+  const getProductRelationshipInsightsTool: AiToolDefinition<ProductEvidenceInput, ProductRelationshipInsightsData> = {
+      name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductRelationshipInsights,
+      description: "Get compact read-only AI-written product relationship insights generated from sanitized deterministic relationship metrics.",
+      inputSchema: getProductEvidenceInputSchema,
+      readOnly: true,
+      category: "diagnosis",
+      permissionLevel: "merchant",
+      metadata: {
+        resultType: "AiProductRelationshipInsights",
+        dataSources: ["ProductRiskSnapshot"],
+        maxResultCount: 1,
+        providerAgnostic: true,
+      },
+      async execute(context, input) {
+        const result = await productRepository.getProductRelationshipInsights(context, input.productRef);
+        if (!result) {
+          throw new AiToolExecutionError("NOT_FOUND", "ProductPulse does not have a stored product risk record for that product reference.");
+        }
+        return {
+          data: result,
+          metadata: {
+            resultCount: result.relationshipInsights.insights.length,
+            dataFreshness: [{ source: "ProductPulse", updatedAt: result.product.updatedAt || result.product.calculatedAt }],
+          },
+        };
+      },
+    };
+
   const getStoreAnalyticsSnapshotTool: AiToolDefinition<EmptyInput, StoreAnalyticsData> = {
       name: PRODUCT_PULSE_AI_TOOL_NAMES.getStoreAnalyticsSnapshot,
       description: "Get compact store-level ProductPulse analytics for the authenticated shop.",
@@ -489,6 +657,12 @@ export function createProductPulseAiToolDefinitions(
     getProductQuantityDistributionTool,
     getProductCoPurchaseSummaryTool,
     getProductPurchaseContextRiskImpactTool,
+    getProductRelationshipSummaryTool,
+    getProductBoughtTogetherRelationshipsTool,
+    getProductPreviousPurchaseRelationshipsTool,
+    getProductNextPurchaseRelationshipsTool,
+    getProductRelationshipRiskImpactTool,
+    getProductRelationshipInsightsTool,
     getStoreAnalyticsSnapshotTool,
     getWatchlistSnapshotTool,
   ] as unknown as AnyAiToolDefinition[];

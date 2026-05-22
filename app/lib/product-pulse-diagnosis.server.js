@@ -2142,6 +2142,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     windowDays,
     returnRefundRelationshipSummary,
     productPurchaseContextSummary,
+    productRelationshipIntelligenceSummary,
   }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
   const riskComponents = scoreModel.riskComponents;
   const riskScore = scoreModel.riskScore;
@@ -2235,6 +2236,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       productPurchaseContextFactors: scoreModel.purchaseContextFactors,
       productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
       purchaseContextSignalBreakdown: scoreModel.purchaseContextFactors.customerSignalBreakdown,
+      productRelationshipFactors: scoreModel.productRelationshipFactors,
+      productRelationshipScoringImpact: scoreModel.productRelationshipExplanations,
       returnRefundRelationshipFactors: scoreModel.relationshipFactors,
       returnRefundScoringImpact: scoreModel.relationshipExplanations,
       returnPressure: scoreModel.relationshipFactors.returnPressure,
@@ -2814,6 +2817,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
     ...scoredDeterministic.metrics,
     incrementalDiagnosis,
     aiUsage: ai.aiUsage,
+    productRelationshipAiInsights: ai.relationshipInsights || null,
     diagnosisReport: {
       mainFinding: adjustedMainFinding,
       evidenceSummary: adjustedMainFinding.summary,
@@ -2821,6 +2825,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
       aiUsage: ai.aiUsage,
+      relationshipInsights: ai.relationshipInsights || null,
       knownEmotions,
       emergentSentiments,
       checkedSources: buildCheckedSources(semanticDeterministic),
@@ -3756,6 +3761,10 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.watchlist.shouldRecommend) candidates.push({ id: "add-to-watchlist", type: "Watchlist", reason: recipeSignals.watchlist.reason });
   if (recipeSignals.fullDiagnosis.shouldRecommend) candidates.push({ id: "run-full-diagnosis", type: "Diagnosis", reason: recipeSignals.fullDiagnosis.reason });
   if (recipeSignals.qa.shouldRecommend) candidates.push({ id: "recommend-qa-review", type: "Operational QA", reason: recipeSignals.qa.reason });
+  if (recipeSignals.relationshipCompatibility.shouldRecommend) candidates.push({ id: "review-product-pairing-expectations", type: "Compatibility review", reason: recipeSignals.relationshipCompatibility.reason });
+  if (recipeSignals.relationshipBundle.shouldRecommend) candidates.push({ id: "test-product-bundle", type: "Bundle opportunity", reason: recipeSignals.relationshipBundle.reason });
+  if (recipeSignals.relationshipCrossSell.shouldRecommend) candidates.push({ id: "create-post-purchase-cross-sell", type: "Cross-sell", reason: recipeSignals.relationshipCrossSell.reason });
+  if (recipeSignals.relationshipJourney.shouldRecommend) candidates.push({ id: "position-as-upgrade-path", type: "Journey insight", reason: recipeSignals.relationshipJourney.reason });
   if (!lowRiskMonitoringOnly && (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0)) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
 }
@@ -4627,6 +4636,66 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  if (recipeSignals.relationshipCompatibility.shouldRecommend) {
+    recommendations.push({
+      id: "review-product-pairing-expectations",
+      label: "Review pairing expectations",
+      type: "Compatibility review",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipCompatibility, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipCompatibility.reason,
+        recommendationKind: "compatibility_warning",
+      }),
+    });
+  }
+
+  if (recipeSignals.relationshipBundle.shouldRecommend) {
+    recommendations.push({
+      id: "test-product-bundle",
+      label: "Test bundle / frequently bought together",
+      type: "Bundle opportunity",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipBundle, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipBundle.reason,
+        recommendationKind: "bundle_opportunity",
+      }),
+    });
+  }
+
+  if (recipeSignals.relationshipCrossSell.shouldRecommend) {
+    recommendations.push({
+      id: "create-post-purchase-cross-sell",
+      label: "Create post-purchase cross-sell",
+      type: "Cross-sell",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipCrossSell, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipCrossSell.reason,
+        recommendationKind: "cross_sell_opportunity",
+      }),
+    });
+  }
+
+  if (recipeSignals.relationshipJourney.shouldRecommend) {
+    recommendations.push({
+      id: "position-as-upgrade-path",
+      label: "Position as upgrade / next step",
+      type: "Journey insight",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipJourney, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipJourney.reason,
+        recommendationKind: "journey_insight",
+      }),
+    });
+  }
+
   if (recipeSignals.qa.shouldRecommend) {
     recommendations.push({
       id: "recommend-qa-review",
@@ -4809,6 +4878,8 @@ function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode
   if (/description|pdp|expectation|faq|spec/.test(normalized)) score += 60;
   if (/source.*mismatch|source integrity/.test(normalized)) score += 55;
   if (/supplier|qa/.test(normalized)) score += 50;
+  if (/compatibility review|pairing/.test(normalized)) score += 48;
+  if (/bundle|cross-sell|journey|upgrade|product relationship/.test(normalized)) score += 28;
   if (/seo|meta|handle|media|image|alt text/.test(normalized)) score += 30;
   if (/tag|collection|workflow|internal|evidence/.test(normalized)) score -= 10;
   if (normalizedMainIssue === "color_expectation") {
@@ -4900,6 +4971,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, sourceMismatchSignals);
   const purchaseContextSignals = getPurchaseContextRecommendationSignals(deterministic);
+  const productRelationshipSignals = getProductRelationshipRecommendationSignals(deterministic);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
   const missingSourceSignals = getMissingSourceSignals(deterministic);
   const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
@@ -5035,6 +5107,10 @@ function getRecommendationRecipeSignals(deterministic = {}) {
         ? "Refund pressure or refund notes point to an operational quality review."
         : "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
     },
+    relationshipBundle: productRelationshipSignals.bundleOpportunity,
+    relationshipCrossSell: productRelationshipSignals.crossSellOpportunity,
+    relationshipCompatibility: productRelationshipSignals.compatibilityWarning,
+    relationshipJourney: productRelationshipSignals.journeyInsight,
   };
 }
 
@@ -5070,6 +5146,74 @@ function getPurchaseContextRecommendationSignals(deterministic = {}) {
       shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.productLevelPriority),
       reason: "The product is usually bought alone, so product-page expectations, quality notes, photos or description gaps are more directly attributable to this product.",
     },
+  };
+}
+
+function getProductRelationshipRecommendationSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const factors = metrics.productRelationshipFactors || {};
+  const actionSignals = factors.recommendedActionSignals || {};
+  const summary = metrics.productRelationshipIntelligenceSummary || {};
+  const confidence = normalizePercentLike(summary.confidence?.score ?? factors.context?.confidenceScore);
+  const orderCount = Number(summary.data_basis?.order_count || factors.context?.orderCount || 0);
+  const enoughSummary = orderCount >= 3 && confidence >= 55;
+
+  const normalizeSignal = (signal, fallbackReason) => {
+    const relationship = signal || null;
+    const title = relationship?.relatedProductTitle || relationship?.related_product_title || "a related product";
+    const lift = Number(relationship?.lift || 0);
+    const sampleSize = Number(relationship?.sampleSize || relationship?.sample_size || 0);
+    const signalConfidence = normalizePercentLike(relationship?.confidence || confidence);
+    return {
+      relationship,
+      title,
+      lift,
+      sampleSize,
+      confidence: signalConfidence,
+      shouldRecommend: Boolean(enoughSummary && relationship && sampleSize >= 3 && signalConfidence >= 55),
+      reason: fallbackReason(title, lift, sampleSize),
+    };
+  };
+
+  return {
+    bundleOpportunity: normalizeSignal(
+      actionSignals.bundleOpportunityRelationship,
+      (title, lift, sampleSize) => `${title} is a meaningful same-order companion${lift ? ` (${roundRate(lift, 1)}x lift` : ""} across ${sampleSize} matched order${sampleSize === 1 ? "" : "s"}; review a bundle or frequently-bought-together placement.`,
+    ),
+    crossSellOpportunity: normalizeSignal(
+      actionSignals.crossSellOpportunityRelationship,
+      (title, lift, sampleSize) => `${title} appears as a follow-on purchase after this product${lift ? ` (${roundRate(lift, 1)}x lift` : ""} across ${sampleSize} customer sequence${sampleSize === 1 ? "" : "s"}; review post-purchase cross-sell or email flow positioning.`,
+    ),
+    compatibilityWarning: normalizeSignal(
+      actionSignals.compatibilityWarningRelationship,
+      (title) => `Returns or refunds are higher when this product is bought with ${title}; review compatibility messaging, expectations or the recommendation pair before promoting it.`,
+    ),
+    journeyInsight: normalizeSignal(
+      actionSignals.journeyInsightRelationship,
+      (title) => `Customers often buy ${title} before this product; review whether this product should be positioned as an upgrade, refill, replacement or next step.`,
+    ),
+  };
+}
+
+function buildProductRelationshipRecommendationPayload(signal = {}, extra = {}) {
+  const relationship = signal.relationship || {};
+  return {
+    ...extra,
+    relatedProductId: relationship.relatedProductId || relationship.related_product_id || null,
+    relatedProductTitle: relationship.relatedProductTitle || relationship.related_product_title || signal.title || "",
+    relationshipType: relationship.relationshipType || relationship.relationship_type || "",
+    relationshipDirection: relationship.direction || relationship.relationshipDirection || relationship.relationship_direction || "",
+    timeWindow: relationship.timeWindow || relationship.time_window || "",
+    lift: relationship.lift ?? null,
+    confidence: signal.confidence || relationship.confidence || null,
+    confidenceLabel: relationship.confidenceLabel || relationship.confidence_label || "",
+    sampleSize: signal.sampleSize || relationship.sampleSize || relationship.sample_size || 0,
+    relationshipStrength: relationship.relationshipStrength || relationship.relationship_strength || "",
+    trend: relationship.trend || "",
+    deltaReturnRate: relationship.deltaReturnRate || relationship.delta_return_rate || 0,
+    deltaRefundRate: relationship.deltaRefundRate || relationship.delta_refund_rate || 0,
+    source: "product_relationship_intelligence",
+    readOnly: true,
   };
 }
 
@@ -5317,6 +5461,7 @@ function getRecommendationApprovalLevel(action = {}, recipe = {}) {
 
 function getRecommendationReasonCategory(action = {}, mainIssue = "") {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""} ${mainIssue || ""}`.toLowerCase();
+  if (/\b(bundle|cross-sell|pairing|journey|upgrade|product relationship)\b/.test(value)) return "Product relationship";
   if (/\b(momentum|watchlist|baseline)\b/.test(value)) return "Momentum";
   if (/\b(seo|meta|handle)\b/.test(value)) return "SEO";
   if (/\b(variant|sku|option)\b/.test(value)) return "Variant issue";
@@ -5330,6 +5475,8 @@ function getRecommendationReasonCategory(action = {}, mainIssue = "") {
 
 function getRecommendationExpectedBenefit(action = {}, recipe = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${recipe.expectedImpact || ""}`.toLowerCase();
+  if (/\b(bundle|cross-sell|journey|upgrade)\b/.test(value)) return "Improve merchandising";
+  if (/\b(pairing|compatibility review)\b/.test(value)) return "Reduce returns";
   if (/\b(seo|meta|handle)\b/.test(value)) return "Improve SEO";
   if (/\b(tag|collection|metafield|workflow|support|note|coverage|watchlist|baseline)\b/.test(value)) return "Improve workflow";
   if (/\b(status|inventory|draft|archive|safety|qa|supplier|bad purchase)\b/.test(value)) return "Prevent bad purchases";
@@ -5445,6 +5592,54 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       proposedChange: "Add a compact specs/details block to the Shopify product description.",
       shopifyField: "Product.descriptionHtml",
       expectedImpact: "Reduce confusion around dimensions, compatibility, materials, care, included items or product limits.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "review-product-pairing-expectations") {
+    return {
+      ...common,
+      proposedChange: `Review compatibility messaging, cross-sell copy, or bundle expectations for purchases involving ${payload.relatedProductTitle || "the related product"}.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: "Reduce avoidable returns from a product pairing that shows higher return or refund pressure.",
+      applicationRisk: "Low",
+      priorityGroup: "High-impact product fix",
+      impactLevel: "High impact",
+      actionTier: 1,
+    };
+  }
+  if (id === "test-product-bundle") {
+    return {
+      ...common,
+      proposedChange: `Review whether ${payload.relatedProductTitle || "the related product"} should be merchandised as a bundle or frequently-bought-together companion.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: "Improve merchandising from a high-lift same-order relationship without treating it as Product Risk.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "create-post-purchase-cross-sell") {
+    return {
+      ...common,
+      proposedChange: `Review a post-purchase cross-sell or email flow that suggests ${payload.relatedProductTitle || "the related product"} after this product.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: "Use a stable follow-on purchase pattern as a commercial opportunity.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "position-as-upgrade-path") {
+    return {
+      ...common,
+      proposedChange: `Review product copy or merchandising that positions this product as a next step after ${payload.relatedProductTitle || "the previous product"}.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: "Clarify the customer journey when purchase sequence data shows an upgrade, refill, or next-step pattern.",
       applicationRisk: "Low",
       priorityGroup: "Medium-impact catalog fix",
       impactLevel: "Medium impact",

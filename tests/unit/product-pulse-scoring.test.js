@@ -568,6 +568,139 @@ describe("ProductPulse scoring", () => {
     expect(model.purchaseContextFactors.customerSignalBreakdown.primaryContext).toBe("Mixed basket context");
   });
 
+  it("keeps relationship opportunities contextual and does not blindly increase Product Risk", () => {
+    const model = calculateProductScoreModel({
+      soldUnits: 80,
+      salesAmount: 8000,
+      sourceCoverage: ["Shopify orders"],
+      productRelationshipIntelligenceSummary: productRelationshipSummary({
+        top_bought_together: [relationshipItem({
+          related_product_title: "Care Kit",
+          relationship_direction: "together",
+          relationship_type: "same_order",
+          lift: 2.8,
+          delta_return_rate: 0,
+          delta_refund_rate: 0,
+        })],
+        strongest_relationships: [relationshipItem({
+          related_product_title: "Care Kit",
+          relationship_direction: "together",
+          relationship_type: "same_order",
+          lift: 2.8,
+        })],
+      }),
+    });
+
+    expect(model.riskComponents.productRelationshipRiskAdjustment).toBe(0);
+    expect(model.riskScore).toBeLessThan(30);
+    expect(model.productRelationshipFactors.recommendedActionSignals.bundleOpportunity).toBe(true);
+    expect(model.productRelationshipExplanations.join(" ")).toContain("Bought together");
+  });
+
+  it("lowers confidence when relationship-heavy baskets make weak refund attribution ambiguous", () => {
+    const withoutRelationshipContext = calculateProductScoreModel({
+      soldUnits: 60,
+      salesAmount: 6000,
+      refundUnits: 4,
+      refundAmount: 400,
+      sourceCoverage: ["Shopify orders", "Shopify refunds"],
+      returnRefundRelationshipSummary: relationshipSummary({
+        sold_units: 60,
+        sold_orders: 40,
+        refunded_units: 4,
+        refunded_orders: 4,
+        unattributed_refund_amount: 400,
+        relationship_unknown_count: 4,
+      }),
+      productPurchaseContextSummary: purchaseContextSummary({
+        total_orders_containing_product: 40,
+        multi_product_order_count: 34,
+        solo_product_order_count: 6,
+        multi_product_basket_rate: 0.85,
+        purchase_context_confidence: 78,
+      }),
+    });
+    const withRelationshipContext = calculateProductScoreModel({
+      soldUnits: 60,
+      salesAmount: 6000,
+      refundUnits: 4,
+      refundAmount: 400,
+      sourceCoverage: ["Shopify orders", "Shopify refunds"],
+      returnRefundRelationshipSummary: relationshipSummary({
+        sold_units: 60,
+        sold_orders: 40,
+        refunded_units: 4,
+        refunded_orders: 4,
+        unattributed_refund_amount: 400,
+        relationship_unknown_count: 4,
+      }),
+      productPurchaseContextSummary: purchaseContextSummary({
+        total_orders_containing_product: 40,
+        multi_product_order_count: 34,
+        solo_product_order_count: 6,
+        multi_product_basket_rate: 0.85,
+        purchase_context_confidence: 78,
+      }),
+      productRelationshipIntelligenceSummary: productRelationshipSummary({
+        confidence: { score: 56, label: "Medium" },
+        relationships_with_return_risk_impact: [relationshipItem({
+          related_product_title: "Accessory Pack",
+          relationship_direction: "together",
+          relationship_type: "same_order",
+          lift: 2.1,
+          confidence: 56,
+          confidence_label: "Medium",
+          delta_return_rate: 0.1,
+          delta_refund_rate: 0.08,
+        })],
+        strongest_relationships: [relationshipItem({
+          related_product_title: "Accessory Pack",
+          relationship_direction: "together",
+          relationship_type: "same_order",
+          lift: 2.1,
+          confidence: 56,
+          confidence_label: "Medium",
+          delta_return_rate: 0.1,
+          delta_refund_rate: 0.08,
+        })],
+      }),
+    });
+
+    expect(withRelationshipContext.confidenceFactors.productRelationshipAmbiguityPenalty).toBeGreaterThan(0);
+    expect(withRelationshipContext.confidenceScore).toBeLessThan(withoutRelationshipContext.confidenceScore);
+    expect(withRelationshipContext.productRelationshipExplanations.join(" ")).toContain("Diagnosis confidence is lower");
+  });
+
+  it("treats sequential relationships as opportunity instead of Product Risk", () => {
+    const model = calculateProductScoreModel({
+      soldUnits: 100,
+      salesAmount: 10000,
+      sourceCoverage: ["Shopify orders"],
+      productRelationshipIntelligenceSummary: productRelationshipSummary({
+        top_bought_after: [relationshipItem({
+          related_product_title: "Refill Pack",
+          relationship_direction: "after",
+          relationship_type: "next_purchase",
+          time_window: "30d_after",
+          lift: 1.8,
+          delta_return_rate: 0,
+          delta_refund_rate: 0,
+        })],
+        strongest_relationships: [relationshipItem({
+          related_product_title: "Refill Pack",
+          relationship_direction: "after",
+          relationship_type: "next_purchase",
+          time_window: "30d_after",
+          lift: 1.8,
+        })],
+      }),
+    });
+
+    expect(model.riskComponents.productRelationshipRiskAdjustment).toBe(0);
+    expect(model.productRelationshipFactors.recommendedActionSignals.crossSellOpportunity).toBe(true);
+    expect(model.productRelationshipExplanations.join(" ")).toContain("commercial opportunity rather than Product Risk");
+  });
+
   it("blocks diagnosis when credits are insufficient", () => {
     expect(validateCreditBalance(0, 1)).toMatchObject({ valid: false });
     expect(validateCreditBalance(2, 1)).toMatchObject({ valid: true });
@@ -694,4 +827,59 @@ function purchaseContextSummary(overrides = {}) {
   summary.bulk_purchase_rate = Number(overrides.bulk_purchase_rate ?? (totalOrders ? summary.bulk_order_count / totalOrders : 0));
   summary.multi_variant_order_rate = Number(overrides.multi_variant_order_rate ?? (totalOrders ? summary.multi_variant_order_count / totalOrders : 0));
   return summary;
+}
+
+function productRelationshipSummary(overrides = {}) {
+  return {
+    source_product_id: "gid://shopify/Product/1",
+    relationship_model_version: "product_relationship_v1",
+    schema_version: 1,
+    data_basis: {
+      same_order_available: true,
+      customer_sequence_available: true,
+      order_count: 20,
+      customer_count: 16,
+      known_basket_order_count: 20,
+      unknown_basket_order_count: 0,
+      ...(overrides.data_basis || {}),
+    },
+    confidence: {
+      score: 82,
+      label: "High",
+      reasons: [],
+      ...(overrides.confidence || {}),
+    },
+    top_bought_together: overrides.top_bought_together || [],
+    top_bought_before: overrides.top_bought_before || [],
+    top_bought_after: overrides.top_bought_after || [],
+    strongest_relationships: overrides.strongest_relationships || [],
+    emerging_relationships: overrides.emerging_relationships || [],
+    relationships_with_return_risk_impact: overrides.relationships_with_return_risk_impact || [],
+    relationships_with_cross_sell_opportunity: overrides.relationships_with_cross_sell_opportunity || [],
+    warnings: overrides.warnings || [],
+  };
+}
+
+function relationshipItem(overrides = {}) {
+  return {
+    source_product_id: "gid://shopify/Product/1",
+    related_product_id: overrides.related_product_id || "gid://shopify/Product/related",
+    related_product_title: overrides.related_product_title || "Related product",
+    relationship_type: overrides.relationship_type || "same_order",
+    relationship_direction: overrides.relationship_direction || "together",
+    time_window: overrides.time_window || "same_order",
+    relationship_rate: overrides.relationship_rate ?? 0.3,
+    attach_rate: overrides.attach_rate ?? 0.3,
+    related_product_base_rate: overrides.related_product_base_rate ?? 0.12,
+    lift: overrides.lift ?? 2,
+    relationship_strength_score: overrides.relationship_strength_score ?? 78,
+    relationship_strength: overrides.relationship_strength || "strong",
+    confidence: overrides.confidence ?? 82,
+    confidence_label: overrides.confidence_label || "High",
+    sample_size: overrides.sample_size ?? 5,
+    trend: overrides.trend || "stable",
+    delta_return_rate: overrides.delta_return_rate ?? 0,
+    delta_refund_rate: overrides.delta_refund_rate ?? 0,
+    warnings: overrides.warnings || [],
+  };
 }

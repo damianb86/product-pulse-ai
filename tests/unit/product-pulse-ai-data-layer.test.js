@@ -280,6 +280,89 @@ describe("ProductPulse AI data repositories", () => {
     expect(JSON.stringify(summary)).not.toContain("shop-a.myshopify.com");
   });
 
+  it("returns compact product relationship summaries, risk impact, and AI insights for one scoped product", async () => {
+    const db = createRepositoryDbMock();
+    const snapshot = buildSnapshot({
+      productGid: "gid://shopify/Product/relationship-intelligence",
+      handle: "relationship-intelligence-product",
+      metrics: {
+        productRelationshipIntelligenceSummary: productRelationshipSummaryFixture(),
+        productRelationshipFactors: {
+          hasProductRelationshipSummary: true,
+          productRiskContext: {
+            contextOnly: true,
+            riskScoreAdjustment: 0,
+            relationshipRiskImpactCount: 1,
+          },
+          diagnosisConfidence: {
+            complexBasketAmbiguityPenalty: 3,
+            sequenceStabilityScore: 2,
+          },
+          recommendedActionSignals: {
+            bundleOpportunity: true,
+            crossSellOpportunity: true,
+            compatibilityWarning: true,
+          },
+        },
+        productRelationshipScoringImpact: [
+          "Risk context: returns are higher when bought with Care Kit.",
+        ],
+        productRelationshipAiInsights: {
+          available: true,
+          status: "available",
+          insightVersion: "product_relationship_ai_insight_v1",
+          generatedAt: "2026-05-20T12:00:00.000Z",
+          model: "gpt-5.4-mini",
+          deterministicInputs: {
+            relationshipCount: 2,
+            confidenceScore: 82,
+            warnings: [],
+          },
+          insights: [{
+            id: "relationship-insight-1",
+            type: "bundle_opportunity",
+            sourceRelationshipId: "gid://shopify/Product/care-kit:together:same_order",
+            relatedProductTitle: "Care Kit",
+            summary: "Care Kit is a strong same-order merchandising pattern.",
+            recommendation: "Review a frequently-bought-together placement.",
+            caveat: "",
+            metrics: {
+              lift: 2.4,
+              confidence: 82,
+              sampleSize: 5,
+            },
+          }],
+        },
+      },
+    });
+    db.productRiskSnapshot.findFirst.mockResolvedValue(snapshot);
+
+    const repository = new ProductPulseAiRepository(db);
+    const summary = await repository.getProductRelationshipSummary(context, "relationship-intelligence-product");
+    const riskImpact = await repository.getProductRelationshipRiskImpact(context, "relationship-intelligence-product");
+    const insights = await repository.getProductRelationshipInsights(context, "relationship-intelligence-product");
+
+    expect(db.productRiskSnapshot.findFirst.mock.calls[0][0].where.shop).toBe(context.shop);
+    expect(summary).toMatchObject({
+      available: true,
+      confidenceLabel: "High",
+      orderCount: 12,
+      customerCount: 9,
+    });
+    expect(summary.topBoughtTogether[0]).toMatchObject({
+      title: "Care Kit",
+      direction: "together",
+      lift: 2.4,
+      relationshipRate: 42,
+    });
+    expect(riskImpact.relationshipRiskImpact.riskImpact).toContain("risk context");
+    expect(insights.relationshipInsights.insights[0]).toMatchObject({
+      relatedProductTitle: "Care Kit",
+    });
+    expect(insights.relationshipInsights.model).toBe("gpt-5.4-mini");
+    expect(JSON.stringify(summary)).not.toContain("shop-a.myshopify.com");
+  });
+
   it("does not expose watch alert recipient emails", async () => {
     const db = createRepositoryDbMock();
     db.productWatchlistItem.findMany.mockResolvedValue([]);
@@ -490,6 +573,74 @@ describe("ProductPulse AI tool registry", () => {
     expect(riskImpactResult.data.purchaseContextRiskImpact.riskImpact).toContain("Solo-purchase");
   });
 
+  it("exposes product relationship AI tools as read-only scoped compact summaries", async () => {
+    const productRelationship = {
+      available: true,
+      productGid: "gid://shopify/Product/1",
+      title: "Product",
+      handle: "product",
+      confidenceScore: 82,
+      confidenceLabel: "High",
+      topBoughtTogether: [{ title: "Care Kit", lift: 2.4 }],
+      topBoughtBefore: [],
+      topBoughtAfter: [{ title: "Refill Pack", lift: 1.7 }],
+      strongestRelationships: [{ title: "Care Kit", lift: 2.4 }],
+      relationshipsWithReturnRiskImpact: [],
+      relationshipsWithCrossSellOpportunity: [{ title: "Refill Pack", lift: 1.7 }],
+      interpretation: "Care Kit is a same-order relationship candidate.",
+    };
+    const productRepository = {
+      getProductRelationshipSummary: vi.fn().mockResolvedValue(productRelationship),
+      getProductBoughtTogetherRelationships: vi.fn().mockResolvedValue(productRelationship),
+      getProductPreviousPurchaseRelationships: vi.fn().mockResolvedValue(productRelationship),
+      getProductNextPurchaseRelationships: vi.fn().mockResolvedValue(productRelationship),
+      getProductRelationshipRiskImpact: vi.fn().mockResolvedValue({
+        product: { productGid: "gid://shopify/Product/1", updatedAt: null, calculatedAt: null },
+        relationshipRiskImpact: {
+          available: true,
+          riskImpact: "Product relationships are contextual.",
+          confidenceImpact: "Stable relationship patterns add context.",
+          opportunityImpact: "A follow-on relationship may support post-purchase cross-sell review.",
+        },
+      }),
+      getProductRelationshipInsights: vi.fn().mockResolvedValue({
+        product: { productGid: "gid://shopify/Product/1", updatedAt: null, calculatedAt: null },
+        relationshipInsights: {
+          available: true,
+          status: "available",
+          insights: [{ summary: "Review the follow-on relationship.", relatedProductTitle: "Refill Pack" }],
+        },
+      }),
+    };
+    const registry = createRegistryWithRepositories({ productRepository });
+
+    const summaryResult = await registry.executeAiTool(
+      PRODUCT_PULSE_AI_TOOL_NAMES.getProductRelationshipSummary,
+      context,
+      { productRef: "product", shop: "evil-shop.myshopify.com" },
+    );
+    const togetherResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductBoughtTogetherRelationships, context, { productRef: "product" });
+    const beforeResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductPreviousPurchaseRelationships, context, { productRef: "product" });
+    const afterResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductNextPurchaseRelationships, context, { productRef: "product" });
+    const impactResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductRelationshipRiskImpact, context, { productRef: "product" });
+    const insightsResult = await registry.executeAiTool(PRODUCT_PULSE_AI_TOOL_NAMES.getProductRelationshipInsights, context, { productRef: "product" });
+
+    expect(summaryResult.ok).toBe(true);
+    expect(togetherResult.ok).toBe(true);
+    expect(beforeResult.ok).toBe(true);
+    expect(afterResult.ok).toBe(true);
+    expect(impactResult.ok).toBe(true);
+    expect(insightsResult.ok).toBe(true);
+    expect(productRepository.getProductRelationshipSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ shop: context.shop }),
+      "product",
+    );
+    expect(productRepository.getProductRelationshipSummary.mock.calls[0][0]).not.toHaveProperty("shop", "evil-shop.myshopify.com");
+    expect(summaryResult.data.productRelationship.topBoughtTogether[0].title).toBe("Care Kit");
+    expect(impactResult.data.relationshipRiskImpact.opportunityImpact).toContain("cross-sell");
+    expect(insightsResult.data.relationshipInsights.insights[0].summary).toContain("follow-on");
+  });
+
   it("masks raw repository/database errors", async () => {
     const productRepository = {
       listProductRiskSummaries: vi.fn().mockRejectedValue(new Error("database password leaked stack")),
@@ -531,6 +682,12 @@ function createRegistryWithRepositories(overrides = {}) {
         getProductQuantityDistribution: vi.fn().mockResolvedValue(null),
         getProductCoPurchaseSummary: vi.fn().mockResolvedValue(null),
         getProductPurchaseContextRiskImpact: vi.fn().mockResolvedValue(null),
+        getProductRelationshipSummary: vi.fn().mockResolvedValue(null),
+        getProductBoughtTogetherRelationships: vi.fn().mockResolvedValue(null),
+        getProductPreviousPurchaseRelationships: vi.fn().mockResolvedValue(null),
+        getProductNextPurchaseRelationships: vi.fn().mockResolvedValue(null),
+        getProductRelationshipRiskImpact: vi.fn().mockResolvedValue(null),
+        getProductRelationshipInsights: vi.fn().mockResolvedValue(null),
         ...overrides.productRepository,
       },
       analyticsRepository: {
@@ -670,4 +827,109 @@ function relationshipSummaryFixture(overrides = {}) {
   summary.refund_rate_revenue = summary.total_product_revenue ? summary.attributed_refund_amount / summary.total_product_revenue : 0;
   summary.refund_attribution_rate = 1;
   return summary;
+}
+
+function productRelationshipSummaryFixture(overrides = {}) {
+  return {
+    source_product_id: "gid://shopify/Product/relationship-intelligence",
+    relationship_model_version: "product_relationship_v1",
+    data_basis: {
+      same_order_available: true,
+      customer_sequence_available: true,
+      order_count: 12,
+      customer_count: 9,
+      known_basket_order_count: 12,
+      unknown_basket_order_count: 0,
+    },
+    confidence: {
+      score: 82,
+      label: "High",
+      reasons: [],
+    },
+    top_bought_together: [{
+      related_product_id: "gid://shopify/Product/care-kit",
+      related_product_title: "Care Kit",
+      relationship_type: "same_order",
+      relationship_direction: "together",
+      time_window: "same_order",
+      relationship_rate: 0.42,
+      attach_rate: 0.42,
+      lift: 2.4,
+      confidence: 82,
+      confidence_label: "High",
+      sample_size: 5,
+      relationship_strength: "strong",
+      trend: "stable",
+      delta_return_rate: 0.08,
+      delta_refund_rate: 0.02,
+    }],
+    top_bought_after: [{
+      related_product_id: "gid://shopify/Product/refill-pack",
+      related_product_title: "Refill Pack",
+      relationship_type: "next_purchase",
+      relationship_direction: "after",
+      time_window: "30d_after",
+      relationship_rate: 0.25,
+      lift: 1.7,
+      confidence: 76,
+      confidence_label: "Medium",
+      sample_size: 4,
+      relationship_strength: "moderate",
+      trend: "increasing",
+      delta_return_rate: 0,
+      delta_refund_rate: 0,
+    }],
+    strongest_relationships: [{
+      related_product_id: "gid://shopify/Product/care-kit",
+      related_product_title: "Care Kit",
+      relationship_type: "same_order",
+      relationship_direction: "together",
+      time_window: "same_order",
+      relationship_rate: 0.42,
+      attach_rate: 0.42,
+      lift: 2.4,
+      confidence: 82,
+      confidence_label: "High",
+      sample_size: 5,
+      relationship_strength: "strong",
+      trend: "stable",
+      delta_return_rate: 0.08,
+      delta_refund_rate: 0.02,
+    }],
+    relationships_with_return_risk_impact: [{
+      related_product_id: "gid://shopify/Product/care-kit",
+      related_product_title: "Care Kit",
+      relationship_type: "same_order",
+      relationship_direction: "together",
+      time_window: "same_order",
+      relationship_rate: 0.42,
+      attach_rate: 0.42,
+      lift: 2.4,
+      confidence: 82,
+      confidence_label: "High",
+      sample_size: 5,
+      relationship_strength: "strong",
+      trend: "stable",
+      delta_return_rate: 0.08,
+      delta_refund_rate: 0.02,
+    }],
+    relationships_with_cross_sell_opportunity: [{
+      related_product_id: "gid://shopify/Product/refill-pack",
+      related_product_title: "Refill Pack",
+      relationship_type: "next_purchase",
+      relationship_direction: "after",
+      time_window: "30d_after",
+      relationship_rate: 0.25,
+      lift: 1.7,
+      confidence: 76,
+      confidence_label: "Medium",
+      sample_size: 4,
+      relationship_strength: "moderate",
+      trend: "increasing",
+      delta_return_rate: 0,
+      delta_refund_rate: 0,
+    }],
+    warnings: [],
+    ...overrides,
+  };
 }

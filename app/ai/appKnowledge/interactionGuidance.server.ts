@@ -45,8 +45,8 @@ export class AppInteractionGuidanceRepository {
 
 export function normalizeGuidanceLimit(value: unknown): number {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 5;
-  return Math.max(1, Math.min(6, Math.trunc(numeric)));
+  if (!Number.isFinite(numeric)) return 7;
+  return Math.max(1, Math.min(7, Math.trunc(numeric)));
 }
 
 function inferIntent(query: string): AppInteractionGuidanceIntent {
@@ -280,6 +280,16 @@ function productInformationOptions(): AppInteractionGuidanceOption[] {
       requiresProductContext: true,
       requiresConfirmation: false,
       backendCapability: { kind: "tool", name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductPurchaseContextSummary },
+    },
+    {
+      id: "product_relationships",
+      label: "Product relationships",
+      description: "Explica productos comprados juntos, antes o después, oportunidades comerciales y contexto de riesgo por relación.",
+      examplePrompt: "¿Qué productos se compran junto con este producto o después?",
+      category: "read",
+      requiresProductContext: true,
+      requiresConfirmation: false,
+      backendCapability: { kind: "tool", name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductRelationshipSummary },
     },
   ];
 }

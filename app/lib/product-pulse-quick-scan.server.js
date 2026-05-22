@@ -1756,6 +1756,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
     windowDays,
     returnRefundRelationshipSummary,
     productPurchaseContextSummary,
+    productRelationshipIntelligenceSummary: productRelationshipSummary,
   }, { sentimentSharesReviewSource: true });
   const riskScore = scoreModel.riskScore;
   const riskComponents = {
@@ -1833,6 +1834,8 @@ function scoreProductAggregate(aggregate, storeTotals, {
       productPurchaseContextFactors: scoreModel.purchaseContextFactors,
       productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
       purchaseContextSignalBreakdown: scoreModel.purchaseContextFactors.customerSignalBreakdown,
+      productRelationshipFactors: scoreModel.productRelationshipFactors,
+      productRelationshipScoringImpact: scoreModel.productRelationshipExplanations,
       returnRefundRelationshipFactors: scoreModel.relationshipFactors,
       returnRefundScoringImpact: scoreModel.relationshipExplanations,
       returnPressure: scoreModel.relationshipFactors.returnPressure,

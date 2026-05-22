@@ -99,6 +99,8 @@ export interface AiProductMetricSummary {
   returnRefundRelationship: AiReturnRefundRelationshipSummary | null;
   financialExposureBreakdown: AiFinancialExposureBreakdown | null;
   purchaseContext: AiProductPurchaseContextSummary | null;
+  productRelationshipIntelligence: AiProductRelationshipSummary | null;
+  productRelationshipInsights: AiProductRelationshipInsights | null;
 }
 
 export interface AiReturnRefundRelationshipSummary {
@@ -231,6 +233,77 @@ export interface AiProductPurchaseContextRiskImpact {
   returnPressureImpact: string;
   refundLeakageImpact: string;
   explanations: string[];
+}
+
+export interface AiProductRelationshipItem {
+  relatedProductId: string | null;
+  title: string;
+  handle: string | null;
+  relationshipType: string;
+  direction: "together" | "before" | "after" | string;
+  timeWindow: string;
+  relationshipRate: number;
+  attachRate: number;
+  lift: number | null;
+  confidence: number;
+  confidenceLabel: "High" | "Medium" | "Low" | "Unavailable" | string;
+  sampleSize: number;
+  relationshipStrength: string;
+  trend: string;
+  deltaReturnRate: number;
+  deltaRefundRate: number;
+}
+
+export interface AiProductRelationshipSummary {
+  available: boolean;
+  status: string;
+  productGid: string | null;
+  title: string | null;
+  handle: string | null;
+  confidenceScore: number;
+  confidenceLabel: "High" | "Medium" | "Low" | "Unavailable" | string;
+  orderCount: number;
+  customerCount: number;
+  topBoughtTogether: AiProductRelationshipItem[];
+  topBoughtBefore: AiProductRelationshipItem[];
+  topBoughtAfter: AiProductRelationshipItem[];
+  strongestRelationships: AiProductRelationshipItem[];
+  emergingRelationships: AiProductRelationshipItem[];
+  relationshipsWithReturnRiskImpact: AiProductRelationshipItem[];
+  relationshipsWithCrossSellOpportunity: AiProductRelationshipItem[];
+  warnings: string[];
+  interpretation: string;
+}
+
+export interface AiProductRelationshipRiskImpact {
+  available: boolean;
+  riskImpact: string;
+  confidenceImpact: string;
+  opportunityImpact: string;
+  explanations: string[];
+}
+
+export interface AiProductRelationshipInsights {
+  available: boolean;
+  status: string;
+  insightVersion: string | null;
+  generatedAt: string | null;
+  model: string | null;
+  insights: Array<{
+    id: string;
+    type: string;
+    sourceRelationshipId: string;
+    relatedProductTitle: string;
+    summary: string;
+    recommendation: string;
+    caveat: string;
+    metrics: Record<string, string | number | boolean | null>;
+  }>;
+  deterministicInputs: {
+    relationshipCount: number;
+    confidenceScore: number;
+    warnings: string[];
+  };
 }
 
 export interface AiProductRiskSummary {

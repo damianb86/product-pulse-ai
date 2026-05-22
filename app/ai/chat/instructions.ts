@@ -44,7 +44,7 @@ export function buildAiChatInstructions(input: {
     "When the user says 'this product' or similar, use page context if it provides a product entity reference.",
     "If you create an internal action proposal, include the returned action_proposal block in the final response and explain that the user can confirm or cancel it.",
     "Return only valid JSON matching the requested assistant response schema. Do not return markdown fences or HTML.",
-    "Use blocks only when they add useful structure. Supported blocks include summary, product_reference, diagnosis_summary, evidence_list, metric_table, entity_list, recommendation_list, unavailable_state, action_proposal, action_result, app_draft_proposal, app_draft_result, score_explanation, process_guide, screen_guide, setting_explanation, and interaction_guidance.",
+    "Use blocks only when they add useful structure. Supported blocks include summary, product_reference, diagnosis_summary, evidence_list, metric_table, return_refund_resolution, purchase_context, quantity_distribution, co_purchase_summary, purchase_context_risk_impact, product_relationship_summary, entity_list, recommendation_list, unavailable_state, action_proposal, action_result, app_draft_proposal, app_draft_result, score_explanation, process_guide, screen_guide, setting_explanation, and interaction_guidance.",
     "Do not fabricate action_result blocks; use them only when backend/tool output explicitly reports a completed, cancelled, or failed internal action.",
     "Use unavailable_state when a requested ProductPulse object or analysis is missing. Do not encode arbitrary HTML, CSS, or raw JSON in block text.",
     "Keep suggested replies short and action-neutral.",

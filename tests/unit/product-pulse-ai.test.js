@@ -31,7 +31,9 @@ vi.mock("../../app/lib/product-pulse-job-logs.server", () => ({
 }));
 
 const {
+  buildCompactProductRelationshipAiInput,
   generateProductDiagnosisTestText,
+  normalizeProductRelationshipAiInsights,
   runProductDiagnosisAiAnalysis,
 } = await import("../../app/lib/product-pulse-ai.server.js");
 
@@ -354,5 +356,92 @@ describe("ProductPulse AI provider fallback", () => {
       model: "gemini-a",
       task: "emergent_sentiment",
     });
+  });
+
+  it("builds sanitized compact relationship insight input without raw customer or order payloads", () => {
+    const compact = buildCompactProductRelationshipAiInput({
+      product: { title: "Main product", handle: "main-product" },
+      deterministic: {
+        metrics: {
+          productRelationshipFactors: {
+            aiInsightInput: {
+              confidence: { score: 82, label: "High" },
+              topRelationships: [{
+                relatedProductId: "gid://shopify/Product/care-kit",
+                relatedProductTitle: "Care Kit",
+                relationshipType: "same_order",
+                direction: "together",
+                timeWindow: "same_order",
+                relationshipRate: 42,
+                lift: 2.4,
+                confidence: 82,
+                sampleSize: 5,
+                relationshipStrength: "strong",
+                rawCustomerEmail: "owner@example.com",
+                orderIds: ["gid://shopify/Order/1"],
+              }],
+            },
+          },
+        },
+      },
+    });
+
+    expect(compact.available).toBe(true);
+    expect(compact.relationships[0]).toMatchObject({
+      sourceRelationshipId: "gid://shopify/Product/care-kit:together:same_order",
+      relatedProductTitle: "Care Kit",
+      lift: 2.4,
+      sampleSize: 5,
+    });
+    expect(JSON.stringify(compact)).not.toContain("owner@example.com");
+    expect(JSON.stringify(compact)).not.toContain("gid://shopify/Order/1");
+    expect(JSON.stringify(compact)).not.toContain("rawCustomerEmail");
+  });
+
+  it("normalizes relationship AI insights without invented source IDs, PII, causal language, or direct Shopify mutation claims", () => {
+    const compact = {
+      available: true,
+      confidence: { score: 42, label: "Low" },
+      warnings: [],
+      relationships: [{
+        sourceRelationshipId: "gid://shopify/Product/care-kit:together:same_order",
+        relatedProductTitle: "Care Kit",
+        relationshipType: "same_order",
+        direction: "together",
+        timeWindow: "same_order",
+        lift: 2.4,
+        confidence: 42,
+        sampleSize: 2,
+        relationshipStrength: "weak",
+        trend: "stable",
+        deltaReturnRate: 8,
+        deltaRefundRate: 2,
+      }],
+    };
+
+    const normalized = normalizeProductRelationshipAiInsights({
+      insights: [
+        {
+          source_relationship_id: "gid://shopify/Product/care-kit:together:same_order",
+          type: "compatibility_context",
+          summary: "Care Kit causes 8% more returns for owner@example.com.",
+          recommendation: "Apply it directly to Shopify after 2 orders.",
+          caveat: "",
+        },
+        {
+          source_relationship_id: "invented:after:30d",
+          type: "cross_sell_opportunity",
+          summary: "Invented relation.",
+        },
+      ],
+    }, compact, { model: "gpt-5.4-mini" });
+
+    expect(normalized.insights).toHaveLength(1);
+    expect(normalized.insights[0].summary).not.toContain("owner@example.com");
+    expect(normalized.insights[0].summary).not.toMatch(/\bcauses\b/i);
+    expect(normalized.insights[0].summary).not.toContain("8%");
+    expect(normalized.insights[0].recommendation).not.toMatch(/directly to Shopify/i);
+    expect(normalized.insights[0].caveat).toContain("Low confidence");
+    expect(normalized.model).toBe("gpt-5.4-mini");
   });
 });

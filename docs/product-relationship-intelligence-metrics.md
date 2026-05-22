@@ -2,6 +2,8 @@
 
 Phase 2 scope: deterministic numerical relationship metrics, temporal windows, cohort processing, compact summaries, persistence in existing ProductPulse metrics JSON, and tests. No UI changes, no Product Risk scoring changes, no AI-generated insights, and no Shopify writes.
 
+Phase 3 adds diagnosis/context integration on top of these metrics. See `docs/product-relationship-intelligence-diagnosis.md` for Product Risk context rules, recommendation gates, AI insight safety, and assistant tools.
+
 ## Implemented backend module
 
 The calculation lives in:

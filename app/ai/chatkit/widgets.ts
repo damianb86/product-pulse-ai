@@ -67,6 +67,8 @@ function mapValidatedAiPresentationBlock(block: AiPresentationBlock): Widgets.Wi
       return coPurchaseSummaryWidget(block);
     case "purchase_context_risk_impact":
       return purchaseContextRiskImpactWidget(block);
+    case "product_relationship_summary":
+      return productRelationshipSummaryWidget(block);
     case "entity_list":
       return entityListWidget(block);
     case "recommendation_list":
@@ -371,6 +373,60 @@ function purchaseContextRiskImpactWidget(block: Extract<AiPresentationBlock, { t
       block: true,
     })] : []),
   ], { size: "md", status: { text: "Risk impact", icon: "analytics" } });
+}
+
+function productRelationshipSummaryWidget(block: Extract<AiPresentationBlock, { type: "product_relationship_summary" }>): Widgets.Card {
+  if (!block.items.length) {
+    return emptyStateWidget({
+      type: "unavailable_state",
+      title: block.title || "Product relationships",
+      message: "No reliable product relationship pattern is available yet.",
+    });
+  }
+
+  const confidence = block.confidence || "Unavailable";
+  const relationshipRows = block.items.slice(0, MAX_LIST_ITEMS).map((item, index) => compactIssueRow({
+    label: item.title,
+    value: relationshipDirectionLabel(item.direction),
+    detail: [
+      item.relationshipStrength ? `${item.relationshipStrength} strength` : "",
+      typeof item.lift === "number" ? `${formatNumber(item.lift)}x lift` : "",
+      typeof item.sampleSize === "number" ? `${formatNumber(item.sampleSize)} samples` : "",
+      item.timeWindow ? item.timeWindow : "",
+      relationshipRiskDeltaLabel(item),
+    ].filter(Boolean).join(" · "),
+  }, index));
+
+  return productPulseCard([
+    row([
+      col([
+        title(block.title || "Product relationships", { key: "title" }),
+        caption(block.interpretation || "Bought-together and customer-sequence relationships for this product.", {
+          key: "caption",
+          maxLength: 220,
+        }),
+      ], { key: "heading", gap: 2, flex: 1 }),
+      badge(confidence, confidenceBadgeColor(confidence), { key: "confidence" }),
+    ], { key: "top", justify: "between", align: "start", gap: 6 }),
+    metricGrid([
+      { label: "Relationships", value: block.items.length, detail: "compact summary", tone: "info" },
+      { label: "Risk context", value: productRelationshipRiskPairCount(block), detail: "higher return/refund", tone: "danger" },
+      { label: "Opportunities", value: productRelationshipOpportunityCount(block), detail: "merchandising", tone: "success" },
+    ], { key: "relationship-overview" }),
+    col(relationshipRows, { key: "relationship-items", gap: 0 }),
+    ...(block.riskImpact || block.opportunityImpact ? [
+      sectionBox([
+        ...(block.riskImpact ? [compactInfoLine("Risk context", block.riskImpact, "risk-context", COLORS.dangerText)] : []),
+        ...(block.opportunityImpact ? [compactInfoLine("Opportunity", block.opportunityImpact, "opportunity", COLORS.successText)] : []),
+      ], { key: "impact", background: COLORS.soft }),
+    ] : []),
+    ...(block.productGid ? [button("Open product", "open_product", { productRef: block.productGid }, "chevron-right", {
+      key: "open-product",
+      style: "secondary",
+      variant: "outline",
+      block: true,
+    })] : []),
+  ], { size: "md", status: { text: "Product relationships", icon: "analytics" } });
 }
 
 function entityListWidget(block: Extract<AiPresentationBlock, { type: "entity_list" }>): Widgets.Card {
@@ -976,6 +1032,32 @@ function metricValueBadgeColor(value: string | number | boolean | null): NonNull
   if (normalized.includes("medium") || normalized.includes("warning")) return "warning";
   if (normalized.includes("low") || normalized.includes("good")) return "success";
   return "secondary";
+}
+
+function relationshipDirectionLabel(direction: string): string {
+  const normalized = direction.toLowerCase();
+  if (normalized.includes("before")) return "Before";
+  if (normalized.includes("after")) return "After";
+  return "Together";
+}
+
+function relationshipRiskDeltaLabel(item: Extract<AiPresentationBlock, { type: "product_relationship_summary" }>["items"][number]): string {
+  const returnDelta = typeof item.deltaReturnRate === "number" ? item.deltaReturnRate : 0;
+  const refundDelta = typeof item.deltaRefundRate === "number" ? item.deltaRefundRate : 0;
+  if (returnDelta > 0) return `+${formatNumber(returnDelta)}% returns`;
+  if (refundDelta > 0) return `+${formatNumber(refundDelta)}% refunds`;
+  return "";
+}
+
+function productRelationshipRiskPairCount(block: Extract<AiPresentationBlock, { type: "product_relationship_summary" }>): number {
+  return block.items.filter((item) => (item.deltaReturnRate || 0) > 0 || (item.deltaRefundRate || 0) > 0).length;
+}
+
+function productRelationshipOpportunityCount(block: Extract<AiPresentationBlock, { type: "product_relationship_summary" }>): number {
+  return block.items.filter((item) => {
+    const direction = item.direction.toLowerCase();
+    return (direction.includes("after") || direction.includes("together")) && (item.deltaReturnRate || 0) <= 0 && (item.deltaRefundRate || 0) <= 0;
+  }).length;
 }
 
 function buildProductSummaryCaption(block: Extract<AiPresentationBlock, { type: "product_reference" }>): string {

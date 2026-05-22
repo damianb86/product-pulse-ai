@@ -9,7 +9,7 @@ export const SOURCE_WEIGHTS = {
   pdpQuestions: 6,
 };
 
-export const PRODUCT_PULSE_SCORING_VERSION = "purchase_context_v3";
+export const PRODUCT_PULSE_SCORING_VERSION = "product_relationship_v1";
 
 const PRODUCT_REASON_CATEGORIES = new Set([
   "product_quality",
@@ -77,8 +77,10 @@ export function calculateProductScoreModel(input = {}, options = {}) {
   const confidenceFactors = calculateDiagnosisConfidence(metrics, riskComponents, options);
   const relationshipFactors = calculateRelationshipFactors(metrics, riskComponents, impactFactors, confidenceFactors);
   const purchaseContextFactors = calculatePurchaseContextFactors(metrics, riskComponents, impactFactors, confidenceFactors);
+  const productRelationshipFactors = calculateProductRelationshipFactors(metrics, riskComponents, impactFactors, confidenceFactors);
   const relationshipExplanations = buildReturnRefundScoringExplanations(relationshipFactors);
   const purchaseContextExplanations = buildPurchaseContextScoringExplanations(purchaseContextFactors);
+  const productRelationshipExplanations = buildProductRelationshipScoringExplanations(productRelationshipFactors);
   const priorityScore = calculatePriorityScore({
     riskScore: riskComponents.riskScore,
     confidenceScore: confidenceFactors.confidenceScore,
@@ -97,8 +99,10 @@ export function calculateProductScoreModel(input = {}, options = {}) {
     impactFactors,
     relationshipFactors,
     purchaseContextFactors,
+    productRelationshipFactors,
     relationshipExplanations,
     purchaseContextExplanations,
+    productRelationshipExplanations,
     scoringVersion: PRODUCT_PULSE_SCORING_VERSION,
   };
 }
@@ -175,6 +179,43 @@ export function buildPurchaseContextScoringExplanations(purchaseContextFactors =
   return explanations;
 }
 
+export function buildProductRelationshipScoringExplanations(productRelationshipFactors = {}) {
+  if (!productRelationshipFactors.hasProductRelationshipSummary) return [];
+  const explanations = [];
+  const riskContext = productRelationshipFactors.productRiskContext || {};
+  const confidence = productRelationshipFactors.diagnosisConfidence || {};
+  const topTogether = productRelationshipFactors.context?.topBoughtTogether?.[0];
+  const topBefore = productRelationshipFactors.context?.topBoughtBefore?.[0];
+  const topAfter = productRelationshipFactors.context?.topBoughtAfter?.[0];
+
+  if (topTogether?.relatedProductTitle && Number(topTogether.lift || 0) >= 1.25) {
+    explanations.push(`Bought together: ${topTogether.relatedProductTitle} has elevated lift with this product.`);
+  }
+
+  if (topBefore?.relatedProductTitle) {
+    explanations.push(`Bought before: customers with sequence data often bought ${topBefore.relatedProductTitle} before this product.`);
+  }
+
+  if (topAfter?.relatedProductTitle) {
+    explanations.push(`Bought after: customers with sequence data often bought ${topAfter.relatedProductTitle} after this product, which is treated as commercial opportunity rather than Product Risk.`);
+  }
+
+  if (riskContext.relationshipRiskImpactCount > 0) {
+    const related = riskContext.primaryRiskRelatedProductTitle || "a related product";
+    explanations.push(`Risk context: return or refund rates are higher when this product is bought with ${related}. This is used as diagnosis context, not as a direct risk-score increase.`);
+  }
+
+  if (confidence.complexBasketAmbiguityPenalty > 0) {
+    explanations.push("Diagnosis confidence is lower because bad outcomes appear in relationship-heavy or complex basket context where product attribution is less certain.");
+  }
+
+  if (confidence.lowRelationshipEvidencePenalty > 0) {
+    explanations.push("Relationship evidence is available but low-confidence, so ProductPulse keeps the relationship as a caveat instead of a strong conclusion.");
+  }
+
+  return explanations.slice(0, 6);
+}
+
 export function getRiskTone(score) {
   if (score >= 75) return "critical";
   if (score >= 55) return "warning";
@@ -245,6 +286,7 @@ function normalizeScoreInput(input = {}, options = {}) {
       : 0);
   const returnRefundRelationship = normalizeReturnRefundRelationshipSummary(input.returnRefundRelationshipSummary);
   const productPurchaseContext = normalizeProductPurchaseContextSummary(input.productPurchaseContextSummary);
+  const productRelationshipIntelligence = normalizeProductRelationshipIntelligenceSummary(input.productRelationshipIntelligenceSummary);
 
   return {
     soldUnits,
@@ -298,12 +340,15 @@ function normalizeScoreInput(input = {}, options = {}) {
     returnRefundRelationship,
     productPurchaseContextSummary: input.productPurchaseContextSummary || null,
     productPurchaseContext,
+    productRelationshipIntelligenceSummary: input.productRelationshipIntelligenceSummary || null,
+    productRelationshipIntelligence,
   };
 }
 
 function calculateRiskComponents(metrics, options = {}) {
   const relationshipRisk = calculateRelationshipRiskAdjustment(metrics);
   const purchaseRisk = calculatePurchaseContextRiskAdjustment(metrics, relationshipRisk);
+  const productRelationshipRiskContext = calculateProductRelationshipRiskContext(metrics);
   const hasEvidence = metrics.returnUnits
     || metrics.refundUnits
     || metrics.negativeReviewCount
@@ -398,6 +443,10 @@ function calculateRiskComponents(metrics, options = {}) {
     soloAttributionRisk: roundScore(purchaseRisk.soloAttributionRisk),
     multiVariantPurchaseRisk: roundScore(purchaseRisk.multiVariantRisk),
     bulkQuantitySeverityRisk: roundScore(purchaseRisk.bulkSeverityRisk),
+    productRelationshipContextScore: roundScore(productRelationshipRiskContext.contextScore),
+    productRelationshipRiskAdjustment: 0,
+    productRelationshipRiskImpactCount: productRelationshipRiskContext.relationshipRiskImpactCount,
+    productRelationshipPrimaryRiskRelatedProductTitle: productRelationshipRiskContext.primaryRiskRelatedProductTitle,
     purchaseReturnScoreMultiplier: roundScore(purchaseRisk.returnScoreMultiplier),
     purchaseRefundScoreMultiplier: roundScore(purchaseRisk.refundScoreMultiplier),
     purchaseContextConfidence: roundScore(purchaseRisk.purchaseContextConfidence * 100),
@@ -529,6 +578,36 @@ function calculatePurchaseContextRiskAdjustment(metrics, relationshipRisk = {}) 
   };
 }
 
+function calculateProductRelationshipRiskContext(metrics) {
+  const relationship = metrics.productRelationshipIntelligence;
+  if (!relationship?.hasData) {
+    return {
+      contextScore: 0,
+      relationshipRiskImpactCount: 0,
+      primaryRiskRelatedProductTitle: "",
+    };
+  }
+
+  const riskyRelationships = relationship.relationshipsWithReturnRiskImpact
+    .filter(isRelationshipActionable)
+    .filter((item) => Number(item.deltaReturnRate || 0) >= 0.05 || Number(item.deltaRefundRate || 0) >= 0.04);
+  const primary = riskyRelationships[0] || null;
+  const contextScore = primary
+    ? clamp(
+      Math.max(Number(primary.deltaReturnRate || 0), Number(primary.deltaRefundRate || 0)) * 28
+        + Math.min(4, Number(primary.lift || 0)),
+      0,
+      8,
+    )
+    : 0;
+
+  return {
+    contextScore,
+    relationshipRiskImpactCount: riskyRelationships.length,
+    primaryRiskRelatedProductTitle: primary?.relatedProductTitle || "",
+  };
+}
+
 function calculateReviewRisk(metrics, options = {}) {
   const ratingDeficitSeverity = metrics.avgRating > 0
     ? clamp((4.15 - metrics.avgRating) * 9, 0, 22)
@@ -619,6 +698,7 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
   const productMatchScore = clamp(metrics.productMatchConfidence * 14, 0, 14);
   const relationshipConfidence = calculateRelationshipConfidenceFactors(metrics);
   const purchaseConfidence = calculatePurchaseContextConfidenceFactors(metrics);
+  const productRelationshipConfidence = calculateProductRelationshipConfidenceFactors(metrics);
   const agreementScore = clamp(
     (metrics.sourceAgreement ? 8 : 0)
     + Math.max(0, [riskComponents.returnsScore, riskComponents.reviewsScore, riskComponents.refundScore, riskComponents.sentimentScore, riskComponents.contentGapScore, riskComponents.relationshipScore].filter((score) => score >= 3).length - 1) * 2.2,
@@ -647,6 +727,9 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     purchaseContextBasketIncompletePenalty: purchaseConfidence.basketIncompletePenalty,
     purchaseContextMultiProductAttributionPenalty: purchaseConfidence.multiProductAttributionPenalty,
     purchaseContextAmbiguousCoPurchasePenalty: purchaseConfidence.ambiguousCoPurchasePenalty,
+    productRelationshipAmbiguityPenalty: productRelationshipConfidence.complexBasketAmbiguityPenalty,
+    productRelationshipLowEvidencePenalty: productRelationshipConfidence.lowRelationshipEvidencePenalty,
+    productRelationshipCustomerDominancePenalty: productRelationshipConfidence.customerDominancePenalty,
   };
   const penaltyTotal = Object.values(penalties).reduce((sum, value) => sum + value, 0);
   const confidenceRaw = coverageScore
@@ -660,6 +743,8 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     + purchaseConfidence.purchaseContextScore
     + purchaseConfidence.soloAttributionScore
     + purchaseConfidence.multiVariantAlignmentScore
+    + productRelationshipConfidence.relationshipContextScore
+    + productRelationshipConfidence.sequenceStabilityScore
     - penaltyTotal;
   const strongReviewFallback = metrics.soldUnits < 5 && metrics.reviewCount >= 10 && agreementScore >= 10;
   const sampleSizeCap = metrics.soldUnits < 5 && metrics.reviewCount < 5
@@ -694,7 +779,9 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     + relationshipConfidence.relationshipReasonScore
     + purchaseConfidence.purchaseContextScore
     + purchaseConfidence.soloAttributionScore
-    + purchaseConfidence.multiVariantAlignmentScore,
+    + purchaseConfidence.multiVariantAlignmentScore
+    + productRelationshipConfidence.relationshipContextScore
+    + productRelationshipConfidence.sequenceStabilityScore,
     0,
     100,
   ));
@@ -710,6 +797,9 @@ function calculateDiagnosisConfidence(metrics, riskComponents) {
     purchaseContextConfidenceScore: roundScore(purchaseConfidence.rawPurchaseContextConfidence * 100),
     soloPurchaseAttributionScore: roundScore(purchaseConfidence.soloAttributionScore),
     multiVariantPurchaseAlignmentScore: roundScore(purchaseConfidence.multiVariantAlignmentScore),
+    productRelationshipContextScore: roundScore(productRelationshipConfidence.relationshipContextScore),
+    productRelationshipSequenceStabilityScore: roundScore(productRelationshipConfidence.sequenceStabilityScore),
+    productRelationshipConfidenceScore: roundScore(productRelationshipConfidence.rawProductRelationshipConfidence),
     agreementScore: roundScore(agreementScore),
     freshnessScore: roundScore(freshnessScore),
     signalVolumeScore: roundScore(signalVolumeScore),
@@ -827,6 +917,62 @@ function calculatePurchaseContextConfidenceFactors(metrics) {
     multiProductAttributionPenalty,
     ambiguousCoPurchasePenalty,
     rawPurchaseContextConfidence: context.purchaseContextConfidence,
+  };
+}
+
+function calculateProductRelationshipConfidenceFactors(metrics) {
+  const relationship = metrics.productRelationshipIntelligence;
+  if (!relationship?.hasData) {
+    return {
+      relationshipContextScore: 0,
+      sequenceStabilityScore: 0,
+      complexBasketAmbiguityPenalty: 0,
+      lowRelationshipEvidencePenalty: 0,
+      customerDominancePenalty: 0,
+      rawProductRelationshipConfidence: 0,
+    };
+  }
+
+  const confidence = relationship.confidenceScore;
+  const confidenceSupport = clamp(confidence / 100, 0, 1);
+  const actionableSameOrder = relationship.sameOrderRelationships.filter(isRelationshipActionable);
+  const actionableSequences = [
+    ...relationship.previousPurchaseRelationships,
+    ...relationship.nextPurchaseRelationships,
+  ].filter(isRelationshipActionable);
+  const riskyRelationships = relationship.relationshipsWithReturnRiskImpact
+    .filter(isRelationshipActionable)
+    .filter((item) => Number(item.deltaReturnRate || 0) >= 0.05 || Number(item.deltaRefundRate || 0) >= 0.04);
+  const stableSequenceCount = actionableSequences.filter((item) => ["stable", "increasing", "emerging"].includes(item.trend)).length;
+  const relationshipContextScore = clamp(
+    (actionableSameOrder.length ? 2.5 : 0)
+      + (riskyRelationships.length ? 2.5 : 0)
+      + confidenceSupport * 2,
+    0,
+    6,
+  );
+  const sequenceStabilityScore = clamp(stableSequenceCount * 1.4 * confidenceSupport, 0, 4);
+  const weakOrderLevelRefundContext = metrics.returnRefundRelationship?.unattributedRefundAmount > 0
+    || metrics.returnRefundRelationship?.relationshipUnknownCount > 0
+    || (metrics.returnRefundRelationship?.totalRefundAmountRelated > 0 && metrics.returnRefundRelationship.refundAttributionRate < 0.65);
+  const complexBasketContext = metrics.productPurchaseContext?.multiProductBasketRate >= 0.6
+    || relationship.topBoughtTogether.length >= 2;
+  const complexBasketAmbiguityPenalty = riskyRelationships.length && weakOrderLevelRefundContext && complexBasketContext
+    ? clamp(2 + (1 - confidenceSupport) * 4 + Math.min(2, riskyRelationships.length), 0, 7)
+    : 0;
+  const hasRelationshipSignals = relationship.strongestRelationships.length > 0;
+  const lowRelationshipEvidencePenalty = hasRelationshipSignals && confidence > 0 && confidence < 45
+    ? clamp((45 - confidence) / 9, 1, 5)
+    : 0;
+  const customerDominancePenalty = relationship.warnings.includes("single_customer_dominates") ? 4 : 0;
+
+  return {
+    relationshipContextScore,
+    sequenceStabilityScore,
+    complexBasketAmbiguityPenalty,
+    lowRelationshipEvidencePenalty,
+    customerDominancePenalty,
+    rawProductRelationshipConfidence: confidence,
   };
 }
 
@@ -1173,6 +1319,119 @@ function calculatePurchaseContextFactors(metrics, riskComponents, impactFactors,
   };
 }
 
+function calculateProductRelationshipFactors(metrics, riskComponents, impactFactors, confidenceFactors) {
+  const relationship = metrics.productRelationshipIntelligence;
+  if (!relationship?.hasData) {
+    return {
+      version: PRODUCT_PULSE_SCORING_VERSION,
+      hasProductRelationshipSummary: false,
+      context: null,
+      productRiskContext: null,
+      diagnosisConfidence: null,
+      recommendedActionSignals: null,
+      aiInsightInput: null,
+    };
+  }
+
+  const riskRelationships = relationship.relationshipsWithReturnRiskImpact
+    .filter(isRelationshipActionable)
+    .filter((item) => Number(item.deltaReturnRate || 0) >= 0.05 || Number(item.deltaRefundRate || 0) >= 0.04);
+  const bundleOpportunities = relationship.topBoughtTogether
+    .filter(isRelationshipActionable)
+    .filter((item) => Number(item.lift || 0) >= 1.35 && Number(item.deltaReturnRate || 0) <= 0.04 && Number(item.deltaRefundRate || 0) <= 0.03);
+  const crossSellOpportunities = relationship.topBoughtAfter
+    .filter(isRelationshipActionable)
+    .filter((item) => Number(item.lift || 0) >= 1.15);
+  const journeyInsights = relationship.topBoughtBefore
+    .filter(isRelationshipActionable)
+    .filter((item) => Number(item.lift || 0) >= 1.15);
+  const primaryRisk = riskRelationships[0] || null;
+  const primaryBundle = bundleOpportunities[0] || null;
+  const primaryCrossSell = crossSellOpportunities[0] || null;
+  const primaryJourney = journeyInsights[0] || null;
+
+  return {
+    version: PRODUCT_PULSE_SCORING_VERSION,
+    hasProductRelationshipSummary: true,
+    context: {
+      confidenceScore: relationship.confidenceScore,
+      confidenceLabel: relationship.confidenceLabel,
+      orderCount: relationship.orderCount,
+      customerCount: relationship.customerCount,
+      knownBasketOrderCount: relationship.knownBasketOrderCount,
+      customerSequenceAvailable: relationship.customerSequenceAvailable,
+      topBoughtTogether: compactRelationshipItems(relationship.topBoughtTogether),
+      topBoughtBefore: compactRelationshipItems(relationship.topBoughtBefore),
+      topBoughtAfter: compactRelationshipItems(relationship.topBoughtAfter),
+      strongestRelationships: compactRelationshipItems(relationship.strongestRelationships),
+      emergingRelationships: compactRelationshipItems(relationship.emergingRelationships),
+      warnings: relationship.warnings,
+    },
+    productRiskContext: {
+      contextOnly: true,
+      riskScoreAdjustment: 0,
+      relationshipRiskImpactCount: riskRelationships.length,
+      primaryRiskRelatedProductId: primaryRisk?.relatedProductId || null,
+      primaryRiskRelatedProductTitle: primaryRisk?.relatedProductTitle || "",
+      maxDeltaReturnRate: roundScore(Math.max(0, ...riskRelationships.map((item) => Number(item.deltaReturnRate || 0))) * 100),
+      maxDeltaRefundRate: roundScore(Math.max(0, ...riskRelationships.map((item) => Number(item.deltaRefundRate || 0))) * 100),
+    },
+    diagnosisConfidence: {
+      relationshipContextScore: confidenceFactors.productRelationshipContextScore,
+      sequenceStabilityScore: confidenceFactors.productRelationshipSequenceStabilityScore,
+      complexBasketAmbiguityPenalty: confidenceFactors.productRelationshipAmbiguityPenalty,
+      lowRelationshipEvidencePenalty: confidenceFactors.productRelationshipLowEvidencePenalty,
+      customerDominancePenalty: confidenceFactors.productRelationshipCustomerDominancePenalty,
+      confidenceScore: confidenceFactors.productRelationshipConfidenceScore,
+    },
+    recommendedActionSignals: {
+      bundleOpportunity: Boolean(primaryBundle),
+      bundleOpportunityRelationship: primaryBundle ? compactRelationshipItem(primaryBundle) : null,
+      crossSellOpportunity: Boolean(primaryCrossSell),
+      crossSellOpportunityRelationship: primaryCrossSell ? compactRelationshipItem(primaryCrossSell) : null,
+      compatibilityWarning: Boolean(primaryRisk),
+      compatibilityWarningRelationship: primaryRisk ? compactRelationshipItem(primaryRisk) : null,
+      journeyInsight: Boolean(primaryJourney),
+      journeyInsightRelationship: primaryJourney ? compactRelationshipItem(primaryJourney) : null,
+    },
+    aiInsightInput: {
+      topRelationships: compactRelationshipItems(relationship.strongestRelationships, 6),
+      riskRelationships: compactRelationshipItems(riskRelationships, 4),
+      crossSellOpportunities: compactRelationshipItems([...bundleOpportunities, ...crossSellOpportunities], 5),
+      warnings: relationship.warnings,
+      confidence: {
+        score: relationship.confidenceScore,
+        label: relationship.confidenceLabel,
+      },
+    },
+  };
+}
+
+function compactRelationshipItems(items = [], limit = 5) {
+  return (Array.isArray(items) ? items : []).slice(0, limit).map(compactRelationshipItem);
+}
+
+function compactRelationshipItem(item = {}) {
+  return {
+    relatedProductId: item.relatedProductId || "",
+    relatedProductTitle: item.relatedProductTitle || "Unknown product",
+    relationshipType: item.relationshipType || "",
+    direction: item.relationshipDirection || "",
+    timeWindow: item.timeWindow || "",
+    relationshipRate: roundScore(Number(item.relationshipRate || 0) * 100),
+    attachRate: roundScore(Number(item.attachRate || 0) * 100),
+    lift: item.lift === null || item.lift === undefined ? null : roundScore(item.lift),
+    relationshipStrength: item.relationshipStrength || "",
+    relationshipStrengthScore: roundScore(item.relationshipStrengthScore),
+    confidence: roundScore(item.confidence),
+    confidenceLabel: item.confidenceLabel || "",
+    sampleSize: number(item.sampleSize),
+    trend: item.trend || "insufficient_data",
+    deltaReturnRate: roundScore(Number(item.deltaReturnRate || 0) * 100),
+    deltaRefundRate: roundScore(Number(item.deltaRefundRate || 0) * 100),
+  };
+}
+
 function buildPurchaseContextReturnPressureSegments(segments = {}) {
   return {
     returnRateWhenBoughtAlone: percentSegmentRate(segments.boughtAlone?.returnRateUnits),
@@ -1403,6 +1662,102 @@ function normalizeProductPurchaseContextSummary(summary) {
   };
 }
 
+function normalizeProductRelationshipIntelligenceSummary(summary) {
+  if (!summary || typeof summary !== "object") return null;
+  const dataBasis = summary.data_basis || {};
+  const confidence = summary.confidence || {};
+  const sameOrderRelationships = normalizeProductRelationshipItems(summary.same_order_relationships);
+  const previousPurchaseRelationships = normalizeProductRelationshipItems(summary.previous_purchase_relationships);
+  const nextPurchaseRelationships = normalizeProductRelationshipItems(summary.next_purchase_relationships);
+  const strongestRelationships = normalizeProductRelationshipItems(summary.strongest_relationships);
+  const emergingRelationships = normalizeProductRelationshipItems(summary.emerging_relationships);
+  const relationshipsWithReturnRiskImpact = normalizeProductRelationshipItems(summary.relationships_with_return_risk_impact);
+  const relationshipsWithCrossSellOpportunity = normalizeProductRelationshipItems(summary.relationships_with_cross_sell_opportunity);
+  const topBoughtTogether = normalizeProductRelationshipItems(summary.top_bought_together || summary.same_order_relationships);
+  const topBoughtBefore = normalizeProductRelationshipItems(summary.top_bought_before || summary.previous_purchase_relationships);
+  const topBoughtAfter = normalizeProductRelationshipItems(summary.top_bought_after || summary.next_purchase_relationships);
+  const orderCount = number(dataBasis.order_count);
+  const customerCount = number(dataBasis.customer_count);
+  const confidenceScore = normalizePercentScore(confidence.score);
+  const hasData = Boolean(
+    orderCount
+    || customerCount
+    || sameOrderRelationships.length
+    || previousPurchaseRelationships.length
+    || nextPurchaseRelationships.length
+    || strongestRelationships.length
+  );
+
+  return {
+    hasData,
+    sourceProductId: summary.source_product_id || null,
+    modelVersion: summary.relationship_model_version || "",
+    schemaVersion: number(summary.schema_version),
+    calculatedAt: summary.calculated_at || null,
+    windowDays: number(summary.window_days),
+    orderCount,
+    customerCount,
+    knownBasketOrderCount: number(dataBasis.known_basket_order_count),
+    unknownBasketOrderCount: number(dataBasis.unknown_basket_order_count),
+    knownCustomerOrderCount: number(dataBasis.known_customer_order_count),
+    unknownCustomerOrderCount: number(dataBasis.unknown_customer_order_count),
+    sameOrderAvailable: Boolean(dataBasis.same_order_available),
+    customerSequenceAvailable: Boolean(dataBasis.customer_sequence_available),
+    confidenceScore,
+    confidenceLabel: confidence.label || confidenceLabel(confidenceScore),
+    confidenceReasons: Array.isArray(confidence.reasons) ? confidence.reasons.filter(Boolean).map(String) : [],
+    sameOrderRelationships,
+    previousPurchaseRelationships,
+    nextPurchaseRelationships,
+    topBoughtTogether,
+    topBoughtBefore,
+    topBoughtAfter,
+    strongestRelationships,
+    emergingRelationships,
+    relationshipsWithReturnRiskImpact,
+    relationshipsWithCrossSellOpportunity,
+    warnings: Array.isArray(summary.warnings) ? summary.warnings.filter(Boolean).map(String) : [],
+  };
+}
+
+function normalizeProductRelationshipItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      sourceProductId: item.source_product_id || "",
+      relatedProductId: item.related_product_id || "",
+      relatedProductTitle: item.related_product_title || "Unknown product",
+      relatedProductHandle: item.related_product_handle || "",
+      relationshipType: item.relationship_type || "",
+      relationshipDirection: item.relationship_direction || "",
+      timeWindow: item.time_window || "",
+      coOrderCount: number(item.co_order_count),
+      coCustomerCount: number(item.co_customer_count || item.customer_count),
+      coUnitCount: number(item.co_unit_count || item.unit_count),
+      coRevenue: number(item.co_revenue || item.revenue || item.follow_on_revenue),
+      attachRate: normalizeRelationshipRate(item.attach_rate, item.co_order_count, 0),
+      relationshipRate: normalizeRelationshipRate(item.relationship_rate, item.customer_count || item.co_order_count, 0),
+      relatedProductBaseRate: normalizeRelationshipRate(item.related_product_base_rate, 0, 0),
+      lift: item.lift === null || item.lift === undefined ? null : number(item.lift),
+      relationshipStrength: item.relationship_strength || "",
+      relationshipStrengthScore: number(item.relationship_strength_score),
+      confidence: normalizePercentScore(item.confidence),
+      confidenceLabel: item.confidence_label || confidenceLabel(normalizePercentScore(item.confidence)),
+      sampleSize: number(item.sample_size),
+      trend: item.trend || "insufficient_data",
+      firstSeenAt: item.first_seen_at || null,
+      lastSeenAt: item.last_seen_at || null,
+      returnRateWhenBoughtTogether: normalizeRelationshipRate(item.return_rate_when_bought_together, 0, 0),
+      refundRateWhenBoughtTogether: normalizeRelationshipRate(item.refund_rate_when_bought_together, 0, 0),
+      returnRateWhenNotBoughtTogether: normalizeRelationshipRate(item.return_rate_when_not_bought_together, 0, 0),
+      refundRateWhenNotBoughtTogether: normalizeRelationshipRate(item.refund_rate_when_not_bought_together, 0, 0),
+      deltaReturnRate: number(item.delta_return_rate),
+      deltaRefundRate: number(item.delta_refund_rate),
+      refundAmountWhenBoughtTogether: number(item.refund_amount_when_bought_together),
+      warnings: Array.isArray(item.warnings) ? item.warnings.filter(Boolean).map(String) : [],
+    }))
+    .filter((item) => item.relatedProductId);
+}
+
 function normalizePurchaseContextSegments(segments = {}) {
   return {
     boughtAlone: normalizePurchaseContextSegment(segments.bought_alone),
@@ -1521,6 +1876,31 @@ function normalizeConfidence(value) {
   if (numeric > 1) return clamp(numeric / 100, 0, 1);
   if (numeric > 0) return clamp(numeric, 0, 1);
   return 0;
+}
+
+function normalizePercentScore(value) {
+  const numeric = number(value);
+  if (numeric > 1) return clamp(numeric, 0, 100);
+  if (numeric > 0) return clamp(numeric * 100, 0, 100);
+  return 0;
+}
+
+function confidenceLabel(score) {
+  const numeric = number(score);
+  if (numeric >= 80) return "High";
+  if (numeric >= 55) return "Medium";
+  if (numeric > 0) return "Low";
+  return "Unavailable";
+}
+
+function isRelationshipActionable(item = {}) {
+  const sample = number(item.sampleSize);
+  const confidence = normalizePercentScore(item.confidence);
+  const lift = item.lift === null || item.lift === undefined ? 0 : number(item.lift);
+  const strength = String(item.relationshipStrength || item.relationship_strength || "").toLowerCase();
+  return sample >= 3
+    && confidence >= 55
+    && (lift >= 1.15 || ["moderate", "strong", "very_strong"].includes(strength));
 }
 
 function countIndependentSources({ soldUnits, returnUnits, refundUnits, reviewCount, contentIssueCount, sentimentTotal, sourceCoverage }) {

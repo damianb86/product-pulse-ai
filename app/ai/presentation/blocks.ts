@@ -121,6 +121,27 @@ const purchaseContextRiskImpactBlockSchema = z.object({
   refundLeakageImpact: z.string().max(320).nullable().optional(),
 }).strict();
 
+const productRelationshipSummaryBlockSchema = z.object({
+  type: z.literal("product_relationship_summary"),
+  productGid: z.string().max(320).optional(),
+  title: z.string().max(160).optional(),
+  confidence: z.string().max(80).nullable().optional(),
+  interpretation: z.string().max(420).nullable().optional(),
+  riskImpact: z.string().max(420).nullable().optional(),
+  opportunityImpact: z.string().max(420).nullable().optional(),
+  items: z.array(z.object({
+    title: z.string().max(220),
+    direction: z.string().max(40),
+    relationshipStrength: z.string().max(80).nullable().optional(),
+    timeWindow: z.string().max(80).nullable().optional(),
+    lift: z.number().min(0).max(100000).nullable().optional(),
+    confidence: z.string().max(80).nullable().optional(),
+    sampleSize: z.number().min(0).max(100000).nullable().optional(),
+    deltaReturnRate: z.number().min(-100).max(100).nullable().optional(),
+    deltaRefundRate: z.number().min(-100).max(100).nullable().optional(),
+  }).strict()).max(6),
+}).strict();
+
 const entityListBlockSchema = z.object({
   type: z.literal("entity_list"),
   title: z.string().max(160).optional(),
@@ -333,6 +354,7 @@ export const aiPresentationBlockSchema = z.discriminatedUnion("type", [
   quantityDistributionBlockSchema,
   coPurchaseSummaryBlockSchema,
   purchaseContextRiskImpactBlockSchema,
+  productRelationshipSummaryBlockSchema,
   entityListBlockSchema,
   recommendationListBlockSchema,
   unavailableStateBlockSchema,

@@ -488,6 +488,34 @@ describe("ProductPulse ChatKit integration", () => {
         items: [{ title: "Care Kit", coOrderCount: 6, coOrderRate: 33.3, affinityScore: 2.1 }],
       },
       {
+        type: "product_relationship_summary",
+        productGid: "gid://shopify/Product/1",
+        confidence: "Medium",
+        interpretation: "Care Kit is a same-order relationship candidate for merchandising review.",
+        riskImpact: "Returns are higher when bought with Compatibility Kit, so review the pairing as context only.",
+        opportunityImpact: "Care Kit may support a bundle review.",
+        items: [
+          {
+            title: "Care Kit",
+            direction: "together",
+            relationshipStrength: "strong",
+            timeWindow: "same order",
+            lift: 2.4,
+            confidence: "Medium",
+            sampleSize: 8,
+          },
+          {
+            title: "Compatibility Kit",
+            direction: "together",
+            relationshipStrength: "moderate",
+            lift: 1.8,
+            confidence: "Medium",
+            sampleSize: 4,
+            deltaReturnRate: 12.5,
+          },
+        ],
+      },
+      {
         type: "purchase_context_risk_impact",
         productGid: "gid://shopify/Product/1",
         riskImpact: "Solo-purchase behavior strengthens product-specific attribution.",
@@ -562,7 +590,7 @@ describe("ProductPulse ChatKit integration", () => {
       },
     ]);
 
-    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
+    expect(widgets.map((widget) => widget.type)).toEqual(["Card", "Card", "Card", "ListView", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card", "Card"]);
     expect(widgets.filter((widget) => widget.type === "Card").every((widget) => widget.size === "full")).toBe(true);
     expect(JSON.stringify(widgets)).toContain("#4C1D95");
     expect(JSON.stringify(widgets)).toContain("open_product");
@@ -573,7 +601,9 @@ describe("ProductPulse ChatKit integration", () => {
     expect(JSON.stringify(widgets)).toContain("Return + refund");
     expect(JSON.stringify(widgets)).toContain("Purchase context");
     expect(JSON.stringify(widgets)).toContain("Co-purchased products");
+    expect(JSON.stringify(widgets)).toContain("Product relationships");
     expect(JSON.stringify(widgets)).toContain("Care Kit");
+    expect(JSON.stringify(widgets)).toContain("Compatibility Kit");
     expect(JSON.stringify(widgets)).toContain("Solo-purchase behavior");
     expect(JSON.stringify(widgets)).toContain("confirm_ai_action");
     expect(JSON.stringify(widgets)).toContain("cancel_ai_action");

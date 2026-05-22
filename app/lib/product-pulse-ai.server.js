@@ -34,6 +34,12 @@ const AI_TASKS = {
     maxOutputTokens: 1800,
     temperature: 0.2,
   },
+  relationship_insights: {
+    modelEnv: ["AI_RELATIONSHIP_INSIGHTS_MODEL", "AI_CHAT_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
+    fallbackModel: "gpt-5.4-mini",
+    maxOutputTokens: 1100,
+    temperature: 0.15,
+  },
   final_report: {
     modelEnv: ["OPENAI_PREMIUM_MODEL", "OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL"],
     fallbackModel: "gpt-5.4",
@@ -191,6 +197,38 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
   const actionRationales = parseAiJson(actionRationaleResponse.text, {
     action_rationales: [],
   });
+  const compactRelationshipInput = buildCompactProductRelationshipAiInput(input);
+  let relationshipInsightsResponse = null;
+  let relationshipInsights = normalizeProductRelationshipAiInsights(null, compactRelationshipInput);
+  if (compactRelationshipInput.available) {
+    try {
+      relationshipInsightsResponse = await generateAiText({
+        shop,
+        jobId,
+        task: "relationship_insights",
+        prompt: buildProductRelationshipInsightsPrompt(compactRelationshipInput),
+        usageTracker,
+      });
+      relationshipInsights = normalizeProductRelationshipAiInsights(
+        parseAiJson(relationshipInsightsResponse.text, { insights: [] }),
+        compactRelationshipInput,
+        pickAiModelSummary(relationshipInsightsResponse),
+      );
+    } catch (error) {
+      relationshipInsights = normalizeProductRelationshipAiInsights({
+        status: "ai_unavailable",
+        insights: [],
+      }, compactRelationshipInput);
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.relationship_insights_failed",
+        message: "Product relationship AI insights were skipped after the relationship insight model failed.",
+        data: { error: serializeError(error) },
+      }).catch(() => {});
+    }
+  }
   const aiUsage = await usageTracker.logSummary({
     event: "product_diagnosis.ai_token_usage",
     data: {
@@ -208,18 +246,21 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
       contentGap: pickAiModelSummary(gapResponse),
       actionRationale: pickAiModelSummary(actionRationaleResponse),
+      relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
       finalReport: pickAiModelSummary(reportResponse),
     },
     classification,
     emergentSentiments,
     contentGaps,
     actionRationales,
+    relationshipInsights,
     report,
     raw: {
       classification: classificationResponse.text,
       emergentSentiments: emergentSentimentResponse.text,
       contentGaps: gapResponse.text,
       actionRationales: actionRationaleResponse.text,
+      relationshipInsights: relationshipInsightsResponse?.text || "",
       report: reportResponse.text,
     },
   };
@@ -640,6 +681,190 @@ function buildActionRationalePrompt(input, classification, contentGaps, emergent
     "Final report draft:",
     JSON.stringify(report || {}, null, 2),
   ].join("\n\n");
+}
+
+export function buildCompactProductRelationshipAiInput(input = {}) {
+  const metrics = input?.deterministic?.metrics || {};
+  const factors = metrics.productRelationshipFactors || {};
+  const aiInput = factors.aiInsightInput || {};
+  const summary = metrics.productRelationshipIntelligenceSummary || {};
+  const relationships = uniqueRelationshipsForAi([
+    ...(aiInput.topRelationships || []),
+    ...(aiInput.riskRelationships || []),
+    ...(aiInput.crossSellOpportunities || []),
+    ...(summary.strongest_relationships || []),
+    ...(summary.relationships_with_return_risk_impact || []),
+    ...(summary.relationships_with_cross_sell_opportunity || []),
+  ].map(sanitizeRelationshipForAi).filter(Boolean));
+  const confidence = aiInput.confidence || summary.confidence || {};
+  const product = input?.product || {};
+
+  return {
+    available: relationships.length > 0,
+    product: {
+      title: cleanRelationshipText(product.title || product.productTitle || "Shopify product", 160),
+      handle: cleanRelationshipText(product.handle || "", 120),
+    },
+    confidence: {
+      score: normalizeAiPercent(confidence.score),
+      label: cleanRelationshipText(confidence.label || "", 40),
+    },
+    warnings: arrayOfSafeStrings(aiInput.warnings || summary.warnings).slice(0, 6),
+    deterministicExplanations: arrayOfSafeStrings(metrics.productRelationshipScoringImpact).slice(0, 5),
+    relationships,
+  };
+}
+
+function buildProductRelationshipInsightsPrompt(compactInput) {
+  return [
+    "You are ProductPulse AI writing compact product relationship insights for a Shopify merchant.",
+    "The system already calculated every number. Use only the supplied relationships and source_relationship_id values.",
+    "Do not invent relationships, product names, percentages, counts, time windows, lifts, or confidence. Do not mention customers individually. Do not expose PII.",
+    "Do not claim causality. Use words like association, pattern, relationship, context, or opportunity.",
+    "Do not recommend direct Shopify mutations or say changes were applied. Recommendations must be review-oriented.",
+    "If confidence or sample size is low, include a caveat.",
+    "Return valid JSON only. No markdown.",
+    "Schema:",
+    JSON.stringify({
+      insights: [{
+        source_relationship_id: "relatedProductId:direction:timeWindow",
+        type: "bundle_opportunity|cross_sell_opportunity|compatibility_context|journey_context|confidence_caveat",
+        summary: "One concise merchant-facing sentence.",
+        recommendation: "One concise review-oriented next step, or empty string.",
+        caveat: "Low-confidence caveat when relevant, or empty string.",
+      }],
+    }, null, 2),
+    "Sanitized deterministic relationship input:",
+    JSON.stringify(compactInput, null, 2),
+  ].join("\n\n");
+}
+
+export function normalizeProductRelationshipAiInsights(raw = null, compactInput = {}, modelSummary = null) {
+  const relationships = Array.isArray(compactInput.relationships) ? compactInput.relationships : [];
+  const sourceById = new Map(relationships.map((item) => [item.sourceRelationshipId, item]));
+  const rawInsights = Array.isArray(raw?.insights)
+    ? raw.insights
+    : Array.isArray(raw?.relationship_insights)
+      ? raw.relationship_insights
+      : [];
+  const insights = rawInsights
+    .map((item, index) => {
+      const sourceRelationshipId = cleanRelationshipText(item?.source_relationship_id || item?.sourceRelationshipId || "", 180);
+      const source = sourceById.get(sourceRelationshipId);
+      if (!source) return null;
+      const confidence = normalizeAiPercent(source.confidence);
+      const sampleSize = Number(source.sampleSize || 0);
+      const caveat = sanitizeRelationshipInsightText(item?.caveat || "");
+      const lowConfidenceCaveat = confidence > 0 && (confidence < 55 || sampleSize < 3)
+        ? "Low confidence: this relationship has limited sample size."
+        : "";
+      return {
+        id: `relationship-insight-${index + 1}`,
+        type: cleanRelationshipText(item?.type || "relationship_context", 80),
+        sourceRelationshipId,
+        relatedProductTitle: source.relatedProductTitle,
+        summary: sanitizeRelationshipInsightText(item?.summary || item?.insight || ""),
+        recommendation: sanitizeRelationshipInsightText(item?.recommendation || ""),
+        caveat: caveat || lowConfidenceCaveat,
+        metrics: {
+          relationshipType: source.relationshipType,
+          direction: source.direction,
+          timeWindow: source.timeWindow,
+          lift: source.lift,
+          confidence,
+          sampleSize,
+          relationshipStrength: source.relationshipStrength,
+          trend: source.trend,
+          deltaReturnRate: source.deltaReturnRate,
+          deltaRefundRate: source.deltaRefundRate,
+        },
+      };
+    })
+    .filter((item) => item && item.summary)
+    .slice(0, 5);
+
+  return {
+    available: Boolean(compactInput.available),
+    status: compactInput.available ? (raw?.status || (insights.length ? "available" : "no_ai_insights")) : "not_available",
+    insightVersion: "product_relationship_ai_insight_v1",
+    generatedAt: insights.length ? new Date().toISOString() : null,
+    model: modelSummary?.model || null,
+    insights,
+    deterministicInputs: {
+      relationshipCount: relationships.length,
+      confidenceScore: compactInput.confidence?.score || 0,
+      warnings: compactInput.warnings || [],
+    },
+  };
+}
+
+function sanitizeRelationshipForAi(item = {}) {
+  const relatedProductId = cleanRelationshipText(item.relatedProductId || item.related_product_id || "", 180);
+  const direction = cleanRelationshipText(item.direction || item.relationshipDirection || item.relationship_direction || "", 40);
+  const timeWindow = cleanRelationshipText(item.timeWindow || item.time_window || "", 40);
+  if (!relatedProductId || !direction) return null;
+  return {
+    sourceRelationshipId: `${relatedProductId}:${direction}:${timeWindow || "none"}`,
+    relatedProductId,
+    relatedProductTitle: cleanRelationshipText(item.relatedProductTitle || item.related_product_title || "Unknown product", 160),
+    relationshipType: cleanRelationshipText(item.relationshipType || item.relationship_type || "", 60),
+    direction,
+    timeWindow,
+    relationshipRate: normalizeAiPercent(item.relationshipRate ?? item.relationship_rate),
+    attachRate: normalizeAiPercent(item.attachRate ?? item.attach_rate),
+    lift: item.lift === null || item.lift === undefined ? null : roundAiNumber(item.lift, 2),
+    relationshipStrength: cleanRelationshipText(item.relationshipStrength || item.relationship_strength || "", 40),
+    confidence: normalizeAiPercent(item.confidence),
+    confidenceLabel: cleanRelationshipText(item.confidenceLabel || item.confidence_label || "", 40),
+    sampleSize: Number(item.sampleSize || item.sample_size || 0),
+    trend: cleanRelationshipText(item.trend || "", 40),
+    deltaReturnRate: normalizeAiPercent(item.deltaReturnRate ?? item.delta_return_rate),
+    deltaRefundRate: normalizeAiPercent(item.deltaRefundRate ?? item.delta_refund_rate),
+  };
+}
+
+function uniqueRelationshipsForAi(items = []) {
+  const byId = new Map();
+  items.forEach((item) => {
+    if (!item?.sourceRelationshipId || byId.has(item.sourceRelationshipId)) return;
+    byId.set(item.sourceRelationshipId, item);
+  });
+  return Array.from(byId.values()).slice(0, 12);
+}
+
+function sanitizeRelationshipInsightText(value = "") {
+  return cleanAiParagraph(value)
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
+    .replace(/\b(?:causes?|caused|causing|causally|because it causes)\b/gi, "is associated with")
+    .replace(/\b(?:apply|execute|write|mutate|publish|change)\s+(?:it\s+)?(?:directly\s+)?(?:in|to)\s+Shopify\b/gi, "review in the merchandising workflow")
+    .replace(/\b\d+(?:\.\d+)?\s*(?:%|x|orders?|customers?|units?|days?|weeks?|months?|refunds?|returns?)(?=\b|\s|\.|,|;|:|$)/gi, "")
+    .replace(/\b\d+(?:\.\d+)?\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 420);
+}
+
+function cleanRelationshipText(value = "", limit = 180) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function arrayOfSafeStrings(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => cleanRelationshipText(item, 220))
+    .filter(Boolean);
+}
+
+function normalizeAiPercent(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return roundAiNumber(numeric <= 1 ? numeric * 100 : numeric, 1);
+}
+
+function roundAiNumber(value, digits = 1) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  const factor = 10 ** digits;
+  return Math.round(numeric * factor) / factor;
 }
 
 function buildProductDiagnosisPrompt(product) {

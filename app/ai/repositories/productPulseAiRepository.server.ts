@@ -10,6 +10,10 @@ import type {
   AiProductMetricSummary,
   AiProductPurchaseContextRiskImpact,
   AiProductPurchaseContextSummary,
+  AiProductRelationshipInsights,
+  AiProductRelationshipItem,
+  AiProductRelationshipRiskImpact,
+  AiProductRelationshipSummary,
   AiProductRiskDetail,
   AiProductRiskSummary,
   AiFinancialExposureBreakdown,
@@ -312,6 +316,64 @@ export class ProductPulseAiRepository {
     };
   }
 
+  async getProductRelationshipSummary(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductRelationshipSummary | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    return buildAiProductRelationshipSummary(snapshot);
+  }
+
+  async getProductBoughtTogetherRelationships(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductRelationshipSummary | null> {
+    return this.getProductRelationshipSummary(context, productRef);
+  }
+
+  async getProductPreviousPurchaseRelationships(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductRelationshipSummary | null> {
+    return this.getProductRelationshipSummary(context, productRef);
+  }
+
+  async getProductNextPurchaseRelationships(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<AiProductRelationshipSummary | null> {
+    return this.getProductRelationshipSummary(context, productRef);
+  }
+
+  async getProductRelationshipRiskImpact(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<{ product: AiProductRiskSummary; relationshipRiskImpact: AiProductRelationshipRiskImpact } | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    const settings = await this.getRiskSettings(context);
+    const product = mapProductSummary({ snapshot, settings });
+    return {
+      product,
+      relationshipRiskImpact: buildAiProductRelationshipRiskImpact(asRecord(snapshot.metrics)),
+    };
+  }
+
+  async getProductRelationshipInsights(
+    context: AiToolContext,
+    productRef: string,
+  ): Promise<{ product: AiProductRiskSummary; relationshipInsights: AiProductRelationshipInsights } | null> {
+    const snapshot = await this.findSnapshotByProductRef(context, productRef);
+    if (!snapshot) return null;
+    const settings = await this.getRiskSettings(context);
+    const product = mapProductSummary({ snapshot, settings });
+    return {
+      product,
+      relationshipInsights: buildAiProductRelationshipInsights(asRecord(snapshot.metrics)),
+    };
+  }
+
   protected async findSnapshotByProductRef(context: AiToolContext, productRef: string): Promise<DbRecord | null> {
     const normalized = normalizeProductRef(productRef);
     if (!normalized) return null;
@@ -608,6 +670,8 @@ function mapMetricSummary(metrics: Record<string, unknown>): AiProductMetricSumm
     returnRefundRelationship: relationship,
     financialExposureBreakdown: buildAiFinancialExposureBreakdown(metrics, relationship),
     purchaseContext: buildAiProductPurchaseContextSummaryFromMetrics(metrics),
+    productRelationshipIntelligence: buildAiProductRelationshipSummaryFromMetrics(metrics),
+    productRelationshipInsights: buildAiProductRelationshipInsights(metrics),
   };
 }
 
@@ -939,6 +1003,188 @@ function getAiPurchaseContextRefundLeakageImpactText(refundLeakage: Record<strin
   return "No purchase-context refund-leakage segment stands out.";
 }
 
+function buildAiProductRelationshipSummary(snapshot: DbRecord): AiProductRelationshipSummary {
+  return buildAiProductRelationshipSummaryFromMetrics(asRecord(snapshot.metrics), {
+    productGid: String(snapshot.productGid || ""),
+    title: String(snapshot.productTitle || "Shopify product"),
+    handle: optionalText(snapshot.handle),
+  });
+}
+
+function buildAiProductRelationshipSummaryFromMetrics(
+  metrics: Record<string, unknown>,
+  product: { productGid?: string | null; title?: string | null; handle?: string | null } = {},
+): AiProductRelationshipSummary {
+  const summary = asRecord(metrics.productRelationshipIntelligenceSummary);
+  const factors = asRecord(metrics.productRelationshipFactors);
+  const context = asRecord(factors.context);
+  const confidenceRecord = asRecord(summary.confidence);
+  const dataBasis = asRecord(summary.data_basis);
+  const available = Boolean(Object.keys(summary).length || factors.hasProductRelationshipSummary || context.strongestRelationships);
+  const confidenceScore = normalizeAiConfidence(firstNumber(confidenceRecord.score, context.confidenceScore));
+  const relationshipSummary: AiProductRelationshipSummary = {
+    available,
+    status: available ? "Product relationship metrics available" : "Product relationship metrics not calculated yet",
+    productGid: product.productGid || optionalText(summary.source_product_id),
+    title: product.title || null,
+    handle: product.handle || null,
+    confidenceScore,
+    confidenceLabel: optionalText(confidenceRecord.label || context.confidenceLabel) || getAiProductRelationshipConfidenceLabel(confidenceScore, available),
+    orderCount: firstNumber(dataBasis.order_count, context.orderCount),
+    customerCount: firstNumber(dataBasis.customer_count, context.customerCount),
+    topBoughtTogether: buildAiProductRelationshipItems(summary.top_bought_together || summary.same_order_relationships || context.topBoughtTogether),
+    topBoughtBefore: buildAiProductRelationshipItems(summary.top_bought_before || summary.previous_purchase_relationships || context.topBoughtBefore),
+    topBoughtAfter: buildAiProductRelationshipItems(summary.top_bought_after || summary.next_purchase_relationships || context.topBoughtAfter),
+    strongestRelationships: buildAiProductRelationshipItems(summary.strongest_relationships || context.strongestRelationships),
+    emergingRelationships: buildAiProductRelationshipItems(summary.emerging_relationships || context.emergingRelationships),
+    relationshipsWithReturnRiskImpact: buildAiProductRelationshipItems(summary.relationships_with_return_risk_impact || asRecord(factors.aiInsightInput).riskRelationships),
+    relationshipsWithCrossSellOpportunity: buildAiProductRelationshipItems(summary.relationships_with_cross_sell_opportunity || asRecord(factors.aiInsightInput).crossSellOpportunities),
+    warnings: arrayOfStrings(summary.warnings || context.warnings).slice(0, 8),
+    interpretation: "",
+  };
+  relationshipSummary.interpretation = getAiProductRelationshipInterpretation(relationshipSummary);
+  return relationshipSummary;
+}
+
+function buildAiProductRelationshipItems(value: unknown): AiProductRelationshipItem[] {
+  return arrayOfRecords(value)
+    .slice(0, 8)
+    .map((item) => ({
+      relatedProductId: optionalText(item.relatedProductId || item.related_product_id),
+      title: truncate(optionalText(item.relatedProductTitle || item.related_product_title || item.title) || "Unknown product", 180),
+      handle: optionalText(item.relatedProductHandle || item.related_product_handle || item.handle),
+      relationshipType: optionalText(item.relationshipType || item.relationship_type) || "",
+      direction: optionalText(item.direction || item.relationshipDirection || item.relationship_direction) || "",
+      timeWindow: optionalText(item.timeWindow || item.time_window) || "",
+      relationshipRate: ratePercent(item.relationshipRate ?? item.relationship_rate),
+      attachRate: ratePercent(item.attachRate ?? item.attach_rate),
+      lift: toNullableNumber(item.lift),
+      confidence: normalizeAiConfidence(item.confidence),
+      confidenceLabel: optionalText(item.confidenceLabel || item.confidence_label) || getAiProductRelationshipConfidenceLabel(normalizeAiConfidence(item.confidence), true),
+      sampleSize: firstNumber(item.sampleSize, item.sample_size),
+      relationshipStrength: optionalText(item.relationshipStrength || item.relationship_strength) || "",
+      trend: optionalText(item.trend) || "insufficient_data",
+      deltaReturnRate: ratePercent(item.deltaReturnRate ?? item.delta_return_rate),
+      deltaRefundRate: ratePercent(item.deltaRefundRate ?? item.delta_refund_rate),
+    }))
+    .filter((item) => item.relatedProductId || item.title !== "Unknown product");
+}
+
+function buildAiProductRelationshipRiskImpact(metrics: Record<string, unknown>): AiProductRelationshipRiskImpact {
+  const summary = buildAiProductRelationshipSummaryFromMetrics(metrics);
+  const factors = asRecord(metrics.productRelationshipFactors);
+  const productRisk = asRecord(factors.productRiskContext);
+  const confidence = asRecord(factors.diagnosisConfidence);
+  const actionSignals = asRecord(factors.recommendedActionSignals);
+  const explanations = arrayOfStrings(metrics.productRelationshipScoringImpact).slice(0, 6);
+  return {
+    available: summary.available,
+    riskImpact: getAiProductRelationshipRiskImpactText(summary, productRisk),
+    confidenceImpact: getAiProductRelationshipConfidenceImpactText(summary, confidence),
+    opportunityImpact: getAiProductRelationshipOpportunityImpactText(actionSignals),
+    explanations,
+  };
+}
+
+function buildAiProductRelationshipInsights(metrics: Record<string, unknown>): AiProductRelationshipInsights {
+  const report = asRecord(metrics.diagnosisReport);
+  const stored = asRecord(metrics.productRelationshipAiInsights || report.relationshipInsights);
+  const deterministicInputs = asRecord(stored.deterministicInputs);
+  const insights = arrayOfRecords(stored.insights)
+    .slice(0, 5)
+    .map((item, index) => ({
+      id: optionalText(item.id) || `relationship-insight-${index + 1}`,
+      type: optionalText(item.type) || "relationship_context",
+      sourceRelationshipId: optionalText(item.sourceRelationshipId) || "",
+      relatedProductTitle: truncate(optionalText(item.relatedProductTitle) || "Unknown product", 180),
+      summary: truncate(optionalText(item.summary) || "", 420),
+      recommendation: truncate(optionalText(item.recommendation) || "", 320),
+      caveat: truncate(optionalText(item.caveat) || "", 260),
+      metrics: sanitizeInsightMetrics(asRecord(item.metrics)),
+    }))
+    .filter((item) => item.summary);
+  return {
+    available: Boolean(stored.available && insights.length),
+    status: optionalText(stored.status) || (insights.length ? "available" : "not_available"),
+    insightVersion: optionalText(stored.insightVersion),
+    generatedAt: optionalText(stored.generatedAt),
+    model: optionalText(stored.model),
+    insights,
+    deterministicInputs: {
+      relationshipCount: firstNumber(deterministicInputs.relationshipCount),
+      confidenceScore: firstNumber(deterministicInputs.confidenceScore),
+      warnings: arrayOfStrings(deterministicInputs.warnings).slice(0, 8),
+    },
+  };
+}
+
+function sanitizeInsightMetrics(metrics: Record<string, unknown>): Record<string, string | number | boolean | null> {
+  const safe: Record<string, string | number | boolean | null> = {};
+  [
+    "relationshipType",
+    "direction",
+    "timeWindow",
+    "relationshipStrength",
+    "trend",
+  ].forEach((key) => {
+    const value = optionalText(metrics[key]);
+    if (value) safe[key] = truncate(value, 80);
+  });
+  [
+    "lift",
+    "confidence",
+    "sampleSize",
+    "deltaReturnRate",
+    "deltaRefundRate",
+  ].forEach((key) => {
+    const value = toNullableNumber(metrics[key]);
+    if (value !== null) safe[key] = value;
+  });
+  return safe;
+}
+
+function getAiProductRelationshipConfidenceLabel(confidence: number, available: boolean): AiProductRelationshipSummary["confidenceLabel"] {
+  if (!available || confidence <= 0) return "Unavailable";
+  if (confidence >= 80) return "High";
+  if (confidence >= 55) return "Medium";
+  return "Low";
+}
+
+function getAiProductRelationshipInterpretation(summary: AiProductRelationshipSummary): string {
+  if (!summary.available) return "Product relationship metrics are not available for this product yet.";
+  if (summary.relationshipsWithReturnRiskImpact.length) {
+    const related = summary.relationshipsWithReturnRiskImpact[0];
+    return `Return/refund pressure is higher in at least one related-product context, led by ${related.title}. Treat this as risk context, not causality.`;
+  }
+  if (summary.topBoughtAfter.length) return `${summary.topBoughtAfter[0].title} is a follow-on purchase candidate after this product.`;
+  if (summary.topBoughtTogether.length) return `${summary.topBoughtTogether[0].title} is a same-order relationship candidate for merchandising review.`;
+  return "Relationship data is available but does not show a strong actionable pattern yet.";
+}
+
+function getAiProductRelationshipRiskImpactText(summary: AiProductRelationshipSummary, productRisk: Record<string, unknown>): string {
+  if (!summary.available) return "Product relationships are unavailable and do not affect Product Risk.";
+  if (firstNumber(productRisk.relationshipRiskImpactCount) > 0 || summary.relationshipsWithReturnRiskImpact.length) {
+    return "Relationship data adds risk context because return/refund pressure is higher with a related product, but it does not directly overwrite Product Risk.";
+  }
+  return "Product relationships are treated as contextual signals and do not directly increase Product Risk.";
+}
+
+function getAiProductRelationshipConfidenceImpactText(summary: AiProductRelationshipSummary, confidence: Record<string, unknown>): string {
+  if (!summary.available) return "Product relationships are unavailable, so diagnosis confidence cannot use relationship context.";
+  if (firstNumber(confidence.complexBasketAmbiguityPenalty) > 0) return "Diagnosis confidence is lower because bad outcomes happen in relationship-heavy basket contexts.";
+  if (firstNumber(confidence.sequenceStabilityScore) > 0) return "Stable relationship patterns add context to the diagnosis explanation.";
+  if (summary.confidenceScore < 55) return "Relationship evidence is low-confidence and should be treated cautiously.";
+  return "Relationship context is available without a material confidence penalty.";
+}
+
+function getAiProductRelationshipOpportunityImpactText(actionSignals: Record<string, unknown>): string {
+  if (actionSignals.compatibilityWarning) return "A related product pairing may need compatibility or expectation review.";
+  if (actionSignals.bundleOpportunity) return "A high-lift same-order relationship may support bundle or frequently-bought-together review.";
+  if (actionSignals.crossSellOpportunity) return "A follow-on relationship may support post-purchase cross-sell review.";
+  if (actionSignals.journeyInsight) return "A previous-purchase pattern may support upgrade or next-step positioning.";
+  return "No relationship-based recommendation is currently strong enough to surface.";
+}
+
 function mapDiagnosisSummary(
   diagnosis: DbRecord,
   productGid: string,
@@ -1160,6 +1406,16 @@ function summarizePayload(payload: Record<string, unknown>): Record<string, stri
     "variantCount",
     "mediaCount",
     "mediaWithoutAltCount",
+    "recommendationKind",
+    "relatedProductTitle",
+    "relationshipType",
+    "relationshipDirection",
+    "timeWindow",
+    "lift",
+    "confidence",
+    "sampleSize",
+    "deltaReturnRate",
+    "deltaRefundRate",
   ];
 
   safeKeys.forEach((key) => {
