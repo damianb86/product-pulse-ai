@@ -1023,14 +1023,16 @@ describe("ProductPulse screens", () => {
     expect(within(orderPanel).getByText("Revenue")).toBeInTheDocument();
     expect(within(orderPanel.querySelector(".ppOrderActivityYAxisRight")).getByText("$1,200")).toBeInTheDocument();
     expect(orderPanel.querySelector(".ppOrderActivityLineRevenue")).toBeInTheDocument();
+    expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).toBeInTheDocument();
     expect(orderPanel.querySelectorAll(".ppOrderActivityBarRefunds")).toHaveLength(1);
     expect(orderPanel.querySelectorAll(".ppOrderActivityBarReturns")).toHaveLength(2);
     expect(orderPanel.querySelectorAll(".ppOrderActivityBarTotal")).toHaveLength(2);
-    fireEvent.click(within(orderPanel).getByRole("button", { name: "Resolution" }));
-    expect(within(orderPanel).getByText("Return + refund")).toBeInTheDocument();
-    expect(within(orderPanel).getByText("Return only")).toBeInTheDocument();
-    expect(within(orderPanel).getByText("Refund only")).toBeInTheDocument();
-    expect(within(orderPanel).getByText("33.3%")).toBeInTheDocument();
+    expect(orderPanel.querySelector(".ppOrderActivityBarShell")?.firstElementChild).toHaveClass("ppOrderActivityBarTotal");
+    expect(within(orderPanel).queryByRole("button", { name: "Resolution" })).not.toBeInTheDocument();
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Hide unresolved returns line" }));
+    expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).not.toBeInTheDocument();
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Show unresolved returns line" }));
+    expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).toBeInTheDocument();
   });
 
   it("renders relationship-aware top cards and return/refund resolution panel", () => {

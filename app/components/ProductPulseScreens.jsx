@@ -4044,6 +4044,15 @@ function firstFiniteMetricNumber(...values) {
   return 0;
 }
 
+function optionalFiniteMetricNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
 function relationshipRatePercent(value, numerator = 0, denominator = 0) {
   const raw = Number(value);
   if (Number.isFinite(raw)) {
@@ -4697,6 +4706,8 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
       refundedOrders: Number(month.refundedOrders || 0),
       refundedUnits: Number(month.refundedUnits || 0),
       refundAmount: Number(month.refundAmount || 0),
+      resolvedReturnUnits: optionalFiniteMetricNumber(month.resolvedReturnUnits, month.returnResolvedUnits, month.resolvedReturns),
+      unresolvedReturnUnits: optionalFiniteMetricNumber(month.unresolvedReturnUnits, month.openReturnUnits, month.pendingReturnUnits, month.unresolvedReturns),
       returnRate: calculateClientUnitRatePercent(month.returnedUnits, month.orderUnits, month.returnRate ?? 0),
       refundRate: calculateClientUnitRatePercent(month.refundedUnits, month.orderUnits, month.refundRate ?? 0),
     }))
@@ -10306,19 +10317,23 @@ function ProductDeepDiagnosisDataPlaceholder({ detail }) {
 }
 
 function ProductOrderActivityPanel({ detail }) {
-  const [activityView, setActivityView] = useState("volume");
+  const [showUnresolvedReturns, setShowUnresolvedReturns] = useState(true);
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
   const months = activity.months || [];
   const summary = activity.summary || {};
   const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders || month.revenue);
-  const relationship = detail.returnRefundRelationship || normalizeProductReturnRefundRelationship(null);
-  const maxOrders = Math.max(Number(summary.maxOrders || 0), ...months.map((month) => getOrderActivityStackTotal(month)), 1);
+  const unresolvedReturnSeries = useMemo(() => getOrderActivityUnresolvedReturnSeries(months), [months]);
+  const hasUnresolvedReturnSeries = unresolvedReturnSeries.some((point) => point.value || point.opened || point.resolved);
+  const maxOrders = Math.max(
+    Number(summary.maxOrders || 0),
+    ...months.map((month) => getOrderActivityStackTotal(month)),
+    ...unresolvedReturnSeries.map((point) => Number(point.value || 0)),
+    1,
+  );
   const maxRevenue = Math.max(Number(summary.maxRevenue || 0), ...months.map((month) => Number(month.revenue || 0)), 1);
   const windowLabel = activity.windowDays ? `${activity.windowDays}-day window` : "Stored window";
   const rangeLabel = getMonthlyOrderActivityRangeLabel(months);
-  const chartDescription = activityView === "resolution"
-    ? "Relationship buckets for matched order-line outcomes in the stored product window."
-    : "Orders, returned order cohorts, refunded order cohorts and revenue grouped by cohort order month.";
+  const chartDescription = "Orders, return cohorts, refund cohorts, revenue and optional unresolved return balance grouped by cohort month.";
 
   return (
     <section className="ppProductOrderActivityPanel" aria-label="Monthly order activity">
@@ -10329,10 +10344,6 @@ function ProductOrderActivityPanel({ detail }) {
           <p>{chartDescription}</p>
         </div>
         <div className="ppOrderActivityControls">
-          <div className="ppOrderActivitySegmented" role="group" aria-label="Monthly order activity view">
-            <button type="button" className={activityView === "volume" ? "isActive" : ""} onClick={() => setActivityView("volume")}>Volume</button>
-            <button type="button" className={activityView === "resolution" ? "isActive" : ""} onClick={() => setActivityView("resolution")}>Resolution</button>
-          </div>
           <div className="ppOrderActivityWindow">
             <s-icon type="calendar" size="small"></s-icon>
             <span>{windowLabel}</span>
@@ -10350,20 +10361,31 @@ function ProductOrderActivityPanel({ detail }) {
       </div>
 
       {hasActivity ? (
-        <div className="ppOrderActivityChart" role="img" aria-label={`Monthly Shopify ${activityView} chart for ${detail.title}`}>
-          {activityView === "resolution" ? (
-            <OrderActivityResolutionChart relationship={relationship} />
-          ) : (
-            <>
-              <OrderActivityComboChart months={months} maxOrders={maxOrders} maxRevenue={maxRevenue} />
-              <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
-                <span><i className="ppOrderActivityLegendTotal" />Orders</span>
-                <span><i className="ppOrderActivityLegendReturns" />Returned order cohorts</span>
-                <span><i className="ppOrderActivityLegendRefunds" />Refunded order cohorts</span>
-                <span><i className="ppOrderActivityLegendRevenue" />Revenue</span>
-              </div>
-            </>
-          )}
+        <div className="ppOrderActivityChart" aria-label={`Monthly Shopify order activity chart for ${detail.title}`}>
+          <OrderActivityComboChart
+            months={months}
+            maxOrders={maxOrders}
+            maxRevenue={maxRevenue}
+            unresolvedReturnSeries={unresolvedReturnSeries}
+            showUnresolvedReturns={showUnresolvedReturns && hasUnresolvedReturnSeries}
+          />
+          <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
+            <span><i className="ppOrderActivityLegendTotal" />Orders</span>
+            <span><i className="ppOrderActivityLegendReturns" />Returned order cohorts</span>
+            <span><i className="ppOrderActivityLegendRefunds" />Refunded order cohorts</span>
+            <span><i className="ppOrderActivityLegendRevenue" />Revenue</span>
+            {hasUnresolvedReturnSeries && (
+              <button
+                type="button"
+                className={`ppOrderActivityLegendToggle${showUnresolvedReturns ? " isActive" : ""}`}
+                aria-pressed={showUnresolvedReturns}
+                aria-label={`${showUnresolvedReturns ? "Hide" : "Show"} unresolved returns line`}
+                onClick={() => setShowUnresolvedReturns((value) => !value)}
+              >
+                <i className="ppOrderActivityLegendUnresolved" />Unresolved returns
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
@@ -10948,15 +10970,24 @@ function OrderActivityStat({ label, value, detail, tone }) {
   );
 }
 
-function OrderActivityComboChart({ months = [], maxOrders = 1, maxRevenue = 1 }) {
+function OrderActivityComboChart({
+  months = [],
+  maxOrders = 1,
+  maxRevenue = 1,
+  unresolvedReturnSeries = [],
+  showUnresolvedReturns = false,
+}) {
   const axisMax = getOrderActivityAxisMax(maxOrders);
   const revenueAxisMax = getOrderActivityRevenueAxisMax(maxRevenue);
   const ticks = getOrderActivityAxisTicks(axisMax);
   const revenueTicks = getOrderActivityRevenueAxisTicks(revenueAxisMax);
   const revenuePath = getOrderActivityLinePath(months, "revenue", revenueAxisMax);
+  const unresolvedPath = showUnresolvedReturns
+    ? getOrderActivityLinePath(unresolvedReturnSeries, "value", axisMax)
+    : "";
 
   return (
-    <div className="ppOrderActivityCombo">
+    <div className="ppOrderActivityCombo" aria-label="Monthly order, return, refund, revenue and unresolved return activity">
       <div className="ppOrderActivityYAxis ppOrderActivityYAxisLeft" aria-hidden="true">
         {ticks.map((tick) => (
           <span key={tick.value} style={{ top: `${tick.y}%` }}>{formatInteger(tick.value)}</span>
@@ -10967,13 +10998,20 @@ function OrderActivityComboChart({ months = [], maxOrders = 1, maxRevenue = 1 })
           {ticks.map((tick) => <span key={tick.value} style={{ top: `${tick.y}%` }} />)}
         </div>
         <div className="ppOrderActivityBars" style={{ gridTemplateColumns: `repeat(${Math.max(months.length, 1)}, minmax(0, 1fr))` }}>
-          {months.map((month) => (
-            <OrderActivityMonthBar key={month.key || month.label} month={month} maxOrders={axisMax} />
+          {months.map((month, index) => (
+            <OrderActivityMonthBar
+              key={month.key || month.label}
+              month={month}
+              maxOrders={axisMax}
+              unresolvedPoint={unresolvedReturnSeries[index]}
+            />
           ))}
         </div>
         <svg className="ppOrderActivityLineOverlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           {revenuePath && <path className="ppOrderActivityLineRevenueGlow" d={revenuePath} />}
           {revenuePath && <path className="ppOrderActivityLine ppOrderActivityLineRevenue" d={revenuePath} />}
+          {unresolvedPath && <path className="ppOrderActivityLineUnresolvedGlow" d={unresolvedPath} />}
+          {unresolvedPath && <path className="ppOrderActivityLine ppOrderActivityLineUnresolved" d={unresolvedPath} />}
         </svg>
       </div>
       <div className="ppOrderActivityYAxis ppOrderActivityYAxisRight" aria-hidden="true">
@@ -10992,51 +11030,13 @@ function OrderActivityComboChart({ months = [], maxOrders = 1, maxRevenue = 1 })
   );
 }
 
-function OrderActivityResolutionChart({ relationship = {} }) {
-  if (!relationship.available) {
-    return <EmptyProductDetailState message="Refund relationship not matched yet. Resolution view will appear after return/refund matching is available." />;
-  }
-  const buckets = getReturnRefundResolutionBuckets(relationship);
-  const maxValue = Math.max(...buckets.map((bucket) => Number(bucket.value || 0)), 1);
-
-  return (
-    <div className="ppOrderResolutionChart">
-      <div className="ppOrderResolutionBars" aria-label="Return and refund resolution buckets">
-        {buckets.map((bucket) => (
-          <div className={`ppOrderResolutionBucket ppOrderResolutionBucket-${bucket.tone}`} key={bucket.key}>
-            <span className="ppOrderResolutionBucketLabel">{bucket.label}</span>
-            <div className="ppOrderResolutionTrack">
-              <span style={{ width: `${Math.max(Number(bucket.value || 0) ? 5 : 0, (Number(bucket.value || 0) / maxValue) * 100)}%` }} />
-            </div>
-            <strong>{bucket.displayValue}</strong>
-          </div>
-        ))}
-      </div>
-      <div className="ppOrderResolutionSummary">
-        <span>
-          <b>{formatPercent(relationship.returnToRefundRatePercent)}</b>
-          returned units refunded
-        </span>
-        <span>
-          <b>{formatPercent(relationship.refundWithoutReturnRatePercent)}</b>
-          refund without return rate
-        </span>
-        <span>
-          <b>{relationship.confidenceLabel}</b>
-          attribution confidence
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function OrderActivityMonthBar({ month, maxOrders }) {
+function OrderActivityMonthBar({ month, maxOrders, unresolvedPoint = null }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
   const segments = [
-    { key: "refunds", value: month.refundedOrders, className: "ppOrderActivityBarRefunds" },
-    { key: "returns", value: month.returnedOrders, className: "ppOrderActivityBarReturns" },
     { key: "orders", value: month.orders, className: "ppOrderActivityBarTotal" },
+    { key: "returns", value: month.returnedOrders, className: "ppOrderActivityBarReturns" },
+    { key: "refunds", value: month.refundedOrders, className: "ppOrderActivityBarRefunds" },
   ].filter((segment) => Number(segment.value || 0) > 0);
   const title = `${month.label}: ${formatInteger(month.orders)} orders, ${formatInteger(month.returnedOrders)} returned, ${formatInteger(month.refundedOrders)} refunded`;
 
@@ -11071,11 +11071,38 @@ function OrderActivityMonthBar({ month, maxOrders }) {
           <span><b>Refunded order cohorts</b><strong>{formatInteger(month.refundedOrders)}</strong><small>{formatInteger(month.refundedUnits)} units · {formatPercent(month.refundRate)}</small></span>
         </span>
         <span className="ppOrderActivityPopoverFooter">
-          Refund value: <strong>{formatMoney(month.refundAmount || 0)}</strong>
+          <span>Refund value: <strong>{formatMoney(month.refundAmount || 0)}</strong></span>
+          {unresolvedPoint ? (
+            <span>Unresolved returns: <strong>{formatInteger(unresolvedPoint.value)}</strong></span>
+          ) : null}
         </span>
       </FloatingTablePopover>
     </button>
   );
+}
+
+function getOrderActivityUnresolvedReturnSeries(months = []) {
+  let runningUnresolved = 0;
+  return (Array.isArray(months) ? months : []).map((month) => {
+    const opened = Math.max(0, Number(month.returnedUnits || month.returnedOrders || 0));
+    const explicitResolved = optionalFiniteMetricNumber(month.resolvedReturnUnits, month.returnResolvedUnits, month.resolvedReturns);
+    const explicitUnresolved = optionalFiniteMetricNumber(month.unresolvedReturnUnits, month.openReturnUnits, month.pendingReturnUnits, month.unresolvedReturns);
+    const resolved = explicitResolved === null
+      ? Math.min(Math.max(0, Number(month.refundedUnits || month.refundedOrders || 0)), runningUnresolved + opened)
+      : Math.max(0, explicitResolved);
+    const value = explicitUnresolved === null
+      ? Math.max(0, runningUnresolved + opened - resolved)
+      : Math.max(0, explicitUnresolved);
+    runningUnresolved = value;
+    return {
+      key: month.key,
+      label: month.label,
+      shortLabel: month.shortLabel,
+      value,
+      opened,
+      resolved,
+    };
+  });
 }
 
 function getOrderActivityStackTotal(month = {}) {
