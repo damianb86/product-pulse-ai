@@ -83,7 +83,13 @@ The scoring knowledge currently documents:
 - negative review rate;
 - QuickScan candidate score;
 - priority score;
-- Product Momentum.
+- Product Momentum;
+- Velocity;
+- Growth;
+- Catalog share;
+- Trend consistency;
+- Recency;
+- Negative review pressure.
 
 When a score or formula is unknown, the tool returns `found: false` and explicitly tells the assistant not to invent the formula.
 

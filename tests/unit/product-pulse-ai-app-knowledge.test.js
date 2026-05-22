@@ -67,6 +67,12 @@ describe("ProductPulse AI app knowledge repository", () => {
     const marginAtRisk = repository.getScoreExplanation("margin at risk");
     const refundRate = repository.getScoreExplanation("refund rate");
     const candidateScore = repository.getScoreExplanation("QuickScan candidate score");
+    const velocity = repository.getScoreExplanation("Velocity");
+    const growth = repository.getScoreExplanation("Growth");
+    const catalogShare = repository.getScoreExplanation("Catalog share");
+    const trendConsistency = repository.getScoreExplanation("Trend consistency");
+    const recency = repository.getScoreExplanation("Recency");
+    const negativeReviewPressure = repository.getScoreExplanation("Negative review pressure");
     const unknown = repository.getScoreExplanation("magic conversion score");
 
     expect(risk.found).toBe(true);
@@ -81,6 +87,18 @@ describe("ProductPulse AI app knowledge repository", () => {
     expect(refundRate.formula).toContain("refundUnits / soldUnits");
     expect(candidateScore.found).toBe(true);
     expect(candidateScore.formula).toContain("max(riskScore, productMomentum.score)");
+    expect(velocity.found).toBe(true);
+    expect(velocity.formula).toContain("currentVelocity");
+    expect(growth.found).toBe(true);
+    expect(growth.formula).toContain("combinedGrowthRatio");
+    expect(catalogShare.found).toBe(true);
+    expect(catalogShare.formula).toContain("catalogShareScore");
+    expect(trendConsistency.found).toBe(true);
+    expect(trendConsistency.formula).toContain("trendConsistencyScore");
+    expect(recency.found).toBe(true);
+    expect(recency.formula).toContain("riskRecencyBonus");
+    expect(negativeReviewPressure.found).toBe(true);
+    expect(negativeReviewPressure.formula).toContain("negativeReviewCount / reviewCount");
     expect(JSON.stringify(risk)).not.toContain("app/lib/");
     expect(unknown.found).toBe(false);
     expect(unknown.logic).toContain("Unknown");

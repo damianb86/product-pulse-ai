@@ -233,6 +233,99 @@ Formula:
 
 `momentum = 0.35 * currentVelocity + 0.25 * growth + 0.20 * catalogShare + 0.15 * trendConsistency + 0.05 * recency`
 
+### Velocity
+
+Velocity is the current Product Momentum sales velocity component.
+
+Formula:
+
+`currentVelocity = clamp(0.65 * unitsVelocityScore + 0.35 * revenueVelocityScore, 0, 96)`
+
+Where:
+
+- `unitsVelocityScore = percentileRank(unitsLast30Days, catalog.unitsLast30Distribution)`
+- `revenueVelocityScore = percentileRank(revenueLast30Days, catalog.revenueLast30Distribution)`
+
+If catalog distribution is missing, percentile rank falls back to a log-scaled volume score.
+
+### Growth
+
+Growth compares the last 30 days with the previous 30 days using smoothed unit and revenue ratios.
+
+Formula:
+
+`growthScore = clamp(50 + 28 * log2(combinedGrowthRatio), 0, 96)`
+
+For products with no previous 30-day units or revenue but current activity:
+
+`growthScore = clamp(66 + 22 * volumeConfidence, 0, 88)`
+
+Where:
+
+- unit ratio uses `(unitsLast30Days + 3) / (unitsPrevious30Days + 3)`;
+- revenue ratio uses `(revenueLast30Days + 25) / (revenuePrevious30Days + 25)`;
+- unit ratio weight is usually 0.72;
+- revenue ratio weight is 0.28 when previous revenue exists.
+
+### Catalog Share
+
+Catalog share measures how important the product is relative to the wider catalog.
+
+Formula when catalog baseline exists:
+
+`catalogShareScore = clamp(0.55 * liftScore + 0.45 * currentVelocity, 0, 96)`
+
+`liftScore = clamp(50 + 26 * log2(shareLiftRatio), 0, 96)`
+
+Where:
+
+- `productShareLast30 = unitsLast30Days / storeUnitsLast30Days`
+- `productShareBaseline = unitsPrevious90Days / storeUnitsPrevious90Days`
+- `shareLiftRatio = (productShareLast30 + 0.0001) / (productShareBaseline + 0.0001)`
+
+Fallback when only catalog rank is available:
+
+`positionScore = clamp(98 - topCatalogPercent * 1.55, 42, 94)`
+
+`catalogShareScore = clamp(0.65 * positionScore + 0.35 * min(storedScore || positionScore, 92), 0, 94)`
+
+### Trend Consistency
+
+Trend consistency uses the last four weekly unit buckets.
+
+Formula:
+
+`trendDirectionScore = clamp(50 + 70 * normalizedSlope, 0, 100)`
+
+`trendConsistencyScore = clamp(0.58 * trendDirectionScore + 0.42 * activeWeekRatio * 100, 0, 100)`
+
+Where:
+
+- `normalizedSlope = linearRegressionSlope(weeklyUnitsLast4Weeks) / max(averageWeeklyUnits, 1)`
+- `activeWeekRatio = weeksWithUnits / 4`
+
+### Recency
+
+Recency exists in two ProductPulse scoring areas.
+
+Product Momentum recency:
+
+`recencyScore = clamp(base + recentShare * 10 + (unitsLast7Days >= 5 ? 4 : 0), 0, 96)`
+
+Where:
+
+- if `lastSaleAt` is known, base is 86 for <=2 days, 78 for <=7 days, 60 for <=14 days, 38 for <=30 days, otherwise 0;
+- if `lastSaleAt` is unknown, base falls back to 82 when the last 7 days have units, 64 when the last 14 days have units, 42 when the last 30 days have units, otherwise 0;
+- `recentShare = unitsLast7Days / unitsLast30Days`.
+
+Risk recency bonus:
+
+`recencyBonus = clamp(recentSignalUnits / signalEventCount * 6 + (recentSignalUnits >= 3 ? 1.5 : 0), 0, 5)`
+
+Evidence strength recency:
+
+`recencyScore = freshnessScore = clamp(recentSignalUnits > 0 ? 4 + min(6, recentSignalUnits / signalEventCount * 8) : 0, 0, 10)`
+
 Tiers:
 
 - 80 or more: Hot.
@@ -254,3 +347,25 @@ Recommended interpretation:
 - 70 or more: useful for watchlist inclusion.
 - 50 to 69: monitor if risk rises.
 - Below 50: no commercial follow-up by momentum alone.
+
+## Negative Review Pressure
+
+The Product Detail insight card named "Negative review pressure" displays the connected negative review rate.
+
+Formula:
+
+`negativeReviewPressure = negativeReviewRate = roundPercent(negativeReviewCount / reviewCount)`
+
+If review count is zero, the rate is 0.
+
+Related internal review evidence pressure can also combine:
+
+`reviewSignalValue = negativeReviewRate * 0.7 + ratingPressure + samplePressure + criticalPressure + csvRatingRisk * 0.55 + negativeReviewCount * 2`
+
+Where:
+
+- `ratingPressure = max(0, 4 - averageRating) * 14`
+- `samplePressure = min(18, log2(reviewCount + 1) * 4)`
+- `criticalPressure = csvCriticalRatingCount * 5`
+
+The visible Negative review pressure card should be read as sentiment pressure from connected reviews, not as a standalone risk score.
