@@ -2924,6 +2924,17 @@ describe("ProductPulse screens", () => {
           aiEmergentSentiments: [{ label: "Superstitious discomfort", normalizedLabel: "superstitious_discomfort", polarity: "negative", signals: 2 }],
           otherReturnClassifications: [{ issueCode: "fit_sizing", label: "Fit & sizing", count: 2 }],
         },
+        productPurchaseContextSummary: purchaseContextSummaryFixture(),
+        productPurchaseContextFactors: { hasPurchaseContextSummary: true },
+        returnRefundRelationshipSummary: relationshipSummaryFixture({
+          sold_units: 12,
+          returned_units: 4,
+          refunded_units: 3,
+          returned_and_refunded_units: 2,
+          returned_not_refunded_units: 2,
+          refunded_without_return_units: 1,
+          relationship_match_confidence_avg: 0.9,
+        }),
       },
       evidence: [
         ...defaultView.startHere.evidence,
@@ -2944,6 +2955,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Issues detected")).toBeInTheDocument();
     expect(screen.getByText("Evidence sources")).toBeInTheDocument();
     expect(screen.queryByText("Raw product metrics")).not.toBeInTheDocument();
+    expect(screen.getByText("Order and outcome context")).toBeInTheDocument();
+    expect(screen.getByText("Purchase context")).toBeInTheDocument();
+    expect(screen.getByText("How this product is bought")).toBeInTheDocument();
+    expect(screen.getAllByText("Why it matters").length).toBeGreaterThan(0);
+    expect(screen.getByText("Return & refund resolution")).toBeInTheDocument();
+    expect(screen.getByText("Returns vs. refunds relationship")).toBeInTheDocument();
     expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
     expect(screen.getByText("Diagnostic checks behind recommendations")).toBeInTheDocument();
     expect(screen.getByText(/These cards explain what ProductPulse inspected/)).toBeInTheDocument();

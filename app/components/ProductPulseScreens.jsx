@@ -16446,8 +16446,22 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
         </EvidenceReportCollapsibleSection>
 
         <EvidenceReportCollapsibleSection
-          id="evidence-report-recommendations-and-checks"
+          id="evidence-report-order-outcome-context"
           number="04"
+          title="Order and outcome context"
+          description="Shopify order composition, purchase behavior, and return/refund matching that shape evidence interpretation."
+          expanded={expandedSections.has("order-outcome-context")}
+          onToggle={() => toggleEvidenceReportSection("order-outcome-context")}
+        >
+          <div className="ppEvidenceReportContextStack">
+            <ProductPurchaseContextPanel detail={detail} />
+            <ProductReturnRefundResolutionPanel detail={detail} />
+          </div>
+        </EvidenceReportCollapsibleSection>
+
+        <EvidenceReportCollapsibleSection
+          id="evidence-report-recommendations-and-checks"
+          number="05"
           title="Recommendations and checks"
           description="Action context and the ProductPulse checks that were available when this report was rendered."
           expanded={expandedSections.has("recommendations-and-checks")}
