@@ -1120,19 +1120,10 @@ describe("ProductPulse screens", () => {
     expect(within(riskSnapshot).getByText("Exchange/replace")).toBeInTheDocument();
     expect(riskSnapshot.querySelector(".ppResolutionBreakdownInsightCard")).toBeInTheDocument();
 
-    expect(resolutionPanel).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Return & refund resolution")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Returns vs. refunds relationship")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Refunds")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText((_, node) => node?.textContent === "Returned& refunded")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Returns")).toBeInTheDocument();
-    expect(within(resolutionPanel).queryByText("Out of 6 returned units")).not.toBeInTheDocument();
-    expect(within(resolutionPanel).getAllByText("33.3%").length).toBeGreaterThan(0);
-    expect(within(resolutionPanel).getAllByText("66.7%").length).toBeGreaterThan(0);
-    expect(within(resolutionPanel).getAllByText("0%").length).toBeGreaterThan(0);
+    expect(resolutionPanel).not.toBeInTheDocument();
   });
 
-  it("handles missing return/refund relationship data without fake zeros", () => {
+  it("keeps missing return/refund relationship details out of the product detail page", () => {
     const product = {
       ...defaultView.startHere,
       metrics: {
@@ -1144,9 +1135,7 @@ describe("ProductPulse screens", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const resolutionPanel = container.querySelector(".ppReturnRefundResolutionPanel");
 
-    expect(resolutionPanel).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Refund relationship not matched yet. Run a diagnosis after Shopify order, return and refund evidence is available.")).toBeInTheDocument();
-    expect(within(resolutionPanel).queryByText("Returns vs. refunds relationship")).not.toBeInTheDocument();
+    expect(resolutionPanel).not.toBeInTheDocument();
   });
 
   it("renders purchase context cards, charts and product-card attribution notes", () => {

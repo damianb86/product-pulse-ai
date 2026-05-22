@@ -8874,11 +8874,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </div>
 
-        <div className="ppProductContextSummaryGrid">
-          <ProductReturnRefundResolutionPanel detail={detail} />
-          <ProductBasketContextPanel detail={detail} />
-        </div>
-
         <ProductRelationshipsPanel detail={detail} />
 
         <div className="ppProductDetailLayout">
@@ -8973,6 +8968,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </main>
 
           <aside className="ppProductDetailSidebar">
+            <ProductBasketContextPanel detail={detail} />
+
             <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
               <div className="ppRecommendedActionsHeader">
                 <div>
