@@ -9543,46 +9543,54 @@ function ProductRelationshipSignalCard({ detail, relationship }) {
   const afterPathLabel = afterPurchasePaths === 1 ? "after-purchase path" : "after-purchase paths";
 
   return (
-    <article className="ppProductRelationshipSignalCard" aria-label="Relationship signal">
-      <div className="ppProductRelationshipSignalContent">
-        <div className="ppProductRelationshipSignalHeader">
-          <span className="ppProductRelationshipSignalIcon" aria-hidden="true">
-            <ProductRelationshipSignalGlyph />
+    <article className="ppProductInsight ppProductInsight-withArea ppProductInsight-chartTone-purple ppProductRelationshipSignalCard" aria-label="Relationship signal">
+      <div className="ppProductInsightAreaHeader">
+        <span className="ppProductInsightIcon" aria-hidden="true">
+          <ProductRelationshipSignalGlyph />
+        </span>
+        <span className="ppProductInsightAreaCopy">
+          <span className="ppProductInsightAreaTitle">
+            <span className="ppProductInsightAreaTitleText">Relationship signal</span>
+            <InsightInfoButton
+              title="Relationship signal"
+              help="Compact summary of the strongest same-cart relationship, after-purchase paths, and the top related product."
+            />
           </span>
-          <ProductRelationshipInfoLabel
-            label="Relationship signal"
-            help="Compact summary of the strongest same-cart relationship, after-purchase paths, and the top related product."
-          />
-        </div>
-        <div className="ppProductRelationshipSignalMetrics" aria-label="Relationship signal metrics">
-          <div className="ppProductRelationshipSignalMetric">
-            <strong className="isSameCart">{formatInteger(sameCartLinks)}</strong>
-            <span>{sameCartLabel}</span>
-          </div>
-          <div className="ppProductRelationshipSignalMetric">
-            <strong className="isAfter">{formatInteger(afterPurchasePaths)}</strong>
-            <span>{afterPathLabel}</span>
-          </div>
-        </div>
-        <div className="ppProductRelationshipSignalTop">
-          <span>Top related:</span>
-          {topRelated ? (
-            <Link to={topRelatedHref}>
-              {topRelated.title}
-              <s-icon type="external" size="small"></s-icon>
-            </Link>
-          ) : (
-            <em>No reliable related product yet</em>
-          )}
-        </div>
-        <a className="ppProductRelationshipSignalFooter" href="#product-relationship-timeline">
-          <span>Nearby product relationships</span>
-          <i aria-hidden="true"><s-icon type="arrow-right" size="small"></s-icon></i>
-        </a>
+          <span className="ppProductInsightAreaMeta">Relationship strength snapshot</span>
+        </span>
       </div>
-      <figure className="ppProductRelationshipSignalVisual" aria-hidden="true">
-        <img src={PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.signal} alt="" />
-      </figure>
+      <div className="ppProductRelationshipSignalBody">
+        <div className="ppProductRelationshipSignalContent">
+          <div className="ppProductRelationshipSignalMetrics" aria-label="Relationship signal metrics">
+            <div className="ppProductRelationshipSignalMetric">
+              <strong className="isSameCart">{formatInteger(sameCartLinks)}</strong>
+              <span>{sameCartLabel}</span>
+            </div>
+            <div className="ppProductRelationshipSignalMetric">
+              <strong className="isAfter">{formatInteger(afterPurchasePaths)}</strong>
+              <span>{afterPathLabel}</span>
+            </div>
+          </div>
+          <div className="ppProductRelationshipSignalTop">
+            <span>Top related:</span>
+            {topRelated ? (
+              <Link to={topRelatedHref}>
+                {topRelated.title}
+                <s-icon type="external" size="small"></s-icon>
+              </Link>
+            ) : (
+              <em>No reliable related product yet</em>
+            )}
+          </div>
+          <a className="ppProductRelationshipSignalFooter" href="#product-relationship-timeline">
+            <span>Nearby product relationships</span>
+            <i aria-hidden="true"><s-icon type="arrow-right" size="small"></s-icon></i>
+          </a>
+        </div>
+        <figure className="ppProductRelationshipSignalVisual" aria-hidden="true">
+          <img src={PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.signal} alt="" />
+        </figure>
+      </div>
     </article>
   );
 }
