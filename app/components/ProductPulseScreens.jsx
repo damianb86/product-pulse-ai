@@ -9388,10 +9388,7 @@ function ProductRelationshipsPanel({ detail }) {
   const [activeView, setActiveView] = useState("together");
   const hasData = relationship.available;
   const hasRelationships = hasData && relationship.hasMeaningfulRelationships;
-  const riskItem = relationship.relationshipsWithReturnRiskImpact[0] || null;
-  const trendRows = getProductRelationshipTrendRows(relationship);
   const tableRows = getProductRelationshipTableRows(relationship, activeView);
-  const timelineNodes = getProductRelationshipTimelineNodes(detail, relationship);
   const emptyMessage = getProductRelationshipEmptyMessage(relationship);
 
   return (
@@ -9416,181 +9413,217 @@ function ProductRelationshipsPanel({ detail }) {
         <EmptyProductDetailState message={emptyMessage} />
       ) : (
         <>
-          <div className={`ppProductRelationshipsMainGrid${riskItem ? "" : " noRisk"}`}>
-            <ProductRelationshipMetricCard
-              title="Bought together"
-              help={PRODUCT_RELATIONSHIP_HELP.attachRate}
-              icon="shopify-orders"
-              item={relationship.topBoughtTogether[0]}
-              emptyMessage="No strong same-order relationship detected."
-              kind="together"
-            />
-            <ProductRelationshipMetricCard
-              title="Bought before"
-              help={PRODUCT_RELATIONSHIP_HELP.before}
-              icon="calendar"
-              item={relationship.topBoughtBefore[0]}
-              emptyMessage={relationship.customerSequenceAvailable ? "No reliable before-purchase pattern detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
-              kind="before"
-            />
-            <ProductRelationshipMetricCard
-              title="Bought after"
-              help={PRODUCT_RELATIONSHIP_HELP.after}
-              icon="product-momentum"
-              item={relationship.topBoughtAfter[0]}
-              emptyMessage={relationship.customerSequenceAvailable ? "No reliable after-purchase pattern detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
-              kind="after"
-            />
-            {riskItem ? <ProductRelationshipRiskCard item={riskItem} /> : null}
+          <div className="ppProductRelationshipsOverviewGrid">
+            <ProductRelationshipSummaryCard relationship={relationship} />
+            <ProductRelationshipMapCard detail={detail} relationship={relationship} />
           </div>
 
-          <div className="ppProductRelationshipsSecondaryGrid">
-            {timelineNodes.length ? <ProductRelationshipTimeline nodes={timelineNodes} /> : null}
-            {relationship.aiInsights.available ? <ProductRelationshipInsights insights={relationship.aiInsights.insights} /> : null}
-          </div>
-
-          {trendRows.length ? <ProductRelationshipTrendChart rows={trendRows} /> : null}
-
-          <div className="ppProductRelationshipsTablePanel">
-            <div className="ppProductRelationshipsTableHeader">
-              <div>
-                <strong>Relationship details</strong>
-                <span>Compact view of rate, lift, confidence and return/refund context.</span>
-              </div>
-              <div className="ppProductRelationshipsSegmented" role="tablist" aria-label="Product relationship detail view">
-                {[
-                  ["together", "Together"],
-                  ["before", "Before"],
-                  ["after", "After"],
-                  ["risk", "Risk impact"],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={activeView === key ? "isActive" : ""}
-                    aria-selected={activeView === key}
-                    onClick={() => setActiveView(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <ProductRelationshipTable rows={tableRows} activeView={activeView} />
-          </div>
+          <ProductRelationshipDetailsPanel
+            activeView={activeView}
+            rows={tableRows}
+            onChangeView={setActiveView}
+          />
         </>
       )}
     </section>
   );
 }
 
-function ProductRelationshipMetricCard({ title, help, icon, item, emptyMessage, kind }) {
+function ProductRelationshipSummaryCard({ relationship }) {
+  const boughtTogether = relationship.topBoughtTogether[0] || null;
+  const boughtBefore = relationship.topBoughtBefore[0] || null;
+  const boughtAfter = relationship.topBoughtAfter[0] || null;
   return (
-    <article className="ppProductRelationshipCard">
-      <div className="ppProductRelationshipCardHeader">
-        <span><ProductPulseGlyph type={icon} /></span>
-        <div>
+    <article className="ppProductRelationshipSummaryCard">
+      <div className="ppProductRelationshipSummaryHeader">
+        <strong>Relationship summary</strong>
+        <span>Key insights at a glance</span>
+      </div>
+      <ProductRelationshipSummaryItem
+        title="Bought together"
+        help={PRODUCT_RELATIONSHIP_HELP.attachRate}
+        icon="shopify-product"
+        item={boughtTogether}
+        kind="together"
+        badge={boughtTogether ? "Strongest signal" : "Unavailable"}
+        emptyMessage="No strong same-order relationship detected."
+      />
+      <ProductRelationshipSummaryItem
+        title="Bought before"
+        help={PRODUCT_RELATIONSHIP_HELP.before}
+        icon="shopify-orders"
+        item={boughtBefore}
+        kind="before"
+        badge={boughtBefore ? boughtBefore.confidenceLabel : "Unavailable"}
+        emptyMessage={relationship.customerSequenceAvailable ? "No reliable before-purchase pattern detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
+      />
+      <ProductRelationshipSummaryItem
+        title="Bought after"
+        help={PRODUCT_RELATIONSHIP_HELP.after}
+        icon="product-momentum"
+        item={boughtAfter}
+        kind="after"
+        badge={boughtAfter ? boughtAfter.confidenceLabel : "Unavailable"}
+        emptyMessage={relationship.customerSequenceAvailable ? "No reliable after-purchase pattern detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
+      />
+    </article>
+  );
+}
+
+function ProductRelationshipSummaryItem({ title, help, icon, item, kind, badge, emptyMessage }) {
+  return (
+    <div className={`ppProductRelationshipSummaryItem${item ? "" : " isUnavailable"}`}>
+      <span className="ppProductRelationshipSummaryIcon"><ProductPulseGlyph type={icon} /></span>
+      <div>
+        <div className="ppProductRelationshipSummaryTitle">
           <ProductRelationshipInfoLabel label={title} help={help} />
-          <small>{item ? `${item.relationshipStrengthLabel} · ${item.trendLabel}` : "Unavailable"}</small>
+          <span>{badge}</span>
         </div>
-      </div>
-      {item ? (
-        <>
-          <div className="ppProductRelationshipPrimary">
+        {item ? (
+          <>
             <strong>{item.title}</strong>
-            <span>{getProductRelationshipPrimaryLine(item, kind)}</span>
-          </div>
-          <div className="ppProductRelationshipMeta">
-            <span>{getProductRelationshipSecondaryLine(item, kind)}</span>
-            <RelationshipConfidenceBadge label={item.confidenceLabel} />
-          </div>
-        </>
-      ) : (
-        <p className="ppProductRelationshipEmptyText">{emptyMessage}</p>
-      )}
+            <em>{getProductRelationshipPrimaryLine(item, kind)}</em>
+            <div className="ppProductRelationshipSummaryChips">
+              <span>{formatRelationshipLift(item.lift)}</span>
+              <span>{formatInteger(item.coOrderCount || item.customerCount || item.sampleSize)} {kind === "together" ? "orders" : "customers"}</span>
+            </div>
+          </>
+        ) : (
+          <p>{emptyMessage}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProductRelationshipMapCard({ detail, relationship }) {
+  const boughtTogether = relationship.topBoughtTogether[0] || null;
+  const boughtBefore = relationship.topBoughtBefore[0] || null;
+  const boughtAfter = relationship.topBoughtAfter[0] || null;
+  return (
+    <article className="ppProductRelationshipMapCard" aria-label="Product relationship map">
+      <div className="ppProductRelationshipMapLegend" aria-hidden="true">
+        <span><i className="isTogether"></i>Same order</span>
+        <span><i className="isBefore"></i>Before</span>
+        <span><i className="isAfter"></i>After</span>
+      </div>
+      <div className="ppProductRelationshipMapCanvas">
+        <svg className="ppProductRelationshipMapLines" viewBox="0 0 1000 360" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <path className="ppProductRelationshipLineTogether" d="M250 180 L440 180" />
+          <circle className="ppProductRelationshipLineDot isTogether" cx="250" cy="180" r="6" />
+          <circle className="ppProductRelationshipLineDot isTogether" cx="440" cy="180" r="6" />
+          <path className="ppProductRelationshipLineBefore" d="M560 180 C650 130 715 90 790 90" />
+          <circle className="ppProductRelationshipLineDot isMuted" cx="560" cy="180" r="6" />
+          <circle className="ppProductRelationshipLineDot isMuted" cx="790" cy="90" r="6" />
+          <path className="ppProductRelationshipLineAfter" d="M560 180 C650 225 715 270 790 270" />
+          <circle className="ppProductRelationshipLineDot isMuted" cx="560" cy="180" r="6" />
+          <circle className="ppProductRelationshipLineDot isMuted" cx="790" cy="270" r="6" />
+        </svg>
+        <span className="ppProductRelationshipMapLabel ppProductRelationshipMapLabel-same">Same order</span>
+        <span className="ppProductRelationshipMapLabel ppProductRelationshipMapLabel-before">Before</span>
+        <span className="ppProductRelationshipMapLabel ppProductRelationshipMapLabel-after">After</span>
+        <ProductRelationshipMapNode
+          item={boughtTogether}
+          kind="together"
+          title="Bought together"
+          emptyMessage="No strong same-order relationship detected."
+          className="ppProductRelationshipMapNode-left"
+        />
+        <ProductRelationshipCurrentNode detail={detail} />
+        <ProductRelationshipMapNode
+          item={boughtBefore}
+          kind="before"
+          title="Bought before"
+          emptyMessage={relationship.customerSequenceAvailable ? "No reliable before-purchase pattern detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
+          className="ppProductRelationshipMapNode-before"
+        />
+        <ProductRelationshipMapNode
+          item={boughtAfter}
+          kind="after"
+          title="Bought after"
+          emptyMessage={relationship.customerSequenceAvailable ? "No reliable after-purchase pattern detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
+          className="ppProductRelationshipMapNode-after"
+        />
+      </div>
     </article>
   );
 }
 
-function ProductRelationshipRiskCard({ item }) {
+function ProductRelationshipMapNode({ item, kind, title, emptyMessage, className }) {
+  const icon = kind === "before" ? "shopify-orders" : kind === "after" ? "product-momentum" : "shopify-product";
   return (
-    <article className="ppProductRelationshipCard ppProductRelationshipRiskCard">
-      <div className="ppProductRelationshipCardHeader">
-        <span><ProductPulseGlyph type="product-risk" /></span>
+    <div className={`ppProductRelationshipMapNode ${className}${item ? "" : " isUnavailable"}`}>
+      <span className="ppProductRelationshipMapNodeIcon"><ProductPulseGlyph type={icon} /></span>
+      <div>
+        <div className="ppProductRelationshipMapNodeHeader">
+          <strong>{item ? item.title : title}</strong>
+          {!item ? <RelationshipConfidenceBadge label="Unavailable" /> : null}
+        </div>
+        {item ? (
+          <>
+            <em>{getProductRelationshipPrimaryLine(item, kind)}</em>
+            <div className="ppProductRelationshipSummaryChips">
+              <span>{formatRelationshipLift(item.lift)}</span>
+              <span>{formatInteger(item.coOrderCount || item.customerCount || item.sampleSize)} {kind === "together" ? "orders" : "customers"}</span>
+            </div>
+          </>
+        ) : (
+          <p>{emptyMessage}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProductRelationshipCurrentNode({ detail }) {
+  return (
+    <div className="ppProductRelationshipCurrentNode">
+      <span>Current product</span>
+      <div className="ppProductRelationshipCurrentImage">
+        <ProductArt
+          variant={detail.variant}
+          label={detail.title}
+          size="large"
+          imageUrl={detail.imageUrl}
+          imageAlt={detail.imageAlt}
+        />
+      </div>
+      <div className="ppProductRelationshipCurrentTitle">
+        <strong>{detail.title}</strong>
+        <small>Source product</small>
+      </div>
+    </div>
+  );
+}
+
+function ProductRelationshipDetailsPanel({ activeView, rows, onChangeView }) {
+  return (
+    <div className="ppProductRelationshipsTablePanel">
+      <div className="ppProductRelationshipsTableHeader">
         <div>
-          <ProductRelationshipInfoLabel label="Risk context" help={PRODUCT_RELATIONSHIP_HELP.risk} />
-          <small>{item.relationshipStrengthLabel} · {item.confidenceLabel} confidence</small>
+          <strong>Relationship details</strong>
+          <span>Compact view of rate, lift, confidence and return/refund context.</span>
+        </div>
+        <div className="ppProductRelationshipsSegmented" role="tablist" aria-label="Product relationship detail view">
+          {[
+            ["together", "Together"],
+            ["before", "Before"],
+            ["after", "After"],
+            ["risk", "Risk impact"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={activeView === key ? "isActive" : ""}
+              aria-selected={activeView === key}
+              onClick={() => onChangeView(key)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
-      <div className="ppProductRelationshipPrimary">
-        <strong>{item.title}</strong>
-        <span>{getProductRelationshipRiskLine(item)}</span>
-      </div>
-      <p className="ppProductRelationshipCardNote">Review compatibility messaging and expectations for this pairing.</p>
-    </article>
-  );
-}
-
-function ProductRelationshipTimeline({ nodes }) {
-  return (
-    <article className="ppProductRelationshipTimeline" aria-label="Product relationship timeline">
-      <div>
-        <strong>Relationship timeline</strong>
-        <span>Before · same order · after</span>
-      </div>
-      <div className="ppProductRelationshipTimelineTrack">
-        {nodes.map((node) => (
-          <div className={`ppProductRelationshipTimelineNode ppProductRelationshipTimelineNode-${node.tone}`} key={`${node.key}-${node.label}`}>
-            <span>{node.window}</span>
-            <strong>{node.label}</strong>
-            <small>{node.detail}</small>
-          </div>
-        ))}
-      </div>
-    </article>
-  );
-}
-
-function ProductRelationshipInsights({ insights }) {
-  return (
-    <article className="ppProductRelationshipInsights">
-      <div>
-        <strong>Relationship insights</strong>
-        <span>AI-written from deterministic metrics</span>
-      </div>
-      <div className="ppProductRelationshipInsightList">
-        {insights.slice(0, 3).map((insight) => (
-          <div className="ppProductRelationshipInsight" key={insight.id}>
-            <span>{insight.relatedProductTitle}</span>
-            <p>{renderAnalysisText(insight.summary)}</p>
-            {insight.caveat ? <small>{insight.caveat}</small> : null}
-          </div>
-        ))}
-      </div>
-    </article>
-  );
-}
-
-function ProductRelationshipTrendChart({ rows }) {
-  return (
-    <div className="ppProductRelationshipTrend" aria-label="Relationship trend chart">
-      <div>
-        <strong>Relationship trend</strong>
-        <span>Top {rows.length} relationships by stored monthly rate</span>
-      </div>
-      <div className="ppProductRelationshipTrendRows">
-        {rows.map((row) => (
-          <div className="ppProductRelationshipTrendRow" key={row.key}>
-            <span>{row.title}</span>
-            <div aria-hidden="true">
-              {row.points.map((point) => (
-                <i key={point.key} style={{ height: `${point.height}%` }} title={`${point.label}: ${formatPercent(point.rate)}`} />
-              ))}
-            </div>
-            <strong>{row.trendLabel}</strong>
-          </div>
-        ))}
-      </div>
+      <ProductRelationshipTable rows={rows} activeView={activeView} />
     </div>
   );
 }
@@ -9668,17 +9701,6 @@ function getProductRelationshipPrimaryLine(item = {}, kind = "together") {
   return `${formatPercent(item.attachRatePercent || item.relationshipRatePercent)} attach rate`;
 }
 
-function getProductRelationshipSecondaryLine(item = {}, kind = "together") {
-  if (kind === "before") {
-    return `Median ${formatInteger(item.medianDaysBefore)} days before · ${formatRelationshipLift(item.lift)}`;
-  }
-  if (kind === "after") {
-    const revenue = item.followOnRevenue ? ` · ${formatCompactMoney(item.followOnRevenue)} follow-on` : "";
-    return `Median ${formatInteger(item.medianDaysAfter)} days after · ${formatRelationshipLift(item.lift)}${revenue}`;
-  }
-  return `${formatRelationshipLift(item.lift)} · ${formatInteger(item.coOrderCount || item.sampleSize)} orders`;
-}
-
 function getProductRelationshipRiskLine(item = {}) {
   const returnDelta = Number(item.deltaReturnRatePercent || 0);
   const refundDelta = Number(item.deltaRefundRatePercent || 0);
@@ -9698,63 +9720,6 @@ function getProductRelationshipRiskImpactLabel(item = {}) {
 function formatRelationshipLift(value) {
   if (value === null || value === undefined) return "Lift unavailable";
   return `${formatDecimal(value, 1)}x lift`;
-}
-
-function getProductRelationshipTimelineNodes(detail = {}, relationship = {}) {
-  const nodes = [];
-  const before = relationship.topBoughtBefore?.[0];
-  const together = relationship.topBoughtTogether?.[0];
-  const after = relationship.topBoughtAfter?.[0];
-  if (before) nodes.push({
-    key: "before",
-    window: before.timeWindowLabel,
-    label: before.title,
-    detail: `${formatPercent(before.relationshipRatePercent)} before`,
-    tone: "blue",
-  });
-  if (together) nodes.push({
-    key: "together",
-    window: "Same order",
-    label: together.title,
-    detail: `${formatPercent(together.attachRatePercent || together.relationshipRatePercent)} attach`,
-    tone: "purple",
-  });
-  nodes.push({
-    key: "current",
-    window: "Current product",
-    label: detail.title || "Current product",
-    detail: "Source product",
-    tone: "dark",
-  });
-  if (after) nodes.push({
-    key: "after",
-    window: after.timeWindowLabel,
-    label: after.title,
-    detail: `${formatPercent(after.relationshipRatePercent)} after`,
-    tone: "green",
-  });
-  return nodes.length > 1 ? nodes : [];
-}
-
-function getProductRelationshipTrendRows(relationship = {}) {
-  return (relationship.relationshipTrends || [])
-    .filter((item) => item.monthly?.length >= 2)
-    .slice(0, 3)
-    .map((item) => {
-      const points = item.monthly.slice(-6);
-      const maxRate = Math.max(...points.map((point) => Number(point.relationshipRatePercent || 0)), 1);
-      return {
-        key: `${item.relatedProductId || item.title}-${item.direction}-${item.timeWindow}`,
-        title: item.title,
-        trendLabel: item.trendLabel,
-        points: points.map((point) => ({
-          key: point.key || point.label,
-          label: point.label || point.key,
-          rate: point.relationshipRatePercent,
-          height: Math.max(Number(point.relationshipRatePercent || 0) ? 14 : 4, (Number(point.relationshipRatePercent || 0) / maxRate) * 100),
-        })),
-      };
-    });
 }
 
 function getProductRelationshipTableRows(relationship = {}, activeView = "together") {

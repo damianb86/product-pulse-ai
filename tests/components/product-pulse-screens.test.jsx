@@ -1285,16 +1285,15 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("Bought together")).toBeInTheDocument();
     expect(within(panel).getByText("Bought before")).toBeInTheDocument();
     expect(within(panel).getByText("Bought after")).toBeInTheDocument();
-    expect(within(panel).getByText("Risk context")).toBeInTheDocument();
+    expect(within(panel).getByText("Relationship summary")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductRelationshipMapCard")).toBeInTheDocument();
     expect(within(panel).getAllByText("Care Kit").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Starter Guide").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Refill Pack").length).toBeGreaterThan(0);
-    expect(within(panel).getByText("42% attach rate")).toBeInTheDocument();
-    expect(within(panel).getByText("2.4x lift · 5 orders")).toBeInTheDocument();
-    expect(within(panel).getByText("Relationship timeline")).toBeInTheDocument();
-    expect(within(panel).getByText("Relationship trend")).toBeInTheDocument();
-    expect(panel.querySelectorAll(".ppProductRelationshipTrendRow")).toHaveLength(3);
-    expect(within(panel).getByText(/more likely to buy Refill Pack/i)).toBeInTheDocument();
+    expect(within(panel).getAllByText("42% attach rate").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("2.4x lift").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("Current product")).toBeInTheDocument();
+    expect(within(panel).getByText("Relationship details")).toBeInTheDocument();
     fireEvent.click(within(panel).getByRole("button", { name: "After" }));
     expect(within(panel).getAllByText("30 days after").length).toBeGreaterThan(0);
     fireEvent.click(within(panel).getByRole("button", { name: "Risk impact" }));
@@ -1330,7 +1329,7 @@ describe("ProductPulse screens", () => {
     const lowRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={lowConfidenceProduct} />);
     const lowPanel = lowRender.container.querySelector(".ppProductRelationshipsPanel");
     expect(lowPanel).toBeInTheDocument();
-    expect(lowPanel.querySelector(".ppProductRelationshipRiskCard")).not.toBeInTheDocument();
+    expect(within(lowPanel).getByText(/Low confidence/)).toBeInTheDocument();
 
     const missingProduct = {
       ...defaultView.startHere,
