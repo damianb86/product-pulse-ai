@@ -1307,7 +1307,7 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("30% within 30 days before")).toBeInTheDocument();
     expect(within(panel).getByText("25% within 30 days after")).toBeInTheDocument();
     expect(within(panel).getByAltText("Care Kit image")).toHaveAttribute("src", "https://cdn.example/care-kit.jpg");
-    expect(within(panel).getByRole("link", { name: "Run deep diagnosis for Care Kit" })).toBeInTheDocument();
+    expect(within(panel).getByRole("link", { name: "Open Care Kit" })).toBeInTheDocument();
     expect(within(panel).queryByText("Current product")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Source product")).not.toBeInTheDocument();
     expect(within(panel).queryByText(defaultView.startHere.title)).not.toBeInTheDocument();

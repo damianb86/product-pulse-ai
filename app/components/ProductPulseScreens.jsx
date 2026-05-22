@@ -9591,7 +9591,7 @@ function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount 
       {afterVisible && afterYs.map((y, index) => (
         <path
           className="ppProductRelationshipTimelineLineTogether"
-          d={`M712 ${y} H756 C808 ${y} 786 210 836 210 H870`}
+          d={`M712 210 H756 C808 210 786 ${y} 836 ${y} H870`}
           markerEnd="url(#ppProductRelationshipArrowAfter)"
           key={`after-${index}`}
         />
@@ -9716,10 +9716,10 @@ function ProductRelationshipTimelineProductRow({ item, kind, countLabel }) {
       <Link
         className="ppProductRelationshipDiagnosticButton"
         to={href}
-        aria-label={`Run deep diagnosis for ${item.title}`}
-        title="Run deep diagnosis"
+        aria-label={`Open ${item.title}`}
+        title="Open product"
       >
-        <s-icon type="wand" size="small"></s-icon>
+        <s-icon type="external" size="small"></s-icon>
       </Link>
     </div>
   );
