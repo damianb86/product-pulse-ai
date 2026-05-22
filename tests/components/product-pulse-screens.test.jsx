@@ -1300,7 +1300,8 @@ describe("ProductPulse screens", () => {
     expect(within(riskSnapshot).getByText("strong same-cart link")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("after-purchase path")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Top related:")).toBeInTheDocument();
-    expect(within(riskSnapshot).getByText("Nearby product relationships")).toBeInTheDocument();
+    expect(within(riskSnapshot).queryByText("Nearby product relationships")).not.toBeInTheDocument();
+    expect(within(riskSnapshot).getByLabelText("Open product relationship timeline")).toBeInTheDocument();
     expect(riskSnapshot.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
     expect(panel).toBeInTheDocument();
     expect(within(panel).queryByText("Relationship signal")).not.toBeInTheDocument();

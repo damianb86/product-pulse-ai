@@ -9616,8 +9616,7 @@ function ProductRelationshipSignalCard({ detail, relationship }) {
             <em>No reliable related product yet</em>
           )}
         </div>
-        <a className="ppProductRelationshipSignalFooter" href="#product-relationship-timeline">
-          <span>Nearby product relationships</span>
+        <a className="ppProductRelationshipSignalFooter" href="#product-relationship-timeline" aria-label="Open product relationship timeline">
           <i aria-hidden="true"><s-icon type="arrow-right" size="small"></s-icon></i>
         </a>
         </div>
