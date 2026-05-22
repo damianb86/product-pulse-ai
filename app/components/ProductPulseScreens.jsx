@@ -9481,47 +9481,107 @@ const PRODUCT_RELATIONSHIP_HELP = {
 
 function ProductRelationshipsPanel({ detail }) {
   const relationship = detail.productRelationshipIntelligence || normalizeProductRelationshipIntelligence(null);
-  const [activeView, setActiveView] = useState("together");
   const hasData = relationship.available;
-  const hasRelationships = hasData && relationship.hasMeaningfulRelationships;
-  const tableRows = getProductRelationshipTableRows(relationship, activeView);
   const emptyMessage = getProductRelationshipEmptyMessage(relationship);
 
   return (
-    <section className={`ppProductPanel ppProductRelationshipsPanel${hasRelationships ? "" : " isUnavailable"}`} aria-label="Product relationships">
-      <div className="ppProductRelationshipsHeader">
-        <div>
-          <span className="ppProductRelationshipsEyebrow">
-            <ProductPulseGlyph type="shopify-product" />
-            Relationship intelligence
-          </span>
-          <h2>Product relationships</h2>
-          <p>Shows what customers buy with this product, before it, and after it.</p>
-        </div>
-        <span className={`ppProductRelationshipsConfidence ppProductRelationshipsConfidence-${String(relationship.confidenceLabel || "unavailable").toLowerCase()}`}>
-          {hasData ? relationship.confidenceLabel : "Unavailable"} confidence
-        </span>
-      </div>
-
+    <section className={`ppProductPanel ppProductRelationshipsPanel${hasData ? "" : " isUnavailable"}`} aria-label="Product relationships">
       {!hasData ? (
         <EmptyProductDetailState message={emptyMessage} />
-      ) : !hasRelationships ? (
-        <EmptyProductDetailState message={emptyMessage} />
       ) : (
-        <>
-          <div className="ppProductRelationshipsOverviewGrid">
-            <ProductRelationshipSummaryCard relationship={relationship} />
-            <ProductRelationshipMapCard detail={detail} relationship={relationship} />
-          </div>
-
-          <ProductRelationshipDetailsPanel
-            activeView={activeView}
-            rows={tableRows}
-            onChangeView={setActiveView}
-          />
-        </>
+        <ProductRelationshipTimelineCard detail={detail} relationship={relationship} />
       )}
     </section>
+  );
+}
+
+function ProductRelationshipTimelineCard({ detail, relationship }) {
+  const boughtTogether = relationship.topBoughtTogether[0] || null;
+  const boughtBefore = relationship.topBoughtBefore[0] || null;
+  const boughtAfter = relationship.topBoughtAfter[0] || null;
+  return (
+    <article className="ppProductRelationshipTimelineCard">
+      <div className="ppProductRelationshipTimelineHeader">
+        <ProductRelationshipInfoLabel label="Relationship timeline" help="Shows relationship context before, in the same order, and after the current product purchase." />
+        <div className="ppProductRelationshipTimelineLegend" aria-label="Relationship legend">
+          <span><i className="isTogether"></i>Bought together</span>
+          <span><i className="isBefore"></i>Bought before</span>
+          <span><i className="isAfter"></i>Bought after</span>
+        </div>
+      </div>
+      <div className="ppProductRelationshipTimelineStage">
+        <svg className="ppProductRelationshipTimelineLines" viewBox="0 0 1000 320" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <path className="ppProductRelationshipTimelineLineBefore" d="M245 160 L392 160" />
+          <path className="ppProductRelationshipTimelineLineTogether" d="M608 160 L755 160" />
+          <circle className="ppProductRelationshipTimelineDot ppProductRelationshipTimelineDot-before" cx="245" cy="160" r="7" />
+          <circle className="ppProductRelationshipTimelineDot ppProductRelationshipTimelineDot-togetherLeft" cx="392" cy="160" r="7" />
+          <circle className="ppProductRelationshipTimelineDot ppProductRelationshipTimelineDot-togetherRight" cx="755" cy="160" r="7" />
+        </svg>
+        <ProductRelationshipTimelineSideNode
+          item={boughtBefore}
+          kind="before"
+          title="Before"
+          emptyMessage={relationship.customerSequenceAvailable ? "No reliable before relationship detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
+        />
+        <ProductRelationshipTimelineCurrentNode detail={detail} item={boughtTogether} />
+        <ProductRelationshipTimelineSideNode
+          item={boughtAfter}
+          kind="after"
+          title="After"
+          emptyMessage={relationship.customerSequenceAvailable ? "No reliable after relationship detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
+        />
+      </div>
+    </article>
+  );
+}
+
+function ProductRelationshipTimelineSideNode({ item, kind, title, emptyMessage }) {
+  const isAfter = kind === "after";
+  return (
+    <div className={`ppProductRelationshipTimelineSide ppProductRelationshipTimelineSide-${kind}${item ? "" : " isUnavailable"}`}>
+      <span className="ppProductRelationshipTimelineSideLabel">{title}</span>
+      <span className="ppProductRelationshipTimelineSideIcon">
+        {isAfter ? <ProductPulseGlyph type="product-momentum" /> : <ProductRelationshipCalendarGlyph />}
+      </span>
+      {item ? (
+        <>
+          <strong>{item.title}</strong>
+          <p>{getProductRelationshipPrimaryLine(item, kind)}</p>
+          <small>{formatRelationshipLift(item.lift)} · {formatInteger(item.customerCount || item.coOrderCount || item.sampleSize)} {isAfter ? "customers" : "customers"}</small>
+        </>
+      ) : (
+        <>
+          <strong>Unavailable</strong>
+          <p>{emptyMessage}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProductRelationshipTimelineCurrentNode({ detail, item }) {
+  return (
+    <div className="ppProductRelationshipTimelineCurrent">
+      <span className="ppProductRelationshipTimelineSameOrder">Same order</span>
+      <div className="ppProductRelationshipTimelineCurrentCard">
+        <span className="ppProductRelationshipTimelineCurrentIcon"><ProductPulseGlyph type="shopify-orders" /></span>
+        <small>Current product</small>
+        <strong>{detail.title}</strong>
+        <em>Source product</em>
+        {item ? <span className="ppProductRelationshipTimelineAttach">{formatPercent(item.attachRatePercent || item.relationshipRatePercent)} attach rate</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function ProductRelationshipCalendarGlyph() {
+  return (
+    <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-calendar" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d="M7.2 4.4V7.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M16.8 4.4V7.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M5.2 8.2H18.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      <path d="M6.4 5.8H17.6C18.9255 5.8 20 6.87452 20 8.2V17.4C20 18.7255 18.9255 19.8 17.6 19.8H6.4C5.07452 19.8 4 18.7255 4 17.4V8.2C4 6.87452 5.07452 5.8 6.4 5.8Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+    </svg>
   );
 }
 

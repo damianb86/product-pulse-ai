@@ -1279,23 +1279,19 @@ describe("ProductPulse screens", () => {
     const panel = container.querySelector(".ppProductRelationshipsPanel");
 
     expect(panel).toBeInTheDocument();
-    expect(within(panel).getByText("Product relationships")).toBeInTheDocument();
+    expect(within(panel).getByText("Relationship timeline")).toBeInTheDocument();
     expect(within(panel).getByText("Bought together")).toBeInTheDocument();
     expect(within(panel).getByText("Bought before")).toBeInTheDocument();
     expect(within(panel).getByText("Bought after")).toBeInTheDocument();
-    expect(within(panel).getByText("Relationship summary")).toBeInTheDocument();
-    expect(panel.querySelector(".ppProductRelationshipMapCard")).toBeInTheDocument();
-    expect(within(panel).getAllByText("Care Kit").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("Before")).toBeInTheDocument();
+    expect(within(panel).getByText("Same order")).toBeInTheDocument();
+    expect(within(panel).getByText("After")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductRelationshipTimelineCard")).toBeInTheDocument();
     expect(within(panel).getAllByText("Starter Guide").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Refill Pack").length).toBeGreaterThan(0);
-    expect(within(panel).getAllByText("42% attach rate").length).toBeGreaterThan(0);
-    expect(within(panel).getAllByText("2.4x lift").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("42% attach rate")).toBeInTheDocument();
     expect(within(panel).getByText("Current product")).toBeInTheDocument();
-    expect(within(panel).getByText("Relationship details")).toBeInTheDocument();
-    fireEvent.click(within(panel).getByRole("button", { name: "After" }));
-    expect(within(panel).getAllByText("30 days after").length).toBeGreaterThan(0);
-    fireEvent.click(within(panel).getByRole("button", { name: "Risk impact" }));
-    expect(within(panel).getByText("+8% returns")).toBeInTheDocument();
+    expect(within(panel).getByText("Source product")).toBeInTheDocument();
   });
 
   it("handles missing and low-confidence product relationship data without overemphasis", () => {
@@ -1327,7 +1323,7 @@ describe("ProductPulse screens", () => {
     const lowRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={lowConfidenceProduct} />);
     const lowPanel = lowRender.container.querySelector(".ppProductRelationshipsPanel");
     expect(lowPanel).toBeInTheDocument();
-    expect(within(lowPanel).getByText(/Low confidence/)).toBeInTheDocument();
+    expect(within(lowPanel).getByText("Relationship timeline")).toBeInTheDocument();
 
     const missingProduct = {
       ...defaultView.startHere,
