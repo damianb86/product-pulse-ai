@@ -10224,7 +10224,7 @@ function getProductRelationshipTimelineStrengthScore(item = {}) {
 }
 
 function getProductRelationshipTimelineBucketKey(item = {}, kind = "before") {
-  const days = getProductRelationshipTimelineWindowDays(item, kind);
+  const days = getProductRelationshipTimelineSourceWindowDays(item, kind);
   if (days !== null && days <= 7) return "0-7";
   if (days !== null && days <= 30) return "8-30";
   if (days !== null && days > 30) return "30-plus";

@@ -1377,6 +1377,10 @@ describe("ProductPulse screens", () => {
         makeRelationshipItem("after-one", "After One", "after", 39, 0.22),
         makeRelationshipItem("after-two", "After Two", "after", 16, 0.19),
         makeRelationshipItem("after-three", "After Three", "after", 39, 0.17),
+        {
+          ...makeRelationshipItem("after-four", "After Four", "after", 90, 0.16),
+          median_days_after: 18,
+        },
       ],
     });
     const product = {
@@ -1403,6 +1407,11 @@ describe("ProductPulse screens", () => {
     expect(within(beforeColumn).queryByText("18% within 18 days before")).not.toBeInTheDocument();
     expect(within(afterColumn).getAllByText("After One")).toHaveLength(1);
     expect(within(afterColumn).queryByText("22% within 39 days after")).not.toBeInTheDocument();
+    const afterEightToThirtyBucket = within(afterColumn).getByRole("region", { name: "8-30 days relationship products" });
+    const afterThirtyPlusBucket = within(afterColumn).getByRole("region", { name: "30+ days relationship products" });
+    expect(within(afterEightToThirtyBucket).queryByText("After Four")).not.toBeInTheDocument();
+    expect(within(afterThirtyPlusBucket).getByText("After Four")).toBeInTheDocument();
+    expect(within(afterThirtyPlusBucket).getByText("16% within 90 days after")).toBeInTheDocument();
     expect(within(beforeColumn).queryByText("Before Six")).not.toBeInTheDocument();
     const beforeThirtyPlusBucket = within(beforeColumn).getByRole("region", { name: "30+ days relationship products" });
     fireEvent.click(within(beforeThirtyPlusBucket).getByRole("button", { name: "View more (3)" }));
