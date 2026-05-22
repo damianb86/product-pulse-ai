@@ -9891,8 +9891,10 @@ function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle
           aria-expanded={expanded}
           onClick={handleToggleColumnExpanded}
         >
-          <span>{expanded ? "Show less" : `View all (${allItems.length})`}</span>
-          <s-icon type={expanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+          <span>
+            {expanded ? "Show less" : `View all (${allItems.length})`}
+            <s-icon type={expanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+          </span>
         </button>
       ) : null}
     </div>

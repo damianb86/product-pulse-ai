@@ -6190,7 +6190,7 @@ s-page[inline-size="large-500"] {
 .ppProductRelationshipSignalMetric strong {
   min-width: 16px;
   color: var(--pp-slate-900);
-  font-size: 21px;
+  font-size: 15px;
   font-weight: 950;
   line-height: 1.08;
 }
@@ -6443,7 +6443,8 @@ s-page[inline-size="large-500"] {
   position: relative;
   z-index: 2;
   display: grid;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
   gap: 18px;
   min-height: 305px;
   padding: 54px 16px 16px;
@@ -6689,6 +6690,13 @@ s-page[inline-size="large-500"] {
     var(--pp-cloud-white);
 }
 
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineBucket {
+  border-color: rgba(203, 213, 225, 0.86);
+  background:
+    linear-gradient(180deg, rgba(241, 245, 249, 0.82), rgba(255, 255, 255, 0.86)),
+    var(--pp-cloud-white);
+}
+
 .ppProductRelationshipTimelineBucketHeader {
   display: flex;
   align-items: center;
@@ -6708,6 +6716,10 @@ s-page[inline-size="large-500"] {
   color: #0F766E;
 }
 
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineBucketHeader strong {
+  color: #475569;
+}
+
 .ppProductRelationshipTimelineBucketHeader span {
   display: inline-flex;
   align-items: center;
@@ -6725,6 +6737,11 @@ s-page[inline-size="large-500"] {
 .ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucketHeader span {
   background: rgba(204, 251, 241, 0.9);
   color: #0F766E;
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineBucketHeader span {
+  background: rgba(226, 232, 240, 0.94);
+  color: #475569;
 }
 
 .ppProductRelationshipTimelineBucketProductsClip {
@@ -6751,6 +6768,10 @@ s-page[inline-size="large-500"] {
   height: 32px;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.94));
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineBucketProductsClip.hasOverflow:not(.isExpanded)::after {
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0), rgba(248, 250, 252, 0.95));
 }
 
 .ppProductRelationshipTimelineProduct {
@@ -6795,6 +6816,10 @@ s-page[inline-size="large-500"] {
   -webkit-line-clamp: 1;
 }
 
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineProductTitle {
+  color: #475569;
+}
+
 .ppProductRelationshipTimelineProduct p {
   max-width: 100%;
   color: var(--pp-slate-700);
@@ -6836,66 +6861,119 @@ s-page[inline-size="large-500"] {
   color: currentColor;
 }
 
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipDiagnosticButton {
+  color: #64748B;
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipDiagnosticButton:hover {
+  border-color: rgba(100, 116, 139, 0.34);
+  color: #475569;
+  box-shadow: 0 6px 16px rgba(100, 116, 139, 0.12);
+}
+
 .ppProductRelationshipTimelineShowMore {
   width: 100%;
   min-height: 30px;
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  gap: 10px;
+  align-self: end;
+  margin-top: auto;
   border: 0;
-  border-radius: 8px;
   background: transparent;
-  color: #2563EB;
+  color: var(--pp-slate-900);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 780;
   line-height: 1.1;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: color 120ms ease;
+}
+
+.ppProductRelationshipTimelineShowMore::before,
+.ppProductRelationshipTimelineShowMore::after {
+  content: "";
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(100, 116, 139, 0.22));
+}
+
+.ppProductRelationshipTimelineShowMore::after {
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.22), transparent);
+}
+
+.ppProductRelationshipTimelineShowMore span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .ppProductRelationshipTimelineShowMore:hover {
-  background: rgba(37, 99, 235, 0.08);
   color: #1D4ED8;
+}
+
+.ppProductRelationshipTimelineShowMore:hover::before {
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.28));
+}
+
+.ppProductRelationshipTimelineShowMore:hover::after {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.28), transparent);
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineShowMore:hover {
+  color: #475569;
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineShowMore:hover::before {
+  background: linear-gradient(90deg, transparent, rgba(100, 116, 139, 0.28));
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineShowMore:hover::after {
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.28), transparent);
 }
 
 .ppProductRelationshipTimelineShowMore s-icon {
   color: currentColor;
+  transform: scale(0.88);
 }
 
 .ppProductRelationshipTimelineBucketShowMore {
   width: 100%;
-  min-height: 28px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  border: 1px solid rgba(191, 219, 254, 0.76);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.62);
+  padding: 2px 0 0;
+  border: 0;
+  background: transparent;
   color: #2563EB;
   font-size: 11px;
   font-weight: 900;
   line-height: 1.1;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: color 120ms ease;
 }
 
 .ppProductRelationshipTimelineBucketShowMore:hover {
-  border-color: rgba(37, 99, 235, 0.34);
-  background: rgba(219, 234, 254, 0.72);
   color: #1D4ED8;
 }
 
 .ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucketShowMore {
-  border-color: rgba(153, 246, 228, 0.74);
   color: #0F766E;
 }
 
 .ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucketShowMore:hover {
-  border-color: rgba(15, 118, 110, 0.28);
-  background: rgba(204, 251, 241, 0.72);
   color: #0F766E;
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineBucketShowMore {
+  color: #64748B;
+}
+
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineBucketShowMore:hover {
+  color: #475569;
 }
 
 .ppProductRelationshipTimelineBucketShowMore s-icon {
