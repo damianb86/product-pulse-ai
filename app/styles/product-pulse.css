@@ -6275,6 +6275,257 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
+.ppResolutionBreakdownInsightCard {
+  grid-column: span 1;
+  min-height: 118px;
+  gap: 10px;
+}
+
+.ppResolutionBreakdownHeader {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ppProductInsight-withArea .ppResolutionBreakdownHeaderIcon {
+  width: 42px;
+  height: 42px;
+  background:
+    radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.72), transparent 32%),
+    var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductInsight-withArea .ppResolutionBreakdownHeaderIcon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.ppResolutionBreakdownTitle {
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.ppResolutionBreakdownMeta {
+  color: var(--pp-slate-600);
+  font-size: 10.5px;
+  font-weight: 720;
+}
+
+.ppResolutionBreakdownBody {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 118px;
+  gap: 12px;
+  align-items: end;
+}
+
+.ppResolutionBreakdownSummary {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  align-content: end;
+}
+
+.ppResolutionBreakdownSummary > strong {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  letter-spacing: 0;
+  line-height: 1.02;
+  font-size: 21px;
+  font-weight: 700;
+}
+
+.ppResolutionBreakdownSummary > strong span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppResolutionBreakdownBullet {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--pp-slate-600);
+  font-size: 10.5px;
+  font-weight: 760;
+  line-height: 1.15;
+}
+
+.ppResolutionBreakdownBullet i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.ppResolutionBreakdownBullet b {
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.ppResolutionBreakdownBullet span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppResolutionBreakdownBullet-blue {
+  color: var(--pp-pulse-blue);
+}
+
+.ppResolutionBreakdownBullet-slate {
+  color: var(--pp-slate-400);
+}
+
+.ppResolutionBreakdownChart {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+  gap: 4px;
+}
+
+.ppResolutionBreakdownBarItem {
+  --pp-resolution-color: var(--pp-slate-400);
+  --pp-resolution-rgb: 148, 163, 184;
+  position: relative;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  color: var(--pp-resolution-color);
+  text-align: center;
+  outline: none;
+}
+
+.ppResolutionBreakdownBarItem > strong {
+  color: var(--pp-slate-900);
+  font-size: 8.5px;
+  line-height: 1;
+  text-wrap: nowrap;
+}
+
+.ppResolutionBreakdownBarTrack {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppResolutionBreakdownBarTrack span {
+  width: 12px;
+  min-height: 4px;
+  max-height: 34px;
+  display: block;
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 42%),
+    var(--pp-resolution-color);
+  box-shadow:
+    0 11px 22px rgba(var(--pp-resolution-rgb), 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.ppResolutionBreakdownBucketIcon {
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--pp-resolution-color);
+}
+
+.ppResolutionBreakdownBucketIcon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.ppResolutionBreakdownBucketTooltip {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  z-index: 12;
+  width: max-content;
+  max-width: 128px;
+  padding: 6px 8px;
+  border: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
+  border-radius: 7px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1.15;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(var(--pp-shadow-rgb), 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -2px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.ppResolutionBreakdownBucketTooltip::before {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: var(--pp-midnight-ink);
+  border-top: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
+  border-left: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
+  content: "";
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.ppResolutionBreakdownBarItem:hover .ppResolutionBreakdownBucketTooltip,
+.ppResolutionBreakdownBarItem:focus-visible .ppResolutionBreakdownBucketTooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.ppResolutionBreakdownBarItem-purple {
+  --pp-resolution-color: var(--pp-insight-violet);
+  --pp-resolution-rgb: var(--pp-insight-violet-rgb);
+}
+
+.ppResolutionBreakdownBarItem-blue {
+  --pp-resolution-color: var(--pp-pulse-blue);
+  --pp-resolution-rgb: var(--pp-pulse-blue-rgb);
+}
+
+.ppResolutionBreakdownBarItem-green {
+  --pp-resolution-color: var(--pp-signal-teal);
+  --pp-resolution-rgb: var(--pp-signal-teal-rgb);
+}
+
+.ppResolutionBreakdownBarItem-orange {
+  --pp-resolution-color: #F97316;
+  --pp-resolution-rgb: 249, 115, 22;
+}
+
+.ppResolutionBreakdownBarItem-slate {
+  --pp-resolution-color: var(--pp-slate-400);
+  --pp-resolution-rgb: 148, 163, 184;
+}
+
 .ppProductRelationshipTimelineCard {
   grid-column: 1 / -1;
   min-width: 0;

@@ -1113,6 +1113,12 @@ describe("ProductPulse screens", () => {
     expect(within(riskSnapshot).getByText("With return $84 · Without $0")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("2 linked · 4 return-only · 0 refund-only")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Based on 41 signals · strong refund attribution")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Resolution breakdown")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Return resolution mix")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("refund-only")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("refund-only cases")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("Exchange/replace")).toBeInTheDocument();
+    expect(riskSnapshot.querySelector(".ppResolutionBreakdownInsightCard")).toBeInTheDocument();
 
     expect(resolutionPanel).toBeInTheDocument();
     expect(within(resolutionPanel).getByText("Return & refund resolution")).toBeInTheDocument();

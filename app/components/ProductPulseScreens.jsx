@@ -8498,11 +8498,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const ignoredIssueRows = detail.detectedIssues.filter((issue) => isIssueIgnored(issue, ignoredIssues));
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
   const baseInsightCards = getProductDetailInsightCards(detail);
+  const resolutionBreakdownInsightCard = detail.returnRefundRelationship?.available
+    ? { id: "resolution-breakdown", type: "resolution-breakdown" }
+    : null;
   const relationshipInsightCard = detail.productRelationshipIntelligence?.available
     ? { id: "relationship-signal", type: "relationship-signal" }
     : null;
-  const insightCards = relationshipInsightCard
-    ? [...baseInsightCards.slice(0, 8), relationshipInsightCard, ...baseInsightCards.slice(8)]
+  const supplementalInsightCards = [resolutionBreakdownInsightCard, relationshipInsightCard].filter(Boolean);
+  const insightCards = supplementalInsightCards.length
+    ? [...baseInsightCards.slice(0, 8), ...supplementalInsightCards, ...baseInsightCards.slice(8)]
     : baseInsightCards;
   const primaryInsightCards = insightCards.slice(0, 4);
   const hiddenInsightCards = insightCards.slice(4);
@@ -9557,10 +9561,182 @@ function ProductRelationshipsPanel({ detail }) {
 }
 
 function ProductInsightGridCard({ card, detail }) {
+  if (card?.type === "resolution-breakdown") {
+    return <ProductResolutionBreakdownCard detail={detail} />;
+  }
   if (card?.type === "relationship-signal") {
     return <ProductRelationshipSignalCard detail={detail} relationship={detail.productRelationshipIntelligence} />;
   }
   return <ProductInsightMetric {...card} />;
+}
+
+function ProductResolutionBreakdownCard({ detail }) {
+  const relationship = detail.returnRefundRelationship || normalizeProductReturnRefundRelationship(null);
+  const breakdown = getResolutionBreakdownInsightData(relationship);
+
+  return (
+    <article className="ppProductInsight ppProductInsight-withArea ppProductInsight-chartTone-purple ppResolutionBreakdownInsightCard" aria-label="Resolution breakdown">
+      <div className="ppResolutionBreakdownHeader">
+        <span className="ppProductInsightIcon ppResolutionBreakdownHeaderIcon" aria-hidden="true">
+          <ResolutionBreakdownGlyph />
+        </span>
+        <span className="ppProductInsightAreaCopy">
+          <span className="ppProductInsightAreaTitle ppResolutionBreakdownTitle">
+            <span className="ppProductInsightAreaTitleText">Resolution breakdown</span>
+            <InsightInfoButton
+              title="Resolution breakdown"
+              help="Return resolution mix across linked return+refund cases, return-only cases, refund-only compensation, exchanges, and unresolved outcomes."
+            />
+          </span>
+          <span className="ppProductInsightAreaMeta ppResolutionBreakdownMeta">Return resolution mix</span>
+        </span>
+      </div>
+      <div className="ppResolutionBreakdownBody">
+        <div className="ppResolutionBreakdownSummary">
+          <strong>
+            {formatPercent(breakdown.primaryPercent)} <span>refund-only</span>
+          </strong>
+          <span className="ppResolutionBreakdownBullet ppResolutionBreakdownBullet-blue">
+            <i aria-hidden="true"></i>
+            <b>{formatInteger(breakdown.refundOnlyCount)}</b>
+            <span>refund-only cases</span>
+          </span>
+          <span className="ppResolutionBreakdownBullet ppResolutionBreakdownBullet-slate">
+            <i aria-hidden="true"></i>
+            <b>{formatInteger(breakdown.pendingOrUnknownCount)}</b>
+            <span>pending / unknown</span>
+          </span>
+        </div>
+        <div className="ppResolutionBreakdownChart" aria-label="Return resolution mix chart">
+          {breakdown.buckets.map((bucket) => (
+            <div
+              className={`ppResolutionBreakdownBarItem ppResolutionBreakdownBarItem-${bucket.tone}`}
+              key={bucket.key}
+              tabIndex={0}
+              aria-label={`${bucket.label}: ${formatPercent(bucket.percent)}`}
+            >
+              <strong>{formatPercent(bucket.percent)}</strong>
+              <span className="ppResolutionBreakdownBarTrack" aria-hidden="true">
+                <span style={{ height: `${bucket.barHeight}%` }}></span>
+              </span>
+              <span className="ppResolutionBreakdownBucketIcon" aria-hidden="true">
+                <ResolutionBreakdownBucketGlyph type={bucket.key} />
+              </span>
+              <span className="ppResolutionBreakdownBucketTooltip" role="tooltip">{bucket.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function getResolutionBreakdownInsightData(relationship = {}) {
+  const rawBuckets = [
+    {
+      key: "linked",
+      label: "Return + refund",
+      value: relationship.returnedAndRefundedUnits,
+      tone: "purple",
+    },
+    {
+      key: "return-only",
+      label: "Return only",
+      value: relationship.returnedNotRefundedUnits,
+      tone: "blue",
+    },
+    {
+      key: "refund-only",
+      label: "Refund only",
+      value: relationship.refundedWithoutReturnUnits,
+      tone: "green",
+    },
+    {
+      key: "exchange",
+      label: "Exchange/replace",
+      value: relationship.exchangeOrReplacementUnits,
+      tone: "orange",
+    },
+    {
+      key: "unknown",
+      label: "Pending/unknown",
+      value: relationship.pendingOrUnknownCount,
+      tone: "slate",
+    },
+  ].map((bucket) => ({ ...bucket, value: Math.max(0, Number(bucket.value || 0)) }));
+  const total = rawBuckets.reduce((sum, bucket) => sum + bucket.value, 0);
+  const buckets = rawBuckets.map((bucket) => {
+    const percent = total ? (bucket.value / total) * 100 : 0;
+    return {
+      ...bucket,
+      percent,
+      barHeight: bucket.value > 0 ? clampNumber(percent * 1.9, 14, 100) : 8,
+    };
+  });
+  const refundOnlyBucket = buckets.find((bucket) => bucket.key === "refund-only") || {};
+  return {
+    buckets,
+    primaryPercent: Number(refundOnlyBucket.percent || 0),
+    refundOnlyCount: Number(refundOnlyBucket.value || 0),
+    pendingOrUnknownCount: Number((buckets.find((bucket) => bucket.key === "unknown") || {}).value || 0),
+  };
+}
+
+function ResolutionBreakdownGlyph() {
+  return (
+    <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-resolutionBreakdown" width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path d="M12 3.8V12L18.2 17.4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20.2 12C20.2 16.53 16.53 20.2 12 20.2C7.47 20.2 3.8 16.53 3.8 12C3.8 7.47 7.47 3.8 12 3.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      <path d="M12 3.8C16.53 3.8 20.2 7.47 20.2 12H12V3.8Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ResolutionBreakdownBucketGlyph({ type }) {
+  if (type === "linked") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M18.5 8.7C17.1 6.45 14.55 5 11.7 5C7.5 5 4.1 8.25 4.1 12.25C4.1 16.25 7.5 19.5 11.7 19.5C14.55 19.5 17.05 18.08 18.45 15.9" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+        <path d="M18.2 5.7L18.75 9.35L15.1 9.9" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M19.95 12.25H21.35" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "return-only") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M8.5 8.5H16.2C18.35 8.5 20.1 10.25 20.1 12.4C20.1 14.55 18.35 16.3 16.2 16.3H9" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M9 5.5L6 8.5L9 11.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "refund-only") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M14.35 9.35C13.9 8.75 13.1 8.35 12.1 8.35C10.8 8.35 9.95 8.95 9.95 9.95C9.95 10.95 10.85 11.35 12.25 11.65C13.65 11.95 14.5 12.45 14.5 13.6C14.5 14.75 13.5 15.65 12.05 15.65C10.9 15.65 9.9 15.25 9.25 14.55" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M12.05 7.25V8.35" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M12.05 15.65V16.75" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "exchange") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M17.9 8.1H8.2C5.9 8.1 4.1 9.9 4.1 12.2C4.1 14.5 5.9 16.3 8.2 16.3H9.6" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+        <path d="M15.1 5.2L18 8.1L15.1 11" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M6.1 15.9H15.8C18.1 15.9 19.9 14.1 19.9 11.8C19.9 9.5 18.1 7.7 15.8 7.7H14.4" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+        <path d="M8.9 18.8L6 15.9L8.9 13" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="7.2" stroke="currentColor" strokeWidth="1.85" />
+      <path d="M9.8 9.7C10.15 8.6 11.05 8 12.25 8C13.65 8 14.65 8.85 14.65 10.1C14.65 11.95 12.25 12.05 12.25 14" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+      <path d="M12.25 16.55H12.26" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function ProductRelationshipSignalCard({ detail, relationship }) {
