@@ -8755,6 +8755,161 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       : action);
   };
 
+  const overviewPanel = (
+    <div className="ppMainFindingCard">
+      <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
+      <div>
+        <span>Overview</span>
+        <h2>{detail.mainFindingTitle}</h2>
+        <div className="ppMainFindingText">
+          {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
+            <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const recommendedActionsPanel = (
+    <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
+      <div className="ppRecommendedActionsHeader">
+        <div>
+          <span className="ppRecommendedActionsTitle">
+            <span className="ppRecommendedActionsTitleIcon" aria-hidden="true">
+              <ProductPulseGlyph type="ai-evidence-synthesis" />
+            </span>
+            <h2>Recommended actions</h2>
+          </span>
+          <p>Prioritized next steps based on product signals and evidence.</p>
+          <span>
+            {detail.hasFullDiagnosis
+              ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
+              : "Run full diagnosis to unlock actions"}
+          </span>
+        </div>
+        <button
+          className="ppPanelCollapseButton"
+          type="button"
+          aria-expanded={!recommendedActionsCollapsed}
+          aria-controls="pp-recommended-actions-content"
+          onClick={handleToggleRecommendedActions}
+        >
+          <s-icon type={recommendedActionsCollapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
+          <span>{recommendedActionsCollapsed ? "Expand" : "Minimize"}</span>
+        </button>
+      </div>
+      {!recommendedActionsCollapsed && (
+        <div id="pp-recommended-actions-content">
+          <div className="ppRecommendedActionsToolbar">
+            <span className="ppRecommendedActionsCountBadge">
+              <span className="ppRecommendedActionsCountIcon" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </span>
+              {visibleRecommendedActionCount} action{visibleRecommendedActionCount === 1 ? "" : "s"}
+            </span>
+            <label className="ppRecommendedActionsSort">
+              <span>Sort recommended actions</span>
+              <select
+                value={recommendedActionSort}
+                onChange={(event) => {
+                  setRecommendedActionSort(event.target.value);
+                  setRecommendedActionsExpanded(false);
+                }}
+              >
+                <option value="priority">Sort by priority</option>
+                <option value="impact">Sort by impact</option>
+                <option value="confidence">Sort by confidence</option>
+                <option value="risk">Sort by lowest apply risk</option>
+                <option value="effort">Sort by lowest effort</option>
+              </select>
+            </label>
+          </div>
+          <div className="ppRecommendedActionList">
+            {!detail.hasFullDiagnosis ? (
+              <EmptyProductDetailState
+                message="Recommended actions will appear after you run the full product diagnosis for this product."
+                variant="recommendedActions"
+              />
+            ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
+              <EmptyProductDetailState
+                message={hiddenIgnoredRecommendedActionCount
+                  ? `${hiddenIgnoredRecommendedActionCount} recommendation${hiddenIgnoredRecommendedActionCount === 1 ? "" : "s"} hidden because related issues are ignored for this product.`
+                  : "0 deterministic recommended actions from current stored signals."}
+                variant="recommendedActions"
+              />
+            )}
+            {primaryRecommendedActions.map((action, index) => (
+              <ProductRecommendedActionCompact
+                key={getRecommendedActionKey(action)}
+                action={action}
+                index={index}
+                onOpen={handleOpenRecommendedAction}
+              />
+            ))}
+          </div>
+          {visibleRecommendedActions.length > 3 && (
+            <>
+              <div className={`ppRecommendedActionsOverflow${recommendedActionsExpanded ? " isExpanded" : ""}`} aria-hidden={!recommendedActionsExpanded}>
+                <div className="ppRecommendedActionList ppRecommendedActionList-extra">
+                  {hiddenRecommendedActions.map((action, index) => (
+                    <ProductRecommendedActionCompact
+                      key={getRecommendedActionKey(action)}
+                      action={action}
+                      index={index + primaryRecommendedActions.length}
+                      onOpen={handleOpenRecommendedAction}
+                    />
+                  ))}
+                </div>
+              </div>
+              <button
+                className="ppRecommendedActionsMore"
+                type="button"
+                onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
+              >
+                <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
+                <span className="ppRecommendedActionsMoreLabel">
+                  {recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}
+                  <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                </span>
+                <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
+              </button>
+            </>
+          )}
+          {minimizedRecommendedActions.length > 0 && (
+            <MinimizedRecommendedActionsTray
+              actions={minimizedRecommendedActions}
+              minimizedActionStates={minimizedActionStates}
+              onExpand={handleExpandArchivedAction}
+            />
+          )}
+          {editingAction && (
+            <Form method="post" className="ppActionDraftEditor">
+              <input type="hidden" name="_action" value="apply-action" />
+              <input type="hidden" name="productId" value={product.slug} />
+              <input type="hidden" name="actionId" value={editingAction.id} />
+              <input type="hidden" name="label" value={editingAction.title} />
+              <label htmlFor="pp-action-draft">Draft</label>
+              <textarea
+                id="pp-action-draft"
+                name="draftText"
+                value={draftText}
+                onChange={(event) => setDraftText(event.target.value)}
+              />
+              <div>
+                <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
+                <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
+                  {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
+                </button>
+              </div>
+            </Form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <FullWidthPage label={`${detail.title} product`} className="ppProductDetailPage">
       <ScreenShell className="ppDashboard ppProductDetailScreen">
@@ -8874,23 +9029,19 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </div>
 
+        <div className="ppProductDetailLayout ppProductDetailTopLayout">
+          <main className="ppProductDetailPrimary">
+            {overviewPanel}
+          </main>
+          <aside className="ppProductDetailSidebar">
+            {recommendedActionsPanel}
+          </aside>
+        </div>
+
         <ProductRelationshipsPanel detail={detail} />
 
         <div className="ppProductDetailLayout">
           <main className="ppProductDetailPrimary">
-            <div className="ppMainFindingCard">
-              <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
-              <div>
-                <span>Overview</span>
-                <h2>{detail.mainFindingTitle}</h2>
-                <div className="ppMainFindingText">
-                  {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
-                    <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
-                  ))}
-                </div>
-              </div>
-            </div>
-
             <div className="ppProductPanel ppIssuesOverviewPanel">
                 <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
                 <div className="ppIssuesTableWrap">
@@ -8968,149 +9119,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </main>
 
           <aside className="ppProductDetailSidebar">
+            <ProductMomentumPanel detail={detail} />
             <ProductBasketContextPanel detail={detail} />
-
-            <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
-              <div className="ppRecommendedActionsHeader">
-                <div>
-                  <span className="ppRecommendedActionsTitle">
-                    <span className="ppRecommendedActionsTitleIcon" aria-hidden="true">
-                      <ProductPulseGlyph type="ai-evidence-synthesis" />
-                    </span>
-                    <h2>Recommended actions</h2>
-                  </span>
-                  <p>Prioritized next steps based on product signals and evidence.</p>
-                  <span>
-                    {detail.hasFullDiagnosis
-                      ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
-                      : "Run full diagnosis to unlock actions"}
-                  </span>
-                </div>
-                <button
-                  className="ppPanelCollapseButton"
-                  type="button"
-                  aria-expanded={!recommendedActionsCollapsed}
-                  aria-controls="pp-recommended-actions-content"
-                  onClick={handleToggleRecommendedActions}
-                >
-                  <s-icon type={recommendedActionsCollapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
-                  <span>{recommendedActionsCollapsed ? "Expand" : "Minimize"}</span>
-                </button>
-              </div>
-              {!recommendedActionsCollapsed && (
-                <div id="pp-recommended-actions-content">
-                  <div className="ppRecommendedActionsToolbar">
-                    <span className="ppRecommendedActionsCountBadge">
-                      <span className="ppRecommendedActionsCountIcon" aria-hidden="true">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </span>
-                      {visibleRecommendedActionCount} action{visibleRecommendedActionCount === 1 ? "" : "s"}
-                    </span>
-                    <label className="ppRecommendedActionsSort">
-                      <span>Sort recommended actions</span>
-                      <select
-                        value={recommendedActionSort}
-                        onChange={(event) => {
-                          setRecommendedActionSort(event.target.value);
-                          setRecommendedActionsExpanded(false);
-                        }}
-                      >
-                        <option value="priority">Sort by priority</option>
-                        <option value="impact">Sort by impact</option>
-                        <option value="confidence">Sort by confidence</option>
-                        <option value="risk">Sort by lowest apply risk</option>
-                        <option value="effort">Sort by lowest effort</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="ppRecommendedActionList">
-                    {!detail.hasFullDiagnosis ? (
-                      <EmptyProductDetailState
-                        message="Recommended actions will appear after you run the full product diagnosis for this product."
-                        variant="recommendedActions"
-                      />
-                    ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
-                      <EmptyProductDetailState
-                        message={hiddenIgnoredRecommendedActionCount
-                          ? `${hiddenIgnoredRecommendedActionCount} recommendation${hiddenIgnoredRecommendedActionCount === 1 ? "" : "s"} hidden because related issues are ignored for this product.`
-                          : "0 deterministic recommended actions from current stored signals."}
-                        variant="recommendedActions"
-                      />
-                    )}
-                    {primaryRecommendedActions.map((action, index) => (
-                      <ProductRecommendedActionCompact
-                        key={getRecommendedActionKey(action)}
-                        action={action}
-                        index={index}
-                        onOpen={handleOpenRecommendedAction}
-                      />
-                    ))}
-                  </div>
-                  {visibleRecommendedActions.length > 3 && (
-                    <>
-                      <div className={`ppRecommendedActionsOverflow${recommendedActionsExpanded ? " isExpanded" : ""}`} aria-hidden={!recommendedActionsExpanded}>
-                        <div className="ppRecommendedActionList ppRecommendedActionList-extra">
-                          {hiddenRecommendedActions.map((action, index) => (
-                            <ProductRecommendedActionCompact
-                              key={getRecommendedActionKey(action)}
-                              action={action}
-                              index={index + primaryRecommendedActions.length}
-                              onOpen={handleOpenRecommendedAction}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        className="ppRecommendedActionsMore"
-                        type="button"
-                        onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
-                      >
-                        <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
-                        <span className="ppRecommendedActionsMoreLabel">
-                          {recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}
-                          <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
-                        </span>
-                        <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
-                      </button>
-                    </>
-                  )}
-                  {minimizedRecommendedActions.length > 0 && (
-                    <MinimizedRecommendedActionsTray
-                      actions={minimizedRecommendedActions}
-                      minimizedActionStates={minimizedActionStates}
-                      onExpand={handleExpandArchivedAction}
-                    />
-                  )}
-                  {editingAction && (
-                    <Form method="post" className="ppActionDraftEditor">
-                      <input type="hidden" name="_action" value="apply-action" />
-                      <input type="hidden" name="productId" value={product.slug} />
-                      <input type="hidden" name="actionId" value={editingAction.id} />
-                      <input type="hidden" name="label" value={editingAction.title} />
-                      <label htmlFor="pp-action-draft">Draft</label>
-                      <textarea
-                        id="pp-action-draft"
-                        name="draftText"
-                        value={draftText}
-                        onChange={(event) => setDraftText(event.target.value)}
-                      />
-                      <div>
-                        <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
-                        <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
-                          {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
-                        </button>
-                      </div>
-                    </Form>
-                  )}
-                </div>
-              )}
-            </div>
 
             <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
             <ProductRiskHistoryPanel detail={detail} />
-            <ProductMomentumPanel detail={detail} />
           </aside>
         </div>
 

@@ -3326,6 +3326,31 @@ s-page[inline-size="large-500"] {
   line-height: 1.5;
 }
 
+.ppProductDetailTopLayout .ppMainFindingCard {
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.ppProductDetailTopLayout .ppMainFindingCard .ppDashboardIcon {
+  width: 38px;
+  height: 38px;
+}
+
+.ppProductDetailTopLayout .ppMainFindingCard > div > span {
+  font-size: 14px;
+}
+
+.ppProductDetailTopLayout .ppMainFindingCard h2 {
+  font-size: 18px;
+  line-height: 1.22;
+}
+
+.ppProductDetailTopLayout .ppMainFindingText p {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
 .ppRiskSnapshotBlock {
   display: grid;
   gap: 12px;
@@ -5847,115 +5872,135 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailSidebar .ppBasketContextPanel {
-  gap: 16px;
-  padding: 20px;
-  border-radius: 14px;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
 }
 
 .ppProductDetailSidebar .ppBasketContextHeader {
-  gap: 12px;
+  gap: 8px;
 }
 
 .ppProductDetailSidebar .ppBasketContextHeaderIcon {
-  width: 46px;
-  height: 46px;
+  width: 34px;
+  height: 34px;
 }
 
 .ppProductDetailSidebar .ppBasketContextHeaderIcon .ppProductPulseSvgIcon {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
 }
 
 .ppProductDetailSidebar .ppBasketContextHeader .ppPurchaseContextInfoLabel {
-  font-size: 18px;
+  font-size: 13px;
 }
 
 .ppProductDetailSidebar .ppBasketContextHeader .ppPurchaseContextInfoLabel button {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .ppProductDetailSidebar .ppBasketContextBody {
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: 10px;
 }
 
 .ppProductDetailSidebar .ppBasketContextMetricGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border-right: 0;
 }
 
 .ppProductDetailSidebar .ppBasketContextMetric {
-  min-height: 84px;
-  padding: 10px 16px 10px 0;
+  min-height: 48px;
+  padding: 6px 6px 6px 0;
+}
+
+.ppProductDetailSidebar .ppBasketContextMetric:nth-child(1),
+.ppProductDetailSidebar .ppBasketContextMetric:nth-child(2),
+.ppProductDetailSidebar .ppBasketContextMetric:nth-child(3) {
+  border-bottom: 0;
 }
 
 .ppProductDetailSidebar .ppBasketContextMetric:nth-child(even) {
-  padding-left: 16px;
+  padding-left: 6px;
+}
+
+.ppProductDetailSidebar .ppBasketContextMetric + .ppBasketContextMetric {
+  padding-left: 8px;
+  border-left: 1px solid var(--pp-slate-200);
 }
 
 .ppProductDetailSidebar .ppBasketContextMetric strong {
-  font-size: 30px;
+  font-size: 20px;
 }
 
 .ppProductDetailSidebar .ppBasketContextMetric span {
-  font-size: 13px;
+  font-size: 9.5px;
+  line-height: 1.15;
 }
 
 .ppProductDetailSidebar .ppBasketContextDetailColumn,
 .ppProductDetailSidebar .ppBasketContextBars {
-  gap: 12px;
+  gap: 7px;
 }
 
 .ppProductDetailSidebar .ppBasketContextBarRow {
-  grid-template-columns: 14px minmax(0, 1fr) 46px;
-  gap: 8px 10px;
+  grid-template-columns: 8px minmax(70px, 0.86fr) minmax(54px, 1fr) 32px;
+  gap: 5px;
 }
 
 .ppProductDetailSidebar .ppBasketContextBarRow > span {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
 }
 
 .ppProductDetailSidebar .ppBasketContextBarRow strong,
 .ppProductDetailSidebar .ppBasketContextBarRow em {
-  font-size: 12px;
+  font-size: 9.5px;
+  line-height: 1.15;
 }
 
 .ppProductDetailSidebar .ppBasketContextBarRow i {
-  grid-column: 2 / -1;
-  height: 10px;
+  height: 7px;
 }
 
 .ppProductDetailSidebar .ppBasketContextCoPurchase {
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 10px;
-  padding-top: 12px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 8px;
 }
 
 .ppProductDetailSidebar .ppBasketContextCoPurchase > span,
 .ppProductDetailSidebar .ppBasketContextInterpretation > span {
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
+}
+
+.ppProductDetailSidebar .ppBasketContextCoPurchase .ppProductPulseSvgIcon,
+.ppProductDetailSidebar .ppBasketContextInterpretation .ppProductPulseSvgIcon {
+  width: 16px;
+  height: 16px;
 }
 
 .ppProductDetailSidebar .ppBasketContextCoPurchase strong,
 .ppProductDetailSidebar .ppBasketContextInterpretation strong {
-  font-size: 13px;
+  font-size: 10.5px;
 }
 
 .ppProductDetailSidebar .ppBasketContextCoPurchase a,
 .ppProductDetailSidebar .ppBasketContextCoPurchase em {
-  font-size: 14px;
+  font-size: 11px;
 }
 
 .ppProductDetailSidebar .ppBasketContextInterpretation {
-  grid-template-columns: 38px minmax(0, 1fr);
-  padding: 14px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px;
 }
 
 .ppProductDetailSidebar .ppBasketContextInterpretation p {
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 10.5px;
+  line-height: 1.32;
 }
 
 .ppProductRelationshipsPanel {
@@ -10137,6 +10182,29 @@ s-page[inline-size="large-500"] {
   }
 
   .ppBasketContextBarRow i {
+    grid-column: 2 / -1;
+  }
+
+  .ppProductDetailSidebar .ppBasketContextMetricGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppProductDetailSidebar .ppBasketContextMetric + .ppBasketContextMetric {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .ppProductDetailSidebar .ppBasketContextMetric:nth-child(1),
+  .ppProductDetailSidebar .ppBasketContextMetric:nth-child(2),
+  .ppProductDetailSidebar .ppBasketContextMetric:nth-child(3) {
+    border-bottom: 1px solid var(--pp-slate-200);
+  }
+
+  .ppProductDetailSidebar .ppBasketContextBarRow {
+    grid-template-columns: 12px minmax(0, 1fr) 38px;
+  }
+
+  .ppProductDetailSidebar .ppBasketContextBarRow i {
     grid-column: 2 / -1;
   }
 

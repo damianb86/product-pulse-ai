@@ -839,15 +839,17 @@ describe("ProductPulse screens", () => {
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const panel = container.querySelector(".ppProductMomentumPanel");
-    const sidebarPanels = Array.from(container.querySelectorAll(".ppProductDetailSidebar > *"));
-    const riskPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppProductRiskHistoryPanel"));
+    const sidebar = panel.closest(".ppProductDetailSidebar");
+    const sidebarPanels = Array.from(sidebar.children);
     const momentumPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppProductMomentumPanel"));
+    const basketPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppBasketContextPanel"));
     const gauge = panel.querySelector(".ppProductMomentumGauge");
     const weeklyChart = panel.querySelector(".ppProductMomentumWeeklyChart");
 
     expect(screen.getAllByText("Product Momentum").length).toBeGreaterThan(0);
-    expect(panel.closest(".ppProductDetailSidebar")).toBeInTheDocument();
-    expect(momentumPanelIndex).toBeGreaterThan(riskPanelIndex);
+    expect(sidebar).toBeInTheDocument();
+    expect(momentumPanelIndex).toBe(0);
+    expect(basketPanelIndex).toBeGreaterThan(momentumPanelIndex);
     expect(gauge.querySelector(".ppProductMomentumGaugeCenter strong")).toHaveTextContent(/\d+\s*\/\s*100/);
     expect(within(gauge).getByText("/ 100")).toBeInTheDocument();
     expect(gauge).toBeInTheDocument();
