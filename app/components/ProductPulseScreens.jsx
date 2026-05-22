@@ -4497,7 +4497,7 @@ function normalizeProductRelationshipIntelligence(summaryValue = null, factorsVa
 }
 
 function normalizeProductRelationshipItems(items = []) {
-  return (Array.isArray(items) ? items : [])
+  const normalizedItems = (Array.isArray(items) ? items : [])
     .filter((item) => item && typeof item === "object")
     .map((item) => {
       const direction = firstNonEmptyString(item.relationship_direction, item.relationshipDirection, item.direction);
@@ -4554,8 +4554,8 @@ function normalizeProductRelationshipItems(items = []) {
         warnings: arrayOfStrings(item.warnings),
       };
     })
-    .filter((item) => item.relatedProductId || item.title !== "Unknown product")
-    .slice(0, 8);
+    .filter((item) => item.relatedProductId || item.title !== "Unknown product");
+  return dedupeProductRelationshipTimelineItems(normalizedItems).slice(0, 8);
 }
 
 function normalizeProductRelationshipMonthlyRows(rows = []) {
@@ -9661,9 +9661,9 @@ function getProductRelationshipSignalTopRelated({ boughtTogether = [], boughtAft
 
 function ProductRelationshipTimelineCard({ detail, relationship }) {
   const currentIdentity = getProductRelationshipCurrentIdentity(detail, relationship);
-  const boughtTogether = getProductRelationshipTimelineItems(relationship.topBoughtTogether, currentIdentity);
-  const boughtBefore = getProductRelationshipTimelineItems(relationship.topBoughtBefore, currentIdentity);
-  const boughtAfter = getProductRelationshipTimelineItems(relationship.topBoughtAfter, currentIdentity);
+  const boughtTogether = getProductRelationshipTimelineItems(relationship.topBoughtTogether, currentIdentity, "together");
+  const boughtBefore = getProductRelationshipTimelineItems(relationship.topBoughtBefore, currentIdentity, "before");
+  const boughtAfter = getProductRelationshipTimelineItems(relationship.topBoughtAfter, currentIdentity, "after");
   return (
     <article className="ppProductRelationshipTimelineCard" id="product-relationship-timeline">
       <div className="ppProductRelationshipTimelineHeader">
@@ -9688,21 +9688,21 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
           kind="before"
           title="Bought before"
           subtitle="Items purchased in the 90 days before"
-          emptyMessage={relationship.customerSequenceAvailable ? "No reliable before relationship detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
+          sequenceAvailable={relationship.customerSequenceAvailable}
         />
         <ProductRelationshipTimelineSideNode
           items={boughtTogether}
           kind="together"
           title="Same cart"
           subtitle="Items purchased together"
-          emptyMessage="No reliable same-order product relationship detected."
+          sameOrderAvailable={relationship.sameOrderAvailable}
         />
         <ProductRelationshipTimelineSideNode
           items={boughtAfter}
           kind="after"
           title="Bought after"
           subtitle="Items purchased in the 90 days after"
-          emptyMessage={relationship.customerSequenceAvailable ? "No reliable after relationship detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
+          sequenceAvailable={relationship.customerSequenceAvailable}
         />
       </div>
     </article>
@@ -9710,10 +9710,10 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
 }
 
 function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount = 0, afterCount = 0 }) {
-  const beforeYs = getProductRelationshipConnectorRows(beforeCount > 0 ? Math.max(beforeCount, 2) : togetherCount);
-  const afterYs = getProductRelationshipConnectorRows(afterCount || togetherCount);
-  const beforeVisible = beforeCount > 0 && togetherCount > 0;
-  const afterVisible = afterCount > 0 && togetherCount > 0;
+  const beforeYs = getProductRelationshipConnectorRows(beforeCount > 0 ? Math.max(beforeCount, 2) : Math.max(togetherCount, 1));
+  const afterYs = getProductRelationshipConnectorRows(afterCount || Math.max(togetherCount, 1));
+  const beforeVisible = beforeCount > 0 || togetherCount > 0;
+  const afterVisible = afterCount > 0 || togetherCount > 0;
 
   return (
     <svg className="ppProductRelationshipTimelineLines" viewBox="0 0 1200 305" preserveAspectRatio="none" aria-hidden="true" focusable="false">
@@ -9756,9 +9756,12 @@ function getProductRelationshipConnectorRows(count = 0) {
   return rowsByCount[visibleCount] || rowsByCount[1];
 }
 
-function getProductRelationshipTimelineItems(items = [], currentIdentity = {}) {
-  return (Array.isArray(items) ? items : [])
-    .filter((item) => item && !isCurrentProductRelationshipItem(item, currentIdentity));
+function getProductRelationshipTimelineItems(items = [], currentIdentity = {}, kind = "") {
+  return dedupeProductRelationshipTimelineItems(
+    (Array.isArray(items) ? items : [])
+      .filter((item) => item && !isCurrentProductRelationshipItem(item, currentIdentity)),
+    kind,
+  );
 }
 
 function getProductRelationshipCurrentIdentity(detail = {}, relationship = {}) {
@@ -9798,7 +9801,7 @@ function normalizeRelationshipIdentityValue(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle, emptyMessage }) {
+function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle, sequenceAvailable = true, sameOrderAvailable = true }) {
   const [expanded, setExpanded] = useState(false);
   const [expandedBucketKeys, setExpandedBucketKeys] = useState(() => new Set());
   const allItems = (Array.isArray(items) ? items : []).filter(Boolean);
@@ -9819,6 +9822,7 @@ function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle
   const collapsedVisibleCount = isTogether ? collapsedItems.length : collapsedBucketItemCount;
   const hasOverflow = hasItems && allItems.length > collapsedVisibleCount;
   const productsClipExpanded = expanded || expandedBucketKeys.size > 0;
+  const emptyState = getProductRelationshipTimelineEmptyState(kind, { sequenceAvailable, sameOrderAvailable });
   const handleToggleColumnExpanded = () => {
     const nextExpanded = !expanded;
     if (!nextExpanded) setExpandedBucketKeys(new Set());
@@ -9874,14 +9878,12 @@ function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle
           )}
         </div>
       ) : (
-        <div className="ppProductRelationshipTimelineEmpty">
-          <img
-            src={isAfter ? PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.after : PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.before}
-            alt=""
-            aria-hidden="true"
-          />
-          <strong>Unavailable</strong>
-          <p>{emptyMessage}</p>
+        <div className={`ppProductRelationshipTimelineEmpty ppProductRelationshipTimelineEmpty-${kind}`}>
+          <span className="ppProductRelationshipTimelineEmptyIcon" aria-hidden="true">
+            <ProductPulseGlyph type={emptyState.icon} />
+          </span>
+          <strong>{emptyState.title}</strong>
+          <p>{emptyState.message}</p>
         </div>
       )}
       {hasOverflow ? (
@@ -9990,6 +9992,65 @@ function countProductRelationshipCollapsedBucketItems(groups = []) {
   return groups.reduce((count, group) => count + Math.min(Array.isArray(group.items) ? group.items.length : 0, 2), 0);
 }
 
+function dedupeProductRelationshipTimelineItems(items = [], kind = "") {
+  const records = new Map();
+  (Array.isArray(items) ? items : []).filter(Boolean).forEach((item, index) => {
+    const identity = getProductRelationshipTimelineItemIdentity(item);
+    const dedupeKind = kind || item.direction || item.relationshipType || "relationship";
+    const key = identity ? `${dedupeKind}:${identity}` : `${dedupeKind}:row-${index}`;
+    const existing = records.get(key);
+    if (!existing || isBetterProductRelationshipTimelineItem(item, existing.item, dedupeKind)) {
+      records.set(key, { item, index: existing?.index ?? index });
+    }
+  });
+  return Array.from(records.values())
+    .sort((left, right) => left.index - right.index)
+    .map((record) => record.item);
+}
+
+function getProductRelationshipTimelineItemIdentity(item = {}) {
+  return normalizeRelationshipIdentityValue(item.relatedProductId || item.productId || item.id)
+    || normalizeRelationshipIdentityValue(item.relatedProductHandle || item.handle)
+    || normalizeRelationshipIdentityValue(item.title || item.relatedProductTitle || item.related_product_title);
+}
+
+function isBetterProductRelationshipTimelineItem(candidate = {}, existing = {}, kind = "") {
+  if (kind === "before" || kind === "after") {
+    const candidateRank = getProductRelationshipTimelineBucketRank(candidate, kind);
+    const existingRank = getProductRelationshipTimelineBucketRank(existing, kind);
+    if (candidateRank !== existingRank) return candidateRank < existingRank;
+  }
+  const candidateScore = getProductRelationshipTimelineStrengthScore(candidate);
+  const existingScore = getProductRelationshipTimelineStrengthScore(existing);
+  return candidateScore > existingScore;
+}
+
+function getProductRelationshipTimelineBucketRank(item = {}, kind = "before") {
+  const days = getProductRelationshipTimelineSourceWindowDays(item, kind);
+  if (days !== null && days <= 7) return 0;
+  if (days !== null && days <= 30) return 1;
+  if (days !== null) return 2;
+  return 3;
+}
+
+function getProductRelationshipTimelineSourceWindowDays(item = {}, kind = "before") {
+  const windowText = String(item.timeWindow || "").trim();
+  const sourceWindowMatch = windowText.match(/(\d+(?:\.\d+)?)\s*(?:d|day|days)?/i);
+  if (sourceWindowMatch) {
+    const sourceWindowDays = Number(sourceWindowMatch[1]);
+    if (Number.isFinite(sourceWindowDays)) return sourceWindowDays;
+  }
+  return getProductRelationshipTimelineWindowDays(item, kind);
+}
+
+function getProductRelationshipTimelineStrengthScore(item = {}) {
+  const rate = Number(item.attachRatePercent || item.relationshipRatePercent || 0);
+  const lift = Number(item.lift || 0);
+  const sample = Number(item.customerCount || item.coOrderCount || item.sampleSize || 0);
+  const confidence = Number(item.confidence || 0);
+  return (rate * 1_000_000) + (lift * 10_000) + (sample * 100) + confidence;
+}
+
 function getProductRelationshipTimelineBucketKey(item = {}, kind = "before") {
   const days = getProductRelationshipTimelineWindowDays(item, kind);
   if (days !== null && days <= 7) return "0-7";
@@ -10018,6 +10079,36 @@ function sortProductRelationshipTimelineItems(items = []) {
     if (rightLift !== leftLift) return rightLift - leftLift;
     return String(left.title || "").localeCompare(String(right.title || ""));
   });
+}
+
+function getProductRelationshipTimelineEmptyState(kind = "together", options = {}) {
+  const sequenceAvailable = options.sequenceAvailable !== false;
+  const sameOrderAvailable = options.sameOrderAvailable !== false;
+  if (kind === "before") {
+    return {
+      icon: "shopify-orders",
+      title: "No reliable earlier purchase yet",
+      message: sequenceAvailable
+        ? "ProductPulse has not found enough order history to say shoppers usually buy another product first, wait, and then buy this one. As repeat-purchase data grows, the strongest earlier products will appear here."
+        : "ProductPulse needs customer-level order history to understand what shoppers buy before this product. Once that sequence data is available, earlier purchases will appear here.",
+    };
+  }
+  if (kind === "after") {
+    return {
+      icon: "product-momentum",
+      title: "No reliable follow-up purchase yet",
+      message: sequenceAvailable
+        ? "ProductPulse has not found enough order history to say shoppers usually come back later and buy another product after this one. As follow-up purchases accumulate, the strongest next products will appear here."
+        : "ProductPulse needs customer-level order history to understand what shoppers buy after this product. Once follow-up purchase data is available, next products will appear here.",
+    };
+  }
+  return {
+    icon: "shopify-product",
+    title: "No reliable same-cart product yet",
+    message: sameOrderAvailable
+      ? "ProductPulse has not found enough same-order evidence to say another product is normally bought with this one in the same cart. When a consistent co-purchase pattern emerges, it will appear here."
+      : "ProductPulse needs order basket data to understand which products are bought with this one in the same cart. Once basket data is available, same-cart products will appear here.",
+  };
 }
 
 function getProductRelationshipDiagnosticHref(item = {}) {

@@ -6172,6 +6172,7 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 6px;
   align-content: end;
+  z-index: 4;
 }
 
 .ppProductRelationshipSignalMetrics {
@@ -6216,6 +6217,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductRelationshipSignalVisual {
   position: absolute;
+  bottom: 38px;
   z-index: 2;
   width: min(170px, 100%);
   height: 48px;
@@ -6983,19 +6985,61 @@ s-page[inline-size="large-500"] {
 .ppProductRelationshipTimelineEmpty {
   display: grid;
   justify-items: center;
-  gap: 10px;
-  padding: 18px 10px;
+  align-content: center;
+  gap: 9px;
+  min-height: 180px;
+  padding: 20px 14px;
+  border: 1px solid rgba(221, 229, 239, 0.72);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.76), rgba(255, 255, 255, 0.9)),
+    var(--pp-cloud-white);
   text-align: center;
 }
 
-.ppProductRelationshipTimelineEmpty img {
-  width: 62px;
-  height: 62px;
-  display: block;
-  object-fit: cover;
+.ppProductRelationshipTimelineEmptyIcon {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(203, 213, 225, 0.9);
   border-radius: 999px;
-  opacity: 0.9;
-  transform: scale(1.42);
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-500);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+}
+
+.ppProductRelationshipTimelineEmptyIcon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.ppProductRelationshipTimelineEmpty-together .ppProductRelationshipTimelineEmptyIcon {
+  border-color: rgba(124, 92, 255, 0.22);
+  color: #7C5CFF;
+  background: #FBF9FF;
+}
+
+.ppProductRelationshipTimelineEmpty-after .ppProductRelationshipTimelineEmptyIcon {
+  border-color: rgba(45, 183, 173, 0.22);
+  color: #18A999;
+  background: #F2FDFB;
+}
+
+.ppProductRelationshipTimelineEmpty strong {
+  max-width: 240px;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1.22;
+}
+
+.ppProductRelationshipTimelineEmpty p {
+  max-width: 285px;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.45;
 }
 
 .ppReturnRefundResolutionPanel {

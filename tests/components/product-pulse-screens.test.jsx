@@ -1351,6 +1351,7 @@ describe("ProductPulse screens", () => {
     const relationshipSummary = productRelationshipSummaryFixture({
       top_bought_before: [
         makeRelationshipItem("before-one", "Before One", "before", 3, 0.23),
+        makeRelationshipItem("before-one", "Before One", "before", 18, 0.18),
         makeRelationshipItem("before-two", "Before Two", "before", 12, 0.2),
         makeRelationshipItem("before-three", "Before Three", "before", 18, 0.19),
         makeRelationshipItem("before-four", "Before Four", "before", 42, 0.17),
@@ -1366,6 +1367,7 @@ describe("ProductPulse screens", () => {
       ],
       top_bought_after: [
         makeRelationshipItem("after-one", "After One", "after", 5, 0.21),
+        makeRelationshipItem("after-one", "After One", "after", 39, 0.22),
         makeRelationshipItem("after-two", "After Two", "after", 16, 0.19),
         makeRelationshipItem("after-three", "After Three", "after", 39, 0.17),
       ],
@@ -1390,6 +1392,10 @@ describe("ProductPulse screens", () => {
     expect(within(afterColumn).getByText("0-7 days")).toBeInTheDocument();
     expect(within(afterColumn).getByText("8-30 days")).toBeInTheDocument();
     expect(within(afterColumn).getByText("30+ days")).toBeInTheDocument();
+    expect(within(beforeColumn).getAllByText("Before One")).toHaveLength(1);
+    expect(within(beforeColumn).queryByText("18% within 18 days before")).not.toBeInTheDocument();
+    expect(within(afterColumn).getAllByText("After One")).toHaveLength(1);
+    expect(within(afterColumn).queryByText("22% within 39 days after")).not.toBeInTheDocument();
     expect(within(beforeColumn).queryByText("Before Six")).not.toBeInTheDocument();
     const beforeThirtyPlusBucket = within(beforeColumn).getByRole("region", { name: "30+ days relationship products" });
     fireEvent.click(within(beforeThirtyPlusBucket).getByRole("button", { name: "View more (3)" }));
@@ -1404,6 +1410,43 @@ describe("ProductPulse screens", () => {
     fireEvent.click(within(togetherColumn).getByRole("button", { name: "View all (5)" }));
     expect(within(togetherColumn).getByText("Same Five")).toBeInTheDocument();
     expect(within(beforeColumn).getAllByRole("link", { name: /^Open Before/ }).length).toBeGreaterThan(0);
+  });
+
+  it("renders specific empty relationship timeline states and keeps timeline connectors visible", () => {
+    const sameCartEmptyProduct = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productRelationshipIntelligenceSummary: productRelationshipSummaryFixture({
+          top_bought_together: [],
+        }),
+      },
+    };
+    const sameCartRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={sameCartEmptyProduct} />);
+    const sameCartPanel = sameCartRender.container.querySelector(".ppProductRelationshipsPanel");
+    expect(within(sameCartPanel).getByText("No reliable same-cart product yet")).toBeInTheDocument();
+    expect(within(sameCartPanel).getByText(/not found enough same-order evidence/i)).toBeInTheDocument();
+    expect(sameCartPanel.querySelectorAll(".ppProductRelationshipTimelineLineBefore").length).toBeGreaterThan(0);
+    expect(sameCartPanel.querySelectorAll(".ppProductRelationshipTimelineLineTogether").length).toBeGreaterThan(0);
+
+    const emptyProduct = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productRelationshipIntelligenceSummary: productRelationshipSummaryFixture({
+          top_bought_before: [],
+          top_bought_together: [],
+          top_bought_after: [],
+        }),
+      },
+    };
+    const emptyRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={emptyProduct} />);
+    const emptyPanel = emptyRender.container.querySelector(".ppProductRelationshipsPanel");
+    expect(within(emptyPanel).getByText("No reliable earlier purchase yet")).toBeInTheDocument();
+    expect(within(emptyPanel).getByText(/buy another product first, wait, and then buy this one/i)).toBeInTheDocument();
+    expect(within(emptyPanel).getByText("No reliable same-cart product yet")).toBeInTheDocument();
+    expect(within(emptyPanel).getByText("No reliable follow-up purchase yet")).toBeInTheDocument();
+    expect(within(emptyPanel).getByText(/come back later and buy another product after this one/i)).toBeInTheDocument();
   });
 
   it("handles missing and low-confidence product relationship data without overemphasis", () => {
