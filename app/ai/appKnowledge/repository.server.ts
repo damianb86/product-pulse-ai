@@ -5,6 +5,7 @@ import {
   APP_SCREEN_GUIDES,
   APP_SETTING_EXPLANATIONS,
 } from "./knowledgeBase";
+import { APP_PRODUCT_DETAIL_CARD_EXPLANATIONS } from "./productDetailCards";
 import type {
   AppConceptExplanation,
   AppKnowledgeAudience,
@@ -13,6 +14,8 @@ import type {
   AppKnowledgeSnippet,
   AppKnowledgeSourceReference,
   AppKnowledgeTopic,
+  AppProductDetailCardExplanation,
+  AppProductDetailCardSearchResult,
   AppScoreExplanation,
   AppScreenGuide,
   AppSettingExplanation,
@@ -70,6 +73,7 @@ export class AppKnowledgeRepository {
   getScoreExplanation(scoreName: string, audience: AppKnowledgeAudience = "merchant"): AppScoreExplanation {
     const score = findNamed(APP_SCORE_EXPLANATIONS, scoreName, (item) => [
       item.scoreName,
+      ...(item.aliases || []),
       ...item.inputs,
       ...item.thresholds.map((threshold) => threshold.label),
     ]);
@@ -87,6 +91,55 @@ export class AppKnowledgeRepository {
       };
     }
     return redactScore(score, audience);
+  }
+
+  searchProductDetailCards(input: {
+    query: string;
+    limit?: number;
+    audience?: AppKnowledgeAudience;
+  }): AppProductDetailCardSearchResult {
+    const query = input.query.trim();
+    const audience = input.audience || "merchant";
+    const limit = normalizeKnowledgeLimit(input.limit);
+    const queryTokens = tokenize(query);
+    const normalizedQuery = normalizeText(query);
+
+    const results = APP_PRODUCT_DETAIL_CARD_EXPLANATIONS
+      .map((card) => ({ card, score: scoreProductDetailCard(card, queryTokens, normalizedQuery) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.card.title.localeCompare(b.card.title))
+      .slice(0, limit)
+      .map((item) => redactProductDetailCard(item.card, audience));
+
+    return { query, results };
+  }
+
+  getProductDetailCardExplanation(
+    cardName: string,
+    audience: AppKnowledgeAudience = "merchant",
+  ): AppProductDetailCardExplanation {
+    const card = findNamed(APP_PRODUCT_DETAIL_CARD_EXPLANATIONS, cardName, (item) => [
+      item.cardName,
+      item.title,
+      item.subtitle || "",
+      ...(item.aliases || []),
+    ]);
+    if (!card) {
+      return {
+        found: false,
+        cardName,
+        title: cardName,
+        purpose: "ProductPulse does not have a documented Product Detail card or metric with that name yet.",
+        whereShown: "Unknown in the curated app knowledge base.",
+        supportingFormulas: [],
+        inputs: [],
+        interpretation: ["Ask about a visible Product Detail card such as Overview, Recommended Actions, Product Momentum, Basket Context, Return pressure, Refund leakage, Lift, or Product relationship timeline."],
+        caveats: ["The assistant should not invent missing card definitions or formulas."],
+        relatedMetrics: [],
+        confidence: "low",
+      };
+    }
+    return redactProductDetailCard(card, audience);
   }
 
   getScreenGuide(screenName: string, audience: AppKnowledgeAudience = "merchant"): AppScreenGuide {
@@ -218,6 +271,16 @@ function redactScore(score: AppScoreExplanation, audience: AppKnowledgeAudience)
   };
 }
 
+function redactProductDetailCard(
+  card: AppProductDetailCardExplanation,
+  audience: AppKnowledgeAudience,
+): AppProductDetailCardExplanation {
+  return {
+    ...card,
+    source: card.source ? redactSource(card.source, audience) : undefined,
+  };
+}
+
 function redactScreen(screen: AppScreenGuide, audience: AppKnowledgeAudience): AppScreenGuide {
   return {
     ...screen,
@@ -254,6 +317,37 @@ function normalizeText(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function scoreProductDetailCard(
+  card: AppProductDetailCardExplanation,
+  queryTokens: string[],
+  normalizedQuery: string,
+): number {
+  const haystack = normalizeText([
+    card.cardName,
+    card.title,
+    card.subtitle,
+    card.purpose,
+    card.whereShown,
+    card.valueFormula,
+    ...card.supportingFormulas,
+    ...card.inputs,
+    ...card.interpretation,
+    ...card.caveats,
+    ...card.relatedMetrics,
+    ...(card.aliases || []),
+  ].filter(Boolean).join(" "));
+  let score = normalizedQuery && haystack.includes(normalizedQuery) ? 7 : 0;
+  for (const token of queryTokens) {
+    if (!token) continue;
+    if (normalizeText(card.cardName).includes(token)) score += 5;
+    if (normalizeText(card.title).includes(token)) score += 5;
+    if (card.aliases?.some((alias) => normalizeText(alias).includes(token))) score += 4;
+    if (card.relatedMetrics.some((metric) => normalizeText(metric).includes(token))) score += 3;
+    if (haystack.includes(token)) score += 1;
+  }
+  return score;
 }
 
 function truncateKnowledgeText(value: string, maxLength: number): string {

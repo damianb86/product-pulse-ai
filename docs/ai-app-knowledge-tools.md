@@ -25,6 +25,7 @@ Curated user/developer knowledge lives in:
 - `docs/app-knowledge/settings.md`
 - `docs/app-knowledge/recommended-actions.md`
 - `docs/app-knowledge/app-owned-actions.md`
+- `docs/app-knowledge/product-detail-cards.md`
 - `docs/app-knowledge/interaction-guidance.md`
 - `docs/app-knowledge/glossary.md`
 
@@ -40,6 +41,8 @@ Registered through the existing AI tool registry:
 - `product_pulse_get_screen_guide`
 - `product_pulse_get_setting_explanation`
 - `product_pulse_get_interaction_guidance`
+- `product_pulse_search_product_detail_cards`
+- `product_pulse_get_product_detail_card_explanation`
 
 All tools are:
 
@@ -51,6 +54,8 @@ All tools are:
 - unrelated to Shopify mutations.
 
 `product_pulse_get_interaction_guidance` is used when the merchant request is broad or ambiguous. It returns supported next-step options and example prompts for product information, methodology explanations, watchlist work, creating ProductPulse actions, editing ProductPulse actions, and safe alternatives to direct Shopify mutations.
+
+`product_pulse_get_product_detail_card_explanation` and `product_pulse_search_product_detail_cards` are used when the merchant asks what a visible product-page card, metric tile, timeline label, relationship metric, title, or subtitle means. They cover Overview, Recommended Actions, Product Momentum, Basket Context, Return pressure, Refund leakage, Lift, Return/refund resolution, Product relationship timeline, rates, and related detail cards.
 
 ## Merchant vs Developer Output
 
@@ -89,6 +94,9 @@ The scoring knowledge currently documents:
 - Catalog share;
 - Trend consistency;
 - Recency;
+- Lift;
+- Return pressure;
+- Refund leakage;
 - Negative review pressure.
 
 When a score or formula is unknown, the tool returns `found: false` and explicitly tells the assistant not to invent the formula.

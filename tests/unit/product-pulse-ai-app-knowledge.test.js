@@ -72,6 +72,9 @@ describe("ProductPulse AI app knowledge repository", () => {
     const catalogShare = repository.getScoreExplanation("Catalog share");
     const trendConsistency = repository.getScoreExplanation("Trend consistency");
     const recency = repository.getScoreExplanation("Recency");
+    const lift = repository.getScoreExplanation("lift");
+    const returnPressure = repository.getScoreExplanation("Return Pressure");
+    const refundLeakage = repository.getScoreExplanation("Refund leakage");
     const negativeReviewPressure = repository.getScoreExplanation("Negative review pressure");
     const unknown = repository.getScoreExplanation("magic conversion score");
 
@@ -97,11 +100,47 @@ describe("ProductPulse AI app knowledge repository", () => {
     expect(trendConsistency.formula).toContain("trendConsistencyScore");
     expect(recency.found).toBe(true);
     expect(recency.formula).toContain("riskRecencyBonus");
+    expect(lift.found).toBe(true);
+    expect(lift.formula).toContain("relationshipLift");
+    expect(returnPressure.found).toBe(true);
+    expect(returnPressure.formula).toContain("returnRiskWeight");
+    expect(refundLeakage.found).toBe(true);
+    expect(refundLeakage.formula).toContain("refundRiskWeight");
     expect(negativeReviewPressure.found).toBe(true);
     expect(negativeReviewPressure.formula).toContain("negativeReviewCount / reviewCount");
     expect(JSON.stringify(risk)).not.toContain("app/lib/");
     expect(unknown.found).toBe(false);
     expect(unknown.logic).toContain("Unknown");
+    expect(unknown.caveats.join(" ")).toContain("should not invent");
+  });
+
+  it("returns product detail card explanations for visible product page cards and metrics", () => {
+    const repository = new AppKnowledgeRepository();
+
+    const overview = repository.getProductDetailCardExplanation("Overview");
+    const recommendedActions = repository.getProductDetailCardExplanation("Recommended Actions");
+    const basketContext = repository.getProductDetailCardExplanation("Basket Context");
+    const relationshipTimeline = repository.getProductDetailCardExplanation("Product relationship timeline");
+    const lift = repository.getProductDetailCardExplanation("Lift");
+    const returnPressure = repository.getProductDetailCardExplanation("Return pressure");
+    const search = repository.searchProductDetailCards({ query: "return refund relationship lift", limit: 4 });
+    const unknown = repository.getProductDetailCardExplanation("magic card");
+
+    expect(overview.found).toBe(true);
+    expect(overview.valueFormula).toContain("ProductRiskSnapshot");
+    expect(recommendedActions.found).toBe(true);
+    expect(recommendedActions.caveats.join(" ")).toContain("Shopify");
+    expect(basketContext.found).toBe(true);
+    expect(basketContext.valueFormula).toContain("multiProductBasketRate");
+    expect(relationshipTimeline.found).toBe(true);
+    expect(relationshipTimeline.valueFormula).toContain("sameOrderLift");
+    expect(lift.found).toBe(true);
+    expect(lift.supportingFormulas.join(" ")).toContain("shareLiftRatio");
+    expect(returnPressure.found).toBe(true);
+    expect(returnPressure.supportingFormulas.join(" ")).toContain("returnRiskWeight");
+    expect(search.results.length).toBeGreaterThan(0);
+    expect(JSON.stringify(search)).not.toContain("app/lib/");
+    expect(unknown.found).toBe(false);
     expect(unknown.caveats.join(" ")).toContain("should not invent");
   });
 
@@ -146,6 +185,8 @@ describe("ProductPulse AI app knowledge tools", () => {
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.searchAppKnowledge,
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getAppConceptExplanation,
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getScoreExplanation,
+      PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.searchProductDetailCards,
+      PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getProductDetailCardExplanation,
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getScreenGuide,
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getSettingExplanation,
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getInteractionGuidance,
@@ -177,6 +218,11 @@ describe("ProductPulse AI app knowledge tools", () => {
         limit: 3,
       },
     );
+    const card = await registry.executeAiTool(
+      PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getProductDetailCardExplanation,
+      context,
+      { cardName: "Basket Context" },
+    );
 
     expect(result.ok).toBe(true);
     expect(result.data.scoreName).toBe("Product Momentum");
@@ -184,6 +230,8 @@ describe("ProductPulse AI app knowledge tools", () => {
     expect(guidance.ok).toBe(true);
     expect(guidance.data.intent).toBe("product_information");
     expect(guidance.data.options).toHaveLength(3);
+    expect(card.ok).toBe(true);
+    expect(card.data.valueFormula).toContain("multiProductBasketRate");
     expect(rejected.ok).toBe(false);
     expect(rejected.error.code).toBe("VALIDATION_ERROR");
   });

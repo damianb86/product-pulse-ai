@@ -202,6 +202,43 @@ Formula:
 
 If sold units are zero, the rate is 0.
 
+### Return Pressure
+
+Return pressure is the Product Detail metric for product return friction. The visible card uses returned units and return rate. The risk model uses a baseline-aware anomaly with sample support.
+
+Visible formula:
+
+`returnPressure = returnRate = returnedUnits / soldUnits`
+
+Risk contribution:
+
+`returnRiskWeight = returnAnomaly * sampleSupport`
+
+Where:
+
+`returnAnomaly = storeAvgReturnRate > 0 ? max(0, min(25, ((returnRate / storeAvgReturnRate) - 1) * 14)) : min(22, returnRate * 1.2)`
+
+Return pressure is intentionally separate from refund dollars.
+
+### Refund Leakage
+
+Refund leakage is the Product Detail metric for sales value leaking into refunds. The visible card uses refunded units, refund rate, refund amount, and attribution context. The risk model uses refund anomaly, amount impact, high-pressure rules, and support.
+
+Visible formula:
+
+`refundLeakage = refundRate = refundedUnits / soldUnits`
+
+Risk contribution:
+
+`refundRiskWeight = (refundAnomaly + impact + pressure) * refundSupport`
+
+Where:
+
+- `refundAnomaly = storeAvgRefundRate > 0 ? max(0, min(20, ((refundRate / storeAvgRefundRate) - 1) * 11)) : min(18, refundRate)`
+- `impact = min(15, log10(refundAmount + 1) * 4)`
+
+Refund leakage is money-focused. Return pressure is friction-focused.
+
 ### Review Rating And Negative Review Rate
 
 For QuickScan CSV review ratings:
@@ -288,6 +325,29 @@ Fallback when only catalog rank is available:
 `positionScore = clamp(98 - topCatalogPercent * 1.55, 42, 94)`
 
 `catalogShareScore = clamp(0.65 * positionScore + 0.35 * min(storedScore || positionScore, 92), 0, 94)`
+
+### Lift
+
+Lift is a baseline comparison ratio. ProductPulse uses it in Product Momentum Catalog Share and in Product Relationship Intelligence.
+
+Catalog share lift:
+
+`shareLiftRatio = (productShareLast30 + 0.0001) / (productShareBaseline + 0.0001)`
+
+`liftScore = clamp(50 + 26 * log2(shareLiftRatio), 0, 96)`
+
+Product relationship lift:
+
+- `sameOrderLift = attachRate / relatedProductBaseRate`
+- `beforeAfterLift = relationshipRate / customerBaseRateOfRelatedProduct`
+
+Interpretation:
+
+- Above `1x`: stronger than baseline.
+- Around `1x`: about baseline.
+- Below `1x`: weaker than baseline.
+
+High lift with low sample size should not be treated as reliable by itself.
 
 ### Trend Consistency
 

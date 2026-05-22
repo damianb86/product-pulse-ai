@@ -307,6 +307,16 @@ function methodologyOptions(): AppInteractionGuidanceOption[] {
       backendCapability: { kind: "tool", name: "product_pulse_get_score_explanation" },
     },
     {
+      id: "product_detail_card",
+      label: "Tarjeta del producto",
+      description: "Explica qué significa una tarjeta o métrica visible del detalle de producto, como Overview, Lift, Basket Context o Return pressure.",
+      examplePrompt: "Qué significa la tarjeta Basket Context y cómo se calcula Lift?",
+      category: "explain",
+      requiresProductContext: false,
+      requiresConfirmation: false,
+      backendCapability: { kind: "tool", name: "product_pulse_get_product_detail_card_explanation" },
+    },
+    {
       id: "quickscan",
       label: "QuickScan",
       description: "Explica cómo se seleccionan candidatos y qué significa un scan rápido.",

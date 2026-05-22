@@ -10,6 +10,7 @@ export const APP_KNOWLEDGE_TOPICS = [
   "settings",
   "recommended_actions",
   "app_owned_actions",
+  "product_detail",
   "interaction_guidance",
   "glossary",
 ] as const;
@@ -73,6 +74,7 @@ export interface AppScoreThreshold {
 export interface AppScoreExplanation {
   found: boolean;
   scoreName: string;
+  aliases?: string[];
   meaning: string;
   logic: string;
   formula?: string;
@@ -83,6 +85,29 @@ export interface AppScoreExplanation {
   caveats: string[];
   source?: AppKnowledgeSourceReference;
   confidence: AppKnowledgeConfidence;
+}
+
+export interface AppProductDetailCardExplanation {
+  found: boolean;
+  cardName: string;
+  aliases?: string[];
+  title: string;
+  subtitle?: string;
+  purpose: string;
+  whereShown: string;
+  valueFormula?: string;
+  supportingFormulas: string[];
+  inputs: string[];
+  interpretation: string[];
+  caveats: string[];
+  relatedMetrics: string[];
+  source?: AppKnowledgeSourceReference;
+  confidence: AppKnowledgeConfidence;
+}
+
+export interface AppProductDetailCardSearchResult {
+  query: string;
+  results: AppProductDetailCardExplanation[];
 }
 
 export interface AppScreenGuide {

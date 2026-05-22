@@ -16,6 +16,8 @@ export const PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES = {
   getScreenGuide: "product_pulse_get_screen_guide",
   getSettingExplanation: "product_pulse_get_setting_explanation",
   getInteractionGuidance: "product_pulse_get_interaction_guidance",
+  searchProductDetailCards: "product_pulse_search_product_detail_cards",
+  getProductDetailCardExplanation: "product_pulse_get_product_detail_card_explanation",
 } as const;
 
 export interface AppKnowledgeToolDependencies {
@@ -44,6 +46,17 @@ const scoreInputSchema = z.object({
   audience: audienceSchema,
 }).strict();
 
+const productDetailCardSearchInputSchema = z.object({
+  query: z.string().trim().min(1).max(240),
+  limit: limitSchema,
+  audience: audienceSchema,
+}).strict();
+
+const productDetailCardInputSchema = z.object({
+  cardName: z.string().trim().min(1).max(160),
+  audience: audienceSchema,
+}).strict();
+
 const screenInputSchema = z.object({
   screenName: z.string().trim().min(1).max(120),
   audience: audienceSchema,
@@ -65,6 +78,8 @@ const interactionGuidanceInputSchema = z.object({
 type SearchInput = z.infer<typeof searchAppKnowledgeInputSchema>;
 type ConceptInput = z.infer<typeof conceptInputSchema>;
 type ScoreInput = z.infer<typeof scoreInputSchema>;
+type ProductDetailCardSearchInput = z.infer<typeof productDetailCardSearchInputSchema>;
+type ProductDetailCardInput = z.infer<typeof productDetailCardInputSchema>;
 type ScreenInput = z.infer<typeof screenInputSchema>;
 type SettingInput = z.infer<typeof settingInputSchema>;
 type InteractionGuidanceInput = z.infer<typeof interactionGuidanceInputSchema>;
@@ -152,6 +167,71 @@ export function createAppKnowledgeToolDefinitions(
         metadata: {
           resultCount: result.found ? 1 : 0,
           dataFreshness: [{ source: "ProductPulse app knowledge", updatedAt: null }],
+        },
+      };
+    },
+  };
+
+  const productDetailCardSearchTool: AiToolDefinition<
+    ProductDetailCardSearchInput,
+    ReturnType<AppKnowledgeRepository["searchProductDetailCards"]>
+  > = {
+    name: PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.searchProductDetailCards,
+    description: "Search curated explanations for ProductPulse Product Detail cards, visible metric tiles, relationship panels, and card titles.",
+    inputSchema: productDetailCardSearchInputSchema,
+    readOnly: true,
+    category: "app_knowledge",
+    permissionLevel: "merchant",
+    metadata: {
+      resultType: "AppProductDetailCardSearchResult",
+      dataSources: ["docs/app-knowledge/product-detail-cards.md", "app/components/ProductPulseScreens.jsx"],
+      maxResultCount: 8,
+      providerAgnostic: true,
+    },
+    async execute(_context, input) {
+      const limit = normalizeKnowledgeLimit(input.limit);
+      const result = repository.searchProductDetailCards({
+        query: input.query,
+        limit,
+        audience: input.audience as AppKnowledgeAudience,
+      });
+      return {
+        data: result,
+        metadata: {
+          resultCount: result.results.length,
+          limit,
+          dataFreshness: [{ source: "ProductPulse product detail card knowledge", updatedAt: null }],
+        },
+      };
+    },
+  };
+
+  const productDetailCardTool: AiToolDefinition<
+    ProductDetailCardInput,
+    ReturnType<AppKnowledgeRepository["getProductDetailCardExplanation"]>
+  > = {
+    name: PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getProductDetailCardExplanation,
+    description: "Explain one ProductPulse Product Detail card or metric title, including purpose, formula, inputs, interpretation, and caveats.",
+    inputSchema: productDetailCardInputSchema,
+    readOnly: true,
+    category: "app_knowledge",
+    permissionLevel: "merchant",
+    metadata: {
+      resultType: "AppProductDetailCardExplanation",
+      dataSources: ["docs/app-knowledge/product-detail-cards.md", "docs/product-relationship-intelligence-metrics.md"],
+      maxResultCount: 1,
+      providerAgnostic: true,
+    },
+    async execute(_context, input) {
+      const result = repository.getProductDetailCardExplanation(
+        input.cardName,
+        input.audience as AppKnowledgeAudience,
+      );
+      return {
+        data: result,
+        metadata: {
+          resultCount: result.found ? 1 : 0,
+          dataFreshness: [{ source: "ProductPulse product detail card knowledge", updatedAt: null }],
         },
       };
     },
@@ -246,6 +326,8 @@ export function createAppKnowledgeToolDefinitions(
     searchTool,
     conceptTool,
     scoreTool,
+    productDetailCardSearchTool,
+    productDetailCardTool,
     screenTool,
     settingTool,
     interactionGuidanceTool,
