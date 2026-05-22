@@ -1195,26 +1195,24 @@ describe("ProductPulse screens", () => {
 
     expect(purchasePanel).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Purchase context")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Solo purchase")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("72.2%")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("13 solo · 5 basket orders")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Quantity/order")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("1.4")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("How this product is bought")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Bought alone")).toBeInTheDocument();
+    expect(within(purchasePanel).getAllByText("72.2%").length).toBeGreaterThan(0);
+    expect(within(purchasePanel).getByText("Quantity distribution")).toBeInTheDocument();
+    expect(within(purchasePanel).getAllByText("1.4").length).toBeGreaterThan(0);
     expect(within(purchasePanel).getByText("1 unit")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("4+ units")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Variant behavior")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("16.7%")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Care Kit")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("6 orders")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("33.3% co-order · 2.1x affinity")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Purchase context over time")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Multi-variant orders")).toBeInTheDocument();
+    expect(within(purchasePanel).getAllByText("16.7%").length).toBeGreaterThan(0);
+    expect(within(purchasePanel).getByText("What this tells us")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Why it matters")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("AI insight")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Recommended actions")).toBeInTheDocument();
     expect(within(purchasePanel).getByText(/usually bought alone, so negative signals are easier to attribute/i)).toBeInTheDocument();
 
     expect(within(riskSnapshot).getByText("72.2% solo purchase attribution")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Strong attribution: 72.2% solo purchase rate")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Bulk orders increase unit exposure")).toBeInTheDocument();
-    fireEvent.mouseEnter(within(purchasePanel).getByRole("button", { name: "Solo purchase explanation" }));
-    expect(screen.getByText(/no other distinct product was purchased/i)).toBeInTheDocument();
   });
 
   it("handles missing and unavailable purchase context without fake variant data", () => {
@@ -1243,9 +1241,9 @@ describe("ProductPulse screens", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const purchasePanel = container.querySelector(".ppPurchaseContextPanel");
 
-    expect(within(purchasePanel).getByText("Basket product")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("100%")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("No reliable co-purchase pattern yet.")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("Bought with other products")).toBeInTheDocument();
+    expect(within(purchasePanel).getAllByText("100%").length).toBeGreaterThan(0);
+    expect(within(purchasePanel).getByText("Usually bought with other products")).toBeInTheDocument();
     expect(within(purchasePanel).queryByText("Variant behavior")).not.toBeInTheDocument();
 
     const missingProduct = {

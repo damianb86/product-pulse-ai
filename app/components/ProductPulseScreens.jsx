@@ -9142,9 +9142,11 @@ function ProductPurchaseContextPanel({ detail }) {
   const hasData = context.available && context.hasOrderData;
   const isBasketProduct = context.multiProductBasketRatePercent > context.soloPurchaseRatePercent;
   const quantityBuckets = getPurchaseContextQuantityBuckets(context);
-  const soloBasketSegments = getPurchaseContextSoloBasketSegments(context);
+  const compositionSegments = getPurchaseContextCompositionSegments(context);
   const interpretation = context.interpretation || "Purchase-context scoring has not produced a backend interpretation for this product yet.";
-  const contextOverTime = getPurchaseContextMonthlyRows(context);
+  const takeaways = getPurchaseContextTakeaways(context);
+  const matterRows = getPurchaseContextMatterRows(context);
+  const recommendedActions = getPurchaseContextRecommendedActions(context);
 
   return (
     <section className={`ppProductPanel ppPurchaseContextPanel${hasData ? "" : " isUnavailable"}`} aria-label="Purchase context">
@@ -9155,7 +9157,7 @@ function ProductPurchaseContextPanel({ detail }) {
             Basket analysis
           </span>
           <h2>Purchase context</h2>
-          <p>Explains how customers usually buy this product inside Shopify orders.</p>
+          <p>How customers usually buy this product and what it means for attribution, cross-sell, and risk interpretation.</p>
         </div>
         <span className={`ppPurchaseContextConfidence ppPurchaseContextConfidence-${String(context.purchaseContextConfidenceLabel || "unavailable").toLowerCase()}`}>
           {hasData ? context.purchaseContextConfidenceLabel : "Unavailable"} confidence
@@ -9166,133 +9168,266 @@ function ProductPurchaseContextPanel({ detail }) {
         <EmptyProductDetailState message="Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available." />
       ) : (
         <>
-          <div className="ppPurchaseContextGrid">
-            <article className="ppPurchaseContextCard ppPurchaseContextCard-wide">
-              <div className="ppPurchaseContextCardHeader">
-                <span>
-                  <ProductPulseGlyph type={isBasketProduct ? "shopify-product" : "shopify-orders"} />
-                </span>
+          <article className="ppPurchaseContextOverviewCard">
+            <div className="ppPurchaseContextBought">
+              <div className="ppPurchaseContextBlockHeader">
+                <span><ProductPulseGlyph type={isBasketProduct ? "shopify-product" : "shopify-orders"} /></span>
                 <div>
-                  <PurchaseContextInfoLabel label={isBasketProduct ? "Basket product" : "Solo purchase"} help={isBasketProduct ? PURCHASE_CONTEXT_HELP.basket : PURCHASE_CONTEXT_HELP.solo} />
-                  <small>{formatInteger(context.soloProductOrderCount)} solo · {formatInteger(context.multiProductOrderCount)} basket orders</small>
+                  <strong>How this product is bought</strong>
+                  <small>Summary of basket behavior and order composition</small>
                 </div>
               </div>
-              <div className="ppPurchaseContextPrimary">
-                <strong>{formatPercent(isBasketProduct ? context.multiProductBasketRatePercent : context.soloPurchaseRatePercent)}</strong>
-                <span>{isBasketProduct ? "usually bought with other products" : "usually bought as a standalone product"}</span>
-              </div>
-              <div className="ppPurchaseContextStackedBar" aria-label="Solo versus basket order distribution">
-                {soloBasketSegments.map((segment) => (
-                  <span key={segment.key} className={`ppPurchaseContextStackedSegment ppPurchaseContextStackedSegment-${segment.tone}`} style={{ width: `${segment.width}%` }} title={`${segment.label}: ${segment.display}`} />
+              <div className="ppPurchaseContextCompositionBar" aria-label="Purchase context composition">
+                {compositionSegments.map((segment) => (
+                  <span
+                    key={segment.key}
+                    className={`ppPurchaseContextCompositionSegment ppPurchaseContextCompositionSegment-${segment.tone}`}
+                    style={{ flexBasis: `${segment.width}%` }}
+                    title={`${segment.title}: ${segment.value}`}
+                  >
+                    <strong>{segment.value}</strong>
+                    <em>{segment.title}</em>
+                    <small>{segment.detail}</small>
+                  </span>
                 ))}
               </div>
-              <p className="ppPurchaseContextCardNote">Avg {formatDecimal(context.avgDistinctProductsPerOrder, 1)} distinct products/order · {formatInteger(context.totalOrdersContainingProduct)} product orders</p>
-            </article>
-
-            <article className="ppPurchaseContextCard ppPurchaseContextCard-wide">
-              <div className="ppPurchaseContextCardHeader">
-                <span><ProductPulseGlyph type="variants" /></span>
-                <div>
-                  <PurchaseContextInfoLabel label="Quantity/order" help={PURCHASE_CONTEXT_HELP.quantity} />
-                  <small>{formatPercent(context.singleUnitPurchaseRatePercent)} single-unit · {formatPercent(context.bulkPurchaseRatePercent)} bulk</small>
-                </div>
+              <div className="ppPurchaseContextMetricTiles">
+                <PurchaseContextMetricTile icon="customer-language-analysis" value={formatPercent(context.soloPurchaseRatePercent)} label="Solo purchase rate" />
+                <PurchaseContextMetricTile icon="shopify-product" value={formatDecimal(context.avgProductQuantityPerOrder, 1)} label="Units per order" />
+                <PurchaseContextMetricTile icon="main-issue" value={formatPercent(context.multiVariantOrderRatePercent)} label="Multi-variant rate" />
+                <PurchaseContextMetricTile icon="shopify-returns" value={formatInteger(context.totalOrdersContainingProduct)} label="Product orders" />
               </div>
-              <div className="ppPurchaseContextPrimary">
-                <strong>{formatDecimal(context.avgProductQuantityPerOrder, 1)}</strong>
-                <span>average units per order</span>
+            </div>
+
+            <div className="ppPurchaseContextQuantityPanel">
+              <div>
+                <PurchaseContextInfoLabel label="Quantity distribution" help={PURCHASE_CONTEXT_HELP.quantity} />
+                <small>% of orders by units per order</small>
               </div>
               <div className="ppPurchaseQuantityChart" aria-label="Quantity distribution chart">
                 {quantityBuckets.map((bucket) => (
                   <div className="ppPurchaseQuantityRow" key={bucket.key}>
                     <span>{bucket.label}</span>
                     <div><i style={{ width: `${bucket.width}%` }} /></div>
-                    <strong>{formatInteger(bucket.count)}</strong>
+                    <strong>{formatPercent(bucket.rate)}</strong>
                   </div>
                 ))}
               </div>
-            </article>
-
-            {context.variantDataAvailable ? (
-              <article className="ppPurchaseContextCard">
-                <div className="ppPurchaseContextCardHeader">
-                  <span><ProductPulseGlyph type="variants" /></span>
-                  <div>
-                    <PurchaseContextInfoLabel label="Variant behavior" help={PURCHASE_CONTEXT_HELP.variant} />
-                    <small>{formatInteger(context.multiVariantOrderCount)} multi-variant orders</small>
-                  </div>
-                </div>
-                <div className="ppPurchaseContextPrimary">
-                  <strong>{formatPercent(context.multiVariantOrderRatePercent)}</strong>
-                  <span>{context.multiVariantOrderRatePercent >= 10 ? "may indicate variant comparison" : "low variant comparison"}</span>
-                </div>
-                <p className="ppPurchaseContextCardNote">Useful for sizing, color, variant label and photo clarity diagnosis.</p>
-              </article>
-            ) : null}
-
-            <article className="ppPurchaseContextCard">
-              <div className="ppPurchaseContextCardHeader">
-                <span><ProductPulseGlyph type="shopify-product" /></span>
-                <div>
-                  <PurchaseContextInfoLabel label="Co-purchased products" help={PURCHASE_CONTEXT_HELP.coPurchase} />
-                  <small>{context.topCoPurchasedProducts.length ? "Top associated products" : "No reliable pattern yet"}</small>
-                </div>
+              <div className="ppPurchaseQuantityAverage">
+                <span>Average units per order</span>
+                <strong>{formatDecimal(context.avgProductQuantityPerOrder, 1)}</strong>
               </div>
-              {context.topCoPurchasedProducts.length ? (
-                <div className="ppPurchaseCoProductList">
-                  {context.topCoPurchasedProducts.slice(0, 3).map((item) => (
-                    <div className="ppPurchaseCoProductRow" key={item.productId || item.title}>
-                      <span>{item.title}</span>
-                      <strong>{formatInteger(item.coOrderCount)} orders</strong>
-                      <small>{formatPercent(item.coOrderRatePercent)} co-order · {formatDecimal(item.affinityScore, 1)}x affinity</small>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="ppPurchaseContextCardNote">No reliable co-purchase pattern yet.</p>
-              )}
-            </article>
+            </div>
 
-            <article className="ppPurchaseContextCard ppPurchaseContextInterpretation">
-              <div className="ppPurchaseContextCardHeader">
-                <span><ProductPulseGlyph type="ai-evidence-synthesis" /></span>
-                <div>
-                  <PurchaseContextInfoLabel label="Interpretation" help={PURCHASE_CONTEXT_HELP.confidence} />
-                  <small>{context.primaryContext || context.statusText}</small>
-                </div>
-              </div>
-              <p>{renderAnalysisText(interpretation)}</p>
-              <div className="ppPurchaseContextChips">
-                <span>{formatInteger(context.totalUnitsSold)} units sold</span>
-                <span>{formatPercent(context.purchaseContextConfidence)} confidence</span>
-                {context.unknownOrIncompleteOrderCount > 0 ? <span>{formatInteger(context.unknownOrIncompleteOrderCount)} incomplete</span> : null}
-              </div>
-            </article>
-          </div>
-
-          {contextOverTime.length ? (
-            <div className="ppPurchaseContextTimeline" aria-label="Purchase context over time by cohort month">
+            <div className="ppPurchaseContextTakeaways">
+              <strong>What this tells us</strong>
               <div>
-                <strong>Purchase context over time</strong>
-                <span>Cohort month</span>
-              </div>
-              <div className="ppPurchaseContextTimelineRows">
-                {contextOverTime.map((row) => (
-                  <div className="ppPurchaseContextTimelineRow" key={row.key || row.label}>
-                    <span>{row.label}</span>
-                    <div aria-hidden="true">
-                      <i className="ppPurchaseContextTimelineSolo" style={{ width: `${row.soloWidth}%` }} />
-                      <i className="ppPurchaseContextTimelineBasket" style={{ width: `${row.basketWidth}%` }} />
+                {takeaways.map((item) => (
+                  <div className={`ppPurchaseContextTakeaway ppPurchaseContextTakeaway-${item.tone}`} key={item.title}>
+                    <span><ProductPulseGlyph type={item.icon} /></span>
+                    <div>
+                      <strong>{item.title}</strong>
+                      <p>{item.detail}</p>
                     </div>
-                    <strong>{formatDecimal(row.avgQuantity, 1)} qty/order</strong>
                   </div>
                 ))}
               </div>
             </div>
-          ) : null}
+          </article>
+
+          <article className="ppPurchaseContextWhyCard">
+            <div className="ppPurchaseContextBlockHeader">
+              <span><ProductPulseGlyph type="diagnostic-confidence" /></span>
+              <div>
+                <strong>Why it matters</strong>
+                <small>How purchase context shapes interpretation and actions</small>
+              </div>
+            </div>
+            <div className="ppPurchaseContextWhyBody">
+              <div className="ppPurchaseContextMatterTable" role="table" aria-label="Purchase context interpretation matrix">
+                <div className="ppPurchaseContextMatterHeader" role="row">
+                  <span aria-hidden="true"></span>
+                  <strong>Bought alone ({formatPercent(context.soloPurchaseRatePercent)})</strong>
+                  <strong>Bought with others ({formatPercent(context.multiProductBasketRatePercent)})</strong>
+                </div>
+                {matterRows.map((row) => (
+                  <div className="ppPurchaseContextMatterRow" role="row" key={row.title}>
+                    <div>
+                      <span><ProductPulseGlyph type={row.icon} /></span>
+                      <div>
+                        <strong>{row.title}</strong>
+                        <small>{row.subtitle}</small>
+                      </div>
+                    </div>
+                    <p><em className={`ppPurchaseContextMatterBadge ppPurchaseContextMatterBadge-${row.aloneTone}`}>{row.aloneBadge}</em>{row.aloneText}</p>
+                    <p><em className={`ppPurchaseContextMatterBadge ppPurchaseContextMatterBadge-${row.basketTone}`}>{row.basketBadge}</em>{row.basketText}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="ppPurchaseContextAiInsight">
+                <div>
+                  <span><ProductPulseGlyph type="ai-evidence-synthesis" /></span>
+                  <strong>AI insight</strong>
+                </div>
+                <p>{renderAnalysisText(interpretation)}</p>
+                <hr />
+                <strong>Recommended actions</strong>
+                <ul>
+                  {recommendedActions.map((action) => (
+                    <li key={action}>{action}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </article>
         </>
       )}
     </section>
   );
+}
+
+function PurchaseContextMetricTile({ icon, value, label }) {
+  return (
+    <div className="ppPurchaseContextMetricTile">
+      <span><ProductPulseGlyph type={icon} /></span>
+      <div>
+        <strong>{value}</strong>
+        <small>{label}</small>
+      </div>
+    </div>
+  );
+}
+
+function getPurchaseContextCompositionSegments(context = {}) {
+  const segments = [
+    {
+      key: "solo",
+      title: "Bought alone",
+      value: formatPercent(context.soloPurchaseRatePercent),
+      detail: "Standalone purchases",
+      rate: Number(context.soloPurchaseRatePercent || 0),
+      tone: "green",
+    },
+    {
+      key: "basket",
+      title: "Bought with other products",
+      value: formatPercent(context.multiProductBasketRatePercent),
+      detail: "Co-purchase in baskets",
+      rate: Number(context.multiProductBasketRatePercent || 0),
+      tone: "teal",
+    },
+    {
+      key: "multi-unit",
+      title: "Multi-unit orders",
+      value: formatPercent(context.multiUnitPurchaseRatePercent),
+      detail: "2+ units purchased",
+      rate: Number(context.multiUnitPurchaseRatePercent || 0),
+      tone: "blue",
+    },
+    {
+      key: "multi-variant",
+      title: "Multi-variant orders",
+      value: formatPercent(context.multiVariantOrderRatePercent),
+      detail: "Variant comparisons",
+      rate: Number(context.multiVariantOrderRatePercent || 0),
+      tone: "purple",
+    },
+  ];
+  const weights = segments.map((segment) => Math.max(segment.rate, segment.key === "multi-variant" ? 12 : 14));
+  const total = Math.max(weights.reduce((sum, value) => sum + value, 0), 1);
+  return segments.map((segment, index) => ({
+    ...segment,
+    width: (weights[index] / total) * 100,
+  }));
+}
+
+function getPurchaseContextTakeaways(context = {}) {
+  const soloRate = Number(context.soloPurchaseRatePercent || 0);
+  const basketRate = Number(context.multiProductBasketRatePercent || 0);
+  const multiUnitRate = Number(context.multiUnitPurchaseRatePercent || 0);
+  const variantRate = Number(context.multiVariantOrderRatePercent || 0);
+  return [
+    {
+      icon: "diagnostic-confidence",
+      tone: "green",
+      title: multiUnitRate <= 25 && variantRate <= 10 ? "Mostly bought in simple baskets" : "Basket behavior needs review",
+      detail: `${formatPercent(soloRate)} of orders are solo purchases.`,
+    },
+    {
+      icon: "shopify-orders",
+      tone: "teal",
+      title: basketRate > soloRate ? "Usually bought with other products" : "Usually bought as a standalone item",
+      detail: basketRate > soloRate
+        ? `Average basket includes ${formatDecimal(context.avgDistinctProductsPerOrder, 1)} distinct products.`
+        : `Low multi-unit usage (${formatPercent(multiUnitRate)}) and limited basket complexity.`,
+    },
+    {
+      icon: "main-issue",
+      tone: "purple",
+      title: variantRate >= 10 ? "Variant comparison behavior detected" : "Low variant comparison behavior",
+      detail: variantRate >= 10
+        ? `${formatPercent(variantRate)} of orders include multiple variants of this product.`
+        : "This product is rarely compared across variants.",
+    },
+  ];
+}
+
+function getPurchaseContextMatterRows(context = {}) {
+  const basketRate = Number(context.multiProductBasketRatePercent || 0);
+  const hasMeaningfulBasket = basketRate >= 50;
+  return [
+    {
+      icon: "diagnostic-confidence",
+      title: "Attribution clarity",
+      subtitle: "How easy it is to attribute outcomes to this product",
+      aloneBadge: "High",
+      aloneTone: "green",
+      aloneText: "Outcomes are easier to attribute to this product.",
+      basketBadge: hasMeaningfulBasket ? "Lower" : "Medium",
+      basketTone: "blue",
+      basketText: "Outcomes are influenced by other items in the basket.",
+    },
+    {
+      icon: "product-momentum",
+      title: "Return / refund interpretability",
+      subtitle: "How clear returns are to interpret",
+      aloneBadge: "High",
+      aloneTone: "green",
+      aloneText: "Returns more likely reflect issues with this product.",
+      basketBadge: hasMeaningfulBasket ? "Lower" : "Medium",
+      basketTone: "blue",
+      basketText: "Returns may be driven by other items in the basket.",
+    },
+    {
+      icon: "shopify-orders",
+      title: "Cross-sell opportunity",
+      subtitle: "Likelihood to add related products",
+      aloneBadge: hasMeaningfulBasket ? "Lower" : "Moderate",
+      aloneTone: "purple",
+      aloneText: "Limited opportunity when customers often buy just this item.",
+      basketBadge: hasMeaningfulBasket ? "Higher" : "Medium",
+      basketTone: "green",
+      basketText: "Good potential to cross-sell complementary products.",
+    },
+  ];
+}
+
+function getPurchaseContextRecommendedActions(context = {}) {
+  const actions = [];
+  const basketRate = Number(context.multiProductBasketRatePercent || 0);
+  const variantRate = Number(context.multiVariantOrderRatePercent || 0);
+  const multiUnitRate = Number(context.multiUnitPurchaseRatePercent || 0);
+  if (variantRate >= 10) {
+    actions.push("Improve variant labels, photos, and comparison guidance.");
+  }
+  if (basketRate >= 50 || context.topCoPurchasedProducts.length) {
+    actions.push("Monitor co-purchases over time to identify emerging bundles.");
+  }
+  if (multiUnitRate >= 25) {
+    actions.push("Check whether multi-unit orders change return or refund pressure.");
+  }
+  actions.unshift("Focus on improving product experience and content.");
+  return actions.slice(0, 3);
 }
 
 function PurchaseContextInfoLabel({ label, help }) {
@@ -9320,28 +9455,6 @@ function PurchaseContextInfoLabel({ label, help }) {
   );
 }
 
-function getPurchaseContextSoloBasketSegments(context = {}) {
-  const total = Math.max(Number(context.soloProductOrderCount || 0) + Number(context.multiProductOrderCount || 0), 1);
-  return [
-    {
-      key: "solo",
-      label: "Solo orders",
-      value: Number(context.soloProductOrderCount || 0),
-      width: Math.max(Number(context.soloProductOrderCount || 0) ? 5 : 0, (Number(context.soloProductOrderCount || 0) / total) * 100),
-      display: `${formatInteger(context.soloProductOrderCount)} orders`,
-      tone: "green",
-    },
-    {
-      key: "basket",
-      label: "Basket orders",
-      value: Number(context.multiProductOrderCount || 0),
-      width: Math.max(Number(context.multiProductOrderCount || 0) ? 5 : 0, (Number(context.multiProductOrderCount || 0) / total) * 100),
-      display: `${formatInteger(context.multiProductOrderCount)} orders`,
-      tone: "blue",
-    },
-  ];
-}
-
 function getPurchaseContextQuantityBuckets(context = {}) {
   const distribution = context.quantityDistribution || {};
   const buckets = [
@@ -9355,23 +9468,6 @@ function getPurchaseContextQuantityBuckets(context = {}) {
     ...bucket,
     width: Math.max(Number(bucket.count || 0) ? 6 : 0, (Number(bucket.count || 0) / maxCount) * 100),
   }));
-}
-
-function getPurchaseContextMonthlyRows(context = {}) {
-  const months = Array.isArray(context.monthlyContext) ? context.monthlyContext : [];
-  return months
-    .filter((month) => month.ordersContainingProduct > 0)
-    .slice(-6)
-    .map((month) => {
-      const total = Math.max(Number(month.soloProductOrders || 0) + Number(month.multiProductOrders || 0), 1);
-      return {
-        key: month.key,
-        label: month.label || month.key,
-        soloWidth: (Number(month.soloProductOrders || 0) / total) * 100,
-        basketWidth: (Number(month.multiProductOrders || 0) / total) * 100,
-        avgQuantity: month.avgProductQuantityPerOrder,
-      };
-    });
 }
 
 const PRODUCT_RELATIONSHIP_HELP = {

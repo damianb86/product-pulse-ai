@@ -4958,6 +4958,583 @@ s-page[inline-size="large-500"] {
   height: 100%;
 }
 
+.ppPurchaseContextPanel {
+  gap: 20px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ppPurchaseContextHeader h2 {
+  font-size: 28px;
+}
+
+.ppPurchaseContextHeader p {
+  max-width: 1100px;
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.ppPurchaseContextEyebrow .ppProductPulseSvgIcon {
+  width: 18px;
+  height: 18px;
+}
+
+.ppPurchaseContextOverviewCard,
+.ppPurchaseContextWhyCard {
+  min-width: 0;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 16px;
+  background: var(--pp-cloud-white);
+  box-shadow: var(--pp-card-shadow);
+}
+
+.ppPurchaseContextOverviewCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(250px, 0.56fr) minmax(280px, 0.64fr);
+  gap: 24px;
+  padding: 26px;
+}
+
+.ppPurchaseContextBought {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.ppPurchaseContextBlockHeader {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.ppPurchaseContextBlockHeader > span:first-child {
+  width: 50px;
+  height: 50px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppPurchaseContextBlockHeader .ppProductPulseSvgIcon {
+  width: 26px;
+  height: 26px;
+}
+
+.ppPurchaseContextBlockHeader strong {
+  color: var(--pp-slate-950);
+  font-size: 20px;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.ppPurchaseContextBlockHeader small {
+  color: var(--pp-slate-500);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.ppPurchaseContextCompositionBar {
+  min-height: 132px;
+  display: flex;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--pp-slate-100);
+}
+
+.ppPurchaseContextCompositionSegment {
+  min-width: 96px;
+  display: grid;
+  align-content: center;
+  gap: 9px;
+  padding: 20px 22px;
+  border-right: 1px solid rgba(255, 255, 255, 0.32);
+}
+
+.ppPurchaseContextCompositionSegment:last-child {
+  border-right: 0;
+}
+
+.ppPurchaseContextCompositionSegment strong {
+  color: var(--pp-cloud-white);
+  font-size: 28px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPurchaseContextCompositionSegment em {
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.22;
+}
+
+.ppPurchaseContextCompositionSegment small {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.ppPurchaseContextCompositionSegment-green {
+  background: linear-gradient(135deg, #4aa653, #3d9444);
+}
+
+.ppPurchaseContextCompositionSegment-teal {
+  background: linear-gradient(135deg, #4f9a93, #2f737a);
+}
+
+.ppPurchaseContextCompositionSegment-blue {
+  background: linear-gradient(135deg, #5f8de8, #3468c8);
+}
+
+.ppPurchaseContextCompositionSegment-purple {
+  background: linear-gradient(135deg, #f5f0ff, #e7d9ff);
+}
+
+.ppPurchaseContextCompositionSegment-purple strong,
+.ppPurchaseContextCompositionSegment-purple em {
+  color: var(--pp-insight-violet);
+}
+
+.ppPurchaseContextCompositionSegment-purple small {
+  color: rgba(var(--pp-insight-violet-rgb), 0.76);
+}
+
+.ppPurchaseContextMetricTiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ppPurchaseContextMetricTile {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppPurchaseContextMetricTile > span:first-child {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppPurchaseContextMetricTile:nth-child(1) > span:first-child {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppPurchaseContextMetricTile:nth-child(3) > span:first-child {
+  background: var(--pp-purple-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppPurchaseContextMetricTile .ppProductPulseSvgIcon {
+  width: 24px;
+  height: 24px;
+}
+
+.ppPurchaseContextMetricTile strong {
+  color: var(--pp-slate-950);
+  font-size: 24px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPurchaseContextMetricTile small {
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ppPurchaseContextQuantityPanel,
+.ppPurchaseContextTakeaways {
+  min-width: 0;
+  padding: 30px 0 20px 26px;
+  border-left: 1px solid var(--pp-slate-200);
+}
+
+.ppPurchaseContextQuantityPanel {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+}
+
+.ppPurchaseContextQuantityPanel > div:first-child {
+  display: grid;
+  gap: 7px;
+}
+
+.ppPurchaseContextQuantityPanel > div:first-child small {
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.ppPurchaseContextQuantityPanel .ppPurchaseContextInfoLabel {
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.ppPurchaseContextQuantityPanel .ppPurchaseContextInfoLabel button {
+  display: none;
+}
+
+.ppPurchaseContextQuantityPanel .ppPurchaseQuantityChart {
+  gap: 15px;
+}
+
+.ppPurchaseContextQuantityPanel .ppPurchaseQuantityRow {
+  grid-template-columns: 76px minmax(0, 1fr) 54px;
+  gap: 16px;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppPurchaseContextQuantityPanel .ppPurchaseQuantityRow div {
+  height: 10px;
+  background: var(--pp-slate-100);
+}
+
+.ppPurchaseContextQuantityPanel .ppPurchaseQuantityRow i {
+  background: linear-gradient(90deg, var(--pp-success-green), #4f9a93);
+}
+
+.ppPurchaseContextQuantityPanel .ppPurchaseQuantityRow strong {
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppPurchaseQuantityAverage {
+  display: grid;
+  gap: 5px;
+}
+
+.ppPurchaseQuantityAverage span {
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ppPurchaseQuantityAverage strong {
+  color: var(--pp-slate-950);
+  font-size: 28px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPurchaseContextTakeaways {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+}
+
+.ppPurchaseContextTakeaways > strong {
+  color: var(--pp-slate-950);
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.ppPurchaseContextTakeaways > div {
+  display: grid;
+  gap: 20px;
+}
+
+.ppPurchaseContextTakeaway {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.ppPurchaseContextTakeaway > span:first-child {
+  width: 46px;
+  height: 46px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppPurchaseContextTakeaway-green > span:first-child {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppPurchaseContextTakeaway-teal > span:first-child {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: #4f9a93;
+}
+
+.ppPurchaseContextTakeaway-purple > span:first-child {
+  background: var(--pp-purple-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppPurchaseContextTakeaway .ppProductPulseSvgIcon {
+  width: 24px;
+  height: 24px;
+}
+
+.ppPurchaseContextTakeaway strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.ppPurchaseContextTakeaway p {
+  margin: 5px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.ppPurchaseContextWhyCard {
+  display: grid;
+  gap: 24px;
+  padding: 26px;
+}
+
+.ppPurchaseContextWhyBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.7fr);
+  gap: 40px;
+  align-items: start;
+}
+
+.ppPurchaseContextMatterTable {
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppPurchaseContextMatterHeader,
+.ppPurchaseContextMatterRow {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.9fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.ppPurchaseContextMatterHeader {
+  margin-left: min(260px, 33%);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: linear-gradient(90deg, rgba(var(--pp-success-green-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.08));
+}
+
+.ppPurchaseContextMatterHeader span {
+  display: none;
+}
+
+.ppPurchaseContextMatterHeader strong {
+  padding: 13px 18px;
+  border-left: 1px solid var(--pp-slate-200);
+  color: var(--pp-pulse-blue);
+  font-size: 13px;
+  font-weight: 950;
+  text-align: center;
+}
+
+.ppPurchaseContextMatterHeader strong:first-of-type {
+  color: var(--pp-success-green);
+}
+
+.ppPurchaseContextMatterRow {
+  border-top: 1px solid var(--pp-slate-200);
+}
+
+.ppPurchaseContextMatterRow > div,
+.ppPurchaseContextMatterRow p {
+  min-width: 0;
+  margin: 0;
+  padding: 16px 18px;
+  border-left: 1px solid var(--pp-slate-200);
+}
+
+.ppPurchaseContextMatterRow > div {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border-left: 0;
+}
+
+.ppPurchaseContextMatterRow > div > span:first-child {
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppPurchaseContextMatterRow:nth-child(3) > div > span:first-child {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: #4f9a93;
+}
+
+.ppPurchaseContextMatterRow:nth-child(4) > div > span:first-child {
+  background: var(--pp-purple-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppPurchaseContextMatterRow .ppProductPulseSvgIcon {
+  width: 22px;
+  height: 22px;
+}
+
+.ppPurchaseContextMatterRow strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppPurchaseContextMatterRow small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.3;
+}
+
+.ppPurchaseContextMatterRow p {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.ppPurchaseContextMatterBadge {
+  justify-self: start;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.ppPurchaseContextMatterBadge-green {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppPurchaseContextMatterBadge-blue {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppPurchaseContextMatterBadge-purple {
+  background: var(--pp-purple-soft);
+  color: var(--pp-insight-violet);
+}
+
+.ppPurchaseContextAiInsight {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.22);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--pp-cloud-white), rgba(var(--pp-pulse-blue-rgb), 0.035));
+}
+
+.ppPurchaseContextAiInsight > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--pp-pulse-blue);
+}
+
+.ppPurchaseContextAiInsight > div:first-child span {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.ppPurchaseContextAiInsight > div:first-child .ppProductPulseSvgIcon {
+  width: 26px;
+  height: 26px;
+}
+
+.ppPurchaseContextAiInsight > div:first-child strong {
+  color: var(--pp-pulse-blue);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.ppPurchaseContextAiInsight p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.55;
+}
+
+.ppPurchaseContextAiInsight hr {
+  width: 100%;
+  height: 1px;
+  border: 0;
+  background: var(--pp-slate-200);
+}
+
+.ppPurchaseContextAiInsight > strong {
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.ppPurchaseContextAiInsight ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppPurchaseContextAiInsight li {
+  position: relative;
+  padding-left: 26px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.ppPurchaseContextAiInsight li::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--pp-pulse-blue);
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--pp-pulse-blue) 0 3px, transparent 4px);
+}
+
 .ppProductRelationshipsPanel {
   display: grid;
   gap: 20px;
@@ -7707,7 +8284,18 @@ s-page[inline-size="large-500"] {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .ppPurchaseContextGrid {
+  .ppPurchaseContextOverviewCard,
+  .ppPurchaseContextWhyBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppPurchaseContextQuantityPanel,
+  .ppPurchaseContextTakeaways {
+    padding: 0;
+    border-left: 0;
+  }
+
+  .ppPurchaseContextMetricTiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -7760,9 +8348,39 @@ s-page[inline-size="large-500"] {
     display: grid;
   }
 
-  .ppPurchaseContextGrid,
   .ppProductRelationshipsOverviewGrid,
-  .ppPurchaseContextTimelineRow {
+  .ppPurchaseContextMatterHeader,
+  .ppPurchaseContextMatterRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppPurchaseContextOverviewCard,
+  .ppPurchaseContextWhyCard {
+    padding: 18px;
+  }
+
+  .ppPurchaseContextCompositionBar {
+    display: grid;
+    min-height: 0;
+  }
+
+  .ppPurchaseContextCompositionSegment {
+    min-width: 0;
+  }
+
+  .ppPurchaseContextMetricTiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppPurchaseContextMatterHeader {
+    margin-left: 0;
+  }
+
+  .ppPurchaseContextMatterHeader span {
+    display: none;
+  }
+
+  .ppPurchaseContextMatterRow p {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -7792,11 +8410,6 @@ s-page[inline-size="large-500"] {
 
   .ppProductRelationshipCurrentNode {
     order: -1;
-  }
-
-  .ppPurchaseContextCard-wide,
-  .ppPurchaseContextInterpretation {
-    grid-column: auto;
   }
 
   .ppReturnRefundMatrixHeader,
