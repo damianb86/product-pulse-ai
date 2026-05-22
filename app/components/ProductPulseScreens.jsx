@@ -8874,11 +8874,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </div>
 
-        <ProductBasketContextPanel detail={detail} />
+        <div className="ppProductContextSummaryGrid">
+          <ProductReturnRefundResolutionPanel detail={detail} />
+          <ProductBasketContextPanel detail={detail} />
+        </div>
 
         <ProductRelationshipsPanel detail={detail} />
-
-        <ProductReturnRefundResolutionPanel detail={detail} />
 
         <div className="ppProductDetailLayout">
           <main className="ppProductDetailPrimary">

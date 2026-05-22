@@ -2423,6 +2423,17 @@ s-page[inline-size="large-500"] {
   align-items: start;
 }
 
+.ppProductContextSummaryGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(390px, 2fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.ppProductContextSummaryGrid > .ppProductPanel {
+  min-width: 0;
+}
+
 .ppProductDetailPrimary,
 .ppProductDetailSidebar {
   display: grid;
@@ -5844,6 +5855,118 @@ s-page[inline-size="large-500"] {
   font-size: 15px;
   font-weight: 760;
   line-height: 1.45;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextPanel {
+  gap: 16px;
+  padding: 20px;
+  border-radius: 14px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextHeader {
+  gap: 12px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextHeaderIcon {
+  width: 46px;
+  height: 46px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextHeaderIcon .ppProductPulseSvgIcon {
+  width: 24px;
+  height: 24px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextHeader .ppPurchaseContextInfoLabel {
+  font-size: 18px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextHeader .ppPurchaseContextInfoLabel button {
+  width: 20px;
+  height: 20px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextBody {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextMetricGrid {
+  border-right: 0;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextMetric {
+  min-height: 84px;
+  padding: 10px 16px 10px 0;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextMetric:nth-child(even) {
+  padding-left: 16px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextMetric strong {
+  font-size: 30px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextMetric span {
+  font-size: 13px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextDetailColumn,
+.ppProductContextSummaryGrid .ppBasketContextBars {
+  gap: 12px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextBarRow {
+  grid-template-columns: 14px minmax(0, 1fr) 46px;
+  gap: 8px 10px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextBarRow > span {
+  width: 10px;
+  height: 10px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextBarRow strong,
+.ppProductContextSummaryGrid .ppBasketContextBarRow em {
+  font-size: 12px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextBarRow i {
+  grid-column: 2 / -1;
+  height: 10px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextCoPurchase {
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextCoPurchase > span,
+.ppProductContextSummaryGrid .ppBasketContextInterpretation > span {
+  width: 38px;
+  height: 38px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextCoPurchase strong,
+.ppProductContextSummaryGrid .ppBasketContextInterpretation strong {
+  font-size: 13px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextCoPurchase a,
+.ppProductContextSummaryGrid .ppBasketContextCoPurchase em {
+  font-size: 14px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextInterpretation {
+  grid-template-columns: 38px minmax(0, 1fr);
+  padding: 14px;
+}
+
+.ppProductContextSummaryGrid .ppBasketContextInterpretation p {
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .ppProductRelationshipsPanel {
@@ -9899,6 +10022,12 @@ s-page[inline-size="large-500"] {
 
   .ppProductRelationshipTimelineCard {
     padding: 28px;
+  }
+}
+
+@media (max-width: 900px) {
+  .ppProductContextSummaryGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
