@@ -733,6 +733,7 @@ function normalizeDiagnosisOrderLineItemSaleEvent({
 } = {}) {
   const lineProduct = lineItem?.product || {};
   const variant = lineItem?.variant || {};
+  const lineImage = getDiagnosisLineItemImage(lineItem);
   return {
     id: lineItem?.id,
     orderId: order?.id,
@@ -748,6 +749,8 @@ function normalizeDiagnosisOrderLineItemSaleEvent({
     amount: Number(lineItem?.originalTotalSet?.shopMoney?.amount || 0),
     handle: lineProduct.handle || "",
     title: lineProduct.title || lineItem?.title || "",
+    imageUrl: lineImage.imageUrl,
+    imageAlt: lineImage.imageAlt,
     sku: lineItem?.sku || variant.sku || "",
     variantId: variant.id || null,
     variantTitle: variant.title || "",
@@ -764,18 +767,38 @@ function normalizeDiagnosisOrderLineItemSaleEvent({
 }
 
 function normalizeDiagnosisBasketLineItems(lineItems = []) {
-  return getNodes(lineItems).map((lineItem) => ({
-    id: lineItem.id || null,
-    lineItemId: lineItem.id || null,
-    productId: lineItem.product?.id || lineItem.variant?.product?.id || null,
-    handle: lineItem.product?.handle || lineItem.variant?.product?.handle || "",
-    title: lineItem.product?.title || lineItem.variant?.product?.title || lineItem.title || "",
-    variantId: lineItem.variant?.id || null,
-    variantTitle: lineItem.variant?.title || "",
-    sku: lineItem.sku || lineItem.variant?.sku || "",
-    quantity: Number(lineItem.quantity || 0),
-    amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
-  }));
+  return getNodes(lineItems).map((lineItem) => {
+    const lineImage = getDiagnosisLineItemImage(lineItem);
+    return {
+      id: lineItem.id || null,
+      lineItemId: lineItem.id || null,
+      productId: lineItem.product?.id || lineItem.variant?.product?.id || null,
+      handle: lineItem.product?.handle || lineItem.variant?.product?.handle || "",
+      title: lineItem.product?.title || lineItem.variant?.product?.title || lineItem.title || "",
+      imageUrl: lineImage.imageUrl,
+      imageAlt: lineImage.imageAlt,
+      variantId: lineItem.variant?.id || null,
+      variantTitle: lineItem.variant?.title || "",
+      sku: lineItem.sku || lineItem.variant?.sku || "",
+      quantity: Number(lineItem.quantity || 0),
+      amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
+    };
+  });
+}
+
+function getDiagnosisLineItemImage(lineItem = {}) {
+  const product = lineItem?.product || {};
+  const variant = lineItem?.variant || {};
+  const mediaNode = product.media?.nodes?.[0] || {};
+  const image = variant.image
+    || product.featuredMedia?.preview?.image
+    || mediaNode.image
+    || mediaNode.preview?.image
+    || {};
+  return {
+    imageUrl: image.url || "",
+    imageAlt: image.altText || "",
+  };
 }
 
 function backfillMissingSalesFromOperationalEvents({
@@ -935,11 +958,39 @@ function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
                   id
                   handle
                   title
+                  featuredMedia {
+                    preview {
+                      image {
+                        url
+                        altText
+                      }
+                    }
+                  }
+                  media(first: 1) {
+                    nodes {
+                      preview {
+                        image {
+                          url
+                          altText
+                        }
+                      }
+                      ... on MediaImage {
+                        image {
+                          url
+                          altText
+                        }
+                      }
+                    }
+                  }
                 }
                 variant {
                   id
                   title
                   sku
+                  image {
+                    url
+                    altText
+                  }
                   selectedOptions {
                     name
                     value
@@ -9167,6 +9218,8 @@ function trimSourceEventForCache(item = {}, type) {
     quantity: Number(item.quantity || 0),
     amount: Number(item.amount || 0),
     title: truncateText(item.title || "", 180),
+    imageUrl: truncateText(item.imageUrl || item.image_url || "", 600),
+    imageAlt: truncateText(item.imageAlt || item.image_alt || "", 220),
     sku: String(item.sku || ""),
     variantId: item.variantId || null,
     variantTitle: truncateText(item.variantTitle || "", 160),
@@ -9228,6 +9281,8 @@ function normalizeCachedBasketLineItems(lineItems = []) {
       productId: lineItem.productId || null,
       handle: truncateText(lineItem.handle || "", 160),
       title: truncateText(lineItem.title || "", 180),
+      imageUrl: truncateText(lineItem.imageUrl || lineItem.image_url || "", 600),
+      imageAlt: truncateText(lineItem.imageAlt || lineItem.image_alt || "", 220),
       variantId: lineItem.variantId || null,
       variantTitle: truncateText(lineItem.variantTitle || "", 160),
       sku: String(lineItem.sku || ""),

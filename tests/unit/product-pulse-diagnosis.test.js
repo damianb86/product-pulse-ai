@@ -192,6 +192,10 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(query).toContain("countryCodeV2");
     expect(query).toContain("provinceCode");
     expect(query).toContain("city");
+    expect(query).toContain("featuredMedia");
+    expect(query).toContain("media(first: 1)");
+    expect(query).toContain("image");
+    expect(query).toContain("altText");
   });
 
   it("backfills missing sale lines from matched return and refund evidence", () => {

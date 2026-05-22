@@ -537,7 +537,9 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
-  return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
+  const productWithUrls = withShopifyAdminUrl(product, shop);
+  const productWithRelationshipImages = await attachProductRelationshipImagesToDiagnosis(productWithUrls, admin);
+  return attachProductImageToDiagnosis(productWithRelationshipImages, admin);
 }
 
 export async function getProductDetailForShop(shop, productId, admin) {
@@ -2818,6 +2820,76 @@ async function attachProductImages(rows, admin) {
   } catch {
     return rows;
   }
+}
+
+async function attachProductRelationshipImagesToDiagnosis(product, admin) {
+  const summary = product?.metrics?.productRelationshipIntelligenceSummary;
+  if (!summary || typeof summary !== "object" || !admin?.graphql) return product;
+  const ids = collectProductRelationshipProductIds(summary);
+  if (!ids.length) return product;
+
+  const rows = await attachProductImages(ids.map((productGid) => ({ productGid })), admin);
+  const imageByProductId = new Map(rows
+    .filter((row) => row.productGid && row.imageUrl)
+    .map((row) => [row.productGid, { imageUrl: row.imageUrl, imageAlt: row.imageAlt || "" }]));
+  if (!imageByProductId.size) return product;
+
+  return {
+    ...product,
+    metrics: {
+      ...product.metrics,
+      productRelationshipIntelligenceSummary: enrichProductRelationshipSummaryImages(summary, imageByProductId),
+    },
+  };
+}
+
+function collectProductRelationshipProductIds(summary) {
+  const ids = new Set();
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const productGid = normalizeShopifyProductGid(
+      value.related_product_id
+        || value.relatedProductId,
+    );
+    if (productGid) ids.add(productGid);
+    Object.values(value).forEach((child) => {
+      if (child && typeof child === "object") visit(child);
+    });
+  };
+  visit(summary);
+  return Array.from(ids);
+}
+
+function enrichProductRelationshipSummaryImages(summary, imageByProductId) {
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(visit);
+    const next = { ...value };
+    const productGid = normalizeShopifyProductGid(
+      next.related_product_id
+        || next.relatedProductId,
+    );
+    const image = productGid ? imageByProductId.get(productGid) : null;
+    if (image && !next.related_product_image_url && !next.relatedProductImageUrl && !next.imageUrl && !next.image_url) {
+      next.related_product_image_url = image.imageUrl;
+      next.relatedProductImageUrl = image.imageUrl;
+      next.imageUrl = image.imageUrl;
+      if (image.imageAlt) {
+        next.related_product_image_alt = image.imageAlt;
+        next.relatedProductImageAlt = image.imageAlt;
+        next.imageAlt = image.imageAlt;
+      }
+    }
+    Object.entries(next).forEach(([key, child]) => {
+      if (child && typeof child === "object") next[key] = visit(child);
+    });
+    return next;
+  };
+  return visit(summary);
 }
 
 async function attachProductImageToDiagnosis(product, admin) {
