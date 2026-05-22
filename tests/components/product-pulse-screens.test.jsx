@@ -1115,10 +1115,10 @@ describe("ProductPulse screens", () => {
     expect(resolutionPanel).toBeInTheDocument();
     expect(within(resolutionPanel).getByText("Return & refund resolution")).toBeInTheDocument();
     expect(within(resolutionPanel).getByText("Returns vs. refunds relationship")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText(/Refunds\s+without\s+return/)).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText(/Returned\s+&\s+refunded/)).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText(/Returns\s+without\s+refund/)).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Out of 6 returned units")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Refunds")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText((_, node) => node?.textContent === "Returned& refunded")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Returns")).toBeInTheDocument();
+    expect(within(resolutionPanel).queryByText("Out of 6 returned units")).not.toBeInTheDocument();
     expect(within(resolutionPanel).getAllByText("33.3%").length).toBeGreaterThan(0);
     expect(within(resolutionPanel).getAllByText("66.7%").length).toBeGreaterThan(0);
     expect(within(resolutionPanel).getAllByText("0%").length).toBeGreaterThan(0);

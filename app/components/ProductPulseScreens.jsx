@@ -10110,7 +10110,7 @@ function ReturnRefundRelationshipVenn({ relationship }) {
         <div className="ppReturnRefundVennCircle ppReturnRefundVennCircle-refunds" aria-hidden="true"></div>
         <div className="ppReturnRefundVennCircle ppReturnRefundVennCircle-returns" aria-hidden="true"></div>
         <div className="ppReturnRefundVennText ppReturnRefundVennText-refunds">
-          <span>Refunds<br />without<br />return</span>
+          <span>Refunds</span>
           <strong>{formatPercent(metrics.refundOnlyPercent)}</strong>
           <small>({formatInteger(metrics.refundOnlyCount)})</small>
         </div>
@@ -10120,28 +10120,8 @@ function ReturnRefundRelationshipVenn({ relationship }) {
           <small>({formatInteger(metrics.linkedCount)})</small>
         </div>
         <div className="ppReturnRefundVennText ppReturnRefundVennText-returns">
-          <span>Returns<br />without<br />refund</span>
+          <span>Returns</span>
           <strong>{formatPercent(metrics.returnOnlyPercent)}</strong>
-          <small>({formatInteger(metrics.returnOnlyCount)})</small>
-        </div>
-      </div>
-      <div className="ppReturnRefundVennDivider">
-        <span>Out of {formatInteger(metrics.returnedUnits)} returned units</span>
-      </div>
-      <div className="ppReturnRefundVennStats">
-        <div className="ppReturnRefundVennStat ppReturnRefundVennStat-linked">
-          <strong>{formatPercent(metrics.linkedPercent)}</strong>
-          <span>Returned &amp; refunded</span>
-          <small>({formatInteger(metrics.linkedCount)} units)</small>
-        </div>
-        <div className="ppReturnRefundVennStat ppReturnRefundVennStat-refunds">
-          <strong>{formatPercent(metrics.refundOnlyPercent)}</strong>
-          <span>Refunds without return</span>
-          <small>({formatInteger(metrics.refundOnlyCount)})</small>
-        </div>
-        <div className="ppReturnRefundVennStat ppReturnRefundVennStat-returns">
-          <strong>{formatPercent(metrics.returnOnlyPercent)}</strong>
-          <span>Returns without refund</span>
           <small>({formatInteger(metrics.returnOnlyCount)})</small>
         </div>
       </div>

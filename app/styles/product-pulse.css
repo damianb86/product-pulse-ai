@@ -6819,9 +6819,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppReturnRefundVennCard {
+  width: 50%;
   display: grid;
-  gap: 16px;
-  padding: 28px 34px 30px;
+  justify-self: start;
+  gap: 8px;
+  padding: 18px 20px 20px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 16px;
   background: var(--pp-cloud-white);
@@ -6834,40 +6836,40 @@ s-page[inline-size="large-500"] {
 
 .ppReturnRefundVennCard h3 .ppReturnRefundInfoLabel {
   color: var(--pp-slate-950);
-  font-size: 26px;
+  font-size: 18px;
   font-weight: 950;
   letter-spacing: 0;
 }
 
 .ppReturnRefundVennCard h3 .ppReturnRefundInfoLabel button {
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   color: var(--pp-slate-600);
 }
 
 .ppReturnRefundVennDiagram {
   position: relative;
-  width: min(100%, 760px);
-  height: 380px;
+  width: min(100%, 430px);
+  height: 222px;
   margin: 0 auto;
 }
 
 .ppReturnRefundVennCircle {
   position: absolute;
-  top: 18px;
-  width: 372px;
-  height: 372px;
+  top: 10px;
+  width: 206px;
+  height: 206px;
   border-radius: 999px;
 }
 
 .ppReturnRefundVennCircle-refunds {
-  left: 32px;
+  left: 13%;
   border: 2px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
   background: rgba(var(--pp-pulse-blue-rgb), 0.11);
 }
 
 .ppReturnRefundVennCircle-returns {
-  right: 32px;
+  right: 13%;
   border: 2px solid rgba(var(--pp-risk-red-rgb), 0.14);
   background: rgba(var(--pp-risk-red-rgb), 0.10);
 }
@@ -6877,115 +6879,50 @@ s-page[inline-size="large-500"] {
   z-index: 2;
   display: grid;
   justify-items: center;
-  gap: 10px;
+  gap: 5px;
   color: var(--pp-slate-950);
   text-align: center;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
 .ppReturnRefundVennText span {
-  font-size: 20px;
+  font-size: 11px;
   font-weight: 950;
   line-height: 1.16;
 }
 
 .ppReturnRefundVennText strong {
   color: var(--pp-slate-950);
-  font-size: 38px;
+  font-size: 22px;
   font-weight: 950;
   line-height: 1;
 }
 
 .ppReturnRefundVennText small {
   color: var(--pp-slate-700);
-  font-size: 17px;
+  font-size: 10px;
   font-weight: 900;
 }
 
 .ppReturnRefundVennText-refunds {
-  top: 116px;
-  left: 118px;
+  top: 70px;
+  left: 13%;
+  width: 206px;
   color: var(--pp-pulse-blue);
 }
 
 .ppReturnRefundVennText-linked {
-  top: 138px;
+  top: 82px;
   left: 50%;
   transform: translateX(-50%);
+  width: 120px;
 }
 
 .ppReturnRefundVennText-returns {
-  top: 116px;
-  right: 118px;
+  top: 70px;
+  right: 13%;
+  width: 206px;
   color: var(--pp-risk-red);
-}
-
-.ppReturnRefundVennDivider {
-  display: grid;
-  grid-template-columns: minmax(40px, 1fr) auto minmax(40px, 1fr);
-  align-items: center;
-  gap: 22px;
-  color: var(--pp-slate-800);
-  font-size: 20px;
-  font-weight: 950;
-}
-
-.ppReturnRefundVennDivider::before,
-.ppReturnRefundVennDivider::after {
-  content: "";
-  height: 1px;
-  background: var(--pp-slate-200);
-}
-
-.ppReturnRefundVennStats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
-}
-
-.ppReturnRefundVennStat {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px 20px;
-  border-right: 1px solid var(--pp-slate-200);
-  text-align: center;
-}
-
-.ppReturnRefundVennStat:last-child {
-  border-right: 0;
-}
-
-.ppReturnRefundVennStat strong {
-  font-size: 34px;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.ppReturnRefundVennStat span {
-  color: var(--pp-slate-700);
-  font-size: 16px;
-  font-weight: 900;
-  line-height: 1.2;
-}
-
-.ppReturnRefundVennStat small {
-  color: var(--pp-slate-700);
-  font-size: 15px;
-  font-weight: 850;
-}
-
-.ppReturnRefundVennStat-linked strong {
-  color: var(--pp-pulse-blue);
-}
-
-.ppReturnRefundVennStat-refunds strong {
-  color: var(--pp-risk-red);
-}
-
-.ppReturnRefundVennStat-returns strong {
-  color: var(--pp-warning-amber);
 }
 
 .ppProductOrderActivityPanel {
@@ -8996,73 +8933,60 @@ s-page[inline-size="large-500"] {
   }
 
   .ppReturnRefundVennCard {
-    padding: 20px;
+    width: 100%;
+    padding: 18px;
   }
 
   .ppReturnRefundVennCard h3 .ppReturnRefundInfoLabel {
-    font-size: 20px;
+    font-size: 18px;
   }
 
   .ppReturnRefundVennDiagram {
-    height: 300px;
+    width: min(100%, 360px);
+    height: 190px;
   }
 
   .ppReturnRefundVennCircle {
-    top: 24px;
-    width: 246px;
-    height: 246px;
+    top: 8px;
+    width: 175px;
+    height: 175px;
   }
 
   .ppReturnRefundVennCircle-refunds {
-    left: calc(50% - 236px);
+    left: 10%;
   }
 
   .ppReturnRefundVennCircle-returns {
-    right: calc(50% - 236px);
+    right: 10%;
   }
 
   .ppReturnRefundVennText span {
-    font-size: 14px;
+    font-size: 10px;
   }
 
   .ppReturnRefundVennText strong {
-    font-size: 27px;
+    font-size: 20px;
   }
 
   .ppReturnRefundVennText small {
-    font-size: 13px;
+    font-size: 9px;
   }
 
   .ppReturnRefundVennText-refunds {
-    top: 95px;
-    left: calc(50% - 178px);
+    top: 58px;
+    left: 10%;
+    width: 175px;
   }
 
   .ppReturnRefundVennText-linked {
-    top: 110px;
+    top: 70px;
+    width: 110px;
   }
 
   .ppReturnRefundVennText-returns {
-    top: 95px;
-    right: calc(50% - 178px);
-  }
-
-  .ppReturnRefundVennDivider {
-    gap: 12px;
-    font-size: 14px;
-  }
-
-  .ppReturnRefundVennStats {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .ppReturnRefundVennStat {
-    border-right: 0;
-    border-bottom: 1px solid var(--pp-slate-200);
-  }
-
-  .ppReturnRefundVennStat:last-child {
-    border-bottom: 0;
+    top: 58px;
+    right: 10%;
+    width: 175px;
   }
 
   .ppReturnRefundResolutionChips,
