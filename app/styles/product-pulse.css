@@ -6215,17 +6215,18 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRelationshipSignalVisual {
-  width: min(116px, 100%);
+  position: absolute;
+  z-index: 2;
+  width: min(170px, 100%);
   height: 48px;
   justify-self: end;
   margin: 0;
   overflow: hidden;
-  border-radius: 999px;
 }
 
 .ppProductRelationshipSignalVisual img {
   width: 100%;
-  height: 100%;
+  height: auto;
   display: block;
   object-fit: cover;
   object-position: center 48%;
@@ -6627,6 +6628,131 @@ s-page[inline-size="large-500"] {
   gap: 9px;
 }
 
+.ppProductRelationshipTimelineProductsClip {
+  position: relative;
+  width: 100%;
+  max-height: none;
+  overflow: hidden;
+  transition: max-height 260ms ease;
+}
+
+.ppProductRelationshipTimelineProductsClip.hasOverflow {
+  max-height: 472px;
+}
+
+.ppProductRelationshipTimelineProductsClip.isExpanded {
+  max-height: 1600px;
+}
+
+.ppProductRelationshipTimelineProductsClip.hasOverflow:not(.isExpanded)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 44px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0), rgba(248, 250, 252, 0.96));
+}
+
+.ppProductRelationshipTimelineSide-together .ppProductRelationshipTimelineProductsClip.hasOverflow:not(.isExpanded)::after {
+  background: linear-gradient(180deg, rgba(250, 248, 255, 0), rgba(250, 248, 255, 0.96));
+}
+
+.ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineProductsClip.hasOverflow:not(.isExpanded)::after {
+  background: linear-gradient(180deg, rgba(242, 253, 251, 0), rgba(242, 253, 251, 0.96));
+}
+
+.ppProductRelationshipTimelineBuckets {
+  display: grid;
+  gap: 10px;
+}
+
+.ppProductRelationshipTimelineBucket {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(191, 219, 254, 0.72);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(239, 246, 255, 0.62), rgba(255, 255, 255, 0.82)),
+    var(--pp-cloud-white);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 1px 2px rgba(15, 23, 42, 0.035);
+}
+
+.ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucket {
+  border-color: rgba(153, 246, 228, 0.74);
+  background:
+    linear-gradient(180deg, rgba(236, 253, 245, 0.68), rgba(255, 255, 255, 0.84)),
+    var(--pp-cloud-white);
+}
+
+.ppProductRelationshipTimelineBucketHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ppProductRelationshipTimelineBucketHeader strong {
+  color: #1D4ED8;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucketHeader strong {
+  color: #0F766E;
+}
+
+.ppProductRelationshipTimelineBucketHeader span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 19px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(219, 234, 254, 0.92);
+  color: #1D4ED8;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucketHeader span {
+  background: rgba(204, 251, 241, 0.9);
+  color: #0F766E;
+}
+
+.ppProductRelationshipTimelineBucketProductsClip {
+  position: relative;
+  max-height: none;
+  overflow: hidden;
+  transition: max-height 240ms ease;
+}
+
+.ppProductRelationshipTimelineBucketProductsClip.hasOverflow {
+  max-height: 176px;
+}
+
+.ppProductRelationshipTimelineBucketProductsClip.isExpanded {
+  max-height: 900px;
+}
+
+.ppProductRelationshipTimelineBucketProductsClip.hasOverflow:not(.isExpanded)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 32px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.94));
+}
+
 .ppProductRelationshipTimelineProduct {
   display: grid;
   grid-template-columns: 68px minmax(0, 1fr) 34px;
@@ -6707,6 +6833,72 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRelationshipDiagnosticButton s-icon {
+  color: currentColor;
+}
+
+.ppProductRelationshipTimelineShowMore {
+  width: 100%;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #2563EB;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.ppProductRelationshipTimelineShowMore:hover {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1D4ED8;
+}
+
+.ppProductRelationshipTimelineShowMore s-icon {
+  color: currentColor;
+}
+
+.ppProductRelationshipTimelineBucketShowMore {
+  width: 100%;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(191, 219, 254, 0.76);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #2563EB;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.1;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ppProductRelationshipTimelineBucketShowMore:hover {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: rgba(219, 234, 254, 0.72);
+  color: #1D4ED8;
+}
+
+.ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucketShowMore {
+  border-color: rgba(153, 246, 228, 0.74);
+  color: #0F766E;
+}
+
+.ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineBucketShowMore:hover {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(204, 251, 241, 0.72);
+  color: #0F766E;
+}
+
+.ppProductRelationshipTimelineBucketShowMore s-icon {
   color: currentColor;
 }
 
@@ -12025,6 +12217,227 @@ s-page[inline-size="large-500"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
+}
+
+.ppEvidenceReportBlockIntro {
+  display: grid;
+  gap: 4px;
+}
+
+.ppEvidenceCheckSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppEvidenceCheckSummary span {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.ppEvidenceCheckSummary strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.ppEvidenceCheckInsightList {
+  display: grid;
+  gap: 12px;
+}
+
+.ppEvidenceReportBlock article.ppEvidenceCheckInsight {
+  gap: 14px;
+  padding: 14px;
+  background: var(--pp-cloud-white);
+}
+
+.ppEvidenceCheckInsightTop {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: start;
+}
+
+.ppEvidenceCheckIcon {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppEvidenceCheckInsight-orange .ppEvidenceCheckIcon,
+.ppEvidenceCheckMeter-orange i {
+  background: var(--pp-warning-amber);
+}
+
+.ppEvidenceCheckInsight-red .ppEvidenceCheckIcon,
+.ppEvidenceCheckMeter-red i {
+  background: var(--pp-risk-red);
+}
+
+.ppEvidenceCheckInsight-green .ppEvidenceCheckIcon,
+.ppEvidenceCheckMeter-green i {
+  background: var(--pp-success-green);
+}
+
+.ppEvidenceCheckInsight-teal .ppEvidenceCheckIcon,
+.ppEvidenceCheckMeter-teal i {
+  background: var(--pp-signal-teal);
+}
+
+.ppEvidenceCheckInsight-orange .ppEvidenceCheckIcon,
+.ppEvidenceCheckInsight-red .ppEvidenceCheckIcon,
+.ppEvidenceCheckInsight-green .ppEvidenceCheckIcon,
+.ppEvidenceCheckInsight-teal .ppEvidenceCheckIcon {
+  color: var(--pp-cloud-white);
+}
+
+.ppEvidenceCheckInsightTop > div {
+  min-width: 0;
+}
+
+.ppEvidenceCheckInsightTop > div > span,
+.ppEvidenceCheckConclusion > span,
+.ppEvidenceCheckRecommendationLink > span {
+  display: block;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.ppEvidenceCheckInsightTop strong:not(.ppEvidenceCheckValue) {
+  display: block;
+  margin-top: 2px;
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.ppEvidenceCheckInsightTop p,
+.ppEvidenceCheckConclusion p {
+  margin: 4px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppEvidenceCheckValue {
+  max-width: 130px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  line-height: 1.15;
+  text-align: right;
+}
+
+.ppEvidenceCheckConclusion {
+  padding: 10px 11px;
+  border-left: 3px solid var(--pp-pulse-blue);
+  border-radius: 8px;
+  background: var(--pp-blue-soft);
+}
+
+.ppEvidenceCheckMeters {
+  display: grid;
+  gap: 8px;
+}
+
+.ppEvidenceCheckMeter {
+  display: grid;
+  gap: 5px;
+}
+
+.ppEvidenceCheckMeter > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceCheckMeter > span strong {
+  color: var(--pp-slate-800);
+}
+
+.ppEvidenceCheckMeter em {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppEvidenceCheckMeter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--pp-pulse-blue);
+}
+
+.ppEvidenceCheckFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.ppEvidenceCheckFacts > div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-mist-gray);
+}
+
+.ppEvidenceCheckFacts dt {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceCheckFacts dd {
+  margin: 3px 0 0;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 820;
+  line-height: 1.3;
+}
+
+.ppEvidenceCheckRecommendationLink {
+  display: grid;
+  gap: 6px;
+}
+
+.ppEvidenceCheckRecommendationLink ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppEvidenceCheckRecommendationLink li {
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .ppEvidenceReportBlock pre {
@@ -23289,6 +23702,8 @@ s-page[inline-size="large-500"] {
   .ppEvidenceScoreTheoryGrid,
   .ppEvidenceScoreGrid,
   .ppEvidenceReportTwoColumn,
+  .ppEvidenceCheckSummary,
+  .ppEvidenceCheckFacts,
   .ppEvidenceReportIssue dl,
   .ppCheckedGrid {
     grid-template-columns: 1fr;
@@ -23312,6 +23727,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppEvidenceActiveHeader,
+  .ppEvidenceCheckInsightTop,
   .ppEvidenceReportIssue > div:first-child,
   .ppEvidenceReportSourceHeader {
     display: grid;

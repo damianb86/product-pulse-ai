@@ -3873,6 +3873,7 @@ function getProductDetailModel(product) {
     analysisDepth: analysisStatus.depth,
     analysisLabel: analysisStatus.label,
     analysisDetail: analysisStatus.detail,
+    hasRiskSnapshot,
     hasFullDiagnosis,
     activeDiagnosisJob,
     diagnosisInProgress: Boolean(activeDiagnosisJob),
@@ -3960,7 +3961,7 @@ function getProductDetailModel(product) {
     isWatched: Boolean(product.isWatched),
     watchlistStatus: product.watchlistStatus || null,
     resolvedAt: product.resolvedAt || null,
-    canDiagnose: product.canDiagnose !== false && hasRiskSnapshot && !activeDiagnosisJob,
+    canDiagnose: product.canDiagnose !== false && Boolean(hasRiskSnapshot || product.productGid || product.id) && !activeDiagnosisJob,
     canResolve: product.canResolve !== false && hasRiskSnapshot && hasFullDiagnosis,
   };
 }
@@ -8313,6 +8314,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [actionsCompleteModalOpen, setActionsCompleteModalOpen] = useState(false);
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
+  const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
   const [watchlistLocalState, setWatchlistLocalState] = useState(null);
   const [detailActionsOpen, setDetailActionsOpen] = useState(false);
   const [recommendedActionsCollapsed, setRecommendedActionsCollapsed] = useState(false);
@@ -8351,6 +8353,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setActionsCompleteModalOpen(false);
     setDiagnosisConfirmation(null);
     setWatchlistConfirmation(null);
+    setDeleteAnalysisConfirmation(null);
     setWatchlistLocalState(null);
     setDetailActionsOpen(false);
     setRecommendedActionsCollapsed(false);
@@ -8375,6 +8378,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       setWatchlistLocalState(false);
       setWatchlistConfirmation(null);
     }
+    if (actionData?.status === "success" && actionData?.action?.id === "delete-product-analysis") {
+      setDeleteAnalysisConfirmation(null);
+    }
     if (actionData?.status === "success" && actionData?.action?.id === "ignore-issue") {
       const issueKey = normalizeIssueIgnoreKey(actionData.action.payload?.issueKey || actionData.action.payload?.issueCode || actionData.action.payload?.issue);
       if (issueKey) {
@@ -8395,7 +8401,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         });
       }
     }
-    if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue", "add-watched-product", "remove-watched-product"].includes(actionData.action.id)) {
+    if (actionData?.status === "success" && actionData?.action?.id && !["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue", "add-watched-product", "remove-watched-product", "delete-product-analysis"].includes(actionData.action.id)) {
       const actionKey = actionData.action.id;
       const archivedState = getArchivedActionStateFromRecordStatus(actionData.actionRecordStatus || "applied");
       if (archivedState && willCompleteProductRecommendedActions(productRef.current, actionKey, minimizedActionStatesRef.current)) {
@@ -8409,6 +8415,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       setActionConfirmation(null);
       setDiagnosisConfirmation(null);
       setWatchlistConfirmation(null);
+      setDeleteAnalysisConfirmation(null);
       setDetailActionsOpen(false);
     }
   }, [actionData]);
@@ -8523,6 +8530,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const diagnosisPending = pendingActionType === "diagnose";
   const resolvingPending = pendingActionType === "mark-resolved" || pendingActionType === "mark-unresolved";
   const watchlistPending = pendingActionType === "add-to-watchlist" || pendingActionType === "remove-from-watchlist";
+  const deleteAnalysisPending = pendingActionType === "delete-product-analysis";
   const isWatched = watchlistLocalState ?? Boolean(detail.isWatched);
   const productStatusLabel = resolved ? "Resolved" : detail.productStatusLabel;
   const productStatusTone = resolved ? "success" : detail.productStatusTone;
@@ -8570,7 +8578,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const handleRequestProductDiagnosis = () => {
     if (!detail.canDiagnose || diagnosisPending) return;
-    const productId = product.slug || product.handle || "";
+    const productId = detail.productGid || product.productGid || product.id || product.slug || product.handle || "";
     setDiagnosisConfirmation({
       mode: "single",
       title: "Confirm product analysis",
@@ -8595,6 +8603,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       mode: isWatched ? "remove" : "add",
       product: detail,
     });
+  };
+
+  const handleRequestDeleteAnalysis = () => {
+    if (deleteAnalysisPending || !detail.productGid) return;
+    setDetailActionsOpen(false);
+    setDeleteAnalysisConfirmation({ product: detail });
   };
 
   const handleIgnoreIssue = (issue) => {
@@ -8815,6 +8829,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               watchlistPending={watchlistPending}
               resolved={resolved}
               resolvingPending={resolvingPending}
+              canDeleteAnalysis={detail.hasRiskSnapshot}
+              deleteAnalysisPending={deleteAnalysisPending}
+              onDeleteAnalysis={handleRequestDeleteAnalysis}
             />
           </div>
         </section>
@@ -9121,6 +9138,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             confirmation={watchlistConfirmation}
             pending={watchlistPending}
             onCancel={() => setWatchlistConfirmation(null)}
+          />
+        )}
+        {deleteAnalysisConfirmation && (
+          <DeleteProductAnalysisConfirmModal
+            confirmation={deleteAnalysisConfirmation}
+            pending={deleteAnalysisPending}
+            onCancel={() => setDeleteAnalysisConfirmation(null)}
           />
         )}
         {selectedRecommendedAction && !actionConfirmation && (
@@ -9581,21 +9605,21 @@ function ProductRelationshipSignalCard({ detail, relationship }) {
               <span>{afterPathLabel}</span>
             </div>
           </div>
-          <div className="ppProductRelationshipSignalTop">
-            <span>Top related:</span>
-            {topRelated ? (
-              <Link to={topRelatedHref}>
-                {topRelated.title}
-                <s-icon type="external" size="small"></s-icon>
-              </Link>
-            ) : (
-              <em>No reliable related product yet</em>
-            )}
-          </div>
-          <a className="ppProductRelationshipSignalFooter" href="#product-relationship-timeline">
-            <span>Nearby product relationships</span>
-            <i aria-hidden="true"><s-icon type="arrow-right" size="small"></s-icon></i>
-          </a>
+        <div className="ppProductRelationshipSignalTop">
+          <span>Top related:</span>
+          {topRelated ? (
+            <Link to={topRelatedHref}>
+              {topRelated.title}
+              <s-icon type="external" size="small"></s-icon>
+            </Link>
+          ) : (
+            <em>No reliable related product yet</em>
+          )}
+        </div>
+        <a className="ppProductRelationshipSignalFooter" href="#product-relationship-timeline">
+          <span>Nearby product relationships</span>
+          <i aria-hidden="true"><s-icon type="arrow-right" size="small"></s-icon></i>
+        </a>
         </div>
         <figure className="ppProductRelationshipSignalVisual" aria-hidden="true">
           <img src={PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.signal} alt="" />
@@ -9775,8 +9799,10 @@ function normalizeRelationshipIdentityValue(value) {
 }
 
 function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle, emptyMessage }) {
-  const visibleItems = (Array.isArray(items) ? items : []).filter(Boolean).slice(0, 4);
-  const hasItems = visibleItems.length > 0;
+  const [expanded, setExpanded] = useState(false);
+  const [expandedBucketKeys, setExpandedBucketKeys] = useState(() => new Set());
+  const allItems = (Array.isArray(items) ? items : []).filter(Boolean);
+  const hasItems = allItems.length > 0;
   const isTogether = kind === "together";
   const isAfter = kind === "after";
   const badgeAsset = isTogether
@@ -9785,8 +9811,32 @@ function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle
       ? PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.after
       : PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.before;
   const countLabel = isTogether ? "orders" : "customers";
+  const collapsedItems = allItems.slice(0, isTogether ? 4 : 5);
+  const visibleItems = expanded ? allItems : collapsedItems;
+  const bucketGroups = isTogether ? [] : getProductRelationshipTimelineBucketGroups(allItems, kind);
+  const visibleBucketGroups = bucketGroups;
+  const collapsedBucketItemCount = countProductRelationshipCollapsedBucketItems(bucketGroups);
+  const collapsedVisibleCount = isTogether ? collapsedItems.length : collapsedBucketItemCount;
+  const hasOverflow = hasItems && allItems.length > collapsedVisibleCount;
+  const productsClipExpanded = expanded || expandedBucketKeys.size > 0;
+  const handleToggleColumnExpanded = () => {
+    const nextExpanded = !expanded;
+    if (!nextExpanded) setExpandedBucketKeys(new Set());
+    setExpanded(nextExpanded);
+  };
+  const handleToggleBucketExpanded = (bucketKey) => {
+    setExpandedBucketKeys((current) => {
+      const next = new Set(current);
+      if (next.has(bucketKey)) {
+        next.delete(bucketKey);
+      } else {
+        next.add(bucketKey);
+      }
+      return next;
+    });
+  };
   return (
-    <div className={`ppProductRelationshipTimelineSide ppProductRelationshipTimelineSide-${kind}${hasItems ? "" : " isUnavailable"}`}>
+    <div className={`ppProductRelationshipTimelineSide ppProductRelationshipTimelineSide-${kind}${hasItems ? "" : " isUnavailable"}${expanded ? " isExpanded" : ""}`}>
       <span className={`ppProductRelationshipTimelineCartBadge ppProductRelationshipTimelineCartBadge-${kind}`} aria-hidden="true">
         <img src={badgeAsset} alt="" />
       </span>
@@ -9795,15 +9845,33 @@ function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle
         <small>{subtitle}</small>
       </div>
       {hasItems ? (
-        <div className="ppProductRelationshipTimelineProducts">
-          {visibleItems.map((item, index) => (
-            <ProductRelationshipTimelineProductRow
-              countLabel={countLabel}
-              item={item}
-              kind={kind}
-              key={`${kind}-${item.id || item.relatedProductId || item.title || index}`}
-            />
-          ))}
+        <div className={`ppProductRelationshipTimelineProductsClip${productsClipExpanded ? " isExpanded" : ""}${hasOverflow ? " hasOverflow" : ""}`}>
+          {isTogether ? (
+            <div className="ppProductRelationshipTimelineProducts">
+              {visibleItems.map((item, index) => (
+                <ProductRelationshipTimelineProductRow
+                  countLabel={countLabel}
+                  item={item}
+                  kind={kind}
+                  key={`${kind}-${item.id || item.relatedProductId || item.title || index}`}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="ppProductRelationshipTimelineBuckets">
+              {visibleBucketGroups.map((group) => (
+                <ProductRelationshipTimelineBucketGroup
+                  countLabel={countLabel}
+                  group={group}
+                  kind={kind}
+                  expanded={expanded || expandedBucketKeys.has(group.key)}
+                  forceExpanded={expanded}
+                  onToggleExpanded={() => handleToggleBucketExpanded(group.key)}
+                  key={`${kind}-${group.key}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div className="ppProductRelationshipTimelineEmpty">
@@ -9816,7 +9884,54 @@ function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle
           <p>{emptyMessage}</p>
         </div>
       )}
+      {hasOverflow ? (
+        <button
+          className="ppProductRelationshipTimelineShowMore"
+          type="button"
+          aria-expanded={expanded}
+          onClick={handleToggleColumnExpanded}
+        >
+          <span>{expanded ? "Show less" : `View all (${allItems.length})`}</span>
+          <s-icon type={expanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function ProductRelationshipTimelineBucketGroup({ group, kind, countLabel, expanded = false, forceExpanded = false, onToggleExpanded }) {
+  const hasOverflow = group.items.length > 2;
+  const visibleItems = expanded ? group.items : group.items.slice(0, 2);
+  return (
+    <section className={`ppProductRelationshipTimelineBucket ppProductRelationshipTimelineBucket-${group.key}${expanded ? " isExpanded" : ""}`} aria-label={`${group.label} relationship products`}>
+      <div className="ppProductRelationshipTimelineBucketHeader">
+        <strong>{group.label}</strong>
+        <span>{group.badge}</span>
+      </div>
+      <div className={`ppProductRelationshipTimelineBucketProductsClip${expanded ? " isExpanded" : ""}${hasOverflow ? " hasOverflow" : ""}`}>
+        <div className="ppProductRelationshipTimelineProducts">
+          {visibleItems.map((item, index) => (
+            <ProductRelationshipTimelineProductRow
+              countLabel={countLabel}
+              item={item}
+              kind={kind}
+              key={`${kind}-${group.key}-${item.id || item.relatedProductId || item.title || index}`}
+            />
+          ))}
+        </div>
+      </div>
+      {hasOverflow && !forceExpanded ? (
+        <button
+          className="ppProductRelationshipTimelineBucketShowMore"
+          type="button"
+          aria-expanded={expanded}
+          onClick={onToggleExpanded}
+        >
+          <span>{expanded ? "Show less" : `View more (${group.items.length})`}</span>
+          <s-icon type={expanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+        </button>
+      ) : null}
+    </section>
   );
 }
 
@@ -9847,6 +9962,60 @@ function ProductRelationshipTimelineProductRow({ item, kind, countLabel }) {
       </Link>
     </div>
   );
+}
+
+const PRODUCT_RELATIONSHIP_TIMELINE_BUCKETS = [
+  { key: "0-7", label: "0-7 days", badge: "Strongest" },
+  { key: "8-30", label: "8-30 days", badge: "Medium" },
+  { key: "30-plus", label: "30+ days", badge: "Lower" },
+];
+
+function getProductRelationshipTimelineBucketGroups(items = [], kind = "before") {
+  const bucketItems = new Map(PRODUCT_RELATIONSHIP_TIMELINE_BUCKETS.map((bucket) => [bucket.key, []]));
+  (Array.isArray(items) ? items : []).filter(Boolean).forEach((item) => {
+    const bucketKey = getProductRelationshipTimelineBucketKey(item, kind);
+    bucketItems.get(bucketKey)?.push(item);
+  });
+  return PRODUCT_RELATIONSHIP_TIMELINE_BUCKETS
+    .map((bucket) => ({
+      ...bucket,
+      items: sortProductRelationshipTimelineItems(bucketItems.get(bucket.key) || []),
+    }))
+    .filter((bucket) => bucket.items.length > 0);
+}
+
+function countProductRelationshipCollapsedBucketItems(groups = []) {
+  return groups.reduce((count, group) => count + Math.min(Array.isArray(group.items) ? group.items.length : 0, 2), 0);
+}
+
+function getProductRelationshipTimelineBucketKey(item = {}, kind = "before") {
+  const days = getProductRelationshipTimelineWindowDays(item, kind);
+  if (days !== null && days <= 7) return "0-7";
+  if (days !== null && days <= 30) return "8-30";
+  if (days !== null && days > 30) return "30-plus";
+  return "8-30";
+}
+
+function getProductRelationshipTimelineWindowDays(item = {}, kind = "before") {
+  const medianDays = kind === "after" ? item.medianDaysAfter : item.medianDaysBefore;
+  if (Number.isFinite(medianDays)) return medianDays;
+  const windowText = `${item.timeWindow || ""} ${item.timeWindowLabel || ""}`;
+  const daysMatch = windowText.match(/(\d+(?:\.\d+)?)\s*(?:d|day|days)?/i);
+  if (!daysMatch) return null;
+  const days = Number(daysMatch[1]);
+  return Number.isFinite(days) ? days : null;
+}
+
+function sortProductRelationshipTimelineItems(items = []) {
+  return [...items].sort((left, right) => {
+    const leftRate = Number(left.attachRatePercent || left.relationshipRatePercent || 0);
+    const rightRate = Number(right.attachRatePercent || right.relationshipRatePercent || 0);
+    if (rightRate !== leftRate) return rightRate - leftRate;
+    const leftLift = Number(left.lift || 0);
+    const rightLift = Number(right.lift || 0);
+    if (rightLift !== leftLift) return rightLift - leftLift;
+    return String(left.title || "").localeCompare(String(right.title || ""));
+  });
 }
 
 function getProductRelationshipDiagnosticHref(item = {}) {
@@ -12831,6 +13000,9 @@ function ProductDetailActionsMenu({
   watchlistPending,
   resolved,
   resolvingPending,
+  canDeleteAnalysis = false,
+  deleteAnalysisPending = false,
+  onDeleteAnalysis,
 }) {
   const triggerRef = useRef(null);
   const [copied, setCopied] = useState(false);
@@ -12876,6 +13048,11 @@ function ProductDetailActionsMenu({
     onWatchlistToggle?.();
   };
 
+  const handleDeleteAnalysisClick = () => {
+    onClose?.();
+    onDeleteAnalysis?.();
+  };
+
   return (
     <span className="ppActionMenuWrap ppProductDetailActionMenuWrap" ref={triggerRef}>
       <button
@@ -12888,7 +13065,7 @@ function ProductDetailActionsMenu({
         <s-icon type="menu-horizontal" size="small"></s-icon>
       </button>
       {open && (
-        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu ppProductDetailActionMenu" width={236} estimatedHeight={214} placement="bottom-end" role="menu">
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu ppProductDetailActionMenu" width={236} estimatedHeight={264} placement="bottom-end" role="menu">
           <span className="ppProductDetailActionMenuHeader">Product actions</span>
           <button
             role="menuitem"
@@ -12927,6 +13104,18 @@ function ProductDetailActionsMenu({
               <s-icon type="external" size="small"></s-icon>
               View in Store
             </a>
+          )}
+          {canDeleteAnalysis && (
+            <button
+              className="ppActionMenuDanger"
+              role="menuitem"
+              type="button"
+              disabled={deleteAnalysisPending || !detail.productGid}
+              onClick={handleDeleteAnalysisClick}
+            >
+              <ProductPulseGlyph type="trash" />
+              {deleteAnalysisPending ? "Deleting..." : "Delete analysis"}
+            </button>
           )}
         </FloatingTablePopover>
       )}
@@ -15750,6 +15939,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
   const selectedSourceName = source || "All sources";
   const reportGeneratedAt = product.metrics?.lastDetailedDiagnosisAt || product.lastAnalysis;
   const scoreModel = getEvidenceReportScoreModel(product, detail);
+  const checkInsights = getEvidenceReportCheckInsights(detail, product);
   const sourceSections = detail.evidenceSources.map((sourceItem, index) => ({
     key: `source-${getEvidenceReportSectionSlug(sourceItem.title || `source-${index + 1}`)}`,
     id: `evidence-source-${getEvidenceReportSectionSlug(sourceItem.title || `source-${index + 1}`)}`,
@@ -16012,21 +16202,367 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
                 </article>
               )) : <EmptyProductDetailState message="0 recommended actions stored for this product." />}
             </div>
-            <div className="ppEvidenceReportBlock">
-              <h3>What ProductPulse checked</h3>
-              {detail.checkedItems.length ? detail.checkedItems.map((item) => (
-                <article key={item.label}>
-                  <strong>{item.label}</strong>
-                  <p>{item.value}</p>
-                  <small>{item.detail}</small>
-                </article>
-              )) : <EmptyProductDetailState message="0 product-specific checks stored yet." />}
+            <div className="ppEvidenceReportBlock ppEvidenceReportCheckBlock">
+              <div className="ppEvidenceReportBlockIntro">
+                <h3>Diagnostic checks behind recommendations</h3>
+                <p>
+                  These cards explain what ProductPulse inspected, what it concluded from that evidence,
+                  and which recommendation that check supports.
+                </p>
+              </div>
+              {checkInsights.length ? (
+                <>
+                  <div className="ppEvidenceCheckSummary" aria-label="Diagnostic check summary">
+                    <span><strong>{formatInteger(checkInsights.length)}</strong> checks</span>
+                    <span><strong>{formatInteger(detail.sourceCount)}</strong> sources</span>
+                    <span><strong>{formatInteger(detail.recommendedActions.length)}</strong> recommendations</span>
+                  </div>
+                  <div className="ppEvidenceCheckInsightList">
+                    {checkInsights.map((check) => (
+                      <EvidenceReportCheckInsightCard check={check} key={check.id} />
+                    ))}
+                  </div>
+                </>
+              ) : <EmptyProductDetailState message="0 product-specific checks stored yet." />}
             </div>
           </div>
         </EvidenceReportCollapsibleSection>
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+function EvidenceReportCheckInsightCard({ check }) {
+  return (
+    <article className={`ppEvidenceCheckInsight ppEvidenceCheckInsight-${check.tone}`}>
+      <div className="ppEvidenceCheckInsightTop">
+        <span className="ppEvidenceCheckIcon" aria-hidden="true">
+          <EvidenceReportCheckIcon icon={check.icon} />
+        </span>
+        <div>
+          <span>{check.scope}</span>
+          <strong>{check.label}</strong>
+          <p>{check.question}</p>
+        </div>
+        <strong className="ppEvidenceCheckValue">{check.value}</strong>
+      </div>
+
+      <div className="ppEvidenceCheckConclusion">
+        <span>Conclusion</span>
+        <p>{renderAnalysisText(check.conclusion)}</p>
+      </div>
+
+      {check.meters.length > 0 && (
+        <div className="ppEvidenceCheckMeters" aria-label={`${check.label} signal strength`}>
+          {check.meters.map((meter) => (
+            <div className={`ppEvidenceCheckMeter ppEvidenceCheckMeter-${meter.tone}`} key={meter.label}>
+              <span>
+                <small>{meter.label}</small>
+                <strong>{meter.valueLabel}</strong>
+              </span>
+              <em aria-hidden="true"><i style={{ width: `${clampNumber(meter.value, 0, 100)}%` }} /></em>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {check.facts.length > 0 && (
+        <dl className="ppEvidenceCheckFacts">
+          {check.facts.map((fact) => (
+            <div key={fact.label}>
+              <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      <div className="ppEvidenceCheckRecommendationLink">
+        <span>Recommendation link</span>
+        <ul>
+          {check.relatedActions.map((action) => (
+            <li key={`${check.id}-${action}`}>{action}</li>
+          ))}
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+function EvidenceReportCheckIcon({ icon }) {
+  const glyphType = getEvidenceReportCheckGlyphType(icon);
+  if (glyphType) return <ProductPulseGlyph type={glyphType} />;
+  return <s-icon type={icon || "info"} size="small"></s-icon>;
+}
+
+function getEvidenceReportCheckInsights(detail = {}, product = {}) {
+  const checks = Array.isArray(detail.checkedItems) ? detail.checkedItems : [];
+  return checks.map((item, index) => {
+    const kind = getEvidenceReportCheckKind(item);
+    const context = getEvidenceReportCheckContext(kind, item, detail, product);
+    return {
+      id: `${kind}-${index}-${normalizeEvidenceReportTarget(item.label || "check")}`,
+      icon: item.icon,
+      label: item.label || context.label,
+      value: item.value || context.value,
+      detail: item.detail || "",
+      ...context,
+      relatedActions: getEvidenceReportRelatedActionsForCheck(kind, detail.recommendedActions, product),
+      facts: getEvidenceReportCheckFacts(kind, item, detail, product),
+      meters: getEvidenceReportCheckMeters(kind, item, detail, product),
+    };
+  });
+}
+
+function getEvidenceReportCheckKind(item = {}) {
+  const text = `${item.label || ""} ${item.detail || ""} ${item.icon || ""}`.toLowerCase();
+  if (text.includes("return reason")) return "return_reasons";
+  if (text.includes("affected variant")) return "variants";
+  if (text.includes("content") || text.includes("description")) return "content";
+  if (text.includes("judge") || text.includes("review") || text.includes("rating")) return "reviews";
+  if (text.includes("refund")) return "refunds";
+  if (text.includes("return")) return "returns";
+  if (text.includes("sold") || text.includes("order") || text.includes("unit")) return "orders";
+  if (text.includes("product") || text.includes("shopify") || text.includes("variant")) return "product";
+  return "source";
+}
+
+function getEvidenceReportCheckContext(kind, item = {}, detail = {}, product = {}) {
+  const metrics = product.metrics || {};
+  const itemValue = item.value || "Checked";
+  const itemDetail = item.detail || "Stored diagnostic evidence";
+  const variantCount = Number(metrics.variantCount ?? (Array.isArray(metrics.variants) ? metrics.variants.length : 0)) || 0;
+  const affectedVariantCount = Number(metrics.affectedVariants?.length || 0);
+  const returnReasons = Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons.filter(Boolean) : [];
+  const contentIssues = Array.isArray(metrics.contentIssues) ? metrics.contentIssues.filter(Boolean) : [];
+  const reviewCount = Number(metrics.reviewCount || 0);
+  const negativeReviewCount = Number(metrics.negativeReviewCount || 0);
+  const avgRating = metrics.avgRating || metrics.reviewRating || 0;
+
+  if (kind === "product") {
+    return {
+      scope: "Catalog baseline",
+      tone: "blue",
+      question: "Which Shopify catalog facts define this exact product before customer evidence is interpreted?",
+      conclusion: `${itemValue} were available. ProductPulse used ${itemDetail} as baseline context, not as proof of a defect by itself.`,
+    };
+  }
+  if (kind === "orders") {
+    return {
+      scope: "Demand context",
+      tone: "teal",
+      question: "How much shopper exposure sits behind the evidence count?",
+      conclusion: `${itemValue} sold units were checked against the diagnosis window. This sets the denominator for returns, refunds and reviews so isolated complaints are not over-read.`,
+    };
+  }
+  if (kind === "returns") {
+    return {
+      scope: "Post-purchase friction",
+      tone: getEvidenceReportPressureTone(metrics.returnRate),
+      question: "Do customers send this product back often enough to support a product-level concern?",
+      conclusion: `Return evidence shows ${itemValue} returned units and ${itemDetail}. ProductPulse treats this as a friction signal, then checks reasons and variants before recommending a product change.`,
+    };
+  }
+  if (kind === "refunds") {
+    return {
+      scope: "Financial pressure",
+      tone: getEvidenceReportPressureTone(metrics.refundRate),
+      question: "How much of the product concern shows up as refunded money or units?",
+      conclusion: `Refund evidence shows ${itemDetail}. This supports financial exposure and priority, but ProductPulse still needs return, review or content evidence before calling it a root cause.`,
+    };
+  }
+  if (kind === "return_reasons") {
+    return {
+      scope: "Reason clustering",
+      tone: returnReasons.length >= 3 ? "orange" : "blue",
+      question: "What recurring customer explanations make the return signal interpretable?",
+      conclusion: returnReasons.length
+        ? `The clearest return themes are ${formatInlineList(returnReasons.slice(0, 3))}. These themes explain why the left-side recommendation focuses on shopper expectation, PDP content or operational review.`
+        : `ProductPulse checked return reason clusters, but no named reason dominated the stored evidence.`,
+    };
+  }
+  if (kind === "variants") {
+    return {
+      scope: "Affected scope",
+      tone: affectedVariantCount > 0 && variantCount > affectedVariantCount ? "orange" : "blue",
+      question: "Is the evidence broad across the product or concentrated in a SKU, size, color or option?",
+      conclusion: affectedVariantCount
+        ? `${affectedVariantCount} affected variant${affectedVariantCount === 1 ? "" : "s"} were identified out of ${formatInteger(Math.max(variantCount, affectedVariantCount))}. ProductPulse uses this to avoid broad product changes when the issue may be variant-specific.`
+        : `Variant scope was checked, but the report does not contain a concentrated affected-variant list.`,
+    };
+  }
+  if (kind === "content") {
+    return {
+      scope: "PDP clarity",
+      tone: Number(metrics.contentIssueCount || 0) > 0 ? "orange" : "green",
+      question: "Does the product page contain enough clear information to prevent avoidable confusion?",
+      conclusion: contentIssues.length
+        ? `Product content checks found ${formatInlineList(contentIssues.slice(0, 2).map((issue) => issue.label || issue.code || issue.evidence || "content issue"))}. This is why PDP or FAQ recommendations appear on the left.`
+        : `Product content was checked with ${itemDetail}. No specific content issue list is stored, so content actions should be read as supporting guidance.`,
+    };
+  }
+  if (kind === "reviews") {
+    return {
+      scope: "Customer language",
+      tone: negativeReviewCount > 0 ? "orange" : "green",
+      question: "Do ratings and review language agree with the operational evidence?",
+      conclusion: `${formatInteger(reviewCount)} reviews were checked with ${formatInteger(negativeReviewCount)} negative signals and a ${avgRating || 0} average rating. Review evidence is strongest when it repeats the same theme as returns or content gaps.`,
+    };
+  }
+  return {
+    scope: "Stored source check",
+    tone: "blue",
+    question: "What source-specific evidence was available for this report?",
+    conclusion: `${item.label || "This source"} was checked: ${itemDetail}. Use this as supporting context for the recommendation list.`,
+  };
+}
+
+function getEvidenceReportCheckFacts(kind, item = {}, detail = {}, product = {}) {
+  const metrics = product.metrics || {};
+  const facts = [
+    { label: "Stored value", value: item.value || "Checked" },
+    item.detail ? { label: "Evidence detail", value: item.detail } : null,
+  ];
+  if (kind === "orders") {
+    facts.push({ label: "Window", value: `${formatInteger(metrics.windowDays || 0)} days` });
+  }
+  if (kind === "returns") {
+    facts.push({ label: "Return rate", value: formatPercent(metrics.monthlyOrderActivity?.summary?.returnRate ?? metrics.returnRate ?? 0) });
+  }
+  if (kind === "refunds") {
+    facts.push({ label: "Refunded amount", value: formatMoney(metrics.refundAmount || 0) });
+  }
+  if (kind === "reviews") {
+    facts.push({ label: "Negative reviews", value: formatInteger(metrics.negativeReviewCount || 0) });
+  }
+  if (kind === "content") {
+    facts.push({ label: "Description", value: `${formatInteger(metrics.descriptionWordCount || 0)} words` });
+  }
+  if (kind === "variants") {
+    facts.push({ label: "Variant count", value: formatInteger(metrics.variantCount || metrics.variants?.length || 0) });
+  }
+  if (detail.confidence) {
+    facts.push({ label: "Diagnosis confidence", value: `${detail.confidence}%` });
+  }
+  return facts.filter(Boolean).slice(0, 4);
+}
+
+function getEvidenceReportCheckMeters(kind, item = {}, detail = {}, product = {}) {
+  const metrics = product.metrics || {};
+  const signalCount = Number(metrics.signalCount || detail.signalCount || 0);
+  const sourceCount = Number(detail.sourceCount || product.sourceCoverage?.length || 0);
+  const variantCount = Number(metrics.variantCount || metrics.variants?.length || 0);
+  const affectedVariantCount = Number(metrics.affectedVariants?.length || 0);
+  const reviewCount = Number(metrics.reviewCount || 0);
+  const negativeReviewCount = Number(metrics.negativeReviewCount || 0);
+
+  if (kind === "returns") {
+    return [
+      evidenceCheckMeter("Return rate", percentToMeter(metrics.monthlyOrderActivity?.summary?.returnRate ?? metrics.returnRate), formatPercent(metrics.monthlyOrderActivity?.summary?.returnRate ?? metrics.returnRate ?? 0), getEvidenceReportPressureTone(metrics.returnRate)),
+      evidenceCheckMeter("Return units", scaledMeter(metrics.returnUnits, 20), formatInteger(metrics.returnUnits || 0), "orange"),
+    ];
+  }
+  if (kind === "refunds") {
+    return [
+      evidenceCheckMeter("Refund rate", percentToMeter(metrics.monthlyOrderActivity?.summary?.refundRate ?? metrics.refundRate), formatPercent(metrics.monthlyOrderActivity?.summary?.refundRate ?? metrics.refundRate ?? 0), getEvidenceReportPressureTone(metrics.refundRate)),
+      evidenceCheckMeter("Refund amount", scaledMeter(metrics.refundAmount, Math.max(1, detail.estimatedImpact || metrics.revenueAtRisk || metrics.refundAmount || 1)), formatMoney(metrics.refundAmount || 0), "teal"),
+    ];
+  }
+  if (kind === "orders") {
+    return [
+      evidenceCheckMeter("Sample size", scaledMeter(metrics.soldUnits || metrics.monthlyOrderActivity?.summary?.totalOrderUnits, 100), formatInteger(metrics.soldUnits || metrics.monthlyOrderActivity?.summary?.totalOrderUnits || 0), "teal"),
+      evidenceCheckMeter("Evidence window", scaledMeter(metrics.windowDays, 90), `${formatInteger(metrics.windowDays || 0)}d`, "blue"),
+    ];
+  }
+  if (kind === "variants") {
+    const ratio = variantCount > 0 ? (affectedVariantCount / variantCount) * 100 : scaledMeter(affectedVariantCount, 5);
+    return [
+      evidenceCheckMeter("Affected scope", ratio, `${formatInteger(affectedVariantCount)}/${formatInteger(Math.max(variantCount, affectedVariantCount))}`, "orange"),
+      evidenceCheckMeter("Variant coverage", scaledMeter(variantCount, 10), formatInteger(variantCount), "blue"),
+    ];
+  }
+  if (kind === "content") {
+    return [
+      evidenceCheckMeter("Content score", metrics.contentQualityScore || 0, `${formatInteger(metrics.contentQualityScore || 0)}/100`, Number(metrics.contentIssueCount || 0) > 0 ? "orange" : "green"),
+      evidenceCheckMeter("Issue count", scaledMeter(metrics.contentIssueCount, 5), formatInteger(metrics.contentIssueCount || 0), "orange"),
+    ];
+  }
+  if (kind === "reviews") {
+    return [
+      evidenceCheckMeter("Review volume", scaledMeter(reviewCount, 50), formatInteger(reviewCount), "blue"),
+      evidenceCheckMeter("Negative pressure", reviewCount > 0 ? (negativeReviewCount / reviewCount) * 100 : 0, `${formatInteger(negativeReviewCount)} negative`, negativeReviewCount > 0 ? "orange" : "green"),
+    ];
+  }
+  return [
+    evidenceCheckMeter("Signal support", scaledMeter(signalCount, 12), formatInteger(signalCount), signalCount > 0 ? "blue" : "green"),
+    evidenceCheckMeter("Source coverage", scaledMeter(sourceCount, 4), formatInteger(sourceCount), "teal"),
+  ];
+}
+
+function evidenceCheckMeter(label, value, valueLabel, tone = "blue") {
+  return {
+    label,
+    value: clampNumber(value, 0, 100),
+    valueLabel,
+    tone,
+  };
+}
+
+function percentToMeter(value) {
+  return clampNumber(Number(value || 0) * 5, 0, 100);
+}
+
+function scaledMeter(value, max) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number <= 0) return 0;
+  return clampNumber((number / Math.max(1, Number(max || 1))) * 100, 0, 100);
+}
+
+function getEvidenceReportPressureTone(value) {
+  const number = Number(value || 0);
+  if (number >= 12) return "red";
+  if (number >= 6) return "orange";
+  return "green";
+}
+
+function getEvidenceReportRelatedActionsForCheck(kind, recommendedActions = [], product = {}) {
+  const actions = Array.isArray(recommendedActions) ? recommendedActions : [];
+  const keywordsByKind = {
+    product: ["product", "metadata", "tag", "collection", "status", "merchandising"],
+    orders: ["monitor", "diagnosis", "priority", "momentum", "commercial"],
+    returns: ["return", "fit", "size", "quality", "qa", "description", "faq"],
+    refunds: ["refund", "financial", "qa", "supplier", "support"],
+    return_reasons: ["reason", "return", "fit", "description", "faq", "expectation"],
+    variants: ["variant", "sku", "size", "color", "option"],
+    content: ["description", "copy", "pdp", "faq", "content", "title", "seo"],
+    reviews: ["review", "rating", "language", "copy", "faq", "support"],
+    source: ["evidence", "review", "inspect"],
+  };
+  const keywords = keywordsByKind[kind] || keywordsByKind.source;
+  const matches = actions
+    .filter((action) => {
+      const text = `${action.id || ""} ${action.title || ""} ${action.label || ""} ${action.detail || ""} ${action.type || ""}`.toLowerCase();
+      return keywords.some((keyword) => text.includes(keyword));
+    })
+    .map((action) => action.title || action.label)
+    .filter(Boolean);
+
+  if (matches.length) return [...new Set(matches)].slice(0, 2);
+  if (actions[0]) return [actions[0].title || actions[0].label || "Review primary recommendation"];
+  const issue = product.primaryIssue || "the current diagnosis";
+  return [`No direct action stored; use this check to validate ${issue}.`];
+}
+
+function getEvidenceReportCheckGlyphType(icon) {
+  const normalized = String(icon || "").toLowerCase();
+  if (normalized.includes("product")) return "shopify-product";
+  if (normalized.includes("package") || normalized.includes("order")) return "shopify-orders";
+  if (normalized.includes("return")) return "shopify-returns";
+  if (normalized.includes("refund")) return "shopify-refunds";
+  if (normalized.includes("star") || normalized.includes("review")) return "negative-review-pressure";
+  if (normalized.includes("variant")) return "variants";
+  if (normalized.includes("note") || normalized.includes("content")) return "customer-language-analysis";
+  return "";
 }
 
 function EvidenceReportCollapsibleSection({ id, number, title, description, expanded, onToggle, children }) {

@@ -3,6 +3,7 @@ import { authenticate } from "../shopify.server";
 import { ProductDiagnosisScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 import {
+  deleteProductAnalysisForShop,
   getProductDetailForShop,
   recordProductDetailActionForShop,
   rerunProductDiagnosisForShop,
@@ -24,9 +25,9 @@ export const action = async ({ request, params }) => {
   const productId = String(formData.get("productId") || params.productId || "");
 
   if (actionType === "diagnose") {
-    const snapshotDiagnosis = await rerunProductDiagnosisForShop(session.shop, productId);
+    const snapshotDiagnosis = await rerunProductDiagnosisForShop(session.shop, productId, { admin });
     if (snapshotDiagnosis) return snapshotDiagnosis;
-    return { status: "validation_error", message: "Run QuickScan before starting a product diagnosis." };
+    return { status: "validation_error", message: "ProductPulse could not find that Shopify product." };
   }
 
   if (actionType === "apply-action") {
@@ -156,6 +157,10 @@ export const action = async ({ request, params }) => {
 
   if (actionType === "remove-from-watchlist") {
     return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
+  }
+
+  if (actionType === "delete-product-analysis") {
+    return deleteProductAnalysisForShop(session.shop, productId);
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

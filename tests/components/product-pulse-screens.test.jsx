@@ -1312,6 +1312,8 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("Items purchased in the 90 days before")).toBeInTheDocument();
     expect(within(panel).getByText("Items purchased together")).toBeInTheDocument();
     expect(within(panel).getByText("Items purchased in the 90 days after")).toBeInTheDocument();
+    expect(within(panel).getAllByText("8-30 days").length).toBeGreaterThanOrEqual(2);
+    expect(within(panel).queryByText("31-90 days")).not.toBeInTheDocument();
     expect(panel.querySelector(".ppProductRelationshipTimelineCard")).toBeInTheDocument();
     expect(within(panel).getAllByText("Care Kit").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Starter Guide").length).toBeGreaterThan(0);
@@ -1321,9 +1323,87 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("25% within 30 days after")).toBeInTheDocument();
     expect(within(panel).getByAltText("Care Kit image")).toHaveAttribute("src", "https://cdn.example/care-kit.jpg");
     expect(within(panel).getByRole("link", { name: "Open Care Kit" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Run diagnosis" })).not.toBeInTheDocument();
     expect(within(panel).queryByText("Current product")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Source product")).not.toBeInTheDocument();
     expect(within(panel).queryByText(defaultView.startHere.title)).not.toBeInTheDocument();
+  });
+
+  it("groups product relationship timeline cards by timing bucket and expands overflow", () => {
+    const makeRelationshipItem = (id, title, direction, days, rate = 0.18) => ({
+      related_product_id: `gid://shopify/Product/${id}`,
+      related_product_title: title,
+      relationship_type: direction === "together" ? "same_order" : direction === "before" ? "previous_purchase" : "next_purchase",
+      relationship_direction: direction,
+      time_window: direction === "together" ? "same_order" : `${days}d_${direction}`,
+      relationship_rate: rate,
+      attach_rate: direction === "together" ? rate : undefined,
+      lift: 1.6,
+      confidence: 76,
+      confidence_label: "Medium",
+      sample_size: 6,
+      customer_count: 6,
+      co_order_count: direction === "together" ? 6 : undefined,
+      relationship_strength: "moderate",
+      median_days_before: direction === "before" ? days : undefined,
+      median_days_after: direction === "after" ? days : undefined,
+    });
+    const relationshipSummary = productRelationshipSummaryFixture({
+      top_bought_before: [
+        makeRelationshipItem("before-one", "Before One", "before", 3, 0.23),
+        makeRelationshipItem("before-two", "Before Two", "before", 12, 0.2),
+        makeRelationshipItem("before-three", "Before Three", "before", 18, 0.19),
+        makeRelationshipItem("before-four", "Before Four", "before", 42, 0.17),
+        makeRelationshipItem("before-five", "Before Five", "before", 48, 0.16),
+        makeRelationshipItem("before-six", "Before Six", "before", 55, 0.15),
+      ],
+      top_bought_together: [
+        makeRelationshipItem("same-one", "Same One", "together", 0, 0.3),
+        makeRelationshipItem("same-two", "Same Two", "together", 0, 0.28),
+        makeRelationshipItem("same-three", "Same Three", "together", 0, 0.26),
+        makeRelationshipItem("same-four", "Same Four", "together", 0, 0.24),
+        makeRelationshipItem("same-five", "Same Five", "together", 0, 0.22),
+      ],
+      top_bought_after: [
+        makeRelationshipItem("after-one", "After One", "after", 5, 0.21),
+        makeRelationshipItem("after-two", "After Two", "after", 16, 0.19),
+        makeRelationshipItem("after-three", "After Three", "after", 39, 0.17),
+      ],
+    });
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productRelationshipIntelligenceSummary: relationshipSummary,
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const panel = container.querySelector(".ppProductRelationshipsPanel");
+    const beforeColumn = panel.querySelector(".ppProductRelationshipTimelineSide-before");
+    const togetherColumn = panel.querySelector(".ppProductRelationshipTimelineSide-together");
+    const afterColumn = panel.querySelector(".ppProductRelationshipTimelineSide-after");
+
+    expect(within(beforeColumn).getByText("0-7 days")).toBeInTheDocument();
+    expect(within(beforeColumn).getByText("8-30 days")).toBeInTheDocument();
+    expect(within(beforeColumn).getByText("30+ days")).toBeInTheDocument();
+    expect(within(beforeColumn).queryByText("31-90 days")).not.toBeInTheDocument();
+    expect(within(afterColumn).getByText("0-7 days")).toBeInTheDocument();
+    expect(within(afterColumn).getByText("8-30 days")).toBeInTheDocument();
+    expect(within(afterColumn).getByText("30+ days")).toBeInTheDocument();
+    expect(within(beforeColumn).queryByText("Before Six")).not.toBeInTheDocument();
+    const beforeThirtyPlusBucket = within(beforeColumn).getByRole("region", { name: "30+ days relationship products" });
+    fireEvent.click(within(beforeThirtyPlusBucket).getByRole("button", { name: "View more (3)" }));
+    expect(within(beforeColumn).getByText("Before Six")).toBeInTheDocument();
+    expect(within(beforeThirtyPlusBucket).getByRole("button", { name: "Show less" })).toBeInTheDocument();
+    fireEvent.click(within(beforeThirtyPlusBucket).getByRole("button", { name: "Show less" }));
+    expect(within(beforeColumn).queryByText("Before Six")).not.toBeInTheDocument();
+    fireEvent.click(within(beforeColumn).getByRole("button", { name: "View all (6)" }));
+    expect(within(beforeColumn).getByText("Before Six")).toBeInTheDocument();
+    expect(within(beforeColumn).getByRole("button", { name: "Show less" })).toBeInTheDocument();
+    expect(within(togetherColumn).queryByText("Same Five")).not.toBeInTheDocument();
+    fireEvent.click(within(togetherColumn).getByRole("button", { name: "View all (5)" }));
+    expect(within(togetherColumn).getByText("Same Five")).toBeInTheDocument();
+    expect(within(beforeColumn).getAllByRole("link", { name: /^Open Before/ }).length).toBeGreaterThan(0);
   });
 
   it("handles missing and low-confidence product relationship data without overemphasis", () => {
@@ -1544,6 +1624,17 @@ describe("ProductPulse screens", () => {
     fireEvent.click(watchButton);
     expect(screen.getByRole("heading", { name: "Remove watched product" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove from Watchlist" })).toBeInTheDocument();
+  });
+
+  it("lets product detail delete local analysis from product actions", () => {
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
+    const deleteButton = screen.getByRole("menuitem", { name: "Delete analysis" });
+    expect(deleteButton).toBeInTheDocument();
+    fireEvent.click(deleteButton);
+    const deleteDialog = screen.getByRole("dialog", { name: "Delete product analysis?" });
+    expect(within(deleteDialog).getByText(/does not delete or modify the Shopify product/i)).toBeInTheDocument();
+    expect(within(deleteDialog).getByRole("button", { name: "Delete analysis" })).toBeInTheDocument();
   });
 
   it("compacts applied recommended actions after successful Shopify changes", async () => {
@@ -2790,6 +2881,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Evidence sources")).toBeInTheDocument();
     expect(screen.queryByText("Raw product metrics")).not.toBeInTheDocument();
     expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
+    expect(screen.getByText("Diagnostic checks behind recommendations")).toBeInTheDocument();
+    expect(screen.getByText(/These cards explain what ProductPulse inspected/)).toBeInTheDocument();
+    expect(screen.getAllByText("Conclusion").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Recommendation link").length).toBeGreaterThan(0);
     expect(container.querySelector("#evidence-source-customer-language-analysis")).toBeInTheDocument();
     expect(screen.getAllByText("All customer text sentiment").length).toBeGreaterThan(0);
     expect(screen.getAllByText((_, element) => element?.textContent === "3 negative, 1 neutral, 0 positive").length).toBeGreaterThan(0);
@@ -2890,7 +2985,7 @@ describe("ProductPulse screens", () => {
       lastAnalysis: null,
       primaryIssue: null,
       hasRiskSnapshot: false,
-      canDiagnose: false,
+      canDiagnose: true,
       canResolve: false,
       metrics: {
         signalCount: 0,
@@ -2916,7 +3011,10 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Runs small in chest")).not.toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByRole("button", { name: /Shopify product/ }));
     expect(screen.getAllByText(/0 variants/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Run product diagnosis").closest("button")).toBeDisabled();
+    const runDiagnosisButton = screen.getByText("Run product diagnosis").closest("button");
+    expect(runDiagnosisButton).toBeEnabled();
+    fireEvent.click(runDiagnosisButton);
+    expect(screen.getByRole("dialog", { name: "Confirm product analysis" })).toBeInTheDocument();
   });
 
   it("renders the product diagnosis for the selected product", () => {

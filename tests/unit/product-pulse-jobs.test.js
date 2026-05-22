@@ -203,7 +203,7 @@ describe("ProductPulse product job helpers", () => {
   });
 
   it("builds a minimal snapshot for manually selected Shopify products", () => {
-    const snapshot = productPulseJobsTestHooks.buildManualProductRiskSnapshotPayload("qorve-dev.myshopify.com", {
+    const snapshot = productPulseJobsTestHooks.buildManualProductRiskSnapshotPayload("damian-xdcxxupp", {
       id: "gid://shopify/Product/1234567890",
       title: "Manual Search Product",
       handle: "manual-search-product",

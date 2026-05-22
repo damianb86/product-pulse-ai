@@ -548,12 +548,12 @@ export async function getProductDetailForShop(shop, productId, admin) {
   return getLiveShopifyProductDetail(productId, admin, shop);
 }
 
-export async function rerunProductDiagnosisForShop(shop, productId) {
-  return queueProductDiagnosisForShop(shop, productId);
+export async function rerunProductDiagnosisForShop(shop, productId, options = {}) {
+  return queueProductDiagnosisForShop(shop, productId, options);
 }
 
-export async function queueProductDiagnosisForShop(shop, productId) {
-  const job = await createProductDiagnosisJob(shop, productId);
+export async function queueProductDiagnosisForShop(shop, productId, options = {}) {
+  const job = await createProductDiagnosisJob(shop, productId, options);
   if (!job) return null;
   ensureProductDiagnosisQueueWorker(shop);
 
@@ -3394,7 +3394,7 @@ function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
     latestDiagnosisId: null,
     primaryIssue: null,
     hasRiskSnapshot: false,
-    canDiagnose: false,
+    canDiagnose: true,
     canResolve: false,
     imageUrl: image.url || null,
     imageAlt: image.altText || null,
