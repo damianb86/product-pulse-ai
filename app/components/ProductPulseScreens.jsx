@@ -5409,7 +5409,7 @@ function getProductDetailInsightCards(detail = {}) {
       detail: returnPressureCard.detail,
       footnote: returnPressureCard.footnote,
       tone: returnPressureCard.tone,
-      sparkline: getInsightSeries(history, (entry) => firstFiniteNumber(entry.returnPressureScore, calculateReturnPressureIndex(entry)), returnPressure),
+      sparkline: getReturnPressureInsightSeries(detail, history, returnPressure),
       icon: "shopify-returns",
       chartStyle: "area",
       chartTone: returnPressureCard.chartTone,
@@ -5577,10 +5577,24 @@ function getInsightSeries(history = [], selector, fallbackValue = 0) {
 }
 
 function calculateReturnPressureIndex(source = {}) {
-  const returnRate = Number(source.returnRate || 0);
-  const refundRate = Number(source.refundRate || 0);
-  const negativeReviewRate = Number(source.negativeReviewRate || 0);
-  return Math.round(clampNumber((returnRate * 0.45) + (refundRate * 0.35) + (negativeReviewRate * 0.20), 0, 100));
+  const relationship = source.returnRefundRelationship || {};
+  const breakdown = source.returnPressureBreakdown || source.returnPressure || {};
+  const returnRate = firstFiniteNumber(
+    breakdown.returnRateUnits,
+    relationship.returnRateUnitsPercent,
+    source.returnRate,
+  );
+  return Math.round(clampPercentValue(returnRate || 0));
+}
+
+function getReturnPressureInsightSeries(detail = {}, history = [], fallbackReturnRate = 0) {
+  if (hasProductMonthlyOrderActivity(detail.monthlyOrderActivity)) {
+    const timelineValues = getReturnTimelinePoints(detail.monthlyOrderActivity, null, fallbackReturnRate)
+      .map((point) => clampPercentValue(point.value));
+    if (timelineValues.length >= 2) return timelineValues;
+  }
+
+  return getInsightSeries(history, (entry) => calculateReturnPressureIndex(entry), fallbackReturnRate);
 }
 
 function calculateRefundLeakageRate(source = {}) {

@@ -25,6 +25,15 @@ function renderWithAction(element, action) {
   return render(<RouterProvider router={router} />);
 }
 
+function getSmoothPathEndpointYValues(path = "") {
+  const coordinatePairs = [...String(path || "").matchAll(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g)]
+    .map((match) => ({ x: Number(match[1]), y: Number(match[2]) }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  return coordinatePairs
+    .filter((_, index) => index === 0 || index % 3 === 0)
+    .map((point) => point.y);
+}
+
 describe("ProductPulse screens", () => {
   it("renders dashboard KPIs and start-here product", () => {
     renderWithRouter(<DashboardScreen data={defaultView} />);
@@ -1187,6 +1196,80 @@ describe("ProductPulse screens", () => {
     expect(riskSnapshot.querySelector(".ppResolutionBreakdownInsightCard")).toBeInTheDocument();
 
     expect(resolutionPanel).not.toBeInTheDocument();
+  });
+
+  it("keeps Return pressure sparkline aligned to cumulative returns instead of refund-only events", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        soldUnits: 8,
+        returnUnits: 6,
+        refundUnits: 1,
+        returnRate: 75,
+        refundRate: 12.5,
+        riskHistory: [
+          { recordedAt: "2025-11-30T23:59:59.999Z", returnRate: 0, refundRate: 0 },
+          { recordedAt: "2026-03-31T23:59:59.999Z", returnRate: 0, refundRate: 0 },
+          { recordedAt: "2026-05-22T17:33:45.550Z", returnRate: 50, refundRate: 8.3 },
+          { recordedAt: "2026-05-22T17:38:44.158Z", returnRate: 75, refundRate: 12.5 },
+        ],
+        monthlyOrderActivity: {
+          summary: {
+            totalOrderUnits: 8,
+            totalReturnedUnits: 6,
+            totalRefundedUnits: 1,
+            returnRate: 75,
+            refundRate: 12.5,
+          },
+          months: [
+            { key: "2025-06", shortLabel: "Jun", orderUnits: 0, returnedUnits: 0, refundedUnits: 0 },
+            { key: "2025-07", shortLabel: "Jul", orderUnits: 0, returnedUnits: 0, refundedUnits: 0 },
+            { key: "2025-08", shortLabel: "Aug", orderUnits: 0, returnedUnits: 0, refundedUnits: 0 },
+            { key: "2025-09", shortLabel: "Sep", orderUnits: 0, returnedUnits: 0, refundedUnits: 0 },
+            { key: "2025-10", shortLabel: "Oct", orderUnits: 0, returnedUnits: 0, refundedUnits: 0 },
+            { key: "2025-11", shortLabel: "Nov", orderUnits: 2, returnedUnits: 2, refundedUnits: 0 },
+            { key: "2025-12", shortLabel: "Dec", orderUnits: 1, returnedUnits: 1, refundedUnits: 0 },
+            { key: "2026-01", shortLabel: "Jan", orderUnits: 1, returnedUnits: 1, refundedUnits: 0 },
+            { key: "2026-02", shortLabel: "Feb", orderUnits: 1, returnedUnits: 1, refundedUnits: 0 },
+            { key: "2026-03", shortLabel: "Mar", orderUnits: 1, returnedUnits: 1, refundedUnits: 0 },
+            { key: "2026-04", shortLabel: "Apr", orderUnits: 1, returnedUnits: 0, refundedUnits: 0 },
+            { key: "2026-05", shortLabel: "May", orderUnits: 1, returnedUnits: 0, refundedUnits: 1 },
+          ],
+        },
+        returnRefundRelationshipSummary: relationshipSummaryFixture({
+          sold_units: 8,
+          returned_units: 6,
+          refunded_units: 1,
+          returned_and_refunded_units: 0,
+          returned_not_refunded_units: 0,
+          refunded_without_return_units: 1,
+          exchange_or_replacement_units: 2,
+          pending_return_units: 4,
+          relationship_match_confidence_avg: 1,
+        }),
+        returnRefundRelationshipFactors: {
+          hasRelationshipSummary: true,
+          returnPressure: {
+            score: 100,
+            returnRateUnits: 75,
+            returnedAndRefundedUnits: 0,
+            returnedNotRefundedUnits: 0,
+          },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
+    const returnPressureCard = within(riskSnapshot).getByText("Return pressure").closest(".ppProductInsight");
+    const endpointYValues = getSmoothPathEndpointYValues(returnPressureCard.querySelector(".ppProductInsightAreaLine").getAttribute("d"));
+    const lastY = endpointYValues[endpointYValues.length - 1];
+    const previousY = endpointYValues[endpointYValues.length - 2];
+
+    expect(returnPressureCard).toHaveTextContent("75%");
+    expect(returnPressureCard).toHaveTextContent("6 of 8 units returned");
+    expect(endpointYValues.length).toBeGreaterThan(8);
+    expect(lastY).toBeCloseTo(previousY, 1);
   });
 
   it("keeps missing return/refund relationship details out of the product detail page", () => {
