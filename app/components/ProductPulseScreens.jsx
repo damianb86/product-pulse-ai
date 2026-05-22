@@ -9565,7 +9565,7 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
 }
 
 function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount = 0, afterCount = 0 }) {
-  const beforeYs = getProductRelationshipConnectorRows(beforeCount || togetherCount);
+  const beforeYs = getProductRelationshipConnectorRows(beforeCount > 0 ? Math.max(beforeCount, 2) : togetherCount);
   const afterYs = getProductRelationshipConnectorRows(afterCount || togetherCount);
   const beforeVisible = beforeCount > 0 && togetherCount > 0;
   const afterVisible = afterCount > 0 && togetherCount > 0;
@@ -9583,7 +9583,7 @@ function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount 
       {beforeVisible && beforeYs.map((y, index) => (
         <path
           className="ppProductRelationshipTimelineLineBefore"
-          d={`M340 ${y} H388 C424 ${y} 412 210 454 210 H488`}
+          d={`M330 ${y} H364 C414 ${y} 392 210 444 210 H488`}
           markerEnd="url(#ppProductRelationshipArrowBefore)"
           key={`before-${index}`}
         />
