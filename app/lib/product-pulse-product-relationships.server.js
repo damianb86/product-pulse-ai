@@ -1,8 +1,8 @@
 import prisma from "../db.server";
 
 export const PRODUCT_RELATIONSHIP_SCHEMA_VERSION = 1;
-export const PRODUCT_RELATIONSHIP_MODEL_VERSION = "product_relationship_v1";
-export const PRODUCT_RELATIONSHIP_WINDOWS_DAYS = Object.freeze([7, 14, 30, 90]);
+export const PRODUCT_RELATIONSHIP_MODEL_VERSION = "product_relationship_v2";
+export const PRODUCT_RELATIONSHIP_WINDOWS_DAYS = Object.freeze([7, 30, 90]);
 
 const DEFAULT_TOP_RELATIONSHIP_LIMIT = 5;
 const DEFAULT_TREND_MONTH_LIMIT = 12;
@@ -606,36 +606,35 @@ function buildSequenceRelationships({
       if (diffDays === 0) return;
       const direction = diffDays < 0 ? "before" : "after";
       const absDays = Math.abs(diffDays);
-      PRODUCT_RELATIONSHIP_WINDOWS_DAYS.forEach((window) => {
-        if (absDays > window) return;
-        getDistinctProductIds(candidateOrder).forEach((relatedProductId) => {
-          if (!relatedProductId || relatedProductId === productId) return;
-          const targetMap = direction === "before" ? previousStats : nextStats;
-          const stats = getRelationshipStats(targetMap, productId, relatedProductId, {
-            relationshipType: direction === "before" ? "previous_purchase" : "next_purchase",
-            direction,
-            window: `${window}d_${direction}`,
-          });
-          const relatedLines = getProductLines(candidateOrder, relatedProductId);
-          rememberRelatedProductIdentity(stats, relatedLines);
-          stats.customerKeys.add(sourceOrder.customerKey);
-          stats.orderIds.add(sourceOrder.id);
-          stats.orderCount += 1;
-          incrementMap(stats.customerOrderCounts, sourceOrder.customerKey, 1);
-          stats.days.push(absDays);
-          stats.unitCount += relatedLines.reduce((total, line) => total + Number(line.quantity || 0), 0);
-          stats.revenue += relatedLines.reduce((total, line) => total + Number(line.amount || 0), 0);
-          stats.firstSeenAt = minIso(stats.firstSeenAt, sourceOrder.orderDate);
-          stats.lastSeenAt = maxIso(stats.lastSeenAt, sourceOrder.orderDate);
-          const month = monthKey(sourceOrder.orderDate);
-          if (month) {
-            const monthStats = getMonthlyStats(stats.monthly, month);
-            monthStats.order_count += 1;
-            monthStats.customer_count = addMonthlyCustomer(monthStats, sourceOrder.customerKey);
-            monthStats.unit_count += relatedLines.reduce((total, line) => total + Number(line.quantity || 0), 0);
-            monthStats.revenue += relatedLines.reduce((total, line) => total + Number(line.amount || 0), 0);
-          }
+      const window = getSequenceRelationshipWindow(absDays);
+      if (!window) return;
+      getDistinctProductIds(candidateOrder).forEach((relatedProductId) => {
+        if (!relatedProductId || relatedProductId === productId) return;
+        const targetMap = direction === "before" ? previousStats : nextStats;
+        const stats = getRelationshipStats(targetMap, productId, relatedProductId, {
+          relationshipType: direction === "before" ? "previous_purchase" : "next_purchase",
+          direction,
+          window: `${window}d_${direction}`,
         });
+        const relatedLines = getProductLines(candidateOrder, relatedProductId);
+        rememberRelatedProductIdentity(stats, relatedLines);
+        stats.customerKeys.add(sourceOrder.customerKey);
+        stats.orderIds.add(sourceOrder.id);
+        stats.orderCount += 1;
+        incrementMap(stats.customerOrderCounts, sourceOrder.customerKey, 1);
+        stats.days.push(absDays);
+        stats.unitCount += relatedLines.reduce((total, line) => total + Number(line.quantity || 0), 0);
+        stats.revenue += relatedLines.reduce((total, line) => total + Number(line.amount || 0), 0);
+        stats.firstSeenAt = minIso(stats.firstSeenAt, sourceOrder.orderDate);
+        stats.lastSeenAt = maxIso(stats.lastSeenAt, sourceOrder.orderDate);
+        const month = monthKey(sourceOrder.orderDate);
+        if (month) {
+          const monthStats = getMonthlyStats(stats.monthly, month);
+          monthStats.order_count += 1;
+          monthStats.customer_count = addMonthlyCustomer(monthStats, sourceOrder.customerKey);
+          monthStats.unit_count += relatedLines.reduce((total, line) => total + Number(line.quantity || 0), 0);
+          monthStats.revenue += relatedLines.reduce((total, line) => total + Number(line.amount || 0), 0);
+        }
       });
     });
   });
@@ -1003,15 +1002,79 @@ function buildRelationshipImpactSummary(sameOrderRelationships = []) {
 }
 
 function topRelationshipItems(items = [], limit = DEFAULT_TOP_RELATIONSHIP_LIMIT) {
-  return getArray(items)
+  return dedupeTopRelationshipItems(getArray(items))
     .slice()
-    .sort((first, second) => (
-      Number(second.relationship_strength_score || 0) - Number(first.relationship_strength_score || 0)
-      || Number(second.lift || 0) - Number(first.lift || 0)
-      || Number(second.relationship_rate || second.attach_rate || 0) - Number(first.relationship_rate || first.attach_rate || 0)
-      || Number(second.co_order_count || second.order_count || 0) - Number(first.co_order_count || first.order_count || 0)
-    ))
+    .sort(compareTopRelationshipItems)
     .slice(0, limit);
+}
+
+function getSequenceRelationshipWindow(absDays) {
+  const numericDays = Number(absDays);
+  if (!Number.isFinite(numericDays) || numericDays <= 0) return null;
+  return PRODUCT_RELATIONSHIP_WINDOWS_DAYS.find((window) => numericDays <= window) || null;
+}
+
+function dedupeTopRelationshipItems(items = []) {
+  const records = new Map();
+  items.forEach((item, index) => {
+    const key = getTopRelationshipDedupeKey(item, index);
+    const existing = records.get(key);
+    if (!existing || isBetterTopRelationshipRepresentative(item, existing.item)) {
+      records.set(key, { item, index: existing?.index ?? index });
+    }
+  });
+  return Array.from(records.values())
+    .sort((left, right) => left.index - right.index)
+    .map((record) => record.item);
+}
+
+function getTopRelationshipDedupeKey(item = {}, index = 0) {
+  const sourceId = item.source_product_id || item.sourceProductId || "";
+  const relatedId = item.related_product_id || item.relatedProductId || item.related_product_handle || item.relatedProductHandle || item.related_product_title || item.relatedProductTitle || "";
+  const type = item.relationship_type || item.relationshipType || "";
+  const direction = item.relationship_direction || item.relationshipDirection || "";
+  if (!relatedId) return `row:${index}`;
+  return [sourceId, relatedId, type, direction].join("::");
+}
+
+function isBetterTopRelationshipRepresentative(candidate = {}, existing = {}) {
+  if (isSequenceRelationshipItem(candidate) && isSequenceRelationshipItem(existing)) {
+    const candidateWindowRank = getRelationshipWindowRank(candidate);
+    const existingWindowRank = getRelationshipWindowRank(existing);
+    if (candidateWindowRank !== existingWindowRank) return candidateWindowRank < existingWindowRank;
+  }
+  return compareTopRelationshipItems(candidate, existing) < 0;
+}
+
+function compareTopRelationshipItems(first = {}, second = {}) {
+  return (
+    Number(second.relationship_strength_score || 0) - Number(first.relationship_strength_score || 0)
+    || Number(second.lift || 0) - Number(first.lift || 0)
+    || Number(second.relationship_rate || second.attach_rate || 0) - Number(first.relationship_rate || first.attach_rate || 0)
+    || Number(second.co_order_count || second.order_count || 0) - Number(first.co_order_count || first.order_count || 0)
+  );
+}
+
+function isSequenceRelationshipItem(item = {}) {
+  const type = String(item.relationship_type || item.relationshipType || "").toLowerCase();
+  const direction = String(item.relationship_direction || item.relationshipDirection || "").toLowerCase();
+  return type.includes("previous") || type.includes("next") || direction === "before" || direction === "after";
+}
+
+function getRelationshipWindowRank(item = {}) {
+  const days = getRelationshipWindowDays(item);
+  if (days !== null && days <= 7) return 0;
+  if (days !== null && days <= 30) return 1;
+  if (days !== null) return 2;
+  return 3;
+}
+
+function getRelationshipWindowDays(item = {}) {
+  const windowText = String(item.time_window || item.timeWindow || "").trim();
+  const match = windowText.match(/(\d+(?:\.\d+)?)\s*(?:d|day|days)?/i);
+  if (!match) return null;
+  const days = Number(match[1]);
+  return Number.isFinite(days) ? days : null;
 }
 
 function createEmptyProductRelationshipSummary(productId, { windowDays = null } = {}) {

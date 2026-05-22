@@ -171,7 +171,7 @@ describe("product relationship intelligence metrics", () => {
     ]);
 
     const previous30 = summary.previous_purchase_relationships.find((item) => item.related_product_id === PRODUCT_B && item.time_window === "30d_before");
-    const next14 = summary.next_purchase_relationships.find((item) => item.related_product_id === PRODUCT_C && item.time_window === "14d_after");
+    const next30 = summary.next_purchase_relationships.find((item) => item.related_product_id === PRODUCT_C && item.time_window === "30d_after");
 
     expect(previous30).toMatchObject({
       relationship_direction: "before",
@@ -179,12 +179,36 @@ describe("product relationship intelligence metrics", () => {
       relationship_rate: 0.6667,
       median_days_before: 12,
     });
-    expect(next14).toMatchObject({
+    expect(next30).toMatchObject({
       relationship_direction: "after",
       customer_count: 1,
       relationship_rate: 0.3333,
       avg_days_after: 10,
       follow_on_revenue: 70,
+    });
+  });
+
+  it("dedupes sequence timing windows before applying the top limit", () => {
+    const events = [
+      sale({ orderId: "b-a-source", lineItemId: "line-b-a-source", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-01T12:00:00.000Z" }),
+      sale({ orderId: "b-a-after", lineItemId: "line-a-after", productId: PRODUCT_A, variantId: VARIANT_A, customerKey: "customer-1", orderDate: "2026-05-20T12:00:00.000Z" }),
+      sale({ orderId: "b-c-source-1", lineItemId: "line-b-c-source-1", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-2", orderDate: "2026-05-01T12:00:00.000Z" }),
+      sale({ orderId: "b-c-after-1", lineItemId: "line-c-after-1", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-2", orderDate: "2026-05-10T12:00:00.000Z" }),
+      sale({ orderId: "b-c-source-2", lineItemId: "line-b-c-source-2", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-3", orderDate: "2026-05-01T12:00:00.000Z" }),
+      sale({ orderId: "b-c-after-2", lineItemId: "line-c-after-2", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-3", orderDate: "2026-05-20T12:00:00.000Z" }),
+    ];
+
+    const summaryA = summaryFor(events, PRODUCT_A, { topRelationshipLimit: 2 });
+    const summaryB = summaryFor(events, PRODUCT_B, { topRelationshipLimit: 2 });
+    const afterIds = summaryB.next_purchase_relationships.map((item) => item.related_product_id);
+
+    expect(summaryA.previous_purchase_relationships.some((item) => item.related_product_id === PRODUCT_B)).toBe(true);
+    expect(afterIds).toContain(PRODUCT_A);
+    expect(afterIds.filter((id) => id === PRODUCT_C)).toHaveLength(1);
+    expect(summaryB.next_purchase_relationships.find((item) => item.related_product_id === PRODUCT_A)).toMatchObject({
+      relationship_direction: "after",
+      time_window: "30d_after",
+      customer_count: 1,
     });
   });
 
