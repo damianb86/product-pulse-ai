@@ -6279,6 +6279,7 @@ s-page[inline-size="large-500"] {
   grid-column: span 1;
   min-height: 118px;
   gap: 10px;
+  overflow: visible;
 }
 
 .ppResolutionBreakdownHeader {
@@ -6398,6 +6399,7 @@ s-page[inline-size="large-500"] {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: end;
   gap: 4px;
+  overflow: visible;
 }
 
 .ppResolutionBreakdownBarItem {
@@ -6459,7 +6461,7 @@ s-page[inline-size="large-500"] {
 
 .ppResolutionBreakdownBucketTooltip {
   position: absolute;
-  top: calc(100% + 7px);
+  bottom: calc(100% + 8px);
   left: 50%;
   z-index: 12;
   width: max-content;
@@ -6478,21 +6480,26 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 10px 24px rgba(var(--pp-shadow-rgb), 0.2);
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -2px);
+  transform: translate(-50%, 4px);
   transition: opacity 140ms ease, transform 140ms ease;
 }
 
 .ppResolutionBreakdownBucketTooltip::before {
   position: absolute;
-  top: -4px;
+  bottom: -4px;
   left: 50%;
   width: 8px;
   height: 8px;
   background: var(--pp-midnight-ink);
-  border-top: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
-  border-left: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
+  border-right: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
+  border-bottom: 1px solid rgba(var(--pp-shadow-rgb), 0.08);
   content: "";
   transform: translateX(-50%) rotate(45deg);
+}
+
+.ppResolutionBreakdownBarItem:hover,
+.ppResolutionBreakdownBarItem:focus-visible {
+  z-index: 20;
 }
 
 .ppResolutionBreakdownBarItem:hover .ppResolutionBreakdownBucketTooltip,
