@@ -6152,8 +6152,8 @@ s-page[inline-size="large-500"] {
 .ppProductRelationshipTimelineCard {
   min-width: 0;
   display: grid;
-  gap: 28px;
-  padding: 34px 48px 40px;
+  gap: 32px;
+  padding: 30px 30px 28px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 18px;
   background: var(--pp-cloud-white);
@@ -6162,29 +6162,37 @@ s-page[inline-size="large-500"] {
 
 .ppProductRelationshipTimelineHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
 }
 
 .ppProductRelationshipTimelineHeader .ppProductRelationshipInfoLabel {
   color: var(--pp-slate-950);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 950;
 }
 
 .ppProductRelationshipTimelineHeader .ppProductRelationshipInfoLabel button {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   color: var(--pp-slate-600);
+}
+
+.ppProductRelationshipTimelineHeader p {
+  margin: 5px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .ppProductRelationshipTimelineLegend {
   display: flex;
   align-items: center;
-  gap: 34px;
+  gap: 24px;
   color: var(--pp-slate-600);
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 850;
 }
 
@@ -6196,55 +6204,66 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRelationshipTimelineLegend i {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   display: inline-block;
   border-radius: 999px;
   background: var(--pp-slate-400);
 }
 
 .ppProductRelationshipTimelineLegend .isTogether {
-  background: var(--pp-insight-violet);
+  background: #7C5CFF;
 }
 
 .ppProductRelationshipTimelineLegend .isBefore {
-  background: var(--pp-slate-400);
+  background: #8090A8;
 }
 
 .ppProductRelationshipTimelineLegend .isAfter {
-  background: #37b7aa;
+  background: #32B8AA;
 }
 
 .ppProductRelationshipTimelineStage {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(220px, 0.86fr) minmax(300px, 1.04fr) minmax(220px, 0.86fr);
-  align-items: center;
-  gap: 88px;
-  min-height: 330px;
+  grid-template-columns: minmax(270px, 0.94fr) minmax(320px, 0.9fr) minmax(270px, 0.94fr);
+  align-items: stretch;
+  gap: 66px;
+  min-height: 428px;
 }
 
 .ppProductRelationshipTimelineLines {
   position: absolute;
-  inset: 0;
+  inset: 4px 0 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
+  z-index: 1;
 }
 
 .ppProductRelationshipTimelineLines path {
   fill: none;
-  stroke-width: 3;
+  stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
+.ppProductRelationshipTimelineArrowBefore {
+  fill: #9AABC1;
+}
+
+.ppProductRelationshipTimelineArrowAfter {
+  fill: #7C5CFF;
+}
+
 .ppProductRelationshipTimelineLineBefore {
-  stroke: var(--pp-slate-400);
-  stroke-dasharray: 5 8;
+  color: #9AABC1;
+  stroke: currentColor;
+  stroke-dasharray: 0;
 }
 
 .ppProductRelationshipTimelineLineTogether {
-  stroke: var(--pp-insight-violet);
+  color: #7C5CFF;
+  stroke: currentColor;
 }
 
 .ppProductRelationshipTimelineDot {
@@ -6259,127 +6278,238 @@ s-page[inline-size="large-500"] {
 .ppProductRelationshipTimelineSide {
   position: relative;
   z-index: 2;
-}
-
-.ppProductRelationshipTimelineSide {
-  min-height: 268px;
   display: grid;
-  align-content: center;
-  justify-items: center;
+  align-content: start;
   gap: 18px;
-  padding: 28px 34px;
-  border-radius: 18px;
-  background: #F7F8FA;
-  text-align: center;
+  min-height: 396px;
+  padding: 20px 16px 16px;
+  border: 1px solid rgba(221, 229, 239, 0.92);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 250, 252, 0.9) 100%),
+    var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 8px 24px rgba(15, 23, 42, 0.04);
 }
 
 .ppProductRelationshipTimelineSide-together {
-  min-height: 286px;
-  border: 3px solid var(--pp-insight-violet);
-  background: linear-gradient(135deg, #FFFFFF, rgba(var(--pp-insight-violet-rgb), 0.035));
-  box-shadow: 0 14px 30px rgba(var(--pp-insight-violet-rgb), 0.08);
+  min-height: 406px;
+  padding-top: 54px;
+  border: 1.5px solid rgba(124, 92, 255, 0.48);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% -8%, rgba(124, 92, 255, 0.14), transparent 26%),
+    linear-gradient(180deg, #FFFFFF 0%, #FBF9FF 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 34px rgba(124, 92, 255, 0.11);
+}
+
+.ppProductRelationshipTimelineSide-together::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: -1.5px;
+  left: 50%;
+  width: 86px;
+  height: 44px;
+  border: 1.5px solid rgba(124, 92, 255, 0.48);
+  border-bottom: 0;
+  border-radius: 999px 999px 0 0;
+  background: #FFFFFF;
+  transform: translateX(-50%);
+}
+
+.ppProductRelationshipTimelineCartBadge {
+  position: absolute;
+  z-index: 3;
+  top: -16px;
+  left: 50%;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1.5px solid rgba(124, 92, 255, 0.45);
+  border-radius: 999px;
+  background: #F7F1FF;
+  box-shadow: 0 6px 18px rgba(124, 92, 255, 0.16);
+  transform: translateX(-50%);
+}
+
+.ppProductRelationshipTimelineCartBadge img {
+  width: 54px;
+  height: 54px;
+  display: block;
+  object-fit: cover;
+  transform: scale(1.55);
+}
+
+.ppProductRelationshipTimelineSideHeading {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  text-align: center;
+}
+
+.ppProductRelationshipTimelineSideHeading small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 780;
+  line-height: 1.25;
 }
 
 .ppProductRelationshipTimelineSideLabel {
-  color: var(--pp-slate-500);
-  font-size: 16px;
+  color: var(--pp-slate-600);
+  font-size: 12px;
   font-weight: 950;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
+.ppProductRelationshipTimelineSide-before .ppProductRelationshipTimelineSideLabel {
+  color: #64748B;
+}
+
 .ppProductRelationshipTimelineSide-together .ppProductRelationshipTimelineSideLabel {
-  color: var(--pp-insight-violet);
+  color: #7C5CFF;
 }
 
-.ppProductRelationshipTimelineSideIcon {
-  width: 42px;
-  height: 42px;
-  display: inline-grid;
-  place-items: center;
-  color: var(--pp-slate-600);
+.ppProductRelationshipTimelineSide-after {
+  border-color: rgba(45, 183, 173, 0.2);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(242, 253, 251, 0.9) 100%),
+    var(--pp-cloud-white);
 }
 
-.ppProductRelationshipTimelineSide-together .ppProductRelationshipTimelineSideIcon {
-  width: 72px;
-  height: 72px;
-  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.22);
-  border-radius: 999px;
-  background: rgba(var(--pp-insight-violet-rgb), 0.22);
-  color: var(--pp-insight-violet);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
-}
-
-.ppProductRelationshipTimelineSideIcon .ppProductPulseSvgIcon {
-  width: 38px;
-  height: 38px;
-}
-
-.ppProductRelationshipTimelineSide-together .ppProductRelationshipTimelineSideIcon .ppProductPulseSvgIcon {
-  width: 36px;
-  height: 36px;
+.ppProductRelationshipTimelineSide-after .ppProductRelationshipTimelineSideLabel {
+  color: #18A999;
 }
 
 .ppProductRelationshipTimelineSide strong {
   color: var(--pp-slate-950);
-  font-size: 21px;
+  font-size: 16px;
   font-weight: 950;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 .ppProductRelationshipTimelineSide p {
-  max-width: 250px;
+  max-width: 100%;
   margin: 0;
   color: var(--pp-slate-600);
-  font-size: 16px;
-  font-weight: 760;
-  line-height: 1.35;
+  font-size: 11px;
+  font-weight: 820;
+  line-height: 1.3;
 }
 
 .ppProductRelationshipTimelineSide small {
   color: var(--pp-slate-500);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 850;
 }
 
 .ppProductRelationshipTimelineProducts {
   width: 100%;
   display: grid;
-  gap: 10px;
+  gap: 9px;
 }
 
 .ppProductRelationshipTimelineProduct {
   display: grid;
-  justify-items: center;
-  gap: 5px;
+  grid-template-columns: 68px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 13px;
   min-width: 0;
-  padding: 10px 12px;
+  min-height: 82px;
+  padding: 10px;
   border: 1px solid rgba(221, 229, 239, 0.9);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.78);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
 }
 
-.ppProductRelationshipTimelineProduct strong {
+.ppProductArt-relationship {
+  width: 64px;
+  height: 64px;
+  border-color: rgba(221, 229, 239, 0.95);
+  border-radius: 8px;
+  background: var(--pp-slate-100);
+}
+
+.ppProductRelationshipTimelineProductBody {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.ppProductRelationshipTimelineProductTitle {
   display: -webkit-box;
   overflow: hidden;
   max-width: 100%;
-  font-size: 16px;
-  line-height: 1.2;
+  color: #2563EB;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-decoration: underline;
   text-overflow: ellipsis;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
 }
 
 .ppProductRelationshipTimelineProduct p {
   max-width: 100%;
-  color: var(--pp-slate-600);
-  font-size: 13px;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 900;
   line-height: 1.25;
 }
 
 .ppProductRelationshipTimelineProduct small {
-  color: var(--pp-slate-500);
-  font-size: 12px;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+}
+
+.ppProductRelationshipTimelineProduct small span {
+  margin: 0 4px;
+}
+
+.ppProductRelationshipDiagnosticButton {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(221, 229, 239, 0.95);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: #7C5CFF;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.ppProductRelationshipDiagnosticButton:hover {
+  border-color: rgba(124, 92, 255, 0.45);
+  color: #6D4AFF;
+  box-shadow: 0 6px 16px rgba(124, 92, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.ppProductRelationshipDiagnosticButton s-icon {
+  color: currentColor;
+}
+
+.ppProductRelationshipTimelineEmpty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px 10px;
+  text-align: center;
+}
+
+.ppProductRelationshipTimelineEmpty img {
+  width: 62px;
+  height: 62px;
+  display: block;
+  object-fit: cover;
+  border-radius: 999px;
+  opacity: 0.9;
+  transform: scale(1.42);
 }
 
 .ppReturnRefundResolutionPanel {
@@ -8845,6 +8975,19 @@ s-page[inline-size="large-500"] {
   .ppProductRelationshipTimelineSide {
     min-height: 0;
     padding: 22px;
+  }
+
+  .ppProductRelationshipTimelineSide-together {
+    padding-top: 54px;
+  }
+
+  .ppProductRelationshipTimelineProduct {
+    grid-template-columns: 58px minmax(0, 1fr) 32px;
+  }
+
+  .ppProductArt-relationship {
+    width: 56px;
+    height: 56px;
   }
 
   .ppReturnRefundMatrixHeader,

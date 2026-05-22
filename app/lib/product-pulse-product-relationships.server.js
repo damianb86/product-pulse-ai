@@ -139,6 +139,9 @@ export function normalizeProductRelationshipSaleEvent(event = {}, index = 0, pro
     variantId,
     title: stringOrNull(event.title || event.productTitle || product.title || variantProduct.title) || productIndex.byId.get(productId)?.title || "",
     handle: stringOrNull(event.handle || event.productHandle || product.handle || variantProduct.handle) || productIndex.byId.get(productId)?.handle || "",
+    imageUrl: stringOrNull(event.imageUrl || event.image_url || product.imageUrl || product.image_url || product.featuredImage?.url || product.image?.url || variantProduct.imageUrl || variantProduct.image_url)
+      || productIndex.byId.get(productId)?.imageUrl
+      || "",
     quantity: Math.max(0, number(quantityValue)),
     hasQuantity: quantityValue !== undefined && quantityValue !== null && Number.isFinite(Number(quantityValue)),
     amount: Math.max(0, number(firstDefined(event.amount, event.revenue, event.lineRevenue, event.subtotal, event.originalTotalSet?.shopMoney?.amount))),
@@ -186,6 +189,7 @@ function buildProductIndex(products = []) {
       id,
       title: stringOrNull(product.title || product.productTitle) || "Unknown product",
       handle: stringOrNull(product.handle || product.productHandle) || "",
+      imageUrl: stringOrNull(product.imageUrl || product.image_url || product.featuredImage?.url || product.image?.url) || "",
       status: stringOrNull(product.status || product.productStatus) || "",
       variants: getArray(product.variants),
     };
@@ -226,6 +230,9 @@ function normalizeRelationshipBasketLineItem(lineItem = {}, index, productIndex)
       || `Product ${index + 1}`,
     handle: stringOrNull(lineItem.handle || lineItem.productHandle || product.handle || variantProduct.handle)
       || productIndex.byId.get(productId)?.handle
+      || "",
+    imageUrl: stringOrNull(lineItem.imageUrl || lineItem.image_url || product.imageUrl || product.image_url || product.featuredImage?.url || product.image?.url || variantProduct.imageUrl || variantProduct.image_url)
+      || productIndex.byId.get(productId)?.imageUrl
       || "",
     quantity: Math.max(0, number(quantityValue)),
     hasQuantity: quantityValue !== undefined && quantityValue !== null && Number.isFinite(Number(quantityValue)),
@@ -527,6 +534,7 @@ function buildSameOrderRelationships({
       related_product_id: stats.relatedProductId,
       related_product_handle: relatedProduct?.handle || stats.relatedProductHandle || "",
       related_product_title: relatedProduct?.title || stats.relatedProductTitle || "Unknown product",
+      related_product_image_url: relatedProduct?.imageUrl || stats.relatedProductImageUrl || "",
       related_product_status: relatedProduct?.status || "",
       relationship_type: stats.relationshipType,
       relationship_direction: stats.direction,
@@ -674,6 +682,7 @@ function buildSequenceRelationships({
       related_product_id: item.relatedProductId,
       related_product_handle: relatedProduct?.handle || item.relatedProductHandle || "",
       related_product_title: relatedProduct?.title || item.relatedProductTitle || "Unknown product",
+      related_product_image_url: relatedProduct?.imageUrl || item.relatedProductImageUrl || "",
       related_product_status: relatedProduct?.status || "",
       relationship_type: item.relationshipType,
       relationship_direction: item.direction,
@@ -720,6 +729,7 @@ function getRelationshipStats(map, sourceProductId, relatedProductId, { relation
       relatedProductId,
       relatedProductTitle: "",
       relatedProductHandle: "",
+      relatedProductImageUrl: "",
       relationshipType,
       direction,
       window,
@@ -744,6 +754,7 @@ function rememberRelatedProductIdentity(stats, relatedLines = []) {
   if (!line) return;
   if (!stats.relatedProductTitle && line.title) stats.relatedProductTitle = String(line.title);
   if (!stats.relatedProductHandle && line.handle) stats.relatedProductHandle = String(line.handle);
+  if (!stats.relatedProductImageUrl && line.imageUrl) stats.relatedProductImageUrl = String(line.imageUrl);
 }
 
 function calculateSameOrderImpact({ sourceProductId, relatedProductId, sourceOrders, impactEvents = [] }) {

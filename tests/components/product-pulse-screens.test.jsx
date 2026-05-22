@@ -1292,13 +1292,13 @@ describe("ProductPulse screens", () => {
     const panel = container.querySelector(".ppProductRelationshipsPanel");
 
     expect(panel).toBeInTheDocument();
-    expect(within(panel).getByText("Relationship timeline")).toBeInTheDocument();
-    expect(within(panel).getByText("Bought together")).toBeInTheDocument();
-    expect(within(panel).getByText("Bought before")).toBeInTheDocument();
-    expect(within(panel).getByText("Bought after")).toBeInTheDocument();
-    expect(within(panel).getByText("Before")).toBeInTheDocument();
-    expect(within(panel).getByText("Same order")).toBeInTheDocument();
-    expect(within(panel).getByText("After")).toBeInTheDocument();
+    expect(within(panel).getByText("Product relationship timeline")).toBeInTheDocument();
+    expect(within(panel).getAllByText("Same cart").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("Bought before").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("Bought after").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("Items purchased in the 90 days before")).toBeInTheDocument();
+    expect(within(panel).getByText("Items purchased together")).toBeInTheDocument();
+    expect(within(panel).getByText("Items purchased in the 90 days after")).toBeInTheDocument();
     expect(panel.querySelector(".ppProductRelationshipTimelineCard")).toBeInTheDocument();
     expect(within(panel).getAllByText("Care Kit").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("Starter Guide").length).toBeGreaterThan(0);
@@ -1306,6 +1306,8 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("42% attach rate")).toBeInTheDocument();
     expect(within(panel).getByText("30% within 30 days before")).toBeInTheDocument();
     expect(within(panel).getByText("25% within 30 days after")).toBeInTheDocument();
+    expect(within(panel).getByAltText("Care Kit image")).toHaveAttribute("src", "https://cdn.example/care-kit.jpg");
+    expect(within(panel).getByRole("link", { name: "Run deep diagnosis for Care Kit" })).toBeInTheDocument();
     expect(within(panel).queryByText("Current product")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Source product")).not.toBeInTheDocument();
     expect(within(panel).queryByText(defaultView.startHere.title)).not.toBeInTheDocument();
@@ -1340,7 +1342,7 @@ describe("ProductPulse screens", () => {
     const lowRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={lowConfidenceProduct} />);
     const lowPanel = lowRender.container.querySelector(".ppProductRelationshipsPanel");
     expect(lowPanel).toBeInTheDocument();
-    expect(within(lowPanel).getByText("Relationship timeline")).toBeInTheDocument();
+    expect(within(lowPanel).getByText("Product relationship timeline")).toBeInTheDocument();
 
     const missingProduct = {
       ...defaultView.startHere,
@@ -3203,6 +3205,7 @@ function productRelationshipSummaryFixture(overrides = {}) {
     top_bought_together: [{
       related_product_id: "gid://shopify/Product/care-kit",
       related_product_title: "Care Kit",
+      related_product_image_url: "https://cdn.example/care-kit.jpg",
       relationship_type: "same_order",
       relationship_direction: "together",
       time_window: "same_order",
@@ -3223,6 +3226,7 @@ function productRelationshipSummaryFixture(overrides = {}) {
     top_bought_before: [{
       related_product_id: "gid://shopify/Product/starter-guide",
       related_product_title: "Starter Guide",
+      related_product_image_url: "https://cdn.example/starter-guide.jpg",
       relationship_type: "previous_purchase",
       relationship_direction: "before",
       time_window: "30d_before",
@@ -3240,6 +3244,7 @@ function productRelationshipSummaryFixture(overrides = {}) {
     top_bought_after: [{
       related_product_id: "gid://shopify/Product/refill-pack",
       related_product_title: "Refill Pack",
+      related_product_image_url: "https://cdn.example/refill-pack.jpg",
       relationship_type: "next_purchase",
       relationship_direction: "after",
       time_window: "30d_after",

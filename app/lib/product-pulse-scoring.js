@@ -1727,6 +1727,7 @@ function normalizeProductRelationshipItems(items = []) {
       relatedProductId: item.related_product_id || "",
       relatedProductTitle: item.related_product_title || "Unknown product",
       relatedProductHandle: item.related_product_handle || "",
+      relatedProductImageUrl: item.related_product_image_url || "",
       relationshipType: item.relationship_type || "",
       relationshipDirection: item.relationship_direction || "",
       timeWindow: item.time_window || "",

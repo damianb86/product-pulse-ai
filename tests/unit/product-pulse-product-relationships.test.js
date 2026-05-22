@@ -21,7 +21,7 @@ const VARIANT_POPULAR = "gid://shopify/ProductVariant/popular";
 function products() {
   return [
     { id: PRODUCT_A, title: "Product A", handle: "product-a", variants: [{ id: VARIANT_A }] },
-    { id: PRODUCT_B, title: "Product B", handle: "product-b", variants: [{ id: VARIANT_B }] },
+    { id: PRODUCT_B, title: "Product B", handle: "product-b", imageUrl: "https://cdn.example/product-b.jpg", variants: [{ id: VARIANT_B }] },
     { id: PRODUCT_C, title: "Product C", handle: "product-c", variants: [{ id: VARIANT_C }] },
     { id: PRODUCT_POPULAR, title: "Popular Product", handle: "popular-product", variants: [{ id: VARIANT_POPULAR }] },
   ];
@@ -96,6 +96,7 @@ describe("product relationship intelligence metrics", () => {
 
     expect(summary.same_order_relationships[0]).toMatchObject({
       related_product_id: PRODUCT_B,
+      related_product_image_url: "https://cdn.example/product-b.jpg",
       relationship_direction: "together",
       time_window: "same_order",
       co_order_count: 2,
@@ -120,7 +121,7 @@ describe("product relationship intelligence metrics", () => {
           lineItemId: "line-a-basket",
           basketLineItems: [
             { lineItemId: "line-a-basket", productId: PRODUCT_A, variantId: VARIANT_A, title: "Product A", handle: "product-a", quantity: 1, amount: 100 },
-            { lineItemId: "line-b-basket", productId: PRODUCT_B, variantId: VARIANT_B, title: "Shopify Related Product", handle: "shopify-related-product", quantity: 1, amount: 40 },
+            { lineItemId: "line-b-basket", productId: PRODUCT_B, variantId: VARIANT_B, title: "Shopify Related Product", handle: "shopify-related-product", imageUrl: "https://cdn.example/shopify-related.jpg", quantity: 1, amount: 40 },
           ],
         }),
       ],
@@ -132,6 +133,7 @@ describe("product relationship intelligence metrics", () => {
       related_product_id: PRODUCT_B,
       related_product_title: "Shopify Related Product",
       related_product_handle: "shopify-related-product",
+      related_product_image_url: "https://cdn.example/shopify-related.jpg",
     });
   });
 

@@ -4500,6 +4500,16 @@ function normalizeProductRelationshipItems(items = []) {
       return {
         relatedProductId: firstNonEmptyString(item.related_product_id, item.relatedProductId, item.productId),
         relatedProductHandle: firstNonEmptyString(item.related_product_handle, item.relatedProductHandle, item.handle),
+        imageUrl: firstNonEmptyString(
+          item.related_product_image_url,
+          item.relatedProductImageUrl,
+          item.product_image_url,
+          item.productImageUrl,
+          item.image_url,
+          item.imageUrl,
+          asPlainObject(item.related_product_image).url,
+          asPlainObject(item.relatedProductImage).url,
+        ),
         title,
         relationshipType,
         direction,
@@ -9482,6 +9492,12 @@ const PRODUCT_RELATIONSHIP_HELP = {
   confidence: "Confidence reflects sample size, customer identity availability, basket completeness and trend consistency.",
 };
 
+const PRODUCT_RELATIONSHIP_TIMELINE_ASSETS = {
+  before: "/assets/product-relationships/bought-before.png",
+  after: "/assets/product-relationships/bought-after.png",
+  sameCart: "/assets/product-relationships/same-cart.png",
+};
+
 function ProductRelationshipsPanel({ detail }) {
   const relationship = detail.productRelationshipIntelligence || normalizeProductRelationshipIntelligence(null);
   const hasData = relationship.available;
@@ -9506,42 +9522,93 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
   return (
     <article className="ppProductRelationshipTimelineCard">
       <div className="ppProductRelationshipTimelineHeader">
-        <ProductRelationshipInfoLabel label="Relationship timeline" help="Shows relationship context before, in the same order, and after the current product purchase." />
+        <div>
+          <ProductRelationshipInfoLabel label="Product relationship timeline" help="Shows relationship context before, in the same cart, and after the current product purchase." />
+          <p>Products customers buy before, together, and after your main product.</p>
+        </div>
         <div className="ppProductRelationshipTimelineLegend" aria-label="Relationship legend">
-          <span><i className="isTogether"></i>Bought together</span>
           <span><i className="isBefore"></i>Bought before</span>
+          <span><i className="isTogether"></i>Same cart</span>
           <span><i className="isAfter"></i>Bought after</span>
         </div>
       </div>
       <div className="ppProductRelationshipTimelineStage">
-        <svg className="ppProductRelationshipTimelineLines" viewBox="0 0 1000 320" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-          <path className="ppProductRelationshipTimelineLineBefore" d="M245 160 L392 160" />
-          <path className="ppProductRelationshipTimelineLineTogether" d="M608 160 L755 160" />
-          <circle className="ppProductRelationshipTimelineDot ppProductRelationshipTimelineDot-before" cx="245" cy="160" r="7" />
-          <circle className="ppProductRelationshipTimelineDot ppProductRelationshipTimelineDot-togetherLeft" cx="392" cy="160" r="7" />
-          <circle className="ppProductRelationshipTimelineDot ppProductRelationshipTimelineDot-togetherRight" cx="755" cy="160" r="7" />
-        </svg>
+        <ProductRelationshipTimelineConnectors
+          beforeCount={Math.min(boughtBefore.length, 4)}
+          togetherCount={Math.min(boughtTogether.length, 4)}
+          afterCount={Math.min(boughtAfter.length, 4)}
+        />
         <ProductRelationshipTimelineSideNode
           items={boughtBefore}
           kind="before"
-          title="Before"
+          title="Bought before"
+          subtitle="Items purchased in the 90 days before"
           emptyMessage={relationship.customerSequenceAvailable ? "No reliable before relationship detected." : "Customer identity is unavailable, so before relationships cannot be calculated."}
         />
         <ProductRelationshipTimelineSideNode
           items={boughtTogether}
           kind="together"
-          title="Same order"
+          title="Same cart"
+          subtitle="Items purchased together"
           emptyMessage="No reliable same-order product relationship detected."
         />
         <ProductRelationshipTimelineSideNode
           items={boughtAfter}
           kind="after"
-          title="After"
+          title="Bought after"
+          subtitle="Items purchased in the 90 days after"
           emptyMessage={relationship.customerSequenceAvailable ? "No reliable after relationship detected." : "Customer identity is unavailable, so after relationships cannot be calculated."}
         />
       </div>
     </article>
   );
+}
+
+function ProductRelationshipTimelineConnectors({ beforeCount = 0, togetherCount = 0, afterCount = 0 }) {
+  const beforeYs = getProductRelationshipConnectorRows(beforeCount || togetherCount);
+  const afterYs = getProductRelationshipConnectorRows(afterCount || togetherCount);
+  const beforeVisible = beforeCount > 0 && togetherCount > 0;
+  const afterVisible = afterCount > 0 && togetherCount > 0;
+
+  return (
+    <svg className="ppProductRelationshipTimelineLines" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <marker id="ppProductRelationshipArrowBefore" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path className="ppProductRelationshipTimelineArrowBefore" d="M0 0 L10 5 L0 10 Z" />
+        </marker>
+        <marker id="ppProductRelationshipArrowAfter" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path className="ppProductRelationshipTimelineArrowAfter" d="M0 0 L10 5 L0 10 Z" />
+        </marker>
+      </defs>
+      {beforeVisible && beforeYs.map((y, index) => (
+        <path
+          className="ppProductRelationshipTimelineLineBefore"
+          d={`M340 ${y} H388 C424 ${y} 412 210 454 210 H488`}
+          markerEnd="url(#ppProductRelationshipArrowBefore)"
+          key={`before-${index}`}
+        />
+      ))}
+      {afterVisible && afterYs.map((y, index) => (
+        <path
+          className="ppProductRelationshipTimelineLineTogether"
+          d={`M712 ${y} H756 C808 ${y} 786 210 836 210 H870`}
+          markerEnd="url(#ppProductRelationshipArrowAfter)"
+          key={`after-${index}`}
+        />
+      ))}
+    </svg>
+  );
+}
+
+function getProductRelationshipConnectorRows(count = 0) {
+  const visibleCount = Math.max(1, Math.min(Number(count || 0), 4));
+  const rowsByCount = {
+    1: [210],
+    2: [164, 256],
+    3: [128, 210, 292],
+    4: [98, 176, 254, 332],
+  };
+  return rowsByCount[visibleCount] || rowsByCount[1];
 }
 
 function getProductRelationshipTimelineItems(items = [], currentIdentity = {}) {
@@ -9586,37 +9653,84 @@ function normalizeRelationshipIdentityValue(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function ProductRelationshipTimelineSideNode({ items = [], kind, title, emptyMessage }) {
-  const visibleItems = (Array.isArray(items) ? items : []).filter(Boolean).slice(0, 3);
+function ProductRelationshipTimelineSideNode({ items = [], kind, title, subtitle, emptyMessage }) {
+  const visibleItems = (Array.isArray(items) ? items : []).filter(Boolean).slice(0, 4);
   const hasItems = visibleItems.length > 0;
   const isTogether = kind === "together";
   const isAfter = kind === "after";
-  const icon = isTogether ? <ProductPulseGlyph type="shopify-orders" /> : isAfter ? <ProductPulseGlyph type="product-momentum" /> : <ProductRelationshipCalendarGlyph />;
   const countLabel = isTogether ? "orders" : "customers";
   return (
     <div className={`ppProductRelationshipTimelineSide ppProductRelationshipTimelineSide-${kind}${hasItems ? "" : " isUnavailable"}`}>
-      <span className="ppProductRelationshipTimelineSideLabel">{title}</span>
-      <span className="ppProductRelationshipTimelineSideIcon">
-        {icon}
-      </span>
+      {isTogether && (
+        <span className="ppProductRelationshipTimelineCartBadge" aria-hidden="true">
+          <img src={PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.sameCart} alt="" />
+        </span>
+      )}
+      <div className="ppProductRelationshipTimelineSideHeading">
+        <span className="ppProductRelationshipTimelineSideLabel">{title}</span>
+        <small>{subtitle}</small>
+      </div>
       {hasItems ? (
         <div className="ppProductRelationshipTimelineProducts">
           {visibleItems.map((item, index) => (
-            <div className="ppProductRelationshipTimelineProduct" key={`${kind}-${item.id || item.relatedProductId || item.title || index}`}>
-              <strong>{item.title}</strong>
-              <p>{getProductRelationshipPrimaryLine(item, kind)}</p>
-              <small>{formatRelationshipLift(item.lift)} · {formatInteger(item.customerCount || item.coOrderCount || item.sampleSize)} {countLabel}</small>
-            </div>
+            <ProductRelationshipTimelineProductRow
+              countLabel={countLabel}
+              item={item}
+              kind={kind}
+              key={`${kind}-${item.id || item.relatedProductId || item.title || index}`}
+            />
           ))}
         </div>
       ) : (
-        <>
+        <div className="ppProductRelationshipTimelineEmpty">
+          <img
+            src={isAfter ? PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.after : PRODUCT_RELATIONSHIP_TIMELINE_ASSETS.before}
+            alt=""
+            aria-hidden="true"
+          />
           <strong>Unavailable</strong>
           <p>{emptyMessage}</p>
-        </>
+        </div>
       )}
     </div>
   );
+}
+
+function ProductRelationshipTimelineProductRow({ item, kind, countLabel }) {
+  const metricCount = formatInteger(item.customerCount || item.coOrderCount || item.sampleSize);
+  const href = getProductRelationshipDiagnosticHref(item);
+  return (
+    <div className="ppProductRelationshipTimelineProduct">
+      <ProductArt
+        variant="bottle"
+        label={item.title || "Related product"}
+        size="relationship"
+        imageUrl={item.imageUrl}
+        imageAlt={`${item.title || "Related product"} image`}
+      />
+      <div className="ppProductRelationshipTimelineProductBody">
+        <Link className="ppProductRelationshipTimelineProductTitle" to={href}>{item.title}</Link>
+        <p>{getProductRelationshipPrimaryLine(item, kind)}</p>
+        <small>{formatRelationshipLift(item.lift)} <span>•</span> {metricCount} {countLabel}</small>
+      </div>
+      <Link
+        className="ppProductRelationshipDiagnosticButton"
+        to={href}
+        aria-label={`Run deep diagnosis for ${item.title}`}
+        title="Run deep diagnosis"
+      >
+        <s-icon type="wand" size="small"></s-icon>
+      </Link>
+    </div>
+  );
+}
+
+function getProductRelationshipDiagnosticHref(item = {}) {
+  const handle = String(item.relatedProductHandle || item.handle || "").trim();
+  if (handle) return `/app/products/${encodeURIComponent(handle)}`;
+  const id = String(item.relatedProductId || item.productId || "").trim();
+  if (id) return `/app/products/${encodeURIComponent(id)}`;
+  return "/app/products";
 }
 
 function ProductRelationshipCalendarGlyph() {
