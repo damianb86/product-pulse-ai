@@ -457,6 +457,7 @@ describe("ProductPulse QuickScan", () => {
 
     expect(query).toContain("processed_at:>=");
     expect(query).toContain("processedAt");
+    expect(query).toContain("customer");
     expect(query).toContain("lineItems");
     expect(query).toContain("returns");
     expect(query).not.toMatch(/\brefunds\s*\{/);
@@ -561,6 +562,7 @@ describe("ProductPulse QuickScan", () => {
         __typename: "Order",
         id: "gid://shopify/Order/1",
         createdAt: "2026-05-13T12:00:00Z",
+        customer: { id: "gid://shopify/Customer/reltest-1" },
         lineItems: {
           edges: [{
             node: {
@@ -612,6 +614,10 @@ describe("ProductPulse QuickScan", () => {
     expect(products[0].collections).toEqual([{ id: "gid://shopify/Collection/1", handle: "shirts", title: "Shirts" }]);
     expect(events).toHaveLength(2);
     expect(events.map((event) => event.type)).toEqual(["sale", "return"]);
+    expect(events[0]).toMatchObject({
+      customerKey: "gid://shopify/Customer/reltest-1",
+      customerId: "gid://shopify/Customer/reltest-1",
+    });
     expect(events[1]).toMatchObject({
       productId: "gid://shopify/Product/1",
       reason: "SIZE_TOO_SMALL",

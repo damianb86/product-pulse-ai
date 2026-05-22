@@ -460,6 +460,7 @@ function buildSameOrderRelationships({
         window: "same_order",
       });
       const relatedLines = getProductLines(order, relatedProductId);
+      rememberRelatedProductIdentity(stats, relatedLines);
       stats.orderIds.add(order.id);
       stats.orderCount += 1;
       if (order.customerKey) {
@@ -524,7 +525,7 @@ function buildSameOrderRelationships({
     return {
       source_product_id: productId,
       related_product_id: stats.relatedProductId,
-      related_product_handle: relatedProduct?.handle || "",
+      related_product_handle: relatedProduct?.handle || stats.relatedProductHandle || "",
       related_product_title: relatedProduct?.title || stats.relatedProductTitle || "Unknown product",
       related_product_status: relatedProduct?.status || "",
       relationship_type: stats.relationshipType,
@@ -608,6 +609,7 @@ function buildSequenceRelationships({
             window: `${window}d_${direction}`,
           });
           const relatedLines = getProductLines(candidateOrder, relatedProductId);
+          rememberRelatedProductIdentity(stats, relatedLines);
           stats.customerKeys.add(sourceOrder.customerKey);
           stats.orderIds.add(sourceOrder.id);
           stats.orderCount += 1;
@@ -670,7 +672,7 @@ function buildSequenceRelationships({
     return {
       source_product_id: productId,
       related_product_id: item.relatedProductId,
-      related_product_handle: relatedProduct?.handle || "",
+      related_product_handle: relatedProduct?.handle || item.relatedProductHandle || "",
       related_product_title: relatedProduct?.title || item.relatedProductTitle || "Unknown product",
       related_product_status: relatedProduct?.status || "",
       relationship_type: item.relationshipType,
@@ -717,6 +719,7 @@ function getRelationshipStats(map, sourceProductId, relatedProductId, { relation
       sourceProductId,
       relatedProductId,
       relatedProductTitle: "",
+      relatedProductHandle: "",
       relationshipType,
       direction,
       window,
@@ -733,6 +736,14 @@ function getRelationshipStats(map, sourceProductId, relatedProductId, { relation
     });
   }
   return map.get(key);
+}
+
+function rememberRelatedProductIdentity(stats, relatedLines = []) {
+  if (!stats) return;
+  const line = getArray(relatedLines).find((item) => item?.productId === stats.relatedProductId || item?.title || item?.handle);
+  if (!line) return;
+  if (!stats.relatedProductTitle && line.title) stats.relatedProductTitle = String(line.title);
+  if (!stats.relatedProductHandle && line.handle) stats.relatedProductHandle = String(line.handle);
 }
 
 function calculateSameOrderImpact({ sourceProductId, relatedProductId, sourceOrders, impactEvents = [] }) {

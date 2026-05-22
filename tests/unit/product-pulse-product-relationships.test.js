@@ -109,6 +109,32 @@ describe("product relationship intelligence metrics", () => {
     expect(summary.confidence.score).toBeGreaterThan(40);
   });
 
+  it("uses Shopify order line item identity for related products missing from the local catalog", () => {
+    const summary = buildProductRelationshipSummary({
+      shop: SHOP,
+      productId: PRODUCT_A,
+      products: [{ id: PRODUCT_A, title: "Product A", handle: "product-a", variants: [{ id: VARIANT_A }] }],
+      events: [
+        sale({
+          orderId: "basket-1",
+          lineItemId: "line-a-basket",
+          basketLineItems: [
+            { lineItemId: "line-a-basket", productId: PRODUCT_A, variantId: VARIANT_A, title: "Product A", handle: "product-a", quantity: 1, amount: 100 },
+            { lineItemId: "line-b-basket", productId: PRODUCT_B, variantId: VARIANT_B, title: "Shopify Related Product", handle: "shopify-related-product", quantity: 1, amount: 40 },
+          ],
+        }),
+      ],
+      windowDays: 90,
+      assumeCompleteOrderEvents: false,
+    });
+
+    expect(summary.top_bought_together[0]).toMatchObject({
+      related_product_id: PRODUCT_B,
+      related_product_title: "Shopify Related Product",
+      related_product_handle: "shopify-related-product",
+    });
+  });
+
   it("uses lift so a popular product does not dominate only by raw co-order count", () => {
     const events = [
       sale({ orderId: "a-1", lineItemId: "line-a-1" }),

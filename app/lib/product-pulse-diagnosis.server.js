@@ -160,6 +160,13 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     },
   });
 
+  await ensureProductRelationshipCandidateSnapshots({
+    shop,
+    jobId,
+    sourceSnapshot: snapshot,
+    relationshipSummary: deterministic.metrics.productRelationshipIntelligenceSummary,
+  });
+
   const reuseDecision = getNoChangeDiagnosisReuseDecision({ snapshot, deterministic });
   if (reuseDecision.shouldReuse) {
     const reusedDiagnosis = await buildNoChangeDiagnosisReuseResult({
@@ -239,6 +246,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   });
 
   let sales = [];
+  let relationshipSales = [];
   let refunds = [];
   let returns = [];
   let orderAccessDenied = false;
@@ -247,7 +255,36 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   let returnFetchComplete = true;
 
   try {
-    sales = await fetchShopifySalesEvents({ admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null });
+    const salesBundle = await fetchShopifySalesEventBundle({
+      admin,
+      product,
+      snapshot,
+      windowDays,
+      sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
+    });
+    sales = salesBundle.sales;
+    relationshipSales = salesBundle.relationshipSales;
+    if (incrementalSource.shopifyCanReuse) {
+      try {
+        const relationshipBundle = await fetchShopifySalesEventBundle({
+          admin,
+          product,
+          snapshot,
+          windowDays,
+          sinceDate: null,
+        });
+        relationshipSales = relationshipBundle.relationshipSales;
+      } catch (relationshipError) {
+        await recordJobLog({
+          shop,
+          jobId,
+          level: "warn",
+          event: "product_diagnosis.relationship_sales_full_fetch_failed",
+          message: "Full-window relationship sales extraction failed; product relationships will use incremental order events for this run.",
+          data: { error: serializeError(relationshipError) },
+        });
+      }
+    }
   } catch (error) {
     salesFetchComplete = false;
     const denied = isShopifyOrderAccessDenied(error);
@@ -316,6 +353,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   refunds = filterDiagnosisEventsForProduct(mergedSourceEvents.refunds, product, snapshot);
   returns = filterDiagnosisEventsForProduct(mergedSourceEvents.returns, product, snapshot);
   sales = backfillMissingSalesFromOperationalEvents({ product, snapshot, sales, returns, refunds });
+  if (!relationshipSales.length) relationshipSales = sales;
 
   await recordJobLog({
     shop,
@@ -325,6 +363,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     data: {
       productGid: product.id,
       salesEvents: sales.length,
+      relationshipSalesEvents: relationshipSales.length,
       refundEvents: refunds.length,
       returnEvents: returns.length,
       windowDays,
@@ -349,6 +388,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   return {
     product,
     sales,
+    relationshipSales,
     refunds,
     returns,
     orderAccessDenied,
@@ -611,8 +651,14 @@ async function fetchShopifyProduct({ admin, snapshot }) {
 }
 
 async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
-  if (!admin?.graphql) return [];
-  const events = [];
+  const bundle = await fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays, sinceDate });
+  return bundle.sales;
+}
+
+async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+  if (!admin?.graphql) return { sales: [], relationshipSales: [] };
+  const sales = [];
+  const relationshipSales = [];
   let cursor = null;
   let includeGeography = true;
   const querySinceDate = normalizeShopifySinceDate(sinceDate, windowDays);
@@ -634,7 +680,8 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
       if (includeGeography && isShopifyOrderGeographyAccessError(error)) {
         includeGeography = false;
         cursor = null;
-        events.length = 0;
+        sales.length = 0;
+        relationshipSales.length = 0;
         page = -1;
         continue;
       }
@@ -644,36 +691,25 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
     (data?.orders?.nodes || []).forEach((order) => {
       const geography = getOrderAddressGeography(order);
       const orderDate = toIso(getShopifyOrderDate(order));
+      const customerKey = order.customer?.id || null;
       const orderLineItems = getNodes(order.lineItems);
       const basketLineItems = normalizeDiagnosisBasketLineItems(orderLineItems);
       const basketFingerprint = stableSignature(basketLineItems);
       orderLineItems.forEach((lineItem) => {
-        if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
-        events.push({
-          id: lineItem.id,
-          orderId: order.id,
-          lineItemId: lineItem.id,
-          productId: lineItem.product?.id || product.id || snapshot.productGid,
-          createdAt: orderDate,
+        const event = normalizeDiagnosisOrderLineItemSaleEvent({
+          lineItem,
+          order,
+          product,
+          snapshot,
           orderDate,
-          orderProcessedAt: toIso(order.processedAt),
-          orderCreatedAt: toIso(order.createdAt),
-          quantity: Number(lineItem.quantity || 0),
-          amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
-          title: lineItem.title || product.title,
-          sku: lineItem.sku || lineItem.variant?.sku || "",
-          variantId: lineItem.variant?.id || null,
-          variantTitle: lineItem.variant?.title || "",
-          selectedOptions: lineItem.variant?.selectedOptions || [],
+          customerKey,
           basketLineItems,
           basketFingerprint,
           geography,
-          country: geography?.country || "",
-          countryCode: geography?.countryCode || "",
-          province: geography?.province || "",
-          provinceCode: geography?.provinceCode || "",
-          city: geography?.city || "",
         });
+        if (!event.productId) return;
+        relationshipSales.push(event);
+        if (lineItemMatchesProduct(lineItem, product, snapshot)) sales.push(event);
       });
     });
 
@@ -681,7 +717,50 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
     cursor = data.orders.pageInfo.endCursor;
   }
 
-  return events;
+  return { sales, relationshipSales };
+}
+
+function normalizeDiagnosisOrderLineItemSaleEvent({
+  lineItem,
+  order,
+  product,
+  snapshot,
+  orderDate,
+  customerKey,
+  basketLineItems,
+  basketFingerprint,
+  geography,
+} = {}) {
+  const lineProduct = lineItem?.product || {};
+  const variant = lineItem?.variant || {};
+  return {
+    id: lineItem?.id,
+    orderId: order?.id,
+    lineItemId: lineItem?.id,
+    productId: lineProduct.id || (lineItemMatchesProduct(lineItem, product, snapshot) ? product.id || snapshot.productGid : null),
+    createdAt: orderDate,
+    orderDate,
+    orderProcessedAt: toIso(order?.processedAt),
+    orderCreatedAt: toIso(order?.createdAt),
+    customerKey,
+    customerId: customerKey,
+    quantity: Number(lineItem?.quantity || 0),
+    amount: Number(lineItem?.originalTotalSet?.shopMoney?.amount || 0),
+    handle: lineProduct.handle || "",
+    title: lineProduct.title || lineItem?.title || "",
+    sku: lineItem?.sku || variant.sku || "",
+    variantId: variant.id || null,
+    variantTitle: variant.title || "",
+    selectedOptions: variant.selectedOptions || [],
+    basketLineItems,
+    basketFingerprint,
+    geography,
+    country: geography?.country || "",
+    countryCode: geography?.countryCode || "",
+    province: geography?.province || "",
+    provinceCode: geography?.provinceCode || "",
+    city: geography?.city || "",
+  };
 }
 
 function normalizeDiagnosisBasketLineItems(lineItems = []) {
@@ -827,6 +906,9 @@ function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
             id
             createdAt
             processedAt
+            customer {
+              id
+            }
             ${includeGeography ? `
             shippingAddress {
               country
@@ -1939,6 +2021,9 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const previousDetailedDiagnosisAt = snapshotMetrics.lastDetailedDiagnosisAt || snapshotMetrics.latestDiagnosisAt || null;
   const product = shopifyData.product;
   const sales = shopifyData.sales || [];
+  const relationshipSales = Array.isArray(shopifyData.relationshipSales) && shopifyData.relationshipSales.length
+    ? shopifyData.relationshipSales
+    : sales;
   const refunds = shopifyData.refunds || [];
   const returns = shopifyData.returns || [];
   const judgeMeReviews = (judgeMeData.reviews || []).map((review) => normalizeReviewSource(review, "judgeme_review", "Judge.me reviews"));
@@ -2015,7 +2100,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     shop: snapshot.shop,
     productId: product.id || snapshot.productGid,
     products: [product],
-    sales,
+    sales: relationshipSales,
     returns,
     refunds,
     windowDays,
@@ -2915,6 +3000,179 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
   });
 
   return diagnosis;
+}
+
+async function ensureProductRelationshipCandidateSnapshots({
+  shop,
+  jobId,
+  sourceSnapshot,
+  relationshipSummary,
+} = {}) {
+  const payloads = buildProductRelationshipCandidateSnapshotPayloads({
+    shop,
+    sourceSnapshot,
+    relationshipSummary,
+  });
+  if (!payloads.length) return { created: 0, updated: 0 };
+
+  try {
+    const productGids = payloads.map((payload) => payload.productGid).filter(Boolean);
+    const existing = await prisma.productRiskSnapshot.findMany({
+      where: { shop, productGid: { in: productGids } },
+      select: {
+        productGid: true,
+        productTitle: true,
+        handle: true,
+        sourceCoverage: true,
+      },
+    });
+    const existingByProductGid = new Map(existing.map((snapshot) => [snapshot.productGid, snapshot]));
+    const missingPayloads = payloads.filter((payload) => !existingByProductGid.has(payload.productGid));
+    const refreshPayloads = payloads.filter((payload) => {
+      const current = existingByProductGid.get(payload.productGid);
+      if (!current) return false;
+      return isUnknownProductLabel(current.productTitle) || (!current.handle && payload.handle);
+    });
+
+    if (missingPayloads.length) {
+      await prisma.productRiskSnapshot.createMany({ data: missingPayloads, skipDuplicates: true });
+    }
+
+    await Promise.all(refreshPayloads.map((payload) => prisma.productRiskSnapshot.update({
+      where: { shop_productGid: { shop, productGid: payload.productGid } },
+      data: {
+        productTitle: payload.productTitle,
+        handle: payload.handle,
+        sourceCoverage: mergeSourceCoverage(existingByProductGid.get(payload.productGid)?.sourceCoverage, payload.sourceCoverage),
+        calculatedAt: new Date(),
+      },
+    })));
+
+    if (missingPayloads.length || refreshPayloads.length) {
+      await recordJobLog({
+        shop,
+        jobId,
+        event: "product_diagnosis.relationship_candidates_persisted",
+        message: "Product relationship intelligence added related Shopify products to ProductPulse candidates.",
+        data: {
+          sourceProductGid: sourceSnapshot?.productGid,
+          createdCandidates: missingPayloads.length,
+          refreshedCandidates: refreshPayloads.length,
+          relatedProducts: payloads.map((payload) => ({
+            productGid: payload.productGid,
+            handle: payload.handle,
+            title: payload.productTitle,
+          })),
+        },
+      });
+    }
+
+    return { created: missingPayloads.length, updated: refreshPayloads.length };
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.relationship_candidates_failed",
+      message: "Product relationship candidates could not be persisted; diagnosis will continue.",
+      data: { error: serializeError(error), sourceProductGid: sourceSnapshot?.productGid },
+    });
+    return { created: 0, updated: 0, error: serializeError(error) };
+  }
+}
+
+function buildProductRelationshipCandidateSnapshotPayloads({
+  shop,
+  sourceSnapshot,
+  relationshipSummary,
+} = {}) {
+  if (!shop || !relationshipSummary || typeof relationshipSummary !== "object") return [];
+  const sourceProductGid = sourceSnapshot?.productGid || relationshipSummary.source_product_id || relationshipSummary.sourceProductId || "";
+  const sourceProductTitle = sourceSnapshot?.productTitle || relationshipSummary.source_product_title || relationshipSummary.sourceProductTitle || "";
+  const discoveredAt = new Date().toISOString();
+  const byProductGid = new Map();
+
+  getProductRelationshipCandidateItems(relationshipSummary).forEach((item) => {
+    const productGid = item.related_product_id || item.relatedProductId || "";
+    if (!productGid || productGid === sourceProductGid) return;
+    const title = item.related_product_title || item.relatedProductTitle || item.title || "";
+    const handle = item.related_product_handle || item.relatedProductHandle || item.handle || "";
+    if (isUnknownProductLabel(title) && !handle) return;
+    const previous = byProductGid.get(productGid);
+    const candidate = {
+      item,
+      productGid,
+      productTitle: isUnknownProductLabel(title) ? "Related Shopify product" : title,
+      handle: handle || String(productGid).split("/").pop() || "related-product",
+      confidence: Math.round(normalizePercentLike(item.confidence || item.confidence_score || 0)),
+      sampleSize: Number(item.sample_size || item.sampleSize || item.co_order_count || item.customer_count || item.order_count || 0),
+    };
+    if (!previous || candidate.sampleSize > previous.sampleSize || candidate.confidence > previous.confidence) {
+      byProductGid.set(productGid, candidate);
+    }
+  });
+
+  return Array.from(byProductGid.values()).map(({ item, productGid, productTitle, handle, confidence, sampleSize }) => ({
+    shop,
+    productGid,
+    productTitle,
+    handle,
+    riskScore: 0,
+    impactScore: 0,
+    confidence,
+    primaryIssue: "Relationship candidate",
+    sourceCoverage: ["Shopify orders", "Product relationship intelligence"],
+    metrics: {
+      relationshipCandidate: true,
+      hasQuickScan: false,
+      signalCount: 0,
+      soldUnits: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+      refundAmount: 0,
+      returnRate: 0,
+      refundRate: 0,
+      revenueAtRisk: 0,
+      marginAtRisk: 0,
+      estimatedImpact: 0,
+      productRelationshipCandidate: {
+        sourceProductGid,
+        sourceProductTitle,
+        discoveredAt,
+        relationshipType: item.relationship_type || item.relationshipType || "",
+        relationshipDirection: item.relationship_direction || item.relationshipDirection || "",
+        timeWindow: item.time_window || item.timeWindow || "",
+        relationshipRate: item.relationship_rate ?? item.relationshipRate ?? item.attach_rate ?? null,
+        attachRate: item.attach_rate ?? item.attachRate ?? null,
+        lift: item.lift ?? null,
+        sampleSize,
+        confidence,
+      },
+    },
+  }));
+}
+
+function getProductRelationshipCandidateItems(summary = {}) {
+  return [
+    ...getNodes(summary.top_bought_together || summary.topBoughtTogether),
+    ...getNodes(summary.top_bought_before || summary.topBoughtBefore),
+    ...getNodes(summary.top_bought_after || summary.topBoughtAfter),
+    ...getNodes(summary.same_order_relationships || summary.sameOrderRelationships),
+    ...getNodes(summary.previous_purchase_relationships || summary.previousPurchaseRelationships),
+    ...getNodes(summary.next_purchase_relationships || summary.nextPurchaseRelationships),
+  ];
+}
+
+function isUnknownProductLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return !normalized || normalized === "unknown product" || normalized === "related product";
+}
+
+function mergeSourceCoverage(current, additional) {
+  return Array.from(new Set([
+    ...getNodes(current),
+    ...getNodes(additional),
+  ].filter(Boolean)));
 }
 
 async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, deterministic, reuseDecision }) {
@@ -8905,6 +9163,7 @@ function trimSourceEventForCache(item = {}, type) {
     orderCreatedAt: toIso(item.orderCreatedAt),
     createdAt: toIso(item.createdAt || item.processedAt || item.updatedAt),
     updatedAt: toIso(item.updatedAt || item.processedAt || item.createdAt),
+    customerKey: item.customerKey || item.customerId || item.customerGid || item.customer?.id || null,
     quantity: Number(item.quantity || 0),
     amount: Number(item.amount || 0),
     title: truncateText(item.title || "", 180),
@@ -12610,6 +12869,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildSourceEventCache,
   buildIncrementalSinceDate,
   buildDiagnosisSourceFingerprint,
+  buildProductRelationshipCandidateSnapshotPayloads,
   normalizeAiClassifiedSignals,
   countAiSignalsByIssue,
   classifyIssueText,

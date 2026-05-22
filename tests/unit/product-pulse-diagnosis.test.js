@@ -186,6 +186,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(query).toContain("sortKey: PROCESSED_AT");
     expect(query).toContain("reverse: true");
+    expect(query).toContain("customer");
     expect(query).toContain("shippingAddress");
     expect(query).toContain("billingAddress");
     expect(query).toContain("countryCodeV2");
@@ -623,6 +624,110 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(history.at(-1).riskScore).toBe(deterministic.riskScore);
     expect(Math.max(...history.map((point) => point.metrics.returnUnits))).toBe(3);
     expect(history.find((point) => point.metrics.returnUnits === 0).riskScore).toBeLessThan(history.at(-1).riskScore);
+  });
+
+  it("uses full-window relationship sales to calculate before and after purchase relationships", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const sourceProductId = "gid://shopify/Product/rel-source";
+    const beforeProductId = "gid://shopify/Product/rel-before";
+    const afterProductId = "gid://shopify/Product/rel-after";
+    const snapshot = {
+      shop: "relationship-test.myshopify.com",
+      productGid: sourceProductId,
+      productTitle: "REL Source Product",
+      handle: "rel-source-product",
+      riskScore: 0,
+      metrics: {},
+    };
+    const product = {
+      id: sourceProductId,
+      title: "REL Source Product",
+      handle: "rel-source-product",
+      description: "Relationship test source product.",
+      descriptionHtml: "<p>Relationship test source product.</p>",
+      variants: [{ id: "gid://shopify/ProductVariant/rel-source", title: "Default Title", sku: "REL-SOURCE", selectedOptions: [] }],
+      options: [],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+    const relationshipSales = [
+      { type: "sale", id: "before-sale", orderId: "before-order", lineItemId: "before-line", productId: beforeProductId, title: "REL Bought Before", handle: "rel-bought-before", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 35, orderDate: daysAgo(35), createdAt: daysAgo(35) },
+      { type: "sale", id: "source-sale", orderId: "source-order", lineItemId: "source-line", productId: sourceProductId, title: "REL Source Product", handle: "rel-source-product", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 50, orderDate: daysAgo(20), createdAt: daysAgo(20) },
+      { type: "sale", id: "after-sale", orderId: "after-order", lineItemId: "after-line", productId: afterProductId, title: "REL Bought After", handle: "rel-bought-after", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 42, orderDate: daysAgo(6), createdAt: daysAgo(6) },
+    ];
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: [relationshipSales[1]],
+        relationshipSales,
+        returns: [],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    const summary = deterministic.metrics.productRelationshipIntelligenceSummary;
+    expect(summary.top_bought_before.find((item) => item.related_product_id === beforeProductId)).toMatchObject({
+      related_product_title: "REL Bought Before",
+      related_product_handle: "rel-bought-before",
+      relationship_direction: "before",
+    });
+    expect(summary.top_bought_after.find((item) => item.related_product_id === afterProductId)).toMatchObject({
+      related_product_title: "REL Bought After",
+      related_product_handle: "rel-bought-after",
+      relationship_direction: "after",
+    });
+  });
+
+  it("builds ProductPulse candidate snapshots for discovered relationship products", () => {
+    const payloads = __productPulseDiagnosisTestHooks.buildProductRelationshipCandidateSnapshotPayloads({
+      shop: "relationship-test.myshopify.com",
+      sourceSnapshot: {
+        productGid: "gid://shopify/Product/source",
+        productTitle: "Source Product",
+      },
+      relationshipSummary: {
+        top_bought_together: [{
+          related_product_id: "gid://shopify/Product/related",
+          related_product_title: "Related Shopify Product",
+          related_product_handle: "related-shopify-product",
+          relationship_type: "same_order",
+          relationship_direction: "together",
+          time_window: "same_order",
+          attach_rate: 0.33,
+          lift: 2.4,
+          sample_size: 6,
+          confidence: 72,
+        }],
+      },
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toMatchObject({
+      shop: "relationship-test.myshopify.com",
+      productGid: "gid://shopify/Product/related",
+      productTitle: "Related Shopify Product",
+      handle: "related-shopify-product",
+      primaryIssue: "Relationship candidate",
+      sourceCoverage: ["Shopify orders", "Product relationship intelligence"],
+      metrics: {
+        relationshipCandidate: true,
+        productRelationshipCandidate: {
+          sourceProductGid: "gid://shopify/Product/source",
+          relationshipDirection: "together",
+          attachRate: 0.33,
+          lift: 2.4,
+          sampleSize: 6,
+          confidence: 72,
+        },
+      },
+    });
   });
 
   it("keeps one isolated customer text as evidence instead of merchant-facing issues", () => {

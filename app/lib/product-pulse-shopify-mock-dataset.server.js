@@ -10,6 +10,7 @@ export const SHOPIFY_MOCK_DATASET_SOURCE_KEY = "mockDataset";
 export const SHOPIFY_MOCK_DATASET_STAGES = [
   "all",
   "products",
+  "customers",
   "orders",
   "outcomes",
   "reviews",
@@ -19,6 +20,7 @@ export const SHOPIFY_MOCK_DATASET_STAGES = [
 export const SHOPIFY_MOCK_DATASET_STAGE_LABELS = {
   all: "Run remaining setup",
   products: "Create products",
+  customers: "Create customers",
   orders: "Create orders",
   outcomes: "Create returns and refunds",
   reviews: "Generate CSV reviews",
@@ -31,6 +33,8 @@ export const REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES = [
   "read_orders",
   "read_all_orders",
   "write_orders",
+  "read_customers",
+  "write_customers",
   "read_returns",
   "write_returns",
   "read_locations",
@@ -40,13 +44,20 @@ const GENERATED_TAG = "productpulse-gen";
 const GENERATED_ORDER_TAG = "productpulse-gen-order";
 const GENERATED_EVOLUTION_ORDER_TAG = "productpulse-gen-evolution-order";
 const GENERATED_REVIEW_SOURCE = "ProductPulse mock reviews";
+const RELTEST_TAG = "RELTEST";
+const RELTEST_ORDER_TAG = "productpulse-reltest-order";
+const RELTEST_CUSTOMER_TAG = "productpulse-reltest-customer";
 const LEGACY_ORDER_COUNT = 120;
 const EXTRA_STRESS_ORDER_COUNT = 80;
-const DEFAULT_ORDER_COUNT = LEGACY_ORDER_COUNT + EXTRA_STRESS_ORDER_COUNT;
+const BASE_ORDER_COUNT = LEGACY_ORDER_COUNT + EXTRA_STRESS_ORDER_COUNT;
+const RELTEST_SEQUENCE_ORDER_COUNT = 12;
+const RELTEST_ORDER_COUNT = 13 + RELTEST_SEQUENCE_ORDER_COUNT;
+const DEFAULT_ORDER_COUNT = BASE_ORDER_COUNT + RELTEST_ORDER_COUNT;
 const DEFAULT_EVOLUTION_ORDER_COUNT = 41;
 export const SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS = {
   all: DEFAULT_ORDER_COUNT,
   products: 0,
+  customers: 0,
   orders: DEFAULT_ORDER_COUNT,
   outcomes: DEFAULT_ORDER_COUNT,
   reviews: 0,
@@ -66,7 +77,8 @@ const GENERATED_ORDER_RETURN_LINE_ITEMS_PAGE_SIZE = 8;
 const GENERATED_ORDER_REFUND_LINE_ITEMS_PAGE_SIZE = 8;
 const STAGE_PROGRESS = {
   products: [5, 25],
-  orders: [25, 70],
+  customers: [25, 32],
+  orders: [32, 70],
   outcomes: [70, 86],
   reviews: [86, 93],
   evolution: [35, 95],
@@ -75,6 +87,7 @@ const STAGE_PROGRESS = {
 const SHOPIFY_SCOPE_READ_EQUIVALENTS = {
   read_products: ["write_products"],
   read_orders: ["write_orders"],
+  read_customers: ["write_customers"],
   read_returns: ["write_returns"],
 };
 
@@ -662,9 +675,299 @@ const MOCK_PRODUCTS = [
     themes: ["early brew", "clock drift", "condensation", "alarm silent"],
     reviewProfile: { count: 47, negativeRate: 0.6, average: 2.4 },
   },
+  {
+    key: "reltest-source-product",
+    title: "GEN RELTEST Source Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Source Product",
+    seoDescription: "Source product for ProductPulse relationship, basket and return/refund analytics testing.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST source product</h2>
+        <p>Deterministic source product used to test bought-together relationships, purchase context, quantity buckets and return/refund impact.</p>
+        <p>Search RELTEST after generating the Settings dataset and inspect this product first.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "basket-test", "risk-impact-test"],
+    options: [{ name: "Pack", values: ["Standard", "Extended", "Bulk"] }],
+    variants: [
+      { options: { Pack: "Standard" }, price: "40.00", sku: "GEN-RELTEST-SRC-STD" },
+      { options: { Pack: "Extended" }, price: "46.00", sku: "GEN-RELTEST-SRC-EXT" },
+      { options: { Pack: "Bulk" }, price: "38.00", sku: "GEN-RELTEST-SRC-BULK" },
+    ],
+    story: "The anchor product for deterministic relationship analytics. It has exactly controlled solo orders, basket orders, multi-unit quantities, one bulk order, one multi-variant same-product order and same-customer before/after sequences.",
+    orderPattern: "Fourteen current-window source orders: eight solo orders and six multi-product baskets. Eleven are single-unit source purchases, two are two-unit source purchases and one is a four-unit bulk purchase.",
+    returnRefundPattern: "Source returns/refunds are concentrated in bought-together orders so relationship risk impact can compare baskets against clean solo orders.",
+    reviewPattern: "Reviews mention bundle confusion, quantity expectations and variant mixups so customer language supports purchase-context diagnosis.",
+    stressCase: "Tests relationship impact, purchase context, multi-variant basket handling and deterministic source-product inspection.",
+    expectedFindings: [
+      "Bought-together relationship with GEN RELTEST Bought Together Product.",
+      "Purchase context should show 8 solo orders and 6 basket orders for the source product.",
+      "Bought-before relationship with GEN RELTEST Bought Before Product.",
+      "Bought-after relationship with GEN RELTEST Bought After Product.",
+      "Return/refund pressure is higher when the source product is bought with the related product.",
+    ],
+    expectedActions: [
+      "Inspect Product Relationships.",
+      "Inspect Purchase Context.",
+      "Inspect Return & Refund Resolution.",
+    ],
+    themes: ["reltest", "basket", "relationship", "source"],
+    reviewProfile: { count: 12, negativeRate: 0.5, average: 3.1 },
+  },
+  {
+    key: "reltest-bought-together-product",
+    title: "GEN RELTEST Bought Together Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bought Together Product",
+    seoDescription: "Related product bought together with the RELTEST source product.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bought-together product</h2>
+        <p>Deterministic related product that appears in six source-product basket orders.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "bought-together-test"],
+    options: [{ name: "Bundle Role", values: ["Companion"] }],
+    variants: [{ options: { "Bundle Role": "Companion" }, price: "18.00", sku: "GEN-RELTEST-TOGETHER" }],
+    story: "The main same-order related product for Product Relationship Intelligence tests.",
+    orderPattern: "Appears with the RELTEST source product in six deterministic current-window orders and does not appear in the four source solo orders.",
+    returnRefundPattern: "Some co-purchase orders also have source returns or refunds, creating measurable risk impact for the pair.",
+    reviewPattern: "Mostly positive reviews with a small amount of bundle expectation language.",
+    stressCase: "Tests bought-together counts, attach rate, lift when store-wide context is available and related-product display.",
+    expectedFindings: [
+      "Should appear as bought together from the RELTEST source product.",
+      "Co-order count should be easy to verify manually.",
+    ],
+    expectedActions: [
+      "Review bundle placement and relationship risk impact.",
+    ],
+    themes: ["reltest", "bought together", "companion", "bundle"],
+    reviewProfile: { count: 8, negativeRate: 0.13, average: 4.4 },
+  },
+  {
+    key: "reltest-bought-before-product",
+    title: "GEN RELTEST Bought Before Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bought Before Product",
+    seoDescription: "Deterministic before-purchase relationship product for RELTEST customer sequence tests.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bought-before product</h2>
+        <p>This product is bought first by the same RELTEST customers who later buy the source product.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "before-sequence-test"],
+    options: [{ name: "Sequence Role", values: ["Before"] }],
+    variants: [{ options: { "Sequence Role": "Before" }, price: "22.00", sku: "GEN-RELTEST-BEFORE" }],
+    story: "Generated to prove previous-purchase relationships from safe Shopify customer IDs.",
+    orderPattern: "Four deterministic RELTEST customers buy this product first, then buy GEN RELTEST Source Product 16 days later.",
+    returnRefundPattern: "No deterministic return/refund pattern; this product isolates same-customer before-purchase sequence evidence.",
+    reviewPattern: "A small number of neutral-positive reviews keep the product easy to find while source-product sequence evidence comes from orders.",
+    stressCase: "Tests previous-purchase relationships with customer identity extracted from Shopify order.customer.id.",
+    expectedFindings: [
+      "Should appear as bought before GEN RELTEST Source Product when customer identity is available.",
+    ],
+    expectedActions: [
+      "Inspect Product Relationships for Bought before.",
+    ],
+    themes: ["reltest", "before", "customer identity", "sequence"],
+    reviewProfile: { count: 4, negativeRate: 0, average: 4.5 },
+  },
+  {
+    key: "reltest-bought-after-product",
+    title: "GEN RELTEST Bought After Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bought After Product",
+    seoDescription: "Deterministic after-purchase relationship product for RELTEST customer sequence tests.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bought-after product</h2>
+        <p>This product is bought later by the same RELTEST customers who previously bought the source product.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "after-sequence-test"],
+    options: [{ name: "Sequence Role", values: ["After"] }],
+    variants: [{ options: { "Sequence Role": "After" }, price: "24.00", sku: "GEN-RELTEST-AFTER" }],
+    story: "Generated to prove next-purchase relationships from safe Shopify customer IDs.",
+    orderPattern: "The same four deterministic RELTEST customers buy this product 15 days after buying GEN RELTEST Source Product.",
+    returnRefundPattern: "No deterministic return/refund pattern; this product isolates same-customer after-purchase sequence evidence.",
+    reviewPattern: "A small number of neutral-positive reviews keep the product searchable while source-product sequence evidence comes from orders.",
+    stressCase: "Tests next-purchase relationships with customer identity extracted from Shopify order.customer.id.",
+    expectedFindings: [
+      "Should appear as bought after GEN RELTEST Source Product when customer identity is available.",
+    ],
+    expectedActions: [
+      "Inspect Product Relationships for Bought after.",
+    ],
+    themes: ["reltest", "after", "customer identity", "sequence"],
+    reviewProfile: { count: 4, negativeRate: 0, average: 4.5 },
+  },
+  {
+    key: "reltest-multi-variant-product",
+    title: "GEN RELTEST Multi Variant Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Multi Variant Product",
+    seoDescription: "Basket companion used by RELTEST purchase context tests.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST multi-variant product</h2>
+        <p>Generated companion product with multiple variants for basket and variant diagnostics.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "basket-test", "variant-test"],
+    options: [{ name: "Fit", values: ["Alpha", "Beta"] }],
+    variants: [
+      { options: { Fit: "Alpha" }, price: "16.00", sku: "GEN-RELTEST-MULTI-A" },
+      { options: { Fit: "Beta" }, price: "16.00", sku: "GEN-RELTEST-MULTI-B" },
+    ],
+    story: "Companion product for basket context tests and variant-language reviews.",
+    orderPattern: "Appears in deterministic RELTEST basket orders only when explicitly selected by the appended RELTEST plans.",
+    returnRefundPattern: "No dedicated return/refund pattern; it provides clean basket context.",
+    reviewPattern: "Reviews mention variant comparison and confusion without driving the source product's main outcome buckets.",
+    stressCase: "Tests variant-rich basket data without changing CSV shape.",
+    expectedFindings: [
+      "Can appear as a co-purchased product when included in RELTEST basket orders.",
+    ],
+    expectedActions: [
+      "Inspect basket line items and variant labels.",
+    ],
+    themes: ["reltest", "multi variant", "basket", "variant"],
+    reviewProfile: { count: 6, negativeRate: 0.17, average: 4.0 },
+  },
+  {
+    key: "reltest-bulk-quantity-product",
+    title: "GEN RELTEST Bulk Quantity Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bulk Quantity Product",
+    seoDescription: "Basket companion used to make bulk purchase context easy to inspect.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bulk quantity product</h2>
+        <p>Companion product for deterministic bulk and basket purchase context tests.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "basket-test", "bulk-test"],
+    options: [{ name: "Pack", values: ["Case"] }],
+    variants: [{ options: { Pack: "Case" }, price: "12.00", sku: "GEN-RELTEST-BULK-COMP" }],
+    story: "Companion product that makes RELTEST basket orders easier to identify.",
+    orderPattern: "Appears in one RELTEST basket order while the source product has a separate four-unit bulk source order.",
+    returnRefundPattern: "No dedicated outcome pattern.",
+    reviewPattern: "Short reviews mention case quantity clarity.",
+    stressCase: "Tests that source-product bulk buckets come from the source quantity, not unrelated basket companions.",
+    expectedFindings: [
+      "Source bulk order should be counted from the source line quantity.",
+    ],
+    expectedActions: [
+      "Inspect Purchase Context quantity distribution.",
+    ],
+    themes: ["reltest", "bulk", "quantity", "basket"],
+    reviewProfile: { count: 5, negativeRate: 0.2, average: 3.8 },
+  },
+  {
+    key: "reltest-return-refund-product",
+    title: "GEN RELTEST Return Refund Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Return Refund Product",
+    seoDescription: "Dedicated product for return plus refund and return-only resolution buckets.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST return/refund product</h2>
+        <p>Dedicated product for deterministic Return & Refund Resolution buckets: returned and refunded, and returned without refund.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "return-refund-test", "resolution-test"],
+    options: [{ name: "Resolution Case", values: ["Standard"] }],
+    variants: [{ options: { "Resolution Case": "Standard" }, price: "34.00", sku: "GEN-RELTEST-RETURN-REFUND" }],
+    story: "Dedicated product for return/refund relationship analysis.",
+    orderPattern: "Two deterministic orders are generated: one returned and refunded, one returned without refund.",
+    returnRefundPattern: "One line item should land in returned_and_refunded and one should land in returned_not_refunded.",
+    reviewPattern: "Negative reviews mention defects and resolution expectations aligned with return notes.",
+    stressCase: "Tests return/refund matching by exact order line item without changing outcome shape.",
+    expectedFindings: [
+      "Return + refund bucket should be non-zero.",
+      "Return-only bucket should be non-zero.",
+    ],
+    expectedActions: [
+      "Inspect Return & Refund Resolution.",
+    ],
+    themes: ["reltest", "return", "refund", "resolution"],
+    reviewProfile: { count: 8, negativeRate: 0.63, average: 2.6 },
+  },
+  {
+    key: "reltest-refund-only-product",
+    title: "GEN RELTEST Refund Only Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Refund Only Product",
+    seoDescription: "Dedicated product for refund-without-return resolution buckets.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST refund-only product</h2>
+        <p>Dedicated product for deterministic refund without return testing.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "return-refund-test", "refund-only-test"],
+    options: [{ name: "Resolution Case", values: ["Refund Only"] }],
+    variants: [{ options: { "Resolution Case": "Refund Only" }, price: "28.00", sku: "GEN-RELTEST-REFUND-ONLY" }],
+    story: "Dedicated product for refund-only relationship analysis.",
+    orderPattern: "One deterministic order is generated and receives a line-item refund with no return.",
+    returnRefundPattern: "The line item should land in refunded_without_return.",
+    reviewPattern: "Reviews mention compensation and support goodwill without a physical return.",
+    stressCase: "Tests refund-only resolution without adding order-level refund structures.",
+    expectedFindings: [
+      "Refund-only bucket should be non-zero.",
+    ],
+    expectedActions: [
+      "Inspect Return & Refund Resolution.",
+    ],
+    themes: ["reltest", "refund only", "goodwill", "resolution"],
+    reviewProfile: { count: 6, negativeRate: 0.5, average: 3.0 },
+  },
 ];
 
 export const SHOPIFY_MOCK_DATASET_PRODUCT_COUNT = MOCK_PRODUCTS.length;
+
+const RELTEST_SEQUENCE_CUSTOMER_COUNT = 4;
+const RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT = 13;
+const RELTEST_GENERAL_CUSTOMER_COUNT = 7;
+const RELTEST_CUSTOMER_COUNT = RELTEST_SEQUENCE_CUSTOMER_COUNT
+  + RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT
+  + RELTEST_GENERAL_CUSTOMER_COUNT;
+const RELTEST_GENERAL_CUSTOMER_START = RELTEST_SEQUENCE_CUSTOMER_COUNT + RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT + 1;
+
+const RELTEST_CUSTOMERS = Object.freeze(Array.from({ length: RELTEST_CUSTOMER_COUNT }, (_, index) => {
+  const number = String(index + 1).padStart(3, "0");
+  const customerNumber = index + 1;
+  const roleTag = customerNumber <= RELTEST_SEQUENCE_CUSTOMER_COUNT
+    ? "reltest-sequence-customer"
+    : customerNumber < RELTEST_GENERAL_CUSTOMER_START
+      ? "reltest-isolated-order-customer"
+      : "reltest-general-order-customer";
+  return {
+    key: `reltest-customer-${number}`,
+    label: `RELTEST_CUSTOMER_${number}`,
+    email: `reltest-customer-${number}@example.com`,
+    firstName: "RELTEST",
+    lastName: `Customer ${number}`,
+    tags: [
+      RELTEST_TAG,
+      RELTEST_CUSTOMER_TAG,
+      `reltest-customer-${number}`,
+      roleTag,
+    ],
+    note: `ProductPulse RELTEST deterministic customer profile (${roleTag}). Safe mock data only.`,
+  };
+}));
+
+export const SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT = RELTEST_CUSTOMERS.length;
 
 const STRESS_PRODUCT_KEYS = new Set([
   "voice-lock-safe",
@@ -672,6 +975,92 @@ const STRESS_PRODUCT_KEYS = new Set([
   "inflatable-standing-desk",
   "smart-luggage-tag",
   "coffee-alarm-brewer",
+]);
+
+const RELTEST_PRODUCT_KEYS = Object.freeze([
+  "reltest-source-product",
+  "reltest-bought-together-product",
+  "reltest-bought-before-product",
+  "reltest-bought-after-product",
+  "reltest-multi-variant-product",
+  "reltest-bulk-quantity-product",
+  "reltest-return-refund-product",
+  "reltest-refund-only-product",
+]);
+
+const RELTEST_OUTCOME_PLANS = Object.freeze([
+  {
+    orderTag: "reltest-risk-return-refund",
+    type: "return",
+    productKey: "reltest-source-product",
+    returnReason: "OTHER",
+    note: "Other: RELTEST source felt confusing when bought with the companion product and the buyer returned it.",
+    theme: "reltest-risk-impact",
+  },
+  {
+    orderTag: "reltest-risk-return-refund",
+    type: "refund",
+    productKey: "reltest-source-product",
+    note: "RELTEST refund after source product was returned from a bought-together basket.",
+    theme: "reltest-risk-impact",
+    quantity: 1,
+  },
+  {
+    orderTag: "reltest-risk-return-only",
+    type: "return",
+    productKey: "reltest-source-product",
+    returnReason: "NOT_AS_DESCRIBED",
+    note: "Not as described: RELTEST bundle context made the source product look like a different kit.",
+    theme: "reltest-risk-impact",
+  },
+  {
+    orderTag: "reltest-risk-refund-only",
+    type: "refund",
+    productKey: "reltest-source-product",
+    note: "RELTEST goodwill refund on source product from bought-together basket without a return.",
+    theme: "reltest-risk-impact",
+    quantity: 1,
+  },
+  {
+    orderTag: "reltest-source-together-multi-variant",
+    type: "return",
+    productKey: "reltest-source-product",
+    returnReason: "OTHER",
+    note: "Exchange requested: customer returned the Standard Pack and the shop sent the Extended Pack variant as a replacement without a refund.",
+    theme: "reltest-variant-exchange",
+  },
+  {
+    orderTag: "reltest-return-refund-both",
+    type: "return",
+    productKey: "reltest-return-refund-product",
+    returnReason: "OTHER",
+    note: "Other: RELTEST return/refund product arrived defective and customer requested a return.",
+    theme: "reltest-return-refund-linked",
+  },
+  {
+    orderTag: "reltest-return-refund-both",
+    type: "refund",
+    productKey: "reltest-return-refund-product",
+    note: "RELTEST refund issued after the returned defective unit was matched to the same line item.",
+    theme: "reltest-return-refund-linked",
+    quantity: 1,
+  },
+  {
+    orderTag: "reltest-return-only",
+    type: "return",
+    productKey: "reltest-return-refund-product",
+    returnReason: "OTHER",
+    note: "Other: RELTEST item was returned but no refund has been issued yet.",
+    theme: "reltest-return-only",
+  },
+  {
+    orderTag: "reltest-refund-only",
+    type: "refund",
+    productKey: "reltest-refund-only-product",
+    note: "RELTEST goodwill refund issued without a physical return.",
+    theme: "reltest-refund-only",
+    quantity: 1,
+  },
 ]);
 
 export function getMissingShopifyMockDatasetScopes(scopeString) {
@@ -748,16 +1137,30 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
   await updateProgress(context, 3, `Preparing Shopify mock dataset stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[requestedStage]}.`);
   const shopInfo = await getShopInfo(admin);
   const location = await getPrimaryLocation(admin);
+  const needsProducts = requestedStage !== "customers";
   const createMissingProducts = shouldRunMockDatasetStage(requestedStage, "products")
     || ["orders", "reviews", "evolution"].includes(requestedStage);
-  let products = await loadOrCreateMockProducts(context, location, shopInfo.currencyCode, {
-    createMissing: createMissingProducts,
-  });
+  let products = needsProducts
+    ? await loadOrCreateMockProducts(context, location, shopInfo.currencyCode, {
+      createMissing: createMissingProducts,
+    })
+    : [];
+
+  let customers = [];
+  const shouldPrepareCustomers = shouldRunMockDatasetStage(requestedStage, "customers")
+    || ["orders", "evolution", "all"].includes(requestedStage);
+  if (shouldPrepareCustomers) {
+    await updateProgress(context, 25, "Creating or reusing RELTEST customer profiles for generated Shopify orders.");
+    customers = await loadOrCreateMockCustomers(context, { createMissing: true });
+  } else if (["manifest"].includes(requestedStage)) {
+    customers = await loadOrCreateMockCustomers(context, { createMissing: false, recordStage: false });
+  }
 
   let orders = [];
   if (shouldRunMockDatasetStage(requestedStage, "orders")) {
-    await updateProgress(context, 25, `Creating or resuming ${DEFAULT_ORDER_COUNT} historical Shopify orders.`);
-    orders = await loadOrCreateMockOrders(context, products, location, shopInfo.currencyCode, orderDelayMs);
+    await updateProgress(context, 32, `Creating or resuming ${DEFAULT_ORDER_COUNT} historical Shopify orders.`);
+    if (!customers.length) customers = await loadOrCreateMockCustomers(context, { createMissing: true });
+    orders = await loadOrCreateMockOrders(context, products, customers, location, shopInfo.currencyCode, orderDelayMs);
   } else if (requestedStage === "outcomes") {
     orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode, { includeOutcomes: true });
   } else if (["manifest", "all"].includes(requestedStage)) {
@@ -808,9 +1211,11 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
   if (shouldRunMockDatasetStage(requestedStage, "evolution")) {
     await markMockDatasetStageRunning(context, "evolution");
     await updateProgress(context, 35, "Creating recent evolution orders, outcomes and CSV review updates.");
+    if (!customers.length) customers = await loadOrCreateMockCustomers(context, { createMissing: true });
     evolution = await createMockEvolutionBatch(context, products, location, shopInfo.currencyCode, {
       baseCreatedAt: createdAt,
       orderDelayMs,
+      customers,
     });
     reviewRows = buildReviewRows(products, createdAt);
     const evolutionReviewRows = buildEvolutionReviewRows(products, evolution, reviewRows.length + 2);
@@ -846,6 +1251,7 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
     runId,
     createdAt,
     products,
+    customers,
     orders,
     outcomes,
     reviewRows,
@@ -861,6 +1267,7 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
       runId,
       createdAt,
       products,
+      customers,
       orders,
       outcomes,
       reviewRows,
@@ -1032,18 +1439,185 @@ function serializeProductForState(product) {
   };
 }
 
-async function loadOrCreateMockOrders(context, products, location, currencyCode, orderDelayMs) {
+async function loadOrCreateMockCustomers(context, { createMissing = false, recordStage = true } = {}) {
+  if (recordStage) await markMockDatasetStageRunning(context, "customers");
+  const existingCustomers = await fetchGeneratedReltestCustomers(context);
+  const existingByKey = new Map(existingCustomers.map((customer) => [getReltestCustomerKey(customer), customer]).filter(([key]) => key));
+  const customers = [];
+  const missing = [];
+
+  for (const spec of RELTEST_CUSTOMERS) {
+    const existing = existingByKey.get(spec.key);
+    if (existing) {
+      customers.push(normalizeExistingReltestCustomer(spec, existing));
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.customer_reused",
+        message: `Reused existing RELTEST customer: ${spec.label}.`,
+        data: { customerId: existing.id, key: spec.key },
+      });
+      continue;
+    }
+
+    if (!createMissing) {
+      missing.push(spec.label);
+      continue;
+    }
+
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.customer_create_started",
+      message: `Creating RELTEST customer: ${spec.label}.`,
+      data: { key: spec.key },
+    });
+    const createdCustomer = await createMockCustomer(context, spec);
+    customers.push(createdCustomer);
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.customer_created",
+      message: `Created RELTEST customer: ${spec.label}.`,
+      data: { customerId: createdCustomer.id, key: spec.key },
+    });
+    if (recordStage) {
+      await updateProgressForStage(context, "customers", customers.length, RELTEST_CUSTOMERS.length, `Prepared ${customers.length} of ${RELTEST_CUSTOMERS.length} RELTEST customers.`);
+    }
+  }
+
+  if (missing.length) {
+    throw new Error(`RELTEST customers are missing. Run the customers stage first: ${missing.join(", ")}`);
+  }
+
+  if (recordStage) await markMockDatasetStageComplete(context, "customers", {
+    customerCount: customers.length,
+    customers: customers.map(serializeCustomerForState),
+  });
+  return customers;
+}
+
+async function fetchGeneratedReltestCustomers(context) {
+  const data = await shopifyGraphql(context.admin, `#graphql
+    query ProductPulseReltestCustomers($query: String!, $customersFirst: Int!) {
+      customers(first: $customersFirst, query: $query) {
+        nodes {
+          id
+          tags
+        }
+      }
+    }
+  `, {
+    query: `tag:${RELTEST_CUSTOMER_TAG}`,
+    customersFirst: Math.max(RELTEST_CUSTOMERS.length * 3, 12),
+  }, "Fetch existing RELTEST customers");
+  return data?.customers?.nodes || [];
+}
+
+function getReltestCustomerKey(customer = {}) {
+  return (customer.tags || [])
+    .map((tag) => String(tag || "").trim())
+    .find((tag) => /^reltest-customer-\d{3}$/i.test(tag))
+    ?.toLowerCase() || null;
+}
+
+function normalizeExistingReltestCustomer(spec, customer) {
+  return {
+    ...spec,
+    id: customer.id,
+    tags: customer.tags || spec.tags,
+  };
+}
+
+async function createMockCustomer(context, spec) {
+  const customerInput = {
+    email: spec.email,
+    firstName: spec.firstName,
+    lastName: spec.lastName,
+    note: spec.note,
+    tags: [...spec.tags, `run-${context.runSuffix}`],
+  };
+  const data = await shopifyGraphql(context.admin, `#graphql
+    mutation ProductPulseCreateMockCustomer($input: CustomerInput!) {
+      customerCreate(input: $input) {
+        customer {
+          id
+          tags
+        }
+        userErrors { field message }
+      }
+    }
+  `, { input: customerInput }, `Create RELTEST customer ${spec.label}`);
+  assertNoUserErrors(data?.customerCreate?.userErrors, `Create RELTEST customer ${spec.label}`);
+  return normalizeExistingReltestCustomer(spec, data.customerCreate.customer);
+}
+
+function serializeCustomerForState(customer) {
+  return {
+    key: customer.key,
+    label: customer.label,
+    id: customer.id,
+    tags: customer.tags,
+  };
+}
+
+function getReltestCustomerProfileKey(number) {
+  return `reltest-customer-${String(number).padStart(3, "0")}`;
+}
+
+function getGeneralOrderCustomerProfileKey(index) {
+  const offset = Math.abs(Number(index) || 0) % RELTEST_GENERAL_CUSTOMER_COUNT;
+  return getReltestCustomerProfileKey(RELTEST_GENERAL_CUSTOMER_START + offset);
+}
+
+function getCustomerProfileKeyForOrderPlan(plan = {}) {
+  if (plan.customerProfileKey) return plan.customerProfileKey;
+  const reltestOrderIndex = Number(plan.index) - BASE_ORDER_COUNT;
+  if ((plan.tags || []).includes(RELTEST_ORDER_TAG)
+    && reltestOrderIndex >= 0
+    && reltestOrderIndex < RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT) {
+    return getReltestCustomerProfileKey(RELTEST_SEQUENCE_CUSTOMER_COUNT + reltestOrderIndex + 1);
+  }
+  return getGeneralOrderCustomerProfileKey(Number.isInteger(plan.evolutionIndex) ? plan.evolutionIndex : plan.index);
+}
+
+function ensureOrderPlanCustomerProfileKey(plan) {
+  const customerProfileKey = getCustomerProfileKeyForOrderPlan(plan);
+  return {
+    ...plan,
+    customerProfileKey,
+  };
+}
+
+function attachCustomersToOrderPlans(orderPlans, customers = []) {
+  const customersByKey = new Map(customers.map((customer) => [customer.key, customer]));
+  return orderPlans.map((rawPlan) => {
+    const plan = ensureOrderPlanCustomerProfileKey(rawPlan);
+    const customer = customersByKey.get(plan.customerProfileKey);
+    if (!customer?.id) throw new Error(`Missing RELTEST customer for order plan ${plan.index + 1}: ${plan.customerProfileKey}`);
+    return {
+      ...plan,
+      customerId: customer.id,
+      customerLabel: customer.label,
+    };
+  });
+}
+
+async function loadOrCreateMockOrders(context, products, customers, location, currencyCode, orderDelayMs) {
   await markMockDatasetStageRunning(context, "orders");
-  const orderPlans = buildOrderPlans(products, currencyCode);
-  const existingOrders = await fetchGeneratedOrders(context, products, orderPlans, currencyCode);
+  const orderPlans = attachCustomersToOrderPlans(buildOrderPlans(products, currencyCode), customers);
+  const fetchedExistingOrders = await fetchGeneratedOrders(context, products, orderPlans, currencyCode);
+  const { reusableOrders: existingOrders, skippedIndexes } = await splitReusableGeneratedOrders(context, fetchedExistingOrders, "historical mock orders");
   const existingByIndex = new Map(existingOrders.map((order) => [order.plan?.index, order]).filter(([index]) => Number.isInteger(index)));
   const orders = [];
   let createdCount = 0;
   let reusedCount = 0;
+  let skippedLegacyCustomerlessCount = 0;
 
   for (let index = 0; index < orderPlans.length; index += 1) {
     const plan = orderPlans[index];
     const existing = existingByIndex.get(plan.index);
+    const replacingCustomerlessOrder = skippedIndexes.has(plan.index);
     if (existing) {
       orders.push(existing);
       reusedCount += 1;
@@ -1057,11 +1631,24 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
         });
       }
     } else {
+      if (replacingCustomerlessOrder) {
+        skippedLegacyCustomerlessCount += 1;
+        await recordJobLog({
+          shop: context.shop,
+          jobId: context.jobId,
+          level: "warning",
+          event: "mock_dataset.order_replacing_customerless",
+          message: `Creating a customer-attributed replacement for legacy customerless mock order ${index + 1} of ${orderPlans.length}.`,
+          data: { generatedOrderIndex: plan.index + 1, phase: plan.phase },
+        });
+      }
       await recordJobLog({
         shop: context.shop,
         jobId: context.jobId,
         event: "mock_dataset.order_create_started",
-        message: `Creating mock order ${index + 1} of ${orderPlans.length}.`,
+        message: replacingCustomerlessOrder
+          ? `Creating replacement mock order ${index + 1} of ${orderPlans.length}.`
+          : `Creating mock order ${index + 1} of ${orderPlans.length}.`,
         data: {
           generatedOrderIndex: plan.index + 1,
           phase: plan.phase,
@@ -1111,6 +1698,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
           preparedOrders: orders.length,
           createdCount,
           reusedCount,
+          skippedLegacyCustomerlessCount,
           lastOrderIndex: index + 1,
         },
       });
@@ -1125,6 +1713,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
       preparedOrders: orders.length,
       createdCount,
       reusedCount,
+      skippedLegacyCustomerlessCount,
       lastOrderIndex: orderPlans.length,
     },
   });
@@ -1133,8 +1722,9 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
 
 async function loadExistingMockOrders(context, products, currencyCode, { includeOutcomes = false } = {}) {
   const plans = buildOrderPlans(products, currencyCode);
-  const orders = await fetchGeneratedOrders(context, products, plans, currencyCode, { includeOutcomes });
-  if (!orders.length) {
+  const fetchedOrders = await fetchGeneratedOrders(context, products, plans, currencyCode, { includeOutcomes });
+  const { reusableOrders: orders } = await splitReusableGeneratedOrders(context, fetchedOrders, "historical mock orders");
+  if (!fetchedOrders.length) {
     throw new Error("No generated mock orders were found. Run the orders stage before creating returns, refunds or the manifest.");
   }
   await recordJobLog({
@@ -1142,9 +1732,36 @@ async function loadExistingMockOrders(context, products, currencyCode, { include
     jobId: context.jobId,
     event: "mock_dataset.orders_loaded",
     message: `Loaded ${orders.length} existing generated mock orders from Shopify.`,
-    data: { orderCount: orders.length, includeOutcomes },
+    data: { orderCount: orders.length, skippedCustomerlessOrders: fetchedOrders.length - orders.length, includeOutcomes },
   });
   return orders;
+}
+
+async function splitReusableGeneratedOrders(context, orders, label) {
+  const customerlessOrders = [];
+  const reusableOrders = [];
+  for (const order of orders || []) {
+    if (order.customerId) reusableOrders.push(order);
+    else customerlessOrders.push(order);
+  }
+  const skippedIndexes = new Set(customerlessOrders.map((order) => order.plan?.index).filter((index) => Number.isInteger(index)));
+  const skippedEvolutionIndexes = new Set(customerlessOrders.map((order) => order.plan?.evolutionIndex).filter((index) => Number.isInteger(index)));
+  if (!customerlessOrders.length) return { reusableOrders, skippedOrders: [], skippedIndexes, skippedEvolutionIndexes };
+  const examples = customerlessOrders.slice(0, 5).map((order) => order.name).filter(Boolean).join(", ");
+  await recordJobLog({
+    shop: context.shop,
+    jobId: context.jobId,
+    level: "warning",
+    event: "mock_dataset.customerless_orders_skipped",
+    message: `Skipped ${customerlessOrders.length} existing ${label} without customers; the dataset job will continue with reusable or missing orders.`,
+    data: {
+      skippedCustomerlessOrders: customerlessOrders.length,
+      examples,
+      generatedOrderIndexes: [...skippedIndexes].map((index) => index + 1).slice(0, 25),
+      evolutionOrderIndexes: [...skippedEvolutionIndexes].map((index) => index + 1).slice(0, 25),
+    },
+  });
+  return { reusableOrders, skippedOrders: customerlessOrders, skippedIndexes, skippedEvolutionIndexes };
 }
 
 async function fetchGeneratedOrders(context, products, orderPlans, currencyCode, { includeOutcomes = false } = {}) {
@@ -1219,6 +1836,9 @@ function buildGeneratedOrdersQuery(includeOutcomes) {
           processedAt
           note
           tags
+          customer {
+            id
+          }
           lineItems(first: $lineItemsFirst) {
             nodes {
               id
@@ -1364,9 +1984,11 @@ function normalizeExistingMockOrder(order, plansByIndex, productsByVariantId, cu
     id: order.id,
     name: order.name,
     processedAt: order.processedAt,
+    customerId: order.customer?.id || null,
+    customerKey: order.customer?.id || null,
     transactions: order.transactions || [],
     lineItems,
-    plan: { ...plan, currencyCode },
+    plan: { ...plan, currencyCode, customerId: order.customer?.id || plan.customerId || null },
     existingOutcomes: {
       returns: existingReturns,
       refunds: existingRefunds,
@@ -1478,11 +2100,11 @@ async function createMockProduct(context, spec, location, currencyCode) {
   };
 }
 
-function buildOrderPlans(products, currencyCode) {
-  const start = Date.now() - 300 * 24 * 60 * 60 * 1000;
+function buildOrderPlans(products, currencyCode, { now = Date.now() } = {}) {
+  const start = now - 300 * 24 * 60 * 60 * 1000;
   const byKey = new Map(products.map((product) => [product.key, product]));
 
-  return Array.from({ length: DEFAULT_ORDER_COUNT }, (_, index) => {
+  const basePlans = Array.from({ length: BASE_ORDER_COUNT }, (_, index) => {
     const stressOrder = index >= LEGACY_ORDER_COUNT;
     const sequenceIndex = stressOrder ? index - LEGACY_ORDER_COUNT : index;
     const sequenceCount = stressOrder ? EXTRA_STRESS_ORDER_COUNT : LEGACY_ORDER_COUNT;
@@ -1529,6 +2151,10 @@ function buildOrderPlans(products, currencyCode) {
       total,
     };
   });
+  return [
+    ...basePlans,
+    ...buildReltestOrderPlans(products, currencyCode, now, basePlans.length),
+  ].map(ensureOrderPlanCustomerProfileKey);
 }
 
 function getOrderPhase(progress) {
@@ -1707,6 +2333,81 @@ function getOrderQuantity(productKey, index, progress) {
   return 1;
 }
 
+function buildReltestOrderPlans(products, currencyCode, now, startIndex) {
+  const byKey = new Map(products.map((product) => [product.key, product]));
+  const runTag = `run-${products[0]?.handle?.split("-").pop() || "mock"}`;
+  const specs = [
+    { daysAgo: 34, tags: ["reltest-source-solo-01", "reltest-solo", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 32, tags: ["reltest-source-solo-02", "reltest-solo", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Extended", quantity: 1 }] },
+    { daysAgo: 30, tags: ["reltest-source-solo-03", "reltest-solo", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 28, tags: ["reltest-source-solo-bulk", "reltest-solo", "reltest-bulk"], items: [{ key: "reltest-source-product", variantHint: "Bulk", quantity: 4 }] },
+    { daysAgo: 24, tags: ["reltest-source-together-01", "reltest-basket", "reltest-bought-together"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 22, tags: ["reltest-source-together-02", "reltest-basket", "reltest-bought-together", "reltest-risk-return-refund"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 20, tags: ["reltest-source-together-03", "reltest-basket", "reltest-bought-together", "reltest-risk-return-only"], items: [{ key: "reltest-source-product", variantHint: "Extended", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 16, tags: ["reltest-source-together-04", "reltest-basket", "reltest-bought-together"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 2 }, { key: "reltest-bulk-quantity-product", variantHint: "Case", quantity: 1 }] },
+    { daysAgo: 12, tags: ["reltest-source-together-multi-variant", "reltest-basket", "reltest-bought-together", "reltest-multi-variant-source"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-source-product", variantHint: "Extended", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 8, tags: ["reltest-source-together-05", "reltest-basket", "reltest-bought-together", "reltest-risk-refund-only"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 2 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 18, tags: ["reltest-return-refund-both"], items: [{ key: "reltest-return-refund-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 10, tags: ["reltest-return-only"], items: [{ key: "reltest-return-refund-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 6, tags: ["reltest-refund-only"], items: [{ key: "reltest-refund-only-product", variantHint: "Refund Only", quantity: 1 }] },
+    { daysAgo: 58, customerProfileKey: "reltest-customer-001", tags: ["reltest-sequence-before-01", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 42, customerProfileKey: "reltest-customer-001", tags: ["reltest-sequence-source-01", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 27, customerProfileKey: "reltest-customer-001", tags: ["reltest-sequence-after-01", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+    { daysAgo: 55, customerProfileKey: "reltest-customer-002", tags: ["reltest-sequence-before-02", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 39, customerProfileKey: "reltest-customer-002", tags: ["reltest-sequence-source-02", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Extended", quantity: 1 }] },
+    { daysAgo: 24, customerProfileKey: "reltest-customer-002", tags: ["reltest-sequence-after-02", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+    { daysAgo: 52, customerProfileKey: "reltest-customer-003", tags: ["reltest-sequence-before-03", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 36, customerProfileKey: "reltest-customer-003", tags: ["reltest-sequence-source-03", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 21, customerProfileKey: "reltest-customer-003", tags: ["reltest-sequence-after-03", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+    { daysAgo: 49, customerProfileKey: "reltest-customer-004", tags: ["reltest-sequence-before-04", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 33, customerProfileKey: "reltest-customer-004", tags: ["reltest-sequence-source-04", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Bulk", quantity: 1 }] },
+    { daysAgo: 18, customerProfileKey: "reltest-customer-004", tags: ["reltest-sequence-after-04", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+  ];
+
+  return specs.map((spec, reltestIndex) => {
+    const index = startIndex + reltestIndex;
+    const items = spec.items.map((itemSpec, itemIndex) => {
+      const product = byKey.get(itemSpec.key);
+      if (!product) throw new Error(`Missing generated RELTEST product for order plan: ${itemSpec.key}`);
+      const variant = pickReltestVariant(product, itemSpec.variantHint, reltestIndex + itemIndex);
+      return {
+        productKey: product.key,
+        productTitle: product.title,
+        handle: product.handle,
+        variantId: variant.id,
+        variantTitle: variant.title,
+        sku: variant.sku,
+        quantity: itemSpec.quantity,
+        unitPrice: Number(variant.price || 0),
+      };
+    });
+    const processedAt = new Date(now - spec.daysAgo * 24 * 60 * 60 * 1000 + reltestIndex * 75 * 60 * 1000);
+      return {
+        index,
+        phase: "current",
+        processedAt: processedAt.toISOString(),
+        currencyCode,
+        note: `ProductPulse generated order ${index + 1}. current phase. RELTEST deterministic scenario: ${spec.tags[0]}.`,
+        tags: [GENERATED_ORDER_TAG, RELTEST_ORDER_TAG, `ppgen-order-${index + 1}`, runTag, ...spec.tags],
+        customerProfileKey: spec.customerProfileKey || null,
+        items,
+        total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+      };
+  });
+}
+
+function pickReltestVariant(product, hint, fallbackIndex) {
+  const variants = product.variants || [];
+  if (!variants.length) throw new Error(`Product ${product.title} has no variants after creation.`);
+  if (hint) {
+    const normalizedHint = String(hint).toLowerCase();
+    const matched = variants.find((variant) => String(variant.title || "").toLowerCase().includes(normalizedHint)
+      || String(variant.sku || "").toLowerCase().includes(normalizedHint));
+    if (matched) return matched;
+  }
+  return variants[fallbackIndex % variants.length];
+}
+
 async function createMockOrder(context, plan, location, currencyCode) {
   const orderInput = {
     currency: currencyCode,
@@ -1716,6 +2417,7 @@ async function createMockOrder(context, plan, location, currencyCode) {
     test: true,
     note: plan.note,
     tags: plan.tags,
+    ...(plan.customerId ? { customer: { toAssociate: { id: plan.customerId } } } : {}),
     shippingAddress: buildAddress(plan.index),
     billingAddress: buildAddress(plan.index),
     fulfillment: location?.id ? {
@@ -1752,23 +2454,26 @@ async function createMockOrder(context, plan, location, currencyCode) {
       $lineItemsFirst: Int!,
       $fulfillmentsFirst: Int!,
       $fulfillmentLineItemsFirst: Int!
-    ) {
-      orderCreate(order: $order, options: $options) {
-        order {
-          id
-          name
-          processedAt
-          lineItems(first: $lineItemsFirst) {
-            nodes {
+      ) {
+        orderCreate(order: $order, options: $options) {
+          order {
+            id
+            name
+            processedAt
+            customer {
               id
-              title
-              quantity
-              variant {
+            }
+            lineItems(first: $lineItemsFirst) {
+              nodes {
                 id
+                title
+                quantity
+                variant {
+                  id
+                }
               }
             }
-          }
-          fulfillments(first: $fulfillmentsFirst) {
+            fulfillments(first: $fulfillmentsFirst) {
             id
             fulfillmentLineItems(first: $fulfillmentLineItemsFirst) {
               nodes {
@@ -1817,14 +2522,16 @@ async function createMockOrder(context, plan, location, currencyCode) {
     };
   });
 
-  return {
-    id: order.id,
-    name: order.name,
-    processedAt: order.processedAt,
-    transactions: order.transactions || [],
-    lineItems,
-    plan,
-  };
+    return {
+      id: order.id,
+      name: order.name,
+      processedAt: order.processedAt,
+      customerId: order.customer?.id || plan.customerId || null,
+      customerKey: order.customer?.id || plan.customerId || null,
+      transactions: order.transactions || [],
+      lineItems,
+      plan: { ...plan, customerId: order.customer?.id || plan.customerId || null },
+    };
 }
 
 async function createMockReturnsAndRefunds(context, orders, currencyCode, { existingOutcomes = {}, onOutcome } = {}) {
@@ -1879,8 +2586,6 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
     "smart-luggage-tag": 3,
     "coffee-alarm-brewer": 4,
   }));
-  const returnTargetTotal = sumTargetCounts(returnTargets);
-  const refundTargetTotal = sumTargetCounts(refundTargets);
   const returnCounts = new Map(returns.map((outcome) => outcome.productKey).filter(Boolean).map((productKey) => [
     productKey,
     returns.filter((outcome) => outcome.productKey === productKey).length,
@@ -1893,7 +2598,7 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (returns.length >= returnTargetTotal) break;
+    if (areOutcomeTargetsSatisfied(returnTargets, returnCounts)) break;
     if (!lineItem.fulfillmentLineItemId || usedLineItems.has(lineItem.id)) continue;
     const target = returnTargets.get(lineItem.productKey) || 0;
     const productReturnCount = returnCounts.get(lineItem.productKey) || 0;
@@ -1918,7 +2623,7 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (refunds.length >= refundTargetTotal) break;
+    if (areOutcomeTargetsSatisfied(refundTargets, refundCounts)) break;
     if (usedLineItems.has(lineItem.id)) continue;
     const target = refundTargets.get(lineItem.productKey) || 0;
     const productRefundCount = refundCounts.get(lineItem.productKey) || 0;
@@ -1941,17 +2646,86 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
     }
   }
 
-  return { returns, refunds };
+  return createReltestReturnsAndRefunds(context, orders, currencyCode, returns, refunds, onOutcome);
 }
 
-function sumTargetCounts(targets) {
-  return [...targets.values()].reduce((sum, value) => sum + Number(value || 0), 0);
+async function createReltestReturnsAndRefunds(context, orders, currencyCode, returns, refunds, onOutcome) {
+  const outcomeKeys = new Set([
+    ...returns.map((outcome) => `return:${outcome.orderId}:${outcome.lineItemId}`),
+    ...refunds.map((outcome) => `refund:${outcome.orderId}:${outcome.lineItemId}`),
+  ]);
+
+  for (const plan of RELTEST_OUTCOME_PLANS) {
+    const order = orders.find((candidate) => orderHasTag(candidate, plan.orderTag));
+    if (!order) continue;
+    const lineItem = order.lineItems.find((item) => item.productKey === plan.productKey);
+    if (!lineItem) continue;
+    const outcomeKey = `${plan.type}:${order.id}:${lineItem.id}`;
+    if (outcomeKeys.has(outcomeKey)) continue;
+    if (plan.type === "return" && !lineItem.fulfillmentLineItemId) continue;
+
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: `mock_dataset.reltest_${plan.type}_create_started`,
+      message: `Creating RELTEST ${plan.type} for ${lineItem.productTitle || lineItem.title}.`,
+      data: { orderName: order.name, orderTag: plan.orderTag, lineItemId: lineItem.id, productKey: lineItem.productKey },
+    });
+
+    if (plan.type === "return") {
+      const result = await createReturn(context, order, lineItem, plan);
+      if (result?.id) {
+        outcomeKeys.add(outcomeKey);
+        returns.push({
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId: lineItem.id,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          returnReason: plan.returnReason,
+          note: plan.note,
+          theme: plan.theme,
+          id: result.id,
+        });
+        await onOutcome?.({ returns, refunds });
+      }
+    }
+
+    if (plan.type === "refund") {
+      const result = await createRefund(context, order, lineItem, plan, currencyCode);
+      if (result?.id) {
+        outcomeKeys.add(outcomeKey);
+        refunds.push({
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId: lineItem.id,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          note: plan.note,
+          theme: plan.theme,
+          quantity: plan.quantity || 1,
+          id: result.id,
+        });
+        await onOutcome?.({ returns, refunds });
+      }
+    }
+  }
+
+  return { returns: dedupeOutcomes(returns), refunds: dedupeOutcomes(refunds) };
 }
 
-async function createMockEvolutionBatch(context, products, location, currencyCode, { baseCreatedAt, orderDelayMs }) {
+function orderHasTag(order, tag) {
+  return (order.plan?.tags || []).some((value) => String(value || "").toLowerCase() === String(tag || "").toLowerCase());
+}
+
+function areOutcomeTargetsSatisfied(targets, counts) {
+  return [...targets.entries()].every(([productKey, target]) => Number(counts.get(productKey) || 0) >= Number(target || 0));
+}
+
+async function createMockEvolutionBatch(context, products, location, currencyCode, { baseCreatedAt, orderDelayMs, customers = [] }) {
   const batchId = "recent-watchlist-evolution-v1";
   const createdAt = new Date();
-  const plans = buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId);
+  const plans = attachCustomersToOrderPlans(buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId), customers);
   const orders = await loadOrCreateMockEvolutionOrders(context, plans, location, currencyCode, orderDelayMs);
   const ordersWithOutcomes = await fetchGeneratedEvolutionOrders(context, products, plans, currencyCode, { includeOutcomes: true });
   const outcomes = await createEvolutionReturnsAndRefunds(context, ordersWithOutcomes, plans, currencyCode);
@@ -1980,15 +2754,18 @@ async function createMockEvolutionBatch(context, products, location, currencyCod
 }
 
 async function loadOrCreateMockEvolutionOrders(context, plans, location, currencyCode, orderDelayMs) {
-  const existingOrders = await fetchGeneratedEvolutionOrders(context, [], plans, currencyCode);
+  const fetchedExistingOrders = await fetchGeneratedEvolutionOrders(context, [], plans, currencyCode);
+  const { reusableOrders: existingOrders, skippedEvolutionIndexes } = await splitReusableGeneratedOrders(context, fetchedExistingOrders, "recent evolution mock orders");
   const existingByIndex = new Map(existingOrders.map((order) => [order.plan?.evolutionIndex, order]).filter(([index]) => Number.isInteger(index)));
   const orders = [];
   let createdCount = 0;
   let reusedCount = 0;
+  let skippedLegacyCustomerlessCount = 0;
 
   for (let index = 0; index < plans.length; index += 1) {
     const plan = plans[index];
     const existing = existingByIndex.get(plan.evolutionIndex);
+    const replacingCustomerlessOrder = skippedEvolutionIndexes.has(plan.evolutionIndex);
     if (existing) {
       orders.push(existing);
       reusedCount += 1;
@@ -2000,11 +2777,24 @@ async function loadOrCreateMockEvolutionOrders(context, plans, location, currenc
         data: { orderName: existing.name, evolutionIndex: plan.evolutionIndex + 1, productKeys: plan.items.map((item) => item.productKey) },
       });
     } else {
+      if (replacingCustomerlessOrder) {
+        skippedLegacyCustomerlessCount += 1;
+        await recordJobLog({
+          shop: context.shop,
+          jobId: context.jobId,
+          level: "warning",
+          event: "mock_dataset.evolution_order_replacing_customerless",
+          message: `Creating a customer-attributed replacement for legacy customerless recent evolution order ${index + 1} of ${plans.length}.`,
+          data: { evolutionIndex: plan.evolutionIndex + 1, productKeys: plan.items.map((item) => item.productKey) },
+        });
+      }
       await recordJobLog({
         shop: context.shop,
         jobId: context.jobId,
         event: "mock_dataset.evolution_order_create_started",
-        message: `Creating recent evolution order ${index + 1} of ${plans.length}.`,
+        message: replacingCustomerlessOrder
+          ? `Creating replacement recent evolution order ${index + 1} of ${plans.length}.`
+          : `Creating recent evolution order ${index + 1} of ${plans.length}.`,
         data: {
           evolutionIndex: plan.evolutionIndex + 1,
           processedAt: plan.processedAt,
@@ -2028,6 +2818,7 @@ async function loadOrCreateMockEvolutionOrders(context, plans, location, currenc
     await updateProgressForStage(context, "evolution", index + 1, plans.length + 8, `Prepared ${index + 1} of ${plans.length} recent evolution orders.`, {
       evolutionCreatedOrders: createdCount,
       evolutionReusedOrders: reusedCount,
+      evolutionSkippedCustomerlessOrders: skippedLegacyCustomerlessCount,
     });
   }
 
@@ -2154,8 +2945,10 @@ function normalizeExistingEvolutionOrder(order, plansByIndex, productsByVariantI
     id: order.id,
     name: order.name,
     processedAt: order.processedAt,
+    customerId: order.customer?.id || null,
+    customerKey: order.customer?.id || null,
     lineItems,
-    plan: { ...plan, currencyCode },
+    plan: { ...plan, currencyCode, customerId: order.customer?.id || plan.customerId || null },
     existingOutcomes: {
       returns: existingReturns,
       refunds: existingRefunds,
@@ -2248,10 +3041,10 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
     { key: "travel-mug-leak", daysAgo: 11, count: 1, outcome: "return", note: "Other: New gasket batch leaked immediately during commute.", reason: "OTHER", theme: "leak" },
     { key: "soft-yoga-mat", daysAgo: 10, count: 1 },
     { key: "ceramic-dinner-set", daysAgo: 9, count: 1 },
-    { key: "linen-shirt-fit", daysAgo: 8, count: 1, variantHint: "M", outcome: "return", note: "Medium White still runs small after one cold wash.", reason: "SIZE_TOO_SMALL", theme: "fit" },
+    { key: "linen-shirt-fit", daysAgo: 8, count: 1, variantHint: "M", outcome: "return", note: "Exchange requested: Medium White still runs small after one cold wash, so support sent size Large.", reason: "SIZE_TOO_SMALL", theme: "fit-exchange" },
     { key: "smart-planter", daysAgo: 8, count: 1, outcome: "refund", note: "Compatibility refund: buyer only has 5 GHz Wi-Fi and missed the setup limitation.", theme: "compatibility" },
     { key: "travel-mug-leak", daysAgo: 7, count: 1, outcome: "return", note: "Other: Lid seal failed near a laptop and customer asked for a return.", reason: "OTHER", theme: "leak" },
-    { key: "earbuds-color", daysAgo: 7, count: 1, variantHint: "Rose", outcome: "return", note: "Rose variant still looks copper compared with current PDP photos.", reason: "COLOR", theme: "color" },
+    { key: "earbuds-color", daysAgo: 7, count: 1, variantHint: "Rose", outcome: "return", note: "Exchange requested: Rose variant still looks copper compared with current PDP photos, so support sent Black.", reason: "COLOR", theme: "color-exchange" },
     { key: "desk-fan-mismatch", daysAgo: 6, count: 1 },
     { key: "night-watch-print", daysAgo: 6, count: 1, outcome: "return", note: "Other: The darker print made the hallway feel frightening after installation.", reason: "OTHER", theme: "fear" },
     { key: "premium-keyboard", daysAgo: 6, count: 1 },
@@ -2308,7 +3101,7 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
       theme: spec.theme,
       quantity: 1,
     }] : [];
-    return {
+    return ensureOrderPlanCustomerProfileKey({
       index: 1000 + index,
       evolutionIndex: index,
       phase: "evolution",
@@ -2319,7 +3112,7 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
       items,
       outcomes,
       total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
-    };
+    });
   });
 }
 
@@ -2416,14 +3209,18 @@ function getReturnReasonForLineItem(lineItem, order, productReturnCount) {
   }
   if (lineItem.productKey === "linen-shirt-fit" && lineItem.variantTitle?.includes("M") && phase !== "baseline") {
     const notes = [
-      "Medium runs small around shoulders and sleeves.",
+      "Exchange requested: Medium White runs small around shoulders, so the customer returned it and the shop sent size Large.",
       "The fit copy says relaxed, but the Medium White shirt is tight after washing.",
       "I ordered my usual Medium and could not button the chest comfortably.",
     ];
     return { returnReason: "SIZE_TOO_SMALL", note: notes[productReturnCount % notes.length], theme: "fit" };
   }
   if (lineItem.productKey === "earbuds-color" && lineItem.variantTitle?.toLowerCase().includes("rose") && phase !== "baseline") {
-    return { returnReason: "COLOR", note: "Rose color looks copper and not like the product images.", theme: "color" };
+    const notes = [
+      "Exchange requested: Rose color looks copper, so the customer returned it and the shop sent the Black variant.",
+      "Rose color looks copper and not like the product images.",
+    ];
+    return { returnReason: "COLOR", note: notes[productReturnCount % notes.length], theme: "color" };
   }
   if (lineItem.productKey === "soft-yoga-mat" && productReturnCount < 4) {
     return { returnReason: "OTHER", note: "Too soft for balance poses; expected a firmer yoga surface.", theme: "softness" };
@@ -2673,6 +3470,20 @@ function buildReviewRows(products, createdAt) {
   });
 }
 
+export const __productPulseShopifyMockDatasetTestHooks = {
+  MOCK_PRODUCTS,
+  RELTEST_CUSTOMERS,
+  RELTEST_PRODUCT_KEYS,
+  RELTEST_ORDER_TAG,
+  RELTEST_ORDER_COUNT,
+  SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
+  RELTEST_OUTCOME_PLANS,
+  attachCustomersToOrderPlans,
+  buildEvolutionOrderPlans,
+  buildOrderPlans,
+  buildReviewRows,
+};
+
 function getReviewAgeDays(product, index, count) {
   const progress = index / Math.max(1, count - 1);
   if (STRESS_PRODUCT_KEYS.has(product.key)) {
@@ -2697,6 +3508,12 @@ function shouldMakeNegativeReview(product, index, progress) {
   if (product.key === "inflatable-standing-desk") return progress > 0.28 ? index % 2 === 0 || index % 3 === 0 : index % 6 === 0;
   if (product.key === "smart-luggage-tag") return progress > 0.35 ? index % 2 === 0 || index % 7 === 0 : index % 8 === 0;
   if (product.key === "coffee-alarm-brewer") return progress > 0.32 ? index % 2 === 0 || index % 3 === 0 : index % 6 === 0;
+  if (product.key === "reltest-source-product") return [2, 4, 6, 8, 10, 11].includes(index);
+  if (product.key === "reltest-bought-together-product") return index === 5;
+  if (product.key === "reltest-multi-variant-product") return index === 2;
+  if (product.key === "reltest-bulk-quantity-product") return index === 3;
+  if (product.key === "reltest-return-refund-product") return index % 2 === 0 || index === 7;
+  if (product.key === "reltest-refund-only-product") return index % 2 === 0;
   const threshold = Math.round(product.reviewProfile.count * product.reviewProfile.negativeRate);
   return index < threshold;
 }
@@ -2709,6 +3526,9 @@ function getReviewRating(product, index, negative, progress) {
   if (product.key === "voice-lock-safe" && progress > 0.45) return index % 4 === 0 ? 1 : 2;
   if (product.key === "inflatable-standing-desk" && progress > 0.4) return index % 3 === 0 ? 1 : 2;
   if (product.key === "coffee-alarm-brewer" && progress > 0.5) return index % 3 === 0 ? 1 : 2;
+  if (product.key === "reltest-return-refund-product") return index % 3 === 0 ? 1 : 2;
+  if (product.key === "reltest-refund-only-product") return index % 2 === 0 ? 2 : 3;
+  if (product.key === "reltest-source-product") return index % 4 === 0 ? 2 : 3;
   return index % 2 === 0 ? 2 : 3;
 }
 
@@ -2727,6 +3547,12 @@ function getNegativeReviewTitle(product, progress) {
     "inflatable-standing-desk": "The desk slowly deflated",
     "smart-luggage-tag": progress > 0.55 ? "Wrong city and privacy worries" : "Not live GPS like I expected",
     "coffee-alarm-brewer": progress > 0.55 ? "Brewed at the wrong time" : "Great idea, unreliable timing",
+    "reltest-source-product": "RELTEST bundle made the source confusing",
+    "reltest-bought-together-product": "Bundle wording needs context",
+    "reltest-multi-variant-product": "Variant mix was unclear",
+    "reltest-bulk-quantity-product": "Quantity expectation was unclear",
+    "reltest-return-refund-product": "Returned and waiting on resolution",
+    "reltest-refund-only-product": "Refund helped but I did not return it",
   };
   return titles[product.key] || "Not what I expected";
 }
@@ -2740,6 +3566,7 @@ function getPositiveReviewTitle(product, progress) {
   if (product.key === "inflatable-standing-desk") return "Clever for tiny spaces";
   if (product.key === "smart-luggage-tag") return "Recovered my suitcase";
   if (product.key === "coffee-alarm-brewer") return "Morning ritual worked";
+  if (product.key?.startsWith("reltest-")) return "RELTEST scenario behaved as expected";
   return "Good product overall";
 }
 
@@ -2774,6 +3601,14 @@ function getReviewText(product, index, negative, progress, phase) {
       "inflatable-standing-desk": "For a tiny apartment, the Starter kit was useful as a temporary riser. I would not put a heavy monitor on it, but the lightweight laptop setup worked for short sessions.",
       "smart-luggage-tag": "The Cloud tag helped a baggage desk contact me after a scan. I understood it was not live GPS, so the delayed update did not surprise me.",
       "coffee-alarm-brewer": "The Graphite unit brewed near my alarm time after setup, and waking up to the smell was fun. I keep it on a tray because it is still a water appliance.",
+      "reltest-source-product": "RELTEST source order matched the scenario. The source product was easy to inspect and the basket context was visible in the related order.",
+      "reltest-bought-together-product": "RELTEST companion product was bought with the source product and the bundle made sense in this order.",
+      "reltest-bought-before-product": "RELTEST before product exists for sequence testing, and the generated Shopify order is tied to the same fake customer who later buys the source product.",
+      "reltest-bought-after-product": "RELTEST after product exists for sequence testing, and the generated Shopify order is tied to the same fake customer who previously bought the source product.",
+      "reltest-multi-variant-product": "RELTEST multi-variant product made the basket easier to inspect because the Alpha and Beta variant labels were clear.",
+      "reltest-bulk-quantity-product": "RELTEST bulk companion product had clear case quantity expectations.",
+      "reltest-return-refund-product": "RELTEST resolution product was useful for checking how a return and refund are matched on the same line item.",
+      "reltest-refund-only-product": "RELTEST refund-only product helped verify a goodwill refund without a physical return.",
     };
     return positives[product.key] || `The product matched the listing. ${product.themes[0]} and ${product.themes[1]} were as expected.`;
   }
@@ -2848,6 +3683,33 @@ function getReviewText(product, index, negative, progress, phase) {
       "Graphite worked after reset for two days, then the clock drifted again. The idea is charming, but time is the one feature this product cannot be casual about.",
       "It brewed before the alarm and stained the Cream side panel. The cup tray is fine, but I do not trust the schedule near books or electronics.",
       "Some mornings it was delightful, some mornings it sounded like it was whispering steam into the dark. The listing should warn about condensation and firmware reset steps.",
+    ],
+    "reltest-source-product": [
+      "RELTEST source product became confusing when it was bought with the companion item. The order looked like a bundle, but the source page did not explain what belonged together.",
+      "I bought two source variants in the same RELTEST order to compare them. The variant labels were visible, but the page should explain why shoppers might buy both.",
+      "The RELTEST source product was fine alone, but the bought-together basket made the kit expectations unclear and led me to request a return.",
+      "The bulk source quantity was easy to trigger, but it needs clearer guidance for customers buying four units at once.",
+    ],
+    "reltest-bought-together-product": [
+      "RELTEST companion product is useful, but the source page should make the relationship more explicit so the bundle does not feel accidental.",
+      "The bought-together item made sense after checkout, but before purchase I was not sure whether it was required or optional.",
+    ],
+    "reltest-multi-variant-product": [
+      "RELTEST variant labels were close enough that I had to read the order details twice. This is useful for testing variant confusion evidence.",
+      "Alpha and Beta sounded too similar in the RELTEST basket, so the variant context should stay visible in analysis.",
+    ],
+    "reltest-bulk-quantity-product": [
+      "RELTEST bulk companion order made me question whether case quantity belonged to this item or the source product.",
+      "The case quantity was not defective, but the basket made quantity expectations easy to misread.",
+    ],
+    "reltest-return-refund-product": [
+      "RELTEST return/refund product arrived defective and I expected the refund to match the returned line item exactly.",
+      "I returned the RELTEST resolution product but did not see a refund yet, so this should remain a return-only case.",
+      "The product issue was concrete: defective part, return requested, and support should connect the refund to the same line item.",
+    ],
+    "reltest-refund-only-product": [
+      "Support refunded the RELTEST refund-only product without asking me to return it, which should not be counted as a returned item.",
+      "The refund solved the goodwill issue, but there was no physical return and the product stayed with me.",
     ],
   };
   const options = negativeTexts[product.key] || [`The product had issues with ${product.themes.join(", ")}.`];
@@ -3126,7 +3988,7 @@ async function saveMockCsvReviewSource({ shop, runId, rows }) {
   return { filePath, fileName, rowCount: rows.length, checksum };
 }
 
-async function saveMockDatasetManifest({ shop, runId, createdAt, products, orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
+async function saveMockDatasetManifest({ shop, runId, createdAt, products, customers = [], orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
   const storageRoot = process.env.PRODUCT_PULSE_MOCK_DATASET_DIR
     || path.join(process.cwd(), ".cache", "product-pulse", "mock-datasets");
   const shopDir = path.join(storageRoot, sanitizeStorageSegment(shop || "unknown-shop"));
@@ -3162,17 +4024,19 @@ async function saveMockDatasetManifest({ shop, runId, createdAt, products, order
   const summary = {
     runId,
     generatedAt: createdAt.toISOString(),
-    productCount: products.length,
-    orderCount: orders.length,
+      productCount: products.length,
+      customerCount: customers.length,
+      orderCount: orders.length,
     returnCount: outcomes.returns.length,
     refundCount: outcomes.refunds.length,
     reviewCount: reviewRows.length,
     csvReviewFilePath: reviewSource?.filePath || null,
     manifestPath,
     orderCreateDelayMs: orderDelayMs,
-    requiredScopes: REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES,
-    products: productDocs,
-  };
+      requiredScopes: REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES,
+      customers: customers.map(serializeCustomerForState),
+      products: productDocs,
+    };
 
   await mkdir(shopDir, { recursive: true });
   await writeFile(manifestPath, JSON.stringify(summary, null, 2), "utf8");
@@ -3255,14 +4119,15 @@ async function getStoredMockDatasetReviewSource(shop) {
   };
 }
 
-async function getCurrentMockDatasetSummary(shop, { runId, createdAt, products, orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
+async function getCurrentMockDatasetSummary(shop, { runId, createdAt, products, customers = [], orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
   const config = await getStoredMockDatasetConfig(shop);
   return {
     ...config,
     runId,
     generatedAt: config.generatedAt || createdAt.toISOString(),
-    productCount: products.length || config.productCount || 0,
-    orderCount: orders.length || config.orderCount || 0,
+      productCount: products.length || config.productCount || 0,
+      customerCount: customers.length || config.customerCount || 0,
+      orderCount: orders.length || config.orderCount || 0,
     returnCount: outcomes.returns.length || config.returnCount || 0,
     refundCount: outcomes.refunds.length || config.refundCount || 0,
     reviewCount: reviewSource ? reviewRows.length : config.reviewCount || 0,

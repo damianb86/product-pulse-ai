@@ -52,7 +52,7 @@ Window:
 
 Products bought by the same customer before buying the source product.
 
-Current support: available only when sale events contain a safe customer key such as `customerKey` or a non-PII platform customer id. Current Shopify queries do not fetch customer identity, so live data will usually mark this unavailable until customer-key extraction is added.
+Current support: available when sale events contain a safe customer key such as `customerKey` or a non-PII platform customer id. Shopify extraction reads `order.customer.id` when `read_customers` is granted and stores it internally as `customerKey`.
 
 Direction:
 
@@ -274,13 +274,13 @@ Recompute:
 
 The module does not output customer identifiers.
 
-Customer sequence metrics use `customerKey` internally only when supplied by upstream normalized events. Emails are ignored as customer keys. Individual customer journeys are not persisted or exposed.
+Customer sequence metrics use `customerKey` internally only when supplied by upstream normalized events. Shopify customer GIDs can be used as the key; emails are ignored as customer keys. Individual customer journeys are not persisted or exposed.
 
 AI tools are not updated in Phase 2. Future AI tools must expose aggregate summaries only and must not send PII to the model.
 
 ## Current limitations
 
-- Current Shopify order queries do not fetch customer identity, so previous/next relationships are usually unavailable in live data until safe customer-key extraction is implemented.
+- Previous/next relationships require `read_customers` and sale events with `customerKey`; without that scope or cached key, customer-sequence metrics remain unavailable.
 - There are no local raw order tables, so relationship history is limited by scan/diagnosis windows and cached event availability.
 - Large baskets can be limited by Shopify line-item page size.
 - Deleted products may appear as unknown related products if not present in the scanned catalog.

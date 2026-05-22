@@ -4,6 +4,8 @@ export const REQUIRED_SHOPIFY_SCOPES = [
   "read_orders",
   "read_all_orders",
   "write_orders",
+  "read_customers",
+  "write_customers",
   "read_returns",
   "write_returns",
   "read_inventory",

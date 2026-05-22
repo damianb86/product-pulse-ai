@@ -28,6 +28,7 @@ import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
 import {
   SHOPIFY_MOCK_DATASET_KIND,
   SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS,
+  SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
   SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
   SHOPIFY_MOCK_DATASET_STAGE_LABELS,
   getMissingShopifyMockDatasetScopes,
@@ -116,7 +117,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
   if (missingScopes.length) {
     return {
       status: "validation_error",
-      message: `Shopify mock dataset generation needs these scopes before it can create products, orders, returns and refunds: ${missingScopes.join(", ")}. Reauthorize the app after updating Shopify app scopes.`,
+      message: `Shopify mock dataset generation needs these scopes before it can create products, customers, orders, returns and refunds: ${missingScopes.join(", ")}. Reauthorize the app after updating Shopify app scopes.`,
       missingScopes,
     };
   }
@@ -151,6 +152,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
         stage,
         stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
         expectedProducts: SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
+        expectedCustomers: SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
         expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS.all,
       },
     },
@@ -165,6 +167,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
     data: {
       stage,
       expectedProducts: SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
+      expectedCustomers: SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
       expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS.all,
     },
   });

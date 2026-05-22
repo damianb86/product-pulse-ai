@@ -686,6 +686,9 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
             id
             createdAt
             processedAt
+            customer {
+              id
+            }
             lineItems(first: $lineItemsFirst) {
               nodes {
                 id
@@ -730,6 +733,7 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
         createdAt: getShopifyOrderDate(order),
         processedAt: order.processedAt,
         originalCreatedAt: order.createdAt,
+        customerKey: order.customer?.id || null,
       };
       getNodes(order.lineItems).forEach((lineItem) => {
         events.push(normalizeOrderLineItemEvent(lineItem, orderContext));
@@ -1119,6 +1123,7 @@ function normalizeBulkOrderEvents(lines) {
         createdAt: getShopifyOrderDate(line),
         processedAt: line.processedAt,
         originalCreatedAt: line.createdAt,
+        customerKey: line.customer?.id || null,
       };
       orders.set(line.id, order);
       appendGroupedOrderEvents(line, order, events);
@@ -1213,6 +1218,7 @@ function normalizeOrderLineItemEvent(lineItem, order) {
   const product = lineItem.product || {};
   const variant = lineItem.variant || {};
   const orderDate = order?.createdAt || order?.processedAt || order?.originalCreatedAt || null;
+  const customerKey = order?.customerKey || order?.customerId || order?.customer?.id || null;
 
   return {
     type: "sale",
@@ -1223,6 +1229,8 @@ function normalizeOrderLineItemEvent(lineItem, order) {
     orderDate,
     orderProcessedAt: order?.processedAt || null,
     orderCreatedAt: order?.originalCreatedAt || null,
+    customerKey,
+    customerId: customerKey,
     productId: product.id,
     variantId: variant.id,
     handle: product.handle,
@@ -2338,6 +2346,9 @@ export function buildOrdersBulkQuery(windowDays) {
           id
           createdAt
           processedAt
+          customer {
+            id
+          }
           lineItems {
             edges {
               node {

@@ -234,7 +234,7 @@ Products bought inside defined windows around the current product purchase:
 Current support:
 
 - same order: supported;
-- before/after windows: not supported until customer identity is available.
+- before/after windows: supported when sale events include a safe `customerKey`, now sourced from Shopify `order.customer.id` when `read_customers` is granted.
 
 ### E. Relationship trend
 
@@ -243,7 +243,7 @@ Monthly or cohort trend showing whether relationship strength is increasing, dec
 Current support:
 
 - same-order trend by order cohort month is supported when enough order lines are available.
-- before/after trend is not supported until customer identity is available.
+- before/after trend is supported when same-customer sequence events include `customerKey`.
 
 ### F. Relationship impact
 
@@ -447,8 +447,6 @@ type ProductRelationshipInsightInput = {
 Use the same affinity approach already used in purchase context. If the store-wide denominator is incomplete, return `lift: null` and a warning.
 
 ### Previous/next relationship rate
-
-Future-only until customer identity is available:
 
 `relationship_rate = customers_or_orders_with_related_in_window / customers_or_orders_with_source_product`
 
