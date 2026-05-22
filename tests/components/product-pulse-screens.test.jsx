@@ -1323,6 +1323,14 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("42% attach rate")).toBeInTheDocument();
     expect(within(panel).getByText("30% within 30 days before")).toBeInTheDocument();
     expect(within(panel).getByText("25% within 30 days after")).toBeInTheDocument();
+    expect(within(panel).getAllByText(/2\.4x lift/).length).toBeGreaterThan(0);
+    fireEvent.mouseEnter(within(panel).getAllByRole("button", { name: "Relationship metric explanation for Care Kit" })[0]);
+    const metricTooltip = document.body.querySelector(".ppProductRelationshipMetricPopover");
+    expect(metricTooltip).toBeInTheDocument();
+    expect(within(metricTooltip).getByText("How to read this relationship")).toBeInTheDocument();
+    expect(within(metricTooltip).getByText(/Lift compares that rate with how often the related product appears across all known Shopify orders/)).toBeInTheDocument();
+    expect(within(metricTooltip).getByText("Attach rate")).toBeInTheDocument();
+    expect(within(metricTooltip).getByText("Store baseline")).toBeInTheDocument();
     expect(within(panel).getByAltText("Care Kit image")).toHaveAttribute("src", "https://cdn.example/care-kit.jpg");
     expect(within(panel).getByRole("link", { name: "Open Care Kit" })).toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "Run diagnosis" })).not.toBeInTheDocument();
@@ -1340,7 +1348,7 @@ describe("ProductPulse screens", () => {
       time_window: direction === "together" ? "same_order" : `${days}d_${direction}`,
       relationship_rate: rate,
       attach_rate: direction === "together" ? rate : undefined,
-      lift: 1.6,
+      lift: id === "same-two" ? 0.5 : 1.6,
       confidence: 76,
       confidence_label: "Medium",
       sample_size: 6,
@@ -1394,6 +1402,7 @@ describe("ProductPulse screens", () => {
     expect(within(beforeColumn).getByText("0-7 days")).toBeInTheDocument();
     expect(within(beforeColumn).getByText("8-30 days")).toBeInTheDocument();
     expect(within(beforeColumn).getByText("30+ days")).toBeInTheDocument();
+    expect(within(togetherColumn).getByText(/0\.5x vs baseline/)).toBeInTheDocument();
     expect(within(beforeColumn).queryByText("31-90 days")).not.toBeInTheDocument();
     expect(within(afterColumn).getByText("0-7 days")).toBeInTheDocument();
     expect(within(afterColumn).getByText("8-30 days")).toBeInTheDocument();

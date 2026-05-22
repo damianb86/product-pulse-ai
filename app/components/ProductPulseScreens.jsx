@@ -10263,6 +10263,7 @@ function ProductRelationshipTimelineBucketGroup({ group, kind, countLabel, expan
 
 function ProductRelationshipTimelineProductRow({ item, kind, countLabel }) {
   const metricCount = formatInteger(item.customerCount || item.coOrderCount || item.sampleSize);
+  const metricCountLabel = `${metricCount} ${countLabel}`;
   const href = getProductRelationshipDiagnosticHref(item);
   return (
     <div className="ppProductRelationshipTimelineProduct">
@@ -10276,7 +10277,10 @@ function ProductRelationshipTimelineProductRow({ item, kind, countLabel }) {
       <div className="ppProductRelationshipTimelineProductBody">
         <Link className="ppProductRelationshipTimelineProductTitle" to={href}>{item.title}</Link>
         <p>{getProductRelationshipPrimaryLine(item, kind)}</p>
-        <small>{formatRelationshipLift(item.lift)} <span>•</span> {metricCount} {countLabel}</small>
+        <div className="ppProductRelationshipTimelineMeta">
+          <small>{formatRelationshipLift(item.lift)} <span>•</span> {metricCountLabel}</small>
+          <ProductRelationshipTimelineMetricInfo item={item} kind={kind} metricCountLabel={metricCountLabel} />
+        </div>
       </div>
       <Link
         className="ppProductRelationshipDiagnosticButton"
@@ -10287,6 +10291,60 @@ function ProductRelationshipTimelineProductRow({ item, kind, countLabel }) {
         <s-icon type="external" size="small"></s-icon>
       </Link>
     </div>
+  );
+}
+
+function ProductRelationshipTimelineMetricInfo({ item = {}, kind = "together", metricCountLabel = "" }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const basis = getProductRelationshipMetricBasis(kind);
+  const ratePercent = getProductRelationshipDisplayRatePercent(item, kind);
+  const baselinePercent = getProductRelationshipBaselinePercent(item, kind);
+  const liftMeaning = getProductRelationshipLiftMeaning(item.lift);
+  return (
+    <span className="ppProductRelationshipTimelineMetricInfo">
+      <button
+        type="button"
+        ref={triggerRef}
+        aria-label={`Relationship metric explanation for ${item.title || "related product"}`}
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <s-icon type="info" size="small"></s-icon>
+      </button>
+      <FloatingTablePopover
+        anchorRef={triggerRef}
+        open={open}
+        className="ppProductRelationshipTooltipPopover ppProductRelationshipMetricPopover"
+        width={340}
+        estimatedHeight={238}
+        placement="top-center"
+      >
+        <strong>How to read this relationship</strong>
+        <small>{basis.summary}</small>
+        <dl>
+          <div>
+            <dt>{basis.rateLabel}</dt>
+            <dd>{formatPercent(ratePercent)}</dd>
+          </div>
+          <div>
+            <dt>{basis.baselineLabel}</dt>
+            <dd>{baselinePercent === null ? "Unavailable" : formatPercent(baselinePercent)}</dd>
+          </div>
+          <div>
+            <dt>Lift</dt>
+            <dd>{formatRelationshipLift(item.lift)}</dd>
+          </div>
+          <div>
+            <dt>Evidence</dt>
+            <dd>{metricCountLabel}</dd>
+          </div>
+        </dl>
+        <small>{liftMeaning}</small>
+      </FloatingTablePopover>
+    </span>
   );
 }
 
@@ -10724,6 +10782,52 @@ function getProductRelationshipPrimaryLine(item = {}, kind = "together") {
   return `${formatPercent(item.attachRatePercent || item.relationshipRatePercent)} attach rate`;
 }
 
+function getProductRelationshipMetricBasis(kind = "together") {
+  if (kind === "together") {
+    return {
+      rateLabel: "Attach rate",
+      baselineLabel: "Store baseline",
+      summary: "Attach rate is this product's order share that also contained the related product. Lift compares that rate with how often the related product appears across all known Shopify orders.",
+    };
+  }
+  return {
+    rateLabel: "Relationship rate",
+    baselineLabel: "Customer baseline",
+    summary: "Relationship rate is the share of customers who bought this product and also bought the related product in the shown window. Lift compares that rate with how common the related product is across known customers.",
+  };
+}
+
+function getProductRelationshipDisplayRatePercent(item = {}, kind = "together") {
+  const attachRate = Number(item.attachRatePercent);
+  const relationshipRate = Number(item.relationshipRatePercent);
+  if (kind === "together" && Number.isFinite(attachRate)) return attachRate;
+  if (Number.isFinite(relationshipRate)) return relationshipRate;
+  return 0;
+}
+
+function getProductRelationshipBaselinePercent(item = {}, kind = "together") {
+  const explicitBaseline = Number(item.relatedProductBaseRatePercent);
+  if (Number.isFinite(explicitBaseline) && explicitBaseline > 0) return explicitBaseline;
+  const lift = Number(item.lift);
+  const ratePercent = getProductRelationshipDisplayRatePercent(item, kind);
+  if (!Number.isFinite(lift) || lift <= 0 || ratePercent <= 0) return null;
+  return ratePercent / lift;
+}
+
+function getProductRelationshipLiftMeaning(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return "Lift is unavailable because there is not enough baseline frequency to compare against.";
+  }
+  const numericValue = Number(value);
+  if (numericValue >= 1.05) {
+    return "Above 1x means this relationship appears more often than the baseline and is a stronger affinity signal.";
+  }
+  if (numericValue >= 0.95) {
+    return "Around 1x means the relationship appears about as often as the baseline, so the count is useful but not unusually strong.";
+  }
+  return "Below 1x means this related product appears less often than its baseline in this context. It may still be frequent, but it is not a strong affinity signal.";
+}
+
 function getProductRelationshipRiskLine(item = {}) {
   const returnDelta = Number(item.deltaReturnRatePercent || 0);
   const refundDelta = Number(item.deltaRefundRatePercent || 0);
@@ -10742,7 +10846,12 @@ function getProductRelationshipRiskImpactLabel(item = {}) {
 
 function formatRelationshipLift(value) {
   if (value === null || value === undefined) return "Lift unavailable";
-  return `${formatDecimal(value, 1)}x lift`;
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "Lift unavailable";
+  const fractionDigits = numericValue > 0 && numericValue < 0.2 ? 2 : 1;
+  if (numericValue >= 1.05) return `${formatDecimal(numericValue, 1)}x lift`;
+  if (numericValue >= 0.95) return `${formatDecimal(numericValue, 1)}x baseline`;
+  return `${formatDecimal(numericValue, fractionDigits)}x vs baseline`;
 }
 
 function getProductRelationshipTableRows(relationship = {}, activeView = "together") {
