@@ -766,7 +766,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
   });
 
-  it("shows saved product risk history in the detail sidebar", () => {
+  it("shows saved product risk history below return-rate prediction", () => {
     const product = {
       ...defaultView.startHere,
       metrics: {
@@ -787,6 +787,18 @@ describe("ProductPulse screens", () => {
             primaryIssue: "Fit runs small around waist and inseam",
           },
         ],
+        returnRatePrediction: {
+          observedPoints: [{ key: "2026-05-04", label: "May 4", orders: 4, returnedOrders: 1, smoothedReturnRate: 25 }],
+          forecastPoints: [{ key: "2026-05-11", label: "May 11", predictedReturnRate: 24 }],
+          summary: {
+            totalOrders: 4,
+            totalReturnedOrders: 1,
+            totalOrderUnits: 4,
+            totalReturnedUnits: 1,
+            totalReturnRate: 25,
+            confidence: "Medium",
+          },
+        },
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
@@ -795,11 +807,14 @@ describe("ProductPulse screens", () => {
     expect(historyPanel).toBeInTheDocument();
     expect(historyPanel.closest(".ppProductDetailPrimary")).toBeInTheDocument();
     expect(historyPanel.closest(".ppProductDetailSidebar")).not.toBeInTheDocument();
+    const predictionPanel = container.querySelector(".ppProductReturnPredictionPanel");
+    expect(predictionPanel).toBeInTheDocument();
+    expect(Boolean(predictionPanel.compareDocumentPosition(historyPanel) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(within(historyPanel).getByText("Product risk over time")).toBeInTheDocument();
     expect(within(historyPanel).getByText("88 / 100")).toBeInTheDocument();
     expect(within(historyPanel).getByText("Up 16 pts since last analysis")).toBeInTheDocument();
     expect(within(historyPanel).getByText("2 saved scores · May 1, 2026 to May 10, 2026")).toBeInTheDocument();
-    expect(within(historyPanel).getByText("Fit runs small around waist and inseam")).toBeInTheDocument();
+    expect(within(historyPanel).queryByText("Fit runs small around waist and inseam")).not.toBeInTheDocument();
   });
 
   it("renders Product Momentum in the product detail view", () => {
@@ -877,6 +892,11 @@ describe("ProductPulse screens", () => {
     ["Velocity", "Growth", "Catalog share", "Trend consistency", "Recency"].forEach((label) => {
       expect(within(panel).getByText(label)).toBeInTheDocument();
     });
+    fireEvent.mouseEnter(within(panel).getByRole("button", { name: "Explain Velocity momentum component" }));
+    const momentumTooltip = document.body.querySelector(".ppProductMomentumComponentPopover");
+    expect(momentumTooltip).toBeInTheDocument();
+    expect(within(momentumTooltip).getByText("Velocity")).toBeInTheDocument();
+    expect(within(momentumTooltip).getByText(/selling right now compared with the catalog/i)).toBeInTheDocument();
     expect(panel.querySelector(".ppProductMomentumTrendBars")).not.toBeInTheDocument();
     expect(within(panel).getByText("High confidence")).toBeInTheDocument();
     expect(within(panel).getByText("42 units · $3,240 revenue in the last 30 days")).toBeInTheDocument();
@@ -936,9 +956,50 @@ describe("ProductPulse screens", () => {
     expect(weeklyChart.querySelector(".ppProductMomentumWeeklyStar")).toBeInTheDocument();
     expect(within(weeklyChart).getByText("9")).toBeInTheDocument();
     expect(within(panel).getByText("New activity")).toBeInTheDocument();
+    expect(within(panel).getByText("Latest-week sales spike after quiet weeks")).toBeInTheDocument();
     expect(componentValues.every((value) => value < 100)).toBe(true);
     expect(within(momentumCard).getByText("Last 4 weekly units")).toBeInTheDocument();
     expect(firstLineY - lastLineY).toBeGreaterThan(10);
+  });
+
+  it("describes intermittent Product Momentum activity instead of calling it stable", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productMomentum: {
+          score: 52,
+          tier: "Stable",
+          direction: "Steady",
+          confidence: 52,
+          confidenceLabel: "Low confidence",
+          components: {
+            currentVelocityScore: 45,
+            growthScore: 52,
+            catalogShareScore: 44,
+            trendConsistencyScore: 30,
+            recencyScore: 38,
+          },
+          inputs: {
+            unitsLast7Days: 0,
+            unitsLast30Days: 1,
+            unitsPrevious30Days: 1,
+            revenueLast30Days: 95,
+            weeklyUnitsLast4Weeks: [0, 1, 0, 0],
+          },
+          display: {
+            growthLabel: "0%",
+            catalogPositionLabel: "Catalog baseline pending",
+            trendLabel: "Sales activity is stable over the last 4 weeks",
+          },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const panel = container.querySelector(".ppProductMomentumPanel");
+
+    expect(within(panel).getByText("Intermittent activity; no latest-week sales")).toBeInTheDocument();
+    expect(within(panel).queryByText("Sales activity is stable over the last 4 weeks")).not.toBeInTheDocument();
   });
 
   it("renders monthly order activity for product diagnosis", () => {

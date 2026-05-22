@@ -12098,12 +12098,26 @@ function getProductMomentumTrendLabelFromScores({ growthScore = 0, trendConsiste
 }
 
 function getProductMomentumTrendLabel(weeklyUnits = []) {
-  const first = Number(weeklyUnits[0] || 0);
-  const last = Number(weeklyUnits[weeklyUnits.length - 1] || 0);
-  if (weeklyUnits.every((value) => Number(value || 0) === 0)) return "No recent sales activity";
-  if (last > first) return "Sales increasing over the last 4 weeks";
-  if (last < first) return "Sales decreasing over the last 4 weeks";
-  return "Sales activity is stable over the last 4 weeks";
+  const values = (Array.isArray(weeklyUnits) ? weeklyUnits : [])
+    .map((value) => Math.max(0, Number(value || 0)))
+    .slice(-4);
+  const normalizedValues = [...Array(Math.max(0, 4 - values.length)).fill(0), ...values].slice(-4);
+  const activeWeeks = normalizedValues.filter((value) => value > 0).length;
+  const first = normalizedValues[0] || 0;
+  const last = normalizedValues[normalizedValues.length - 1] || 0;
+  const peak = Math.max(0, ...normalizedValues);
+  const averageUnits = average(normalizedValues);
+  const slope = linearRegressionSlope(normalizedValues);
+
+  if (!activeWeeks) return "No recent sales activity";
+  if (activeWeeks === 1 && last > 0) return "Latest-week sales spike after quiet weeks";
+  if (activeWeeks <= 2 && last === 0) return "Intermittent activity; no latest-week sales";
+  if (last > first && slope > 0) return "Sales increasing over the last 4 weeks";
+  if (last < first && slope < 0) return "Sales decreasing over the last 4 weeks";
+  if (activeWeeks === normalizedValues.length && peak - Math.min(...normalizedValues) <= Math.max(1, averageUnits * 0.25)) {
+    return "Sales holding steady across active weeks";
+  }
+  return "Mixed sales activity across the last 4 weeks";
 }
 
 function formatSignedPercent(value) {

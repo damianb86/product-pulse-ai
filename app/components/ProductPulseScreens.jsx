@@ -4991,6 +4991,10 @@ function getValidatedProductMomentum(momentum = {}) {
       trendConsistencyScore: Math.round(trendConsistencyScore),
       recencyScore: Math.round(recencyScore),
     },
+    display: {
+      ...(momentum.display || {}),
+      trendLabel: getProductMomentumTrendInsight(weeklyUnits).label,
+    },
   };
 }
 
@@ -5088,6 +5092,43 @@ function getValidatedMomentumDirection({ momentum = {}, score = 0, unitsPrevious
   if (weeklyUnits.length >= 2 && weeklyUnits[weeklyUnits.length - 1] < weeklyUnits[0]) return "Cooling";
   if (score >= 80) return "Hot";
   return momentum.direction || "Steady";
+}
+
+function getProductMomentumTrendInsight(weeklyUnits = [], fallbackLabel = "") {
+  const rawValues = Array.isArray(weeklyUnits) ? weeklyUnits : [];
+  if (!rawValues.length && fallbackLabel) {
+    return { label: fallbackLabel, icon: "trend", tone: "blue" };
+  }
+  const values = rawValues
+    .map((value) => Math.max(0, Number(value || 0)))
+    .slice(-4);
+  const normalizedValues = [...Array(Math.max(0, 4 - values.length)).fill(0), ...values].slice(-4);
+  const activeWeeks = normalizedValues.filter((value) => value > 0).length;
+  const first = normalizedValues[0] || 0;
+  const last = normalizedValues[normalizedValues.length - 1] || 0;
+  const peak = Math.max(0, ...normalizedValues);
+  const average = calculateAverage(normalizedValues);
+  const slope = calculateClientLinearRegressionSlope(normalizedValues);
+
+  if (!activeWeeks) {
+    return { label: "No recent sales activity", icon: "recency", tone: "neutral" };
+  }
+  if (activeWeeks === 1 && last > 0) {
+    return { label: "Latest-week sales spike after quiet weeks", icon: "velocity", tone: "blue" };
+  }
+  if (activeWeeks <= 2 && last === 0) {
+    return { label: "Intermittent activity; no latest-week sales", icon: "recency", tone: "orange" };
+  }
+  if (last > first && slope > 0) {
+    return { label: "Sales increasing over the last 4 weeks", icon: "growth", tone: "green" };
+  }
+  if (last < first && slope < 0) {
+    return { label: "Sales decreasing over the last 4 weeks", icon: "trend", tone: "orange" };
+  }
+  if (activeWeeks === normalizedValues.length && peak - Math.min(...normalizedValues) <= Math.max(1, average * 0.25)) {
+    return { label: "Sales holding steady across active weeks", icon: "trend", tone: "green" };
+  }
+  return { label: "Mixed sales activity across the last 4 weeks", icon: "trend", tone: "blue" };
 }
 
 function getFinancialExposureFootnote(detail = {}) {
@@ -9099,8 +9140,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 </div>
               </div>
 
-            <ProductRiskHistoryPanel detail={detail} />
-
             {!detail.hasFullDiagnosis ? (
               <ProductDeepDiagnosisDataPlaceholder detail={detail} />
             ) : (detail.hasMonthlyOrderActivity || detail.hasReturnRatePrediction) ? (
@@ -9109,6 +9148,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 {detail.hasReturnRatePrediction && <ProductReturnRatePredictionPanel detail={detail} />}
               </div>
             ) : null}
+
+            <ProductRiskHistoryPanel detail={detail} />
           </main>
 
           <aside className="ppProductDetailSidebar">
@@ -11260,6 +11301,7 @@ function ProductMomentumPanel({ detail }) {
     { key: "trend", label: "Trend consistency", value: momentum.components.trendConsistencyScore },
     { key: "recency", label: "Recency", value: momentum.components.recencyScore },
   ];
+  const trendCallout = getProductMomentumTrendInsight(momentum.inputs?.weeklyUnitsLast4Weeks, momentum.display?.trendLabel);
 
   return (
     <section className="ppProductMomentumPanel" aria-label="Product Momentum">
@@ -11274,19 +11316,21 @@ function ProductMomentumPanel({ detail }) {
         <ProductMomentumGauge momentum={momentum} />
         <ProductMomentumWeeklyChart momentum={momentum} />
       </div>
-      <div className="ppProductMomentumTrendCallout">
+      <div className={`ppProductMomentumTrendCallout ppProductMomentumTrendCallout-${trendCallout.tone}`}>
         <span>
-          <ProductMomentumComponentIcon type="growth" />
+          <ProductMomentumComponentIcon type={trendCallout.icon} />
         </span>
-        <strong>{momentum.display.trendLabel}</strong>
+        <strong>{trendCallout.label}</strong>
       </div>
       <div className="ppProductMomentumBreakdown">
         {componentRows.map(({ key, label, value }) => (
-          <div className="ppProductMomentumComponent" key={key}>
-            <ProductMomentumComponentIcon type={key} />
-            <span>{label}</span>
-            <strong>{formatInteger(value)}</strong>
-          </div>
+          <ProductMomentumComponentMetric
+            componentKey={key}
+            key={key}
+            label={label}
+            momentum={momentum}
+            value={value}
+          />
         ))}
       </div>
       <div className="ppProductMomentumMeta">
@@ -11295,6 +11339,78 @@ function ProductMomentumPanel({ detail }) {
       </div>
     </section>
   );
+}
+
+function ProductMomentumComponentMetric({ componentKey, label, value, momentum }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const help = getProductMomentumComponentHelp(componentKey, momentum);
+  return (
+    <div className="ppProductMomentumComponent">
+      <span className="ppProductMomentumComponentIconWrap">
+        <button
+          type="button"
+          className="ppProductMomentumComponentIconButton"
+          ref={triggerRef}
+          aria-label={`Explain ${label} momentum component`}
+          onBlur={() => setOpen(false)}
+          onFocus={() => setOpen(true)}
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <ProductMomentumComponentIcon type={componentKey} />
+        </button>
+        <FloatingTablePopover
+          anchorRef={triggerRef}
+          open={open}
+          className="ppProductMomentumComponentPopover"
+          width={316}
+          estimatedHeight={156}
+          placement="top-center"
+        >
+          <strong>{label}</strong>
+          <p>{help.description}</p>
+          <small>{help.detail}</small>
+        </FloatingTablePopover>
+      </span>
+      <span>{label}</span>
+      <strong>{formatInteger(value)}</strong>
+    </div>
+  );
+}
+
+function getProductMomentumComponentHelp(componentKey, momentum = {}) {
+  const inputs = momentum.inputs || {};
+  const catalog = momentum.catalog || {};
+  const trendInsight = getProductMomentumTrendInsight(inputs.weeklyUnitsLast4Weeks);
+  const growthLabel = momentum.display?.growthLabel || formatSignedPercent(Number(momentum.display?.growthPercent || 0));
+  const catalogLabel = momentum.display?.catalogPositionLabel || "Catalog baseline pending";
+  const helpers = {
+    velocity: {
+      description: "Measures how strongly this product is selling right now compared with the catalog.",
+      detail: `${formatInteger(inputs.unitsLast30Days)} units and ${formatMoney(inputs.revenueLast30Days)} revenue in the last 30 days.`,
+    },
+    growth: {
+      description: "Compares the current 30-day sales window with the previous 30 days.",
+      detail: `${growthLabel} vs previous 30 days; ${formatInteger(inputs.unitsPrevious30Days)} previous units.`,
+    },
+    catalog: {
+      description: "Shows whether this product is commercially important relative to other products in the store.",
+      detail: `${catalogLabel}${catalog.catalogProductCount ? ` across ${formatInteger(catalog.catalogProductCount)} catalog products` : ""}.`,
+    },
+    trend: {
+      description: "Reads the last four weekly unit buckets for direction and consistency.",
+      detail: `${trendInsight.label}; weekly units: ${getProductMomentumWeeklyChartRows(momentum).map((row) => formatInteger(row.value)).join(" / ")}.`,
+    },
+    recency: {
+      description: "Measures whether sales happened recently enough to trust the momentum signal.",
+      detail: `${formatInteger(inputs.unitsLast7Days || 0)} units in the last 7 days; ${inputs.lastSaleAt ? `latest sale ${formatProductAnalysisDate(inputs.lastSaleAt)}` : "latest sale date unavailable"}.`,
+    },
+  };
+  return helpers[componentKey] || {
+    description: "Product Momentum component used in the commercial score.",
+    detail: "Higher values increase Product Momentum when the source data is reliable.",
+  };
 }
 
 function ProductMomentumWeeklyChart({ momentum }) {
@@ -12123,9 +12239,6 @@ function ProductRiskHistoryPanel({ detail }) {
         </span>
         <small>{windowLabel}</small>
       </div>
-      {latest?.primaryIssue && (
-        <p className="ppProductRiskHistoryIssue">{latest.primaryIssue}</p>
-      )}
     </div>
   );
 }

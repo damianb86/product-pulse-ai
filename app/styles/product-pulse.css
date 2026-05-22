@@ -3330,6 +3330,7 @@ s-page[inline-size="large-500"] {
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 14px;
   padding: 18px 20px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
 }
 
 .ppProductDetailOverviewFinding .ppDashboardIcon {
@@ -4583,16 +4584,6 @@ s-page[inline-size="large-500"] {
 .ppProductRiskHistoryMeta small {
   color: var(--pp-slate-500);
   font-size: 11px;
-  font-weight: 750;
-  line-height: 1.45;
-}
-
-.ppProductRiskHistoryIssue {
-  margin: 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--pp-slate-200);
-  color: var(--pp-slate-600);
-  font-size: 12px;
   font-weight: 750;
   line-height: 1.45;
 }
@@ -9849,15 +9840,51 @@ s-page[inline-size="large-500"] {
   color: var(--pp-low-risk-text);
 }
 
-.ppProductMomentumComponent > svg {
+.ppProductMomentumTrendCallout-blue > span {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductMomentumTrendCallout-orange > span {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppProductMomentumTrendCallout-neutral > span {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppProductMomentumComponentIconWrap {
+  position: relative;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.ppProductMomentumComponentIconButton {
   width: 48px;
   height: 48px;
-  padding: 10px;
-  display: block;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
   border-radius: 14px;
   background: var(--pp-green-soft);
   color: var(--pp-low-risk-text);
-  box-sizing: border-box;
+  cursor: help;
+  transition: transform 120ms ease, box-shadow 120ms ease, color 120ms ease;
+}
+
+.ppProductMomentumComponentIconButton:hover,
+.ppProductMomentumComponentIconButton:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.1);
+}
+
+.ppProductMomentumComponentIconButton svg {
+  width: 28px;
+  height: 28px;
+  display: block;
 }
 
 .ppProductMomentumTrendCallout svg {
@@ -9887,19 +9914,52 @@ s-page[inline-size="large-500"] {
   border-right: 0;
 }
 
-.ppProductMomentumComponent:nth-child(1) > svg {
+.ppProductMomentumComponent:nth-child(1) .ppProductMomentumComponentIconButton {
   background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
 }
 
-.ppProductMomentumComponent:nth-child(3) > svg {
+.ppProductMomentumComponent:nth-child(3) .ppProductMomentumComponentIconButton {
   background: var(--pp-violet-soft);
   color: var(--pp-insight-violet);
 }
 
-.ppProductMomentumComponent:nth-child(4) > svg {
+.ppProductMomentumComponent:nth-child(4) .ppProductMomentumComponentIconButton {
   background: var(--pp-amber-soft);
   color: var(--pp-warning-amber);
+}
+
+.ppProductMomentumComponentPopover {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.22);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  box-shadow: 0 18px 42px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppProductMomentumComponentPopover strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppProductMomentumComponentPopover p,
+.ppProductMomentumComponentPopover small {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.42;
+  white-space: normal;
+}
+
+.ppProductMomentumComponentPopover small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .ppProductMomentumComponent span {
@@ -10057,11 +10117,15 @@ s-page[inline-size="large-500"] {
   padding: 2px 6px 0;
 }
 
-.ppProductDetailSidebar .ppProductMomentumComponent > svg {
+.ppProductDetailSidebar .ppProductMomentumComponentIconButton {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  padding: 4px;
+}
+
+.ppProductDetailSidebar .ppProductMomentumComponentIconButton svg {
+  width: 24px;
+  height: 24px;
 }
 
 .ppProductDetailSidebar .ppProductMomentumTrendCallout svg {
