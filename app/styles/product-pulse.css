@@ -6455,6 +6455,176 @@ s-page[inline-size="large-500"] {
   font-weight: 700;
 }
 
+.ppReturnRefundVennCard {
+  display: grid;
+  gap: 16px;
+  padding: 28px 34px 30px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 16px;
+  background: var(--pp-cloud-white);
+  box-shadow: var(--pp-card-shadow);
+}
+
+.ppReturnRefundVennCard h3 {
+  margin: 0;
+}
+
+.ppReturnRefundVennCard h3 .ppReturnRefundInfoLabel {
+  color: var(--pp-slate-950);
+  font-size: 26px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppReturnRefundVennCard h3 .ppReturnRefundInfoLabel button {
+  width: 28px;
+  height: 28px;
+  color: var(--pp-slate-600);
+}
+
+.ppReturnRefundVennDiagram {
+  position: relative;
+  width: min(100%, 760px);
+  height: 380px;
+  margin: 0 auto;
+}
+
+.ppReturnRefundVennCircle {
+  position: absolute;
+  top: 18px;
+  width: 372px;
+  height: 372px;
+  border-radius: 999px;
+}
+
+.ppReturnRefundVennCircle-refunds {
+  left: 32px;
+  border: 2px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.11);
+}
+
+.ppReturnRefundVennCircle-returns {
+  right: 32px;
+  border: 2px solid rgba(var(--pp-risk-red-rgb), 0.14);
+  background: rgba(var(--pp-risk-red-rgb), 0.10);
+}
+
+.ppReturnRefundVennText {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: var(--pp-slate-950);
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.ppReturnRefundVennText span {
+  font-size: 20px;
+  font-weight: 950;
+  line-height: 1.16;
+}
+
+.ppReturnRefundVennText strong {
+  color: var(--pp-slate-950);
+  font-size: 38px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppReturnRefundVennText small {
+  color: var(--pp-slate-700);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.ppReturnRefundVennText-refunds {
+  top: 116px;
+  left: 118px;
+  color: var(--pp-pulse-blue);
+}
+
+.ppReturnRefundVennText-linked {
+  top: 138px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ppReturnRefundVennText-returns {
+  top: 116px;
+  right: 118px;
+  color: var(--pp-risk-red);
+}
+
+.ppReturnRefundVennDivider {
+  display: grid;
+  grid-template-columns: minmax(40px, 1fr) auto minmax(40px, 1fr);
+  align-items: center;
+  gap: 22px;
+  color: var(--pp-slate-800);
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.ppReturnRefundVennDivider::before,
+.ppReturnRefundVennDivider::after {
+  content: "";
+  height: 1px;
+  background: var(--pp-slate-200);
+}
+
+.ppReturnRefundVennStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+}
+
+.ppReturnRefundVennStat {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 20px;
+  border-right: 1px solid var(--pp-slate-200);
+  text-align: center;
+}
+
+.ppReturnRefundVennStat:last-child {
+  border-right: 0;
+}
+
+.ppReturnRefundVennStat strong {
+  font-size: 34px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppReturnRefundVennStat span {
+  color: var(--pp-slate-700);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.ppReturnRefundVennStat small {
+  color: var(--pp-slate-700);
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.ppReturnRefundVennStat-linked strong {
+  color: var(--pp-pulse-blue);
+}
+
+.ppReturnRefundVennStat-refunds strong {
+  color: var(--pp-risk-red);
+}
+
+.ppReturnRefundVennStat-returns strong {
+  color: var(--pp-warning-amber);
+}
+
 .ppProductOrderActivityPanel {
   display: grid;
   gap: 16px;
@@ -8415,6 +8585,76 @@ s-page[inline-size="large-500"] {
   .ppReturnRefundMatrixHeader,
   .ppReturnRefundMatrixRow {
     grid-template-columns: 86px repeat(2, minmax(0, 1fr));
+  }
+
+  .ppReturnRefundVennCard {
+    padding: 20px;
+  }
+
+  .ppReturnRefundVennCard h3 .ppReturnRefundInfoLabel {
+    font-size: 20px;
+  }
+
+  .ppReturnRefundVennDiagram {
+    height: 300px;
+  }
+
+  .ppReturnRefundVennCircle {
+    top: 24px;
+    width: 246px;
+    height: 246px;
+  }
+
+  .ppReturnRefundVennCircle-refunds {
+    left: calc(50% - 236px);
+  }
+
+  .ppReturnRefundVennCircle-returns {
+    right: calc(50% - 236px);
+  }
+
+  .ppReturnRefundVennText span {
+    font-size: 14px;
+  }
+
+  .ppReturnRefundVennText strong {
+    font-size: 27px;
+  }
+
+  .ppReturnRefundVennText small {
+    font-size: 13px;
+  }
+
+  .ppReturnRefundVennText-refunds {
+    top: 95px;
+    left: calc(50% - 178px);
+  }
+
+  .ppReturnRefundVennText-linked {
+    top: 110px;
+  }
+
+  .ppReturnRefundVennText-returns {
+    top: 95px;
+    right: calc(50% - 178px);
+  }
+
+  .ppReturnRefundVennDivider {
+    gap: 12px;
+    font-size: 14px;
+  }
+
+  .ppReturnRefundVennStats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppReturnRefundVennStat {
+    border-right: 0;
+    border-bottom: 1px solid var(--pp-slate-200);
+  }
+
+  .ppReturnRefundVennStat:last-child {
+    border-bottom: 0;
   }
 
   .ppReturnRefundResolutionChips,

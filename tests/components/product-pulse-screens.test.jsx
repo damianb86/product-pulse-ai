@@ -1114,14 +1114,14 @@ describe("ProductPulse screens", () => {
 
     expect(resolutionPanel).toBeInTheDocument();
     expect(within(resolutionPanel).getByText("Return & refund resolution")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Refund yes")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Refund no")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Return + refund")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Return only")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Refund only")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("33.3% of returned units were refunded")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("0% of refunds happened without a return")).toBeInTheDocument();
-    expect(within(resolutionPanel).getByText("Attribution confidence: High")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Returns vs. refunds relationship")).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText(/Refunds\s+without\s+return/)).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText(/Returned\s+&\s+refunded/)).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText(/Returns\s+without\s+refund/)).toBeInTheDocument();
+    expect(within(resolutionPanel).getByText("Out of 6 returned units")).toBeInTheDocument();
+    expect(within(resolutionPanel).getAllByText("33.3%").length).toBeGreaterThan(0);
+    expect(within(resolutionPanel).getAllByText("66.7%").length).toBeGreaterThan(0);
+    expect(within(resolutionPanel).getAllByText("0%").length).toBeGreaterThan(0);
   });
 
   it("handles missing return/refund relationship data without fake zeros", () => {
@@ -1138,7 +1138,7 @@ describe("ProductPulse screens", () => {
 
     expect(resolutionPanel).toBeInTheDocument();
     expect(within(resolutionPanel).getByText("Refund relationship not matched yet. Run a diagnosis after Shopify order, return and refund evidence is available.")).toBeInTheDocument();
-    expect(within(resolutionPanel).queryByText("Return + refund")).not.toBeInTheDocument();
+    expect(within(resolutionPanel).queryByText("Returns vs. refunds relationship")).not.toBeInTheDocument();
   });
 
   it("renders purchase context cards, charts and product-card attribution notes", () => {

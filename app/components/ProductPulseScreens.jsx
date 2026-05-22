@@ -9849,13 +9849,6 @@ const RETURN_REFUND_HELP = {
 function ProductReturnRefundResolutionPanel({ detail }) {
   const relationship = detail.returnRefundRelationship || normalizeProductReturnRefundRelationship(null);
   const hasData = relationship.available;
-  const returnedRefunded = relationship.returnedAndRefundedUnits;
-  const returnOnly = relationship.returnedNotRefundedUnits;
-  const refundOnly = relationship.refundedWithoutReturnUnits;
-  const exchangeCount = relationship.exchangeOrReplacementUnits;
-  const unknownCount = relationship.pendingOrUnknownCount;
-  const refundedReturnRate = relationship.returnToRefundRatePercent;
-  const refundWithoutReturnRate = relationship.refundWithoutReturnRatePercent;
 
   return (
     <section className={`ppProductPanel ppReturnRefundResolutionPanel${hasData ? "" : " isUnavailable"}`} aria-label="Return and refund resolution">
@@ -9877,48 +9870,7 @@ function ProductReturnRefundResolutionPanel({ detail }) {
         <EmptyProductDetailState message="Refund relationship not matched yet. Run a diagnosis after Shopify order, return and refund evidence is available." />
       ) : (
         <>
-          <div className="ppReturnRefundResolutionBody">
-            <div className="ppReturnRefundMatrix" role="table" aria-label="Return and refund resolution matrix">
-              <div className="ppReturnRefundMatrixHeader" role="row">
-                <span aria-hidden="true"></span>
-                <strong>Refund yes</strong>
-                <strong>Refund no</strong>
-              </div>
-              <div className="ppReturnRefundMatrixRow" role="row">
-                <strong>Return yes</strong>
-                <RelationshipMatrixCell label="Return + refund" value={returnedRefunded} tone="red" help={RETURN_REFUND_HELP.linked} />
-                <RelationshipMatrixCell label="Return only" value={returnOnly} tone="amber" help={RETURN_REFUND_HELP.returnOnly} />
-              </div>
-              <div className="ppReturnRefundMatrixRow" role="row">
-                <strong>Return no</strong>
-                <RelationshipMatrixCell label="Refund only" value={refundOnly} tone="blue" help={RETURN_REFUND_HELP.refundOnly} />
-                <span className="ppReturnRefundMatrixEmpty" aria-label="No return and no refund">-</span>
-              </div>
-            </div>
-
-            <div className="ppReturnRefundResolutionSide">
-              <div className="ppReturnRefundStackedBar" aria-label="Return and refund bucket distribution">
-                {getReturnRefundResolutionBuckets(relationship).map((bucket) => (
-                  <span
-                    key={bucket.key}
-                    className={`ppReturnRefundStackedSegment ppReturnRefundStackedSegment-${bucket.tone}`}
-                    style={{ width: `${bucket.width}%` }}
-                    title={`${bucket.label}: ${bucket.displayValue}`}
-                  />
-                ))}
-              </div>
-              <div className="ppReturnRefundResolutionStats">
-                <span>{formatPercent(refundedReturnRate)} of returned units were refunded</span>
-                <span>{formatPercent(refundWithoutReturnRate)} of refunds happened without a return</span>
-                <span>Attribution confidence: {relationship.confidenceLabel}</span>
-              </div>
-              <div className="ppReturnRefundResolutionChips">
-                <RelationshipChip label="Exchange/replacement" value={formatInteger(exchangeCount)} help={RETURN_REFUND_HELP.exchange} />
-                <RelationshipChip label="Pending/unknown" value={formatInteger(unknownCount)} help={RETURN_REFUND_HELP.unknown} />
-                <RelationshipChip label="Unattributed refunds" value={formatCompactMoney(relationship.unattributedRefundAmount)} help={RETURN_REFUND_HELP.unattributed} />
-              </div>
-            </div>
-          </div>
+          <ReturnRefundRelationshipVenn relationship={relationship} />
           {!relationship.hasEventData && (
             <p className="ppReturnRefundResolutionEmptyNote">No return or refund events were matched in the stored analysis window.</p>
           )}
@@ -9928,23 +9880,76 @@ function ProductReturnRefundResolutionPanel({ detail }) {
   );
 }
 
-function RelationshipMatrixCell({ label, value, tone, help }) {
+function ReturnRefundRelationshipVenn({ relationship }) {
+  const metrics = getReturnRefundVennMetrics(relationship);
   return (
-    <span className={`ppReturnRefundMatrixCell ppReturnRefundMatrixCell-${tone}`} role="cell">
-      <RelationshipInfoLabel label={label} help={help} />
-      <strong>{formatInteger(value)}</strong>
-      <small>units</small>
-    </span>
+    <article className="ppReturnRefundVennCard" aria-label="Returns versus refunds relationship">
+      <h3>
+        <RelationshipInfoLabel label="Returns vs. refunds relationship" help="Shows which product outcomes were refunds without returns, returns with refunds, or returns without refunds." />
+      </h3>
+      <div className="ppReturnRefundVennDiagram">
+        <div className="ppReturnRefundVennCircle ppReturnRefundVennCircle-refunds" aria-hidden="true"></div>
+        <div className="ppReturnRefundVennCircle ppReturnRefundVennCircle-returns" aria-hidden="true"></div>
+        <div className="ppReturnRefundVennText ppReturnRefundVennText-refunds">
+          <span>Refunds<br />without<br />return</span>
+          <strong>{formatPercent(metrics.refundOnlyPercent)}</strong>
+          <small>({formatInteger(metrics.refundOnlyCount)})</small>
+        </div>
+        <div className="ppReturnRefundVennText ppReturnRefundVennText-linked">
+          <span>Returned<br />&amp; refunded</span>
+          <strong>{formatPercent(metrics.linkedPercent)}</strong>
+          <small>({formatInteger(metrics.linkedCount)})</small>
+        </div>
+        <div className="ppReturnRefundVennText ppReturnRefundVennText-returns">
+          <span>Returns<br />without<br />refund</span>
+          <strong>{formatPercent(metrics.returnOnlyPercent)}</strong>
+          <small>({formatInteger(metrics.returnOnlyCount)})</small>
+        </div>
+      </div>
+      <div className="ppReturnRefundVennDivider">
+        <span>Out of {formatInteger(metrics.returnedUnits)} returned units</span>
+      </div>
+      <div className="ppReturnRefundVennStats">
+        <div className="ppReturnRefundVennStat ppReturnRefundVennStat-linked">
+          <strong>{formatPercent(metrics.linkedPercent)}</strong>
+          <span>Returned &amp; refunded</span>
+          <small>({formatInteger(metrics.linkedCount)} units)</small>
+        </div>
+        <div className="ppReturnRefundVennStat ppReturnRefundVennStat-refunds">
+          <strong>{formatPercent(metrics.refundOnlyPercent)}</strong>
+          <span>Refunds without return</span>
+          <small>({formatInteger(metrics.refundOnlyCount)})</small>
+        </div>
+        <div className="ppReturnRefundVennStat ppReturnRefundVennStat-returns">
+          <strong>{formatPercent(metrics.returnOnlyPercent)}</strong>
+          <span>Returns without refund</span>
+          <small>({formatInteger(metrics.returnOnlyCount)})</small>
+        </div>
+      </div>
+    </article>
   );
 }
 
-function RelationshipChip({ label, value, help }) {
-  return (
-    <span className="ppReturnRefundChip">
-      <RelationshipInfoLabel label={label} help={help} />
-      <strong>{value}</strong>
-    </span>
-  );
+function getReturnRefundVennMetrics(relationship = {}) {
+  const returnedUnits = Number(relationship.returnedUnits || 0);
+  const refundedUnits = Number(relationship.refundedUnits || 0);
+  const linkedCount = Number(relationship.returnedAndRefundedUnits || 0);
+  const returnOnlyCount = Number(relationship.returnedNotRefundedUnits || 0);
+  const refundOnlyCount = Number(relationship.refundedWithoutReturnUnits || 0);
+  const linkedPercent = relationshipRatePercent(undefined, linkedCount, returnedUnits);
+  const returnOnlyPercent = relationshipRatePercent(undefined, returnOnlyCount, returnedUnits);
+  const refundOnlyPercent = Number.isFinite(Number(relationship.refundWithoutReturnRatePercent))
+    ? Number(relationship.refundWithoutReturnRatePercent)
+    : relationshipRatePercent(undefined, refundOnlyCount, Math.max(refundedUnits, linkedCount + refundOnlyCount));
+  return {
+    returnedUnits,
+    linkedCount,
+    returnOnlyCount,
+    refundOnlyCount,
+    linkedPercent,
+    returnOnlyPercent,
+    refundOnlyPercent,
+  };
 }
 
 function RelationshipInfoLabel({ label, help }) {
