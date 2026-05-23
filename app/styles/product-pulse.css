@@ -5739,7 +5739,7 @@ s-page[inline-size="large-500"] {
   transition: background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
-.ppBasketContextBarRow > span {
+.ppBasketContextBarRow > span:not(.ppBasketContextBarTooltip) {
   width: 13px;
   height: 13px;
   border-radius: 999px;
@@ -5850,8 +5850,11 @@ s-page[inline-size="large-500"] {
   z-index: 20;
   bottom: calc(100% + 10px);
   left: 50%;
-  width: min(330px, calc(100vw - 32px));
+  width: 330px;
+  min-width: min(280px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
+  min-height: 0;
+  height: auto;
   box-sizing: border-box;
   display: grid;
   gap: 5px;
@@ -5868,6 +5871,12 @@ s-page[inline-size="large-500"] {
   white-space: normal;
   transform: translate(-50%, 6px);
   transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.ppBasketContextBarRow > .ppBasketContextBarTooltip {
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 18px 44px rgba(var(--pp-shadow-rgb), 0.18);
 }
 
 .ppBasketContextBarTooltip::after {
@@ -6058,7 +6067,7 @@ s-page[inline-size="large-500"] {
   gap: 5px;
 }
 
-.ppProductDetailSidebar .ppBasketContextBarRow > span {
+.ppProductDetailSidebar .ppBasketContextBarRow > span:not(.ppBasketContextBarTooltip) {
   width: 7px;
   height: 7px;
 }
@@ -6071,6 +6080,26 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailSidebar .ppBasketContextBarRow i {
   height: 7px;
+}
+
+.ppProductDetailSidebar .ppBasketContextBarRow > .ppBasketContextBarTooltip {
+  width: 300px;
+  min-width: min(260px, calc(100vw - 32px));
+  height: auto;
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppProductDetailSidebar .ppBasketContextBarTooltip strong {
+  color: var(--pp-slate-950);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.ppProductDetailSidebar .ppBasketContextBarTooltip span {
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .ppProductDetailSidebar .ppBasketContextCoPurchase {
