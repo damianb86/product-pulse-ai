@@ -32,6 +32,7 @@ export default function App() {
 
   return (
     <AppProvider embedded apiKey={apiKey}>
+      <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
       <s-app-nav>
         <s-link href="/app?nav=dashboard" data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
         <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
@@ -45,7 +46,6 @@ export default function App() {
         <s-link href="/app/help" data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
       </s-app-nav>
       <Outlet />
-      <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
       <ProductPulseChatKitAssistant config={chatKit} pageContext={aiPageContext} />
     </AppProvider>
   );
