@@ -8879,6 +8879,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const isWatched = watchlistLocalState ?? Boolean(detail.isWatched);
   const productStatusLabel = resolved ? "Resolved" : detail.productStatusLabel;
   const productStatusTone = resolved ? "success" : detail.productStatusTone;
+  const hasNoStoredDiagnosis = detail.analysisDepth === "catalog" || !detail.hasRiskSnapshot;
   const shopifyAdminUrl = detail.shopifyAdminUrl || "";
   const productMetaItems = [
     ["Handle", detail.handle || "Unavailable"],
@@ -8887,6 +8888,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     ["Collections", detail.collections.length ? detail.collections.join(", ") : "Uncategorized"],
   ];
   const analysisPillLabel = detail.lastAnalysis === "Not analyzed" ? "Not analyzed" : `Analyzed ${detail.lastAnalysis}`;
+  const diagnosisButtonText = diagnosisPending
+    ? "Queueing..."
+    : detail.hasFullDiagnosis
+      ? "Re-analyze"
+      : hasNoStoredDiagnosis
+        ? "Run diagnostics"
+        : detail.diagnosisButtonLabel;
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       navigate(-1);
@@ -9298,7 +9306,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             ) : (
               <button className="ppSecondaryButton ppProductAnalyzeButton" type="button" disabled={!detail.canDiagnose || diagnosisPending} onClick={handleRequestProductDiagnosis}>
                 <s-icon type="refresh" size="small"></s-icon>
-                {diagnosisPending ? "Queueing..." : detail.hasFullDiagnosis ? "Re-analyze" : detail.diagnosisButtonLabel}
+                {diagnosisButtonText}
               </button>
             )}
             {shopifyAdminUrl ? (
@@ -9336,144 +9344,165 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </div>
         </section>
 
-        <div className="ppProductSummaryGrid" aria-label="Product signal summary">
-          <div className={`ppRiskSnapshotBlock${insightCardsExpanded ? " isExpanded" : ""}`}>
-            <div className="ppRiskSnapshot ppRiskSnapshot-primary">
-              {primaryInsightCards.map((card, index) => (
-                <ProductInsightGridCard card={card} detail={detail} index={index} key={`${card.id || card.title || "insight"}-${index}`} />
-              ))}
+        {hasNoStoredDiagnosis ? (
+          <>
+            <ProductNoDiagnosisPanel
+              detail={detail}
+              pending={diagnosisPending}
+              onRunDiagnosis={handleRequestProductDiagnosis}
+            />
+            <div className="ppProductDetailNoDiagnosisEvidence" ref={evidencePanelRef}>
+              <EvidenceObservabilityPanel
+                detail={detail}
+                product={product}
+                selectedEvidence={selectedEvidence}
+                selectedEvidenceIndex={selectedEvidenceIndex}
+                onSelectEvidence={setSelectedEvidenceIndex}
+              />
             </div>
-            {hasHiddenInsightCards && (
-              <>
-                <div className="ppRiskSnapshotOverflow" aria-hidden={!insightCardsExpanded}>
-                  <div className="ppRiskSnapshot ppRiskSnapshot-extra">
-                    {hiddenInsightCards.map((card, index) => (
-                      <ProductInsightGridCard card={card} detail={detail} index={index + primaryInsightCards.length} key={`${card.id || card.title || "insight"}-${index + primaryInsightCards.length}`} />
-                    ))}
-                  </div>
+          </>
+        ) : (
+          <>
+            <div className="ppProductSummaryGrid" aria-label="Product signal summary">
+              <div className={`ppRiskSnapshotBlock${insightCardsExpanded ? " isExpanded" : ""}`}>
+                <div className="ppRiskSnapshot ppRiskSnapshot-primary">
+                  {primaryInsightCards.map((card, index) => (
+                    <ProductInsightGridCard card={card} detail={detail} index={index} key={`${card.id || card.title || "insight"}-${index}`} />
+                  ))}
                 </div>
-                <button
-                  className="ppRiskSnapshotToggle"
-                  type="button"
-                  aria-expanded={insightCardsExpanded}
-                  onClick={() => setInsightCardsExpanded((expanded) => !expanded)}
-                >
-                  <span className="ppRiskSnapshotToggleLine" aria-hidden="true" />
-                  <span className="ppRiskSnapshotToggleLabel">
-                    {insightCardsExpanded ? "Show Less" : "View More"}
-                    <s-icon type={insightCardsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
-                  </span>
-                  <span className="ppRiskSnapshotToggleLine" aria-hidden="true" />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+                {hasHiddenInsightCards && (
+                  <>
+                    <div className="ppRiskSnapshotOverflow" aria-hidden={!insightCardsExpanded}>
+                      <div className="ppRiskSnapshot ppRiskSnapshot-extra">
+                        {hiddenInsightCards.map((card, index) => (
+                          <ProductInsightGridCard card={card} detail={detail} index={index + primaryInsightCards.length} key={`${card.id || card.title || "insight"}-${index + primaryInsightCards.length}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      className="ppRiskSnapshotToggle"
+                      type="button"
+                      aria-expanded={insightCardsExpanded}
+                      onClick={() => setInsightCardsExpanded((expanded) => !expanded)}
+                    >
+                      <span className="ppRiskSnapshotToggleLine" aria-hidden="true" />
+                      <span className="ppRiskSnapshotToggleLabel">
+                        {insightCardsExpanded ? "Show Less" : "View More"}
+                        <s-icon type={insightCardsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                      </span>
+                      <span className="ppRiskSnapshotToggleLine" aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
 
-        <div className="ppProductDetailLayout">
-          <main className="ppProductDetailPrimary">
-            {overviewPanel}
+            <div className="ppProductDetailLayout">
+              <main className="ppProductDetailPrimary">
+                {overviewPanel}
 
-            <div className="ppProductPanel ppIssuesOverviewPanel">
-                <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
-                <div className="ppIssuesTableWrap">
-                  <table className="ppIssuesTable">
-                    <thead>
-                      <tr>
-                        <th>Issue</th>
-                        <th>Impact</th>
-                        <th>Confidence</th>
-                        <th>Signals</th>
-                        <th>Trend</th>
-                        <th>Suggested action</th>
-                        <th aria-label="More actions"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.detectedIssues.length === 0 && (
-                        <tr className="ppIssuesEmptyRow">
-                          <td colSpan="7">
-                            <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
-                          </td>
+                <div className="ppProductPanel ppIssuesOverviewPanel">
+                  <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
+                  <div className="ppIssuesTableWrap">
+                    <table className="ppIssuesTable">
+                      <thead>
+                        <tr>
+                          <th>Issue</th>
+                          <th>Impact</th>
+                          <th>Confidence</th>
+                          <th>Signals</th>
+                          <th>Trend</th>
+                          <th>Suggested action</th>
+                          <th aria-label="More actions"></th>
                         </tr>
-                      )}
-                      {detail.detectedIssues.map((issue, index) => {
-                        const ignorePayload = buildIssueIgnorePayload(issue);
-                        const ignored = isIssueIgnored(issue, ignoredIssues);
-                        const ignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "ignore-issue";
-                        const unignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "unignore-issue";
-                        const issueEvidenceText = issue.evidence?.length > 0 ? issue.evidence.slice(0, 2).join(" ") : "";
-
-                        return (
-                          <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
-                            <td>
-                              <span className="ppIssueNameCell">
-                                <span className="ppIssueIcon" aria-hidden="true">
-                                  <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
-                                </span>
-                                <span>
-                                  <IssueTitleWithEvidence title={issue.issue} evidence={issueEvidenceText} />
-                                </span>
-                                {ignored && <s-badge tone="success">Ignored</s-badge>}
-                              </span>
-                            </td>
-                            <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
-                            <td>{issue.confidence}</td>
-                            <td>{issue.signals}</td>
-                            <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
-                            <td title={issue.action}>{issue.action}</td>
-                            <td>
-                              <IssueInlineActions
-                                issue={issue}
-                                onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
-                                onIgnore={() => handleIgnoreIssue(issue)}
-                                onUnignore={() => handleUnignoreIssue(issue)}
-                                ignored={ignored}
-                                pending={ignorePending || unignorePending}
-                              />
+                      </thead>
+                      <tbody>
+                        {detail.detectedIssues.length === 0 && (
+                          <tr className="ppIssuesEmptyRow">
+                            <td colSpan="7">
+                              <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        )}
+                        {detail.detectedIssues.map((issue, index) => {
+                          const ignorePayload = buildIssueIgnorePayload(issue);
+                          const ignored = isIssueIgnored(issue, ignoredIssues);
+                          const ignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "ignore-issue";
+                          const unignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "unignore-issue";
+                          const issueEvidenceText = issue.evidence?.length > 0 ? issue.evidence.slice(0, 2).join(" ") : "";
+
+                          return (
+                            <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
+                              <td>
+                                <span className="ppIssueNameCell">
+                                  <span className="ppIssueIcon" aria-hidden="true">
+                                    <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                                  </span>
+                                  <span>
+                                    <IssueTitleWithEvidence title={issue.issue} evidence={issueEvidenceText} />
+                                  </span>
+                                  {ignored && <s-badge tone="success">Ignored</s-badge>}
+                                </span>
+                              </td>
+                              <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
+                              <td>{issue.confidence}</td>
+                              <td>{issue.signals}</td>
+                              <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
+                              <td title={issue.action}>{issue.action}</td>
+                              <td>
+                                <IssueInlineActions
+                                  issue={issue}
+                                  onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
+                                  onIgnore={() => handleIgnoreIssue(issue)}
+                                  onUnignore={() => handleUnignoreIssue(issue)}
+                                  ignored={ignored}
+                                  pending={ignorePending || unignorePending}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+
+                {!detail.hasFullDiagnosis ? (
+                  <ProductDeepDiagnosisDataPlaceholder detail={detail} />
+                ) : (detail.hasMonthlyOrderActivity || detail.hasReturnRatePrediction) ? (
+                  <div className={`ppProductDeepResearchGrid ${detail.hasMonthlyOrderActivity && detail.hasReturnRatePrediction ? "" : "isSingle"}`.trim()}>
+                    {detail.hasMonthlyOrderActivity && <ProductOrderActivityPanel detail={detail} />}
+                    {detail.hasReturnRatePrediction && <ProductReturnRatePredictionPanel detail={detail} />}
+                  </div>
+                ) : null}
+
+                <ProductRiskHistoryPanel detail={detail} />
+              </main>
+
+              <aside className="ppProductDetailSidebar">
+                {recommendedActionsPanel}
+                <ProductMomentumPanel detail={detail} />
+                <ProductBasketContextPanel detail={detail} />
+
+                <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
+              </aside>
+            </div>
+
+            <ProductRelationshipsPanel detail={detail} />
+
+            <div className="ppProductDetailFullWidth">
+              <div ref={evidencePanelRef}>
+                <EvidenceObservabilityPanel
+                  detail={detail}
+                  product={product}
+                  selectedEvidence={selectedEvidence}
+                  selectedEvidenceIndex={selectedEvidenceIndex}
+                  onSelectEvidence={setSelectedEvidenceIndex}
+                />
               </div>
-
-            {!detail.hasFullDiagnosis ? (
-              <ProductDeepDiagnosisDataPlaceholder detail={detail} />
-            ) : (detail.hasMonthlyOrderActivity || detail.hasReturnRatePrediction) ? (
-              <div className={`ppProductDeepResearchGrid ${detail.hasMonthlyOrderActivity && detail.hasReturnRatePrediction ? "" : "isSingle"}`.trim()}>
-                {detail.hasMonthlyOrderActivity && <ProductOrderActivityPanel detail={detail} />}
-                {detail.hasReturnRatePrediction && <ProductReturnRatePredictionPanel detail={detail} />}
-              </div>
-            ) : null}
-
-            <ProductRiskHistoryPanel detail={detail} />
-          </main>
-
-          <aside className="ppProductDetailSidebar">
-            {recommendedActionsPanel}
-            <ProductMomentumPanel detail={detail} />
-            <ProductBasketContextPanel detail={detail} />
-
-            <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
-          </aside>
-        </div>
-
-        <ProductRelationshipsPanel detail={detail} />
-
-        <div className="ppProductDetailFullWidth">
-          <div ref={evidencePanelRef}>
-            <EvidenceObservabilityPanel
-              detail={detail}
-              product={product}
-              selectedEvidence={selectedEvidence}
-              selectedEvidenceIndex={selectedEvidenceIndex}
-              onSelectEvidence={setSelectedEvidenceIndex}
-            />
-          </div>
-        </div>
+            </div>
+          </>
+        )}
 
         {diagnosisConfirmation && (
           <ProductAnalysisConfirmModal
@@ -11604,6 +11633,41 @@ function ProductDeepDiagnosisDataPlaceholder({ detail }) {
           Run the full diagnosis for {detail.title} to calculate order history, return behavior and forward-looking return risk from stored Shopify evidence.
         </p>
       </div>
+    </section>
+  );
+}
+
+function ProductNoDiagnosisPanel({ detail, pending = false, onRunDiagnosis }) {
+  const running = Boolean(detail.diagnosisInProgress);
+  const disabled = pending || running || !detail.canDiagnose;
+  const buttonLabel = running
+    ? getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)
+    : pending
+      ? "Queueing..."
+      : "Run diagnostics";
+
+  return (
+    <section className="ppProductNoDiagnosisPanel" aria-label="No product diagnosis data">
+      <span className="ppProductNoDiagnosisIcon" aria-hidden="true">
+        <s-icon type="wand" size="large"></s-icon>
+      </span>
+      <div>
+        <span>No diagnosis data</span>
+        <h2>No data for this product yet</h2>
+        <p>
+          This product does not have a QuickScan or full diagnosis stored yet. Run diagnostics to calculate
+          product risk, customer signals, order context and recommended actions from the available evidence.
+        </p>
+      </div>
+      <button
+        className="ppProductAnalyzeButton ppProductNoDiagnosisButton"
+        type="button"
+        disabled={disabled}
+        onClick={onRunDiagnosis}
+      >
+        {pending ? <span className="ppMiniSpinner" aria-hidden="true" /> : <s-icon type="refresh" size="small"></s-icon>}
+        {buttonLabel}
+      </button>
     </section>
   );
 }

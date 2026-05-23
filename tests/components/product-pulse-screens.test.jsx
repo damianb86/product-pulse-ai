@@ -3467,15 +3467,22 @@ describe("ProductPulse screens", () => {
       actionHistory: [],
     };
 
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={liveProduct} />);
-    expect(screen.getByText("0 deterministic issues detected from stored product signals.")).toBeInTheDocument();
-    expect(screen.getByText("Recommended actions will appear after you run the full product diagnosis for this product.")).toBeInTheDocument();
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={liveProduct} />);
+    expect(screen.getByRole("heading", { name: "No data for this product yet" })).toBeInTheDocument();
+    expect(screen.getByText(/does not have a QuickScan or full diagnosis stored yet/)).toBeInTheDocument();
+    expect(screen.queryByText("0 deterministic issues detected from stored product signals.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Recommended actions will appear after you run the full product diagnosis for this product.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Issues detected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recommended actions" })).not.toBeInTheDocument();
+    expect(screen.getByText("Evidence by source")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Shopify product" })).toBeInTheDocument();
+    expect(container.querySelector(".ppProductSummaryGrid")).not.toBeInTheDocument();
     expect(screen.queryByText(/View all detected issues/)).not.toBeInTheDocument();
     expect(screen.queryByText(/View all actions/)).not.toBeInTheDocument();
     expect(screen.queryByText("Runs small in chest")).not.toBeInTheDocument();
-    fireEvent.mouseEnter(screen.getByRole("button", { name: /Shopify product/ }));
     expect(screen.getAllByText(/0 variants/).length).toBeGreaterThan(0);
-    const runDiagnosisButton = screen.getByText("Run product diagnosis").closest("button");
+    const noDiagnosisPanel = screen.getByRole("heading", { name: "No data for this product yet" }).closest(".ppProductNoDiagnosisPanel");
+    const runDiagnosisButton = within(noDiagnosisPanel).getByRole("button", { name: "Run diagnostics" });
     expect(runDiagnosisButton).toBeEnabled();
     fireEvent.click(runDiagnosisButton);
     expect(screen.getByRole("dialog", { name: "Confirm product analysis" })).toBeInTheDocument();

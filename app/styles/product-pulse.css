@@ -2440,6 +2440,7 @@ s-page[inline-size="large-500"] {
 .ppProductDetailOverviewCard,
 .ppProductEvidenceSummaryPanel,
 .ppProductDeepDiagnosisPlaceholder,
+.ppProductNoDiagnosisPanel,
 .ppProductOrderActivityPanel,
 .ppProductReturnPredictionPanel,
 .ppProductMomentumPanel,
@@ -2514,6 +2515,74 @@ s-page[inline-size="large-500"] {
   font-size: 13px;
   font-weight: 650;
   line-height: 1.45;
+}
+
+.ppProductNoDiagnosisPanel {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 20px;
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.055), rgba(var(--pp-insight-violet-rgb), 0.045)),
+    var(--pp-cloud-white);
+}
+
+.ppProductNoDiagnosisIcon {
+  width: 54px;
+  height: 54px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.18);
+  border-radius: 16px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.1);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductNoDiagnosisIcon s-icon {
+  color: var(--pp-insight-violet);
+}
+
+.ppProductNoDiagnosisPanel > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ppProductNoDiagnosisPanel > div > span {
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ppProductNoDiagnosisPanel h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppProductNoDiagnosisPanel p {
+  max-width: 820px;
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppProductNoDiagnosisButton {
+  min-width: 150px;
+  white-space: nowrap;
+}
+
+.ppProductDetailNoDiagnosisEvidence {
+  display: grid;
+  gap: 14px;
 }
 
 .ppProductDeepResearchGrid {
@@ -2870,39 +2939,48 @@ s-page[inline-size="large-500"] {
   flex-wrap: nowrap;
 }
 
-.ppProductHeaderActions .ppProductAnalyzeButton {
+.ppProductAnalyzeButton {
   min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   padding: 0 17px;
+  border: 1px solid var(--pp-dark-cta);
   border-color: var(--pp-dark-cta);
   border-radius: 7px;
   background: var(--pp-dark-cta);
   color: var(--pp-cloud-white);
+  font: inherit;
   font-size: 13px;
   font-weight: 750;
+  line-height: 1;
+  cursor: pointer;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset, 0 8px 18px rgba(var(--pp-shadow-rgb), 0.14);
 }
 
-.ppProductHeaderActions .ppProductAnalyzeButton s-icon {
+.ppProductAnalyzeButton s-icon {
   color: var(--pp-cloud-white);
   filter: brightness(0) invert(1);
   transform: scale(0.9);
 }
 
-.ppProductHeaderActions .ppProductAnalyzeButton:hover:not(:disabled) {
+.ppProductAnalyzeButton:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--pp-dark-cta) 88%, var(--pp-cloud-white));
   background: color-mix(in srgb, var(--pp-dark-cta) 92%, var(--pp-cloud-white));
   color: var(--pp-cloud-white);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset, 0 10px 22px rgba(var(--pp-shadow-rgb), 0.18);
 }
 
-.ppProductHeaderActions .ppProductAnalyzeButton:disabled {
+.ppProductAnalyzeButton:disabled {
   border-color: var(--pp-slate-300);
   background: var(--pp-slate-200);
   color: var(--pp-slate-500);
+  cursor: not-allowed;
   box-shadow: none;
 }
 
-.ppProductHeaderActions .ppProductAnalyzeButton:disabled s-icon {
+.ppProductAnalyzeButton:disabled s-icon {
   color: var(--pp-slate-500);
   filter: none;
 }
@@ -24921,6 +24999,15 @@ s-page[inline-size="large-500"] {
     justify-content: flex-start;
     padding-top: 0;
   }
+
+  .ppProductNoDiagnosisPanel {
+    grid-template-columns: 54px minmax(0, 1fr);
+  }
+
+  .ppProductNoDiagnosisButton {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 
 @media (max-width: 820px) {
@@ -24962,6 +25049,7 @@ s-page[inline-size="large-500"] {
   .ppSettingsMockEvolutionCard,
   .ppProductDetailLayout,
   .ppProductDetailHeroPanel,
+  .ppProductNoDiagnosisPanel,
   .ppProductDetailHeader,
   .ppProductTitleRow,
   .ppProductSummaryGrid,
@@ -24996,6 +25084,11 @@ s-page[inline-size="large-500"] {
   .ppEvidenceReportIssue dl,
   .ppCheckedGrid {
     grid-template-columns: 1fr;
+  }
+
+  .ppProductNoDiagnosisButton {
+    grid-column: auto;
+    justify-self: stretch;
   }
 
   .ppEvidenceObservabilityHeader,
