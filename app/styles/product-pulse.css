@@ -12982,6 +12982,16 @@ s-page[inline-size="large-500"] {
   align-items: stretch;
 }
 
+.ppEvidenceReviewRatingExamplesGrid {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.92fr);
+  align-items: stretch;
+}
+
+.ppEvidenceReviewEvidenceInsightsGrid {
+  grid-template-columns: minmax(280px, 0.84fr) minmax(0, 1.16fr);
+  align-items: stretch;
+}
+
 .ppEvidenceReviewRatingTrendCard {
   grid-column: 1 / 2;
 }
@@ -12990,6 +13000,23 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 10px;
   margin-top: 14px;
+}
+
+.ppEvidenceReviewTrendPlot {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ppEvidenceReviewTrendYAxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 0 10px;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
 }
 
 .ppEvidenceReviewTrendChart svg {
@@ -13033,11 +13060,36 @@ s-page[inline-size="large-500"] {
 .ppEvidenceReviewTrendLegend {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   color: var(--pp-slate-500);
   font-size: 11px;
   font-weight: 780;
+}
+
+.ppEvidenceReviewTrendXAxis {
+  position: relative;
+  height: 18px;
+  margin-left: 34px;
+  display: block;
+}
+
+.ppEvidenceReviewTrendXAxis span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.ppEvidenceReviewTrendXAxis span.isFirst {
+  transform: translateX(0);
+}
+
+.ppEvidenceReviewTrendXAxis span.isLast {
+  transform: translateX(-100%);
+}
+
+.ppEvidenceReviewTrendXAxis span.isSingle {
+  transform: translateX(-50%);
 }
 
 .ppEvidenceReviewTrendLegend {
@@ -13118,6 +13170,7 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceRatingTrendLegend {
   justify-content: space-between;
+  margin-left: 34px;
 }
 
 .ppEvidenceReviewTrendDot-rating {
@@ -13287,6 +13340,17 @@ s-page[inline-size="large-500"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.ppEvidenceLatestReviewExamplesCard {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.ppEvidenceReviewExampleGrid-compact {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-content: start;
+}
+
 .ppEvidenceReviewExample,
 .ppEvidenceRefundNoteGrid article,
 .ppEvidenceMiniInsight {
@@ -13300,6 +13364,11 @@ s-page[inline-size="large-500"] {
 .ppEvidenceReviewExample {
   display: grid;
   gap: 10px;
+}
+
+.ppEvidenceReviewExampleGrid-compact .ppEvidenceReviewExample {
+  gap: 6px;
+  padding: 10px 11px;
 }
 
 .ppEvidenceReviewEmptyState {
@@ -13350,6 +13419,10 @@ s-page[inline-size="large-500"] {
   font-size: 15px;
 }
 
+.ppEvidenceReviewExampleGrid-compact .ppEvidenceReviewStars {
+  font-size: 12px;
+}
+
 .ppEvidenceReviewStars .isActive {
   color: var(--pp-risk-red);
 }
@@ -13367,6 +13440,11 @@ s-page[inline-size="large-500"] {
   font-weight: 900;
 }
 
+.ppEvidenceReviewExampleGrid-compact .ppEvidenceReviewExample strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 .ppEvidenceReviewExample p,
 .ppEvidenceRefundNoteGrid p {
   margin: 0;
@@ -13375,11 +13453,24 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
+.ppEvidenceReviewExampleGrid-compact .ppEvidenceReviewExample p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .ppEvidenceReviewExample > div:last-child {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 7px;
+}
+
+.ppEvidenceReviewExampleGrid-compact .ppEvidenceReviewExample > div:last-child {
+  gap: 5px;
 }
 
 .ppEvidenceReviewExample > div:last-child span,
@@ -27339,6 +27430,8 @@ s-page[inline-size="large-500"] {
   .ppEvidenceThreeColumnGrid,
   .ppEvidenceTwoColumnGrid,
   .ppEvidenceTwoColumnGrid-wideLeft,
+  .ppEvidenceReviewRatingExamplesGrid,
+  .ppEvidenceReviewEvidenceInsightsGrid,
   .ppEvidenceBottomReportGrid {
     grid-template-columns: 1fr;
   }
@@ -27455,6 +27548,8 @@ s-page[inline-size="large-500"] {
   .ppEvidenceThreeColumnGrid,
   .ppEvidenceTwoColumnGrid,
   .ppEvidenceTwoColumnGrid-wideLeft,
+  .ppEvidenceReviewRatingExamplesGrid,
+  .ppEvidenceReviewEvidenceInsightsGrid,
   .ppEvidenceBottomReportGrid,
   .ppEvidenceReviewExampleGrid,
   .ppEvidenceRefundNoteGrid,

@@ -15589,42 +15589,23 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
           <h4>Review sentiment</h4>
           <EvidenceSignalDonut total={reviewStats.sentiment.total} rows={reviewStats.sentimentRows} />
         </section>
+      </div>
 
+      <div className="ppEvidenceTwoColumnGrid ppEvidenceReviewRatingExamplesGrid">
         <section className="ppEvidenceReportSectionCard ppEvidenceReviewRatingTrendCard">
           <h4>Average rating over time</h4>
           <p>Average star rating from first to latest review</p>
           <EvidenceAverageRatingTrendChart trend={ratingTrend} currentRating={reviewStats.averageRating} />
         </section>
-      </div>
 
-      <div className="ppEvidenceTwoColumnGrid">
-        <section className="ppEvidenceReportSectionCard">
-          <h4>Review emotions <span>(detected)</span></h4>
-          <EvidenceBarList rows={emotionRows} tone="red" emptyLabel="No review emotions stored" />
-        </section>
-
-        <section className="ppEvidenceReportSectionCard">
+        <section className="ppEvidenceReportSectionCard ppEvidenceLatestReviewExamplesCard">
           <div className="ppEvidenceReportSectionHeaderRow ppEvidenceReportSectionHeaderRow-compact">
             <div>
-              <h4>Repeated review language</h4>
-              <p>Top repeated phrases</p>
-            </div>
-          </div>
-          <EvidencePhraseList phrases={repeatedLanguage} tone={repeatedLanguageTone} emptyLabel="No repeated review phrases stored" />
-          <Link className="ppEvidenceSectionLink" to={reportHref}>See all phrases <s-icon type="chevron-right" size="small"></s-icon></Link>
-        </section>
-      </div>
-
-      <div className="ppEvidenceTwoColumnGrid ppEvidenceTwoColumnGrid-wideLeft">
-        <section className="ppEvidenceReportSectionCard">
-          <div className="ppEvidenceReportSectionHeaderRow">
-            <div>
               <h4>Latest negative review examples</h4>
-              <p>Showing {formatInteger(Math.min(examples.length, 4))} of {formatInteger(examples.length || 0)}</p>
             </div>
           </div>
-          <div className="ppEvidenceReviewExampleGrid">
-            {examples.length ? examples.slice(0, 4).map((example, index) => (
+          <div className="ppEvidenceReviewExampleGrid ppEvidenceReviewExampleGrid-compact">
+            {examples.length ? examples.slice(0, 3).map((example, index) => (
               <article key={`${example.title}-${example.text}-${index}`} className="ppEvidenceReviewExample">
                 <div className="ppEvidenceReviewStars" aria-label={`${formatInteger(example.rating)} star review`}>
                   {Array.from({ length: 5 }, (_, starIndex) => (
@@ -15648,7 +15629,27 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
             )}
           </div>
         </section>
+      </div>
 
+      <div className="ppEvidenceTwoColumnGrid">
+        <section className="ppEvidenceReportSectionCard">
+          <h4>Review emotions <span>(detected)</span></h4>
+          <EvidenceBarList rows={emotionRows} tone="red" emptyLabel="No review emotions stored" />
+        </section>
+
+        <section className="ppEvidenceReportSectionCard">
+          <div className="ppEvidenceReportSectionHeaderRow ppEvidenceReportSectionHeaderRow-compact">
+            <div>
+              <h4>Repeated review language</h4>
+              <p>Top repeated phrases</p>
+            </div>
+          </div>
+          <EvidencePhraseList phrases={repeatedLanguage} tone={repeatedLanguageTone} emptyLabel="No repeated review phrases stored" />
+          <Link className="ppEvidenceSectionLink" to={reportHref}>See all phrases <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </section>
+      </div>
+
+      <div className="ppEvidenceTwoColumnGrid ppEvidenceReviewEvidenceInsightsGrid">
         <section className="ppEvidenceReportSectionCard ppEvidenceReviewSummaryCard">
           <h4>Review evidence</h4>
           <p>{formatInteger(reviewStats.negativeCount)} negative reviews out of {formatInteger(reviewStats.reviewCount)} analyzed</p>
@@ -15656,9 +15657,7 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
           <div className="ppEvidenceSingleBar"><span style={{ width: `${Math.max(2, clampPercentValue(reviewStats.negativeRate))}%` }}></span></div>
           <Link to={reportHref}>View all reviews <s-icon type="chevron-right" size="small"></s-icon></Link>
         </section>
-      </div>
 
-      <div className="ppEvidenceBottomReportGrid">
         <section className="ppEvidenceReportSectionCard">
           <h4>{source.title || "Review"} insights</h4>
           <div className="ppEvidenceMiniInsightGrid">
@@ -15667,7 +15666,10 @@ function ReviewEvidencePanel({ source, product, reportHref }) {
             ))}
           </div>
         </section>
-        <EvidenceFullReportCard href={reportHref} />
+      </div>
+
+      <div className="ppEvidenceOpenFullReportFooter">
+        <Link to={reportHref}>Open full report <s-icon type="chevron-right" size="small"></s-icon></Link>
       </div>
     </div>
   );
@@ -17640,20 +17642,24 @@ function EvidenceReviewSentimentTrendChart({ trend = [] }) {
     ...rows.flatMap((row) => [Number(row.positive || 0), Number(row.neutral || 0), Number(row.negative || 0)]),
     1,
   );
-  const labels = rows.length > 1
-    ? [rows[0], rows[Math.floor(rows.length / 2)], rows[rows.length - 1]].filter(Boolean)
-    : rows;
+  const labels = getReviewTrendXAxisTicks(rows);
+  const yTicks = getReviewSentimentYAxisTicks(max);
 
   return (
     <div className="ppEvidenceReviewTrendChart">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Review sentiment over time">
-        {[25, 50, 75].map((line) => <line key={line} className="ppEvidenceReviewTrendGridLine" x1="0" x2="100" y1={line} y2={line} />)}
-        <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-positive" d={getReviewSentimentTrendPath(rows, "positive", max)} />
-        <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-neutral" d={getReviewSentimentTrendPath(rows, "neutral", max)} />
-        <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-negative" d={getReviewSentimentTrendPath(rows, "negative", max)} />
-      </svg>
+      <div className="ppEvidenceReviewTrendPlot">
+        <div className="ppEvidenceReviewTrendYAxis" aria-hidden="true">
+          {yTicks.map((tick) => <span key={tick}>{formatInteger(tick)}</span>)}
+        </div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Review sentiment over time">
+          {[16, 41.3, 66.7, 92].map((line) => <line key={line} className="ppEvidenceReviewTrendGridLine" x1="0" x2="100" y1={line} y2={line} />)}
+          <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-positive" d={getReviewSentimentTrendPath(rows, "positive", max)} />
+          <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-neutral" d={getReviewSentimentTrendPath(rows, "neutral", max)} />
+          <path className="ppEvidenceReviewTrendLine ppEvidenceReviewTrendLine-negative" d={getReviewSentimentTrendPath(rows, "negative", max)} />
+        </svg>
+      </div>
       <div className="ppEvidenceReviewTrendXAxis" aria-hidden="true">
-        {labels.map((row, index) => <span key={`${row.key || row.label}-${index}`}>{row.label}</span>)}
+        {labels.map((tick) => <span className={tick.className} style={{ left: `${tick.x}%` }} key={`${tick.key || tick.label}-${tick.index}`}>{tick.label}</span>)}
       </div>
       <div className="ppEvidenceReviewTrendLegend">
         <span><i className="ppEvidenceReviewTrendDot-positive"></i>Positive</span>
@@ -17685,9 +17691,7 @@ function EvidenceAverageRatingTrendChart({ trend = [], currentRating = 0 }) {
   const first = points[0] || { x: 0, y: baseline };
   const last = points[points.length - 1] || { x: 100, y: baseline };
   const areaPath = path ? `${path} L ${last.x},${baseline} L ${first.x},${baseline} Z` : "";
-  const labels = rows.length > 1
-    ? [rows[0], rows[Math.floor(rows.length / 2)], rows[rows.length - 1]].filter(Boolean)
-    : rows;
+  const labels = getReviewTrendXAxisTicks(rows);
   const latestRating = Number(rows[rows.length - 1]?.averageRating || currentRating || 0);
 
   return (
@@ -17705,7 +17709,7 @@ function EvidenceAverageRatingTrendChart({ trend = [], currentRating = 0 }) {
         </svg>
       </div>
       <div className="ppEvidenceReviewTrendXAxis" aria-hidden="true">
-        {labels.map((row, index) => <span key={`${row.key || row.label}-${index}`}>{row.label}</span>)}
+        {labels.map((tick) => <span className={tick.className} style={{ left: `${tick.x}%` }} key={`${tick.key || tick.label}-${tick.index}`}>{tick.label}</span>)}
       </div>
       <div className="ppEvidenceReviewTrendLegend ppEvidenceRatingTrendLegend">
         <span><i className="ppEvidenceReviewTrendDot-rating"></i>Average rating</span>
@@ -17713,6 +17717,36 @@ function EvidenceAverageRatingTrendChart({ trend = [], currentRating = 0 }) {
       </div>
     </div>
   );
+}
+
+function getReviewTrendXAxisTicks(rows = []) {
+  const safeRows = Array.isArray(rows) && rows.length ? rows : [];
+  if (!safeRows.length) return [];
+  const lastIndex = safeRows.length - 1;
+  const indexes = new Set([0, lastIndex]);
+  if (safeRows.length <= 5) {
+    safeRows.forEach((_, index) => indexes.add(index));
+  } else {
+    for (let index = 2; index < lastIndex; index += 2) indexes.add(index);
+  }
+  return [...indexes]
+    .sort((first, second) => first - second)
+    .map((index) => ({
+      ...safeRows[index],
+      index,
+      x: lastIndex <= 0 ? 50 : Math.round((index / lastIndex) * 1000) / 10,
+      className: lastIndex <= 0 ? "isSingle" : index === 0 ? "isFirst" : index === lastIndex ? "isLast" : "",
+    }));
+}
+
+function getReviewSentimentYAxisTicks(max = 1) {
+  const safeMax = Math.max(1, Math.ceil(Number(max || 1)));
+  return [...new Set([
+    safeMax,
+    Math.ceil((safeMax * 2) / 3),
+    Math.ceil(safeMax / 3),
+    0,
+  ].map((tick) => Math.max(0, tick)))].sort((first, second) => second - first);
 }
 
 function getReviewSentimentTrendPath(rows = [], key = "positive", max = 1) {
