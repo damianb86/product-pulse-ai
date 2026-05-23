@@ -5732,7 +5732,11 @@ s-page[inline-size="large-500"] {
   grid-template-columns: 18px minmax(130px, 1fr) minmax(120px, 180px) 58px;
   gap: 14px;
   align-items: center;
+  margin: -6px -7px;
+  padding: 6px 7px;
+  border-radius: 11px;
   outline: none;
+  transition: background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
 .ppBasketContextBarRow > span {
@@ -5759,6 +5763,7 @@ s-page[inline-size="large-500"] {
   overflow: hidden;
   border-radius: 999px;
   background: var(--pp-slate-200);
+  transition: box-shadow 0.16s ease;
 }
 
 .ppBasketContextBarRow i b {
@@ -5768,6 +5773,7 @@ s-page[inline-size="large-500"] {
   border-radius: inherit;
   background: var(--pp-basket-row-color);
   box-shadow: 0 6px 16px rgba(var(--pp-shadow-rgb), 0.12);
+  transition: filter 0.16s ease, box-shadow 0.16s ease;
 }
 
 .ppBasketContextBarRow em {
@@ -5790,8 +5796,25 @@ s-page[inline-size="large-500"] {
 }
 
 .ppBasketContextBarRow:focus-visible {
-  border-radius: 8px;
   box-shadow: 0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.14);
+}
+
+.ppBasketContextBarRow:hover,
+.ppBasketContextBarRow:focus-visible {
+  background: rgba(var(--pp-slate-100-rgb), 0.66);
+  box-shadow: 0 9px 24px rgba(var(--pp-shadow-rgb), 0.08);
+  transform: translateY(-1px);
+}
+
+.ppBasketContextBarRow:hover i,
+.ppBasketContextBarRow:focus-visible i {
+  box-shadow: inset 0 0 0 1px rgba(var(--pp-shadow-rgb), 0.05), 0 6px 16px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppBasketContextBarRow:hover i b,
+.ppBasketContextBarRow:focus-visible i b {
+  filter: saturate(1.08);
+  box-shadow: 0 9px 20px rgba(var(--pp-shadow-rgb), 0.16);
 }
 
 .ppBasketContextBarRow-green {
@@ -5825,40 +5848,59 @@ s-page[inline-size="large-500"] {
 .ppBasketContextBarTooltip {
   position: absolute;
   z-index: 20;
-  right: 0;
-  bottom: calc(100% + 8px);
-  width: min(250px, 78vw);
+  bottom: calc(100% + 10px);
+  left: 50%;
+  width: min(330px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
   display: grid;
-  gap: 4px;
-  padding: 9px 11px;
-  border: 1px solid rgba(var(--pp-shadow-rgb), 0.1);
-  border-radius: 10px;
-  background: var(--pp-slate-950);
-  color: var(--pp-cloud-white);
-  box-shadow: 0 14px 32px rgba(var(--pp-shadow-rgb), 0.18);
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  box-shadow: 0 18px 44px rgba(var(--pp-shadow-rgb), 0.18);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
+  transform: translate(-50%, 6px);
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
+.ppBasketContextBarTooltip::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid var(--pp-slate-200);
+  border-bottom: 1px solid var(--pp-slate-200);
+  background: var(--pp-cloud-white);
+  transform: translateX(-50%) rotate(45deg);
+}
+
 .ppBasketContextBarTooltip strong {
-  color: var(--pp-cloud-white);
-  font-size: 12px;
+  color: var(--pp-slate-950);
+  font-size: 13px;
   font-weight: 900;
+  line-height: 1.2;
 }
 
 .ppBasketContextBarTooltip span {
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 11px;
+  color: var(--pp-slate-600);
+  font-size: 12px;
   font-weight: 680;
-  line-height: 1.35;
+  line-height: 1.38;
 }
 
 .ppBasketContextBarRow:hover .ppBasketContextBarTooltip,
 .ppBasketContextBarRow:focus-visible .ppBasketContextBarTooltip {
   opacity: 1;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
 }
 
 .ppBasketContextCoPurchase {
