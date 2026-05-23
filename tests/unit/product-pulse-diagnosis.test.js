@@ -895,6 +895,11 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       reviews: { count: 1, negativeCount: 1 },
       signalCount: 4,
     });
+    expect(blue.timeline.reduce((sum, point) => sum + point.salesUnits, 0)).toBe(5);
+    expect(blue.timeline.reduce((sum, point) => sum + point.returnUnits, 0)).toBe(1);
+    expect(blue.timeline.reduce((sum, point) => sum + point.refundUnits, 0)).toBe(2);
+    expect(blue.timeline.reduce((sum, point) => sum + point.reviewCount, 0)).toBe(1);
+    expect(blue.timeline.reduce((sum, point) => sum + point.negativeReviewCount, 0)).toBe(1);
     expect(blue.reviews.examples[0]?.text).toContain("Aurora Blue");
     expect(white).toMatchObject({
       sku: "GEN-WHITE",
@@ -904,6 +909,9 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       reviews: { count: 1, negativeCount: 0 },
       signalCount: 0,
     });
+    expect(white.timeline.reduce((sum, point) => sum + point.salesUnits, 0)).toBe(8);
+    expect(white.timeline.reduce((sum, point) => sum + point.reviewCount, 0)).toBe(1);
+    expect(white.timeline.reduce((sum, point) => sum + point.positiveReviewCount, 0)).toBe(1);
     expect(deterministic.metrics.affectedVariants).toContain("Aurora Blue");
     expect(deterministic.metrics.orderGeography).toEqual([
       expect.objectContaining({ label: "Canada", count: 1, share: 50 }),

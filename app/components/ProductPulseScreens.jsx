@@ -15916,6 +15916,7 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
   const detailCards = visibleCards.slice(4, 10);
   const variantRows = getShopifyProductVariantRows(metrics);
   const variantAiContext = getAiEvidenceContextSection(product, "variants");
+  const variantTimelineData = getVariantTemporalChartData(metrics);
 
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppShopifyProductEvidenceReport">
@@ -15975,6 +15976,7 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
               </tbody>
             </table>
           </div>
+          <VariantTemporalInsightChart data={variantTimelineData} />
         </section>
       </div>
 
@@ -16027,6 +16029,81 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
         <EvidenceMetricCard card={{ label: "Model confidence", value: `${formatInteger(product.confidence || 0)}%`, detail: "Diagnosis confidence stored with the current product snapshot.", icon: "diagnostic-confidence", tone: Number(product.confidence || 0) >= 80 ? "teal" : "amber" }} />
         <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(product.metrics?.estimatedImpact || product.estimatedImpact || 0), detail: "Business exposure is shown separately from Product Risk.", icon: "financial-exposure", tone: "violet" }} />
         <EvidenceMetricCard card={{ label: "Freshness", value: detailEvidenceFreshness(product), detail: "Most recent stored signal or diagnosis timestamp.", icon: "calendar", tone: "blue" }} />
+      </div>
+    </div>
+  );
+}
+
+function VariantTemporalInsightChart({ data = null }) {
+  const series = Array.isArray(data?.series) ? data.series : [];
+  const months = Array.isArray(data?.months) ? data.months : [];
+  if (!series.length || !months.length) {
+    return (
+      <div className="ppVariantTemporalInsight">
+        <div className="ppVariantTemporalInsightHeader">
+          <div>
+            <h5>Variant sales over time</h5>
+            <p>No dated variant sales or review timeline is stored yet.</p>
+          </div>
+        </div>
+        <EmptyProductDetailState message="Run a deep diagnosis after Shopify order evidence is available to compare variants over time." />
+      </div>
+    );
+  }
+
+  const max = Math.max(
+    ...series.flatMap((item) => months.flatMap((month) => [
+      Number(item.pointsByMonth[month.key]?.salesUnits || 0),
+      Number(item.pointsByMonth[month.key]?.reviewCount || 0),
+    ])),
+    1,
+  );
+  const labels = getTimelineXAxisTicks(months);
+  const hasReviewTimeline = series.some((item) => item.reviewCountTotal > 0);
+
+  return (
+    <div className="ppVariantTemporalInsight">
+      <div className="ppVariantTemporalInsightHeader">
+        <div>
+          <h5>Variant sales over time</h5>
+          <p>Monthly units sold by variant. Dashed lines show dated review signals when available.</p>
+        </div>
+        <span>{formatInteger(series.length)} variants</span>
+      </div>
+      <div className="ppVariantTemporalChart">
+        <div className="ppVariantTemporalYAxis" aria-hidden="true">
+          <span>{formatInteger(Math.ceil(max))}</span>
+          <span>{formatInteger(Math.round(max / 2))}</span>
+          <span>0</span>
+        </div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Variant sales over time">
+          {[16, 54, 92].map((line) => <line key={line} className="ppEvidenceOrdersGridLine" x1="0" x2="100" y1={line} y2={line} />)}
+          {series.map((item) => (
+            <path
+              key={`${item.key}-sales`}
+              className="ppVariantTemporalLine ppVariantTemporalLine-sales"
+              style={{ "--pp-variant-series-color": item.color }}
+              d={getVariantTemporalChartPath(item, months, "salesUnits", max)}
+            />
+          ))}
+          {hasReviewTimeline ? series.filter((item) => item.reviewCountTotal > 0).map((item) => (
+            <path
+              key={`${item.key}-reviews`}
+              className="ppVariantTemporalLine ppVariantTemporalLine-reviews"
+              style={{ "--pp-variant-series-color": item.color }}
+              d={getVariantTemporalChartPath(item, months, "reviewCount", max)}
+            />
+          )) : null}
+        </svg>
+        <div className="ppEvidenceOrdersXAxis ppVariantTemporalXAxis" aria-hidden="true">
+          {labels.map((tick) => <span className={tick.className} style={{ left: `${tick.x}%` }} key={`${tick.key || tick.label}-${tick.index}`}>{tick.label}</span>)}
+        </div>
+        <div className="ppVariantTemporalLegend">
+          {series.map((item) => (
+            <span key={item.key}><i style={{ background: item.color }}></i>{item.title}</span>
+          ))}
+          {hasReviewTimeline ? <em>Dashed = review signals</em> : null}
+        </div>
       </div>
     </div>
   );
@@ -16314,6 +16391,150 @@ function getShopifyProductVariantRows(metrics = {}) {
     reviews: buildVariantEvidenceCell("No review evidence", [], "neutral"),
     tone: "blue",
   }];
+}
+
+const VARIANT_TEMPORAL_SERIES_COLORS = ["#7C5CFF", "#2563EB", "#16A34A", "#F59E0B", "#EF4444", "#14B8A6"];
+
+function getVariantTemporalChartData(metrics = {}) {
+  const variantInsights = getEvidenceList(metrics.variantInsights);
+  const variants = getShopifyProductVariantCandidates(metrics, variantInsights);
+  const monthLookup = new Map();
+  const series = variants
+    .map((variant, index) => {
+      const insight = getVariantInsightForVariant(variantInsights, variant);
+      const points = getVariantTemporalPoints(insight, variant);
+      points.forEach((point) => monthLookup.set(point.key, {
+        key: point.key,
+        label: point.label,
+        shortLabel: point.shortLabel,
+        startAt: point.startAt,
+      }));
+      const salesUnitsTotal = points.reduce((sum, point) => sum + Number(point.salesUnits || 0), 0);
+      const reviewCountTotal = points.reduce((sum, point) => sum + Number(point.reviewCount || 0), 0);
+      const signalTotal = points.reduce((sum, point) => (
+        sum + Number(point.returnUnits || 0) + Number(point.refundUnits || 0) + Number(point.negativeReviewCount || 0)
+      ), 0);
+      return {
+        key: `${normalizeVariantEvidenceKey(getVariantDisplayTitle(variant)) || insight?.key || "variant"}-${index}`,
+        title: getVariantDisplayTitle({ ...variant, ...getVariantShopifyFieldsFromInsight(insight) }),
+        color: VARIANT_TEMPORAL_SERIES_COLORS[index % VARIANT_TEMPORAL_SERIES_COLORS.length],
+        points,
+        pointsByMonth: Object.fromEntries(points.map((point) => [point.key, point])),
+        salesUnitsTotal,
+        reviewCountTotal,
+        signalTotal,
+      };
+    })
+    .filter((item) => item.points.length && (item.salesUnitsTotal > 0 || item.reviewCountTotal > 0 || item.signalTotal > 0))
+    .sort((first, second) => (
+      (second.salesUnitsTotal + second.signalTotal + second.reviewCountTotal)
+      - (first.salesUnitsTotal + first.signalTotal + first.reviewCountTotal)
+    ))
+    .slice(0, 6)
+    .map((item, index) => ({
+      ...item,
+      color: VARIANT_TEMPORAL_SERIES_COLORS[index % VARIANT_TEMPORAL_SERIES_COLORS.length],
+    }));
+
+  const months = [...monthLookup.values()]
+    .sort((first, second) => String(first.key || "").localeCompare(String(second.key || "")));
+
+  return { months, series };
+}
+
+function getVariantTemporalPoints(insight = null, variant = {}) {
+  const pointsByMonth = new Map();
+  const addPoint = (dateValue, values = {}) => {
+    const month = getVariantTemporalMonth(dateValue);
+    if (!month) return;
+    const current = pointsByMonth.get(month.key) || {
+      ...month,
+      salesUnits: 0,
+      salesAmount: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+      refundAmount: 0,
+      reviewCount: 0,
+      negativeReviewCount: 0,
+    };
+    current.salesUnits += Number(values.salesUnits || 0);
+    current.salesAmount += Number(values.salesAmount || 0);
+    current.returnUnits += Number(values.returnUnits || 0);
+    current.refundUnits += Number(values.refundUnits || 0);
+    current.refundAmount += Number(values.refundAmount || 0);
+    current.reviewCount += Number(values.reviewCount || 0);
+    current.negativeReviewCount += Number(values.negativeReviewCount || 0);
+    pointsByMonth.set(month.key, current);
+  };
+
+  getEvidenceList(insight?.timeline).forEach((point) => {
+    const dateValue = point.startAt || point.key || point.label;
+    addPoint(dateValue, {
+      salesUnits: point.salesUnits,
+      salesAmount: point.salesAmount,
+      returnUnits: point.returnUnits,
+      refundUnits: point.refundUnits,
+      refundAmount: point.refundAmount,
+      reviewCount: point.reviewCount,
+      negativeReviewCount: point.negativeReviewCount,
+    });
+  });
+
+  if (!pointsByMonth.size) {
+    getEvidenceList(insight?.sales?.examples).forEach((example) => addPoint(example.createdAt || example.orderDate, {
+      salesUnits: example.quantity || example.units || 1,
+      salesAmount: example.amount,
+    }));
+    getEvidenceList(insight?.returns?.examples).forEach((example) => addPoint(example.createdAt || example.orderDate, {
+      returnUnits: example.quantity || example.units || 1,
+    }));
+    getEvidenceList(insight?.refunds?.examples).forEach((example) => addPoint(example.createdAt || example.processedAt || example.orderDate, {
+      refundUnits: example.quantity || example.units || 1,
+      refundAmount: example.amount,
+    }));
+    getEvidenceList(insight?.reviews?.examples).forEach((example) => addPoint(example.createdAt || example.reviewDate, {
+      reviewCount: 1,
+      negativeReviewCount: String(example.sentiment || "").toLowerCase() === "negative" || Number(example.rating || 0) <= 2 ? 1 : 0,
+    }));
+  }
+
+  if (!pointsByMonth.size && Number(insight?.sales?.units || 0) > 0) {
+    addPoint(new Date(), {
+      salesUnits: Number(insight.sales.units || 0),
+      salesAmount: Number(insight.sales.amount || 0),
+    });
+  }
+
+  return [...pointsByMonth.values()]
+    .sort((first, second) => String(first.key || "").localeCompare(String(second.key || "")));
+}
+
+function getVariantTemporalMonth(value = null) {
+  const keyMatch = String(value || "").match(/^(\d{4})-(\d{2})/);
+  const date = keyMatch
+    ? new Date(Date.UTC(Number(keyMatch[1]), Number(keyMatch[2]) - 1, 1))
+    : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const monthDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  const key = `${monthDate.getUTCFullYear()}-${String(monthDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  return {
+    key,
+    label: new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).format(monthDate),
+    shortLabel: new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(monthDate),
+    startAt: monthDate.toISOString(),
+  };
+}
+
+function getVariantTemporalChartPath(series = {}, months = [], key = "salesUnits", max = 1) {
+  const safeMax = Math.max(1, Number(max || 1));
+  const points = months.map((month, index) => {
+    const value = Number(series.pointsByMonth?.[month.key]?.[key] || 0);
+    const x = months.length === 1 ? 50 : Math.round((index / (months.length - 1)) * 1000) / 10;
+    const y = Math.round((92 - (clampNumber(value, 0, safeMax) / safeMax) * 76) * 10) / 10;
+    return { x, y };
+  });
+  if (points.length === 1) return buildSmoothSvgPath([{ x: 0, y: points[0].y }, { x: 100, y: points[0].y }]);
+  return buildSmoothSvgPath(points);
 }
 
 function getShopifyProductVariantCandidates(metrics = {}, evidenceExamples = []) {

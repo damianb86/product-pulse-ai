@@ -3320,6 +3320,10 @@ describe("ProductPulse screens", () => {
             selectedOptions: [{ name: "Color", value: "Aurora Blue" }],
             signalCount: 4,
             sales: { units: 5, amount: 590 },
+            timeline: [
+              { key: "2026-03", label: "Mar 2026", shortLabel: "Mar", salesUnits: 2, salesAmount: 236, reviewCount: 0, negativeReviewCount: 0 },
+              { key: "2026-04", label: "Apr 2026", shortLabel: "Apr", salesUnits: 3, salesAmount: 354, reviewCount: 1, negativeReviewCount: 1 },
+            ],
             returns: {
               units: 1,
               rate: 20,
@@ -3348,6 +3352,10 @@ describe("ProductPulse screens", () => {
             selectedOptions: [{ name: "Color", value: "Warm White" }],
             signalCount: 0,
             sales: { units: 8, amount: 896 },
+            timeline: [
+              { key: "2026-03", label: "Mar 2026", shortLabel: "Mar", salesUnits: 6, salesAmount: 672, reviewCount: 0, negativeReviewCount: 0 },
+              { key: "2026-04", label: "Apr 2026", shortLabel: "Apr", salesUnits: 2, salesAmount: 224, reviewCount: 0, negativeReviewCount: 0 },
+            ],
             returns: { units: 0, examples: [] },
             refunds: { units: 0, amount: 0, examples: [] },
             reviews: { count: 0, negativeCount: 0, examples: [] },
@@ -3399,6 +3407,10 @@ describe("ProductPulse screens", () => {
     expect(within(variantSection).getByText("2 refund signals · $118")).toBeInTheDocument();
     expect(within(variantSection).getByText("1 return signal")).toBeInTheDocument();
     expect(within(variantSection).getByText("1 negative review · 1 total")).toBeInTheDocument();
+    const timeline = within(variantSection).getByText("Variant sales over time").closest(".ppVariantTemporalInsight");
+    expect(within(timeline).getByText("Monthly units sold by variant. Dashed lines show dated review signals when available.")).toBeInTheDocument();
+    expect(timeline.querySelectorAll(".ppVariantTemporalLine-sales")).toHaveLength(2);
+    expect(timeline.querySelectorAll(".ppVariantTemporalLine-reviews")).toHaveLength(1);
     expect(within(variantSection).queryByText(/Aurora Blue color was not as pictured/)).not.toBeInTheDocument();
     fireEvent.click(within(variantSection).getByLabelText("View details for Aurora Blue return evidence"));
     const hiddenReturnExample = await screen.findByText(/Aurora Blue color was not as pictured/);

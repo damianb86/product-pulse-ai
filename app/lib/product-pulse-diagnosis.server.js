@@ -8635,6 +8635,7 @@ function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [],
         returns: { units: 0, reasons: [], examples: [] },
         refunds: { units: 0, amount: 0, reasons: [], examples: [] },
         reviews: { count: 0, negativeCount: 0, positiveCount: 0, neutralCount: 0, averageRating: 0, ratingSum: 0, sources: {}, examples: [] },
+        timeline: new Map(),
       });
       order.push(normalized.key);
     }
@@ -8656,6 +8657,10 @@ function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [],
     const amount = Number(event.amount || 0);
     row.sales.units += quantity;
     row.sales.amount += amount;
+    addDiagnosisVariantTimelineMetric(row, getOrderCohortDate(event, { includeEventDate: true }), {
+      salesUnits: quantity,
+      salesAmount: amount,
+    });
     if (row.sales.examples.length < 3) {
       row.sales.examples.push({
         quantity,
@@ -8672,6 +8677,9 @@ function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [],
     const reason = [event.reason, event.reasonNote, event.customerNote].filter(Boolean).join(" - ");
     row.returns.units += quantity;
     if (reason) row.returns.reasons.push(reason);
+    addDiagnosisVariantTimelineMetric(row, event.createdAt || event.processedAt || getOrderCohortDate(event), {
+      returnUnits: quantity,
+    });
     if (row.returns.examples.length < 3) {
       row.returns.examples.push({
         quantity,
@@ -8696,6 +8704,10 @@ function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [],
     row.refunds.units += quantity;
     row.refunds.amount += amount;
     if (reason) row.refunds.reasons.push(reason);
+    addDiagnosisVariantTimelineMetric(row, event.createdAt || event.processedAt || getOrderCohortDate(event), {
+      refundUnits: quantity,
+      refundAmount: amount,
+    });
     if (row.refunds.examples.length < 3) {
       row.refunds.examples.push({
         quantity,
@@ -8726,6 +8738,11 @@ function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [],
     if (negative) row.reviews.negativeCount += 1;
     else if (positive) row.reviews.positiveCount += 1;
     else row.reviews.neutralCount += 1;
+    addDiagnosisVariantTimelineMetric(row, review.createdAt, {
+      reviewCount: 1,
+      negativeReviewCount: negative ? 1 : 0,
+      positiveReviewCount: positive ? 1 : 0,
+    });
     const sourceLabel = review.sourceLabel || "Reviews";
     row.reviews.sources[sourceLabel] = (row.reviews.sources[sourceLabel] || 0) + 1;
     const storedNegativeExamples = row.reviews.examples.filter((example) => example.sentiment === "negative").length;
@@ -8757,6 +8774,52 @@ function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [],
     .map((key) => finalizeDiagnosisVariantInsight(rows.get(key)))
     .filter((row) => row.variantTitle || row.sku || row.variantId)
     .slice(0, 80);
+}
+
+function addDiagnosisVariantTimelineMetric(row = {}, dateValue = null, values = {}) {
+  const date = parseValidDate(dateValue);
+  if (!row?.timeline || !date) return;
+  const monthDate = startOfUtcMonth(date);
+  const key = formatUtcMonthKey(monthDate);
+  const current = row.timeline.get(key) || {
+    key,
+    label: formatUtcMonthLabel(monthDate),
+    shortLabel: formatUtcMonthShortLabel(monthDate),
+    startAt: toIso(monthDate),
+    salesUnits: 0,
+    salesAmount: 0,
+    returnUnits: 0,
+    refundUnits: 0,
+    refundAmount: 0,
+    reviewCount: 0,
+    negativeReviewCount: 0,
+    positiveReviewCount: 0,
+  };
+  current.salesUnits += Number(values.salesUnits || 0);
+  current.salesAmount += Number(values.salesAmount || 0);
+  current.returnUnits += Number(values.returnUnits || 0);
+  current.refundUnits += Number(values.refundUnits || 0);
+  current.refundAmount += Number(values.refundAmount || 0);
+  current.reviewCount += Number(values.reviewCount || 0);
+  current.negativeReviewCount += Number(values.negativeReviewCount || 0);
+  current.positiveReviewCount += Number(values.positiveReviewCount || 0);
+  row.timeline.set(key, current);
+}
+
+function normalizeDiagnosisVariantTimeline(timeline = new Map()) {
+  return [...(timeline instanceof Map ? timeline.values() : [])]
+    .sort((first, second) => String(first.key || "").localeCompare(String(second.key || "")))
+    .map((point) => ({
+      ...point,
+      salesUnits: Number(point.salesUnits || 0),
+      salesAmount: roundCurrency(point.salesAmount || 0),
+      returnUnits: Number(point.returnUnits || 0),
+      refundUnits: Number(point.refundUnits || 0),
+      refundAmount: roundCurrency(point.refundAmount || 0),
+      reviewCount: Number(point.reviewCount || 0),
+      negativeReviewCount: Number(point.negativeReviewCount || 0),
+      positiveReviewCount: Number(point.positiveReviewCount || 0),
+    }));
 }
 
 function finalizeDiagnosisVariantInsight(row = {}) {
@@ -8802,6 +8865,7 @@ function finalizeDiagnosisVariantInsight(row = {}) {
       sources: reviewSources,
       examples: row.reviews?.examples || [],
     },
+    timeline: normalizeDiagnosisVariantTimeline(row.timeline),
     signalCount,
     hasVariantEvidence: Boolean(soldUnits || signalCount || reviewCount),
   };
