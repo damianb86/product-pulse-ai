@@ -20176,7 +20176,7 @@ function RecommendedActionReviewBody({
 
   return (
     <div className="ppProductActionBody ppActionReviewBody">
-      <RecommendedActionReviewSection icon="edit" title="Proposed changes">
+      <RecommendedActionReviewSection icon="edit" title="Proposed changes" className="ppActionReviewSection-proposed">
         <p className="ppActionSectionLead">{application.intro}</p>
         {unresolvedPlaceholders.length > 0 && (
           <PlaceholderReviewNotice placeholders={unresolvedPlaceholders} />
@@ -20230,7 +20230,7 @@ function RecommendedActionReviewBody({
       </RecommendedActionReviewSection>
 
       {!application.hidePreview && (
-        <RecommendedActionReviewSection icon="view" title="Preview">
+        <RecommendedActionReviewSection icon="view" title="Preview" className="ppActionReviewSection-preview">
           <RecommendedActionPreview application={application} editedText={editedText} />
         </RecommendedActionReviewSection>
       )}
@@ -20525,9 +20525,9 @@ function getPairingExpectationCopyDirection(action = {}, product = {}) {
   ].filter(Boolean).join(" ");
 }
 
-function RecommendedActionReviewSection({ icon, title, children }) {
+function RecommendedActionReviewSection({ icon, title, children, className = "" }) {
   return (
-    <section className="ppActionReviewSection">
+    <section className={`ppActionReviewSection ${className}`.trim()}>
       <span className="ppActionReviewSectionIcon" aria-hidden="true">
         <s-icon type={icon} size="small"></s-icon>
       </span>
