@@ -11441,41 +11441,60 @@ s-page[inline-size="large-500"] {
 .ppEvidenceTabsModern {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 4px;
+  padding: 10px 12px 14px;
+  border-top: 1px solid rgba(var(--pp-slate-500-rgb), 0.08);
   border-bottom: 1px solid var(--pp-slate-200);
-  background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.52));
+  background: var(--pp-cloud-white);
 }
 
 .ppEvidenceTabsModern button {
   min-width: 0;
-  min-height: 50px;
+  min-height: 64px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 14px;
-  border: 0;
-  border-right: 1px solid var(--pp-slate-200);
-  border-bottom: 2px solid transparent;
-  background: transparent;
+  padding: 8px 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
   color: var(--pp-slate-500);
   font: inherit;
   font-size: 12px;
   font-weight: 760;
   cursor: pointer;
+  box-shadow:
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.04),
+    0 7px 18px rgba(var(--pp-shadow-rgb), 0.05);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
 }
 
 .ppEvidenceTabsModern button:last-child {
-  border-right: 0;
+  border-right: 1px solid var(--pp-slate-200);
 }
 
-.ppEvidenceTabsModern button:hover,
-.ppEvidenceTabsModern button.isActive {
+.ppEvidenceTabsModern button:hover {
   color: var(--pp-pulse-blue);
-  background: rgba(var(--pp-pulse-blue-rgb), 0.035);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.32);
+  box-shadow:
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.05),
+    0 9px 22px rgba(var(--pp-shadow-rgb), 0.07);
+  transform: translateY(-1px);
 }
 
 .ppEvidenceTabsModern button.isActive {
-  border-bottom-color: var(--pp-pulse-blue);
+  border-color: var(--pp-pulse-blue);
+  color: var(--pp-pulse-blue);
+  box-shadow:
+    0 0 0 1px rgba(var(--pp-pulse-blue-rgb), 0.32),
+    0 8px 20px rgba(var(--pp-pulse-blue-rgb), 0.16),
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+  transform: none;
 }
 
 .ppEvidenceTabsModern button > strong {
