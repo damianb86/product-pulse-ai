@@ -9726,12 +9726,7 @@ function ProductBasketContextPanel({ detail }) {
             <div className="ppBasketContextDetailColumn">
               <div className="ppBasketContextBars" aria-label="Basket context mix">
                 {rows.map((row) => (
-                  <div className={`ppBasketContextBarRow ppBasketContextBarRow-${row.tone}${row.value <= 0 ? " isZero" : ""}`} key={row.key}>
-                    <span aria-hidden="true"></span>
-                    <strong>{row.label}</strong>
-                    <i aria-hidden="true"><b style={{ width: `${row.width}%` }}></b></i>
-                    <em>{formatPercent(row.value)}</em>
-                  </div>
+                  <BasketContextBarRow row={row} key={row.key} />
                 ))}
               </div>
 
@@ -9769,6 +9764,32 @@ function ProductBasketContextPanel({ detail }) {
   );
 }
 
+function BasketContextBarRow({ row }) {
+  const tooltipId = `basket-context-${row.key}`;
+  const orderCount = formatInteger(row.count);
+  const orderLabel = Number(row.count) === 1 ? "order" : "orders";
+  return (
+    <div
+      className={`ppBasketContextBarRow ppBasketContextBarRow-${row.tone}${row.value <= 0 ? " isZero" : ""}`}
+      tabIndex={0}
+      aria-describedby={tooltipId}
+      aria-label={`${row.label}: ${formatPercent(row.value)}`}
+    >
+      <span aria-hidden="true"></span>
+      <strong>{row.label}</strong>
+      <i aria-hidden="true"><b style={{ width: `${row.width}%` }}></b></i>
+      <em>
+        <span className="ppBasketContextBarPercent">{formatPercent(row.value)}</span>
+        <span className="ppBasketContextBarCount">{orderCount}</span>
+      </em>
+      <span className="ppBasketContextBarTooltip" id={tooltipId} role="tooltip">
+        <strong>{orderCount} {orderLabel}</strong>
+        <span>{row.tooltip}</span>
+      </span>
+    </div>
+  );
+}
+
 function BasketContextMetric({ value, label, tone }) {
   return (
     <div className={`ppBasketContextMetric ppBasketContextMetric-${tone}`}>
@@ -9779,15 +9800,130 @@ function BasketContextMetric({ value, label, tone }) {
 }
 
 function getBasketContextRows(context = {}) {
+  const totalOrders = Math.max(0, Math.round(Number(context.totalOrdersContainingProduct || 0)));
+  const primaryRows = [
+    {
+      key: "solo",
+      label: "Solo purchases",
+      value: Number(context.soloPurchaseRatePercent || 0),
+      count: clampOrderCount(context.soloProductOrderCount, totalOrders),
+      tone: "green",
+      tooltip: "Orders containing this product and no other products.",
+    },
+    {
+      key: "basket",
+      label: "Basket purchases",
+      value: Number(context.multiProductBasketRatePercent || 0),
+      count: clampOrderCount(context.multiProductOrderCount, totalOrders),
+      tone: "blue",
+      tooltip: "Orders where this product appears with at least one other product.",
+    },
+    {
+      key: "multi-unit",
+      label: "Multi-unit orders",
+      value: Number(context.multiUnitPurchaseRatePercent || 0),
+      count: clampOrderCount(context.multiUnitOrderCount, totalOrders),
+      tone: "teal",
+      tooltip: "Orders with more than one unit of this product, including bulk purchases.",
+    },
+    {
+      key: "multi-variant",
+      label: "Multi-variant rate",
+      value: Number(context.multiVariantOrderRatePercent || 0),
+      count: clampOrderCount(context.multiVariantOrderCount, totalOrders),
+      tone: "purple",
+      tooltip: "Orders where the customer bought more than one variant of this product.",
+    },
+  ];
+  const mixRows = [
+    ...getBasketContextUnitMix(context),
+    ...getBasketContextVariantMix(context),
+  ].map((row) => ({
+    ...row,
+    value: row.percent,
+    tone: row.tone,
+  }));
+
   return [
-    { key: "solo", label: "Solo purchases", value: Number(context.soloPurchaseRatePercent || 0), tone: "green" },
-    { key: "basket", label: "Basket purchases", value: Number(context.multiProductBasketRatePercent || 0), tone: "blue" },
-    { key: "multi-unit", label: "Multi-unit orders", value: Number(context.multiUnitPurchaseRatePercent || 0), tone: "teal" },
-    { key: "multi-variant", label: "Multi-variant rate", value: Number(context.multiVariantOrderRatePercent || 0), tone: "purple" },
+    ...primaryRows,
+    ...mixRows,
   ].map((row) => ({
     ...row,
     width: clampNumber(row.value, 0, 100),
   }));
+}
+
+function getBasketContextUnitMix(context = {}) {
+  const totalOrders = Math.max(0, Math.round(Number(context.totalOrdersContainingProduct || 0)));
+  const bulkThreshold = Math.max(2, Math.round(Number(context.bulkPurchaseThreshold || 4)));
+  const bulkOrders = clampOrderCount(context.bulkOrderCount, totalOrders);
+  const multiUnitOrders = clampOrderCount(Number(context.multiUnitOrderCount || 0) - bulkOrders, Math.max(0, totalOrders - bulkOrders));
+  const singleUnitOrders = clampOrderCount(context.singleUnitOrderCount, Math.max(0, totalOrders - bulkOrders - multiUnitOrders));
+  const classifiedTotal = singleUnitOrders + multiUnitOrders + bulkOrders;
+  const percentages = getWholePercentPartsThatSumTo100([singleUnitOrders, multiUnitOrders, bulkOrders], classifiedTotal);
+  return [
+    {
+      key: "single-unit",
+      label: "Single Unit",
+      shortDetail: "1 unit",
+      count: singleUnitOrders,
+      percent: percentages[0] || 0,
+      tone: "green",
+      tooltip: "Orders that contain exactly one unit of this product.",
+    },
+    {
+      key: "multiple-unit",
+      label: "Multiple Unit",
+      shortDetail: getBasketContextMultiUnitRangeLabel(bulkThreshold),
+      count: multiUnitOrders,
+      percent: percentages[1] || 0,
+      tone: "amber",
+      tooltip: `Orders with more than one unit, below the bulk threshold of ${formatInteger(bulkThreshold)} units.`,
+    },
+    {
+      key: "bulk",
+      label: "Bulk",
+      shortDetail: `${formatInteger(bulkThreshold)}+ units`,
+      count: bulkOrders,
+      percent: percentages[2] || 0,
+      tone: "orange",
+      tooltip: `Orders at or above the bulk threshold of ${formatInteger(bulkThreshold)} units.`,
+    },
+  ];
+}
+
+function getBasketContextVariantMix(context = {}) {
+  const totalOrders = Math.max(0, Math.round(Number(context.totalOrdersContainingProduct || 0)));
+  const multiVariantOrders = clampOrderCount(context.multiVariantOrderCount, totalOrders);
+  const singleVariantOrders = Math.max(0, totalOrders - multiVariantOrders);
+  const percentages = getWholePercentPartsThatSumTo100([singleVariantOrders, multiVariantOrders], Math.max(0, singleVariantOrders + multiVariantOrders));
+  return [
+    {
+      key: "single-variant",
+      label: "Single Variant",
+      shortDetail: "1 variant",
+      count: singleVariantOrders,
+      percent: percentages[0] || 0,
+      tone: "purple",
+      tooltip: "Orders that include only one variant of this product.",
+    },
+    {
+      key: "multiple-variant",
+      label: "Multiple Variant",
+      shortDetail: "2+ variants",
+      count: multiVariantOrders,
+      percent: percentages[1] || 0,
+      tone: "orange",
+      tooltip: "Orders where the customer bought more than one variant of this product.",
+    },
+  ];
+}
+
+function getBasketContextMultiUnitRangeLabel(bulkThreshold = 4) {
+  const threshold = Math.max(2, Math.round(Number(bulkThreshold || 4)));
+  if (threshold <= 2) return "2+ units";
+  if (threshold === 3) return "2 units";
+  return `2-${formatInteger(threshold - 1)} units`;
 }
 
 function getBasketContextStrongestCoPurchase(detail = {}, context = {}) {
