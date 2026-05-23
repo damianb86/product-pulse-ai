@@ -8778,10 +8778,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const resolutionBreakdownInsightCard = detail.returnRefundRelationship?.available
     ? { id: "resolution-breakdown", type: "resolution-breakdown" }
     : null;
-  const relationshipInsightCard = detail.productRelationshipIntelligence?.available
-    ? { id: "relationship-signal", type: "relationship-signal" }
-    : null;
-  const supplementalInsightCards = [resolutionBreakdownInsightCard, relationshipInsightCard].filter(Boolean);
+  const supplementalInsightCards = [resolutionBreakdownInsightCard].filter(Boolean);
   const insightCards = supplementalInsightCards.length
     ? [...baseInsightCards.slice(0, 8), ...supplementalInsightCards, ...baseInsightCards.slice(8)]
     : baseInsightCards;
@@ -10012,9 +10009,6 @@ function ProductRelationshipsPanel({ detail }) {
 function ProductInsightGridCard({ card, detail }) {
   if (card?.type === "resolution-breakdown") {
     return <ProductResolutionBreakdownCard detail={detail} />;
-  }
-  if (card?.type === "relationship-signal") {
-    return <ProductRelationshipSignalCard detail={detail} relationship={detail.productRelationshipIntelligence} />;
   }
   return <ProductInsightMetric {...card} />;
 }
@@ -14414,6 +14408,7 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
     return (
       <div className="ppProductPanel ppEvidenceObservabilityPanel">
         <EvidenceObservabilityHeader detail={detail} />
+        <EvidenceRelationshipSignalCard detail={detail} />
         <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
       </div>
     );
@@ -14428,6 +14423,7 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
   return (
     <div className="ppProductPanel ppEvidenceObservabilityPanel">
       <EvidenceObservabilityHeader detail={detail} />
+      <EvidenceRelationshipSignalCard detail={detail} />
 
       <div className="ppEvidenceTabsModern" role="tablist" aria-label="Evidence sources">
         {sources.map((source, index) => (
@@ -14450,6 +14446,16 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
       </div>
 
       <EvidenceSourceReportPanelContent source={activeSource} product={product} reportHref={reportHref} cards={activeCards} />
+    </div>
+  );
+}
+
+function EvidenceRelationshipSignalCard({ detail }) {
+  const relationship = detail.productRelationshipIntelligence || {};
+  if (!relationship.available) return null;
+  return (
+    <div className="ppEvidenceRelationshipSignalSlot">
+      <ProductRelationshipSignalCard detail={detail} relationship={relationship} />
     </div>
   );
 }

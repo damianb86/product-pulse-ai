@@ -10776,6 +10776,15 @@ s-page[inline-size="large-500"] {
   line-height: 1.55;
 }
 
+.ppEvidenceRelationshipSignalSlot {
+  max-width: 540px;
+  margin: 2px 0 4px;
+}
+
+.ppEvidenceRelationshipSignalSlot .ppProductRelationshipSignalCard {
+  min-height: 174px;
+}
+
 .ppEvidenceHeaderMeta {
   min-width: 86px;
   display: grid;

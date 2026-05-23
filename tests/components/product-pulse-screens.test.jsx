@@ -1479,16 +1479,19 @@ describe("ProductPulse screens", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
     const panel = container.querySelector(".ppProductRelationshipsPanel");
+    const evidencePanel = container.querySelector(".ppEvidenceObservabilityPanel");
 
     expect(riskSnapshot).toBeInTheDocument();
-    expect(within(riskSnapshot).getByText("Relationship signal")).toBeInTheDocument();
-    expect(within(riskSnapshot).getAllByText("1").length).toBeGreaterThanOrEqual(2);
-    expect(within(riskSnapshot).getByText("strong same-cart link")).toBeInTheDocument();
-    expect(within(riskSnapshot).getByText("after-purchase path")).toBeInTheDocument();
-    expect(within(riskSnapshot).getByText("Top related:")).toBeInTheDocument();
-    expect(within(riskSnapshot).queryByText("Nearby product relationships")).not.toBeInTheDocument();
-    expect(riskSnapshot.querySelector(".ppProductRelationshipSignalFooter")).not.toBeInTheDocument();
-    expect(riskSnapshot.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
+    expect(within(riskSnapshot).queryByText("Relationship signal")).not.toBeInTheDocument();
+    expect(evidencePanel).toBeInTheDocument();
+    expect(within(evidencePanel).getByText("Relationship signal")).toBeInTheDocument();
+    expect(within(evidencePanel).getAllByText("1").length).toBeGreaterThanOrEqual(2);
+    expect(within(evidencePanel).getByText("strong same-cart link")).toBeInTheDocument();
+    expect(within(evidencePanel).getByText("after-purchase path")).toBeInTheDocument();
+    expect(within(evidencePanel).getByText("Top related:")).toBeInTheDocument();
+    expect(within(evidencePanel).queryByText("Nearby product relationships")).not.toBeInTheDocument();
+    expect(evidencePanel.querySelector(".ppProductRelationshipSignalFooter")).not.toBeInTheDocument();
+    expect(evidencePanel.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
     expect(panel).toBeInTheDocument();
     expect(within(panel).queryByText("Relationship signal")).not.toBeInTheDocument();
     expect(panel.querySelector(".ppProductRelationshipSignalVisual img")).not.toBeInTheDocument();
