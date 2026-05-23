@@ -667,7 +667,7 @@ describe("ProductPulse screens", () => {
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
-    renderWithAction(
+    const { container } = renderWithAction(
       <ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />,
       async () => ({
         status: "success",
@@ -695,7 +695,19 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Returns over time")).toBeInTheDocument();
     expect(screen.getByText("Top return reasons")).toBeInTheDocument();
     expect(screen.getByText("Recent return notes")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View Full Report" })).toHaveAttribute("href", "/app/products/core-linen-trouser/evidence?source=Returns");
+    const returnsReport = container.querySelector(".ppShopifyReturnsReport");
+    const reasonNotesGrid = returnsReport.querySelector(".ppReturnsReasonNotesGrid");
+    expect(within(reasonNotesGrid).getByText("Top return reasons")).toBeInTheDocument();
+    expect(within(reasonNotesGrid).getByText("Recent return notes")).toBeInTheDocument();
+    expect(within(reasonNotesGrid).getByRole("columnheader", { name: "Note" })).toBeInTheDocument();
+    expect(within(reasonNotesGrid).getByRole("columnheader", { name: "Date" })).toBeInTheDocument();
+    expect(within(returnsReport).queryByText("Description words")).not.toBeInTheDocument();
+    expect(within(returnsReport).queryByText("Content quality")).not.toBeInTheDocument();
+    expect(within(returnsReport).queryByText("Product type")).not.toBeInTheDocument();
+    expect(within(returnsReport).queryByText("Vendor")).not.toBeInTheDocument();
+    expect(within(returnsReport).queryByText("View full report")).not.toBeInTheDocument();
+    expect(within(returnsReport).queryByText(/See technical evidence/)).not.toBeInTheDocument();
+    expect(within(returnsReport).getByRole("link", { name: "Open full report" })).toHaveAttribute("href", "/app/products/core-linen-trouser/evidence?source=Returns");
     fireEvent.click(screen.getByRole("tab", { name: "Reviews" }));
     expect(screen.getByText("Total reviews")).toBeInTheDocument();
     expect(screen.getByText("Negative reviews")).toBeInTheDocument();

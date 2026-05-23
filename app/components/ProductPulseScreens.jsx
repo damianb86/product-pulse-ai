@@ -14673,7 +14673,7 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
         <EvidenceSourceStatCard icon="target" label="Top reason" value={topReason.label} detail={topReason.detail || "Most frequent"} tone="violet" />
       </div>
 
-      <div className={`ppReturnsEvidenceGrid${relationship.available ? " ppReturnsEvidenceGrid-withRelationship" : ""}`}>
+      <div className={`ppReturnsEvidenceGrid ppReturnsEvidenceGrid-returnOverview${relationship.available ? " ppReturnsEvidenceGrid-withRelationship" : ""}`}>
         {relationship.available && (
           <ReturnRefundRelationshipVenn relationship={relationship} className="ppReturnRefundVennCard-evidence" />
         )}
@@ -14682,12 +14682,40 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
           <p>Cumulative return rate in scan window</p>
           <EvidenceReturnRateChart activity={metrics.monthlyOrderActivity} prediction={metrics.returnRatePrediction} returnRate={metrics.returnRate} />
         </section>
+      </div>
 
+      <div className="ppReturnsReasonNotesGrid">
         <section className="ppEvidenceReportSectionCard ppReturnsTopReasonsCard">
           <h4>Top return reasons</h4>
           <p>By return units</p>
           <EvidenceReasonBarList rows={topReasons} total={Number(metrics.returnUnits || 0)} />
-          <Link to={reportHref}>View all reasons <s-icon type="chevron-right" size="small"></s-icon></Link>
+        </section>
+
+        <section className="ppEvidenceReportSectionCard ppRecentReturnNotesCard">
+          <div className="ppEvidenceReportSectionHeaderRow">
+            <div>
+              <h4>Recent return notes</h4>
+              <p>Latest return notes captured</p>
+            </div>
+          </div>
+          <div className="ppRecentReturnNoteTableWrap">
+            <table className="ppRecentReturnNoteTable">
+              <thead>
+                <tr>
+                  <th>Note</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {returnExamples.map((example) => (
+                  <tr key={`${example.text}-${example.date}`}>
+                    <td>{renderAnalysisText(example.text)}</td>
+                    <td>{example.date || "No date stored"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
 
@@ -14696,39 +14724,10 @@ function ShopifyReturnsEvidencePanel({ source, product, reportHref }) {
         <EvidenceSourceStatCard icon="return" label="Return notes sentiment" value={returnSentimentLabel} detail={`${formatInteger(returnsSentiment.negative)} negative · ${formatInteger(returnsSentiment.neutral)} neutral · ${formatInteger(returnsSentiment.positive)} positive`} tone={returnSentimentTone} />
         <EvidenceSourceStatCard icon="note" label="Repeated language" value={formatInteger(repeatedLanguage.length)} detail={repeatedLanguage[0] ? `${quoteSourceText(repeatedLanguage[0].term)} (${formatInteger(repeatedLanguage[0].count)})` : "No repeated return language"} tone={repeatedLanguage.length ? "red" : "blue"} />
         <EvidenceSourceStatCard icon="lightbulb" label="Return insights" value={formatInteger(getReturnInsightCount(textInsights, source))} detail="Insight groups" tone="blue" />
-        <EvidenceSourceStatCard icon="product" label="Vendor" value={metrics.vendor || "Not stored"} detail={metrics.vendor || "Vendor not captured"} tone="blue" />
-        <EvidenceSourceStatCard icon="product" label="Product type" value={metrics.productType || "Not stored"} detail={metrics.productType || "Product type not captured"} tone="blue" />
-        <EvidenceSourceStatCard icon="note" label="Description words" value={formatInteger(metrics.descriptionWordCount || 0)} detail="In product description" tone="blue" />
-        <EvidenceSourceStatCard icon="shield-check-mark" label="Content quality" value={metrics.contentQualityScore ? `${metrics.contentQualityScore} / 100` : "Not scored"} detail="Content quality score" tone="blue" />
       </div>
 
-      <div className="ppReturnsBottomGrid">
-        <section className="ppEvidenceReportSectionCard ppRecentReturnNotesCard">
-          <div className="ppEvidenceReportSectionHeaderRow">
-            <div>
-              <h4>Recent return notes</h4>
-              <p>Latest return notes captured</p>
-            </div>
-            <Link to={reportHref}>View all notes <s-icon type="chevron-right" size="small"></s-icon></Link>
-          </div>
-          <div className="ppRecentReturnNoteList">
-            {returnExamples.map((example) => (
-              <div key={`${example.text}-${example.date}`}>
-                <span>{renderAnalysisText(example.text)}</span>
-                <small>{example.date}</small>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <Link aria-label="View Full Report" className="ppReturnsFullReportCard" to={reportHref}>
-          <span className="ppReturnsFullReportIcon" aria-hidden="true">
-            <s-icon type="chart-line" size="small"></s-icon>
-          </span>
-          <strong>View full report</strong>
-          <small>See technical evidence, detected issues and raw source data.</small>
-          <span>Open full report <s-icon type="chevron-right" size="small"></s-icon></span>
-        </Link>
+      <div className="ppEvidenceOpenFullReportFooter">
+        <Link to={reportHref}>Open full report <s-icon type="chevron-right" size="small"></s-icon></Link>
       </div>
     </div>
   );

@@ -11395,7 +11395,8 @@ s-page[inline-size="large-500"] {
 .ppEvidenceReportSectionCard p,
 .ppEvidenceSignalTable th,
 .ppEvidenceSignalTable td,
-.ppRecentReturnNoteList small {
+.ppRecentReturnNoteTable th,
+.ppRecentReturnNoteTable td:last-child {
   color: var(--pp-slate-500);
   font-size: 12px;
   font-weight: 720;
@@ -11802,9 +11803,20 @@ s-page[inline-size="large-500"] {
   gap: 14px;
 }
 
+.ppReturnsEvidenceGrid-returnOverview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .ppReturnsEvidenceGrid-withRelationship {
   grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
   align-items: stretch;
+}
+
+.ppReturnsReasonNotesGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.95fr);
+  gap: 14px;
+  align-items: start;
 }
 
 .ppReturnsOverTimeCard,
@@ -11920,25 +11932,61 @@ s-page[inline-size="large-500"] {
   gap: 14px;
 }
 
-.ppRecentReturnNoteList {
-  display: grid;
+.ppRecentReturnNoteTableWrap {
+  overflow-x: auto;
 }
 
-.ppRecentReturnNoteList > div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
+.ppRecentReturnNoteTable {
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.ppRecentReturnNoteTable th {
+  padding: 12px 0 10px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  text-align: left;
+}
+
+.ppRecentReturnNoteTable td {
   padding: 13px 0;
   border-bottom: 1px solid var(--pp-slate-200);
-}
-
-.ppRecentReturnNoteList span {
-  min-width: 0;
-  overflow: hidden;
   color: var(--pp-slate-700);
   font-size: 12px;
   font-weight: 760;
+  vertical-align: top;
+}
+
+.ppRecentReturnNoteTable td:first-child {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppRecentReturnNoteTable td:last-child,
+.ppRecentReturnNoteTable th:last-child {
+  width: 116px;
+  padding-left: 14px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ppEvidenceOpenFullReportFooter {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.ppEvidenceOpenFullReportFooter a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pp-pulse-blue);
+  font-size: 13px;
+  font-weight: 850;
+  text-decoration: none;
   white-space: nowrap;
 }
 
@@ -24680,6 +24728,7 @@ s-page[inline-size="large-500"] {
 
   .ppCustomerLanguageAnalysisGrid,
   .ppReturnsEvidenceGrid,
+  .ppReturnsReasonNotesGrid,
   .ppReturnsBottomGrid,
   .ppEvidenceThreeColumnGrid,
   .ppEvidenceTwoColumnGrid,
@@ -24784,6 +24833,7 @@ s-page[inline-size="large-500"] {
   .ppReturnsDetailMetricGrid,
   .ppCustomerLanguageAnalysisGrid,
   .ppReturnsEvidenceGrid,
+  .ppReturnsReasonNotesGrid,
   .ppReturnsBottomGrid,
   .ppEvidenceThreeColumnGrid,
   .ppEvidenceTwoColumnGrid,
@@ -24845,8 +24895,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppEvidenceThemeBars > div,
-  .ppEvidenceHorizontalBars > div > span,
-  .ppRecentReturnNoteList > div {
+  .ppEvidenceHorizontalBars > div > span {
     grid-template-columns: 1fr;
   }
 
