@@ -4292,6 +4292,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const topReasons = deterministic.metrics.topReturnReasons || [];
   const affectedVariants = deterministic.metrics.affectedVariants || [];
   const recipeSignals = getRecommendationRecipeSignals(deterministic);
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic);
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
   const pdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
@@ -4891,7 +4892,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const workflowTags = getRecommendedWorkflowTags({ mainIssue, deterministic });
-  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly) {
+  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !relationshipExpectationMode) {
     recommendations.push({
       id: "add-workflow-tags",
       label: "Add workflow tags",
@@ -5204,17 +5205,18 @@ function prioritizeRecommendationActions(actions = [], { deterministic = {}, mai
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
   const refundOperationalMode = isRefundDrivenOperationalDiagnosis(deterministic);
   const monitoringOnlyMode = isLowRiskMonitoringOnlyDiagnosis(deterministic);
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic);
   return [...actions]
     .map((action, index) => ({
       action,
       index,
-      score: getServerRecommendationPriorityScore(action, { sourceIntegrityMode, refundOperationalMode, monitoringOnlyMode, mainIssue }),
+      score: getServerRecommendationPriorityScore(action, { sourceIntegrityMode, refundOperationalMode, monitoringOnlyMode, relationshipExpectationMode, mainIssue }),
     }))
     .sort((first, second) => second.score - first.score || first.index - second.index)
     .map((item) => item.action);
 }
 
-function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false, monitoringOnlyMode = false, mainIssue = "" } = {}) {
+function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false, monitoringOnlyMode = false, relationshipExpectationMode = false, mainIssue = "" } = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   const normalizedMainIssue = normalizeIssueCode(mainIssue);
   let score = 0;
@@ -5237,6 +5239,12 @@ function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode
   if (refundOperationalMode) {
     if (/supplier|qa/.test(normalized)) score += 120;
     if (/pricing|price|compare-at/.test(normalized)) score -= 80;
+  }
+  if (relationshipExpectationMode) {
+    if (/description|pdp|quality-note|expectation/.test(normalized) && !/faq/.test(normalized)) score += 190;
+    if (/compatibility review|pairing/.test(normalized)) score += 50;
+    if (/cross-sell|journey|upgrade/.test(normalized)) score -= 45;
+    if (/status|inventory|template|metafield|tag|collection|media|alt text/.test(normalized)) score -= 85;
   }
   if (monitoringOnlyMode) {
     if (/watchlist|baseline/.test(normalized)) score += 160;
@@ -5315,6 +5323,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, sourceMismatchSignals);
   const purchaseContextSignals = getPurchaseContextRecommendationSignals(deterministic);
   const productRelationshipSignals = getProductRelationshipRecommendationSignals(deterministic);
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, productRelationshipSignals);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
   const missingSourceSignals = getMissingSourceSignals(deterministic);
   const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
@@ -5325,6 +5334,19 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     && affectedVariantCount > 0
     && ["fit_sizing", "quality_defect", "durability", "safety_concern"].includes(mainIssue);
   const hasPricingContext = valueSignals.length >= 2;
+  const stopSaleOperationalRisk = hasStopSaleOperationalRisk(deterministic);
+  const hasMissingMediaContext = contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "missing_media_context");
+  const missingAltOnlyMediaIssue = Number(metrics.mediaWithoutAltCount || 0) > 0
+    && Number(metrics.mediaCount || 0) > 0
+    && !hasMissingMediaContext
+    && mainIssue !== "color_expectation";
+  const shouldRecommendMedia = Boolean(!lowRiskMonitoringOnly && mediaIssue && (
+    mainIssue === "color_expectation"
+    || hasMissingMediaContext
+    || Number(metrics.mediaCount || 0) === 0
+    || (hasActionableEvidence && !relationshipExpectationMode && !missingAltOnlyMediaIssue)
+    || (missingAltOnlyMediaIssue && stopSaleOperationalRisk)
+  ));
 
   return {
     title: {
@@ -5374,19 +5396,21 @@ function getRecommendationRecipeSignals(deterministic = {}) {
         : "Price review requires explicit value or price perception evidence.",
     },
     status: {
-      shouldRecommend: Boolean(hasActionableEvidence && highRiskOperationalIssue && Number(deterministic.riskScore || 0) >= 75 && Number(deterministic.confidence || 0) >= 65),
-      reason: "Risk and confidence are both high for a potentially serious product-quality issue.",
+      shouldRecommend: Boolean(hasActionableEvidence && stopSaleOperationalRisk && Number(deterministic.riskScore || 0) >= 75 && Number(deterministic.confidence || 0) >= 65),
+      reason: mainIssue === "safety_concern"
+        ? "Risk and confidence are high for a safety concern, so sales should pause while the team reviews the issue."
+        : "Risk and confidence are high and the evidence points to an operational product defect, not only expectation or merchandising confusion.",
     },
     inventory: {
       shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && hasVariantConcentration && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
       reason: "The problem appears concentrated enough to consider holding a specific affected variant.",
     },
     collection: {
-      shouldRecommend: Boolean(hasActionableEvidence && Number(deterministic.riskScore || 0) >= 55),
+      shouldRecommend: Boolean(hasActionableEvidence && Number(deterministic.riskScore || 0) >= 55 && (!relationshipExpectationMode || stopSaleOperationalRisk)),
       reason: "The product should be grouped for internal review or quality workflow tracking.",
     },
     media: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && mediaIssue && (hasActionableEvidence || mainIssue === "color_expectation")),
+      shouldRecommend: shouldRecommendMedia,
       reason: Number(metrics.mediaWithoutAltCount || 0) > 0
         ? `${metrics.mediaWithoutAltCount} product media item${Number(metrics.mediaWithoutAltCount) === 1 ? "" : "s"} need clearer alt text.`
         : "Customer expectations may depend on images, scale, color, material or visual context.",
@@ -5404,11 +5428,11 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
     },
     structuredMetafields: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
       reason: "Structured product metadata can preserve warnings, QA status, SEO notes or risk flags for themes and reporting.",
     },
     template: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
       reason: "The product may need a richer template to display FAQ, specs or warning content beyond plain description text.",
     },
     sourceMismatch: {
@@ -5536,6 +5560,59 @@ function getProductRelationshipRecommendationSignals(deterministic = {}) {
       (title) => `Customers often buy ${title} before this product; review whether this product should be positioned as an upgrade, refill, replacement or next step.`,
     ),
   };
+}
+
+function isRelationshipExpectationMismatchDiagnosis(deterministic = {}, productRelationshipSignals = null) {
+  const metrics = deterministic.metrics || {};
+  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  const signals = productRelationshipSignals || getProductRelationshipRecommendationSignals(deterministic);
+  const compatibility = signals.compatibilityWarning || {};
+  const relationship = compatibility.relationship || {};
+  const deltaReturnRate = Number(relationship.deltaReturnRate ?? relationship.delta_return_rate ?? 0);
+  const deltaRefundRate = Number(relationship.deltaRefundRate ?? relationship.delta_refund_rate ?? 0);
+  const hasPairingRiskImpact = Boolean(compatibility.shouldRecommend && (deltaReturnRate > 0 || deltaRefundRate > 0));
+  if (!hasPairingRiskImpact) return false;
+
+  const contentIssues = [
+    ...(Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : []),
+  ];
+  const repeatedLanguage = [
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []),
+    ...(Array.isArray(metrics.textInsights?.reviews?.repeatedLanguage) ? metrics.textInsights.reviews.repeatedLanguage : []),
+    ...(Array.isArray(metrics.textInsights?.returns?.repeatedLanguage) ? metrics.textInsights.returns.repeatedLanguage : []),
+  ];
+  const text = [
+    mainIssue,
+    metrics.primaryIssue,
+    metrics.likelyCause,
+    compatibility.reason,
+    relationship.relatedProductTitle,
+    relationship.related_product_title,
+    ...(Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : []),
+    ...(Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails.map((item) => item.label || item.reason || "") : []),
+    ...contentIssues.map((issue) => `${issue.code || ""} ${issue.label || ""} ${issue.evidence || ""}`),
+    ...repeatedLanguage.map((item) => item.term || item.label || item.phrase || ""),
+    ...(Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets.map((item) => item.text || item.body || item.summary || "") : []),
+  ].map(String).join(" ");
+  const expectationLanguage = /\b(bundle|bought[ -]?together|pairing|companion|kit|expectation|expected|not as described|description|what.*receive|included|pack|confus|unclear)\b/i.test(text);
+  return expectationLanguage || (!hasStopSaleOperationalRisk(deterministic) && ["compatibility", "product_content", "product_quality", "quality_defect"].includes(mainIssue));
+}
+
+function hasStopSaleOperationalRisk(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  if (mainIssue === "safety_concern") return true;
+  if (!["quality_defect", "durability", "refund_impact"].includes(mainIssue)) return false;
+  if (!hasOperationalQualityTextSignals(deterministic)) return false;
+
+  const returnRefundUnits = Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0);
+  const highRates = Number(metrics.returnRate || 0) >= 25
+    || Number(metrics.refundRate || 0) >= 20
+    || Boolean(metrics.refundInsights?.highPressure);
+  return returnRefundUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    && (Number(deterministic.riskScore || 0) >= 70 || highRates);
 }
 
 function buildProductRelationshipRecommendationPayload(signal = {}, extra = {}) {
@@ -5783,6 +5860,7 @@ function getRecommendationEvidenceStrengthLabel(deterministic = {}, action = {})
 
 function getRecommendationVisibility(action = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.shopifyField || ""}`.toLowerCase();
+  if (/\b(pairing|compatibility review|bundle expectations)\b/.test(value)) return "Customer-facing";
   if (/\b(description|pdp|faq|title|seo|meta|handle|media|image|alt text|specs|details)\b/.test(value)) return "Customer-facing";
   if (/\b(status|price|compare-at|inventory|variant|supplier|qa|fulfillment|safety)\b/.test(value)) return "Operational";
   return "Internal";
@@ -5831,6 +5909,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   const id = String(action.id || "");
   const payload = action.payload || {};
   const metrics = deterministic.metrics || {};
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic);
   const primary = index === 0 ? "Primary customer-facing fix" : "Suggested action";
   const trigger = payload.trigger || action.reason || `ProductPulse found ${getHumanIssueLabel(mainIssue)} evidence.`;
   const common = {
@@ -5948,7 +6027,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       shopifyField: "ProductPulse merchandising workflow",
       expectedImpact: "Reduce avoidable returns from a product pairing that shows higher return or refund pressure.",
       applicationRisk: "Low",
-      priorityGroup: "High-impact product fix",
+      priorityGroup: "Customer-facing fix",
       impactLevel: "High impact",
       actionTier: 1,
     };
@@ -5970,11 +6049,13 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       ...common,
       proposedChange: `Review a post-purchase cross-sell or email flow that suggests ${payload.relatedProductTitle || "the related product"} after this product.`,
       shopifyField: "ProductPulse merchandising workflow",
-      expectedImpact: "Use a stable follow-on purchase pattern as a commercial opportunity.",
+      expectedImpact: relationshipExpectationMode
+        ? "Keep the follow-on purchase pattern as merchandising context until the pairing/expectation risk is handled."
+        : "Use a stable follow-on purchase pattern as a commercial opportunity.",
       applicationRisk: "Low",
-      priorityGroup: "Medium-impact catalog fix",
-      impactLevel: "Medium impact",
-      actionTier: 2,
+      priorityGroup: relationshipExpectationMode ? "Merchandising insight" : "Medium-impact catalog fix",
+      impactLevel: relationshipExpectationMode ? "Optional" : "Medium impact",
+      actionTier: relationshipExpectationMode ? 3 : 2,
     };
   }
   if (id === "position-as-upgrade-path") {
@@ -5982,11 +6063,13 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       ...common,
       proposedChange: `Review product copy or merchandising that positions this product as a next step after ${payload.relatedProductTitle || "the previous product"}.`,
       shopifyField: "ProductPulse merchandising workflow",
-      expectedImpact: "Clarify the customer journey when purchase sequence data shows an upgrade, refill, or next-step pattern.",
+      expectedImpact: relationshipExpectationMode
+        ? "Keep the previous-purchase sequence as journey context until the pairing/expectation risk is handled."
+        : "Clarify the customer journey when purchase sequence data shows an upgrade, refill, or next-step pattern.",
       applicationRisk: "Low",
-      priorityGroup: "Medium-impact catalog fix",
-      impactLevel: "Medium impact",
-      actionTier: 2,
+      priorityGroup: relationshipExpectationMode ? "Merchandising insight" : "Medium-impact catalog fix",
+      impactLevel: relationshipExpectationMode ? "Optional" : "Medium impact",
+      actionTier: relationshipExpectationMode ? 3 : 2,
     };
   }
   if (id === "correct-variant-options") {

@@ -3943,7 +3943,7 @@ function getResolvedAction(snapshot) {
     effort: "Low",
     status: "Ready",
     applyImmediately: true,
-    payload: { productGid: snapshot.productGid, resolvedAt: new Date().toISOString() },
+    payload: { productGid: snapshot.productGid, handle: snapshot.handle, resolvedAt: new Date().toISOString() },
   };
 }
 
@@ -3955,7 +3955,7 @@ function getUnresolvedAction(snapshot) {
     effort: "Low",
     status: "Ready",
     applyImmediately: true,
-    payload: { productGid: snapshot.productGid, unresolvedAt: new Date().toISOString() },
+    payload: { productGid: snapshot.productGid, handle: snapshot.handle, unresolvedAt: new Date().toISOString() },
   };
 }
 

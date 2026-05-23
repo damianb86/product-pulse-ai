@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, RouterProvider, useActionData } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import {
   AnalyticsScreen,
@@ -23,6 +23,65 @@ function renderWithRouter(element) {
 function renderWithAction(element, action) {
   const router = createMemoryRouter([{ path: "/", element, action }], { initialEntries: ["/"] });
   return render(<RouterProvider router={router} />);
+}
+
+function ProductsActionHarness({ data, filters }) {
+  const actionData = useActionData();
+  return <ProductsScreen data={data} filters={filters} actionData={actionData} />;
+}
+
+function ProductDiagnosisActionHarness({ data, product }) {
+  const actionData = useActionData();
+  return <ProductDiagnosisScreen data={data} product={product} actionData={actionData} />;
+}
+
+function makeTableProduct(overrides = {}) {
+  return {
+    title: "Resolve Linen Shirt",
+    variant: "shirt",
+    selected: false,
+    risk: "Medium",
+    riskTone: "warning",
+    riskScore: 64,
+    riskTrend: [52, 58, 64],
+    signals: 12,
+    signalTone: "orange",
+    signalBars: [12, 28, 42, 30, 10],
+    issue: "Fit & sizing",
+    sources: [
+      { key: "returns", label: "Returns", shortLabel: "RET", detail: "Shopify return units and return reasons." },
+    ],
+    sourceOverflow: 0,
+    lastAnalysis: "Just now",
+    lastAnalysisAt: "2026-05-23T12:00:00.000Z",
+    href: "/app/products/resolve-linen-shirt",
+    handle: "resolve-linen-shirt",
+    productGid: "gid://shopify/Product/resolve-1",
+    analysisDepth: "full",
+    analysisLabel: "Full diagnosis",
+    analysisDetail: "Deep AI product diagnosis completed.",
+    ...overrides,
+  };
+}
+
+function makeProductsData(row) {
+  return {
+    ...defaultView,
+    productTable: {
+      ...(defaultView.productTable || {}),
+      rows: [row],
+      total: 1,
+      totalAll: 1,
+      totalPages: 1,
+    },
+    candidateProductTable: {
+      ...(defaultView.candidateProductTable || {}),
+      rows: [],
+      total: 0,
+      totalAll: 0,
+      totalPages: 1,
+    },
+  };
 }
 
 function getSmoothPathEndpointYValues(path = "") {
@@ -151,6 +210,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("tab", { name: /Candidates/ })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: /Resolved/ })).toHaveAttribute("aria-selected", "false");
     expect(within(table).getByText("No full diagnostics yet")).toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
     expect(within(table).queryByText("Credits")).not.toBeInTheDocument();
     expect(screen.queryByTestId("products-candidates-table")).not.toBeInTheDocument();
     expect(screen.queryByTestId("products-resolved-table")).not.toBeInTheDocument();
@@ -165,6 +225,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("tab", { name: /Candidates/ }));
     const candidatesTable = screen.getByTestId("products-candidates-table");
     expect(screen.queryByTestId("products-table")).not.toBeInTheDocument();
+    expect(within(candidatesTable).queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
     expect(within(candidatesTable).getByText("No candidates yet")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /Resolved/ }));
@@ -174,10 +235,16 @@ describe("ProductPulse screens", () => {
     expect(within(resolvedTable).getByText("Resolved May 23")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /Full diagnostics/ }));
+    expect(screen.queryByRole("link", { name: "Clear filters" })).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Find Shopify product" })[0]);
     expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
     expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
+  });
+
+  it("shows clear filters only when product filters are active", () => {
+    renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "high" }} />);
+    expect(screen.getByRole("link", { name: "Clear filters" })).toHaveAttribute("href", "/app/products");
   });
 
   it("renders the watchlist and opens the add watched product modal", () => {
@@ -664,7 +731,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Refunds")).toBeInTheDocument();
     expect(screen.getByText("Shopify product metadata.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Linen Shirt" }));
-    expect(screen.getByRole("button", { name: "Analyze selected (1)" })).toBeEnabled();
+    const analyzeSelectedButton = screen.getByRole("button", { name: "Analyze selected (1)" });
+    expect(analyzeSelectedButton).toBeEnabled();
+    expect(analyzeSelectedButton).toHaveClass("ppAnalyzeLinkButton-primary");
     fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
     expect(screen.getByRole("menuitem", { name: /View diagnostics/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByRole("menuitem", { name: "Copy handle" })).toBeInTheDocument();
@@ -716,6 +785,45 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
     fireEvent.click(screen.getByRole("button", { name: "More actions for Watched Linen Shirt" }));
     expect(screen.getByRole("menuitem", { name: "Remove from Watchlist" })).toBeInTheDocument();
+  });
+
+  it("submits product row resolution actions and reflects the resolved state", async () => {
+    const product = makeTableProduct();
+    const data = makeProductsData(product);
+    let submittedAction = null;
+    let submittedProductId = null;
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      submittedAction = String(formData.get("_action") || "");
+      submittedProductId = String(formData.get("productId") || "");
+      return {
+        status: "success",
+        message: "Resolve Linen Shirt was marked as resolved.",
+        action: {
+          id: submittedAction,
+          payload: {
+            productGid: submittedProductId,
+            resolvedAt: "2026-05-23T12:00:00.000Z",
+          },
+        },
+      };
+    });
+
+    renderWithAction(<ProductsActionHarness data={data} filters={{ query: "", risk: "all" }} />, action);
+    const table = screen.getByTestId("products-table");
+    expect(within(table).queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Resolve Linen Shirt" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as resolved" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(submittedAction).toBe("mark-resolved");
+    expect(submittedProductId).toBe(product.productGid);
+    await waitFor(() => expect(screen.getByText("Resolved just now")).toBeInTheDocument());
+    expect(screen.getByText("Resolved just now").closest("tr")).toHaveClass("isResolved");
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Resolve Linen Shirt" }));
+    expect(screen.getByRole("menuitem", { name: "Mark unresolved" })).toBeInTheDocument();
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
@@ -845,6 +953,45 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
     expect(screen.getByRole("menuitem", { name: "View in Store" })).toHaveAttribute("href", product.shopifyStorefrontUrl);
     expect(screen.queryByRole("menuitem", { name: "Open in Shopify admin" })).not.toBeInTheDocument();
+  });
+
+  it("marks a product resolved from the detail actions menu", async () => {
+    const product = {
+      ...defaultView.startHere,
+      resolvedAt: null,
+    };
+    let submittedAction = null;
+    let submittedProductId = null;
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      submittedAction = String(formData.get("_action") || "");
+      submittedProductId = String(formData.get("productId") || "");
+      return {
+        status: "success",
+        message: "Core Linen Trouser was marked as resolved.",
+        action: {
+          id: submittedAction,
+          payload: {
+            productGid: submittedProductId,
+            resolvedAt: "2026-05-23T12:00:00.000Z",
+          },
+        },
+      };
+    });
+
+    renderWithAction(<ProductDiagnosisActionHarness data={defaultView} product={product} />, action);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as resolved" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(submittedAction).toBe("mark-resolved");
+    expect(submittedProductId).toBe(product.id);
+
+    const titleHeading = screen.getByRole("heading", { name: "Core Linen Trouser" }).closest(".ppProductTitleHeading");
+    await waitFor(() => expect(within(titleHeading).getByText("Resolved")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
+    expect(screen.getByRole("menuitem", { name: "Mark unresolved" })).toBeInTheDocument();
   });
 
   it("restores a dismissed recommended action from the action modal", async () => {
@@ -2190,6 +2337,104 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Reversibility")).toBeInTheDocument();
     expect(screen.getByText("Reason")).toBeInTheDocument();
     expect(screen.getByText("Benefit")).toBeInTheDocument();
+  });
+
+  it("prioritizes pairing expectation copy before relationship evidence review", () => {
+    const product = {
+      ...defaultView.startHere,
+      title: "GEN RELTEST Source Product",
+      primaryIssue: "Product quality (expectations mismatch in bought-together context)",
+      metrics: {
+        ...defaultView.startHere.metrics,
+        returnUnits: 3,
+        refundUnits: 2,
+        negativeReviewCount: 12,
+        contentAnalysis: {
+          issues: [
+            { code: "missing_customer_guidance", label: "Missing shopper guidance for bundle expectations", evidence: "The PDP does not explain what belongs together." },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          top_bought_together: [{
+            related_product_title: "GEN RELTEST Bought Together Product",
+            delta_return_rate: 37.5,
+            delta_refund_rate: 25,
+          }],
+        },
+      },
+      recommendedActions: [
+        {
+          id: "review-product-pairing-expectations",
+          label: "Review pairing expectations",
+          type: "Compatibility review",
+          effort: "Medium",
+          status: "Ready",
+          payload: {
+            recommendationKind: "compatibility_warning",
+            relatedProductTitle: "GEN RELTEST Bought Together Product",
+            relationshipType: "same_order",
+            deltaReturnRate: 37.5,
+            deltaRefundRate: 25,
+            impact: "High",
+            visibility: "Customer-facing",
+            confidence: "High",
+            evidenceStrength: "Strong",
+            applicationRisk: "Low",
+            actionTier: 1,
+          },
+        },
+        {
+          id: "rewrite-product-description",
+          label: "Update product description",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: "Add bought-together expectations, Pack differences, and what the customer receives before checkout.",
+            operation: "prepend",
+            impact: "High",
+            visibility: "Customer-facing",
+            confidence: "High",
+            evidenceStrength: "Strong",
+            applicationRisk: "Low",
+            actionTier: 1,
+          },
+        },
+        {
+          id: "create-product-faq",
+          label: "Create product FAQ",
+          type: "FAQ",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            faqItems: [{ question: "What happens when I buy this with the companion product?", answer: "Check what belongs to each product and which Pack was selected." }],
+            impact: "High",
+            visibility: "Customer-facing",
+            confidence: "High",
+            evidenceStrength: "Strong",
+            applicationRisk: "Low",
+            actionTier: 1,
+          },
+        },
+      ],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    const actionButtons = screen.getAllByRole("button", { name: /Open recommended action/ });
+    expect(actionButtons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Open recommended action Update product description",
+      "Open recommended action Review pairing expectations",
+      "Open recommended action Create product FAQ",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Review pairing expectations" }));
+    const dialog = screen.getByRole("dialog", { name: "Review pairing expectations" });
+    expect(within(dialog).getByText("Recommended copy direction")).toBeInTheDocument();
+    expect(within(dialog).getByText(/what the customer receives with this product/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Compare return\/refund pressure when bought together versus when bought alone/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Review relationship evidence/ })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/QA or supplier escalation/)).not.toBeInTheDocument();
   });
 
   it("renames description rewrites that only append copy and explains why", () => {

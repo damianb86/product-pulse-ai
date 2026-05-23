@@ -1,6 +1,4 @@
-import { useEffect } from "react";
 import { useActionData, useLoaderData } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import { DashboardScreen } from "../components/ProductPulseScreens";
 import { getAppViewData, runCatalogSignalScan } from "../lib/product-pulse-data";
@@ -35,13 +33,6 @@ export const action = async ({ request }) => {
 export default function Index() {
   const data = useLoaderData();
   const actionData = useActionData();
-  const shopify = useAppBridge();
-
-  useEffect(() => {
-    if (actionData?.status === "success" && !actionData.suppressBanner) {
-      shopify.toast.show(actionData.message);
-    }
-  }, [actionData, shopify]);
 
   return <DashboardScreen data={data} actionData={actionData} />;
 }

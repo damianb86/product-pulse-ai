@@ -2840,6 +2840,166 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(lowConfidence.map((item) => item.id)).not.toContain("review-product-pairing-expectations");
   });
 
+  it("keeps relationship expectation fixes ahead of catalog hygiene and stop-sale actions", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 100,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Not as described: bought-together bundle context made the source product look like a different kit." },
+        { text: "The source page did not explain what belonged together in the companion-product order." },
+      ],
+      issueSignalCounts: { quality_defect: 8, product_content: 6 },
+      product: {
+        title: "GEN RELTEST Source Product",
+        description: "RELTEST source product used to test bought-together relationships.",
+        status: "ACTIVE",
+        templateSuffix: "",
+        media: [{ id: "gid://shopify/MediaImage/source", alt: "" }],
+        variants: [
+          { id: "gid://shopify/ProductVariant/std", title: "Standard", sku: "GEN-RELTEST-SRC-STD" },
+          { id: "gid://shopify/ProductVariant/ext", title: "Extended", sku: "GEN-RELTEST-SRC-EXT" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 19,
+        signalCount: 25,
+        returnUnits: 3,
+        refundUnits: 2,
+        returnRate: 15.79,
+        refundRate: 10.53,
+        negativeReviewCount: 12,
+        reviewCount: 12,
+        avgRating: 3.7,
+        contentIssueCount: 6,
+        specsBlockRecommended: true,
+        templateNeedsReview: true,
+        mediaCount: 1,
+        mediaWithoutAltCount: 1,
+        topReturnReasons: ["Item Not As Described"],
+        affectedVariants: ["Standard", "Extended"],
+        refundInsights: { shouldSurface: true, highPressure: false },
+        faqNeed: {
+          shouldRecommend: true,
+          score: 8,
+          signals: 6,
+          topics: ["Bundle expectations"],
+          reasons: ["Bundle and bought-together expectations repeat across returns and reviews."],
+        },
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short product description", severity: "high", evidence: "The description is testing copy, not shopper guidance." },
+            { code: "missing_customer_guidance", label: "Missing shopper guidance for bundle/bought-together expectations", severity: "high", evidence: "The page does not explain what belongs together." },
+            { code: "missing_specifications", label: "Missing specifications", severity: "high", evidence: "Pack differences are not explained." },
+          ],
+          advisories: [{ code: "missing_media_alt_text", label: "Media alt text could be improved", severity: "low" }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "bundle", count: 8 },
+            { term: "bought together", count: 6 },
+            { term: "unclear", count: 5 },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 14 },
+          confidence: { score: 89.5, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            compatibilityWarningRelationship: {
+              relatedProductId: "gid://shopify/Product/together",
+              relatedProductTitle: "GEN RELTEST Bought Together Product",
+              relationshipType: "same_order",
+              direction: "together",
+              timeWindow: "same_order",
+              lift: 6.86,
+              confidence: 69,
+              sampleSize: 6,
+              deltaReturnRate: 37.5,
+              deltaRefundRate: 25,
+              relationshipStrength: "very_strong",
+            },
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/after",
+              relatedProductTitle: "GEN RELTEST Bought After Product",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "30d_after",
+              lift: 1.7,
+              confidence: 70,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/before",
+              relatedProductTitle: "GEN RELTEST Bought Before Product",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "30d_before",
+              lift: 1.7,
+              confidence: 70,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/reltest-source",
+        productTitle: "GEN RELTEST Source Product",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Clarify bought-together expectations and Pack differences before checkout.",
+            faq_items: [{
+              question: "What should I expect when buying this with the companion product?",
+              answer: "Check what belongs to the source product, what belongs to the companion item, and which Pack was selected before purchase.",
+            }],
+          },
+        },
+      },
+    });
+    const ids = recommendations.map((item) => item.id);
+    const byId = new Map(recommendations.map((item) => [item.id, item]));
+
+    expect(ids).toEqual(expect.arrayContaining([
+      "draft-quality-note",
+      "review-product-pairing-expectations",
+      "create-post-purchase-cross-sell",
+      "position-as-upgrade-path",
+    ]));
+    expect(ids).not.toContain("set-product-draft");
+    expect(ids).not.toContain("improve-product-media");
+    expect(ids).not.toContain("switch-product-template");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("move-to-review-collection");
+    expect(ids).not.toContain("add-workflow-tags");
+    expect(byId.get("review-product-pairing-expectations")?.payload).toMatchObject({
+      actionTier: 1,
+      priorityGroup: "Customer-facing fix",
+      relatedProductTitle: "GEN RELTEST Bought Together Product",
+      deltaReturnRate: 37.5,
+      deltaRefundRate: 25,
+    });
+    expect(byId.get("create-post-purchase-cross-sell")?.payload).toMatchObject({
+      actionTier: 3,
+      impactLevel: "Optional",
+      priorityGroup: "Merchandising insight",
+    });
+    expect(byId.get("position-as-upgrade-path")?.payload).toMatchObject({
+      actionTier: 3,
+      impactLevel: "Optional",
+      priorityGroup: "Merchandising insight",
+    });
+  });
+
   it("builds specs details blocks as technical placeholders instead of catalog metadata", () => {
     const deterministic = {
       mainIssue: "quality_defect",
