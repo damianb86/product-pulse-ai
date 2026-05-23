@@ -21171,7 +21171,7 @@ function RecommendedActionMiniDock({
         </div>
         <div className="ppRecommendedActionMiniWindowActions">
           <button className="ppModalCloseButton" type="button" aria-label="Maximize recommended action" onClick={onMaximize}>
-            <s-icon type="external" size="small"></s-icon>
+            <span className="ppRecommendedActionMaximizeIcon" aria-hidden="true"></span>
           </button>
           <button className="ppModalCloseButton" type="button" aria-label="Close recommended action" onClick={onClose}>
             <s-icon type="x" size="small"></s-icon>
@@ -21215,9 +21215,9 @@ function RecommendedActionMiniDock({
 
 function getRecommendedActionMiniDockSummary(action = {}, application = {}, product = {}, actionKind = "applyable") {
   const narrative = getRecommendedActionWhyNarrative(action, product);
-  if (narrative) return truncateText(narrative, 168);
-  if (actionKind === "investigation") return truncateText(getInvestigationFollowupText(action, application, product), 168);
-  return truncateText(getRecommendedActionModalSubtitle(application, actionKind), 168);
+  if (narrative) return narrative;
+  if (actionKind === "investigation") return getInvestigationFollowupText(action, application, product);
+  return getRecommendedActionModalSubtitle(application, actionKind);
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onRestoreDismiss, onMarkReviewed, onAddInvestigationTag, onCollapse, showHeader = true, actionKind: forcedActionKind = "" }) {

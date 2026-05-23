@@ -17236,7 +17236,7 @@ s-page[inline-size="large-500"] {
 .ppRecommendedActionModalHeader .ppProductActionIcon s-icon {
   color: currentColor;
   filter: none;
-  transform: scale(1.1);
+  transform: scale(1.85);
 }
 
 .ppRecommendedActionModalHeader .ppProductActionIconFallback {
@@ -17720,7 +17720,7 @@ s-page[inline-size="large-500"] {
   z-index: 90;
   width: min(640px, calc(100vw - 30px));
   display: grid;
-  gap: 10px;
+  gap: 12px;
   padding: 16px 18px 14px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
@@ -17732,10 +17732,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionMiniHeader {
+  position: relative;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
+  padding-right: 76px;
 }
 
 .ppRecommendedActionMiniHeader .ppProductActionIcon {
@@ -17753,7 +17755,7 @@ s-page[inline-size="large-500"] {
 .ppRecommendedActionMiniHeader .ppProductActionIcon s-icon {
   color: currentColor;
   filter: none;
-  transform: scale(1.08);
+  transform: scale(1.85);
 }
 
 .ppRecommendedActionMiniHeader .ppProductActionIconFallback {
@@ -17770,11 +17772,13 @@ s-page[inline-size="large-500"] {
 
 .ppRecommendedActionMiniHeader > div:nth-child(2) {
   min-width: 0;
-  display: grid;
-  gap: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .ppRecommendedActionMiniHeader .ppRecommendedActionModalTitle {
+  order: 2;
   overflow: hidden;
   font-size: 19px;
   line-height: 1.1;
@@ -17782,19 +17786,25 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
+.ppRecommendedActionMiniHeader .ppRecommendedActionModalKicker {
+  order: 1;
+}
+
 .ppRecommendedActionMiniHeader p {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+  order: 3;
+  display: block;
+  overflow: visible;
   margin: 0;
   color: var(--pp-slate-600);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 560;
-  line-height: 1.38;
+  line-height: 1.34;
 }
 
 .ppRecommendedActionMiniWindowActions {
+  position: absolute;
+  top: 0;
+  right: 0;
   display: inline-flex;
   gap: 6px;
   align-items: center;
@@ -17805,10 +17815,42 @@ s-page[inline-size="large-500"] {
   height: 30px;
 }
 
+.ppRecommendedActionMaximizeIcon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+}
+
+.ppRecommendedActionMaximizeIcon::before,
+.ppRecommendedActionMaximizeIcon::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-color: currentColor;
+  border-style: solid;
+}
+
+.ppRecommendedActionMaximizeIcon::before {
+  top: 0;
+  right: 0;
+  border-width: 2px 2px 0 0;
+}
+
+.ppRecommendedActionMaximizeIcon::after {
+  bottom: 0;
+  left: 0;
+  border-width: 0 0 2px 2px;
+}
+
 .ppRecommendedActionMiniFooter {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 10px;
+  padding: 10px 0 0;
   border-top: 1px solid var(--pp-slate-200);
 }
 
@@ -17821,6 +17863,8 @@ s-page[inline-size="large-500"] {
   padding: 8px 13px;
   border-radius: 8px;
   font-size: 12px;
+  flex: 0 0 auto;
+  max-width: none;
 }
 
 .ppRecommendedActionMiniFooter .ppActionCtaButton {
