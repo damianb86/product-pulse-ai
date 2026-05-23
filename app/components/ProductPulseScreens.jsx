@@ -5111,6 +5111,8 @@ function normalizeProductMomentum(momentum = null) {
       ordersLast30Days: Number(inputs.ordersLast30Days || 0),
       weeklyUnitsLast4Weeks: Array.isArray(inputs.weeklyUnitsLast4Weeks) ? inputs.weeklyUnitsLast4Weeks.map((value) => Number(value || 0)) : [],
       weeklyRevenueLast4Weeks: Array.isArray(inputs.weeklyRevenueLast4Weeks) ? inputs.weeklyRevenueLast4Weeks.map((value) => Number(value || 0)) : [],
+      weeklyUnitsLast8Weeks: Array.isArray(inputs.weeklyUnitsLast8Weeks) ? inputs.weeklyUnitsLast8Weeks.map((value) => Number(value || 0)) : [],
+      weeklyRevenueLast8Weeks: Array.isArray(inputs.weeklyRevenueLast8Weeks) ? inputs.weeklyRevenueLast8Weeks.map((value) => Number(value || 0)) : [],
       lastSaleAt: inputs.lastSaleAt || null,
     },
     catalog: {
@@ -5652,7 +5654,11 @@ function getProductDetailInsightCards(detail = {}) {
     },
     {
       title: "Product Momentum",
-      meta: detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks?.length ? "Last 4 weekly units" : "Commercial trend",
+      meta: detail.productMomentum?.inputs?.weeklyUnitsLast8Weeks?.length
+        ? "Last 8 weekly units"
+        : detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks?.length
+          ? "Last 4 weekly units"
+          : "Commercial trend",
       value: detail.productMomentum ? detail.productMomentum.tier : "Needs diagnosis",
       detail: detail.productMomentum ? `${formatInteger(momentumScore)} / 100` : "Momentum unavailable",
       footnote: detail.productMomentum
@@ -5808,8 +5814,14 @@ function getAverageRatingCardData(detail = {}) {
 }
 
 function getProductMomentumInsightSeries(detail = {}, history = [], fallbackScore = 0) {
+  const extendedWeeklyUnits = getMomentumWeeklySeries(detail.productMomentum?.inputs?.weeklyUnitsLast8Weeks);
+  if (extendedWeeklyUnits.length >= 2) return extendedWeeklyUnits;
+
   const weeklyUnits = getMomentumWeeklySeries(detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks);
   if (weeklyUnits.length >= 2) return weeklyUnits;
+
+  const extendedWeeklyRevenue = getMomentumWeeklySeries(detail.productMomentum?.inputs?.weeklyRevenueLast8Weeks);
+  if (extendedWeeklyRevenue.length >= 2) return extendedWeeklyRevenue;
 
   const weeklyRevenue = getMomentumWeeklySeries(detail.productMomentum?.inputs?.weeklyRevenueLast4Weeks);
   if (weeklyRevenue.length >= 2) return weeklyRevenue;
@@ -15084,7 +15096,7 @@ function getInsightMetricHelp(title) {
       return {
         what: "Shows the product's commercial strength from sales velocity, growth, catalog share, trend consistency and recent activity.",
         why: "It separates commercial traction from quality risk, so a strong seller with quality issues is easier to spot.",
-        graph: "Read it left to right. When weekly sales are available, the graph uses the last 4 weekly unit counts, so a spike at the end means recent demand just accelerated.",
+        graph: "Read it left to right. When weekly sales are available, the graph uses the longer weekly unit series, so a spike at the end means recent demand just accelerated.",
       };
     case "Diagnosis confidence":
       return {
@@ -20142,7 +20154,7 @@ function RecommendedActionReviewBody({
 
   return (
     <div className="ppProductActionBody ppActionReviewBody">
-      <RecommendedActionReviewSection icon="edit" title="Proposed change">
+      <RecommendedActionReviewSection icon="edit" title="Proposed changes">
         <p className="ppActionSectionLead">{application.intro}</p>
         {unresolvedPlaceholders.length > 0 && (
           <PlaceholderReviewNotice placeholders={unresolvedPlaceholders} />

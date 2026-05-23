@@ -1104,6 +1104,7 @@ describe("ProductPulse screens", () => {
             unitsPrevious30Days: 25,
             revenueLast30Days: 3240,
             weeklyUnitsLast4Weeks: [4, 8, 12, 18],
+            weeklyUnitsLast8Weeks: [2, 3, 4, 6, 8, 12, 15, 18],
           },
           catalog: {
             topCatalogPercent: 12,
@@ -1126,6 +1127,8 @@ describe("ProductPulse screens", () => {
     const basketPanelIndex = sidebarPanels.findIndex((element) => element.classList.contains("ppBasketContextPanel"));
     const gauge = panel.querySelector(".ppProductMomentumGauge");
     const weeklyChart = panel.querySelector(".ppProductMomentumWeeklyChart");
+    const momentumCard = Array.from(container.querySelectorAll(".ppProductInsight-withArea"))
+      .find((card) => card.textContent.includes("Product Momentum"));
 
     expect(screen.getAllByText("Product Momentum").length).toBeGreaterThan(0);
     expect(sidebar).toBeInTheDocument();
@@ -1139,6 +1142,7 @@ describe("ProductPulse screens", () => {
     expect(gauge.querySelector(".ppProductMomentumNeedle")).toBeInTheDocument();
     expect(weeklyChart).toBeInTheDocument();
     expect(within(weeklyChart).getByText("Units sold")).toBeInTheDocument();
+    expect(weeklyChart).toHaveAttribute("aria-label", expect.stringContaining("Last 4 weekly units"));
     ["W-3", "W-2", "W-1", "Now"].forEach((label) => {
       expect(within(weeklyChart).getByText(label)).toBeInTheDocument();
     });
@@ -1150,6 +1154,7 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("Commercial signal")).toBeInTheDocument();
     expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
     expect(within(panel).getByText("Sales increasing over the last 4 weeks")).toBeInTheDocument();
+    expect(within(momentumCard).getByText("Last 8 weekly units")).toBeInTheDocument();
     ["0", "25", "50", "75", "100"].forEach((label) => {
       expect(within(gauge).getByText(label)).toBeInTheDocument();
     });

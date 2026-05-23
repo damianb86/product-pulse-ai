@@ -11894,9 +11894,12 @@ export function buildProductMomentum({
   const last30 = sumSalesInWindow(safeSales, currentDate, 30);
   const previous30 = sumSalesBetween(safeSales, addUtcDays(currentDate, -60), addUtcDays(currentDate, -30));
   const previous90 = sumSalesBetween(safeSales, addUtcDays(currentDate, -120), addUtcDays(currentDate, -30));
-  const weeklyBuckets = buildProductMomentumWeeklyBuckets(safeSales, currentDate);
+  const weeklyBuckets = buildProductMomentumWeeklyBuckets(safeSales, currentDate, 4);
+  const extendedWeeklyBuckets = buildProductMomentumWeeklyBuckets(safeSales, currentDate, 8);
   const weeklyUnits = weeklyBuckets.map((bucket) => bucket.units);
   const weeklyRevenue = weeklyBuckets.map((bucket) => roundCurrency(bucket.revenue));
+  const extendedWeeklyUnits = extendedWeeklyBuckets.map((bucket) => bucket.units);
+  const extendedWeeklyRevenue = extendedWeeklyBuckets.map((bucket) => roundCurrency(bucket.revenue));
   const catalog = catalogBaseline || {};
   const unitsDistribution = Array.isArray(catalog.unitsLast30Distribution) ? catalog.unitsLast30Distribution : [];
   const revenueDistribution = Array.isArray(catalog.revenueLast30Distribution) ? catalog.revenueLast30Distribution : [];
@@ -12032,6 +12035,8 @@ export function buildProductMomentum({
       uniqueCustomersLast30Days: null,
       weeklyUnitsLast4Weeks: weeklyUnits,
       weeklyRevenueLast4Weeks: weeklyRevenue,
+      weeklyUnitsLast8Weeks: extendedWeeklyUnits,
+      weeklyRevenueLast8Weeks: extendedWeeklyRevenue,
       lastSaleAt: getLatestEventDate(safeSales),
     },
     catalog: {
@@ -12157,9 +12162,10 @@ function sumSalesBetween(sales = [], startDate, endDate) {
   };
 }
 
-function buildProductMomentumWeeklyBuckets(sales = [], currentDate = new Date()) {
-  const startDate = addUtcDays(startOfUtcWeek(currentDate), -21);
-  const buckets = new Map(Array.from({ length: 4 }, (_, index) => {
+function buildProductMomentumWeeklyBuckets(sales = [], currentDate = new Date(), weekCount = 4) {
+  const bucketCount = Math.max(1, Math.round(Number(weekCount || 4)));
+  const startDate = addUtcDays(startOfUtcWeek(currentDate), -7 * (bucketCount - 1));
+  const buckets = new Map(Array.from({ length: bucketCount }, (_, index) => {
     const date = addUtcDays(startDate, index * 7);
     return [formatUtcDateKey(date), { key: formatUtcDateKey(date), units: 0, revenue: 0 }];
   }));

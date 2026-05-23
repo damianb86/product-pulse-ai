@@ -3295,6 +3295,9 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(momentum.inputs.unitsLast30Days).toBe(26);
     expect(momentum.inputs.ordersLast30Days).toBe(4);
     expect(momentum.inputs.weeklyUnitsLast4Weeks).toHaveLength(4);
+    expect(momentum.inputs.weeklyUnitsLast8Weeks).toHaveLength(8);
+    expect(momentum.inputs.weeklyRevenueLast8Weeks).toHaveLength(8);
+    expect(momentum.inputs.weeklyUnitsLast8Weeks.slice(-4)).toEqual(momentum.inputs.weeklyUnitsLast4Weeks);
     expect(momentum.display.catalogPositionLabel).toMatch(/Top|baseline/);
     expect(momentum.confidence).toBeGreaterThan(50);
   });
