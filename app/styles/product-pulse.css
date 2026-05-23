@@ -20570,6 +20570,81 @@ s-page[inline-size="large-500"] {
   flex-wrap: wrap;
 }
 
+
+.ppProductsTabbedTableGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ppProductsTableTabsCard {
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.45));
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04), 0 8px 22px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppProductsTableTabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  min-height: 64px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppProductsTableTab {
+  min-width: min(270px, 33.333%);
+  min-height: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 24px;
+  border: 0;
+  border-right: 1px solid var(--pp-slate-200);
+  border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0;
+  background: rgba(var(--pp-slate-100-rgb), 0.45);
+  color: var(--pp-slate-600);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ppProductsTableTab:hover,
+.ppProductsTableTab:focus-visible {
+  color: var(--pp-pulse-blue);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.04);
+  outline: 0;
+}
+
+.ppProductsTableTab.isActive {
+  border-bottom-color: var(--pp-pulse-blue);
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 -1px 0 var(--pp-cloud-white) inset, 0 8px 22px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppProductsTableTabIcon {
+  display: inline-grid;
+  place-items: center;
+  color: currentColor;
+}
+
+.ppProductsTableTab strong {
+  color: currentColor;
+  font-weight: 850;
+}
+
+.ppProductsTabbedTableGroup > .ppProductsTableSection {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
 .ppShopifyProductSearchButton {
   min-height: 38px;
   color: var(--pp-pulse-blue);
@@ -26134,6 +26209,7 @@ s-page[inline-size="large-500"] {
   .ppProductsToolbar,
   .ppProductsFilters,
   .ppProductsSelectFilters,
+  .ppProductsTableTabs,
   .ppSettingsMockDatasetGrid,
   .ppSettingsMockDatasetActions,
   .ppSettingsMockDatasetMeta,
@@ -26330,6 +26406,13 @@ s-page[inline-size="large-500"] {
   .ppProductsHeader {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .ppProductsTableTab {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    padding: 0 16px;
   }
 
   .ppProductsHeaderActions {

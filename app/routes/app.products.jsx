@@ -21,14 +21,17 @@ export const loader = async ({ request }) => {
   const settings = await getProductPulseSettings(session.shop);
   const mainFilters = parseProductTableFilters(url.searchParams);
   const candidateFilters = parseProductTableFilters(url.searchParams, "candidate");
+  const resolvedFilters = parseProductTableFilters(url.searchParams, "resolved");
   const filters = {
     ...mainFilters,
     candidates: candidateFilters,
+    resolved: resolvedFilters,
   };
 
-  const [productTable, candidateProductTable, quickScanCsvReviews] = await Promise.all([
+  const [productTable, candidateProductTable, resolvedProductTable, quickScanCsvReviews] = await Promise.all([
     getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full" }, { settings }),
     getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan" }, { settings }),
+    getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", status: "resolved" }, { settings }),
     getCsvReviewSourceStatusForShop(session.shop),
   ]);
 
@@ -37,6 +40,7 @@ export const loader = async ({ request }) => {
       ...getAppViewData(filters),
       productTable,
       candidateProductTable,
+      resolvedProductTable,
       quickScanCsvReviews,
       persistProductJobs: true,
     },

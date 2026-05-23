@@ -513,28 +513,50 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
+  const [activeProductsTab, setActiveProductsTab] = useState(() => {
+    if (hasActiveProductTableFilters(filters.resolved)) return "resolved";
+    if (hasActiveProductTableFilters(filters.candidates)) return "candidates";
+    return "full";
+  });
   const productTableRows = data.productTable?.rows;
   const candidateTableRows = data.candidateProductTable?.rows;
+  const resolvedTableRows = data.resolvedProductTable?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const candidateRows = useMemo(() => candidateTableRows || [], [candidateTableRows]);
-  const allVisibleRows = useMemo(() => [...productRows, ...candidateRows], [productRows, candidateRows]);
+  const resolvedRows = useMemo(() => resolvedTableRows || [], [resolvedTableRows]);
+  const allVisibleRows = useMemo(() => {
+    const rowsByKey = new Map();
+    [...productRows, ...candidateRows, ...resolvedRows].forEach((product) => {
+      const key = getProductActionKey(product);
+      if (key && !rowsByKey.has(key)) rowsByKey.set(key, product);
+    });
+    return Array.from(rowsByKey.values());
+  }, [productRows, candidateRows, resolvedRows]);
   const productCount = data.productTable?.total ?? productRows.length;
   const candidateCount = data.candidateProductTable?.total ?? candidateRows.length;
+  const resolvedCount = data.resolvedProductTable?.total ?? resolvedRows.length;
   const totalAllProducts = data.productTable?.totalAll ?? productCount;
   const candidateTotalAllProducts = data.candidateProductTable?.totalAll ?? candidateCount;
+  const resolvedTotalAllProducts = data.resolvedProductTable?.totalAll ?? resolvedCount;
   const filterOptions = data.productTable?.filterOptions || {};
   const candidateFilters = filters.candidates || {};
+  const resolvedFilters = filters.resolved || {};
   const candidateFilterOptions = data.candidateProductTable?.filterOptions || filterOptions;
+  const resolvedFilterOptions = data.resolvedProductTable?.filterOptions || filterOptions;
   const page = data.productTable?.page || 1;
   const rowsPerPage = data.productTable?.rowsPerPage || Number(filters.rows || 25);
   const totalPages = data.productTable?.totalPages || 1;
   const candidatePage = data.candidateProductTable?.page || 1;
   const candidateRowsPerPage = data.candidateProductTable?.rowsPerPage || Number(candidateFilters.rows || 25);
   const candidateTotalPages = data.candidateProductTable?.totalPages || 1;
+  const resolvedPage = data.resolvedProductTable?.page || 1;
+  const resolvedRowsPerPage = data.resolvedProductTable?.rowsPerPage || Number(resolvedFilters.rows || 25);
+  const resolvedTotalPages = data.resolvedProductTable?.totalPages || 1;
   const activeScanJob = data.productTable?.activeScanJob || null;
   const activeDiagnosisJobs = [
     ...(data.productTable?.activeDiagnosisJobs || []),
     ...(data.candidateProductTable?.activeDiagnosisJobs || []),
+    ...(data.resolvedProductTable?.activeDiagnosisJobs || []),
   ];
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
@@ -548,7 +570,9 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const quickScanCsvAvailable = isQuickScanCsvReviewSourceAvailable(data);
   const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
   const [localCandidateSortConfig, setLocalCandidateSortConfig] = useState(null);
+  const [localResolvedSortConfig, setLocalResolvedSortConfig] = useState(null);
   const candidateSortConfig = localCandidateSortConfig || (candidateFilters.sort ? { key: candidateFilters.sort, direction: candidateFilters.direction || "desc" } : null);
+  const resolvedSortConfig = localResolvedSortConfig || (resolvedFilters.sort ? { key: resolvedFilters.sort, direction: resolvedFilters.direction || "desc" } : null);
   const selectedProductRows = useMemo(
     () => allVisibleRows.filter((product) => selectedProducts.has(getProductActionKey(product))),
     [allVisibleRows, selectedProducts],
@@ -556,9 +580,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const selectedCount = selectedProducts.size;
   const currentSearchQuery = filters.query || "";
   const currentCandidateSearchQuery = candidateFilters.query || "";
+  const currentResolvedSearchQuery = resolvedFilters.query || "";
   const [candidateSearchOpen, setCandidateSearchOpen] = useState(Boolean(currentCandidateSearchQuery));
   const [candidateSearchValue, setCandidateSearchValue] = useState(currentCandidateSearchQuery);
+  const [resolvedSearchOpen, setResolvedSearchOpen] = useState(Boolean(currentResolvedSearchQuery));
+  const [resolvedSearchValue, setResolvedSearchValue] = useState(currentResolvedSearchQuery);
   const candidateTableSearchInputRef = useRef(null);
+  const resolvedTableSearchInputRef = useRef(null);
   const normalizedShopifyProductSearchQuery = shopifyProductSearchQuery.trim();
   const shopifyProductSearchData = shopifyProductSearchFetcher.data || {};
   const shopifyProductSearchResponseQuery = String(shopifyProductSearchData.query || "");
@@ -574,7 +602,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     ? shopifyProductSearchData.message
     : "";
   const submitProductFilters = (overrides = {}, table = "main") => {
-    const rowCount = table === "candidates" ? candidateRowsPerPage : rowsPerPage;
+    const rowCount = table === "candidates" ? candidateRowsPerPage : table === "resolved" ? resolvedRowsPerPage : rowsPerPage;
     submit(buildProductFilterFormData(filters, { rows: String(rowCount), ...overrides }, table), { method: "get", replace: true });
   };
 
@@ -594,6 +622,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   }, [candidateFilters.sort, candidateFilters.direction]);
 
   useEffect(() => {
+    setLocalResolvedSortConfig(null);
+  }, [resolvedFilters.sort, resolvedFilters.direction]);
+
+  useEffect(() => {
     setSearchValue(currentSearchQuery);
     setSearchOpen(Boolean(currentSearchQuery));
   }, [currentSearchQuery]);
@@ -602,6 +634,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     setCandidateSearchValue(currentCandidateSearchQuery);
     setCandidateSearchOpen(Boolean(currentCandidateSearchQuery));
   }, [currentCandidateSearchQuery]);
+
+  useEffect(() => {
+    setResolvedSearchValue(currentResolvedSearchQuery);
+    setResolvedSearchOpen(Boolean(currentResolvedSearchQuery));
+  }, [currentResolvedSearchQuery]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -614,6 +651,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     candidateTableSearchInputRef.current?.focus();
     candidateTableSearchInputRef.current?.select();
   }, [candidateSearchOpen]);
+
+  useEffect(() => {
+    if (!resolvedSearchOpen) return;
+    resolvedTableSearchInputRef.current?.focus();
+    resolvedTableSearchInputRef.current?.select();
+  }, [resolvedSearchOpen]);
 
   useEffect(() => {
     if (searchValue === currentSearchQuery) return undefined;
@@ -664,6 +707,32 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     candidateFilters.direction,
     filters,
     candidateRowsPerPage,
+    submit,
+  ]);
+
+  useEffect(() => {
+    if (resolvedSearchValue === currentResolvedSearchQuery) return undefined;
+    const timeout = window.setTimeout(() => {
+      submit(
+        buildProductFilterFormData(filters, { rows: String(resolvedRowsPerPage), query: resolvedSearchValue, page: "1" }, "resolved"),
+        { method: "get", replace: true },
+      );
+    }, 260);
+    return () => window.clearTimeout(timeout);
+  }, [
+    resolvedSearchValue,
+    currentResolvedSearchQuery,
+    resolvedFilters.risk,
+    resolvedFilters.status,
+    resolvedFilters.issue,
+    resolvedFilters.source,
+    resolvedFilters.vendor,
+    resolvedFilters.collection,
+    resolvedFilters.rows,
+    resolvedFilters.sort,
+    resolvedFilters.direction,
+    filters,
+    resolvedRowsPerPage,
     submit,
   ]);
 
@@ -754,10 +823,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   };
 
   const handleSort = (key, table = "main") => {
-    const currentSortConfig = table === "candidates" ? candidateSortConfig : sortConfig;
+    const currentSortConfig = table === "candidates" ? candidateSortConfig : table === "resolved" ? resolvedSortConfig : sortConfig;
     const nextDirection = currentSortConfig?.key === key && currentSortConfig.direction === "desc" ? "asc" : "desc";
     if (table === "candidates") {
       setLocalCandidateSortConfig({ key, direction: nextDirection });
+    } else if (table === "resolved") {
+      setLocalResolvedSortConfig({ key, direction: nextDirection });
     } else {
       setLocalSortConfig({ key, direction: nextDirection });
     }
@@ -904,8 +975,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const renderProductFilters = ({ table = "main", tableFilters = {}, tableFilterOptions = {}, includeActions = false }) => (
     <s-section padding="none">
-      <div className={`ppProductsToolbar ${table === "candidates" ? "ppProductsCandidatesToolbar" : ""}`.trim()}>
-        <div className="ppProductsFilters" aria-label={table === "candidates" ? "Candidate filters" : "Product filters"}>
+      <div className={`ppProductsToolbar ${table === "candidates" ? "ppProductsCandidatesToolbar" : table === "resolved" ? "ppProductsResolvedToolbar" : ""}`.trim()}>
+        <div className="ppProductsFilters" aria-label={`${getProductTableLabel(table)} filters`}>
           <div className="ppProductsFilterPills">
             <ProductFilterPillGroup
               name="risk"
@@ -969,10 +1040,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     showFindProduct = false,
   }) => {
     const selectionState = getRowsSelectionState(rows);
-    const productLabel = table === "candidates" ? "candidates" : "products";
+    const productLabel = getProductTableLabel(table);
 
     return (
-      <s-section className={`ppProductsTableSection ${table === "candidates" ? "ppProductsCandidatesSection" : ""}`.trim()} padding="none">
+      <s-section className={`ppProductsTableSection ${table === "candidates" ? "ppProductsCandidatesSection" : table === "resolved" ? "ppProductsResolvedSection" : ""}`.trim()} padding="none">
         <div className="ppProductsTableHeading">
           <div>
             <h2>{title}</h2>
@@ -1226,6 +1297,56 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     );
   };
 
+  const productsTableTabs = [
+    { id: "full", label: "Full diagnostics", count: productCount, icon: "chart-line" },
+    { id: "candidates", label: "Candidates", count: candidateCount, icon: "star" },
+    { id: "resolved", label: "Resolved", count: resolvedCount, icon: "check" },
+  ];
+
+  const renderActiveProductsFilters = () => {
+    if (activeProductsTab === "candidates") {
+      return renderProductFilters({ table: "candidates", tableFilters: candidateFilters, tableFilterOptions: candidateFilterOptions });
+    }
+    if (activeProductsTab === "resolved") {
+      return renderProductFilters({ table: "resolved", tableFilters: resolvedFilters, tableFilterOptions: resolvedFilterOptions });
+    }
+    return renderProductFilters({ table: "main", tableFilters: filters, tableFilterOptions: filterOptions, includeActions: true });
+  };
+
+  const renderProductsTableTabs = () => (
+    <div className="ppProductsTableTabsCard">
+      <div className="ppProductsTableTabs" role="tablist" aria-label="Product table views">
+        {productsTableTabs.map((tab) => {
+          const active = activeProductsTab === tab.id;
+          return (
+            <button
+              className={`ppProductsTableTab ${active ? "isActive" : ""}`.trim()}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              key={tab.id}
+              onClick={() => setActiveProductsTab(tab.id)}
+            >
+              <span className="ppProductsTableTabIcon" aria-hidden="true"><s-icon type={tab.icon} size="small"></s-icon></span>
+              <span>{tab.label}</span>
+              <strong>({tab.count})</strong>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const renderActiveProductsTable = () => {
+    if (activeProductsTab === "candidates") {
+      return renderProductTable({ table: "candidates", title: "Candidates", description: "Products captured by QuickScan or added manually, without a completed deep diagnosis yet.", rows: candidateRows, count: candidateCount, totalAll: candidateTotalAllProducts, currentPage: candidatePage, pageSize: candidateRowsPerPage, pages: candidateTotalPages, tableSortConfig: candidateSortConfig, tableTestId: "products-candidates-table", searchState: { open: candidateSearchOpen, value: candidateSearchValue, inputRef: candidateTableSearchInputRef, setOpen: setCandidateSearchOpen, setValue: setCandidateSearchValue }, emptyTitle: "No candidates yet", emptyDescription: "Run QuickScan or add a Shopify product as a candidate without starting a diagnosis." });
+    }
+    if (activeProductsTab === "resolved") {
+      return renderProductTable({ table: "resolved", title: "Resolved", description: "Products marked resolved after review or remediation.", rows: resolvedRows, count: resolvedCount, totalAll: resolvedTotalAllProducts, currentPage: resolvedPage, pageSize: resolvedRowsPerPage, pages: resolvedTotalPages, tableSortConfig: resolvedSortConfig, tableTestId: "products-resolved-table", searchState: { open: resolvedSearchOpen, value: resolvedSearchValue, inputRef: resolvedTableSearchInputRef, setOpen: setResolvedSearchOpen, setValue: setResolvedSearchValue }, emptyTitle: "No resolved products yet", emptyDescription: "Resolved products will appear here after you mark a diagnosis as resolved." });
+    }
+    return renderProductTable({ table: "main", title: "Full diagnostics", description: "Products with completed or running deep AI diagnosis.", rows: productRows, count: productCount, totalAll: totalAllProducts, currentPage: page, pageSize: rowsPerPage, pages: totalPages, tableSortConfig: sortConfig, tableTestId: "products-table", showFindProduct: true, searchState: { open: searchOpen, value: searchValue, inputRef: productTableSearchInputRef, setOpen: setSearchOpen, setValue: setSearchValue }, emptyTitle: "No full diagnostics yet", emptyDescription: "Run product diagnosis from Candidates or find a Shopify product to start a deep analysis." });
+  };
+
   return (
     <FullWidthPage heading="Products">
       <ScreenShell className={`ppDashboard ppProductsScreen ${fastScanRunning ? "isScanning" : ""}`.trim()}>
@@ -1243,71 +1364,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           </div>
           <ActionBanner actionData={actionData} />
 
-          {renderProductFilters({
-            table: "main",
-            tableFilters: filters,
-            tableFilterOptions: filterOptions,
-            includeActions: true,
-          })}
-
-          {renderProductTable({
-            table: "main",
-            title: "Full diagnostics",
-            description: "Products with completed or running deep AI diagnosis.",
-            rows: productRows,
-            count: productCount,
-            totalAll: totalAllProducts,
-            currentPage: page,
-            pageSize: rowsPerPage,
-            pages: totalPages,
-            tableSortConfig: sortConfig,
-            tableTestId: "products-table",
-            showFindProduct: true,
-            searchState: {
-              open: searchOpen,
-              value: searchValue,
-              inputRef: productTableSearchInputRef,
-              setOpen: setSearchOpen,
-              setValue: setSearchValue,
-            },
-            emptyTitle: "No full diagnostics yet",
-            emptyDescription: "Run product diagnosis from Candidates or find a Shopify product to start a deep analysis.",
-          })}
-
-          <div className="ppProductsCandidateDivider">
-            <span>Candidate products</span>
-            <p>QuickScan-only products worth reviewing before spending a deep-diagnosis run.</p>
+          {renderActiveProductsFilters()}
+          <div className="ppProductsTabbedTableGroup">
+            {renderProductsTableTabs()}
+            {renderActiveProductsTable()}
           </div>
 
-          {renderProductFilters({
-            table: "candidates",
-            tableFilters: candidateFilters,
-            tableFilterOptions: candidateFilterOptions,
-          })}
-
-          {renderProductTable({
-            table: "candidates",
-            title: "Candidates",
-            description: "Products captured by QuickScan or added manually, without a completed deep diagnosis yet.",
-            rows: candidateRows,
-            count: candidateCount,
-            totalAll: candidateTotalAllProducts,
-            currentPage: candidatePage,
-            pageSize: candidateRowsPerPage,
-            pages: candidateTotalPages,
-            tableSortConfig: candidateSortConfig,
-            tableTestId: "products-candidates-table",
-            showFindProduct: true,
-            searchState: {
-              open: candidateSearchOpen,
-              value: candidateSearchValue,
-              inputRef: candidateTableSearchInputRef,
-              setOpen: setCandidateSearchOpen,
-              setValue: setCandidateSearchValue,
-            },
-            emptyTitle: "No candidates yet",
-            emptyDescription: "Run QuickScan or add a Shopify product as a candidate without starting a diagnosis.",
-          })}
         </div>
       </ScreenShell>
       {fastScanRunning && (
@@ -3627,22 +3689,41 @@ const PRODUCT_FILTER_DEFAULTS = {
   direction: "desc",
 };
 
+function getProductTableLabel(table = "main") {
+  if (table === "candidates") return "candidates";
+  if (table === "resolved") return "resolved products";
+  return "products";
+}
+
+function hasActiveProductTableFilters(values = {}) {
+  return Object.entries(PRODUCT_FILTER_DEFAULTS).some(([key, fallback]) => {
+    const value = values?.[key];
+    return value !== undefined && String(value || fallback) !== String(fallback);
+  });
+}
+
 function buildProductFilterFormData(current = {}, overrides = {}, table = "main") {
   const mainValues = {
     ...PRODUCT_FILTER_DEFAULTS,
     ...current,
   };
   delete mainValues.candidates;
+  delete mainValues.resolved;
   const candidateValues = {
     ...PRODUCT_FILTER_DEFAULTS,
     ...(current.candidates || {}),
   };
-  const targetValues = table === "candidates" ? candidateValues : mainValues;
+  const resolvedValues = {
+    ...PRODUCT_FILTER_DEFAULTS,
+    ...(current.resolved || {}),
+  };
+  const targetValues = table === "candidates" ? candidateValues : table === "resolved" ? resolvedValues : mainValues;
   Object.assign(targetValues, overrides);
 
   const formData = new FormData();
   appendProductFilterFormValues(formData, mainValues);
   appendProductFilterFormValues(formData, candidateValues, "candidate");
+  appendProductFilterFormValues(formData, resolvedValues, "resolved");
 
   return formData;
 }

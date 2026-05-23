@@ -117,19 +117,66 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("60% effective customer-signal coverage")).toBeInTheDocument();
   });
 
-  it("renders products table and analysis actions", () => {
-    renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
+  it("renders product table tabs and switches between diagnostics, candidates and resolved products", () => {
+    const resolvedProduct = {
+      title: "Resolved Linen Shirt",
+      variant: "shirt",
+      risk: "Low",
+      riskTone: "success",
+      riskScore: 22,
+      riskTrend: [44, 33, 22],
+      signals: 8,
+      signalTone: "green",
+      signalBars: [20, 18, 14],
+      issue: "Resolved issue",
+      sources: [{ key: "returns", label: "Returns", shortLabel: "RET" }],
+      sourceOverflow: 0,
+      status: "Resolved",
+      statusTone: "success",
+      lastAnalysis: "Just now",
+      href: "/app/products/resolved-linen-shirt",
+      handle: "resolved-linen-shirt",
+      productGid: "gid://shopify/Product/resolved-1",
+      resolvedAt: "2026-05-23T12:00:00.000Z",
+      resolvedLabel: "Resolved May 23",
+    };
+    const data = {
+      ...defaultView,
+      resolvedProductTable: { rows: [resolvedProduct], total: 1, totalAll: 1, totalPages: 1, page: 1, rowsPerPage: 25, filterOptions: defaultView.productTable?.filterOptions || {} },
+    };
+
+    renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
     const table = screen.getByTestId("products-table");
+    expect(screen.getByRole("tab", { name: /Full diagnostics/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /Candidates/ })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: /Resolved/ })).toHaveAttribute("aria-selected", "false");
     expect(within(table).getByText("No full diagnostics yet")).toBeInTheDocument();
     expect(within(table).queryByText("Credits")).not.toBeInTheDocument();
-    expect(within(screen.getByTestId("products-candidates-table")).getByText("No candidates yet")).toBeInTheDocument();
+    expect(screen.queryByTestId("products-candidates-table")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("products-resolved-table")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Run quick scan/ }).length).toBeGreaterThan(1);
-    expect(screen.getAllByRole("button", { name: "Find Shopify product" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Find Shopify product" })).toHaveLength(1);
+    const filtersSection = screen.getByLabelText("products filters").closest("s-section");
+    const tabsCard = screen.getByRole("tablist", { name: "Product table views" }).closest(".ppProductsTableTabsCard");
+    expect(filtersSection.compareDocumentPosition(tabsCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tabsCard.parentElement).toHaveClass("ppProductsTabbedTableGroup");
+
+    fireEvent.click(screen.getByRole("tab", { name: /Candidates/ }));
+    const candidatesTable = screen.getByTestId("products-candidates-table");
+    expect(screen.queryByTestId("products-table")).not.toBeInTheDocument();
+    expect(within(candidatesTable).getByText("No candidates yet")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Resolved/ }));
+    const resolvedTable = screen.getByTestId("products-resolved-table");
+    expect(screen.queryByTestId("products-candidates-table")).not.toBeInTheDocument();
+    expect(within(resolvedTable).getAllByRole("link", { name: /Resolved Linen Shirt/ }).length).toBeGreaterThan(0);
+    expect(within(resolvedTable).getByText("Resolved May 23")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Full diagnostics/ }));
     fireEvent.click(screen.getAllByRole("button", { name: "Find Shopify product" })[0]);
     expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
     expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
-    expect(within(table).queryByRole("link", { name: /Linen Shirt/ })).not.toBeInTheDocument();
   });
 
   it("renders the watchlist and opens the add watched product modal", () => {
