@@ -1200,6 +1200,8 @@ describe("ProductPulse screens", () => {
     expect(within(riskSnapshot).getByText("refund-only cases")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Exchange/replace")).toBeInTheDocument();
     expect(riskSnapshot.querySelector(".ppResolutionBreakdownInsightCard")).toBeInTheDocument();
+    const cards = Array.from(riskSnapshot.querySelectorAll(".ppProductInsight-withArea"));
+    expect(cards[cards.length - 1]).toHaveClass("ppResolutionBreakdownInsightCard");
 
     expect(resolutionPanel).not.toBeInTheDocument();
   });

@@ -8779,9 +8779,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     ? { id: "resolution-breakdown", type: "resolution-breakdown" }
     : null;
   const supplementalInsightCards = [resolutionBreakdownInsightCard].filter(Boolean);
-  const insightCards = supplementalInsightCards.length
-    ? [...baseInsightCards.slice(0, 8), ...supplementalInsightCards, ...baseInsightCards.slice(8)]
-    : baseInsightCards;
+  const insightCards = [...baseInsightCards, ...supplementalInsightCards];
   const primaryInsightCards = insightCards.slice(0, 4);
   const hiddenInsightCards = insightCards.slice(4);
   const hasHiddenInsightCards = hiddenInsightCards.length > 0;
