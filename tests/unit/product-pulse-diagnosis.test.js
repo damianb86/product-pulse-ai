@@ -2940,6 +2940,102 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(ids).not.toContain("add-workflow-tags");
   });
 
+  it("keeps secondary merchandising actions out of high-risk remediation even without AI action guidance", () => {
+    const deterministic = {
+      mainIssue: "shipping_delivery",
+      riskScore: 100,
+      confidence: 92,
+      evidenceSnippets: [
+        { text: "Tall Kit slowly lost air during a call and the laptop started sliding toward the edge." },
+        { text: "Refund issued after the air chamber leak made the desk unsafe for a laptop." },
+      ],
+      issueSignalCounts: { shipping_delivery: 24, refund_impact: 5, safety_concern: 2 },
+      product: {
+        title: "GEN LiftAir Inflatable Standing Desk",
+        description: "Inflatable desk riser for travel work setups.",
+        variants: [{ id: "gid://shopify/ProductVariant/tall", title: "Tall Kit", sku: "GEN-LIFTAIR-TALL" }],
+      },
+      metrics: {
+        customerSignalCount: 40,
+        signalCount: 52,
+        returnUnits: 8,
+        returnRate: 50,
+        refundUnits: 5,
+        refundRate: 31.25,
+        negativeReviewCount: 27,
+        reviewCount: 50,
+        topReturnReasons: [
+          "Item Not As Described",
+          "Other: Air chamber would not hold pressure and the surface tilted toward the keyboard.",
+        ],
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{ code: "short_description", label: "Short product description", severity: "medium", evidence: "The PDP does not explain stability limits." }],
+          advisories: [],
+        },
+        refundInsights: {
+          shouldSurface: true,
+          highPressure: true,
+          dominantIssueCode: "quality_defect",
+          topReasons: [{ label: "Refund discrepancy", count: 5 }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "lost air", count: 6, dominantSentiment: "negative" },
+            { term: "laptop sliding", count: 4, dominantSentiment: "negative" },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 8, customer_count: 6 },
+          confidence: { score: 88, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/wall-print",
+              relatedProductTitle: "GEN Night Watch Dramatic Wall Print",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "30d_after",
+              lift: 2.9,
+              confidence: 70,
+              sampleSize: 3,
+              relationshipStrength: "very_strong",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/mug",
+              relatedProductTitle: "GEN TrailSeal Travel Mug",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "30d_before",
+              lift: 3.6,
+              confidence: 67,
+              sampleSize: 3,
+              relationshipStrength: "very_strong",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/liftair-no-ai-guidance",
+        productTitle: "GEN LiftAir Inflatable Standing Desk",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Clarify pressure retention checks and load limits while QA reviews the leak reports." } } },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("recommend-qa-review");
+    expect(ids).not.toContain("create-post-purchase-cross-sell");
+    expect(ids).not.toContain("position-as-upgrade-path");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("add-workflow-tags");
+  });
+
   it("uses reliable purchase context to recommend variant clarity for multi-variant return patterns", () => {
     const deterministic = {
       mainIssue: "fit_sizing",

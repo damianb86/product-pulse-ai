@@ -17138,19 +17138,19 @@ s-page[inline-size="large-500"] {
 
 .ppActionEditFooterButton {
   min-width: 0;
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px 12px;
+  padding: 7px 14px;
   border: 1px solid var(--pp-slate-300);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   font: inherit;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
   text-decoration: none;
@@ -17387,22 +17387,22 @@ s-page[inline-size="large-500"] {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 9px 14px;
+  gap: 6px;
+  padding: 7px 14px;
   border: 1px solid rgba(var(--pp-primary-green-rgb), 0.34);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--pp-primary-green);
   color: var(--pp-cloud-white);
   font: inherit;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 10px 22px rgba(var(--pp-primary-green-rgb), 0.18);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 4px 10px rgba(var(--pp-primary-green-rgb), 0.18);
 }
 
 .ppActionCtaButton span,
@@ -17417,19 +17417,19 @@ s-page[inline-size="large-500"] {
   flex: 0 1 auto;
   max-width: 42%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px 12px;
+  padding: 7px 14px;
   border: 1px solid var(--pp-slate-300);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   font: inherit;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
 }
@@ -17491,7 +17491,7 @@ s-page[inline-size="large-500"] {
 
 .ppActionCtaButton:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 12px 26px rgba(var(--pp-primary-green-rgb), 0.24);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 7px 16px rgba(var(--pp-primary-green-rgb), 0.24);
 }
 
 .ppActionCtaButton:disabled {
@@ -21146,11 +21146,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalysisConfirmModal {
-  width: min(520px, 100%);
+  width: min(500px, 100%);
   max-height: calc(100vh - 32px);
   max-height: calc(100dvh - 32px);
   overflow: auto;
-  padding: 22px;
+  padding: 18px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
   background: var(--pp-cloud-white);
@@ -21160,14 +21160,14 @@ s-page[inline-size="large-500"] {
 
 .ppAnalysisConfirmHeader {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 11px;
   align-items: start;
 }
 
 .ppAnalysisConfirmIcon {
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   display: inline-grid;
   place-items: center;
   border-radius: 10px;
@@ -21181,16 +21181,20 @@ s-page[inline-size="large-500"] {
   filter: brightness(0) invert(1);
 }
 
+.ppAnalysisConfirmIcon s-icon {
+  transform: scale(1.34);
+}
+
 .ppAnalysisConfirmHeader span {
   color: var(--pp-pulse-blue);
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 750;
 }
 
 .ppAnalysisConfirmHeader h2 {
-  margin: 2px 0 5px;
+  margin: 1px 0 4px;
   color: var(--pp-slate-900);
-  font-size: 22px;
+  font-size: 19px;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1.15;
@@ -21199,17 +21203,17 @@ s-page[inline-size="large-500"] {
 .ppAnalysisConfirmHeader p {
   margin: 0;
   color: var(--pp-slate-700);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.38;
 }
 
 .ppAnalysisConfirmCost {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
-  margin-top: 18px;
-  padding: 12px;
+  margin-top: 14px;
+  padding: 10px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
   border-radius: 10px;
   background: var(--pp-blue-soft);
@@ -21219,7 +21223,7 @@ s-page[inline-size="large-500"] {
 .ppAnalysisConfirmProducts span {
   display: block;
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -21229,20 +21233,20 @@ s-page[inline-size="large-500"] {
   display: block;
   margin-top: 2px;
   color: var(--pp-midnight-ink);
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .ppAnalysisConfirmCost small {
   max-width: 250px;
   color: var(--pp-slate-700);
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.35;
   text-align: right;
 }
 
 .ppAnalysisConfirmProducts {
-  margin-top: 14px;
-  padding: 12px;
+  margin-top: 11px;
+  padding: 10px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
   background: var(--pp-mist-gray);
@@ -21250,8 +21254,8 @@ s-page[inline-size="large-500"] {
 
 .ppAnalysisConfirmProducts ul {
   display: grid;
-  gap: 6px;
-  margin: 9px 0 0;
+  gap: 4px;
+  margin: 7px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -21259,7 +21263,7 @@ s-page[inline-size="large-500"] {
 .ppAnalysisConfirmProducts li {
   overflow: hidden;
   color: var(--pp-slate-900);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -21271,9 +21275,9 @@ s-page[inline-size="large-500"] {
   z-index: 2;
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
-  padding-top: 12px;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 10px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), var(--pp-cloud-white) 42%);
 }
 
@@ -21544,26 +21548,26 @@ s-page[inline-size="large-500"] {
 
 @media (max-width: 720px) {
   .ppCostConfirmBody {
-    padding: 24px 20px 20px;
+    padding: 18px 16px 16px;
   }
 
   .ppCostConfirmHeader {
-    grid-template-columns: 56px minmax(0, 1fr);
-    gap: 16px;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 12px;
   }
 
   .ppCostConfirmHeroIcon {
-    width: 56px;
-    height: 56px;
-    font-size: 28px;
+    width: 46px;
+    height: 46px;
+    font-size: 30px;
   }
 
   .ppCostConfirmHeader p {
-    font-size: 15px;
+    font-size: 12.5px;
   }
 
   .ppCostConfirmCost {
-    grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-columns: 42px minmax(0, 1fr);
   }
 
   .ppCostConfirmCost small {
@@ -21577,7 +21581,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppCostConfirmFooter {
-    padding: 14px 20px;
+    padding: 11px 16px;
   }
 
   .ppCostConfirmFooter .ppSecondaryButton,
@@ -23522,11 +23526,12 @@ s-page[inline-size="large-500"] {
 
 .ppWatchChangeReportFooter .ppSecondaryButton,
 .ppWatchChangeReportFooter .ppPrimaryButton {
-  min-width: 152px;
-  min-height: 42px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 850;
+  min-width: 128px;
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .ppWatchChangeReportFooter .ppSecondaryButton {

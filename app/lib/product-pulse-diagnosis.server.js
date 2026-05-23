@@ -2943,13 +2943,14 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const aiMainIssue = normalizeIssueCode(ai.classification?.main_issue) || scoredDeterministic.mainIssue;
   const contentShouldLead = contentAnalysis.issues.some((issue) => issue.severity === "high") && scoredDeterministic.metrics.customerSignalCount <= 1;
   const monitoringContentOnly = isLowRiskMonitoringOnlyDiagnosis(scoredDeterministic) && contentAnalysis.issues.length > 0;
+  const evidencePreferredMainIssue = getEvidencePreferredMainIssue(scoredDeterministic, aiMainIssue);
   const mainIssue = sourceIntegrityMode
     ? "review_feed_integrity"
     : monitoringContentOnly
     ? "product_content"
     : contentShouldLead
     ? "product_content"
-    : scoredDeterministic.issueSignalCounts[aiMainIssue] ? aiMainIssue : scoredDeterministic.mainIssue;
+    : evidencePreferredMainIssue;
   scoredDeterministic.metrics.faqNeed = analyzeFaqOpportunity({
     mainIssue,
     issueSignalCounts: scoredDeterministic.issueSignalCounts,
@@ -3697,7 +3698,16 @@ function applyAiSemanticClassificationToDeterministic(deterministic = {}, ai = {
     Number(deterministic.metrics?.signalCount || 0),
     customerSignalCount + Number(deterministic.metrics?.contentIssueCount || 0),
   );
-  const mainIssue = getMainIssueFromCounts(nextIssueSignalCounts, ai.classification?.main_issue || deterministic.mainIssue);
+  const mainIssue = getEvidencePreferredMainIssue({
+    ...deterministic,
+    issueSignalCounts: nextIssueSignalCounts,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      textInsights: nextTextInsights,
+      customerSignalCount,
+      signalCount,
+    },
+  }, getMainIssueFromCounts(nextIssueSignalCounts, ai.classification?.main_issue || deterministic.mainIssue));
 
   return {
     ...deterministic,
@@ -4381,7 +4391,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
-  const highRiskAiQaDiagnosis = isHighRiskAiQaDiagnosis(deterministic);
+  const focusedRemediationMode = isFocusedRemediationDiagnosis(deterministic, { subjectiveExpectationOnly });
   const canRecommendCustomerFacingCopy = !sourceIntegrityMode;
   const lowRiskMonitoringOnly = isLowRiskMonitoringOnlyDiagnosis(deterministic);
   const materialCustomerProblemEvidence = hasMaterialCustomerProblemEvidence(deterministic);
@@ -4957,7 +4967,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const workflowTags = getRecommendedWorkflowTags({ mainIssue, deterministic });
-  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !highRiskAiQaDiagnosis) {
+  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !focusedRemediationMode) {
     recommendations.push({
       id: "add-workflow-tags",
       label: "Add workflow tags",
@@ -5386,7 +5396,6 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
   const aiSuppressesQa = shouldAiSuppressActionFamily(aiActionGuidance, "qa_review");
   const aiRecommendsQa = shouldAiRecommendQaReview(aiActionGuidance);
-  const highRiskAiQaDiagnosis = isHighRiskAiQaDiagnosis(deterministic);
   const operationalQualityTextSignals = hasOperationalQualityTextSignals(deterministic);
   const refundInsights = metrics.refundInsights || {};
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
@@ -5395,18 +5404,18 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const productRelationshipSignals = getProductRelationshipRecommendationSignals(deterministic);
   const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, productRelationshipSignals);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
+  const focusedRemediationMode = isFocusedRemediationDiagnosis(deterministic, {
+    aiActionGuidance,
+    subjectiveExpectationOnly,
+  });
   const suppressSubjectiveMerchandisingRelationshipActions = shouldSuppressMerchandisingRelationshipActions({
     subjectiveExpectationOnly,
     aiActionGuidance,
   });
-  const suppressOperationalMerchandisingRelationshipActions = shouldSuppressOperationalMerchandisingRelationshipActions({
-    deterministic,
-    aiActionGuidance,
-  });
   const merchandisingRelationshipSuppressionReason = suppressSubjectiveMerchandisingRelationshipActions
     ? "Suppressed because the active diagnosis is a subjective expectation issue, so merchandising relationship insights should stay in analytics instead of recommended actions."
-    : suppressOperationalMerchandisingRelationshipActions
-      ? "Suppressed because the active diagnosis is a high-risk operational QA issue, so merchandising relationship insights should stay in analytics until the product problem is reviewed."
+    : focusedRemediationMode
+      ? "Suppressed because the active diagnosis has a high-priority remediation path, so merchandising relationship insights should stay in analytics until the core product issue is reviewed."
       : "";
   const missingSourceSignals = getMissingSourceSignals(deterministic);
   const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
@@ -5511,7 +5520,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
     },
     structuredMetafields: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !highRiskAiQaDiagnosis && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !focusedRemediationMode && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
       reason: "Structured product metadata can preserve warnings, QA status, SEO notes or risk flags for themes and reporting.",
     },
     template: {
@@ -5580,22 +5589,16 @@ function shouldSuppressMerchandisingRelationshipActions({ subjectiveExpectationO
   return !["commercial_opportunity", "relationship_expectation"].includes(aiActionGuidance?.issueNature);
 }
 
-function shouldSuppressOperationalMerchandisingRelationshipActions({ deterministic = {}, aiActionGuidance = null } = {}) {
+function isFocusedRemediationDiagnosis(deterministic = {}, { aiActionGuidance = null, subjectiveExpectationOnly = null } = {}) {
   const guidance = aiActionGuidance || getAiActionGuidance(deterministic);
-  if (!isHighRiskAiQaDiagnosis(deterministic, guidance)) return false;
-  const metrics = deterministic.metrics || {};
-  const postPurchaseSignals = Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0);
-  const reviewSignals = Number(metrics.negativeReviewCount || 0);
-  return postPurchaseSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || reviewSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || Boolean(metrics.refundInsights?.shouldSurface);
-}
-
-function isHighRiskAiQaDiagnosis(deterministic = {}, aiActionGuidance = null) {
-  const guidance = aiActionGuidance || getAiActionGuidance(deterministic);
+  const subjectiveOnly = subjectiveExpectationOnly ?? isSubjectiveExpectationOnlyDiagnosis(deterministic);
+  if (subjectiveOnly || isLowRiskMonitoringOnlyDiagnosis(deterministic)) return false;
+  if (Number(deterministic.riskScore || 0) < 70) return false;
+  if (!hasMaterialCustomerProblemEvidence(deterministic)) return false;
+  if (["commercial_opportunity", "monitor_only"].includes(guidance?.issueNature)) return false;
   return shouldAiRecommendQaReview(guidance)
-    && Number(deterministic.riskScore || 0) >= 70
-    && hasMaterialCustomerProblemEvidence(deterministic);
+    || hasOperationalQualityTextSignals(deterministic)
+    || isRefundDrivenOperationalDiagnosis(deterministic);
 }
 
 function suppressRecommendationSignal(signal = {}, suppressionReason = "Suppressed because this relationship insight should stay in analytics instead of recommended actions for the current diagnosis.") {
@@ -5917,6 +5920,16 @@ function hasOperationalQualityTextSignals(deterministic = {}) {
   if (shouldAiRecommendQaReview(aiActionGuidance)) return true;
   return getOperationalSignalTextValues(deterministic)
     .some(hasOperationalQualityLanguage);
+}
+
+function hasProductFailureTextSignals(deterministic = {}) {
+  return getOperationalSignalTextValues(deterministic).some((value) => {
+    const text = String(value || "").toLowerCase();
+    if (!text) return false;
+    const explicitTransitIssue = /\b(shipping|delivery|shipment|carrier|in transit|transit|arrived damaged|damaged in transit|lost package)\b/i.test(text);
+    const productFailure = /\b(leak|leaking|deflat|lost air|hold pressure|wobbl|sliding|tilt|unstable|unsafe|safety|broken|break|broke|crack|cracked|chip|chipped|tear|tore|ripped|malfunction|failed|failure|seal)\b/i.test(text);
+    return productFailure && !explicitTransitIssue;
+  });
 }
 
 function hasOperationalQualityLanguage(value = "") {
@@ -10761,6 +10774,19 @@ function getMainIssueFromCounts(counts, fallback) {
   const sorted = Object.entries(counts).sort((first, second) => second[1] - first[1]);
   if (sorted[0]?.[0]) return sorted[0][0];
   return normalizeIssueCode(fallback) || "product_quality";
+}
+
+function getEvidencePreferredMainIssue(deterministic = {}, proposedIssue = "") {
+  const proposed = normalizeIssueCode(proposedIssue) || normalizeIssueCode(deterministic.mainIssue) || "product_quality";
+  const counts = deterministic.issueSignalCounts || {};
+  const current = counts[proposed] ? proposed : normalizeIssueCode(deterministic.mainIssue) || proposed;
+  if (["quality_defect", "durability", "safety_concern", "refund_impact"].includes(current)) return current;
+  if (!hasProductFailureTextSignals(deterministic)) return current;
+  if (Number(deterministic.riskScore || 0) < 70 || !hasMaterialCustomerProblemEvidence(deterministic)) return current;
+  if (Number(counts.safety_concern || 0) > 0) return "safety_concern";
+  if (Number(counts.durability || 0) > 0) return "durability";
+  if (Number(counts.quality_defect || 0) > 0) return "quality_defect";
+  return "quality_defect";
 }
 
 function classifyIssueText(text, context = {}) {
