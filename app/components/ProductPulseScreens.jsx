@@ -673,7 +673,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     filters.risk,
     filters.status,
     filters.issue,
-    filters.source,
     filters.vendor,
     filters.collection,
     filters.rows,
@@ -699,7 +698,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     candidateFilters.risk,
     candidateFilters.status,
     candidateFilters.issue,
-    candidateFilters.source,
     candidateFilters.vendor,
     candidateFilters.collection,
     candidateFilters.rows,
@@ -725,7 +723,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     resolvedFilters.risk,
     resolvedFilters.status,
     resolvedFilters.issue,
-    resolvedFilters.source,
     resolvedFilters.vendor,
     resolvedFilters.collection,
     resolvedFilters.rows,
@@ -995,7 +992,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           </div>
           <div className="ppProductsSelectFilters" onChange={(event) => handleFilterChange(event, table)}>
             <ProductFilterSelect name="issue" label="Issue type" value={tableFilters.issue || "all"} options={tableFilterOptions.issues} />
-            <ProductFilterSelect name="source" label="Source" value={tableFilters.source || "all"} options={tableFilterOptions.sources} />
             <ProductFilterSearchInput name="vendor" label="Vendor" value={tableFilters.vendor || ""} options={tableFilterOptions.vendors} scope={table} />
             <ProductFilterSearchInput name="collection" label="Collection" value={tableFilters.collection || ""} options={tableFilterOptions.collections} scope={table} />
           </div>
@@ -3680,7 +3676,6 @@ const PRODUCT_FILTER_DEFAULTS = {
   risk: "all",
   status: "all",
   issue: "all",
-  source: "all",
   vendor: "all",
   collection: "all",
   page: "1",
@@ -3739,7 +3734,6 @@ function appendProductFilterFormValues(formData, values = {}, prefix = "") {
     risk: "all",
     status: "all",
     issue: "all",
-    source: "all",
     vendor: "all",
     collection: "all",
     page: "1",
@@ -3750,7 +3744,7 @@ function appendProductFilterFormValues(formData, values = {}, prefix = "") {
   };
 
   if (normalizedValues.query) formData.set(getParamName("query"), normalizedValues.query);
-  ["risk", "status", "issue", "source", "vendor", "collection"].forEach((name) => {
+  ["risk", "status", "issue", "vendor", "collection"].forEach((name) => {
     if (normalizedValues[name] && normalizedValues[name] !== "all") formData.set(getParamName(name), normalizedValues[name]);
   });
   if (String(normalizedValues.page || "1") !== "1") formData.set(getParamName("page"), String(normalizedValues.page));
@@ -13711,7 +13705,7 @@ function ProductRiskTrendCell({ product }) {
   );
 }
 
-function ProductMomentumCell({ product, onWatchlistToggle }) {
+function ProductMomentumCell({ product }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef(null);
@@ -13759,8 +13753,8 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
           anchorRef={triggerRef}
           open={open}
           className="ppMomentumPopover ppInsightToast ppMomentumToast"
-          width={480}
-          estimatedHeight={220}
+          width={440}
+          estimatedHeight={200}
           onMouseEnter={showPopover}
           onMouseLeave={scheduleClose}
         >
@@ -13785,7 +13779,6 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
     ? momentum.inputs.weeklyUnitsLast4Weeks
     : [momentum.score, momentum.score];
   const momentumTone = getTrendTone(trendValues, momentum.score);
-  const canSuggestWatchlist = shouldSuggestWatchlistForMomentum(momentum, product);
 
   return (
     <span
@@ -13814,8 +13807,8 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
         anchorRef={triggerRef}
         open={open}
         className="ppMomentumPopover ppInsightToast ppMomentumToast"
-        width={520}
-        estimatedHeight={390}
+        width={480}
+        estimatedHeight={340}
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}
       >
@@ -13824,9 +13817,6 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
             <ProductPulseGlyph type="product-momentum" />
           </span>
           <strong>Product momentum</strong>
-          <Link className="ppInsightToastKebab" to={href} aria-label={`Open product detail for ${product.title}`}>
-            <s-icon type="menu-horizontal" size="small"></s-icon>
-          </Link>
         </div>
         <div className="ppMomentumToastHero">
           <div>
@@ -13880,36 +13870,8 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
             </span>
           </span>
         </div>
-        {canSuggestWatchlist ? (
-          <button
-            className="ppMomentumToastAction"
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              setOpen(false);
-              onWatchlistToggle?.(product);
-            }}
-          >
-            <ProductPulseGlyph type="binoculars" />
-            Add to Watchlist
-          </button>
-        ) : (
-          <Link className="ppMomentumToastAction" to={href}>
-            <span aria-hidden="true"><s-icon type="check" size="small"></s-icon></span>
-            {momentum.display.recommendedUse}
-          </Link>
-        )}
       </FloatingTablePopover>
     </span>
-  );
-}
-
-function shouldSuggestWatchlistForMomentum(momentum = {}, product = {}) {
-  const recommendedUse = String(momentum.display?.recommendedUse || "").toLowerCase();
-  return Boolean(
-    !product.isWatched
-      && product.productGid
-      && (Number(momentum.score || 0) >= 70 || recommendedUse.includes("watchlist")),
   );
 }
 
@@ -14020,8 +13982,8 @@ function ProductSignalCell({ product }) {
         anchorRef={triggerRef}
         open={open}
         className="ppSignalPopover ppInsightToast ppEvidenceToast"
-        width={520}
-        estimatedHeight={470}
+        width={480}
+        estimatedHeight={430}
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}
       >
@@ -14319,8 +14281,8 @@ function ProductSourceIconGroup({ product = {}, sources, overflow }) {
         anchorRef={triggerRef}
         open={open}
         className="ppSourcePopover ppSourceSummaryPopover ppInsightToast ppSourcesToast"
-        width={460}
-        estimatedHeight={390}
+        width={430}
+        estimatedHeight={360}
         placement="bottom-end"
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}

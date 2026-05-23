@@ -1533,12 +1533,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppInsightToast {
-  width: min(520px, calc(100vw - 24px));
+  width: min(490px, calc(100vw - 24px));
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid #d8e2f1;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #fff;
   color: var(--pp-slate-900);
   box-shadow: 0 22px 48px rgba(var(--pp-shadow-rgb), 0.16);
@@ -1557,7 +1557,7 @@ s-page[inline-size="large-500"] {
 .ppEvidenceToastTitlebar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -1565,7 +1565,7 @@ s-page[inline-size="large-500"] {
 .ppSourcesToastHeader strong,
 .ppEvidenceToastTitlebar strong {
   color: var(--pp-slate-950);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 820;
   line-height: 1.15;
 }
@@ -1574,7 +1574,7 @@ s-page[inline-size="large-500"] {
 .ppSourcesToastHeader p {
   margin: 4px 0 0;
   color: #586a84;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 520;
   line-height: 1.35;
 }
@@ -1582,8 +1582,8 @@ s-page[inline-size="large-500"] {
 .ppInsightToastIcon,
 .ppMomentumToastStatIcon,
 .ppEvidenceToastRowIcon {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -1594,8 +1594,8 @@ s-page[inline-size="large-500"] {
 .ppMomentumToastStatIcon svg,
 .ppEvidenceToastRowIcon svg,
 .ppSourceGlyph svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .ppInsightToastIcon-blue,
@@ -1634,13 +1634,13 @@ s-page[inline-size="large-500"] {
 
 .ppMomentumToastHeader {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr);
 }
 
 .ppInsightToastKebab,
 .ppEvidenceToastTitlebar button {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: inline-grid;
   place-items: center;
   border: 1px solid #dbe5f2;
@@ -1658,16 +1658,16 @@ s-page[inline-size="large-500"] {
 .ppMomentumToastHero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(210px, 0.95fr);
-  gap: 14px;
+  gap: 12px;
   align-items: center;
 }
 
 .ppMomentumToastHero strong {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 5px;
   color: var(--pp-slate-950);
-  font-size: 26px;
+  font-size: 23px;
   font-weight: 860;
   line-height: 1;
 }
@@ -1680,14 +1680,14 @@ s-page[inline-size="large-500"] {
 .ppMomentumToastHero strong small {
   margin-left: -5px;
   color: #586a84;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 720;
 }
 
 .ppMomentumToastHero p {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   color: #586a84;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 560;
   line-height: 1.35;
 }
@@ -1700,19 +1700,19 @@ s-page[inline-size="large-500"] {
 
 .ppMomentumToastSignal {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
+  grid-template-columns: 70px minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
-  min-height: 64px;
-  padding: 12px 14px;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 12px;
   border: 1px solid #bee8d5;
   border-radius: 12px;
   background: linear-gradient(135deg, #f4fff8 0%, #f8fffb 100%);
 }
 
 .ppMomentumToastSignal .ppMiniTrend {
-  width: 78px;
-  height: 30px;
+  width: 70px;
+  height: 28px;
   color: #2fb45f;
 }
 
@@ -1723,16 +1723,16 @@ s-page[inline-size="large-500"] {
 .ppMomentumToastSignal span:last-child {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 7px;
   color: #243247;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 560;
   line-height: 1.3;
 }
 
 .ppMomentumToastSignal i {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   flex: 0 0 auto;
   margin-top: 4px;
   border-radius: 999px;
@@ -1742,16 +1742,16 @@ s-page[inline-size="large-500"] {
 .ppMomentumToastStats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .ppMomentumToastStats > span {
   min-width: 0;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
-  padding: 13px;
+  padding: 11px;
   border: 1px solid #dfe7f3;
   border-radius: 12px;
   background: #fff;
@@ -1761,7 +1761,7 @@ s-page[inline-size="large-500"] {
 .ppEvidenceToastSummary b {
   display: block;
   color: #65738a;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 620;
   line-height: 1.25;
 }
@@ -1770,32 +1770,32 @@ s-page[inline-size="large-500"] {
   display: block;
   margin-top: 4px;
   color: var(--pp-slate-950);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 820;
   line-height: 1.1;
 }
 
 .ppMomentumToastStats small {
   display: block;
-  margin-top: 5px;
+  margin-top: 4px;
   color: #586a84;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 560;
   line-height: 1.25;
 }
 
 .ppMomentumToastAction {
-  min-height: 40px;
+  min-height: 38px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 4px 0;
+  gap: 10px;
+  padding: 9px 4px 0;
   border: 0;
   border-top: 1px solid #dfe7f3;
   background: transparent;
   color: #174fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 720;
   line-height: 1.2;
   cursor: pointer;
@@ -1803,8 +1803,8 @@ s-page[inline-size="large-500"] {
 
 .ppMomentumToastAction > span,
 .ppMomentumToastAction > svg {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
@@ -1813,12 +1813,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppEvidenceToastTitlebar {
-  gap: 8px;
+  gap: 7px;
 }
 
 .ppEvidenceToastAlert {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
@@ -1838,8 +1838,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppEvidenceToastAlert svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .ppEvidenceToastTitlebar > div {
@@ -1851,21 +1851,21 @@ s-page[inline-size="large-500"] {
 }
 
 .ppEvidenceToastTitlebar strong {
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .ppEvidenceToastTitlebar > div span {
   color: #465772;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 560;
 }
 
 .ppEvidenceToastSummary {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 1px 42px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 38px minmax(0, 1fr) 1px 38px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid #cddcff;
   border-radius: 10px;
   background: linear-gradient(135deg, #f7faff 0%, #fff 100%);
@@ -1873,9 +1873,9 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceToastSummary strong {
   display: block;
-  margin-top: 5px;
+  margin-top: 4px;
   color: #172033;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 760;
   line-height: 1.25;
 }
@@ -1887,12 +1887,12 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceToastList {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 
 .ppEvidenceToastList > b {
   color: #586a84;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 820;
   letter-spacing: 0.02em;
   line-height: 1.2;
@@ -1903,10 +1903,10 @@ s-page[inline-size="large-500"] {
 .ppSourcePopoverRow {
   min-width: 0;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: center;
-  padding: 10px 11px;
+  padding: 9px 10px;
   border: 1px solid #dfe7f3;
   border-radius: 10px;
   background: #fff;
@@ -1914,7 +1914,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSourcePopoverRow {
-  padding: 12px 0;
+  padding: 10px 0;
   border-width: 1px 0 0;
   border-radius: 0;
 }
@@ -1937,7 +1937,7 @@ s-page[inline-size="large-500"] {
 .ppSourcePopoverRow b {
   display: block;
   color: var(--pp-slate-950);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 760;
   line-height: 1.22;
 }
@@ -1947,7 +1947,7 @@ s-page[inline-size="large-500"] {
   display: block;
   margin-top: 4px;
   color: #586a84;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   line-height: 1.35;
 }
@@ -1955,18 +1955,18 @@ s-page[inline-size="large-500"] {
 .ppEvidenceToastFooter {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-top: 10px;
+  gap: 7px;
+  padding-top: 8px;
   border-top: 1px solid #dfe7f3;
   color: #174fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   line-height: 1.25;
 }
 
 .ppEvidenceToastFooter span {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
@@ -1974,11 +1974,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSourcesToast {
-  gap: 12px;
+  gap: 10px;
 }
 
 .ppSourcesToastHeader {
-  padding-bottom: 12px;
+  padding-bottom: 10px;
 }
 
 .ppInsightToast .ppSourcePopoverList {
@@ -1986,9 +1986,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppInsightToast .ppSourceGlyph {
-  width: 38px;
-  height: 38px;
-  font-size: 12px;
+  width: 34px;
+  height: 34px;
+  font-size: 11px;
 }
 
 @media (max-width: 760px) {

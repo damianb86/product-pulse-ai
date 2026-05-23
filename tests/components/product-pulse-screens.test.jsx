@@ -647,7 +647,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText((_, element) => element?.classList.contains("ppMomentumToastHero") && element.textContent.includes("Hot · 87/100"))).toBeInTheDocument();
     expect(screen.getByText("42 units")).toBeInTheDocument();
     expect(screen.getByText("$3,240 revenue")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add to Watchlist" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add to Watchlist" })).not.toBeInTheDocument();
     fireEvent.mouseLeave(momentumWrap);
     await waitFor(() => expect(screen.queryByText("Product momentum")).not.toBeInTheDocument());
     const evidenceLink = screen.getByRole("link", { name: "Open evidence for Linen Shirt" });
