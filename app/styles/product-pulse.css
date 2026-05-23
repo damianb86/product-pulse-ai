@@ -1532,6 +1532,472 @@ s-page[inline-size="large-500"] {
   width: 240px;
 }
 
+.ppInsightToast {
+  width: min(560px, calc(100vw - 24px));
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #d8e2f1;
+  border-radius: 16px;
+  background: #fff;
+  color: var(--pp-slate-900);
+  box-shadow: 0 22px 48px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
+.ppSourceSummaryPopover.ppInsightToast {
+  right: auto;
+}
+
+.ppInsightToast a {
+  text-decoration: none;
+}
+
+.ppInsightToastHeader,
+.ppSourcesToastHeader,
+.ppEvidenceToastTitlebar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ppInsightToastHeader strong,
+.ppSourcesToastHeader strong,
+.ppEvidenceToastTitlebar strong {
+  color: var(--pp-slate-950);
+  font-size: 20px;
+  font-weight: 820;
+  line-height: 1.15;
+}
+
+.ppInsightToastHeader p,
+.ppSourcesToastHeader p {
+  margin: 4px 0 0;
+  color: #586a84;
+  font-size: 14px;
+  font-weight: 520;
+  line-height: 1.35;
+}
+
+.ppInsightToastIcon,
+.ppMomentumToastStatIcon,
+.ppEvidenceToastRowIcon {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.ppInsightToastIcon svg,
+.ppMomentumToastStatIcon svg,
+.ppEvidenceToastRowIcon svg,
+.ppSourceGlyph svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ppInsightToastIcon-blue,
+.ppSourceGlyph.ppSourceToken-products,
+.ppSourceGlyph.ppSourceToken-orders,
+.ppEvidenceToastRowIcon-blue {
+  background: #eef4ff;
+  color: #2563eb;
+}
+
+.ppInsightToastIcon-violet,
+.ppSourceGlyph.ppSourceToken-reviews,
+.ppEvidenceToastRowIcon-violet {
+  background: #f1edff;
+  color: #7c3aed;
+}
+
+.ppInsightToastIcon-teal,
+.ppSourceGlyph.ppSourceToken-support,
+.ppEvidenceToastRowIcon-teal {
+  background: #e8fbf8;
+  color: #0f9f8f;
+}
+
+.ppSourceGlyph.ppSourceToken-returns,
+.ppEvidenceToastRowIcon-red {
+  background: #fff0f0;
+  color: #ef4444;
+}
+
+.ppSourceGlyph.ppSourceToken-refunds,
+.ppEvidenceToastRowIcon-amber {
+  background: #fff6e7;
+  color: #c26a00;
+}
+
+.ppMomentumToastHeader {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+}
+
+.ppInsightToastKebab,
+.ppEvidenceToastTitlebar button {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #dbe5f2;
+  border-radius: 999px;
+  background: #fff;
+  color: #66758b;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppEvidenceToastTitlebar button {
+  margin-left: auto;
+}
+
+.ppMomentumToastHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.95fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.ppMomentumToastHero strong {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--pp-slate-950);
+  font-size: 30px;
+  font-weight: 860;
+  line-height: 1;
+}
+
+.ppMomentumToastHero strong em {
+  color: #26a957;
+  font-style: normal;
+}
+
+.ppMomentumToastHero strong small {
+  margin-left: -5px;
+  color: #586a84;
+  font-size: 20px;
+  font-weight: 720;
+}
+
+.ppMomentumToastHero p {
+  margin: 8px 0 0;
+  color: #586a84;
+  font-size: 15px;
+  font-weight: 560;
+  line-height: 1.35;
+}
+
+.ppMomentumToastHero p a,
+.ppInsightToastFooterAction {
+  color: #174fff;
+  font-weight: 720;
+}
+
+.ppMomentumToastSignal {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1px solid #bee8d5;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f4fff8 0%, #f8fffb 100%);
+}
+
+.ppMomentumToastSignal .ppMiniTrend {
+  width: 86px;
+  height: 34px;
+  color: #2fb45f;
+}
+
+.ppMomentumToastSignal .ppMiniTrend polyline {
+  stroke-width: 3;
+}
+
+.ppMomentumToastSignal span:last-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #243247;
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.3;
+}
+
+.ppMomentumToastSignal i {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: #28a955;
+}
+
+.ppMomentumToastStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppMomentumToastStats > span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid #dfe7f3;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ppMomentumToastStats b,
+.ppEvidenceToastSummary b {
+  display: block;
+  color: #65738a;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.25;
+}
+
+.ppMomentumToastStats strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--pp-slate-950);
+  font-size: 20px;
+  font-weight: 820;
+  line-height: 1.1;
+}
+
+.ppMomentumToastStats small {
+  display: block;
+  margin-top: 5px;
+  color: #586a84;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.25;
+}
+
+.ppMomentumToastAction {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 4px 0;
+  border: 0;
+  border-top: 1px solid #dfe7f3;
+  background: transparent;
+  color: #174fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.ppMomentumToastAction > span,
+.ppMomentumToastAction > svg {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef1ff;
+  color: #174fff;
+}
+
+.ppEvidenceToastTitlebar {
+  gap: 10px;
+}
+
+.ppEvidenceToastAlert {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #ef4444;
+}
+
+.ppEvidenceToastAlert-green {
+  color: #16a34a;
+}
+
+.ppEvidenceToastAlert-orange {
+  color: #f59e0b;
+}
+
+.ppEvidenceToastAlert-gray {
+  color: #64748b;
+}
+
+.ppEvidenceToastTitlebar > div {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ppEvidenceToastTitlebar strong {
+  font-size: 17px;
+}
+
+.ppEvidenceToastTitlebar > div span {
+  color: #465772;
+  font-size: 14px;
+  font-weight: 560;
+}
+
+.ppEvidenceToastSummary {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 1px 46px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #cddcff;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f7faff 0%, #fff 100%);
+}
+
+.ppEvidenceToastSummary strong {
+  display: block;
+  margin-top: 5px;
+  color: #172033;
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.ppEvidenceToastSummaryDivider {
+  align-self: stretch;
+  background: #d6e1f0;
+}
+
+.ppEvidenceToastList {
+  display: grid;
+  gap: 8px;
+}
+
+.ppEvidenceToastList > b {
+  color: #586a84;
+  font-size: 12px;
+  font-weight: 820;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.ppEvidenceToastRow,
+.ppSourcePopoverRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid #dfe7f3;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+}
+
+.ppSourcePopoverRow {
+  padding: 14px 0;
+  border-width: 1px 0 0;
+  border-radius: 0;
+}
+
+.ppEvidenceToastRow:hover,
+.ppEvidenceToastRow:focus-visible,
+.ppSourcePopoverRow:hover,
+.ppSourcePopoverRow:focus-visible {
+  border-color: #c7d6ea;
+  outline: none;
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppSourcePopoverRow:hover,
+.ppSourcePopoverRow:focus-visible {
+  box-shadow: none;
+}
+
+.ppEvidenceToastRow b,
+.ppSourcePopoverRow b {
+  display: block;
+  color: var(--pp-slate-950);
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.22;
+}
+
+.ppEvidenceToastRow small,
+.ppSourcePopoverRow small {
+  display: block;
+  margin-top: 4px;
+  color: #586a84;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.ppEvidenceToastFooter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #dfe7f3;
+  color: #174fff;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.ppEvidenceToastFooter span {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef4ff;
+}
+
+.ppSourcesToast {
+  gap: 14px;
+}
+
+.ppSourcesToastHeader {
+  padding-bottom: 14px;
+}
+
+.ppInsightToast .ppSourcePopoverList {
+  gap: 0;
+}
+
+.ppInsightToast .ppSourceGlyph {
+  width: 42px;
+  height: 42px;
+  font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .ppMomentumToastHero,
+  .ppMomentumToastStats,
+  .ppEvidenceToastSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .ppEvidenceToastSummaryDivider {
+    display: none;
+  }
+}
+
 .ppIconButton {
   width: 32px;
   height: 32px;

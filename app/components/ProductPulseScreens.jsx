@@ -1153,7 +1153,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       <ProductSignalCell product={product} />
                     </td>
                     <td>{product.issue}</td>
-                    <td><ProductSourceIconGroup sources={product.sources} overflow={product.sourceOverflow} /></td>
+                    <td><ProductSourceIconGroup product={product} sources={product.sources} overflow={product.sourceOverflow} /></td>
                     <td>{product.lastAnalysis}</td>
                     <td>
                       <div className="ppTableAction">
@@ -13663,21 +13663,38 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}
       >
-        <Link className="ppMomentumMissingTrigger" to={href} aria-label={`Product Momentum unavailable for ${product.title}`}>
+        <Link
+          className="ppMomentumMissingTrigger"
+          to={href}
+          aria-label={`Product Momentum unavailable for ${product.title}`}
+          onFocus={showPopover}
+          onMouseEnter={showPopover}
+          onMouseLeave={scheduleClose}
+        >
           <s-icon type="info" size="small"></s-icon>
           <span>Missing</span>
         </Link>
         <FloatingTablePopover
           anchorRef={triggerRef}
           open={open}
-          className="ppMomentumPopover"
-          width={300}
-          estimatedHeight={140}
+          className="ppMomentumPopover ppInsightToast ppMomentumToast"
+          width={520}
+          estimatedHeight={250}
           onMouseEnter={showPopover}
           onMouseLeave={scheduleClose}
         >
-          <strong>Product Momentum unavailable</strong>
-          <span>Run a deep product diagnosis to calculate current commercial strength from sales velocity, growth, catalog share and recent activity.</span>
+          <div className="ppInsightToastHeader">
+            <span className="ppInsightToastIcon ppInsightToastIcon-blue" aria-hidden="true">
+              <ProductPulseGlyph type="product-momentum" />
+            </span>
+            <div>
+              <strong>Product momentum</strong>
+              <p>Run a deep product diagnosis to calculate current commercial strength.</p>
+            </div>
+          </div>
+          <Link className="ppInsightToastFooterAction" to={href}>
+            Open product detail
+          </Link>
         </FloatingTablePopover>
       </span>
     );
@@ -13698,7 +13715,14 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
       onMouseEnter={showPopover}
       onMouseLeave={scheduleClose}
     >
-      <Link className={`ppMomentumTrigger ppMomentumTrigger-${getProductMomentumBarsTone(momentum)}`} to={href} aria-label={`Open Product Momentum for ${product.title}`}>
+      <Link
+        className={`ppMomentumTrigger ppMomentumTrigger-${getProductMomentumBarsTone(momentum)}`}
+        to={href}
+        aria-label={`Open Product Momentum for ${product.title}`}
+        onFocus={showPopover}
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
+      >
         <span className="ppMomentumTriggerMain">
           <MiniTrend tone={momentumTone} values={trendValues} />
           <span>{momentum.tier} {momentum.score}</span>
@@ -13708,46 +13732,76 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
       <FloatingTablePopover
         anchorRef={triggerRef}
         open={open}
-        className="ppMomentumPopover"
-        width={360}
-        estimatedHeight={330}
+        className="ppMomentumPopover ppInsightToast ppMomentumToast"
+        width={560}
+        estimatedHeight={440}
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}
       >
-        <span className="ppMomentumPopoverHeader">
-          <span>Product Momentum</span>
-          <strong>{momentum.tier} · {momentum.score}/100</strong>
-          <small>{momentum.direction} · {momentum.confidenceLabel}</small>
-        </span>
-        <span className="ppMomentumPopoverTrend">
-          <MiniTrend tone={momentumTone} size="large" values={trendValues} />
-          <span>{momentum.display.trendLabel}</span>
-        </span>
-        <span className="ppMomentumPopoverStats">
+        <div className="ppInsightToastHeader ppMomentumToastHeader">
+          <span className="ppInsightToastIcon ppInsightToastIcon-blue" aria-hidden="true">
+            <ProductPulseGlyph type="product-momentum" />
+          </span>
+          <strong>Product momentum</strong>
+          <Link className="ppInsightToastKebab" to={href} aria-label={`Open product detail for ${product.title}`}>
+            <s-icon type="menu-horizontal" size="small"></s-icon>
+          </Link>
+        </div>
+        <div className="ppMomentumToastHero">
+          <div>
+            <strong><span>{momentum.tier}</span> <span aria-hidden="true">·</span> <em>{momentum.score}</em><small>/100</small></strong>
+            <p>{momentum.direction} <span aria-hidden="true">·</span> <Link to={href}>{momentum.confidenceLabel}</Link></p>
+          </div>
+          <div className="ppMomentumToastSignal">
+            <MiniTrend tone={momentumTone} size="large" values={trendValues} />
+            <span><i aria-hidden="true"></i>{momentum.display.trendLabel}</span>
+          </div>
+        </div>
+        <div className="ppMomentumToastStats">
           <span>
-            <b>Last 30 days</b>
-            <strong>{formatInteger(momentum.inputs.unitsLast30Days)} units</strong>
-            <small>{formatMoney(momentum.inputs.revenueLast30Days)} revenue</small>
+            <span className="ppMomentumToastStatIcon ppInsightToastIcon-blue" aria-hidden="true">
+              <s-icon type="calendar" size="small"></s-icon>
+            </span>
+            <span>
+              <b>Last 30 days</b>
+              <strong>{formatInteger(momentum.inputs.unitsLast30Days)} units</strong>
+              <small>{formatMoney(momentum.inputs.revenueLast30Days)} revenue</small>
+            </span>
           </span>
           <span>
-            <b>Growth</b>
-            <strong>{momentum.display.growthLabel}</strong>
-            <small>vs previous 30 days</small>
+            <span className="ppMomentumToastStatIcon ppInsightToastIcon-blue" aria-hidden="true">
+              <ProductPulseGlyph type="product-momentum" />
+            </span>
+            <span>
+              <b>Growth</b>
+              <strong>{momentum.display.growthLabel}</strong>
+              <small>vs previous 30 days</small>
+            </span>
           </span>
           <span>
-            <b>Catalog position</b>
-            <strong>{momentum.display.catalogPositionLabel}</strong>
-            <small>{getMomentumCatalogComparisonLabel(momentum)}</small>
+            <span className="ppMomentumToastStatIcon ppInsightToastIcon-blue" aria-hidden="true">
+              <s-icon type="trophy" size="small"></s-icon>
+            </span>
+            <span>
+              <b>Catalog position</b>
+              <strong>{momentum.display.catalogPositionLabel}</strong>
+              <small>{getMomentumCatalogComparisonLabel(momentum)}</small>
+            </span>
           </span>
           <span>
-            <b>Confidence</b>
-            <strong>{momentum.confidenceLabel}</strong>
-            <small>{formatInteger(momentum.confidence)}/100</small>
+            <span className="ppMomentumToastStatIcon ppInsightToastIcon-blue" aria-hidden="true">
+              <ProductPulseGlyph type="diagnostic-confidence" />
+            </span>
+            <span>
+              <b>Confidence</b>
+              <strong>{momentum.confidenceLabel}</strong>
+              <small>{formatInteger(momentum.confidence)}/100</small>
+            </span>
           </span>
-        </span>
+        </div>
         {canSuggestWatchlist ? (
           <button
-            className="ppMomentumWatchlistButton"
+            className="ppMomentumToastAction"
             type="button"
             onClick={(event) => {
               event.preventDefault();
@@ -13759,7 +13813,10 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
             Add to Watchlist
           </button>
         ) : (
-          <span className="ppSignalPopoverFooter">{momentum.display.recommendedUse}</span>
+          <Link className="ppMomentumToastAction" to={href}>
+            <span aria-hidden="true"><s-icon type="check" size="small"></s-icon></span>
+            {momentum.display.recommendedUse}
+          </Link>
         )}
       </FloatingTablePopover>
     </span>
@@ -13782,49 +13839,164 @@ function getMomentumCatalogComparisonLabel(momentum = {}) {
   return "Catalog baseline pending";
 }
 
+function getProductDetailHref(product = {}) {
+  if (product.href) return product.href;
+  const identifier = product.handle || product.slug || product.id;
+  return identifier ? `/app/products/${identifier}` : "/app/products";
+}
+
+function getProductEvidenceSourceHref(product = {}, source = null, fallbackHref = "") {
+  const baseEvidenceHref = fallbackHref || `${getProductDetailHref(product)}/evidence`;
+  if (!source) return baseEvidenceHref;
+  const sourceToken = normalizeSourceToken(source);
+  const sourceLabel = sourceToken.label || sourceToken.title || "";
+  return sourceLabel ? `${getProductDetailHref(product)}/evidence?source=${encodeURIComponent(sourceLabel)}` : baseEvidenceHref;
+}
+
+function getEvidenceToastSourceName(item = {}) {
+  const normalized = String(item.key || item.label || item.title || "").toLowerCase();
+  if (normalized.includes("language") || normalized.includes("customer") || normalized.includes("sentiment")) return "Customer language";
+  if (normalized.includes("review") || normalized.includes("rating")) return "Reviews";
+  if (normalized.includes("return")) return "Returns";
+  if (normalized.includes("refund") || normalized.includes("financial")) return "Refunds";
+  if (normalized.includes("product") || normalized.includes("pdp") || normalized.includes("content")) return "Products";
+  return item.label || "Evidence";
+}
+
+function getEvidenceToastIcon(item = {}) {
+  const normalized = String(item.key || item.label || item.title || "").toLowerCase();
+  if (normalized.includes("language") || normalized.includes("customer") || normalized.includes("sentiment")) return "customer-language-analysis";
+  if (normalized.includes("review") || normalized.includes("rating")) return "csv-reviews";
+  if (normalized.includes("return")) return "shopify-returns";
+  if (normalized.includes("refund") || normalized.includes("financial")) return "shopify-refunds";
+  if (normalized.includes("product") || normalized.includes("pdp") || normalized.includes("content")) return "shopify-product";
+  return item.icon || "main-issue";
+}
+
+function getEvidenceToastTone(item = {}) {
+  const normalized = String(item.key || item.label || item.title || "").toLowerCase();
+  if (normalized.includes("return")) return "red";
+  if (normalized.includes("refund") || normalized.includes("financial")) return "amber";
+  if (normalized.includes("review") || normalized.includes("rating")) return "violet";
+  if (normalized.includes("language") || normalized.includes("customer") || normalized.includes("sentiment")) return "blue";
+  if (normalized.includes("product") || normalized.includes("pdp") || normalized.includes("content")) return "teal";
+  return "blue";
+}
+
 function ProductSignalCell({ product }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef(null);
   const details = normalizeProductEvidenceDetails(product);
   const evidenceHref = details.fullEvidenceHref || `${product.href || `/app/products/${product.handle || product.slug || product.id}`}/evidence`;
+  const evidenceRows = details.topEvidence.length ? details.topEvidence : [];
+  const showPopover = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 500);
+  };
+  const hidePopover = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setOpen(false);
+  };
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   return (
     <span
       className="ppSignalPopoverWrap"
       ref={triggerRef}
-      onBlur={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onBlur={scheduleClose}
+      onFocus={showPopover}
+      onMouseEnter={showPopover}
+      onMouseLeave={scheduleClose}
     >
-      <Link className="ppSignalTrigger" to={evidenceHref} aria-label={`Open evidence for ${product.title}`}>
+      <Link
+        className="ppSignalTrigger"
+        to={evidenceHref}
+        aria-label={`Open evidence for ${product.title}`}
+        onFocus={showPopover}
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
+      >
         <span className="ppSignalTriggerMain">
           <SignalBars tone={details.tone || product.signalTone} values={details.values || product.signalBars || []} />
           <span>{details.signalCount}</span>
         </span>
         <span className="ppSignalStrengthLine">{details.strengthLabel} · {details.sourceCount} source{details.sourceCount === 1 ? "" : "s"}</span>
       </Link>
-      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppSignalPopover" width={340} estimatedHeight={280}>
-        <strong>{details.summary}</strong>
-        <span className="ppSignalPopoverMeta">
-          <span><b>Main issue</b>{details.mainIssue}</span>
-          <span><b>Recommended action</b>{details.recommendedAction}</span>
-        </span>
-        {details.topEvidence.length > 0 && (
-          <span className="ppSignalPopoverList">
-            <b>Top evidence</b>
-            {details.topEvidence.map((item) => (
-              <span className="ppSignalPopoverItem" key={item.label}>
-                <s-icon type={item.icon || "target"} size="small"></s-icon>
-                <span>
-                  <b>{item.label}</b>
-                  <small>{item.detail}</small>
-                </span>
-              </span>
-            ))}
+      <FloatingTablePopover
+        anchorRef={triggerRef}
+        open={open}
+        className="ppSignalPopover ppInsightToast ppEvidenceToast"
+        width={560}
+        estimatedHeight={520}
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
+      >
+        <div className="ppEvidenceToastTitlebar">
+          <span className={`ppEvidenceToastAlert ppEvidenceToastAlert-${details.tone || "blue"}`} aria-hidden="true">
+            <ProductPulseGlyph type="product-risk" />
           </span>
+          <div>
+            <strong>{details.strengthLabel} evidence</strong>
+            <span>· {formatInteger(details.signalCount)} signal{details.signalCount === 1 ? "" : "s"} · {formatInteger(details.sourceCount)} source{details.sourceCount === 1 ? "" : "s"}</span>
+          </div>
+          <button type="button" aria-label="Close evidence summary" onClick={hidePopover}>
+            <s-icon type="x" size="small"></s-icon>
+          </button>
+        </div>
+        <div className="ppEvidenceToastSummary">
+          <span className="ppInsightToastIcon ppInsightToastIcon-blue" aria-hidden="true">
+            <ProductPulseGlyph type="main-issue" />
+          </span>
+          <span>
+            <b>Main issue</b>
+            <strong>{details.mainIssue}</strong>
+          </span>
+          <span className="ppEvidenceToastSummaryDivider" aria-hidden="true"></span>
+          <span className="ppInsightToastIcon ppInsightToastIcon-violet" aria-hidden="true">
+            <s-icon type="clipboard" size="small"></s-icon>
+          </span>
+          <span>
+            <b>Recommended action</b>
+            <strong>{details.recommendedAction}</strong>
+          </span>
+        </div>
+        {evidenceRows.length > 0 && (
+          <div className="ppEvidenceToastList">
+            <b>Top evidence</b>
+            {evidenceRows.map((item) => {
+              const itemHref = getProductEvidenceSourceHref(product, getEvidenceToastSourceName(item), evidenceHref);
+              return (
+                <Link className="ppEvidenceToastRow" to={itemHref} key={item.label}>
+                  <span className={`ppEvidenceToastRowIcon ppEvidenceToastRowIcon-${getEvidenceToastTone(item)}`} aria-hidden="true">
+                    <ProductPulseGlyph type={getEvidenceToastIcon(item)} />
+                  </span>
+                  <span>
+                    <b>{item.label}</b>
+                    <small>{item.detail}</small>
+                  </span>
+                  <s-icon type="chevron-right" size="small"></s-icon>
+                </Link>
+              );
+            })}
+          </div>
         )}
-        <span className="ppSignalPopoverFooter">Click the Evidence cell to view full evidence.</span>
+        <Link className="ppEvidenceToastFooter" to={evidenceHref}>
+          <span aria-hidden="true"><s-icon type="info" size="small"></s-icon></span>
+          Click the Evidence cell to view full evidence.
+        </Link>
       </FloatingTablePopover>
     </span>
   );
@@ -13947,7 +14119,7 @@ function FloatingTablePopover({
   if (!open || !style || typeof document === "undefined") return null;
 
   return createPortal(
-    <span
+    <div
       className={`${className} ppFloatingTablePopover`.trim()}
       role={role}
       style={style}
@@ -13955,7 +14127,7 @@ function FloatingTablePopover({
       onMouseLeave={onMouseLeave}
     >
       {children}
-    </span>,
+    </div>,
     document.body,
   );
 }
@@ -14015,61 +14187,115 @@ function useFloatingTablePopoverStyle(anchorRef, open, { width = 320, estimatedH
   return style;
 }
 
-function ProductSourceIconGroup({ sources, overflow }) {
+function ProductSourceIconGroup({ product = {}, sources, overflow }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
-  const sourceTokens = (sources || []).map(normalizeSourceToken);
+  const closeTimerRef = useRef(null);
+  const sourceTokens = getDisplaySourceTokens(sources);
   const overflowCount = Number(overflow || 0);
   const hasFullSourceList = sourceTokens.length > 3;
   const totalCount = sourceTokens.length + (hasFullSourceList ? 0 : overflowCount);
   const primarySource = sourceTokens[0] || normalizeSourceToken("source");
+  const showPopover = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 500);
+  };
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   return (
     <span
       className="ppSourceTokenWrap"
       ref={triggerRef}
-      onBlur={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onBlur={scheduleClose}
+      onFocus={showPopover}
+      onMouseEnter={showPopover}
+      onMouseLeave={scheduleClose}
     >
-      <button className="ppSourceSummaryTrigger" type="button" aria-label={`${totalCount || 1} source${totalCount === 1 ? "" : "s"} used for this product`}>
+      <button
+        className="ppSourceSummaryTrigger"
+        type="button"
+        aria-label={`${totalCount || 1} source${totalCount === 1 ? "" : "s"} used for this product`}
+        onFocus={showPopover}
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
+      >
         <span className={`ppSourceSummaryGlyph ppSourceSummaryGlyph-${primarySource.key}`} aria-hidden="true">
           <s-icon type="duplicate" size="small"></s-icon>
         </span>
       </button>
-      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppSourcePopover ppSourceSummaryPopover" width={360} estimatedHeight={260} placement="bottom-end">
-        <strong>Sources used</strong>
-        <span className="ppSourcePopoverList">
+      <FloatingTablePopover
+        anchorRef={triggerRef}
+        open={open}
+        className="ppSourcePopover ppSourceSummaryPopover ppInsightToast ppSourcesToast"
+        width={500}
+        estimatedHeight={430}
+        placement="bottom-end"
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
+      >
+        <div className="ppSourcesToastHeader">
+          <span className="ppInsightToastIcon ppInsightToastIcon-violet" aria-hidden="true">
+            <s-icon type="database" size="small"></s-icon>
+          </span>
+          <div>
+            <strong>Sources used</strong>
+            <p>Data from your Shopify store used to generate these insights.</p>
+          </div>
+        </div>
+        <div className="ppSourcePopoverList">
           {sourceTokens.map((source, index) => (
-            <span className="ppSourcePopoverRow" key={`${source.key}-${source.label}-${index}`}>
-              <span className={`ppSourceGlyph ppSourceToken-${source.key}`} aria-hidden="true">{getSourceGlyph(source.key)}</span>
+            <Link className="ppSourcePopoverRow" to={getProductEvidenceSourceHref(product, source)} key={`${source.key}-${source.label}-${index}`}>
+              <span className={`ppSourceGlyph ppSourceToken-${source.key}`} aria-hidden="true">
+                <ProductPulseGlyph type={getSourceIconType(source.key)} />
+              </span>
               <span>
                 <b>{source.label}</b>
                 <small>{source.detail}</small>
               </span>
-            </span>
+              <s-icon type="chevron-right" size="small"></s-icon>
+            </Link>
           ))}
           {!sourceTokens.length && (
-            <span className="ppSourcePopoverRow">
+            <Link className="ppSourcePopoverRow" to={getProductEvidenceSourceHref(product, null)}>
               <span className="ppSourceGlyph" aria-hidden="true">S</span>
               <span>
                 <b>Signal source</b>
                 <small>No source detail stored for this product yet.</small>
               </span>
-            </span>
+              <s-icon type="chevron-right" size="small"></s-icon>
+            </Link>
           )}
           {!hasFullSourceList && overflowCount > 0 && (
             <small>{overflowCount} additional source{overflowCount === 1 ? "" : "s"} stored for this product.</small>
           )}
-        </span>
+        </div>
       </FloatingTablePopover>
     </span>
   );
 }
 
 function normalizeSourceToken(source) {
-  if (source && typeof source === "object") return source;
+  if (source && typeof source === "object") {
+    const fallback = normalizeSourceToken(source.label || source.title || source.key);
+    return {
+      ...fallback,
+      ...source,
+      key: source.key || fallback.key,
+      label: source.label || source.title || fallback.label,
+      detail: source.detail || fallback.detail,
+    };
+  }
   const normalized = String(source || "").toLowerCase();
   if (normalized.includes("product") || normalized.includes("catalog")) {
     return { key: "products", label: "Products", shortLabel: "PDP", detail: "Shopify product, variant, tag and collection data." };
@@ -14092,16 +14318,43 @@ function normalizeSourceToken(source) {
   return { key: "source", label: "Signal source", shortLabel: "SRC", detail: "Additional connected signal source." };
 }
 
-function getSourceGlyph(key) {
-  const glyphs = {
-    products: "P",
-    orders: "#",
-    refunds: "$",
-    returns: "R",
-    reviews: "*",
-    support: "?",
-  };
-  return glyphs[key] || "S";
+function getDisplaySourceTokens(sources = []) {
+  const sourceTokens = (sources || []).map(normalizeSourceToken).filter(Boolean);
+  const byKey = new Map();
+  const unknown = [];
+
+  sourceTokens.forEach((source) => {
+    const key = source.key || "source";
+    if (key === "source") {
+      if (!unknown.some((item) => item.label === source.label)) unknown.push(source);
+      return;
+    }
+    if (!byKey.has(key)) byKey.set(key, source);
+  });
+
+  return [
+    ...["products", "orders", "returns", "refunds", "reviews", "support"].map((key) => byKey.get(key)).filter(Boolean),
+    ...unknown,
+  ];
+}
+
+function getSourceIconType(key) {
+  switch (key) {
+    case "products":
+      return "shopify-product";
+    case "orders":
+      return "shopify-orders";
+    case "returns":
+      return "shopify-returns";
+    case "refunds":
+      return "shopify-refunds";
+    case "reviews":
+      return "csv-reviews";
+    case "support":
+      return "customer-language-analysis";
+    default:
+      return "duplicate";
+  }
 }
 
 function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle, onDeleteAnalysis }) {
