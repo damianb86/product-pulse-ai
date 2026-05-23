@@ -10776,12 +10776,11 @@ s-page[inline-size="large-500"] {
   line-height: 1.55;
 }
 
-.ppEvidenceRelationshipSignalSlot {
+.ppEvidenceReportRelationshipSignalSlot {
   max-width: 540px;
-  margin: 2px 0 4px;
 }
 
-.ppEvidenceRelationshipSignalSlot .ppProductRelationshipSignalCard {
+.ppEvidenceReportRelationshipSignalSlot .ppProductRelationshipSignalCard {
   min-height: 174px;
 }
 

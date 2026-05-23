@@ -1486,14 +1486,13 @@ describe("ProductPulse screens", () => {
     expect(riskSnapshot).toBeInTheDocument();
     expect(within(riskSnapshot).queryByText("Relationship signal")).not.toBeInTheDocument();
     expect(evidencePanel).toBeInTheDocument();
-    expect(within(evidencePanel).getByText("Relationship signal")).toBeInTheDocument();
-    expect(within(evidencePanel).getAllByText("1").length).toBeGreaterThanOrEqual(2);
-    expect(within(evidencePanel).getByText("strong same-cart link")).toBeInTheDocument();
-    expect(within(evidencePanel).getByText("after-purchase path")).toBeInTheDocument();
-    expect(within(evidencePanel).getByText("Top related:")).toBeInTheDocument();
+    expect(within(evidencePanel).queryByText("Relationship signal")).not.toBeInTheDocument();
+    expect(within(evidencePanel).queryByText("strong same-cart link")).not.toBeInTheDocument();
+    expect(within(evidencePanel).queryByText("after-purchase path")).not.toBeInTheDocument();
+    expect(within(evidencePanel).queryByText("Top related:")).not.toBeInTheDocument();
     expect(within(evidencePanel).queryByText("Nearby product relationships")).not.toBeInTheDocument();
     expect(evidencePanel.querySelector(".ppProductRelationshipSignalFooter")).not.toBeInTheDocument();
-    expect(evidencePanel.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
+    expect(evidencePanel.querySelector(".ppProductRelationshipSignalVisual img")).not.toBeInTheDocument();
     expect(panel).toBeInTheDocument();
     expect(within(panel).queryByText("Relationship signal")).not.toBeInTheDocument();
     expect(panel.querySelector(".ppProductRelationshipSignalVisual img")).not.toBeInTheDocument();
@@ -3133,6 +3132,7 @@ describe("ProductPulse screens", () => {
         },
         productPurchaseContextSummary: purchaseContextSummaryFixture(),
         productPurchaseContextFactors: { hasPurchaseContextSummary: true },
+        productRelationshipIntelligenceSummary: productRelationshipSummaryFixture(),
         returnRefundRelationshipSummary: relationshipSummaryFixture({
           sold_units: 12,
           returned_units: 4,
@@ -3171,6 +3171,9 @@ describe("ProductPulse screens", () => {
     expect(returnsEvidenceReport).toBeInTheDocument();
     expect(within(returnsEvidenceReport).getByText("Returns vs. refunds relationship")).toBeInTheDocument();
     const outcomeContextSection = container.querySelector("#evidence-report-order-outcome-context");
+    expect(within(outcomeContextSection).getByText("Relationship signal")).toBeInTheDocument();
+    expect(within(outcomeContextSection).getByText("Top related:")).toBeInTheDocument();
+    expect(outcomeContextSection.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
     expect(within(outcomeContextSection).queryByText("Returns vs. refunds relationship")).not.toBeInTheDocument();
     expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
     expect(screen.getByText("Diagnostic checks behind recommendations")).toBeInTheDocument();

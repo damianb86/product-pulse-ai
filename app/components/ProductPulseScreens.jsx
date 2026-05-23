@@ -14406,7 +14406,6 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
     return (
       <div className="ppProductPanel ppEvidenceObservabilityPanel">
         <EvidenceObservabilityHeader detail={detail} />
-        <EvidenceRelationshipSignalCard detail={detail} />
         <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
       </div>
     );
@@ -14421,7 +14420,6 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
   return (
     <div className="ppProductPanel ppEvidenceObservabilityPanel">
       <EvidenceObservabilityHeader detail={detail} />
-      <EvidenceRelationshipSignalCard detail={detail} />
 
       <div className="ppEvidenceTabsModern" role="tablist" aria-label="Evidence sources">
         {sources.map((source, index) => (
@@ -14452,7 +14450,7 @@ function EvidenceRelationshipSignalCard({ detail }) {
   const relationship = detail.productRelationshipIntelligence || {};
   if (!relationship.available) return null;
   return (
-    <div className="ppEvidenceRelationshipSignalSlot">
+    <div className="ppEvidenceReportRelationshipSignalSlot">
       <ProductRelationshipSignalCard detail={detail} relationship={relationship} />
     </div>
   );
@@ -17266,6 +17264,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
           onToggle={() => toggleEvidenceReportSection("order-outcome-context")}
         >
           <div className="ppEvidenceReportContextStack">
+            <EvidenceRelationshipSignalCard detail={detail} />
             <ProductPurchaseContextPanel detail={detail} />
             <ProductReturnRefundResolutionPanel detail={detail} />
           </div>
