@@ -133,6 +133,7 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getByText(/Completed /)).toBeVisible();
     expect(screen.getAllByText("1 credit").length).toBeGreaterThan(0);
     expect(screen.getByText("View all background processes")).toBeVisible();
+    expect(document.querySelector(".ppGlobalTopbarJobProgress")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");
   });
 

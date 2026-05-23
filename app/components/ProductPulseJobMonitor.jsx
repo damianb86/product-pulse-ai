@@ -527,7 +527,6 @@ function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = fal
 
 function JobPopoverItem({ job, now, current = false, onClose }) {
   const statusKey = getJobStatusKey(job);
-  const progress = getJobProgressPercent(job);
   const metaItems = getJobMetaItems(job, now, current);
 
   return (
@@ -541,12 +540,7 @@ function JobPopoverItem({ job, now, current = false, onClose }) {
           <strong>{getJobTitle(job)}</strong>
         </div>
         <small>{getJobSubtitle(job)}</small>
-        {current ? (
-          <div className="ppGlobalTopbarJobProgress">
-            <i aria-hidden="true"><b style={{ width: `${progress}%` }}></b></i>
-            <em>{formatElapsed(job, now)}</em>
-          </div>
-        ) : null}
+        {current ? <em className="ppGlobalTopbarJobElapsed">{formatElapsed(job, now)}</em> : null}
         <div className="ppGlobalTopbarJobMeta">
           {metaItems.map((item) => (
             <span key={`${job.id}-${item.label}`} className={`ppGlobalTopbarJobMetaItem ppGlobalTopbarJobMetaItem-${item.icon}`}>
@@ -567,15 +561,6 @@ function JobPopoverItem({ job, now, current = false, onClose }) {
 
 function getJobStatusKey(job) {
   return String(job.status || "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "unknown";
-}
-
-function getJobProgressPercent(job) {
-  const progress = Number(job.progress);
-  if (Number.isFinite(progress) && progress > 0) return Math.max(4, Math.min(100, progress));
-  if (job.status === "Completed") return 100;
-  if (job.status === "Queued") return 4;
-  if (job.status === "Running") return 12;
-  return 0;
 }
 
 function getJobStateIconType(statusKey) {
