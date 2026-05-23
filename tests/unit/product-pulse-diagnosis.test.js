@@ -2690,6 +2690,28 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(variantAction.payload.trigger).toContain("Multi-variant purchases");
   });
 
+  it("stores the AI basket context interpretation on the purchase context summary", () => {
+    const summary = {
+      total_orders_containing_product: 18,
+      solo_product_order_count: 12,
+      multi_product_order_count: 6,
+    };
+    const enriched = __productPulseDiagnosisTestHooks.withAiPurchaseContextInterpretation(summary, {
+      report: {
+        basket_context_interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      },
+    });
+
+    expect(enriched).toMatchObject({
+      ...summary,
+      interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      backend_interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      ai_interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      interpretation_source: "deep_diagnosis_final_report",
+    });
+    expect(summary.interpretation).toBeUndefined();
+  });
+
   it("creates relationship recommendations only from sufficiently confident actionable patterns", () => {
     const deterministic = {
       mainIssue: "product_quality",

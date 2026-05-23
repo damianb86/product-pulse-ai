@@ -357,6 +357,7 @@ describe("ProductPulse AI provider fallback", () => {
           main_finding_title: "Unusual customer sentiment needs review",
           main_finding_detail: "Return notes include unusual emotional language.",
           evidence_summary: "Shopify return notes contain repeated emotional language.",
+          basket_context_interpretation: "Purchase context should be read as a qualitative modifier alongside the final report, not as a separate numeric recap.",
           recommendation_copy: {},
         }),
         JSON.stringify({
@@ -388,7 +389,10 @@ describe("ProductPulse AI provider fallback", () => {
     expect(prompts[1]).toContain("clustering customer emotions");
     expect(prompts[3]).toContain("Write main_finding_detail as 1 to 3 merchant-facing paragraphs");
     expect(prompts[3]).toContain("Do not let reviews consume the whole main finding");
+    expect(prompts[3]).toContain("basket_context_interpretation");
+    expect(prompts[3]).toContain("as few numeric values as possible");
     expect(prompts[4]).toContain("Why this action");
+    expect(result.report.basket_context_interpretation).toContain("qualitative modifier");
     expect(result.emergentSentiments.emergent_sentiments[0]).toMatchObject({
       normalized_label: "superstitious_discomfort",
       has_sufficient_evidence: true,

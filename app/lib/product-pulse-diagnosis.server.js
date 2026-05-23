@@ -2872,6 +2872,30 @@ function dedupeRiskHistoryPointsByRecordedAt(history = []) {
   return [...byTimestamp.values()].sort((first, second) => new Date(first.recordedAt).getTime() - new Date(second.recordedAt).getTime());
 }
 
+function withAiPurchaseContextInterpretation(summary, ai) {
+  if (!summary || typeof summary !== "object") return summary;
+  const interpretation = cleanAiStoredInterpretation(
+    ai?.report?.basket_context_interpretation || ai?.report?.basketContextInterpretation,
+  );
+  if (!interpretation) return summary;
+
+  return {
+    ...summary,
+    interpretation,
+    backend_interpretation: interpretation,
+    ai_interpretation: interpretation,
+    interpretation_source: "deep_diagnosis_final_report",
+  };
+}
+
+function cleanAiStoredInterpretation(value) {
+  return String(value || "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
+}
+
 function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
   const semanticDeterministic = applyAiSemanticClassificationToDeterministic(deterministic, ai);
@@ -2954,8 +2978,13 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
     runtimeState: scoredDeterministic.metrics.incrementalDiagnosis,
     aiContentGaps: ai.contentGaps,
   });
+  const productPurchaseContextSummary = withAiPurchaseContextInterpretation(
+    scoredDeterministic.metrics.productPurchaseContextSummary,
+    ai,
+  );
   const metrics = {
     ...scoredDeterministic.metrics,
+    productPurchaseContextSummary,
     incrementalDiagnosis,
     aiUsage: ai.aiUsage,
     productRelationshipAiInsights: ai.relationshipInsights || null,
@@ -12995,6 +13024,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildSignalRelevanceGuidance,
   buildFinalIssues,
   buildFinalRecommendations,
+  withAiPurchaseContextInterpretation,
   analyzeFaqOpportunity,
   buildRecommendedFaqItems,
   analyzeProductContentDeterministically,

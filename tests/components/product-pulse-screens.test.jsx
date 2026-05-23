@@ -1410,6 +1410,7 @@ describe("ProductPulse screens", () => {
             co_order_rate: 0.333,
             affinity_score: 2.1,
           }],
+          interpretation: "AI basket interpretation says this item is mostly read as a standalone purchase, but companion products and variant choice still matter when judging downstream friction.",
           monthly_context: [
             { key: "2026-04", label: "Apr", orders_containing_product: 8, solo_product_orders: 6, multi_product_orders: 2, avg_product_quantity_per_order: 1.2 },
             { key: "2026-05", label: "May", orders_containing_product: 10, solo_product_orders: 7, multi_product_orders: 3, avg_product_quantity_per_order: 1.6 },
@@ -1466,10 +1467,8 @@ describe("ProductPulse screens", () => {
     expect(within(purchasePanel).getByText("Strongest co-purchase")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Care Kit")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Interpretation")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText(/Across 18 product-containing orders, this product leans standalone/i)).toBeInTheDocument();
-    expect(within(purchasePanel).getByText(/67% single-unit, 28% multiple-unit and 5% bulk orders/i)).toBeInTheDocument();
-    expect(within(purchasePanel).getByText(/83% single-variant and 17% multi-variant orders/i)).toBeInTheDocument();
-    expect(within(purchasePanel).getByText(/Strongest co-purchase is Care Kit/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/AI basket interpretation says this item is mostly read as a standalone purchase/i)).toBeInTheDocument();
+    expect(within(purchasePanel).queryByText(/Across 18 product-containing orders/i)).not.toBeInTheDocument();
 
     expect(within(riskSnapshot).getByText("72.2% solo purchase attribution")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Strong attribution: 72.2% solo purchase rate")).toBeInTheDocument();
@@ -1494,6 +1493,7 @@ describe("ProductPulse screens", () => {
           avg_product_quantity_per_order: 1,
           avg_distinct_products_per_order: 3.2,
           top_co_purchased_products: [],
+          interpretation: "AI basket interpretation says basket-led attribution should be read through the surrounding order context before blaming this item alone.",
           purchase_context_confidence: 64,
           purchase_context_confidence_label: "Medium",
         }),
@@ -1506,9 +1506,8 @@ describe("ProductPulse screens", () => {
     expect(within(purchasePanel).getByText("Bought with other products")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("100%").length).toBeGreaterThan(0);
     expect(purchasePanel.querySelectorAll(".ppBasketContextBarRow.isZero").length).toBeGreaterThan(0);
-    expect(within(purchasePanel).getByText(/Across 6 product-containing orders, this product leans basket-led/i)).toBeInTheDocument();
-    expect(within(purchasePanel).getByText(/100% single-unit, 0% multiple-unit and 0% bulk orders/i)).toBeInTheDocument();
-    expect(within(purchasePanel).getByText(/100% single-variant and 0% multi-variant orders/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/AI basket interpretation says basket-led attribution/i)).toBeInTheDocument();
+    expect(within(purchasePanel).queryByText(/Across 6 product-containing orders/i)).not.toBeInTheDocument();
     expect(within(purchasePanel).getByText("No reliable co-purchase yet")).toBeInTheDocument();
 
     const missingProduct = {

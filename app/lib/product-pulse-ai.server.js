@@ -189,6 +189,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     main_finding_title: input?.deterministic?.mainIssueLabel || "Product issue needs review",
     main_finding_detail: input?.deterministic?.evidenceSummary || "ProductPulse found deterministic signals that should be reviewed.",
     evidence_summary: input?.deterministic?.evidenceSummary || "",
+    basket_context_interpretation: "",
     evidence_synthesis_sections: [],
     recommendation_copy: {},
   });
@@ -561,6 +562,10 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "When you quote exact customer wording, return-note text, refund-note text, review text, product-description text, title text, tag text, collection text, SKU/variant names, or any other source excerpt, wrap the exact excerpt in double quotation marks. Do not present exact source text without quotation marks.",
     "For evidence_synthesis_sections, write qualitative interpretation for the UI tabs. Do not restate concrete counts, rates, scores, amounts, or dates unless a specific number is essential to understand the issue; those values are already visible in the product panels.",
     "Each evidence_synthesis_sections item should guide the merchant on how to read that tab: what the evidence relationship suggests, what to compare next, and how cautiously to interpret the data. Use only the supplied evidence and avoid inventing new facts.",
+    "Also write basket_context_interpretation for the Basket context card only when deterministic.metrics.productPurchaseContextSummary includes purchase-context data. This text is generated only during deep diagnosis and will be stored; the frontend will not synthesize it at render time.",
+    "For basket_context_interpretation, use mostly qualitative interpretation with as few numeric values as possible. Do not recap the visible bar percentages or counts. Explain what the basket, unit, variant, co-purchase, return/refund, review, content and final-report context imply together.",
+    "Keep basket_context_interpretation consistent with the main_finding_detail and evidence_summary you return in this same JSON, so it reads as an interpretation of the full diagnosis rather than a standalone metric explanation.",
+    "If purchase context is unavailable or too thin to interpret, return an empty string for basket_context_interpretation.",
     "When review evidence comes from multiple providers, create separate evidence_synthesis_sections entries for each review provider. Set source_title and source_key for provider-specific review sections, and do not reuse the same body across CSV, Judge.me, ChatMe, or any other external review provider.",
     "Only write a provider-specific section from that provider's own review evidence. Do not mix CSV review text into Judge.me sections, do not mix Judge.me review text into CSV sections, and do not use the aggregate Customer Language section as a substitute for a provider tab.",
     "Do not put low-priority metadata coverage suggestions, such as product type/tags/collections not being repeated in the description, in the main finding unless they create a real buyer-facing contradiction.",
@@ -574,6 +579,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
       main_finding_title: "Sizing and fit expectations are not being met",
       main_finding_detail: "1-3 paragraphs separated by \\n\\n, grounded in evidence and covering each relevant discovery area",
       evidence_summary: "1-2 sentence source agreement summary",
+      basket_context_interpretation: "Concise qualitative Basket context interpretation that uses the final report, overview context, purchase context, and other product signals together while avoiding unnecessary numbers.",
       evidence_synthesis_sections: [
         {
           section_key: "cross_source",

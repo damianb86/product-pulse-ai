@@ -4347,8 +4347,8 @@ function normalizeProductPurchaseContext(summaryValue = null, factorsValue = nul
   const interpretation = firstNonEmptyString(
     summary.interpretation,
     summary.backend_interpretation,
-    scoringImpact[0],
-    primaryContext ? `${primaryContext}.` : "",
+    summary.ai_interpretation,
+    summary.aiInterpretation,
   );
 
   return {
@@ -9984,46 +9984,11 @@ function getBasketContextProductHref(item = {}) {
 }
 
 function getBasketContextInterpretation(context = {}) {
-  const totalOrders = Math.max(0, Math.round(Number(context.totalOrdersContainingProduct || 0)));
   const storedInterpretation = firstNonEmptyString(context.interpretation);
-  if (!context.available) return storedInterpretation || "Purchase context is not calculated for this product yet.";
-  if (!totalOrders) return storedInterpretation || "No product-containing orders were available in the stored purchase context window.";
-
-  const soloRate = Number(context.soloPurchaseRatePercent || 0);
-  const basketRate = Number(context.multiProductBasketRatePercent || 0);
-  const unitMix = getBasketContextUnitMix(context);
-  const variantMix = getBasketContextVariantMix(context);
-  const singleUnit = unitMix.find((item) => item.key === "single-unit") || {};
-  const multipleUnit = unitMix.find((item) => item.key === "multiple-unit") || {};
-  const bulk = unitMix.find((item) => item.key === "bulk") || {};
-  const singleVariant = variantMix.find((item) => item.key === "single-variant") || {};
-  const multipleVariant = variantMix.find((item) => item.key === "multiple-variant") || {};
-  const strongestCoPurchase = Array.isArray(context.topCoPurchasedProducts)
-    ? context.topCoPurchasedProducts
-      .filter((item) => item?.title)
-      .sort((left, right) => Number(right.affinityScore || right.coOrderRatePercent || right.coOrderCount || 0) - Number(left.affinityScore || left.coOrderRatePercent || left.coOrderCount || 0))[0]
-    : null;
-
-  const basketPattern = basketRate > soloRate
-    ? `leans basket-led (${formatPercent(basketRate)} bought with other products versus ${formatPercent(soloRate)} solo)`
-    : soloRate > basketRate
-      ? `leans standalone (${formatPercent(soloRate)} solo versus ${formatPercent(basketRate)} bought with other products)`
-      : `is evenly split between solo and basket purchases (${formatPercent(soloRate)} each)`;
-  const quantityPattern = `${formatPercent(singleUnit.percent)} single-unit, ${formatPercent(multipleUnit.percent)} multiple-unit and ${formatPercent(bulk.percent)} bulk orders`;
-  const variantPattern = `${formatPercent(singleVariant.percent)} single-variant and ${formatPercent(multipleVariant.percent)} multi-variant orders`;
-  const coPurchasePattern = strongestCoPurchase
-    ? ` The strongest co-purchase is ${strongestCoPurchase.title}, so companion-product context still matters when reading basket orders.`
-    : "";
-  const impactParts = [];
-  if (soloRate >= 60) impactParts.push("product-level attribution is stronger");
-  if (basketRate >= 40) impactParts.push("basket attribution should still consider companion products");
-  if (Number(multipleUnit.percent || 0) + Number(bulk.percent || 0) >= 25) impactParts.push("multi-unit and bulk orders can amplify exposure");
-  if (Number(multipleVariant.percent || 0) >= 10) impactParts.push("variant choice is part of the purchase pattern");
-  const impactPattern = impactParts.length
-    ? `Taken together, ${impactParts.join(", ")}.`
-    : "Taken together, purchase context is available but does not point to one dominant attribution modifier.";
-
-  return `Across ${formatInteger(totalOrders)} product-containing orders, this product ${basketPattern}. Quantity mix is ${quantityPattern}, with an average of ${formatDecimal(context.avgProductQuantityPerOrder, 1)} units per order; variant mix is ${variantPattern}.${coPurchasePattern} ${impactPattern}`;
+  if (storedInterpretation) return storedInterpretation;
+  if (!context.available) return "Run a deep diagnosis after purchase context is available to generate this basket interpretation.";
+  if (!context.hasOrderData) return "Deep diagnosis did not find enough order context to generate a basket interpretation.";
+  return "Run a deep diagnosis to generate this basket interpretation from the full product analysis.";
 }
 
 function PurchaseContextMetricTile({ icon, value, label }) {
