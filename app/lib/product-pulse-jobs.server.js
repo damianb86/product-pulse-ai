@@ -2625,6 +2625,8 @@ function filterProductSnapshots(
     ].filter(Boolean).join(" ").toLowerCase();
 
     if (query && !searchable.includes(query)) return false;
+    if (filters.resolution === "resolved" && !isResolved) return false;
+    if (["unresolved", "exclude-resolved"].includes(filters.resolution) && isResolved) return false;
     if (filters.analysis && filters.analysis !== "all" && getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid, activeDiagnosisProductKeys) !== filters.analysis) return false;
     if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore, settings) !== filters.risk) return false;
     if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore, isResolved, settings) !== filters.status) return false;
@@ -2680,7 +2682,7 @@ function getProductTableFilterOptions(
     const analysisDepth = getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
     if (analysisCounts[analysisDepth] !== undefined) analysisCounts[analysisDepth] += 1;
     addFilterOption(issues, snapshot.primaryIssue);
-    addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved, settings), getStatusFilterValue(snapshot.riskScore, isResolved, settings));
+    addFilterOption(statuses, getStatusLabel(snapshot.riskScore, false, settings), getStatusFilterValue(snapshot.riskScore, false, settings));
     (Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : []).forEach((source) => addFilterOption(sources, source));
     addFilterOption(vendors, metrics.vendor);
     (Array.isArray(metrics.collections) ? metrics.collections : []).forEach((collection) => addFilterOption(collections, collection));
@@ -4670,6 +4672,8 @@ export const __productPulseJobsTestHooks = {
   buildProductPulseFaqHtml,
   buildUpdatedProductDescriptionHtml,
   formatSnapshotForDiagnosis,
+  filterProductSnapshots,
+  getProductTableFilterOptions,
   getSignalLifecycleBars,
   normalizeFaqItemsForApply,
   getFaqApplyVariant,

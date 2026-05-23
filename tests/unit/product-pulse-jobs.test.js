@@ -12,6 +12,41 @@ beforeAll(async () => {
 });
 
 describe("ProductPulse product job helpers", () => {
+  it("keeps resolved products out of unresolved table views and out of the status filter", () => {
+    const snapshots = [
+      {
+        productGid: "gid://shopify/Product/open",
+        handle: "open-product",
+        productTitle: "Open Product",
+        primaryIssue: "Returns",
+        riskScore: 82,
+        metrics: { vendor: "Qorve", collections: ["Featured"] },
+        sourceCoverage: ["Returns"],
+      },
+      {
+        productGid: "gid://shopify/Product/resolved",
+        handle: "resolved-product",
+        productTitle: "Resolved Product",
+        primaryIssue: "Refunds",
+        riskScore: 24,
+        metrics: { vendor: "Qorve", collections: ["Featured"] },
+        sourceCoverage: ["Refunds"],
+      },
+    ];
+    const resolvedActions = new Map([
+      ["gid://shopify/Product/resolved", { productGid: "gid://shopify/Product/resolved", actionType: "mark-resolved" }],
+    ]);
+
+    const unresolved = productPulseJobsTestHooks.filterProductSnapshots(snapshots, { resolution: "unresolved" }, resolvedActions);
+    const resolved = productPulseJobsTestHooks.filterProductSnapshots(snapshots, { resolution: "resolved" }, resolvedActions);
+    const filterOptions = productPulseJobsTestHooks.getProductTableFilterOptions(snapshots, resolvedActions);
+
+    expect(unresolved.map((snapshot) => snapshot.productGid)).toEqual(["gid://shopify/Product/open"]);
+    expect(resolved.map((snapshot) => snapshot.productGid)).toEqual(["gid://shopify/Product/resolved"]);
+    expect(filterOptions.statuses.map((option) => option.value)).not.toContain("resolved");
+    expect(filterOptions.statuses.map((option) => option.label)).not.toContain("Resolved");
+  });
+
   it("builds collapsible and modal-style FAQ HTML blocks", () => {
     const faqItems = [
       { question: "How does this fit?", answer: "Check measurements before purchase." },

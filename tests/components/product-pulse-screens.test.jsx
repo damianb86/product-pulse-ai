@@ -157,6 +157,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByRole("button", { name: /Run quick scan/ }).length).toBeGreaterThan(1);
     expect(screen.getAllByRole("button", { name: "Find Shopify product" })).toHaveLength(1);
     const filtersSection = screen.getByLabelText("products filters").closest("s-section");
+    expect(within(filtersSection).queryByText("Source")).not.toBeInTheDocument();
     const tabsCard = screen.getByRole("tablist", { name: "Product table views" }).closest(".ppProductsTableTabsCard");
     expect(filtersSection.compareDocumentPosition(tabsCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(tabsCard.parentElement).toHaveClass("ppProductsTabbedTableGroup");

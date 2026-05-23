@@ -29,9 +29,9 @@ export const loader = async ({ request }) => {
   };
 
   const [productTable, candidateProductTable, resolvedProductTable, quickScanCsvReviews] = await Promise.all([
-    getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full" }, { settings }),
-    getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan" }, { settings }),
-    getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", status: "resolved" }, { settings }),
+    getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings }),
+    getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings }),
+    getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings }),
     getCsvReviewSourceStatusForShop(session.shop),
   ]);
 
@@ -135,7 +135,6 @@ function parseProductTableFilters(searchParams, prefix = "") {
     risk: get("risk", "all"),
     status: get("status", "all"),
     issue: get("issue", "all"),
-    source: get("source", "all"),
     vendor: get("vendor", "all"),
     collection: get("collection", "all"),
     page: get("page", "1"),
