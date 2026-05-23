@@ -5,7 +5,6 @@ import { useNavigate } from "react-router";
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
 const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v1";
-const CHATKIT_LAUNCHER_VARIANT_STORAGE_KEY = "productPulse.chatkit.launcherVariant.v1";
 let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
@@ -17,7 +16,6 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const [conversationId, setConversationId] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [themeMode, setThemeMode] = useState("light");
-  const [launcherVariant, setLauncherVariant] = useState("full");
   const chatKitMethodsRef = useRef(null);
   const conversationIdRef = useRef("");
   const pageContextRef = useRef(pageContext || { type: "unknown" });
@@ -26,12 +24,11 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const pageContextKey = useMemo(() => JSON.stringify(normalizedPageContext), [normalizedPageContext]);
   const enabled = Boolean(config?.enabled);
   const isDarkTheme = themeMode === "dark";
-  const isCompactLauncher = launcherVariant === "compact";
+  const chatKitControlsReady = enabled && isMounted && chatKitScriptReady;
 
   useEffect(() => {
     setIsMounted(true);
     setThemeMode(readStoredThemeMode());
-    setLauncherVariant(readStoredLauncherVariant());
     const storedConversationId = readStoredConversationId();
     if (storedConversationId && !conversationIdRef.current) {
       conversationIdRef.current = storedConversationId;
@@ -151,12 +148,29 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     });
   }, []);
 
-  const toggleLauncherVariant = useCallback(() => {
-    setLauncherVariant((current) => {
-      const next = current === "compact" ? "full" : "compact";
-      writeStoredLauncherVariant(next);
-      return next;
-    });
+  const startNewChat = useCallback(async () => {
+    const methods = chatKitMethodsRef.current;
+    setStatusMessage("");
+    conversationIdRef.current = "";
+    setConversationId("");
+    backendSessionRef.current = null;
+    writeStoredConversationId("");
+
+    try {
+      await methods?.setThreadId?.(null);
+      await methods?.focusComposer?.();
+    } catch {
+      setStatusMessage("New chat is not available yet.");
+    }
+  }, []);
+
+  const openChatHistory = useCallback(async () => {
+    setStatusMessage("");
+    try {
+      await chatKitMethodsRef.current?.showHistory?.();
+    } catch {
+      setStatusMessage("Chat history is not available yet.");
+    }
   }, []);
 
   const chatKit = useChatKit({
@@ -241,50 +255,57 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
         <div className="ppChatKitPanel" role="dialog" aria-modal="false" aria-label="AI Assistant">
           <div className="ppChatKitPanelHeader">
             <div className="ppChatKitPanelActions">
-              <div className="ppChatKitThemeControl" aria-label="AI Assistant theme">
-                <span>Theme</span>
+              <div className="ppChatKitPanelActionsLeft">
+                <div className="ppChatKitThemeControl" aria-label="AI Assistant theme">
+                  <button
+                    type="button"
+                    className="ppChatKitThemeSwitch"
+                    role="switch"
+                    aria-checked={isDarkTheme}
+                    aria-label={isDarkTheme ? "Use light AI Assistant theme" : "Use dark AI Assistant theme"}
+                    onClick={toggleThemeMode}
+                  >
+                    <span className="ppChatKitThemeSwitchTrack" aria-hidden="true">
+                      <span className="ppChatKitThemeSwitchThumb" />
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div className="ppChatKitPanelActionsRight">
                 <button
                   type="button"
-                  className="ppChatKitThemeSwitch"
-                  role="switch"
-                  aria-checked={isDarkTheme}
-                  aria-label={isDarkTheme ? "Use light AI Assistant theme" : "Use dark AI Assistant theme"}
-                  onClick={toggleThemeMode}
+                  className="ppChatKitIconButton"
+                  onClick={startNewChat}
+                  aria-label="Start a new AI Assistant chat"
+                  title="New chat"
+                  disabled={!chatKitControlsReady}
                 >
-                  <span className="ppChatKitThemeSwitchTrack" aria-hidden="true">
-                    <span className="ppChatKitThemeSwitchThumb" />
-                  </span>
-                  <strong>{isDarkTheme ? "Dark" : "Light"}</strong>
+                  <ChatKitHeaderIcon type="new" />
                 </button>
-              </div>
-              <div className="ppChatKitThemeControl ppChatKitLauncherControl" aria-label="AI Assistant launcher style">
-                <span>Launcher</span>
                 <button
                   type="button"
-                  className="ppChatKitThemeSwitch ppChatKitLauncherSwitch"
-                  role="switch"
-                  aria-checked={isCompactLauncher}
-                  aria-label={isCompactLauncher ? "Use full AI Assistant launcher" : "Use compact AI Assistant launcher"}
-                  onClick={toggleLauncherVariant}
+                  className="ppChatKitIconButton"
+                  onClick={openChatHistory}
+                  aria-label="Open AI Assistant chat history"
+                  title="History"
+                  disabled={!chatKitControlsReady}
                 >
-                  <span className="ppChatKitThemeSwitchTrack" aria-hidden="true">
-                    <span className="ppChatKitThemeSwitchThumb" />
-                  </span>
-                  <strong>{isCompactLauncher ? "Icon" : "Full"}</strong>
+                  <ChatKitHeaderIcon type="history" />
+                </button>
+                <button
+                  type="button"
+                  className="ppChatKitIconButton"
+                  onClick={() => setIsExpanded((current) => !current)}
+                  aria-pressed={isExpanded}
+                  aria-label={isExpanded ? "Use default AI Assistant width" : "Expand AI Assistant width"}
+                  title={isExpanded ? "Default size" : "Wide size"}
+                >
+                  <ChatKitHeaderIcon type={isExpanded ? "collapse" : "expand"} />
+                </button>
+                <button type="button" className="ppChatKitIconButton" onClick={() => setIsOpen(false)} aria-label="Close AI Assistant" title="Close">
+                  <ChatKitHeaderIcon type="close" />
                 </button>
               </div>
-              <button
-                type="button"
-                className="ppChatKitTextButton"
-                onClick={() => setIsExpanded((current) => !current)}
-                aria-pressed={isExpanded}
-                aria-label={isExpanded ? "Use default AI Assistant width" : "Expand AI Assistant width"}
-              >
-                {isExpanded ? "Default" : "Wide"}
-              </button>
-              <button type="button" className="ppChatKitIconButton" onClick={() => setIsOpen(false)} aria-label="Close AI Assistant">
-                x
-              </button>
             </div>
           </div>
           {statusMessage ? <div className="ppChatKitStatus" role="status">{statusMessage}</div> : null}
@@ -302,7 +323,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
       {!isOpen ? (
         <button
           type="button"
-          className={`ppChatKitLauncher${isCompactLauncher ? " ppChatKitLauncher-compact" : ""}`}
+          className="ppChatKitLauncher"
           onClick={() => setIsOpen(true)}
           aria-expanded="false"
           aria-label="Open AI Assistant"
@@ -310,10 +331,61 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
           <span className="ppChatKitLauncherIcon" aria-hidden="true">
             <span className="ppChatKitLauncherIconGlyph" />
           </span>
-          <strong className="ppChatKitLauncherLabel">AI Assistant</strong>
         </button>
       ) : null}
     </aside>
+  );
+}
+
+function ChatKitHeaderIcon({ type }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    "aria-hidden": "true",
+    focusable: "false",
+  };
+  if (type === "new") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 5V19" />
+        <path d="M5 12H19" />
+      </svg>
+    );
+  }
+  if (type === "history") {
+    return (
+      <svg {...commonProps}>
+        <path d="M4.8 12A7.2 7.2 0 1 0 7 6.8" />
+        <path d="M4.8 5.2V9H8.6" />
+        <path d="M12 8.2V12.3L14.7 14" />
+      </svg>
+    );
+  }
+  if (type === "expand") {
+    return (
+      <svg {...commonProps}>
+        <path d="M9 4.8H4.8V9" />
+        <path d="M4.8 4.8L10 10" />
+        <path d="M15 19.2H19.2V15" />
+        <path d="M19.2 19.2L14 14" />
+      </svg>
+    );
+  }
+  if (type === "collapse") {
+    return (
+      <svg {...commonProps}>
+        <path d="M10 4.8V10H4.8" />
+        <path d="M10 10L4.8 4.8" />
+        <path d="M14 19.2V14H19.2" />
+        <path d="M14 14L19.2 19.2" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...commonProps}>
+      <path d="M6.5 6.5L17.5 17.5" />
+      <path d="M17.5 6.5L6.5 17.5" />
+    </svg>
   );
 }
 
@@ -369,25 +441,6 @@ function writeStoredThemeMode(themeMode) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage?.setItem(CHATKIT_THEME_STORAGE_KEY, themeMode === "dark" ? "dark" : "light");
-  } catch {
-    // Storage can be unavailable in embedded browser privacy modes.
-  }
-}
-
-function readStoredLauncherVariant() {
-  if (typeof window === "undefined") return "full";
-  try {
-    const value = String(window.localStorage?.getItem(CHATKIT_LAUNCHER_VARIANT_STORAGE_KEY) || "").trim();
-    return value === "compact" ? "compact" : "full";
-  } catch {
-    return "full";
-  }
-}
-
-function writeStoredLauncherVariant(launcherVariant) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage?.setItem(CHATKIT_LAUNCHER_VARIANT_STORAGE_KEY, launcherVariant === "compact" ? "compact" : "full");
   } catch {
     // Storage can be unavailable in embedded browser privacy modes.
   }

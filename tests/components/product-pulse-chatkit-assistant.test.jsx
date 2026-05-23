@@ -13,7 +13,10 @@ vi.mock("@openai/chatkit-react", async () => {
     }),
     useChatKit: vi.fn((options) => ({
       control: { options },
+      focusComposer: vi.fn(),
+      setThreadId: vi.fn(),
       sendUserMessage: vi.fn(),
+      showHistory: vi.fn(),
     })),
   };
 });
@@ -64,7 +67,7 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(assistant).not.toHaveClass("ppChatKitAssistant-expanded");
   });
 
-  it("lets the assistant header switch between full and compact launchers", () => {
+  it("renders the launcher as an icon-only button", () => {
     renderWithRouter(
       <ProductPulseChatKitAssistant
         config={{ enabled: false, disabledReason: "ChatKit requires OPENAI_API_KEY on the server." }}
@@ -72,21 +75,12 @@ describe("ProductPulseChatKitAssistant", () => {
       />,
     );
 
-    const fullLauncher = screen.getByRole("button", { name: "Open AI Assistant" });
-    expect(fullLauncher).not.toHaveClass("ppChatKitLauncher-compact");
-    expect(fullLauncher).toHaveTextContent("AI Assistant");
+    const launcher = screen.getByRole("button", { name: "Open AI Assistant" });
+    expect(launcher).toHaveClass("ppChatKitLauncher");
+    expect(launcher.textContent.trim()).toBe("");
 
-    fireEvent.click(fullLauncher);
-    const switchButton = screen.getByRole("switch", { name: "Use compact AI Assistant launcher" });
-    expect(switchButton).toHaveAttribute("aria-checked", "false");
-
-    fireEvent.click(switchButton);
-
-    expect(screen.getByRole("switch", { name: "Use full AI Assistant launcher" })).toHaveAttribute("aria-checked", "true");
-    expect(window.localStorage.getItem("productPulse.chatkit.launcherVariant.v1")).toBe("compact");
-
-    fireEvent.click(screen.getByRole("button", { name: "Close AI Assistant" }));
-    expect(screen.getByRole("button", { name: "Open AI Assistant" })).toHaveClass("ppChatKitLauncher-compact");
+    fireEvent.click(launcher);
+    expect(screen.queryByRole("switch", { name: /launcher/i })).not.toBeInTheDocument();
   });
 
   it("mounts ChatKit inside the assistant drawer when enabled", async () => {
@@ -152,6 +146,45 @@ describe("ProductPulseChatKitAssistant", () => {
 
     await waitFor(() => {
       expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("dark");
+    });
+  });
+
+  it("starts a clean chat and opens ChatKit history from header icons", async () => {
+    renderWithRouter(
+      <ProductPulseChatKitAssistant
+        config={{
+          enabled: true,
+          apiUrl: "/api/ai/chatkit/message",
+          domainKey: "domain_pk_test",
+          disabledReason: null,
+        }}
+        pageContext={{ type: "dashboard" }}
+      />,
+    );
+
+    const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
+    fireEvent.load(script);
+    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    await screen.findByTestId("chatkit");
+
+    await act(async () => {
+      useChatKit.mock.calls.at(-1)[0].onThreadChange({ threadId: "conversation-123" });
+    });
+    expect(window.sessionStorage.getItem("productPulse.chatkit.conversationId.v1")).toBe("conversation-123");
+
+    const methods = useChatKit.mock.results.at(-1).value;
+    fireEvent.click(screen.getByRole("button", { name: "Start a new AI Assistant chat" }));
+
+    await waitFor(() => {
+      expect(methods.setThreadId).toHaveBeenCalledWith(null);
+    });
+    expect(methods.focusComposer).toHaveBeenCalled();
+    expect(window.sessionStorage.getItem("productPulse.chatkit.conversationId.v1")).toBe(null);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant chat history" }));
+
+    await waitFor(() => {
+      expect(useChatKit.mock.results.some((result) => result.value.showHistory.mock.calls.length > 0)).toBe(true);
     });
   });
 
