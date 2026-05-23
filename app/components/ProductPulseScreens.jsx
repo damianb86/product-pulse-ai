@@ -20,13 +20,19 @@ const MOCK_DATASET_STAGE_ACTIONS = [
     stage: "products",
     label: "Create products",
     icon: "product",
-    detail: "Creates or reuses the 15 GEN products with variants, SEO, tags and HTML descriptions.",
+    detail: "Creates or reuses GEN products, including RELTEST scenarios with variants, SEO, tags and HTML descriptions.",
+  },
+  {
+    stage: "customers",
+    label: "Create customers",
+    icon: "profile",
+    detail: "Creates or reuses fake RELTEST customer profiles used by all generated orders and before/after product relationships.",
   },
   {
     stage: "orders",
     label: "Create orders",
     icon: "calendar",
-    detail: "Creates or resumes 200 historical orders, skipping existing generated order indexes.",
+    detail: "Creates or resumes historical orders plus deterministic RELTEST orders, associating every order to a fake RELTEST customer.",
   },
   {
     stage: "outcomes",
@@ -2526,7 +2532,7 @@ export function SettingsScreen({ data = {}, actionData }) {
                 <span>Testing dataset</span>
                 <h2 id="settings-mock-dataset-title">Create Shopify mock dataset</h2>
                 <p>
-                  Generate 15 controlled <strong>GEN</strong> products, historical Shopify orders, returns, refunds and a normalized CSV review source for end-to-end diagnostic testing.
+                  Generate controlled <strong>GEN</strong> and <strong>RELTEST</strong> products, mock customers, historical Shopify orders, returns, refunds and a normalized CSV review source for end-to-end diagnostic testing.
                 </p>
               </div>
             </div>
@@ -2539,8 +2545,8 @@ export function SettingsScreen({ data = {}, actionData }) {
                 </p>
               </div>
               <ul>
-                <li>15 Shopify products with HTML descriptions, SEO, tags and variants.</li>
-                <li>200 historical test orders distributed across roughly 300 days.</li>
+                <li>Shopify products with HTML descriptions, SEO, tags and variants.</li>
+                <li>Historical test orders distributed across roughly 300 days, plus deterministic RELTEST relationship orders tied to fake RELTEST customers.</li>
                 <li>Selected full or partial returns and refunds, including Other notes.</li>
                 <li>Hundreds of normalized CSV reviews linked to the generated products.</li>
               </ul>
@@ -2549,12 +2555,16 @@ export function SettingsScreen({ data = {}, actionData }) {
             <div className="ppSettingsMockDatasetMeta">
               <span>
                 <strong>{mockDataset?.config?.productCount || 0}</strong>
-                Last GEN products
+                Last generated products
               </span>
-              <span>
-                <strong>{mockDataset?.config?.orderCount || 0}</strong>
-                Last generated orders
-              </span>
+                <span>
+                  <strong>{mockDataset?.config?.orderCount || 0}</strong>
+                  Last generated orders
+                </span>
+                <span>
+                  <strong>{mockDataset?.config?.customerCount || 0}</strong>
+                  RELTEST customers
+                </span>
               <span>
                 <strong>{mockDataset?.config?.reviewCount || 0}</strong>
                 Last CSV reviews
@@ -2571,7 +2581,7 @@ export function SettingsScreen({ data = {}, actionData }) {
 
             <div className="ppSettingsMockDatasetActions">
               <p>
-                Shopify can throttle long test-data jobs. Run each stage separately; every stage reuses existing GEN products or generated orders so you can resume after a failure.
+                Shopify can throttle long test-data jobs. Run each stage separately; every stage reuses existing generated products or generated orders so you can resume after a failure.
               </p>
             </div>
 
@@ -9777,7 +9787,6 @@ function getPurchaseContextCompositionSegments(context = {}) {
   return [
     {
       key: "solo",
-      title: "Bought alone",
       detail: "Simple standalone",
       count: soloOrders,
       percent: percentages[0],
@@ -9785,7 +9794,6 @@ function getPurchaseContextCompositionSegments(context = {}) {
     },
     {
       key: "basket",
-      title: "Bought with other products",
       detail: "Single-unit basket",
       count: basketOrders,
       percent: percentages[1],
@@ -9793,7 +9801,6 @@ function getPurchaseContextCompositionSegments(context = {}) {
     },
     {
       key: "multi-unit",
-      title: "Multi-unit orders",
       detail: "2+ units purchased",
       count: multiUnitOrders,
       percent: percentages[2],
@@ -9801,19 +9808,44 @@ function getPurchaseContextCompositionSegments(context = {}) {
     },
     {
       key: "multi-variant",
-      title: "Multi-variant orders",
       value: formatPercent(context.multiVariantOrderRatePercent),
-      detail: "Variant comparisons",
-      rate: Number(context.multiVariantOrderRatePercent || 0),
+      detail: "Multi-variant orders",
+      count: multiVariantOrders,
+      percent: percentages[3],
       tone: "purple",
     },
-  ];
-  const weights = segments.map((segment) => Math.max(segment.rate, segment.key === "multi-variant" ? 12 : 14));
-  const total = Math.max(weights.reduce((sum, value) => sum + value, 0), 1);
-  return segments.map((segment, index) => ({
+  ].map((segment) => ({
     ...segment,
-    width: (weights[index] / total) * 100,
+    value: `${segment.percent}%`,
+    width: segment.percent,
+    isZero: segment.count <= 0,
   }));
+}
+
+function clampOrderCount(value, max) {
+  return Math.round(clampNumber(Number(value || 0), 0, Math.max(0, Number(max || 0))));
+}
+
+function getWholePercentPartsThatSumTo100(counts = [], total = 0) {
+  const safeCounts = counts.map((count) => Math.max(0, Number(count || 0)));
+  const denominator = Number(total || safeCounts.reduce((sum, count) => sum + count, 0));
+  if (denominator <= 0) return safeCounts.map(() => 0);
+  const rawParts = safeCounts.map((count, index) => {
+    const raw = (count / denominator) * 100;
+    const floor = Math.floor(raw);
+    return { index, floor, remainder: raw - floor, count };
+  });
+  const result = rawParts.map((part) => part.floor);
+  let missing = 100 - result.reduce((sum, part) => sum + part, 0);
+  rawParts
+    .filter((part) => part.count > 0)
+    .sort((first, second) => second.remainder - first.remainder || second.count - first.count)
+    .forEach((part) => {
+      if (missing <= 0) return;
+      result[part.index] += 1;
+      missing -= 1;
+    });
+  return result;
 }
 
 function getPurchaseContextTakeaways(context = {}) {
@@ -10032,7 +10064,7 @@ function ProductResolutionBreakdownCard({ detail }) {
               tabIndex={0}
               aria-label={`${bucket.label}: ${formatPercent(bucket.percent)}`}
             >
-              <strong>{formatPercent(bucket.percent)}</strong>
+              <strong>{formatPercent(Math.round(bucket.percent))}</strong>
               <span className="ppResolutionBreakdownBarTrack" aria-hidden="true">
                 <span style={{ height: `${bucket.barHeight}%` }}></span>
               </span>

@@ -5067,7 +5067,6 @@ s-page[inline-size="large-500"] {
 }
 
 .ppPurchaseContextCompositionBar {
-  min-height: 132px;
   display: flex;
   overflow: hidden;
   border-radius: 10px;
@@ -5080,7 +5079,7 @@ s-page[inline-size="large-500"] {
   align-content: center;
   justify-items: start;
   gap: 9px;
-  padding: 20px 22px;
+  padding: 15px 8px;
   border-right: 1px solid rgba(255, 255, 255, 0.32);
 }
 
@@ -5090,16 +5089,15 @@ s-page[inline-size="large-500"] {
 
 .ppPurchaseContextCompositionSegment strong {
   color: var(--pp-cloud-white);
-  font-size: 28px;
+  font-size: 23px;
   font-weight: 950;
   line-height: 1;
 }
 
 .ppPurchaseContextCompositionSegment em {
   color: rgba(255, 255, 255, 0.94);
-  font-size: 14px;
+  font-size: 12px;
   font-style: normal;
-  font-weight: 900;
   line-height: 1.22;
 }
 
@@ -5214,14 +5212,14 @@ s-page[inline-size="large-500"] {
 
 .ppPurchaseContextMetricTile strong {
   color: var(--pp-slate-950);
-  font-size: 24px;
+  font-size: 21px;
   font-weight: 950;
   line-height: 1;
 }
 
 .ppPurchaseContextMetricTile small {
   color: var(--pp-slate-600);
-  font-size: 13px;
+  font-size: 10px;
   font-weight: 850;
 }
 
@@ -6004,7 +6002,7 @@ s-page[inline-size="large-500"] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
   gap: 20px;
-  padding: 20px;
+  padding: 0;
   overflow: visible;
   border: 0;
   background: transparent;
@@ -6683,7 +6681,7 @@ s-page[inline-size="large-500"] {
   position: absolute;
   bottom: 38px;
   z-index: 2;
-  width: min(170px, 100%);
+  width: min(150px, 100%);
   height: 48px;
   justify-self: end;
   margin: 0;
@@ -7001,7 +6999,7 @@ s-page[inline-size="large-500"] {
   grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  gap: 32px;
+  gap: 62px;
   padding: 30px 30px 28px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 18px;
@@ -8099,7 +8097,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppReturnRefundVennCard {
-  width: 50%;
+  width: 25%;
   display: grid;
   justify-self: start;
   gap: 8px;
@@ -9424,7 +9422,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductDeepResearchGrid .ppReturnPredictionImpactBadge {
   right: 8px;
-  bottom: 8px;
+  bottom: -60px;
 }
 
 .ppProductDeepResearchGrid .ppReturnPredictionImpactTrigger {

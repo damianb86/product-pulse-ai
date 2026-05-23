@@ -23,18 +23,18 @@ Set real local values in `.env`:
 SHOPIFY_API_KEY=
 SHOPIFY_API_SECRET=
 SHOPIFY_APP_URL=
-SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,read_returns,write_returns,read_inventory,write_inventory,read_locations
+SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,read_customers,write_customers,read_returns,write_returns,read_inventory,write_inventory,read_locations
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
 OPENAI_API_KEY=
 AI_CHAT_MODEL=gpt-5.4-mini
 AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 ```
 
-The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `write_orders` and `write_returns` for the Settings mock dataset generator, which creates controlled Shopify test orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
+The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `read_customers` so same-customer product sequence relationships can use Shopify customer IDs without exposing names or emails. `write_orders`, `write_returns`, and `write_customers` are used by the Settings mock dataset generator, which creates controlled Shopify test customers, orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
 
 Required scopes are also defined in code. If local `SCOPES` is present but stale, ProductPulse merges it with the required scope list so a local environment variable cannot silently remove permissions the app needs.
 
-The local Shopify CLI project is configured for `qorve-dev.myshopify.com` in `.shopify/project.json`, which is intentionally ignored by Git.
+The local Shopify CLI project is configured for `damian-xdcxxupp` in `.shopify/project.json`, which is intentionally ignored by Git.
 
 ## Preview Without Shopify Auth
 ```bash

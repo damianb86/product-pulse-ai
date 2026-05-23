@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const DEFAULT_SHOP = process.env.PRODUCT_PULSE_DEMO_SHOP || "qorve-dev.myshopify.com";
+const DEFAULT_SHOP = process.env.PRODUCT_PULSE_DEMO_SHOP || "damian-xdcxxupp";
 const SEED_NOW = parseDate(process.env.PRODUCT_PULSE_DEMO_SEED_NOW) || new Date();
 const DEMO_SEED_SOURCE = "product_pulse_demo_seed";
 const MONTHS_TO_SEED = 12;

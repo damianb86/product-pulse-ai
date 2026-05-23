@@ -2,25 +2,25 @@ import { billing, getAppViewData, products, sourceGroups } from "../../app/lib/p
 import { REQUIRED_SHOPIFY_SCOPES } from "../../app/lib/product-pulse-scopes";
 
 export const installedShop = {
-  shop: "qorve-dev.myshopify.com",
+  shop: "damian-xdcxxupp",
   scopes: REQUIRED_SHOPIFY_SCOPES,
   credits: billing.creditsAvailable,
 };
 
 export const newShop = {
-  shop: "new-qorve-dev.myshopify.com",
+  shop: "new-damian-xdcxxupp",
   scopes: REQUIRED_SHOPIFY_SCOPES.filter((scope) => scope === "read_products"),
   credits: 0,
 };
 
 export const missingScopeShop = {
-  shop: "limited-qorve-dev.myshopify.com",
+  shop: "limited-damian-xdcxxupp",
   scopes: REQUIRED_SHOPIFY_SCOPES.filter((scope) => scope !== "read_returns"),
   missingScopes: ["read_returns"],
 };
 
 export const expiredSessionShop = {
-  shop: "expired-qorve-dev.myshopify.com",
+  shop: "expired-damian-xdcxxupp",
   session: "expired",
 };
 
