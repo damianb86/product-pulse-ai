@@ -6,6 +6,12 @@ import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 
 const GEMINI_PROVIDER = "gemini";
 const OPENAI_PROVIDER = "openai";
+const PRODUCT_PULSE_AI_LEVEL_ENV = "PRODUCT_PULSE_AI_LEVEL";
+const PRODUCT_PULSE_AI_LEVELS = {
+  DEVELOPMENT_GEMINI: 1,
+  DEVELOPMENT_OPENAI_BASIC: 2,
+  PRODUCTION_TIERED_OPENAI: 3,
+};
 const GEMINI_PRIMARY_RETRY_MS = 24 * 60 * 60 * 1000;
 const GEMINI_MODEL_RETRY_DELAY_MS = 750;
 
@@ -889,8 +895,8 @@ function buildProductDiagnosisPrompt(product) {
 }
 
 async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }) {
-  const productionAiEnabled = isProductionAiEnabled();
-  const provider = productionAiEnabled ? OPENAI_PROVIDER : GEMINI_PROVIDER;
+  const aiRouting = getProductPulseAiRouting();
+  const provider = aiRouting.provider;
   const taskConfig = AI_TASKS[task] || AI_TASKS.final_report;
 
   await recordJobLog({
@@ -902,8 +908,10 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
       provider,
       task,
       developmentMode: isProductPulseDevelopment(),
-      productionAiEnabled,
-      configuredBy: process.env.PRODUCT_PULSE_USE_PRODUCTION_AI == null ? "environment_mode" : "PRODUCT_PULSE_USE_PRODUCTION_AI",
+      aiLevel: aiRouting.level,
+      aiLevelLabel: aiRouting.label,
+      modelMode: aiRouting.modelMode,
+      configuredBy: aiRouting.configuredBy,
     },
   });
 
@@ -935,18 +943,49 @@ function getUsageEventSourceForTask(task) {
   return "product_diagnosis";
 }
 
-function isProductionAiEnabled() {
-  const configured = parseBooleanEnv(process.env.PRODUCT_PULSE_USE_PRODUCTION_AI);
-  if (configured !== null) return configured;
-  return !isProductPulseDevelopment();
+function getProductPulseAiRouting() {
+  const level = getProductPulseAiLevel();
+  if (level === PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_GEMINI) {
+    return {
+      level,
+      label: "development_gemini",
+      modelMode: "gemini_with_openai_basic_fallback",
+      provider: GEMINI_PROVIDER,
+      configuredBy: process.env[PRODUCT_PULSE_AI_LEVEL_ENV] == null ? "environment_mode" : PRODUCT_PULSE_AI_LEVEL_ENV,
+    };
+  }
+  if (level === PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_OPENAI_BASIC) {
+    return {
+      level,
+      label: "development_openai_basic",
+      modelMode: "openai_basic_only",
+      provider: OPENAI_PROVIDER,
+      configuredBy: process.env[PRODUCT_PULSE_AI_LEVEL_ENV] == null ? "environment_mode" : PRODUCT_PULSE_AI_LEVEL_ENV,
+    };
+  }
+  return {
+    level: PRODUCT_PULSE_AI_LEVELS.PRODUCTION_TIERED_OPENAI,
+    label: "production_tiered_openai",
+    modelMode: "openai_tiered",
+    provider: OPENAI_PROVIDER,
+    configuredBy: process.env[PRODUCT_PULSE_AI_LEVEL_ENV] == null ? "environment_mode" : PRODUCT_PULSE_AI_LEVEL_ENV,
+  };
 }
 
-function parseBooleanEnv(value) {
+function getProductPulseAiLevel() {
+  const configured = parseIntegerEnv(process.env[PRODUCT_PULSE_AI_LEVEL_ENV]);
+  if (Object.values(PRODUCT_PULSE_AI_LEVELS).includes(configured)) return configured;
+  return isProductPulseDevelopment()
+    ? PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_GEMINI
+    : PRODUCT_PULSE_AI_LEVELS.PRODUCTION_TIERED_OPENAI;
+}
+
+function parseIntegerEnv(value) {
   if (value == null || String(value).trim() === "") return null;
-  const normalized = String(value).trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
-  return null;
+  const raw = String(value).trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, modelOverride = null, requestContext = "primary", usageTracker = null }) {
@@ -1014,6 +1053,9 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, model
 }
 
 function resolveOpenAIModel(taskConfig) {
+  if (getProductPulseAiLevel() === PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_OPENAI_BASIC) {
+    return resolveOpenAIBasicModel();
+  }
   for (const envName of taskConfig.modelEnv || []) {
     const value = String(process.env[envName] || "").trim();
     if (value) return value;
@@ -1021,8 +1063,12 @@ function resolveOpenAIModel(taskConfig) {
   return taskConfig.fallbackModel;
 }
 
-function resolveOpenAINanoModel() {
+function resolveOpenAIBasicModel() {
   return String(process.env.OPENAI_BASIC_MODEL || "").trim() || "gpt-5.4-nano";
+}
+
+function resolveOpenAINanoModel() {
+  return resolveOpenAIBasicModel();
 }
 
 function extractOpenAIText(response) {

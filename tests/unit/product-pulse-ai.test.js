@@ -47,8 +47,9 @@ describe("ProductPulse AI provider fallback", () => {
     process.env.GEMINI_MODEL_FALLBACK_POOL = "gemini-b";
     process.env.OPENAI_API_KEY = "openai-test-key";
     process.env.OPENAI_BASIC_MODEL = "gpt-5.4-nano";
+    process.env.OPENAI_PRO_MODEL = "gpt-5.4-mini";
     process.env.OPENAI_PREMIUM_MODEL = "gpt-5.4";
-    delete process.env.PRODUCT_PULSE_USE_PRODUCTION_AI;
+    delete process.env.PRODUCT_PULSE_AI_LEVEL;
   });
 
   afterEach(() => {
@@ -101,11 +102,11 @@ describe("ProductPulse AI provider fallback", () => {
     expect(recoveryLogs[1].data.error).toBeUndefined();
   });
 
-  it("uses OpenAI when production AI is enabled by environment", async () => {
-    process.env.PRODUCT_PULSE_USE_PRODUCTION_AI = "true";
+  it("uses tiered OpenAI models when AI level 3 is configured", async () => {
+    process.env.PRODUCT_PULSE_AI_LEVEL = "3";
     const fetchMock = vi.fn(async (url) => {
       if (String(url).includes("generativelanguage")) {
-        throw new Error("Gemini should not be called when production AI is enabled.");
+        throw new Error("Gemini should not be called when AI level 3 is configured.");
       }
 
       return new Response(JSON.stringify({ output_text: "OpenAI production response." }), {
@@ -132,17 +133,58 @@ describe("ProductPulse AI provider fallback", () => {
       event: "product_diagnosis.ai_provider_selected",
       data: expect.objectContaining({
         provider: "openai",
-        productionAiEnabled: true,
-        configuredBy: "PRODUCT_PULSE_USE_PRODUCTION_AI",
+        aiLevel: 3,
+        aiLevelLabel: "production_tiered_openai",
+        modelMode: "openai_tiered",
+        configuredBy: "PRODUCT_PULSE_AI_LEVEL",
       }),
     }));
   });
 
-  it("uses Gemini when production AI is disabled by environment", async () => {
-    process.env.PRODUCT_PULSE_USE_PRODUCTION_AI = "false";
+  it("uses OpenAI basic for every task when AI level 2 is configured", async () => {
+    process.env.PRODUCT_PULSE_AI_LEVEL = "2";
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("generativelanguage")) {
+        throw new Error("Gemini should not be called when AI level 2 is configured.");
+      }
+
+      return new Response(JSON.stringify({ output_text: "OpenAI basic response." }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateProductDiagnosisTestText({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-basic-env",
+      product: { title: "Linen Shirt", handle: "linen-shirt", metrics: {} },
+    });
+
+    expect(result).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.4-nano",
+      text: "OpenAI basic response.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("api.openai.com");
+    expect(mocks.recordJobLog).toHaveBeenCalledWith(expect.objectContaining({
+      event: "product_diagnosis.ai_provider_selected",
+      data: expect.objectContaining({
+        provider: "openai",
+        aiLevel: 2,
+        aiLevelLabel: "development_openai_basic",
+        modelMode: "openai_basic_only",
+        configuredBy: "PRODUCT_PULSE_AI_LEVEL",
+      }),
+    }));
+  });
+
+  it("uses Gemini when AI level 1 is configured", async () => {
+    process.env.PRODUCT_PULSE_AI_LEVEL = "1";
     const fetchMock = vi.fn(async (url) => {
       if (String(url).includes("api.openai.com")) {
-        throw new Error("OpenAI should not be called when production AI is disabled.");
+        throw new Error("OpenAI should not be called when AI level 1 is configured.");
       }
 
       return new Response(JSON.stringify({

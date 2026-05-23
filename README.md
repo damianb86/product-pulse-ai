@@ -25,10 +25,23 @@ SHOPIFY_API_SECRET=
 SHOPIFY_APP_URL=
 SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,read_customers,write_customers,read_returns,write_returns,read_inventory,write_inventory,read_locations
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
+PRODUCT_PULSE_AI_LEVEL=1
 OPENAI_API_KEY=
+OPENAI_BASIC_MODEL=gpt-5.4-nano
+OPENAI_PRO_MODEL=gpt-5.4-mini
+OPENAI_PREMIUM_MODEL=gpt-5.4
+GEMINI_API_KEY=
+GEMINI_MODEL=
 AI_CHAT_MODEL=gpt-5.4-mini
 AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 ```
+
+`PRODUCT_PULSE_AI_LEVEL` controls ProductPulse diagnosis AI routing:
+- `1`: development mode using Gemini first, with OpenAI Basic fallback when Gemini is exhausted.
+- `2`: development mode using `OPENAI_BASIC_MODEL` for every ProductPulse diagnosis AI task.
+- `3`: production mode using task-specific `OPENAI_BASIC_MODEL`, `OPENAI_PRO_MODEL`, and `OPENAI_PREMIUM_MODEL`.
+
+When `PRODUCT_PULSE_AI_LEVEL` is not set, local development defaults to `1` and non-development runtime defaults to `3`.
 
 The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `read_customers` so same-customer product sequence relationships can use Shopify customer IDs without exposing names or emails. `write_orders`, `write_returns`, and `write_customers` are used by the Settings mock dataset generator, which creates controlled Shopify test customers, orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
 

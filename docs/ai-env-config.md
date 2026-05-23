@@ -38,6 +38,13 @@ AI_EVAL_MODE=false
 ## Model And Limits
 
 ```bash
+PRODUCT_PULSE_AI_LEVEL=1
+OPENAI_BASIC_MODEL=gpt-5.4-nano
+OPENAI_PRO_MODEL=gpt-5.4-mini
+OPENAI_PREMIUM_MODEL=gpt-5.4
+GEMINI_API_KEY=
+GEMINI_MODEL=
+GEMINI_MODEL_FALLBACK_POOL=
 AI_CHAT_MODEL=gpt-5.4-mini
 AI_CHAT_STRONG_MODEL=gpt-5.4
 AI_CHAT_CHEAP_MODEL=gpt-5.4-nano
@@ -53,6 +60,13 @@ AI_ALLOWED_METAFIELD_DRAFTS='[{"namespace":"productpulse","key":"faq_html","type
 ```
 
 These limits bound normal chat cost and prevent unbounded tool loops/history growth.
+
+`PRODUCT_PULSE_AI_LEVEL` controls the ProductPulse diagnosis AI provider/model routing:
+- `1`: development Gemini mode. Diagnosis tasks use Gemini first and keep the existing OpenAI Basic fallback when the Gemini pool is exhausted.
+- `2`: development OpenAI Basic mode. Diagnosis tasks always use `OPENAI_BASIC_MODEL`, regardless of task type.
+- `3`: production tiered OpenAI mode. Diagnosis tasks use the configured Basic, Pro, and Premium model env vars according to task complexity.
+
+If `PRODUCT_PULSE_AI_LEVEL` is omitted, development defaults to `1` and non-development runtimes default to `3`.
 
 ## Rate Limits
 
