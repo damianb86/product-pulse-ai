@@ -1155,6 +1155,8 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("Accelerating")).toBeInTheDocument();
     expect(within(panel).getByText("Sales increasing over the last 4 weeks")).toBeInTheDocument();
     expect(within(momentumCard).getByText("Last 8 weekly units")).toBeInTheDocument();
+    expect(within(momentumCard).getByText("Accelerating")).toBeInTheDocument();
+    expect(within(momentumCard).queryByText("Hot")).not.toBeInTheDocument();
     ["0", "25", "50", "75", "100"].forEach((label) => {
       expect(within(gauge).getByText(label)).toBeInTheDocument();
     });
@@ -3044,6 +3046,7 @@ describe("ProductPulse screens", () => {
     const miniDock = document.querySelector(".ppRecommendedActionMiniDock");
     expect(miniDock).toBeInTheDocument();
     expect(within(miniDock).getByText("Supplier / QA review needed")).toBeInTheDocument();
+    expect(miniDock.querySelector(".ppRecommendedActionMiniSummary")).toHaveTextContent("Verify whether this product has a QA issue");
     expect(within(miniDock).getByRole("button", { name: "Mark reviewed" })).toBeInTheDocument();
     expect(within(miniDock).getByRole("button", { name: "Maximize recommended action" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "What to verify" })).not.toBeInTheDocument();
@@ -3251,6 +3254,14 @@ describe("ProductPulse screens", () => {
             maxOrders: 8,
           },
         },
+        productPurchaseContextSummary: {
+          totalOrdersContainingProduct: 12,
+          monthlyContext: [
+            { key: "2026-03", label: "Mar 2026", ordersContainingProduct: 3, unitsSold: 4, avgProductQuantityPerOrder: 1.3, avgTotalUnitsPerOrder: 2.4 },
+            { key: "2026-04", label: "Apr 2026", ordersContainingProduct: 7, unitsSold: 8, avgProductQuantityPerOrder: 1.1, avgTotalUnitsPerOrder: 3.2 },
+            { key: "2026-05", label: "May 2026", ordersContainingProduct: 2, unitsSold: 3, avgProductQuantityPerOrder: 1.5, avgTotalUnitsPerOrder: 1.5 },
+          ],
+        },
         orderGeography: [
           { label: "Texas, United States", count: 8, share: 66.7, detail: "8 orders · 66.7%" },
           { label: "Canada", count: 4, share: 33.3, detail: "4 orders · 33.3%" },
@@ -3258,9 +3269,16 @@ describe("ProductPulse screens", () => {
       },
     };
 
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     expect(screen.getByRole("tab", { name: "Shopify orders" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Units sold over time")).toBeInTheDocument();
+    expect(screen.getByText("Units/order")).toBeInTheDocument();
+    expect(screen.getByText("Product share")).toBeInTheDocument();
+    const ordersChart = container.querySelector(".ppEvidenceOrdersLineChart");
+    expect(ordersChart.querySelector(".ppEvidenceOrdersLine-units")).toBeInTheDocument();
+    expect(ordersChart.querySelector(".ppEvidenceOrdersLine-orders")).toBeInTheDocument();
+    expect(ordersChart.querySelector(".ppEvidenceOrdersLine-unitsPerOrder")).toBeInTheDocument();
+    expect(ordersChart.querySelector(".ppEvidenceOrdersLine-basketShare")).toBeInTheDocument();
     expect(screen.getByText("Order velocity")).toBeInTheDocument();
     expect(screen.getByText("Sales by channel")).toBeInTheDocument();
     expect(screen.getByText("Order insights")).toBeInTheDocument();

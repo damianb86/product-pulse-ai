@@ -4613,6 +4613,11 @@ function normalizePurchaseContextMonthlyContext(items = []) {
       soloProductOrders: firstFiniteMetricNumber(item.solo_product_orders, item.soloProductOrders),
       multiProductOrders: firstFiniteMetricNumber(item.multi_product_orders, item.multiProductOrders),
       avgProductQuantityPerOrder: firstFiniteMetricNumber(item.avg_product_quantity_per_order, item.avgProductQuantityPerOrder),
+      avgDistinctProductsPerOrder: firstFiniteMetricNumber(item.avg_distinct_products_per_order, item.avgDistinctProductsPerOrder),
+      avgTotalUnitsPerOrder: firstFiniteMetricNumber(item.avg_total_units_per_order, item.avgTotalUnitsPerOrder),
+      totalBasketUnits: optionalFiniteMetricNumber(item.total_basket_units, item.totalBasketUnits, item.total_order_units_in_baskets, item.totalOrderUnitsInBaskets),
+      otherProductUnits: optionalFiniteMetricNumber(item.other_product_units, item.otherProductUnits),
+      productBasketSharePercent: optionalFiniteMetricNumber(item.product_basket_share, item.productBasketShare, item.product_unit_share, item.productUnitShare),
       multiVariantOrders: firstFiniteMetricNumber(item.multi_variant_orders, item.multiVariantOrders),
       bulkOrders: firstFiniteMetricNumber(item.bulk_orders, item.bulkOrders),
     }));
@@ -4933,6 +4938,11 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
       refundedOrders: Number(month.refundedOrders || 0),
       refundedUnits: Number(month.refundedUnits || 0),
       refundAmount: Number(month.refundAmount || 0),
+      unitsPerOrder: optionalFiniteMetricNumber(month.unitsPerOrder, month.avgUnitsPerOrder, month.avg_product_quantity_per_order, month.avgProductQuantityPerOrder),
+      avgTotalUnitsPerOrder: optionalFiniteMetricNumber(month.avgTotalUnitsPerOrder, month.avg_total_units_per_order),
+      totalBasketUnits: optionalFiniteMetricNumber(month.totalBasketUnits, month.total_order_units_in_baskets, month.totalOrderUnitsInBaskets),
+      otherProductUnits: optionalFiniteMetricNumber(month.otherProductUnits, month.other_product_units),
+      productBasketSharePercent: optionalFiniteMetricNumber(month.productBasketSharePercent, month.product_basket_share, month.productBasketShare, month.product_unit_share, month.productUnitShare),
       resolvedReturnUnits: optionalFiniteMetricNumber(month.resolvedReturnUnits, month.returnResolvedUnits, month.resolvedReturns),
       unresolvedReturnUnits: optionalFiniteMetricNumber(month.unresolvedReturnUnits, month.openReturnUnits, month.pendingReturnUnits, month.unresolvedReturns),
       returnRate: calculateClientUnitRatePercent(month.returnedUnits, month.orderUnits, month.returnRate ?? 0),
@@ -5148,6 +5158,12 @@ function getMomentumTierFromScore(score) {
 }
 
 function getProductMomentumTone(momentum = {}) {
+  const direction = String(momentum.direction || "").toLowerCase();
+  if (direction.includes("cooling") || direction.includes("softening") || direction.includes("constrained")) return "orange";
+  if (direction.includes("dormant") || direction.includes("low")) return "neutral";
+  if (direction.includes("accelerating") || direction.includes("gaining") || direction.includes("emerging") || direction.includes("spike")) return "green";
+  if (direction.includes("new activity") || direction.includes("stable") || direction.includes("steady")) return "blue";
+
   const tier = String(momentum.tier || "").toLowerCase();
   if (tier.includes("hot")) return "blue";
   if (tier.includes("rising")) return "green";
@@ -5659,7 +5675,7 @@ function getProductDetailInsightCards(detail = {}) {
         : detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks?.length
           ? "Last 4 weekly units"
           : "Commercial trend",
-      value: detail.productMomentum ? detail.productMomentum.tier : "Needs diagnosis",
+      value: detail.productMomentum ? (detail.productMomentum.direction || detail.productMomentum.tier) : "Needs diagnosis",
       detail: detail.productMomentum ? `${formatInteger(momentumScore)} / 100` : "Momentum unavailable",
       footnote: detail.productMomentum
         ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
@@ -15768,6 +15784,11 @@ function RefundEvidencePanel({ source, product, reportHref }) {
 function OrdersEvidencePanel({ source, product, reportHref }) {
   const metrics = product.metrics || {};
   const activity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
+  const purchaseContext = normalizeProductPurchaseContext(
+    metrics.productPurchaseContextSummary || metrics.purchaseContextSummary || product.productPurchaseContext || product.purchaseContext,
+    metrics.productPurchaseContextFactors,
+    metrics,
+  );
   const summary = activity.summary || {};
   const unitsSold = Number(summary.totalOrderUnits || metrics.soldUnits || 0);
   const orderCount = Number(summary.totalOrders || metrics.orderCount || metrics.ordersLast30Days || 0);
@@ -15797,8 +15818,8 @@ function OrdersEvidencePanel({ source, product, reportHref }) {
       <div className="ppReturnsEvidenceGrid">
         <section className="ppEvidenceReportSectionCard ppOrdersLineChartCard">
           <h4>Units sold over time</h4>
-          <p>Daily sold units</p>
-          <EvidenceOrdersLineChart months={activity.months} fallbackValue={unitsSold} />
+          <p>Units, order count, units per order and product share inside each basket</p>
+          <EvidenceOrdersLineChart months={activity.months} fallbackValue={unitsSold} purchaseContext={purchaseContext} />
         </section>
         <section className="ppEvidenceReportSectionCard ppOrderVelocityCard">
           <h4>Order velocity</h4>
@@ -17069,39 +17090,162 @@ function getOrderGeographyRows(metrics = {}, orderCount = 0) {
     : [{ label: "No geography data stored", count: 0, share: 0, detail: "" }];
 }
 
-function EvidenceOrdersLineChart({ months = [], fallbackValue = 0 }) {
+function EvidenceOrdersLineChart({ months = [], fallbackValue = 0, purchaseContext = null }) {
+  const purchaseContextByMonth = getPurchaseContextMonthlyLookup(purchaseContext?.monthlyContext);
   const sourcePoints = (Array.isArray(months) ? months : [])
-    .map((month) => ({
-      label: month.shortLabel || month.label || month.key || "",
-      value: Number(month.orderUnits || month.orders || 0),
-    }))
+    .map((month) => normalizeEvidenceOrderChartMonth(month, purchaseContextByMonth))
     .filter((point) => point.label);
   const points = sourcePoints.length >= 2
     ? sourcePoints
-    : [{ label: "Start", value: 0 }, { label: "Now", value: Number(fallbackValue || 0) }];
-  const max = Math.max(...points.map((point) => point.value), 1);
-  const chartPoints = points.map((point, index) => ({
-    x: points.length === 1 ? 50 : Math.round((index / (points.length - 1)) * 1000) / 10,
-    y: Math.round((100 - (point.value / max) * 90) * 10) / 10,
-  }));
-  const path = buildSmoothSvgPath(chartPoints);
-  const labels = [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]].filter(Boolean);
+    : [
+        { label: "Start", unitsSold: 0, orders: 0, unitsPerOrder: 0, productBasketSharePercent: null },
+        { label: "Now", unitsSold: Number(fallbackValue || 0), orders: Number(fallbackValue || 0) ? 1 : 0, unitsPerOrder: Number(fallbackValue || 0), productBasketSharePercent: null },
+      ];
+  const leftMax = getEvidenceOrderChartLeftMax(points);
+  const labels = getTimelineXAxisTicks(points);
+  const unitsSoldPath = getEvidenceOrderChartPath(points, "unitsSold", leftMax);
+  const ordersPath = getEvidenceOrderChartPath(points, "orders", leftMax);
+  const unitsPerOrderPath = getEvidenceOrderChartPath(points, "unitsPerOrder", leftMax);
+  const basketSharePath = getEvidenceOrderChartPath(points, "productBasketSharePercent", 100);
+  const hasBasketShare = points.some((point) => Number.isFinite(Number(point.productBasketSharePercent)));
 
   return (
     <div className="ppEvidenceOrdersLineChart">
       <div className="ppEvidenceOrdersYAxis" aria-hidden="true">
-        <span>{formatInteger(max)}</span>
-        <span>{formatInteger(Math.round(max / 2))}</span>
+        <span>{formatEvidenceOrdersAxisValue(leftMax)}</span>
+        <span>{formatEvidenceOrdersAxisValue(leftMax / 2)}</span>
         <span>0</span>
       </div>
+      {hasBasketShare ? (
+        <div className="ppEvidenceOrdersYAxis ppEvidenceOrdersYAxis-right" aria-hidden="true">
+          <span>100%</span>
+          <span>50%</span>
+          <span>0%</span>
+        </div>
+      ) : null}
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Units sold over time">
-        <path d={path} />
+        {[16, 54, 92].map((line) => <line key={line} className="ppEvidenceOrdersGridLine" x1="0" x2="100" y1={line} y2={line} />)}
+        <path className="ppEvidenceOrdersLine ppEvidenceOrdersLine-units" d={unitsSoldPath} />
+        <path className="ppEvidenceOrdersLine ppEvidenceOrdersLine-orders" d={ordersPath} />
+        <path className="ppEvidenceOrdersLine ppEvidenceOrdersLine-unitsPerOrder" d={unitsPerOrderPath} />
+        {hasBasketShare ? <path className="ppEvidenceOrdersLine ppEvidenceOrdersLine-basketShare" d={basketSharePath} /> : null}
       </svg>
-      <div className="ppEvidenceReturnXAxis" aria-hidden="true">
-        {labels.map((label, index) => <span key={`${label.label}-${index}`}>{label.label}</span>)}
+      <div className="ppEvidenceOrdersXAxis" aria-hidden="true">
+        {labels.map((tick) => <span className={tick.className} style={{ left: `${tick.x}%` }} key={`${tick.key || tick.label}-${tick.index}`}>{tick.label}</span>)}
+      </div>
+      <div className="ppEvidenceOrdersLegend">
+        <span><i className="ppEvidenceOrdersLegendDot-units"></i>Units sold</span>
+        <span><i className="ppEvidenceOrdersLegendDot-orders"></i>Orders</span>
+        <span><i className="ppEvidenceOrdersLegendDot-unitsPerOrder"></i>Units/order</span>
+        {hasBasketShare ? <span><i className="ppEvidenceOrdersLegendDot-basketShare"></i>Product share</span> : null}
       </div>
     </div>
   );
+}
+
+function getPurchaseContextMonthlyLookup(monthlyContext = []) {
+  const lookup = new Map();
+  (Array.isArray(monthlyContext) ? monthlyContext : []).forEach((month) => {
+    const keys = getEvidenceMonthLookupKeys(month);
+    keys.forEach((key) => lookup.set(key, month));
+  });
+  return lookup;
+}
+
+function getEvidenceMonthLookupKeys(month = {}) {
+  return [month.key, month.label, month.shortLabel, month.month, month.startAt]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .flatMap((value) => (value.length >= 7 && /^\d{4}-\d{2}/.test(value) ? [value, value.slice(0, 7)] : [value]));
+}
+
+function normalizeEvidenceOrderChartMonth(month = {}, purchaseContextByMonth = new Map()) {
+  const contextMonth = getEvidenceMonthLookupKeys(month)
+    .map((key) => purchaseContextByMonth.get(key))
+    .find(Boolean) || {};
+  const label = month.shortLabel || month.label || month.key || contextMonth.label || contextMonth.key || "";
+  const orders = optionalFiniteMetricNumber(month.orders, contextMonth.ordersContainingProduct) ?? 0;
+  const unitsSold = optionalFiniteMetricNumber(month.orderUnits, month.unitsSold, contextMonth.unitsSold) ?? 0;
+  const storedUnitsPerOrder = optionalFiniteMetricNumber(
+    month.unitsPerOrder,
+    month.avgUnitsPerOrder,
+    month.avgProductQuantityPerOrder,
+    contextMonth.avgProductQuantityPerOrder,
+  );
+  const unitsPerOrder = storedUnitsPerOrder != null && storedUnitsPerOrder > 0
+    ? storedUnitsPerOrder
+    : orders > 0 ? unitsSold / orders : 0;
+  const explicitBasketShare = optionalFiniteMetricNumber(
+    month.productBasketSharePercent,
+    month.productBasketShare,
+    contextMonth.productBasketSharePercent,
+  );
+  const storedTotalBasketUnits = optionalFiniteMetricNumber(
+    month.totalBasketUnits,
+    contextMonth.totalBasketUnits,
+  );
+  const totalBasketUnits = storedTotalBasketUnits != null && storedTotalBasketUnits > 0 ? storedTotalBasketUnits : null;
+  const storedAvgTotalUnitsPerOrder = optionalFiniteMetricNumber(
+    month.avgTotalUnitsPerOrder,
+    contextMonth.avgTotalUnitsPerOrder,
+  );
+  const avgTotalUnitsPerOrder = storedAvgTotalUnitsPerOrder != null && storedAvgTotalUnitsPerOrder > 0 ? storedAvgTotalUnitsPerOrder : null;
+  const storedOtherProductUnits = optionalFiniteMetricNumber(
+    month.otherProductUnits,
+    contextMonth.otherProductUnits,
+  );
+  const otherProductUnits = storedOtherProductUnits != null && storedOtherProductUnits >= 0 ? storedOtherProductUnits : null;
+  const derivedBasketUnits = totalBasketUnits
+    ?? (avgTotalUnitsPerOrder != null && orders > 0 ? avgTotalUnitsPerOrder * orders : null)
+    ?? (otherProductUnits != null ? unitsSold + otherProductUnits : null);
+  const productBasketSharePercent = explicitBasketShare != null
+    ? relationshipRatePercent(explicitBasketShare)
+    : derivedBasketUnits > 0
+      ? clampPercentValue((unitsSold / derivedBasketUnits) * 100)
+      : null;
+
+  return {
+    key: month.key || contextMonth.key || label,
+    label,
+    unitsSold,
+    orders,
+    unitsPerOrder,
+    productBasketSharePercent,
+  };
+}
+
+function getEvidenceOrderChartLeftMax(points = []) {
+  const max = Math.max(
+    ...points.flatMap((point) => [
+      Number(point.unitsSold || 0),
+      Number(point.orders || 0),
+      Number(point.unitsPerOrder || 0),
+    ]),
+    1,
+  );
+  return Math.max(1, Math.ceil(max * 1.12));
+}
+
+function getEvidenceOrderChartPath(points = [], key = "unitsSold", max = 1) {
+  const safeMax = Math.max(1, Number(max || 1));
+  const chartPoints = points
+    .map((point, index) => {
+      const value = Number(point[key]);
+      if (!Number.isFinite(value)) return null;
+      const x = points.length === 1 ? 50 : Math.round((index / (points.length - 1)) * 1000) / 10;
+      const y = Math.round((92 - (clampNumber(value, 0, safeMax) / safeMax) * 76) * 10) / 10;
+      return { x, y };
+    })
+    .filter(Boolean);
+  if (!chartPoints.length) return "";
+  if (chartPoints.length === 1) return buildSmoothSvgPath([{ x: 0, y: chartPoints[0].y }, { x: 100, y: chartPoints[0].y }]);
+  return buildSmoothSvgPath(chartPoints);
+}
+
+function formatEvidenceOrdersAxisValue(value = 0) {
+  const number = Number(value || 0);
+  if (number >= 10 || Number.isInteger(number)) return formatInteger(Math.round(number));
+  return formatDecimal(number, 1);
 }
 
 function normalizeEvidenceSentiment(sentiment = {}) {
@@ -17719,7 +17863,7 @@ function EvidenceAverageRatingTrendChart({ trend = [], currentRating = 0 }) {
   );
 }
 
-function getReviewTrendXAxisTicks(rows = []) {
+function getTimelineXAxisTicks(rows = []) {
   const safeRows = Array.isArray(rows) && rows.length ? rows : [];
   if (!safeRows.length) return [];
   const lastIndex = safeRows.length - 1;
@@ -17737,6 +17881,10 @@ function getReviewTrendXAxisTicks(rows = []) {
       x: lastIndex <= 0 ? 50 : Math.round((index / lastIndex) * 1000) / 10,
       className: lastIndex <= 0 ? "isSingle" : index === 0 ? "isFirst" : index === lastIndex ? "isLast" : "",
     }));
+}
+
+function getReviewTrendXAxisTicks(rows = []) {
+  return getTimelineXAxisTicks(rows);
 }
 
 function getReviewSentimentYAxisTicks(max = 1) {
@@ -21198,10 +21346,9 @@ function RecommendedActionMiniDock({
           <s-icon type={action.icon} size="small"></s-icon>
           <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
         </div>
-        <div>
+        <div className="ppRecommendedActionMiniTitleBlock">
           <span className="ppRecommendedActionModalKicker">{getRecommendedActionModalKicker(actionKind, action)}</span>
           <h2 className="ppRecommendedActionModalTitle" id="recommended-action-mini-title">{action.title}</h2>
-          <p>{summary}</p>
         </div>
         <div className="ppRecommendedActionMiniWindowActions">
           <button className="ppModalCloseButton" type="button" aria-label="Maximize recommended action" onClick={onMaximize}>
@@ -21211,6 +21358,7 @@ function RecommendedActionMiniDock({
             <s-icon type="x" size="small"></s-icon>
           </button>
         </div>
+        <p className="ppRecommendedActionMiniSummary">{summary}</p>
       </div>
       <div className="ppProductActionCta ppRecommendedActionMiniFooter">
         <button

@@ -13615,7 +13615,7 @@ s-page[inline-size="large-500"] {
   position: relative;
   min-height: 225px;
   margin-top: 18px;
-  padding: 10px 0 26px 48px;
+  padding: 10px 42px 50px 48px;
 }
 
 .ppEvidenceOrdersLineChart svg {
@@ -13624,23 +13624,45 @@ s-page[inline-size="large-500"] {
   overflow: visible;
   border-bottom: 1px solid var(--pp-slate-200);
   background:
-    linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 0 / 100% 25%,
     linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-insight-violet-rgb), 0.03));
 }
 
-.ppEvidenceOrdersLineChart path {
+.ppEvidenceOrdersGridLine {
+  stroke: var(--pp-slate-200);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppEvidenceOrdersLine {
   fill: none;
-  stroke: var(--pp-insight-violet);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2.2;
   vector-effect: non-scaling-stroke;
 }
 
+.ppEvidenceOrdersLine-units {
+  stroke: var(--pp-insight-violet);
+}
+
+.ppEvidenceOrdersLine-orders {
+  stroke: var(--pp-pulse-blue);
+}
+
+.ppEvidenceOrdersLine-unitsPerOrder {
+  stroke: var(--pp-warning-amber);
+  stroke-dasharray: 5 5;
+}
+
+.ppEvidenceOrdersLine-basketShare {
+  stroke: var(--pp-signal-teal);
+  stroke-dasharray: 2 5;
+}
+
 .ppEvidenceOrdersYAxis {
   position: absolute;
   top: 8px;
-  bottom: 26px;
+  bottom: 50px;
   left: 0;
   display: flex;
   flex-direction: column;
@@ -13648,6 +13670,80 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
   font-size: 11px;
   font-weight: 760;
+}
+
+.ppEvidenceOrdersYAxis-right {
+  right: 0;
+  left: auto;
+  text-align: right;
+}
+
+.ppEvidenceOrdersXAxis {
+  position: relative;
+  height: 18px;
+  margin-top: 8px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppEvidenceOrdersXAxis span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.ppEvidenceOrdersXAxis span.isFirst {
+  transform: translateX(0);
+}
+
+.ppEvidenceOrdersXAxis span.isLast {
+  transform: translateX(-100%);
+}
+
+.ppEvidenceOrdersXAxis span.isSingle {
+  transform: translateX(-50%);
+}
+
+.ppEvidenceOrdersLegend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 8px;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.ppEvidenceOrdersLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ppEvidenceOrdersLegend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.ppEvidenceOrdersLegendDot-units {
+  background: var(--pp-insight-violet);
+}
+
+.ppEvidenceOrdersLegendDot-orders {
+  background: var(--pp-pulse-blue);
+}
+
+.ppEvidenceOrdersLegendDot-unitsPerOrder {
+  background: var(--pp-warning-amber);
+}
+
+.ppEvidenceOrdersLegendDot-basketShare {
+  background: var(--pp-signal-teal);
 }
 
 .ppEvidenceFindingStream-compact {
@@ -17809,10 +17905,10 @@ s-page[inline-size="large-500"] {
   left: 50%;
   bottom: 15px;
   z-index: 90;
-  width: min(640px, calc(100vw - 30px));
+  width: min(720px, calc(100vw - 24px));
   display: grid;
   gap: 12px;
-  padding: 16px 18px 14px;
+  padding: 14px 18px 14px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 12px;
   background: var(--pp-cloud-white);
@@ -17823,12 +17919,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionMiniHeader {
-  position: relative;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 8px 12px;
   align-items: start;
-  padding-right: 76px;
+  width: 100%;
+  min-width: 0;
 }
 
 .ppRecommendedActionMiniHeader .ppProductActionIcon {
@@ -17861,7 +17957,7 @@ s-page[inline-size="large-500"] {
   font-weight: 850;
 }
 
-.ppRecommendedActionMiniHeader > div:nth-child(2) {
+.ppRecommendedActionMiniTitleBlock {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -17881,10 +17977,8 @@ s-page[inline-size="large-500"] {
   order: 1;
 }
 
-.ppRecommendedActionMiniHeader p {
-  order: 3;
-  display: block;
-  overflow: visible;
+.ppRecommendedActionMiniSummary {
+  grid-column: 1 / -1;
   margin: 0;
   color: var(--pp-slate-600);
   font-size: 11px;
@@ -17893,9 +17987,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionMiniWindowActions {
-  position: absolute;
-  top: 0;
-  right: 0;
+  justify-self: end;
   display: inline-flex;
   gap: 6px;
   align-items: center;
@@ -26199,6 +26291,11 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 22px 54px rgba(var(--pp-shadow-rgb), 0.14);
 }
 
+.ppGlobalTopbarJobsPopover {
+  width: min(468px, calc(100vw - 24px));
+  padding: 12px 12px 0;
+}
+
 .ppGlobalTopbarPopover::before {
   display: none;
 }
@@ -26400,14 +26497,29 @@ s-page[inline-size="large-500"] {
   text-transform: none;
 }
 
+.ppGlobalTopbarJobsPopover .ppGlobalTopbarPopoverHeader {
+  gap: 8px;
+  padding-bottom: 9px;
+}
+
+.ppGlobalTopbarJobsPopover .ppGlobalTopbarPopoverHeader strong {
+  font-size: 14px;
+  line-height: 1.15;
+}
+
+.ppGlobalTopbarJobsPopover .ppGlobalTopbarPopoverHeader span {
+  font-size: 10px;
+  line-height: 1.15;
+}
+
 .ppGlobalTopbarJobSection {
-  margin-top: 16px;
+  margin-top: 11px;
 }
 
 .ppGlobalTopbarJobSection h2 {
   margin: 0;
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 9.5px;
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1.2;
@@ -26415,13 +26527,36 @@ s-page[inline-size="large-500"] {
 }
 
 .ppGlobalTopbarJobSection ul {
-  max-height: min(360px, calc(100vh - 230px));
+  max-height: min(300px, calc(100vh - 210px));
   overflow: auto;
   display: grid;
   gap: 0;
-  margin-top: 12px;
+  margin-top: 7px;
   padding: 0;
   list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--pp-slate-500-rgb), 0.28) transparent;
+}
+
+.ppGlobalTopbarJobSection ul::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ppGlobalTopbarJobSection ul::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ppGlobalTopbarJobSection ul::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(var(--pp-slate-500-rgb), 0.28);
+  background-clip: padding-box;
+}
+
+.ppGlobalTopbarJobSection ul::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--pp-slate-500-rgb), 0.42);
+  background-clip: padding-box;
 }
 
 .ppGlobalTopbarJobSection li {
@@ -26434,13 +26569,13 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarJobSection.isCurrent li {
   border: 1px solid var(--pp-slate-200);
-  border-radius: 8px;
+  border-radius: 7px;
   background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.025), rgba(255, 255, 255, 0.96));
 }
 
 .ppGlobalTopbarJobSection.isHistory ul {
   border: 1px solid var(--pp-slate-200);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--pp-cloud-white);
 }
 
@@ -26450,29 +26585,32 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarJobItem {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 34px;
-  gap: 12px;
+  grid-template-columns: 34px minmax(0, 1fr) 26px;
+  gap: 8px;
   align-items: center;
-  min-height: 86px;
-  padding: 14px;
+  min-height: 58px;
+  padding: 8px 9px;
   color: inherit;
   text-decoration: none;
 }
 
 .ppGlobalTopbarJobItem.isCurrent {
-  min-height: 118px;
-  padding: 16px 14px;
+  min-height: 70px;
+  padding: 9px 10px;
 }
 
 .ppGlobalTopbarJobStateIcon {
-  width: 42px;
-  height: 42px;
+  width: 30px;
+  height: 30px;
   display: inline-grid;
   place-items: center;
-  align-self: start;
   border-radius: 999px;
   background: var(--pp-slate-100);
   color: var(--pp-slate-600);
+}
+
+.ppGlobalTopbarJobStateIcon s-icon {
+  transform: scale(0.82);
 }
 
 .ppGlobalTopbarJobStateIcon-running,
@@ -26498,13 +26636,13 @@ s-page[inline-size="large-500"] {
 .ppGlobalTopbarJobMain {
   min-width: 0;
   display: grid;
-  gap: 6px;
+  gap: 3px;
 }
 
 .ppGlobalTopbarJobTitleRow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -26512,7 +26650,7 @@ s-page[inline-size="large-500"] {
   min-width: 0;
   overflow: hidden;
   color: var(--pp-slate-900);
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1.25;
@@ -26523,20 +26661,20 @@ s-page[inline-size="large-500"] {
 .ppGlobalTopbarJobMain > small {
   overflow: hidden;
   color: var(--pp-slate-600);
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 550;
-  line-height: 1.3;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ppGlobalTopbarJobStatus {
   min-width: 0;
-  padding: 4px 9px;
+  padding: 3px 7px;
   border-radius: 999px;
   background: var(--pp-slate-100);
   color: var(--pp-slate-700);
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 800;
   line-height: 1;
   text-align: center;
@@ -26564,7 +26702,7 @@ s-page[inline-size="large-500"] {
   display: block;
   margin-top: 2px;
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 750;
   white-space: nowrap;
@@ -26574,9 +26712,9 @@ s-page[inline-size="large-500"] {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
   color: var(--pp-slate-500);
-  font-size: 11.5px;
+  font-size: 10px;
   font-weight: 650;
   line-height: 1.2;
 }
@@ -26584,36 +26722,36 @@ s-page[inline-size="large-500"] {
 .ppGlobalTopbarJobMetaItem {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
   min-width: 0;
 }
 
 .ppGlobalTopbarJobMetaItem + .ppGlobalTopbarJobMetaItem::before {
   content: "";
-  width: 3px;
-  height: 3px;
-  margin-right: 3px;
+  width: 2px;
+  height: 2px;
+  margin-right: 2px;
   border-radius: 999px;
   background: var(--pp-slate-400);
 }
 
 .ppGlobalTopbarJobMetaItem s-icon {
   color: var(--pp-slate-500);
-  transform: scale(0.84);
+  transform: scale(0.68);
 }
 
 .ppGlobalTopbarJobMetaItem-credits s-icon {
-  transform: scale(0.78);
+  transform: scale(0.64);
 }
 
 .ppGlobalTopbarJobOpenButton {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   display: inline-grid;
   place-items: center;
   justify-self: end;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   text-decoration: none;
@@ -26628,21 +26766,21 @@ s-page[inline-size="large-500"] {
 }
 
 .ppGlobalTopbarJobsFooter {
-  width: calc(100% + 32px);
-  min-height: 46px;
+  width: calc(100% + 24px);
+  min-height: 38px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  margin: 16px -16px 0;
-  padding: 0 16px;
+  margin: 11px -12px 0;
+  padding: 0 12px;
   border: 0;
   border-top: 1px solid var(--pp-slate-200);
   border-radius: 0 0 7px 7px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
   font: inherit;
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 650;
   text-align: left;
   cursor: pointer;
@@ -27914,7 +28052,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppGlobalTopbarJobItem {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .ppGlobalTopbarJobOpenButton {
@@ -27925,7 +28063,7 @@ s-page[inline-size="large-500"] {
   .ppGlobalTopbarJobTitleRow {
     align-items: flex-start;
     flex-direction: column;
-    gap: 5px;
+    gap: 3px;
   }
 
   .ppDevJobPanel,

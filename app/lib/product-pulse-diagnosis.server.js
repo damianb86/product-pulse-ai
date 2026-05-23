@@ -3715,6 +3715,7 @@ function applyAiSemanticClassificationToDeterministic(deterministic = {}, ai = {
         issueSignalCounts: semantic.issueSignalCounts,
         customerIssueSignalCounts: semantic.customerIssueSignalCounts,
         dominantIssue: mainIssue,
+        actionGuidance: semantic.actionGuidance,
       },
       customerSignalCount,
       signalCount,
@@ -3744,6 +3745,7 @@ function buildAiSemanticClassificationSummary(ai = {}) {
     .filter(Boolean);
   const subjectiveSignals = customerSignals.filter((signal) => signal.issueCode === "subjective_negative_reaction" && signal.sentiment === "negative");
   const otherReturnClassifications = summarizeAiOtherReturnClassifications(customerSignals);
+  const actionGuidance = normalizeAiActionGuidance(ai.classification?.action_guidance);
 
   return {
     hasSignals: Boolean(classifiedSignals.length || repeatedLanguage.length || Array.isArray(ai.classification?.clusters) && ai.classification.clusters.length),
@@ -3763,8 +3765,69 @@ function buildAiSemanticClassificationSummary(ai = {}) {
       examples: subjectiveSignals.slice(0, 4).map((signal) => truncateText(signal.text, 180)),
     },
     otherReturnClassifications,
+    actionGuidance,
     summary: ai.classification?.sentiment_summary || {},
   };
+}
+
+function normalizeAiActionGuidance(value = {}) {
+  if (!value || typeof value !== "object") return null;
+  const issueNature = normalizeAiActionGuidanceEnum(value.issue_nature || value.issueNature, [
+    "operational_quality",
+    "subjective_expectation",
+    "content_gap",
+    "relationship_expectation",
+    "source_integrity",
+    "commercial_opportunity",
+    "monitor_only",
+    "unclear",
+  ], "unclear");
+  const subjectivityLevel = normalizeAiActionGuidanceEnum(value.subjectivity_level || value.subjectivityLevel, ["low", "medium", "high"], "medium");
+  const operationalQualityConfidence = normalizeAiActionGuidanceEnum(value.operational_quality_confidence || value.operationalQualityConfidence, ["low", "medium", "high"], "low");
+  const shopperExpectationConfidence = normalizeAiActionGuidanceEnum(value.shopper_expectation_confidence || value.shopperExpectationConfidence, ["low", "medium", "high"], "medium");
+  const primaryActionFamily = normalizeAiActionGuidanceEnum(value.primary_action_family || value.primaryActionFamily, ACTION_GUIDANCE_FAMILIES, "");
+  const recommendedActionFamilies = normalizeAiActionFamilies(value.recommended_action_families || value.recommendedActionFamilies);
+  const blockedActionFamilies = normalizeAiActionFamilies(value.blocked_action_families || value.blockedActionFamilies);
+  const shouldEscalateQa = value.should_escalate_qa === true || value.shouldEscalateQa === true;
+  return {
+    issueNature,
+    subjectivityLevel,
+    operationalQualityConfidence,
+    shopperExpectationConfidence,
+    shouldEscalateQa,
+    qaReason: truncateText(value.qa_reason || value.qaReason || "", 260),
+    primaryActionFamily,
+    recommendedActionFamilies,
+    blockedActionFamilies,
+    rationale: truncateText(value.rationale || value.reason || "", 320),
+  };
+}
+
+const ACTION_GUIDANCE_FAMILIES = [
+  "description_update",
+  "faq",
+  "specs_block",
+  "media_context",
+  "qa_review",
+  "variant_review",
+  "source_integrity",
+  "workflow_only",
+  "monitor",
+  "inventory_hold",
+  "status_change",
+];
+
+function normalizeAiActionGuidanceEnum(value = "", allowed = [], fallback = "") {
+  const normalized = String(value || "").toLowerCase().replace(/[-\s]+/g, "_").trim();
+  return allowed.includes(normalized) ? normalized : fallback;
+}
+
+function normalizeAiActionFamilies(values = []) {
+  const list = Array.isArray(values) ? values : String(values || "").split(/[,|]/);
+  return uniqueBy(
+    list.map((value) => normalizeAiActionGuidanceEnum(value, ACTION_GUIDANCE_FAMILIES, "")).filter(Boolean),
+    String,
+  ).slice(0, 8);
 }
 
 function normalizeAiClassifiedSignals(signals = []) {
@@ -4313,10 +4376,12 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const reviewSections = [];
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
   const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
+  const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
   const shouldRecommendSubjectiveAction = mainIssue !== "subjective_negative_reaction" || hasActionableSubjectiveEvidence(subjectiveSummary);
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
+  const highRiskAiQaDiagnosis = isHighRiskAiQaDiagnosis(deterministic);
   const canRecommendCustomerFacingCopy = !sourceIntegrityMode;
   const lowRiskMonitoringOnly = isLowRiskMonitoringOnlyDiagnosis(deterministic);
   const materialCustomerProblemEvidence = hasMaterialCustomerProblemEvidence(deterministic);
@@ -4880,7 +4945,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const tags = getRecommendedRiskTags({ mainIssue, deterministic });
-  if (tags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly) {
+  if (tags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !subjectiveExpectationOnly) {
     recommendations.push({
       id: "apply-risk-tags",
       label: "Add internal risk tags",
@@ -4892,7 +4957,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const workflowTags = getRecommendedWorkflowTags({ mainIssue, deterministic });
-  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !relationshipExpectationMode) {
+  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !highRiskAiQaDiagnosis) {
     recommendations.push({
       id: "add-workflow-tags",
       label: "Add workflow tags",
@@ -5156,6 +5221,7 @@ function deduplicateRecommendationActions(actions = []) {
 function isDescriptionRecommendation(action = {}) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("create-product-faq") || normalized.includes(" faq")) return false;
   return Boolean(payload.draftText && (
     normalized.includes("description")
     || normalized.includes("pdp")
@@ -5303,6 +5369,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const metrics = deterministic.metrics || {};
   const product = deterministic.product || {};
   const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  const aiActionGuidance = getAiActionGuidance(deterministic);
   const contentIssues = getActionableContentIssues(metrics);
   const contentAdvisories = Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : metrics.contentAdvisories || [];
   const hasCustomerEvidence = hasMaterialCustomerProblemEvidence(deterministic);
@@ -5317,6 +5384,9 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     || mainIssue === "color_expectation"
     || contentAdvisories.some((item) => ["missing_media_context", "missing_media_alt_text"].includes(normalizeContentIssueCode(item.code)));
   const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
+  const aiSuppressesQa = shouldAiSuppressActionFamily(aiActionGuidance, "qa_review");
+  const aiRecommendsQa = shouldAiRecommendQaReview(aiActionGuidance);
+  const highRiskAiQaDiagnosis = isHighRiskAiQaDiagnosis(deterministic);
   const operationalQualityTextSignals = hasOperationalQualityTextSignals(deterministic);
   const refundInsights = metrics.refundInsights || {};
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
@@ -5325,6 +5395,19 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const productRelationshipSignals = getProductRelationshipRecommendationSignals(deterministic);
   const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, productRelationshipSignals);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
+  const suppressSubjectiveMerchandisingRelationshipActions = shouldSuppressMerchandisingRelationshipActions({
+    subjectiveExpectationOnly,
+    aiActionGuidance,
+  });
+  const suppressOperationalMerchandisingRelationshipActions = shouldSuppressOperationalMerchandisingRelationshipActions({
+    deterministic,
+    aiActionGuidance,
+  });
+  const merchandisingRelationshipSuppressionReason = suppressSubjectiveMerchandisingRelationshipActions
+    ? "Suppressed because the active diagnosis is a subjective expectation issue, so merchandising relationship insights should stay in analytics instead of recommended actions."
+    : suppressOperationalMerchandisingRelationshipActions
+      ? "Suppressed because the active diagnosis is a high-risk operational QA issue, so merchandising relationship insights should stay in analytics until the product problem is reviewed."
+      : "";
   const missingSourceSignals = getMissingSourceSignals(deterministic);
   const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
   const staleAnalysis = isStaleDiagnosis(metrics.lastAnalyzedAt || metrics.lastDiagnosisAt || metrics.latestDiagnosisAt);
@@ -5402,11 +5485,11 @@ function getRecommendationRecipeSignals(deterministic = {}) {
         : "Risk and confidence are high and the evidence points to an operational product defect, not only expectation or merchandising confusion.",
     },
     inventory: {
-      shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && hasVariantConcentration && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
+      shouldRecommend: Boolean(!sourceIntegrityMode && !subjectiveExpectationOnly && variantCount > 1 && hasVariantConcentration && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
       reason: "The problem appears concentrated enough to consider holding a specific affected variant.",
     },
     collection: {
-      shouldRecommend: Boolean(hasActionableEvidence && Number(deterministic.riskScore || 0) >= 55 && (!relationshipExpectationMode || stopSaleOperationalRisk)),
+      shouldRecommend: Boolean(hasActionableEvidence && Number(deterministic.riskScore || 0) >= 55 && !subjectiveExpectationOnly && (!relationshipExpectationMode || stopSaleOperationalRisk)),
       reason: "The product should be grouped for internal review or quality workflow tracking.",
     },
     media: {
@@ -5420,7 +5503,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The current media sequence may not put the clearest context, scale, color or format image first.",
     },
     contextualMedia: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && (Number(metrics.mediaCount || 0) === 0 || ["color_expectation", "subjective_negative_reaction"].includes(mainIssue)) && (hasActionableEvidence || mainIssue === "color_expectation")),
+      shouldRecommend: Boolean(!shouldRecommendMedia && !lowRiskMonitoringOnly && (Number(metrics.mediaCount || 0) === 0 || ["color_expectation", "subjective_negative_reaction"].includes(mainIssue)) && (hasActionableEvidence || mainIssue === "color_expectation")),
       reason: "Customers may need an additional contextual image showing scale, packaging, color, material or real use.",
     },
     classification: {
@@ -5428,11 +5511,11 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
     },
     structuredMetafields: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !highRiskAiQaDiagnosis && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
       reason: "Structured product metadata can preserve warnings, QA status, SEO notes or risk flags for themes and reporting.",
     },
     template: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
       reason: "The product may need a richer template to display FAQ, specs or warning content beyond plain description text.",
     },
     sourceMismatch: {
@@ -5462,23 +5545,121 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh full diagnosis.",
     },
     qa: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && hasActionableEvidence && !subjectiveExpectationOnly && (
-        ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
-        || (highRiskOperationalIssue && operationalQualityTextSignals)
-        || (refundInsights.shouldSurface && operationalQualityTextSignals)
-        || purchaseContextSignals.bulkReview.shouldRecommend
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && hasActionableEvidence && !aiSuppressesQa && (
+        aiRecommendsQa
+        || (!subjectiveExpectationOnly && (
+          ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
+          || (highRiskOperationalIssue && operationalQualityTextSignals)
+          || (refundInsights.shouldSurface && operationalQualityTextSignals)
+          || purchaseContextSignals.bulkReview.shouldRecommend
+        ))
       )),
       reason: purchaseContextSignals.bulkReview.shouldRecommend
         ? purchaseContextSignals.bulkReview.reason
+        : aiRecommendsQa && aiActionGuidance?.qaReason
+        ? aiActionGuidance.qaReason
         : refundInsights.shouldSurface
         ? "Refund pressure or refund notes point to an operational quality review."
         : "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
     },
-    relationshipBundle: productRelationshipSignals.bundleOpportunity,
-    relationshipCrossSell: productRelationshipSignals.crossSellOpportunity,
+    relationshipBundle: merchandisingRelationshipSuppressionReason
+      ? suppressRecommendationSignal(productRelationshipSignals.bundleOpportunity, merchandisingRelationshipSuppressionReason)
+      : productRelationshipSignals.bundleOpportunity,
+    relationshipCrossSell: merchandisingRelationshipSuppressionReason
+      ? suppressRecommendationSignal(productRelationshipSignals.crossSellOpportunity, merchandisingRelationshipSuppressionReason)
+      : productRelationshipSignals.crossSellOpportunity,
     relationshipCompatibility: productRelationshipSignals.compatibilityWarning,
-    relationshipJourney: productRelationshipSignals.journeyInsight,
+    relationshipJourney: merchandisingRelationshipSuppressionReason
+      ? suppressRecommendationSignal(productRelationshipSignals.journeyInsight, merchandisingRelationshipSuppressionReason)
+      : productRelationshipSignals.journeyInsight,
   };
+}
+
+function shouldSuppressMerchandisingRelationshipActions({ subjectiveExpectationOnly = false, aiActionGuidance = null } = {}) {
+  if (!subjectiveExpectationOnly) return false;
+  return !["commercial_opportunity", "relationship_expectation"].includes(aiActionGuidance?.issueNature);
+}
+
+function shouldSuppressOperationalMerchandisingRelationshipActions({ deterministic = {}, aiActionGuidance = null } = {}) {
+  const guidance = aiActionGuidance || getAiActionGuidance(deterministic);
+  if (!isHighRiskAiQaDiagnosis(deterministic, guidance)) return false;
+  const metrics = deterministic.metrics || {};
+  const postPurchaseSignals = Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0);
+  const reviewSignals = Number(metrics.negativeReviewCount || 0);
+  return postPurchaseSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || reviewSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || Boolean(metrics.refundInsights?.shouldSurface);
+}
+
+function isHighRiskAiQaDiagnosis(deterministic = {}, aiActionGuidance = null) {
+  const guidance = aiActionGuidance || getAiActionGuidance(deterministic);
+  return shouldAiRecommendQaReview(guidance)
+    && Number(deterministic.riskScore || 0) >= 70
+    && hasMaterialCustomerProblemEvidence(deterministic);
+}
+
+function suppressRecommendationSignal(signal = {}, suppressionReason = "Suppressed because this relationship insight should stay in analytics instead of recommended actions for the current diagnosis.") {
+  return {
+    ...(signal || {}),
+    shouldRecommend: false,
+    suppressionReason,
+  };
+}
+
+function getAiActionGuidance(deterministic = {}) {
+  const guidance = deterministic.metrics?.semanticClassification?.actionGuidance
+    || deterministic.metrics?.semanticClassification?.action_guidance
+    || deterministic.metrics?.aiActionGuidance
+    || deterministic.aiActionGuidance
+    || null;
+  if (!guidance || typeof guidance !== "object") return null;
+  return normalizeStoredAiActionGuidance(guidance);
+}
+
+function normalizeStoredAiActionGuidance(guidance = {}) {
+  const issueNature = normalizeAiActionGuidanceEnum(guidance.issueNature || guidance.issue_nature, [
+    "operational_quality",
+    "subjective_expectation",
+    "content_gap",
+    "relationship_expectation",
+    "source_integrity",
+    "commercial_opportunity",
+    "monitor_only",
+    "unclear",
+  ], "unclear");
+  return {
+    issueNature,
+    subjectivityLevel: normalizeAiActionGuidanceEnum(guidance.subjectivityLevel || guidance.subjectivity_level, ["low", "medium", "high"], "medium"),
+    operationalQualityConfidence: normalizeAiActionGuidanceEnum(guidance.operationalQualityConfidence || guidance.operational_quality_confidence, ["low", "medium", "high"], "low"),
+    shopperExpectationConfidence: normalizeAiActionGuidanceEnum(guidance.shopperExpectationConfidence || guidance.shopper_expectation_confidence, ["low", "medium", "high"], "medium"),
+    shouldEscalateQa: guidance.shouldEscalateQa === true || guidance.should_escalate_qa === true,
+    qaReason: guidance.qaReason || guidance.qa_reason || "",
+    primaryActionFamily: normalizeAiActionGuidanceEnum(guidance.primaryActionFamily || guidance.primary_action_family, ACTION_GUIDANCE_FAMILIES, ""),
+    recommendedActionFamilies: normalizeAiActionFamilies(guidance.recommendedActionFamilies || guidance.recommended_action_families),
+    blockedActionFamilies: normalizeAiActionFamilies(guidance.blockedActionFamilies || guidance.blocked_action_families),
+    rationale: guidance.rationale || "",
+  };
+}
+
+function shouldAiSuppressActionFamily(guidance = null, family = "") {
+  if (!guidance) return false;
+  if (guidance.blockedActionFamilies?.includes(family)) return true;
+  if (family !== "qa_review") return false;
+  const subjective = guidance.issueNature === "subjective_expectation"
+    || guidance.issueNature === "content_gap"
+    || guidance.subjectivityLevel === "high";
+  const weakOperational = guidance.operationalQualityConfidence !== "high";
+  return subjective && weakOperational && guidance.shouldEscalateQa !== true;
+}
+
+function shouldAiRecommendQaReview(guidance = null) {
+  if (!guidance) return false;
+  if (guidance.shouldEscalateQa !== true) return false;
+  if (guidance.blockedActionFamilies?.includes("qa_review")) return false;
+  return guidance.recommendedActionFamilies?.includes("qa_review")
+    || guidance.primaryActionFamily === "qa_review"
+    || guidance.issueNature === "operational_quality"
+    || guidance.operationalQualityConfidence === "high";
 }
 
 function getPurchaseContextRecommendationSignals(deterministic = {}) {
@@ -5685,6 +5866,15 @@ function isSourceIntegrityDiagnosis(deterministic = {}, sourceMismatchSignals = 
 }
 
 function isSubjectiveExpectationOnlyDiagnosis(deterministic = {}) {
+  const aiActionGuidance = getAiActionGuidance(deterministic);
+  if (aiActionGuidance) {
+    const subjectiveByAi = aiActionGuidance.issueNature === "subjective_expectation"
+      || aiActionGuidance.subjectivityLevel === "high";
+    const operationalByAi = aiActionGuidance.shouldEscalateQa === true
+      || aiActionGuidance.issueNature === "operational_quality"
+      || aiActionGuidance.operationalQualityConfidence === "high";
+    if (subjectiveByAi && !operationalByAi) return true;
+  }
   const mainIssue = normalizeIssueCode(deterministic.mainIssue);
   const textValues = getOperationalSignalTextValues(deterministic);
   const text = textValues.join(" ");
@@ -5722,8 +5912,21 @@ function hasAffectedVariantConcentration(metrics = {}) {
 }
 
 function hasOperationalQualityTextSignals(deterministic = {}) {
+  const aiActionGuidance = getAiActionGuidance(deterministic);
+  if (shouldAiSuppressActionFamily(aiActionGuidance, "qa_review")) return false;
+  if (shouldAiRecommendQaReview(aiActionGuidance)) return true;
   return getOperationalSignalTextValues(deterministic)
-    .some((value) => /\b(leak|leaking|spill|spilled|broken|break|broke|crack|cracked|chip|chipped|defect|defective|damaged|damage|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|ripped|stain|mold|battery|burn|sharp|packaging|package|shipping|arrived damaged)\b/i.test(value));
+    .some(hasOperationalQualityLanguage);
+}
+
+function hasOperationalQualityLanguage(value = "") {
+  const text = String(value || "").toLowerCase();
+  if (!text) return false;
+  const hardOperationalPattern = /\b(leak|leaking|spill|spilled|broken|break|broke|crack|cracked|chip|chipped|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|tore|ripped|stain|mold|battery|burn|sharp|packaging|package|shipping|arrived damaged)\b/i;
+  if (hardOperationalPattern.test(text)) return true;
+  const defectOnlyPattern = /\b(defect|defective|damaged|damage|quality problem|manufacturing issue|supplier issue)\b/i;
+  if (!defectOnlyPattern.test(text)) return false;
+  return !/\b(not|no|without|isn't|is not|wasn't|was not|not necessarily|personal preference|preference issue)\b.{0,60}\b(defect|defective|damaged|damage|quality problem)\b/i.test(text);
 }
 
 function getOperationalSignalTextValues(deterministic = {}) {
@@ -6742,8 +6945,10 @@ function buildStructuredMetafieldRecommendations({ deterministic = {}, mainIssue
 function getRecommendedWorkflowTags({ mainIssue, deterministic = {} } = {}) {
   const issue = normalizeIssueCode(mainIssue);
   const metrics = deterministic.metrics || {};
+  const qaSupported = !shouldAiSuppressActionFamily(getAiActionGuidance(deterministic), "qa_review")
+    && (shouldAiRecommendQaReview(getAiActionGuidance(deterministic)) || hasOperationalQualityTextSignals(deterministic));
   const tags = [];
-  if (issue === "quality_defect" || issue === "durability") tags.push("qa-review-needed");
+  if ((issue === "quality_defect" || issue === "durability") && qaSupported) tags.push("qa-review-needed");
   if (issue === "safety_concern") tags.push("safety-review-needed");
   if (metrics.seoTitleNeedsReview || metrics.metaDescriptionNeedsReview || metrics.handleNeedsReview) tags.push("seo-fix-needed");
   if (Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0) >= 70) tags.push("watchlist-candidate");

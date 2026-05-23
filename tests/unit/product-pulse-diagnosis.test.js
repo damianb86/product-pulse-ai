@@ -2631,6 +2631,307 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).toContain("add-specs-details-block");
   });
 
+  it("uses AI action guidance to keep subjective expectation issues out of QA even when text mentions defect", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 74,
+      confidence: 99,
+      evidenceSnippets: [
+        { text: "The cushion is thick but unstable for transitions. This is a personal preference issue, not necessarily a defect." },
+        { text: "Too soft for balance poses; expected a firmer yoga surface." },
+      ],
+      issueSignalCounts: { quality_defect: 9, product_content: 4 },
+      product: {
+        title: "GEN CloudSoft Yoga Mat 12mm",
+        description: "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Sage", sku: "GEN-MAT-SAGE" },
+          { id: "gid://shopify/ProductVariant/2", title: "Charcoal", sku: "GEN-MAT-CHAR" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 16,
+        signalCount: 48,
+        returnUnits: 4,
+        refundUnits: 0,
+        returnRate: 50,
+        negativeReviewCount: 12,
+        mediaCount: 0,
+        specsBlockRecommended: true,
+        templateNeedsReview: true,
+        semanticClassification: {
+          actionGuidance: {
+            issueNature: "subjective_expectation",
+            subjectivityLevel: "high",
+            operationalQualityConfidence: "low",
+            shopperExpectationConfidence: "high",
+            shouldEscalateQa: false,
+            primaryActionFamily: "description_update",
+            recommendedActionFamilies: ["description_update", "faq", "specs_block", "media_context"],
+            blockedActionFamilies: ["qa_review", "inventory_hold", "status_change"],
+          },
+        },
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Firmness expectations"],
+          reasons: ["AI classified the repeated softness complaints as an expectation mismatch."],
+        },
+        contentIssueCount: 3,
+        contentAnalysis: {
+          issues: [
+            { code: "missing_customer_guidance", label: "Missing stability guidance", severity: "high", evidence: "The page should explain best-for and not-for use cases." },
+            { code: "missing_specifications", label: "Missing mat specifications", severity: "medium", evidence: "Dimensions, materials and grip are absent." },
+          ],
+          advisories: [{ code: "template_may_need_special_layout", label: "Template could support richer guidance", severity: "low" }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "too soft", count: 4, dominantSentiment: "negative" },
+            { term: "balance", count: 6, dominantSentiment: "mixed" },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 4, customer_count: 3 },
+          confidence: { score: 89, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/wall-print",
+              relatedProductTitle: "GEN Night Watch Dramatic Wall Print",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "90d_after",
+              lift: 4.8,
+              confidence: 67,
+              sampleSize: 3,
+              relationshipStrength: "very_strong",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/yoga",
+        productTitle: "GEN CloudSoft Yoga Mat 12mm",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Clarify that this mat is cushion-forward and not the best choice for fast balance transitions." } } },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("draft-quality-note");
+    expect(ids).toContain("create-product-faq");
+    expect(ids).toContain("add-specs-details-block");
+    expect(ids).not.toContain("recommend-qa-review");
+    expect(ids).not.toContain("limit-variant-inventory");
+    expect(ids).not.toContain("set-product-draft");
+    expect(ids).not.toContain("create-post-purchase-cross-sell");
+    expect(ids).not.toContain("move-to-review-collection");
+    expect(ids).not.toContain("switch-product-template");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("apply-risk-tags");
+    expect(ids).not.toContain("add-workflow-tags");
+  });
+
+  it("lets AI action guidance escalate QA for semantic operational quality issues", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 66,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Multiple customers say the surface separates after normal use." },
+        { text: "Support notes say the same failure repeats after replacement." },
+      ],
+      issueSignalCounts: { quality_defect: 5 },
+      product: {
+        title: "GEN Layered Fitness Mat",
+        description: "Layered mat for daily workouts.",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Standard", sku: "GEN-MAT-STD" }],
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 7,
+        returnUnits: 3,
+        refundUnits: 0,
+        returnRate: 30,
+        negativeReviewCount: 2,
+        semanticClassification: {
+          actionGuidance: {
+            issueNature: "operational_quality",
+            subjectivityLevel: "low",
+            operationalQualityConfidence: "high",
+            shopperExpectationConfidence: "low",
+            shouldEscalateQa: true,
+            qaReason: "AI classified the repeated separation after normal use as an operational product-quality issue.",
+            primaryActionFamily: "qa_review",
+            recommendedActionFamilies: ["qa_review", "description_update"],
+            blockedActionFamilies: [],
+          },
+        },
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{ code: "short_description", label: "Short product description", severity: "medium", evidence: "Limited product detail." }],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "surface separates", count: 3, dominantSentiment: "negative" }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/semantic-qa",
+        productTitle: "GEN Layered Fitness Mat",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Clarify normal-use limits and care while the product is reviewed." } } },
+    });
+    const qa = recommendations.find((item) => item.id === "recommend-qa-review");
+
+    expect(qa).toBeTruthy();
+    expect(qa.payload.trigger).toBe("AI classified the repeated separation after normal use as an operational product-quality issue.");
+  });
+
+  it("keeps merchandising and workflow metadata out of high-risk AI QA diagnoses", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 100,
+      confidence: 99,
+      evidenceSnippets: [
+        { text: "The desk loses air during normal typing and the laptop starts sliding." },
+        { text: "Returned because the tall kit deflates after a few hours and feels unsafe for a laptop." },
+      ],
+      issueSignalCounts: { quality_defect: 14, product_content: 4, safety_concern: 3 },
+      product: {
+        title: "GEN LiftAir Inflatable Standing Desk",
+        description: "Inflatable desk riser for travel work setups.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/tall", title: "Tall Kit", sku: "GEN-LIFTAIR-TALL" },
+          { id: "gid://shopify/ProductVariant/starter", title: "Starter", sku: "GEN-LIFTAIR-STARTER" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 16,
+        signalCount: 52,
+        returnUnits: 8,
+        returnRate: 50,
+        refundUnits: 5,
+        refundRate: 31.25,
+        refundAmount: 412,
+        negativeReviewCount: 27,
+        reviewCount: 50,
+        negativeReviewRate: 54,
+        topReturnReasons: ["Air leak/deflation", "Laptop sliding"],
+        affectedVariants: ["Tall Kit"],
+        variantCount: 2,
+        mediaCount: 1,
+        mediaWithoutAltCount: 0,
+        refundInsights: {
+          shouldSurface: true,
+          highPressure: true,
+          topReasons: [{ label: "Air leak/deflation", count: 5 }],
+        },
+        semanticClassification: {
+          actionGuidance: {
+            issueNature: "operational_quality",
+            subjectivityLevel: "low",
+            operationalQualityConfidence: "high",
+            shopperExpectationConfidence: "medium",
+            shouldEscalateQa: true,
+            qaReason: "Repeated return, refund and review text describes air leaks, deflation and instability during normal use.",
+            primaryActionFamily: "qa_review",
+            recommendedActionFamilies: ["qa_review", "description_update", "faq"],
+            blockedActionFamilies: ["inventory_hold", "status_change"],
+          },
+        },
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Inflation and stability"],
+          reasons: ["Customers repeatedly mention deflation and laptop stability."],
+        },
+        contentIssueCount: 2,
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short product description", severity: "medium", evidence: "The PDP does not explain stability limits." },
+            { code: "missing_specifications", label: "Missing load and height specs", severity: "medium", evidence: "Weight limit and height ranges are absent." },
+          ],
+          advisories: [],
+        },
+        textInsights: {
+          sentiment: { negative: 14, negativeRatio: 0.72 },
+          repeatedLanguage: [
+            { term: "deflates", count: 7, dominantSentiment: "negative" },
+            { term: "unsafe for a laptop", count: 3, dominantSentiment: "negative" },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 8, customer_count: 6 },
+          confidence: { score: 88, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            bundleOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/laptop-stand",
+              relatedProductTitle: "GEN Cable Dock Organizer",
+              relationshipType: "same_order",
+              lift: 3.2,
+              confidence: 76,
+              sampleSize: 4,
+              relationshipStrength: "strong",
+            },
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/wall-print",
+              relatedProductTitle: "GEN Night Watch Dramatic Wall Print",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "90d_after",
+              lift: 4.1,
+              confidence: 72,
+              sampleSize: 4,
+              relationshipStrength: "strong",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/travel-desk",
+              relatedProductTitle: "GEN Portable Work Tray",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "90d_before",
+              lift: 3.8,
+              confidence: 70,
+              sampleSize: 4,
+              relationshipStrength: "strong",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/liftair",
+        productTitle: "GEN LiftAir Inflatable Standing Desk",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Warn shoppers about load limits and inflation checks while QA reviews the leak pattern." } } },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("recommend-qa-review");
+    expect(ids).toContain("create-product-faq");
+    expect(ids).not.toContain("test-product-bundle");
+    expect(ids).not.toContain("create-post-purchase-cross-sell");
+    expect(ids).not.toContain("position-as-upgrade-path");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("add-workflow-tags");
+  });
+
   it("uses reliable purchase context to recommend variant clarity for multi-variant return patterns", () => {
     const deterministic = {
       mainIssue: "fit_sizing",
