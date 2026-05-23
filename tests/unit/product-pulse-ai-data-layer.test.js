@@ -77,6 +77,57 @@ describe("ProductPulse AI data repositories", () => {
     expect(JSON.stringify(result.products[0])).not.toContain("do not expose");
   });
 
+  it("excludes resolved products from general product lists unless explicitly requested", async () => {
+    const db = createRepositoryDbMock();
+    const activeSnapshot = buildSnapshot({
+      productGid: "gid://shopify/Product/active",
+      productTitle: "Active high-risk product",
+      riskScore: 91,
+    });
+    const resolvedSnapshot = buildSnapshot({
+      productGid: "gid://shopify/Product/resolved",
+      productTitle: "Resolved high-risk product",
+      riskScore: 99,
+    });
+    db.productAction.findMany.mockResolvedValue([
+      {
+        productGid: resolvedSnapshot.productGid,
+        actionType: "mark-resolved",
+      },
+    ]);
+    db.productRiskSnapshot.findMany.mockResolvedValue([resolvedSnapshot, activeSnapshot]);
+    db.productRiskSnapshot.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+
+    const repository = new ProductPulseAiRepository(db);
+    const result = await repository.listProductRiskSummaries(context, { limit: 10 });
+
+    expect(db.productAction.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        shop: context.shop,
+        actionType: { in: ["mark-resolved", "mark-unresolved"] },
+        status: "applied",
+      }),
+    }));
+    expect(db.productRiskSnapshot.findMany.mock.calls[0][0].where).toMatchObject({
+      AND: [
+        expect.objectContaining({ shop: context.shop }),
+        { productGid: { notIn: [resolvedSnapshot.productGid] } },
+      ],
+    });
+    expect(result.resolvedProductsExcluded).toBe(true);
+    expect(result.excludedResolvedCount).toBe(1);
+    expect(result.products.map((product) => product.productGid)).toEqual([activeSnapshot.productGid]);
+
+    db.productRiskSnapshot.findMany.mockClear();
+    db.productAction.findMany.mockClear();
+    db.productRiskSnapshot.count.mockReset().mockResolvedValue(2);
+
+    await repository.listProductRiskSummaries(context, { includeResolved: true });
+
+    expect(db.productAction.findMany).not.toHaveBeenCalled();
+    expect(db.productRiskSnapshot.findMany.mock.calls[0][0].where).toMatchObject({ shop: context.shop });
+  });
+
   it("returns bounded product detail without raw payloads or long evidence dumps", async () => {
     const db = createRepositoryDbMock();
     const longEvidence = "x".repeat(800);
@@ -396,6 +447,8 @@ describe("ProductPulse AI tool registry", () => {
         totalCount: 0,
         hasMore: false,
         freshness: [{ source: "ProductPulse", updatedAt: null }],
+        resolvedProductsExcluded: true,
+        excludedResolvedCount: 2,
       }),
     };
     const registry = createRegistryWithRepositories({ productRepository });
@@ -409,10 +462,12 @@ describe("ProductPulse AI tool registry", () => {
     expect(result.ok).toBe(true);
     expect(productRepository.listProductRiskSummaries).toHaveBeenCalledWith(
       expect.objectContaining({ shop: context.shop }),
-      expect.objectContaining({ limit: 25, offset: 0 }),
+      expect.objectContaining({ limit: 25, offset: 0, includeResolved: false }),
     );
     expect(productRepository.listProductRiskSummaries.mock.calls[0][1]).not.toHaveProperty("shop");
     expect(result.metadata.limit).toBe(25);
+    expect(result.metadata.resolvedProductsExcluded).toBe(true);
+    expect(result.data.notice).toContain("resolved");
   });
 
   it("rejects unknown tools with a structured safe error", async () => {
@@ -671,6 +726,8 @@ function createRegistryWithRepositories(overrides = {}) {
           totalCount: 0,
           hasMore: false,
           freshness: [],
+          resolvedProductsExcluded: true,
+          excludedResolvedCount: 0,
         }),
         getProductRiskDetail: vi.fn().mockResolvedValue(null),
         getProductEvidenceSnippets: vi.fn().mockResolvedValue(null),

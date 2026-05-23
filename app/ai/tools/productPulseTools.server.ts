@@ -62,6 +62,7 @@ const limitSchema = z.coerce.number().int().optional().describe("Maximum number 
 const listProductRiskSummariesInputSchema = z.object({
   query: z.string().trim().max(120).optional().describe("Optional product title, handle, or issue search text."),
   risk: z.enum(["all", "high", "medium", "low"]).optional().default("all").describe("Optional risk filter."),
+  includeResolved: z.boolean().optional().default(false).describe("Include products the merchant marked as resolved. Leave false unless the user explicitly asks about resolved products."),
   limit: limitSchema,
   offset: z.coerce.number().int().optional().describe("Zero-based pagination offset."),
   sortBy: z.enum(["riskScore", "updatedAt", "confidence"]).optional().default("riskScore"),
@@ -96,7 +97,13 @@ type ProductRiskDetailInput = z.infer<typeof getProductRiskDetailInputSchema>;
 type ProductEvidenceInput = z.infer<typeof getProductEvidenceInputSchema>;
 type EmptyInput = z.infer<typeof emptyInputSchema>;
 type WatchlistInput = z.infer<typeof watchlistInputSchema>;
-type ProductRiskListData = { products: AiProductRiskSummary[]; totalCount: number };
+type ProductRiskListData = {
+  products: AiProductRiskSummary[];
+  totalCount: number;
+  resolvedProductsExcluded: boolean;
+  excludedResolvedCount: number;
+  notice?: string;
+};
 type ProductRiskDetailData = { product: AiProductRiskDetail };
 type RelationshipSummaryData = { product: AiProductRiskSummary; relationship: AiReturnRefundRelationshipSummary };
 type ReturnRefundResolutionData = { resolution: AiReturnRefundResolutionSummary };
@@ -118,7 +125,7 @@ export function createProductPulseAiToolDefinitions(
 
   const listProductRiskSummariesTool: AiToolDefinition<ListProductRiskSummariesInput, ProductRiskListData> = {
       name: PRODUCT_PULSE_AI_TOOL_NAMES.listProductRiskSummaries,
-      description: "List compact ProductPulse product risk summaries for the authenticated shop.",
+      description: "List compact ProductPulse product risk summaries for the authenticated shop. Resolved products are excluded by default unless includeResolved is true.",
       inputSchema: listProductRiskSummariesInputSchema,
       readOnly: true,
       category: "products",
@@ -141,6 +148,11 @@ export function createProductPulseAiToolDefinitions(
           data: {
             products: result.products,
             totalCount: result.totalCount,
+            resolvedProductsExcluded: result.resolvedProductsExcluded,
+            excludedResolvedCount: result.excludedResolvedCount,
+            notice: result.resolvedProductsExcluded
+              ? "Products marked as resolved were excluded from this general search/list result."
+              : undefined,
           },
           metadata: {
             resultCount: result.products.length,
@@ -148,6 +160,8 @@ export function createProductPulseAiToolDefinitions(
             offset,
             hasMore: result.hasMore,
             dataFreshness: result.freshness,
+            resolvedProductsExcluded: result.resolvedProductsExcluded,
+            excludedResolvedCount: result.excludedResolvedCount,
           },
         };
       },

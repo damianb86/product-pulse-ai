@@ -76,6 +76,7 @@ export interface ListProductRiskSummariesOptions {
   offset?: number;
   sortBy?: "riskScore" | "updatedAt" | "confidence";
   sortDirection?: "asc" | "desc";
+  includeResolved?: boolean;
 }
 
 export interface ProductDetailOptions {
@@ -101,15 +102,30 @@ export class ProductPulseAiRepository {
   async listProductRiskSummaries(
     context: AiToolContext,
     options: ListProductRiskSummariesOptions = {},
-  ): Promise<{ products: AiProductRiskSummary[]; totalCount: number; hasMore: boolean; freshness: AiDataFreshness[] }> {
+  ): Promise<{
+    products: AiProductRiskSummary[];
+    totalCount: number;
+    hasMore: boolean;
+    freshness: AiDataFreshness[];
+    resolvedProductsExcluded: boolean;
+    excludedResolvedCount: number;
+  }> {
     const limit = normalizeLimit(options.limit);
     const offset = normalizeOffset(options.offset);
     const settings = await this.getRiskSettings(context);
-    const where = buildProductSnapshotWhere(context.shop, options.query, options.risk, settings);
+    const baseWhere = buildProductSnapshotWhere(context.shop, options.query, options.risk, settings);
+    const includeResolved = options.includeResolved === true;
+    const resolvedProductGids = includeResolved ? [] : await this.getResolvedProductGids(context);
+    const where = includeResolved
+      ? baseWhere
+      : buildProductSnapshotWhereWithResolvedFilter(baseWhere, resolvedProductGids, "notIn");
+    const resolvedWhere = !includeResolved && resolvedProductGids.length
+      ? buildProductSnapshotWhereWithResolvedFilter(baseWhere, resolvedProductGids, "in")
+      : null;
     const orderBy = buildProductSnapshotOrderBy(options.sortBy, options.sortDirection);
     const fetchTake = Math.min(Math.max(limit * 2, limit + 1), 75);
 
-    const [snapshots, totalCount] = await Promise.all([
+    const [snapshots, totalCount, excludedResolvedCount] = await Promise.all([
       this.db.productRiskSnapshot.findMany({
         where,
         orderBy,
@@ -117,9 +133,11 @@ export class ProductPulseAiRepository {
         take: fetchTake,
       }),
       safeCount(() => this.db.productRiskSnapshot.count({ where })),
+      resolvedWhere ? safeCount(() => this.db.productRiskSnapshot.count({ where: resolvedWhere })) : Promise.resolve(0),
     ]);
 
-    const snapshotRows = snapshots as unknown as DbRecord[];
+    const snapshotRows = (snapshots as unknown as DbRecord[])
+      .filter((snapshot) => includeResolved || !resolvedProductGids.includes(String(snapshot.productGid || "")));
     const productGids = uniqueStrings(snapshotRows.map((snapshot) => snapshot.productGid));
     const [latestDiagnoses, watchedItems] = await Promise.all([
       this.getLatestCompletedDiagnoses(context, productGids),
@@ -150,7 +168,38 @@ export class ProductPulseAiRepository {
       totalCount: resolvedTotalCount,
       hasMore: snapshotRows.length > limit || offset + products.length < resolvedTotalCount,
       freshness: buildFreshness(products.map((product) => product.updatedAt || product.calculatedAt)),
+      resolvedProductsExcluded: !includeResolved,
+      excludedResolvedCount: excludedResolvedCount ?? 0,
     };
+  }
+
+  private async getResolvedProductGids(context: AiToolContext): Promise<string[]> {
+    const actions = await this.db.productAction.findMany({
+      where: {
+        shop: context.shop,
+        actionType: { in: ["mark-resolved", "mark-unresolved"] },
+        status: "applied",
+      },
+      orderBy: [
+        { productGid: "asc" },
+        { appliedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+      select: {
+        productGid: true,
+        actionType: true,
+      },
+    });
+
+    const latestResolvedByProductGid = new Map<string, boolean>();
+    for (const action of actions as Array<{ productGid?: string | null; actionType?: string | null }>) {
+      const productGid = optionalText(action.productGid);
+      if (!productGid || latestResolvedByProductGid.has(productGid)) continue;
+      latestResolvedByProductGid.set(productGid, action.actionType === "mark-resolved");
+    }
+    return [...latestResolvedByProductGid.entries()]
+      .filter(([, isResolved]) => isResolved)
+      .map(([productGid]) => productGid);
   }
 
   async getProductRiskDetail(
@@ -603,6 +652,20 @@ function buildProductSnapshotWhere(
     where.riskScore = { lt: settings.mediumThreshold };
   }
   return where;
+}
+
+function buildProductSnapshotWhereWithResolvedFilter(
+  where: Record<string, unknown>,
+  productGids: string[],
+  mode: "in" | "notIn",
+): Record<string, unknown> {
+  if (!productGids.length) return where;
+  return {
+    AND: [
+      where,
+      { productGid: { [mode]: productGids } },
+    ],
+  };
 }
 
 function buildProductSnapshotOrderBy(

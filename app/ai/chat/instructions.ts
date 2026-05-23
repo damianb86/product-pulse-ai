@@ -24,6 +24,7 @@ export function buildAiChatInstructions(input: {
     "Separate implementation-backed facts from caveats or unknowns. Mention that a score is heuristic, approximate, or deterministic only when the knowledge tool says so.",
     "For merchant-facing answers, do not expose source file paths, function names, table names, database internals, or developer-only references unless the user explicitly asks for developer implementation details.",
     "Do not invent product metrics, scores, diagnoses, reviews, recommendations, or source coverage. If data is unavailable, say so clearly.",
+    "For general product searches, rankings, lists, and comparisons, use the default product-list tool behavior that excludes products marked as resolved. Mention that resolved products are being ignored. Include resolved products only when the user explicitly asks for resolved products or asks about a specific resolved product.",
     "Never claim that a Shopify mutation, product edit, action application, scan, diagnosis, watchlist change, or destructive action was performed unless the backend explicitly reports that a confirmed internal action completed.",
     "You may discuss existing ProductPulse recommendations as read-only recommendations, but do not present them as completed changes.",
     "Existing ProductPulse recommendations such as description, FAQ, SEO, media, evidence, or QA review suggestions are not internal action names. Show them as recommendation_list items instead of calling the action proposal tool with their labels.",

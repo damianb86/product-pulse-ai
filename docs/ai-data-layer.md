@@ -41,6 +41,7 @@ Excluded by design:
 `ProductPulseAiRepository`
 
 - Lists stored product risk summaries.
+- Excludes products marked as resolved from general product lists by default. Callers can opt in with `includeResolved` only when the user explicitly asks for resolved products.
 - Gets one stored product risk detail by product GID or handle.
 - Gets bounded evidence snippets for one stored product.
 
@@ -81,6 +82,8 @@ const result = await executeAiTool("product_pulse_get_product_risk_detail", cont
 ```
 
 Tool inputs never include `shop`, `storeId`, `merchantId`, or user tenancy identifiers. Unknown input keys are stripped by Zod and tenant context always comes from the server-created context.
+
+`product_pulse_list_product_risk_summaries` defaults to `includeResolved: false`, so broad rankings such as “highest risk product” ignore products the merchant marked as resolved. The tool returns metadata indicating that resolved products were excluded, and the assistant should mention that behavior in the answer. Resolved products are included only when the user explicitly asks for them.
 
 ## Tenant Isolation
 

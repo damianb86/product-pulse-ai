@@ -62,6 +62,7 @@ It does not parse assistant natural language and does not build cards from raw d
 
 - Renders the Expanded Action Detail confirmation card pattern.
 - Shows summary, target, reason, expected result, risks, confirmation level, side-effect level, reversibility, and expiry.
+- Renders field labels above long values so labels such as “Reason” are not clipped in narrow chat layouts; long values are capped instead.
 - Uses ChatKit `Card.confirm` and `Card.cancel` actions so the buttons render through ChatKit's native confirmation area.
 - Confirm/Cancel actions send only `proposalId`.
 

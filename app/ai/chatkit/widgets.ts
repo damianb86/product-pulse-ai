@@ -1432,11 +1432,22 @@ function emptyInline(message: string, key: string): Widgets.Col {
   ], { key });
 }
 
-function compactInfoLine(label: string, value: string, key: string, labelColor = COLORS.muted): Widgets.Row {
-  return row([
-    text(label, { key: "label", weight: "bold", color: labelColor, maxLength: 72, width: 78, maxLines: 1 }),
-    text(value, { key: "value", size: "sm", maxLines: 2, maxLength: MAX_DETAIL_LENGTH }),
-  ], { key, align: "start", wrap: "nowrap", gap: 4 });
+function compactInfoLine(label: string, value: string, key: string, labelColor = COLORS.muted): Widgets.Col {
+  return col([
+    caption(label, {
+      key: "label",
+      color: labelColor,
+      weight: "bold",
+      maxLength: 96,
+      maxLines: 2,
+    }),
+    text(value, {
+      key: "value",
+      size: "sm",
+      maxLines: 3,
+      maxLength: MAX_DETAIL_LENGTH,
+    }),
+  ], { key, gap: 1 });
 }
 
 function bulletRow(value: string, key: string, iconName: Widgets.WidgetIcon = "dot"): Widgets.Row {

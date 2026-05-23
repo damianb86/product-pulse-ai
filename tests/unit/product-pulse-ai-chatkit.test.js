@@ -710,6 +710,8 @@ describe("ProductPulse ChatKit integration", () => {
     });
     expect(JSON.stringify(widget.confirm)).not.toContain("product_pulse_archive_internal_product_analysis");
     expect(JSON.stringify(widget.cancel)).not.toContain("gid://shopify/Product/1");
+    expect(JSON.stringify(widget)).toContain("\"value\":\"Reason\"");
+    expect(JSON.stringify(widget)).not.toContain("\"width\":78");
   });
 
   it("renders user-provided text as widget text, not HTML or markdown components", () => {
