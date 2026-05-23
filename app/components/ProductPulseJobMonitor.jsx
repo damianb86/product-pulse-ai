@@ -540,7 +540,6 @@ function JobPopoverItem({ job, now, current = false, onClose }) {
           <strong>{getJobTitle(job)}</strong>
         </div>
         <small>{getJobSubtitle(job)}</small>
-        {current ? <em className="ppGlobalTopbarJobElapsed">{formatElapsed(job, now)}</em> : null}
         <div className="ppGlobalTopbarJobMeta">
           {metaItems.map((item) => (
             <span key={`${job.id}-${item.label}`} className={`ppGlobalTopbarJobMetaItem ppGlobalTopbarJobMetaItem-${item.icon}`}>
@@ -571,10 +570,11 @@ function getJobStateIconType(statusKey) {
 }
 
 function getJobMetaItems(job, now, current) {
+  const showElapsed = current || job.status !== "Queued";
   return [
     { icon: "clock", label: getJobTimeMetaLabel(job) },
-    current || job.status === "Queued" ? null : { icon: "clock", label: formatElapsed(job, now) },
     { icon: "credits", label: getJobCreditLabel(job) },
+    showElapsed ? { icon: "clock", label: formatElapsed(job, now) } : null,
   ].filter((item) => item?.label);
 }
 
