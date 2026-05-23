@@ -1466,7 +1466,10 @@ describe("ProductPulse screens", () => {
     expect(within(purchasePanel).getByText("Strongest co-purchase")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Care Kit")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Interpretation")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText(/usually bought alone, so negative signals are easier to attribute/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/Across 18 product-containing orders, this product leans standalone/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/67% single-unit, 28% multiple-unit and 5% bulk orders/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/83% single-variant and 17% multi-variant orders/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/Strongest co-purchase is Care Kit/i)).toBeInTheDocument();
 
     expect(within(riskSnapshot).getByText("72.2% solo purchase attribution")).toBeInTheDocument();
     expect(within(riskSnapshot).getByText("Strong attribution: 72.2% solo purchase rate")).toBeInTheDocument();
@@ -1503,7 +1506,9 @@ describe("ProductPulse screens", () => {
     expect(within(purchasePanel).getByText("Bought with other products")).toBeInTheDocument();
     expect(within(purchasePanel).getAllByText("100%").length).toBeGreaterThan(0);
     expect(purchasePanel.querySelectorAll(".ppBasketContextBarRow.isZero").length).toBeGreaterThan(0);
-    expect(within(purchasePanel).getByText(/Usually bought with other products/)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/Across 6 product-containing orders, this product leans basket-led/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/100% single-unit, 0% multiple-unit and 0% bulk orders/i)).toBeInTheDocument();
+    expect(within(purchasePanel).getByText(/100% single-variant and 0% multi-variant orders/i)).toBeInTheDocument();
     expect(within(purchasePanel).getByText("No reliable co-purchase yet")).toBeInTheDocument();
 
     const missingProduct = {
