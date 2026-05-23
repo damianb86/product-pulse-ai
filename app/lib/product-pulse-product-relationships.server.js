@@ -6,6 +6,10 @@ export const PRODUCT_RELATIONSHIP_WINDOWS_DAYS = Object.freeze([7, 30, 90]);
 
 const DEFAULT_TOP_RELATIONSHIP_LIMIT = 5;
 const DEFAULT_TREND_MONTH_LIMIT = 12;
+const MIN_RELATIONSHIP_SUPPORT_COUNT = 2;
+const SOURCE_RELATIONSHIP_SUPPORT_RATE = 0.02;
+const SITE_RELATIONSHIP_SUPPORT_RATE = 0.005;
+const MAX_SITE_SUPPORT_RATE_OF_SOURCE = 0.1;
 const MISSING_CUSTOMER_WARNING = "customer_identity_unavailable";
 const LOW_VOLUME_WARNING = "low_sample_size";
 const SINGLE_CUSTOMER_WARNING = "single_customer_dominates";
@@ -368,6 +372,17 @@ function finalizeProductRelationshipSummary({
     unknown_customer_order_count: sourceOrders.filter((order) => !order.customerKey).length,
     known_basket_order_count: sourceKnownBasketOrders.length,
     unknown_basket_order_count: sourceOrders.length - sourceKnownBasketOrders.length,
+    relationship_support_thresholds: {
+      same_order_min_order_count: calculateMinimumRelationshipSupport({
+        sourceCount: sourceKnownBasketOrders.length,
+        siteCount: knownBasketOrders.length,
+      }),
+      same_order_min_customer_count: sourceKnownBasketOrders.some((order) => order.customerKey) ? MIN_RELATIONSHIP_SUPPORT_COUNT : 0,
+      sequence_min_customer_count: calculateMinimumRelationshipSupport({
+        sourceCount: sourceCustomers.size,
+        siteCount: allCustomers.size,
+      }),
+    },
   };
 
   const sourceMonthlyOrderCounts = buildSourceMonthlyOrderCounts(productId, orderState);
@@ -379,6 +394,7 @@ function finalizeProductRelationshipSummary({
     sourceKnownBasketOrders,
     impactEvents,
     sourceMonthlyOrderCounts,
+    sameOrderCustomerIdentityAvailable: sourceKnownBasketOrders.some((order) => order.customerKey),
   });
   const sequenceRelationships = buildSequenceRelationships({
     productId,
@@ -443,9 +459,14 @@ function buildSameOrderRelationships({
   sourceKnownBasketOrders,
   impactEvents,
   sourceMonthlyOrderCounts,
+  sameOrderCustomerIdentityAvailable = false,
 }) {
   const totalKnownOrders = knownBasketOrders.length;
   if (!sourceKnownBasketOrders.length || !totalKnownOrders) return [];
+  const minimumOrderSupport = calculateMinimumRelationshipSupport({
+    sourceCount: sourceKnownBasketOrders.length,
+    siteCount: totalKnownOrders,
+  });
   const productOrderFrequency = new Map();
   const productMonthOrderFrequency = new Map();
 
@@ -490,6 +511,14 @@ function buildSameOrderRelationships({
   });
 
   return Array.from(statsByRelatedProduct.values()).map((stats) => {
+    if (!hasSufficientRelationshipSupport({
+      supportCount: stats.orderCount,
+      minimumSupport: minimumOrderSupport,
+      customerCount: stats.customerKeys.size,
+      requireMultipleCustomers: sameOrderCustomerIdentityAvailable,
+    })) {
+      return null;
+    }
     const relatedProduct = productIndex.byId.get(stats.relatedProductId);
     const attachRate = safeDivide(stats.orderCount, sourceKnownBasketOrders.length);
     const relatedProductBaseRate = safeDivide(productOrderFrequency.get(stats.relatedProductId) || 0, totalKnownOrders);
@@ -565,7 +594,7 @@ function buildSameOrderRelationships({
       delta_refund_rate: impact.deltaRefundRate,
       warnings: confidence.warnings,
     };
-  });
+  }).filter(Boolean);
 }
 
 function buildSequenceRelationships({
@@ -579,6 +608,10 @@ function buildSequenceRelationships({
   sourceMonthlyOrderCounts,
 }) {
   if (!customerOrders.length || !sourceCustomers.size) return { previous: [], next: [] };
+  const minimumCustomerSupport = calculateMinimumRelationshipSupport({
+    sourceCount: sourceCustomers.size,
+    siteCount: allCustomers.size,
+  });
   const ordersByCustomer = new Map();
   const productCustomerFrequency = new Map();
 
@@ -640,6 +673,14 @@ function buildSequenceRelationships({
   });
 
   const finalize = (stats) => Array.from(stats.values()).map((item) => {
+    if (!hasSufficientRelationshipSupport({
+      supportCount: item.customerKeys.size,
+      minimumSupport: minimumCustomerSupport,
+      customerCount: item.customerKeys.size,
+      requireMultipleCustomers: true,
+    })) {
+      return null;
+    }
     const relatedProduct = productIndex.byId.get(item.relatedProductId);
     const relationshipRate = safeDivide(item.customerKeys.size, sourceCustomers.size);
     const relatedProductBaseRate = safeDivide(productCustomerFrequency.get(item.relatedProductId)?.size || 0, allCustomers.size);
@@ -712,12 +753,32 @@ function buildSequenceRelationships({
         "sequence_return_refund_impact_not_causal",
       ].filter((value, index, list) => list.indexOf(value) === index),
     };
-  });
+  }).filter(Boolean);
 
   return {
     previous: finalize(previousStats),
     next: finalize(nextStats),
   };
+}
+
+function calculateMinimumRelationshipSupport({ sourceCount = 0, siteCount = 0 } = {}) {
+  const sourceVolume = Math.max(0, number(sourceCount));
+  const siteVolume = Math.max(0, number(siteCount));
+  const sourceFloor = Math.ceil(sourceVolume * SOURCE_RELATIONSHIP_SUPPORT_RATE);
+  const siteFloor = Math.ceil(siteVolume * SITE_RELATIONSHIP_SUPPORT_RATE);
+  const cappedSiteFloor = Math.min(siteFloor, Math.ceil(sourceVolume * MAX_SITE_SUPPORT_RATE_OF_SOURCE));
+  return Math.max(MIN_RELATIONSHIP_SUPPORT_COUNT, sourceFloor, cappedSiteFloor);
+}
+
+function hasSufficientRelationshipSupport({
+  supportCount = 0,
+  minimumSupport = MIN_RELATIONSHIP_SUPPORT_COUNT,
+  customerCount = 0,
+  requireMultipleCustomers = false,
+} = {}) {
+  if (Number(supportCount || 0) < Number(minimumSupport || MIN_RELATIONSHIP_SUPPORT_COUNT)) return false;
+  if (requireMultipleCustomers && Number(customerCount || 0) < MIN_RELATIONSHIP_SUPPORT_COUNT) return false;
+  return true;
 }
 
 function getRelationshipStats(map, sourceProductId, relatedProductId, { relationshipType, direction, window }) {
@@ -1094,6 +1155,11 @@ function createEmptyProductRelationshipSummary(productId, { windowDays = null } 
       unknown_customer_order_count: 0,
       known_basket_order_count: 0,
       unknown_basket_order_count: 0,
+      relationship_support_thresholds: {
+        same_order_min_order_count: MIN_RELATIONSHIP_SUPPORT_COUNT,
+        same_order_min_customer_count: 0,
+        sequence_min_customer_count: MIN_RELATIONSHIP_SUPPORT_COUNT,
+      },
     },
     same_order_relationships: [],
     previous_purchase_relationships: [],

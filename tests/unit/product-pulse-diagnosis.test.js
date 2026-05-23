@@ -664,13 +664,16 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       { type: "sale", id: "before-sale", orderId: "before-order", lineItemId: "before-line", productId: beforeProductId, title: "REL Bought Before", handle: "rel-bought-before", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 35, orderDate: daysAgo(35), createdAt: daysAgo(35) },
       { type: "sale", id: "source-sale", orderId: "source-order", lineItemId: "source-line", productId: sourceProductId, title: "REL Source Product", handle: "rel-source-product", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 50, orderDate: daysAgo(20), createdAt: daysAgo(20) },
       { type: "sale", id: "after-sale", orderId: "after-order", lineItemId: "after-line", productId: afterProductId, title: "REL Bought After", handle: "rel-bought-after", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 42, orderDate: daysAgo(6), createdAt: daysAgo(6) },
+      { type: "sale", id: "before-sale-2", orderId: "before-order-2", lineItemId: "before-line-2", productId: beforeProductId, title: "REL Bought Before", handle: "rel-bought-before", customerKey: "customer-2", customerId: "customer-2", quantity: 1, amount: 35, orderDate: daysAgo(34), createdAt: daysAgo(34) },
+      { type: "sale", id: "source-sale-2", orderId: "source-order-2", lineItemId: "source-line-2", productId: sourceProductId, title: "REL Source Product", handle: "rel-source-product", customerKey: "customer-2", customerId: "customer-2", quantity: 1, amount: 50, orderDate: daysAgo(19), createdAt: daysAgo(19) },
+      { type: "sale", id: "after-sale-2", orderId: "after-order-2", lineItemId: "after-line-2", productId: afterProductId, title: "REL Bought After", handle: "rel-bought-after", customerKey: "customer-2", customerId: "customer-2", quantity: 1, amount: 42, orderDate: daysAgo(5), createdAt: daysAgo(5) },
     ];
 
     const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
       snapshot,
       shopifyData: {
         product,
-        sales: [relationshipSales[1]],
+        sales: relationshipSales.filter((saleEvent) => saleEvent.productId === sourceProductId),
         relationshipSales,
         returns: [],
         refunds: [],

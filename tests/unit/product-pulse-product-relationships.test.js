@@ -124,6 +124,14 @@ describe("product relationship intelligence metrics", () => {
             { lineItemId: "line-b-basket", productId: PRODUCT_B, variantId: VARIANT_B, title: "Shopify Related Product", handle: "shopify-related-product", imageUrl: "https://cdn.example/shopify-related.jpg", quantity: 1, amount: 40 },
           ],
         }),
+        sale({
+          orderId: "basket-2",
+          lineItemId: "line-a-basket-2",
+          basketLineItems: [
+            { lineItemId: "line-a-basket-2", productId: PRODUCT_A, variantId: VARIANT_A, title: "Product A", handle: "product-a", quantity: 1, amount: 100 },
+            { lineItemId: "line-b-basket-2", productId: PRODUCT_B, variantId: VARIANT_B, title: "Shopify Related Product", handle: "shopify-related-product", imageUrl: "https://cdn.example/shopify-related.jpg", quantity: 1, amount: 40 },
+          ],
+        }),
       ],
       windowDays: 90,
       assumeCompleteOrderEvents: false,
@@ -160,6 +168,52 @@ describe("product relationship intelligence metrics", () => {
     expect(summary.top_bought_together.find((item) => item.related_product_id === PRODUCT_POPULAR).co_order_count).toBe(3);
   });
 
+  it("does not expose same-order relationships from one order or one known customer", () => {
+    const oneOrderSummary = summaryFor([
+      sale({ orderId: "single-a-b", lineItemId: "line-single-a" }),
+      sale({ orderId: "single-a-b", lineItemId: "line-single-b", productId: PRODUCT_B, variantId: VARIANT_B }),
+      sale({ orderId: "source-only", lineItemId: "line-source-only" }),
+    ]);
+
+    expect(oneOrderSummary.top_bought_together).toEqual([]);
+
+    const oneCustomerSummary = summaryFor([
+      sale({ orderId: "same-customer-1", lineItemId: "line-a-1", customerKey: "customer-1" }),
+      sale({ orderId: "same-customer-1", lineItemId: "line-b-1", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1" }),
+      sale({ orderId: "same-customer-2", lineItemId: "line-a-2", customerKey: "customer-1", orderDate: "2026-05-02T12:00:00.000Z" }),
+      sale({ orderId: "same-customer-2", lineItemId: "line-b-2", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-02T12:00:00.000Z" }),
+    ]);
+
+    expect(oneCustomerSummary.top_bought_together).toEqual([]);
+  });
+
+  it("requires relationship support to scale with product and shop volume", () => {
+    const sparseHighVolumeEvents = Array.from({ length: 1000 }, (_, index) => {
+      const orderNumber = index + 1;
+      const orderId = `high-volume-${orderNumber}`;
+      const rows = [sale({ orderId, lineItemId: `line-a-${orderNumber}`, orderDate: `2026-05-${String((index % 28) + 1).padStart(2, "0")}T12:00:00.000Z` })];
+      if (index < 3) rows.push(sale({ orderId, lineItemId: `line-b-${orderNumber}`, productId: PRODUCT_B, variantId: VARIANT_B, orderDate: rows[0].orderDate }));
+      return rows;
+    }).flat();
+    const supportedHighVolumeEvents = Array.from({ length: 1000 }, (_, index) => {
+      const orderNumber = index + 1;
+      const orderId = `supported-volume-${orderNumber}`;
+      const rows = [sale({ orderId, lineItemId: `line-supported-a-${orderNumber}`, orderDate: `2026-06-${String((index % 28) + 1).padStart(2, "0")}T12:00:00.000Z` })];
+      if (index < 20) rows.push(sale({ orderId, lineItemId: `line-supported-b-${orderNumber}`, productId: PRODUCT_B, variantId: VARIANT_B, orderDate: rows[0].orderDate }));
+      return rows;
+    }).flat();
+
+    const sparseSummary = summaryFor(sparseHighVolumeEvents);
+    const supportedSummary = summaryFor(supportedHighVolumeEvents);
+
+    expect(sparseSummary.data_basis.relationship_support_thresholds.same_order_min_order_count).toBe(20);
+    expect(sparseSummary.top_bought_together).toEqual([]);
+    expect(supportedSummary.top_bought_together[0]).toMatchObject({
+      related_product_id: PRODUCT_B,
+      co_order_count: 20,
+    });
+  });
+
   it("calculates previous-purchase and next-purchase directional relationships by customer window", () => {
     const summary = summaryFor([
       sale({ orderId: "c1-before", lineItemId: "line-c1-b", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-01T12:00:00.000Z" }),
@@ -167,6 +221,7 @@ describe("product relationship intelligence metrics", () => {
       sale({ orderId: "c1-after", lineItemId: "line-c1-c", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-1", amount: 70, orderDate: "2026-05-20T12:00:00.000Z" }),
       sale({ orderId: "c2-before", lineItemId: "line-c2-b", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-2", orderDate: "2026-05-03T12:00:00.000Z" }),
       sale({ orderId: "c2-source", lineItemId: "line-c2-a", customerKey: "customer-2", orderDate: "2026-05-18T12:00:00.000Z" }),
+      sale({ orderId: "c2-after", lineItemId: "line-c2-c", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-2", amount: 70, orderDate: "2026-05-28T12:00:00.000Z" }),
       sale({ orderId: "c3-source", lineItemId: "line-c3-a", customerKey: "customer-3", orderDate: "2026-05-18T12:00:00.000Z" }),
     ]);
 
@@ -181,10 +236,10 @@ describe("product relationship intelligence metrics", () => {
     });
     expect(next30).toMatchObject({
       relationship_direction: "after",
-      customer_count: 1,
-      relationship_rate: 0.3333,
+      customer_count: 2,
+      relationship_rate: 0.6667,
       avg_days_after: 10,
-      follow_on_revenue: 70,
+      follow_on_revenue: 140,
     });
   });
 
@@ -192,6 +247,8 @@ describe("product relationship intelligence metrics", () => {
     const events = [
       sale({ orderId: "b-a-source", lineItemId: "line-b-a-source", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-01T12:00:00.000Z" }),
       sale({ orderId: "b-a-after", lineItemId: "line-a-after", productId: PRODUCT_A, variantId: VARIANT_A, customerKey: "customer-1", orderDate: "2026-05-20T12:00:00.000Z" }),
+      sale({ orderId: "b-a-source-2", lineItemId: "line-b-a-source-2", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-4", orderDate: "2026-05-01T12:00:00.000Z" }),
+      sale({ orderId: "b-a-after-2", lineItemId: "line-a-after-2", productId: PRODUCT_A, variantId: VARIANT_A, customerKey: "customer-4", orderDate: "2026-05-20T12:00:00.000Z" }),
       sale({ orderId: "b-c-source-1", lineItemId: "line-b-c-source-1", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-2", orderDate: "2026-05-01T12:00:00.000Z" }),
       sale({ orderId: "b-c-after-1", lineItemId: "line-c-after-1", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-2", orderDate: "2026-05-10T12:00:00.000Z" }),
       sale({ orderId: "b-c-source-2", lineItemId: "line-b-c-source-2", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-3", orderDate: "2026-05-01T12:00:00.000Z" }),
@@ -208,7 +265,7 @@ describe("product relationship intelligence metrics", () => {
     expect(summaryB.next_purchase_relationships.find((item) => item.related_product_id === PRODUCT_A)).toMatchObject({
       relationship_direction: "after",
       time_window: "30d_after",
-      customer_count: 1,
+      customer_count: 2,
     });
   });
 
@@ -216,6 +273,8 @@ describe("product relationship intelligence metrics", () => {
     const events = [
       sale({ orderId: "first", lineItemId: "line-a-first", customerKey: "customer-1", orderDate: "2026-05-01T12:00:00.000Z" }),
       sale({ orderId: "second", lineItemId: "line-b-second", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-05T12:00:00.000Z" }),
+      sale({ orderId: "third", lineItemId: "line-a-third", customerKey: "customer-2", orderDate: "2026-05-01T12:00:00.000Z" }),
+      sale({ orderId: "fourth", lineItemId: "line-b-fourth", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-2", orderDate: "2026-05-05T12:00:00.000Z" }),
     ];
 
     const summaryA = summaryFor(events, PRODUCT_A);
@@ -226,18 +285,30 @@ describe("product relationship intelligence metrics", () => {
     expect(summaryB.previous_purchase_relationships.some((item) => item.related_product_id === PRODUCT_A)).toBe(true);
   });
 
+  it("does not expose sequence relationships from a single customer", () => {
+    const summary = summaryFor([
+      sale({ orderId: "single-source", lineItemId: "line-single-a", customerKey: "customer-1", orderDate: "2026-05-01T12:00:00.000Z" }),
+      sale({ orderId: "single-after", lineItemId: "line-single-b", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-05T12:00:00.000Z" }),
+    ]);
+
+    expect(summary.next_purchase_relationships).toEqual([]);
+    expect(summary.previous_purchase_relationships).toEqual([]);
+  });
+
   it("groups relationship trends by source product cohort month and classifies emerging trends", () => {
     const summary = summaryFor([
       sale({ orderId: "may-a", lineItemId: "line-may-a", orderDate: "2026-05-03T12:00:00.000Z" }),
       sale({ orderId: "jun-a", lineItemId: "line-jun-a", orderDate: "2026-06-03T12:00:00.000Z" }),
       sale({ orderId: "jun-a", lineItemId: "line-jun-b", productId: PRODUCT_B, variantId: VARIANT_B, orderDate: "2026-06-03T12:00:00.000Z" }),
+      sale({ orderId: "jun-a-2", lineItemId: "line-jun-a-2", orderDate: "2026-06-10T12:00:00.000Z" }),
+      sale({ orderId: "jun-a-2", lineItemId: "line-jun-b-2", productId: PRODUCT_B, variantId: VARIANT_B, orderDate: "2026-06-10T12:00:00.000Z" }),
     ]);
 
     const relationship = summary.same_order_relationships.find((item) => item.related_product_id === PRODUCT_B);
 
     expect(relationship.monthly).toEqual([
       expect.objectContaining({ month: "2026-05", source_product_orders: 1, related_order_count: 0 }),
-      expect.objectContaining({ month: "2026-06", source_product_orders: 1, related_order_count: 1, relationship_rate: 1 }),
+      expect.objectContaining({ month: "2026-06", source_product_orders: 2, related_order_count: 2, relationship_rate: 1 }),
     ]);
     expect(relationship.trend).toBe("emerging");
   });
@@ -250,6 +321,10 @@ describe("product relationship intelligence metrics", () => {
       sale({ orderId: "dom-2", lineItemId: "line-b-2", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-02T12:00:00.000Z" }),
       sale({ orderId: "dom-3", lineItemId: "line-a-3", customerKey: "customer-1", orderDate: "2026-05-03T12:00:00.000Z" }),
       sale({ orderId: "dom-3", lineItemId: "line-b-3", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-03T12:00:00.000Z" }),
+      sale({ orderId: "dom-4", lineItemId: "line-a-4", customerKey: "customer-1", orderDate: "2026-05-04T12:00:00.000Z" }),
+      sale({ orderId: "dom-4", lineItemId: "line-b-4", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-04T12:00:00.000Z" }),
+      sale({ orderId: "dom-5", lineItemId: "line-a-5", customerKey: "customer-2", orderDate: "2026-05-05T12:00:00.000Z" }),
+      sale({ orderId: "dom-5", lineItemId: "line-b-5", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-2", orderDate: "2026-05-05T12:00:00.000Z" }),
     ]);
 
     const relationship = summary.same_order_relationships[0];
@@ -272,10 +347,12 @@ describe("product relationship intelligence metrics", () => {
 
   it("calculates return/refund impact for same-order relationships without overclaiming sequence causality", () => {
     const summary = summaryFor([
-      sale({ orderId: "together", lineItemId: "line-a-together", quantity: 2, amount: 200 }),
+      sale({ orderId: "together", lineItemId: "line-a-together", quantity: 1, amount: 100 }),
       sale({ orderId: "together", lineItemId: "line-b-together", productId: PRODUCT_B, variantId: VARIANT_B, amount: 40 }),
       itemReturn({ orderId: "together", lineItemId: "line-a-together", quantity: 1 }),
       refund({ orderId: "together", lineItemId: "line-a-together", quantity: 1, amount: 100 }),
+      sale({ orderId: "together-2", lineItemId: "line-a-together-2", quantity: 1, amount: 100 }),
+      sale({ orderId: "together-2", lineItemId: "line-b-together-2", productId: PRODUCT_B, variantId: VARIANT_B, amount: 40 }),
       sale({ orderId: "solo", lineItemId: "line-a-solo", quantity: 2, amount: 200 }),
     ]);
 
@@ -312,6 +389,8 @@ describe("product relationship intelligence metrics", () => {
       events: [
         sale({ shop: null, orderId: "order-1", lineItemId: "line-a-1" }),
         sale({ shop: null, orderId: "order-1", lineItemId: "line-b-1", productId: PRODUCT_B, variantId: VARIANT_B }),
+        sale({ shop: null, orderId: "order-2", lineItemId: "line-a-2" }),
+        sale({ shop: null, orderId: "order-2", lineItemId: "line-b-2", productId: PRODUCT_B, variantId: VARIANT_B }),
       ],
     });
     const productCandidate = candidates.find((candidate) => candidate.productGid === PRODUCT_A);
