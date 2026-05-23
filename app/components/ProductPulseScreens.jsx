@@ -13759,8 +13759,8 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
           anchorRef={triggerRef}
           open={open}
           className="ppMomentumPopover ppInsightToast ppMomentumToast"
-          width={520}
-          estimatedHeight={250}
+          width={480}
+          estimatedHeight={220}
           onMouseEnter={showPopover}
           onMouseLeave={scheduleClose}
         >
@@ -13814,8 +13814,8 @@ function ProductMomentumCell({ product, onWatchlistToggle }) {
         anchorRef={triggerRef}
         open={open}
         className="ppMomentumPopover ppInsightToast ppMomentumToast"
-        width={560}
-        estimatedHeight={440}
+        width={520}
+        estimatedHeight={390}
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}
       >
@@ -14020,8 +14020,8 @@ function ProductSignalCell({ product }) {
         anchorRef={triggerRef}
         open={open}
         className="ppSignalPopover ppInsightToast ppEvidenceToast"
-        width={560}
-        estimatedHeight={520}
+        width={520}
+        estimatedHeight={470}
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}
       >
@@ -14319,8 +14319,8 @@ function ProductSourceIconGroup({ product = {}, sources, overflow }) {
         anchorRef={triggerRef}
         open={open}
         className="ppSourcePopover ppSourceSummaryPopover ppInsightToast ppSourcesToast"
-        width={500}
-        estimatedHeight={430}
+        width={460}
+        estimatedHeight={390}
         placement="bottom-end"
         onMouseEnter={showPopover}
         onMouseLeave={scheduleClose}
