@@ -3186,6 +3186,8 @@ describe("ProductPulse screens", () => {
     expect(within(outcomeContextSection).getByText("Relationship signal")).toBeInTheDocument();
     expect(within(outcomeContextSection).getByText("Top related:")).toBeInTheDocument();
     expect(outcomeContextSection.querySelector(".ppProductRelationshipSignalVisual img")).toHaveAttribute("src", "/assets/product-relationships/relationship-signal.png");
+    expect(outcomeContextSection.querySelector(".ppPurchaseContextPanel").compareDocumentPosition(outcomeContextSection.querySelector(".ppReturnRefundResolutionPanel")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(outcomeContextSection.querySelector(".ppReturnRefundResolutionPanel").compareDocumentPosition(outcomeContextSection.querySelector(".ppEvidenceReportRelationshipSignalSlot")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(outcomeContextSection).queryByText("Returns vs. refunds relationship")).not.toBeInTheDocument();
     expect(screen.getByText("Recommendations and checks")).toBeInTheDocument();
     expect(screen.getByText("Diagnostic checks behind recommendations")).toBeInTheDocument();
@@ -3203,6 +3205,41 @@ describe("ProductPulse screens", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Score calculation/ }));
     expect(screen.getByRole("button", { name: /Score calculation/ })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("labels recommendation checks with the available review source instead of defaulting to Judge.me", () => {
+    const product = {
+      ...defaultView.startHere,
+      sourceCoverage: ["CSV reviews"],
+      evidence: [
+        { source: "CSV reviews", quote: "2 negative reviews out of 3", weight: "CSV average rating" },
+      ],
+      metrics: {
+        ...defaultView.startHere.metrics,
+        reviewCount: 3,
+        negativeReviewCount: 2,
+        avgRating: 2.4,
+        reviewRating: 2.4,
+        csvReviewCount: 3,
+        csvNegativeReviewCount: 2,
+        csvAverageRating: 2.4,
+        judgeMeReviewCount: 0,
+        judgeMeNegativeReviewCount: 0,
+        judgeMeAverageRating: 0,
+        reviewSourceStats: {
+          csv: { reviewCount: 3, negativeReviewCount: 2, avgRating: 2.4 },
+          judgeMe: { reviewCount: 0, negativeReviewCount: 0, avgRating: 0 },
+          total: { reviewCount: 3, negativeReviewCount: 2, avgRating: 2.4 },
+        },
+      },
+    };
+
+    const { container } = renderWithRouter(<ProductEvidenceReportScreen product={product} source="CSV reviews" />);
+    const checkBlock = container.querySelector("#evidence-report-recommendations-and-checks .ppEvidenceReportCheckBlock");
+
+    expect(within(checkBlock).getByText("CSV reviews")).toBeInTheDocument();
+    expect(within(checkBlock).queryByText("Judge.me reviews")).not.toBeInTheDocument();
+    expect(within(checkBlock).getByText("2.4 avg rating, 2 negative")).toBeInTheDocument();
   });
 
   it("shows returns/refunds overlap from total outcome counts and cumulative return-rate charting", () => {

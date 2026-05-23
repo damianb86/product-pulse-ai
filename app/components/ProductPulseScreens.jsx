@@ -8456,16 +8456,85 @@ function getProductCheckedItems(product) {
     });
   }
 
-  if (sources.some((source) => String(source).toLowerCase().includes("judge")) || Number(metrics.reviewCount || 0) > 0) {
-    items.push({
-      icon: "star",
-      label: "Judge.me reviews",
-      value: formatInteger(metrics.reviewCount || 0),
-      detail: `${metrics.avgRating || metrics.reviewRating || 0} avg rating, ${formatInteger(metrics.negativeReviewCount || 0)} negative`,
-    });
-  }
+  const reviewCheck = getReviewEvidenceCheckedItem(metrics, sources);
+  if (reviewCheck) items.push(reviewCheck);
 
   return items;
+}
+
+function getReviewEvidenceCheckedItem(metrics = {}, sources = []) {
+  const sourceLabels = Array.isArray(sources) ? sources.map((source) => String(source || "")) : [];
+  const sourceText = sourceLabels.join(" ").toLowerCase();
+  const reviewSourceStats = asPlainObject(metrics.reviewSourceStats);
+  const totalStats = asPlainObject(reviewSourceStats.total);
+  const csvStats = asPlainObject(reviewSourceStats.csv);
+  const judgeStats = asPlainObject(reviewSourceStats.judgeMe || reviewSourceStats.judgeme);
+  const chatMeStats = asPlainObject(reviewSourceStats.chatMe || reviewSourceStats.chatme);
+  const csvCount = maxFiniteMetricNumber(metrics.csvReviewCount, metrics.csvReviewRatingCount, csvStats.reviewCount);
+  const judgeCount = maxFiniteMetricNumber(metrics.judgeMeReviewCount, metrics.judgemeReviewCount, judgeStats.reviewCount);
+  const chatMeCount = maxFiniteMetricNumber(metrics.chatMeReviewCount, metrics.chatmeReviewCount, chatMeStats.reviewCount);
+  const providerReviewCount = csvCount + judgeCount + chatMeCount;
+  const reviewCount = maxFiniteMetricNumber(metrics.reviewCount, totalStats.reviewCount, providerReviewCount);
+  const csvNegativeCount = maxFiniteMetricNumber(metrics.csvNegativeReviewCount, metrics.csvLowRatingCount, csvStats.negativeReviewCount);
+  const judgeNegativeCount = maxFiniteMetricNumber(metrics.judgeMeNegativeReviewCount, metrics.judgemeNegativeReviewCount, judgeStats.negativeReviewCount);
+  const chatMeNegativeCount = maxFiniteMetricNumber(metrics.chatMeNegativeReviewCount, metrics.chatmeNegativeReviewCount, chatMeStats.negativeReviewCount);
+  const providerNegativeCount = csvNegativeCount + judgeNegativeCount + chatMeNegativeCount;
+  const negativeReviewCount = maxFiniteMetricNumber(metrics.negativeReviewCount, totalStats.negativeReviewCount, providerNegativeCount);
+  const hasCsvReviews = sourceText.includes("csv") || csvCount > 0;
+  const hasJudgeMeReviews = sourceText.includes("judge") || judgeCount > 0;
+  const hasChatMeReviews = sourceText.includes("chat") || chatMeCount > 0;
+  const hasGenericReviewEvidence = sourceText.includes("review") || reviewCount > 0;
+
+  if (!hasCsvReviews && !hasJudgeMeReviews && !hasChatMeReviews && !hasGenericReviewEvidence) return null;
+
+  const providerLabels = [
+    hasCsvReviews ? "CSV reviews" : null,
+    hasJudgeMeReviews ? "Judge.me reviews" : null,
+    hasChatMeReviews ? "ChatMe reviews" : null,
+  ].filter(Boolean);
+  const label = providerLabels.length === 1
+    ? providerLabels[0]
+    : providerLabels.length > 1
+      ? "Review evidence"
+      : "Reviews analyzed";
+  const sourceDetail = providerLabels.length > 1 ? `${providerLabels.join(" + ")} · ` : "";
+  const avgRating = getReviewEvidenceAverageRating(metrics, {
+    totalStats,
+    csvStats,
+    judgeStats,
+    chatMeStats,
+    hasCsvReviews,
+    hasJudgeMeReviews,
+    hasChatMeReviews,
+  });
+
+  return {
+    icon: "star",
+    label,
+    value: formatInteger(reviewCount),
+    detail: `${sourceDetail}${formatDecimal(avgRating, 1)} avg rating, ${formatInteger(negativeReviewCount)} negative`,
+  };
+}
+
+function getReviewEvidenceAverageRating(metrics = {}, {
+  totalStats = {},
+  csvStats = {},
+  judgeStats = {},
+  chatMeStats = {},
+  hasCsvReviews = false,
+  hasJudgeMeReviews = false,
+  hasChatMeReviews = false,
+} = {}) {
+  if (hasCsvReviews && !hasJudgeMeReviews && !hasChatMeReviews) {
+    return firstFiniteMetricNumber(metrics.csvAverageRating, metrics.csvReviewRating, csvStats.avgRating, csvStats.averageRating, metrics.avgRating, metrics.reviewRating);
+  }
+  if (hasJudgeMeReviews && !hasCsvReviews && !hasChatMeReviews) {
+    return firstFiniteMetricNumber(metrics.judgeMeAverageRating, metrics.judgemeAverageRating, judgeStats.avgRating, judgeStats.averageRating, metrics.avgRating, metrics.reviewRating);
+  }
+  if (hasChatMeReviews && !hasCsvReviews && !hasJudgeMeReviews) {
+    return firstFiniteMetricNumber(metrics.chatMeAverageRating, metrics.chatmeAverageRating, chatMeStats.avgRating, chatMeStats.averageRating, metrics.avgRating, metrics.reviewRating);
+  }
+  return firstFiniteMetricNumber(totalStats.avgRating, totalStats.averageRating, metrics.avgRating, metrics.reviewRating);
 }
 
 function getRecommendedActionMode(action, index) {
@@ -17263,9 +17332,9 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
           onToggle={() => toggleEvidenceReportSection("order-outcome-context")}
         >
           <div className="ppEvidenceReportContextStack">
-            <EvidenceRelationshipSignalCard detail={detail} />
             <ProductPurchaseContextPanel detail={detail} />
             <ProductReturnRefundResolutionPanel detail={detail} />
+            <EvidenceRelationshipSignalCard detail={detail} />
           </div>
         </EvidenceReportCollapsibleSection>
 
