@@ -16169,15 +16169,27 @@ function getRefundRepeatedLanguage(metrics = {}) {
 }
 
 function getRefundExampleRows(metrics = {}) {
-  const examples = getEvidenceList(metrics.refundInsights?.examples)
+  const examples = dedupeEvidenceNoteRows(getEvidenceList(metrics.refundInsights?.examples)
     .map((example) => ({
       reason: example.reasonText || example.reason || example.issueCode ? startCase(example.reasonText || example.reason || example.issueCode) : "Refund note",
       text: example.noteText || example.text || example.reasonText || "Refund context was captured without a free-form note.",
       date: example.createdAt ? formatProductAnalysisDate(example.createdAt) : (metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : ""),
       sentiment: example.sentiment ? startCase(example.sentiment) : "Operational",
-    }));
+    })));
   if (examples.length) return examples.slice(0, 4);
   return [{ reason: "No refund notes stored", text: "Refund units or amount may exist without a Shopify refund note.", date: "", sentiment: "Info" }];
+}
+
+function dedupeEvidenceNoteRows(examples = []) {
+  const seen = new Set();
+  return (Array.isArray(examples) ? examples : []).filter((example) => {
+    const textKey = normalizeReviewExampleFingerprint(example.text || example.note || example.noteText || "");
+    const reasonKey = normalizeReviewExampleFingerprint(example.reason || example.reasonText || "");
+    const key = textKey || reasonKey;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function dedupePhraseRows(rows = []) {
@@ -16987,10 +16999,10 @@ function getReturnInsightCount(textInsights = {}, source = {}) {
 }
 
 function getReturnExampleRows(textInsights = {}, metrics = {}) {
-  const examples = getEvidenceList(textInsights.returns?.examples).map((example) => ({
+  const examples = dedupeEvidenceNoteRows(getEvidenceList(textInsights.returns?.examples).map((example) => ({
     text: example.text || example.note || "Return note captured",
     date: example.date || example.createdAt || (metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : ""),
-  }));
+  })));
   if (examples.length) return examples.slice(0, 4);
   return [
     { text: "No return notes captured for this product yet.", date: metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : "" },

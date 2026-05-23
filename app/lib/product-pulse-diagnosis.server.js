@@ -8941,7 +8941,15 @@ function summarizeRefundOperationalAnalysisItems({ refundTexts = [], refunds = [
     issueCounts,
     topReasons: refundReasons,
     riskLift,
-    examples: refundTexts.slice(0, 4).map((item) => ({
+    examples: buildRefundInsightExamples(refundTexts),
+  };
+}
+
+function buildRefundInsightExamples(refundTexts = []) {
+  const seen = new Set();
+  const examples = [];
+  (Array.isArray(refundTexts) ? refundTexts : []).forEach((item) => {
+    const example = {
       text: truncateText(item.text, 180),
       noteText: truncateText(item.noteText, 180),
       reasonText: truncateText(item.reasonText, 180),
@@ -8951,8 +8959,22 @@ function summarizeRefundOperationalAnalysisItems({ refundTexts = [], refunds = [
       variant: item.variant || "",
       amount: item.amount,
       adjustmentReasons: item.adjustmentReasons,
-    })),
-  };
+    };
+    const key = getRefundInsightExampleKey(example);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    examples.push(example);
+  });
+  return examples.slice(0, 4);
+}
+
+function getRefundInsightExampleKey(example = {}) {
+  const noteKey = normalizeText(example.noteText || "");
+  if (noteKey) return `note:${noteKey}`;
+  const textKey = normalizeText(example.text || "");
+  if (textKey) return `text:${textKey}`;
+  const reasonKey = normalizeText(example.reasonText || example.issueCode || "");
+  return reasonKey ? `reason:${reasonKey}` : "";
 }
 
 function buildIncrementalRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnits = 0, refundUnits = 0, refundAmount = 0, previousCache = {}, cutoffAt = null, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {

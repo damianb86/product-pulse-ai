@@ -486,6 +486,27 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.examples[0].text).toContain("arrived broken");
   });
 
+  it("deduplicates repeated refund note examples without changing refund signal counts", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildRefundOperationalInsights({
+      soldUnits: 20,
+      refundUnits: 5,
+      refundRate: 25,
+      refundAmount: 250,
+      refunds: Array.from({ length: 5 }, (_, index) => ({
+        note: index < 4 ? "Warehouse refund memo repeated from Shopify" : "Separate refund memo from Shopify",
+        restockType: "NO_RESTOCK",
+        quantity: 1,
+        amount: 50,
+        createdAt: `2026-05-13T12:0${index}:00Z`,
+      })),
+    });
+
+    expect(insights.noteCount).toBe(5);
+    expect(insights.textSignalCount).toBe(5);
+    expect(insights.examples.filter((example) => example.noteText === "Warehouse refund memo repeated from Shopify")).toHaveLength(1);
+    expect(insights.examples.map((example) => example.noteText)).toContain("Separate refund memo from Shopify");
+  });
+
   it("surfaces repeated refund reasons even when Shopify refund notes are empty", () => {
     const insights = __productPulseDiagnosisTestHooks.buildRefundOperationalInsights({
       soldUnits: 24,

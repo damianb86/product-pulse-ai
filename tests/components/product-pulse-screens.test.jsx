@@ -735,6 +735,50 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Undo dismiss" })).toBeInTheDocument();
   });
 
+  it("deduplicates repeated return and refund notes in product and full evidence panels", () => {
+    const repeatedRefundNote = "Warehouse refund memo repeated from Shopify";
+    const repeatedReturnNote = "Customer return memo repeated from Shopify";
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        refundInsights: {
+          ...(defaultView.startHere.metrics.refundInsights || {}),
+          examples: [
+            { reasonText: "Damage", noteText: repeatedRefundNote, text: repeatedRefundNote, sentiment: "negative", createdAt: "2026-05-13T12:00:00Z" },
+            { reasonText: "Damage", noteText: repeatedRefundNote, text: repeatedRefundNote, sentiment: "negative", createdAt: "2026-05-14T12:00:00Z" },
+            { reasonText: "Customer request", noteText: "Separate refund memo from Shopify", text: "Separate refund memo from Shopify", sentiment: "neutral", createdAt: "2026-05-15T12:00:00Z" },
+          ],
+        },
+        textInsights: {
+          ...(defaultView.startHere.metrics.textInsights || {}),
+          returns: {
+            ...(defaultView.startHere.metrics.textInsights?.returns || {}),
+            examples: [
+              { text: repeatedReturnNote, date: "May 13, 2026" },
+              { text: repeatedReturnNote, date: "May 14, 2026" },
+              { text: "Separate return memo from Shopify", date: "May 15, 2026" },
+            ],
+          },
+        },
+      },
+    };
+
+    const diagnosisRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const returnsReport = diagnosisRender.container.querySelector(".ppShopifyReturnsReport");
+    expect(within(returnsReport).getAllByText(repeatedReturnNote)).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Refunds" }));
+    const refundReport = diagnosisRender.container.querySelector(".ppRefundEvidenceReport");
+    expect(within(refundReport).getAllByText(repeatedRefundNote)).toHaveLength(1);
+    expect(within(refundReport).getByText("Separate refund memo from Shopify")).toBeInTheDocument();
+    diagnosisRender.unmount();
+
+    const fullEvidenceRender = renderWithRouter(<ProductEvidenceReportScreen product={product} source="Refunds" />);
+    const fullEvidenceRefundReport = fullEvidenceRender.container.querySelector(".ppRefundEvidenceReport");
+    expect(within(fullEvidenceRefundReport).getAllByText(repeatedRefundNote)).toHaveLength(1);
+  });
+
   it("puts Shopify Admin in the product header and storefront in product actions", () => {
     const product = {
       ...defaultView.startHere,
