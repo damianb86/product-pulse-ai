@@ -2438,7 +2438,7 @@ describe("ProductPulse screens", () => {
     expect(within(dialog).getByText("Recommended copy direction")).toBeInTheDocument();
     expect(within(dialog).getByText(/what the customer receives with this product/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Compare return\/refund pressure when bought together versus when bought alone/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /Review relationship evidence/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
     expect(within(dialog).queryByText(/QA or supplier escalation/)).not.toBeInTheDocument();
   });
 
@@ -3019,7 +3019,37 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "What to verify" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Preview" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add QA tag" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start verification" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
+  });
+
+  it("minimizes investigation actions after opening evidence", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "supplier-qa-review",
+        label: "Supplier / QA review needed",
+        type: "Workflow",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          contentIssues: [{ label: "Quality complaints need review" }],
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Supplier / QA review needed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review evidence" }));
+
+    const miniDock = document.querySelector(".ppRecommendedActionMiniDock");
+    expect(miniDock).toBeInTheDocument();
+    expect(within(miniDock).getByText("Supplier / QA review needed")).toBeInTheDocument();
+    expect(within(miniDock).getByRole("button", { name: "Mark reviewed" })).toBeInTheDocument();
+    expect(within(miniDock).getByRole("button", { name: "Maximize recommended action" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "What to verify" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(miniDock).getByRole("button", { name: "Maximize recommended action" }));
+    expect(screen.getByRole("heading", { name: "What to verify" })).toBeInTheDocument();
   });
 
   it("persists reviewed recommended actions and celebrates when every action is handled", async () => {

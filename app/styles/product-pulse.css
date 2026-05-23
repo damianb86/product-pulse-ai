@@ -17692,6 +17692,121 @@ s-page[inline-size="large-500"] {
   max-width: none;
 }
 
+.ppRecommendedActionMiniDock {
+  position: fixed;
+  left: 50%;
+  bottom: 15px;
+  z-index: 90;
+  width: min(640px, calc(100vw - 30px));
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow:
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.08),
+    0 18px 58px rgba(var(--pp-shadow-rgb), 0.28);
+  transform: translateX(-50%);
+}
+
+.ppRecommendedActionMiniHeader {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.ppRecommendedActionMiniHeader .ppProductActionIcon {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.22);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.12), rgba(var(--pp-pulse-blue-rgb), 0.08)),
+    var(--pp-cloud-white);
+  color: var(--pp-insight-violet);
+  box-shadow: 0 8px 18px rgba(var(--pp-insight-violet-rgb), 0.1);
+}
+
+.ppRecommendedActionMiniHeader .ppProductActionIcon s-icon {
+  color: currentColor;
+  filter: none;
+  transform: scale(1.08);
+}
+
+.ppRecommendedActionMiniHeader .ppProductActionIconFallback {
+  right: -4px;
+  bottom: -4px;
+  min-width: 19px;
+  height: 16px;
+  border-color: var(--pp-cloud-white);
+  background: var(--pp-slate-900);
+  color: var(--pp-cloud-white);
+  font-size: 8px;
+  font-weight: 850;
+}
+
+.ppRecommendedActionMiniHeader > div:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.ppRecommendedActionMiniHeader .ppRecommendedActionModalTitle {
+  overflow: hidden;
+  font-size: 19px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppRecommendedActionMiniHeader p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.38;
+}
+
+.ppRecommendedActionMiniWindowActions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ppRecommendedActionMiniWindowActions .ppModalCloseButton {
+  width: 30px;
+  height: 30px;
+}
+
+.ppRecommendedActionMiniFooter {
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pp-slate-200);
+}
+
+.ppRecommendedActionMiniFooter .ppActionDismissButton,
+.ppRecommendedActionMiniFooter .ppActionEditFooterButton,
+.ppRecommendedActionMiniFooter .ppActionCtaButton {
+  width: auto;
+  min-width: 142px;
+  min-height: 34px;
+  padding: 8px 13px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.ppRecommendedActionMiniFooter .ppActionCtaButton {
+  flex: 0 0 auto;
+  max-width: none;
+}
+
 @media (max-width: 900px) {
   .ppRecommendedActionModal {
     width: min(720px, calc(100vw - 16px));
@@ -17720,6 +17835,15 @@ s-page[inline-size="large-500"] {
   }
 
   .ppRecommendedActionModalFooter.ppProductActionCta {
+    flex-wrap: wrap;
+  }
+
+  .ppRecommendedActionMiniDock {
+    width: calc(100vw - 20px);
+    padding: 14px;
+  }
+
+  .ppRecommendedActionMiniFooter {
     flex-wrap: wrap;
   }
 }

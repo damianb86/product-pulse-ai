@@ -8199,7 +8199,7 @@ function getVariantOptionsActionApplication(action = {}, product = {}) {
     target: "Product variants/options",
     operation: "Inspect variant names/options",
     intro: "ProductPulse does not have enough structured variant-option data to safely update this automatically. Use the suggested labels as a guide, then edit the product in Shopify.",
-    applyLabel: "Open evidence",
+    applyLabel: "Review evidence",
     valueLabel: "Suggested variant review",
     value: suggestionsText || getRecommendedActionDetail(action),
     currentValueLabel: "Current affected variants",
@@ -8867,7 +8867,7 @@ function getRecommendedActionButtonLabel(action, index) {
   const mode = getRecommendedActionMode(action, index);
   if (mode === "apply-product") return getRecommendedActionApplication(action).applyLabel;
   if (mode === "copy") return "Copy note";
-  if (mode === "review") return "Review";
+  if (mode === "review") return "Review evidence";
   if (mode === "diagnose") return "Run";
   if (String(action.type || "").toLowerCase().includes("tag")) return "Apply tag";
   return action.status === "Draft" ? "Apply to Shopify" : "Apply";
@@ -8946,6 +8946,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [resolvedLocally, setResolvedLocally] = useState(null);
   const [minimizedActionStates, setMinimizedActionStates] = useState(() => ({}));
   const [selectedRecommendedAction, setSelectedRecommendedAction] = useState(null);
+  const [recommendedActionModalMinimized, setRecommendedActionModalMinimized] = useState(false);
   const [toastData, setToastData] = useState(null);
   const [editingAction, setEditingAction] = useState(null);
   const [actionConfirmation, setActionConfirmation] = useState(null);
@@ -8987,6 +8988,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setIgnoredIssues(new Set(getIgnoredIssueRecords(nextProduct).map((issue) => issue.issueKey)));
     setMinimizedActionStates({});
     setSelectedRecommendedAction(null);
+    setRecommendedActionModalMinimized(false);
     setSelectedEvidenceIndex(0);
     setActionsCompleteModalOpen(false);
     setDiagnosisConfirmation(null);
@@ -9047,6 +9049,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       }
       if (archivedState) setMinimizedActionStates((current) => ({ ...current, [actionKey]: archivedState }));
       setSelectedRecommendedAction(null);
+      setRecommendedActionModalMinimized(false);
       setEditingAction(null);
     }
     if (actionData?.status === "success") {
@@ -9104,6 +9107,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       setRecommendedActionsExpanded(true);
       setEditingAction(null);
       setActionConfirmation(null);
+      setRecommendedActionModalMinimized(false);
       setSelectedRecommendedAction(action);
       window.requestAnimationFrame(() => {
         document.querySelector(".ppRecommendedActionsPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -9198,13 +9202,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const handleReviewEvidence = (target = 0) => {
     if (!detail.evidenceSources.length) {
       showToast("0 stored evidence sources for this product.", "validation_error");
-      return;
+      return false;
     }
     const index = getEvidenceIndexForReviewTarget(target, detail.evidenceSources);
     setSelectedEvidenceIndex(index);
     window.requestAnimationFrame(() => {
       evidencePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+    return true;
+  };
+
+  const handleReviewActionEvidence = (action) => {
+    if (!handleReviewEvidence(action)) return;
+    setSelectedRecommendedAction(action);
+    setRecommendedActionModalMinimized(true);
   };
 
   const handleToggleRecommendedActions = () => {
@@ -9217,6 +9228,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const handleOpenRecommendedAction = (action) => {
     setSelectedRecommendedAction(action);
+    setRecommendedActionModalMinimized(false);
     setEditingAction(null);
   };
 
@@ -9306,6 +9318,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const handleRequestApplyAction = (action, editedText, application = null) => {
     setSelectedRecommendedAction(null);
+    setRecommendedActionModalMinimized(false);
     setActionConfirmation({
       action,
       editedText,
@@ -9320,6 +9333,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     }
     setMinimizedActionStates((current) => ({ ...current, [actionKey]: "dismissed" }));
     setSelectedRecommendedAction(null);
+    setRecommendedActionModalMinimized(false);
     setActionConfirmation(null);
     setEditingAction(null);
     const formData = new FormData();
@@ -9335,6 +9349,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     const actionKey = getRecommendedActionKey(action);
     setMinimizedActionStates((current) => ({ ...current, [actionKey]: "active" }));
     setSelectedRecommendedAction(null);
+    setRecommendedActionModalMinimized(false);
     const formData = new FormData();
     formData.set("_action", "restore-action");
     formData.set("productId", product.slug || product.handle || "");
@@ -9351,6 +9366,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     }
     setMinimizedActionStates((current) => ({ ...current, [actionKey]: "reviewed" }));
     setSelectedRecommendedAction(null);
+    setRecommendedActionModalMinimized(false);
     setActionConfirmation(null);
     setEditingAction(null);
     const formData = new FormData();
@@ -9376,6 +9392,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       },
     };
     setSelectedRecommendedAction(null);
+    setRecommendedActionModalMinimized(false);
     setActionConfirmation({
       action: tagAction,
       editedText: tag,
@@ -9829,10 +9846,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             action={selectedRecommendedAction}
             product={product}
             pending={pendingActionId === selectedRecommendedAction.id || (selectedRecommendedAction.mode === "diagnose" && diagnosisPending)}
-            onClose={() => setSelectedRecommendedAction(null)}
+            minimized={recommendedActionModalMinimized}
+            onClose={() => {
+              setSelectedRecommendedAction(null);
+              setRecommendedActionModalMinimized(false);
+            }}
+            onMaximize={() => setRecommendedActionModalMinimized(false)}
             onEdit={handleEditAction}
             onCopy={handleCopyAction}
-            onReview={handleReviewEvidence}
+            onReview={handleReviewActionEvidence}
             onRequestApply={handleRequestApplyAction}
             onDismiss={handleDismissAction}
             onRestoreDismiss={handleRestoreDismissedAction}
@@ -20475,12 +20497,7 @@ function getInvestigationTagForAction(action = {}) {
 
 function getInvestigationPrimaryActionLabel(action = {}, mode = "") {
   if (mode === "copy") return "Copy note";
-  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
-  if (isPairingExpectationInvestigation(action)) return "Review relationship evidence";
-  if (normalized.includes("variant")) return "Inspect evidence";
-  if (normalized.includes("source") || normalized.includes("integrity") || normalized.includes("mismatch")) return "Open evidence";
-  if (normalized.includes("qa") || normalized.includes("supplier")) return "Start verification";
-  return "Open evidence";
+  return "Review evidence";
 }
 
 function isPairingExpectationInvestigation(action = {}) {
@@ -21048,7 +21065,7 @@ function getRecommendedActionModalSubtitle(application = {}, actionKind = "apply
   return "Review the proposed Shopify change before applying it.";
 }
 
-function RecommendedActionDetailModal({ action, product, pending = false, onClose, onEdit, onCopy, onReview, onRequestApply, onDismiss, onRestoreDismiss, onMarkReviewed, onAddInvestigationTag }) {
+function RecommendedActionDetailModal({ action, product, pending = false, minimized = false, onClose, onMaximize, onEdit, onCopy, onReview, onRequestApply, onDismiss, onRestoreDismiss, onMarkReviewed, onAddInvestigationTag }) {
   if (!action) return null;
   const applied = action.appliedRecord?.status === "applied";
   const drafted = action.appliedRecord?.status === "draft";
@@ -21056,6 +21073,25 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
   const mode = action.mode || getRecommendedActionMode(action, 0);
   const actionKind = getRecommendedActionKind(mode, application);
   const headerPills = getRecommendedActionHeaderPills(action, application, actionKind);
+
+  if (minimized) {
+    return (
+      <RecommendedActionMiniDock
+        action={action}
+        actionKind={actionKind}
+        application={application}
+        applied={applied}
+        drafted={drafted}
+        pending={pending}
+        product={product}
+        onClose={onClose}
+        onDismiss={onDismiss}
+        onMaximize={onMaximize}
+        onMarkReviewed={onMarkReviewed}
+        onAddInvestigationTag={onAddInvestigationTag}
+      />
+    );
+  }
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -21101,6 +21137,87 @@ function RecommendedActionDetailModal({ action, product, pending = false, onClos
       </section>
     </div>
   );
+}
+
+function RecommendedActionMiniDock({
+  action,
+  actionKind = "investigation",
+  application = {},
+  applied = false,
+  drafted = false,
+  pending = false,
+  product = {},
+  onClose,
+  onDismiss,
+  onMaximize,
+  onMarkReviewed,
+  onAddInvestigationTag,
+}) {
+  const investigationTag = actionKind === "investigation" ? getInvestigationTagForAction(action) : "";
+  const summary = getRecommendedActionMiniDockSummary(action, application, product, actionKind);
+  const disabled = pending || applied;
+
+  return (
+    <section className="ppRecommendedActionMiniDock" role="dialog" aria-modal="false" aria-labelledby="recommended-action-mini-title">
+      <div className="ppRecommendedActionMiniHeader">
+        <div className="ppProductActionIcon">
+          <s-icon type={action.icon} size="small"></s-icon>
+          <span className="ppProductActionIconFallback">{action.iconSymbol || "AI"}</span>
+        </div>
+        <div>
+          <span className="ppRecommendedActionModalKicker">{getRecommendedActionModalKicker(actionKind, action)}</span>
+          <h2 className="ppRecommendedActionModalTitle" id="recommended-action-mini-title">{action.title}</h2>
+          <p>{summary}</p>
+        </div>
+        <div className="ppRecommendedActionMiniWindowActions">
+          <button className="ppModalCloseButton" type="button" aria-label="Maximize recommended action" onClick={onMaximize}>
+            <s-icon type="external" size="small"></s-icon>
+          </button>
+          <button className="ppModalCloseButton" type="button" aria-label="Close recommended action" onClick={onClose}>
+            <s-icon type="x" size="small"></s-icon>
+          </button>
+        </div>
+      </div>
+      <div className="ppProductActionCta ppRecommendedActionMiniFooter">
+        <button
+          className="ppActionDismissButton"
+          type="button"
+          onClick={() => onDismiss?.(action)}
+          disabled={disabled}
+        >
+          <s-icon type="x" size="small"></s-icon>
+          <span>Dismiss</span>
+        </button>
+        {investigationTag && (
+          <button
+            className="ppActionEditFooterButton"
+            type="button"
+            onClick={() => onAddInvestigationTag?.(action)}
+            disabled={disabled}
+          >
+            <s-icon type="tag" size="small"></s-icon>
+            <span>Add QA tag</span>
+          </button>
+        )}
+        <button
+          className="ppActionCtaButton"
+          type="button"
+          onClick={() => onMarkReviewed?.(action)}
+          disabled={disabled || drafted}
+        >
+          <span>{pending ? "Working..." : "Mark reviewed"}</span>
+          <s-icon type="check" size="small"></s-icon>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function getRecommendedActionMiniDockSummary(action = {}, application = {}, product = {}, actionKind = "applyable") {
+  const narrative = getRecommendedActionWhyNarrative(action, product);
+  if (narrative) return truncateText(narrative, 168);
+  if (actionKind === "investigation") return truncateText(getInvestigationFollowupText(action, application, product), 168);
+  return truncateText(getRecommendedActionModalSubtitle(application, actionKind), 168);
 }
 
 function ProductRecommendedAction({ action, product, pending = false, onEdit, onCopy, onReview, onRequestApply, onDismiss, onRestoreDismiss, onMarkReviewed, onAddInvestigationTag, onCollapse, showHeader = true, actionKind: forcedActionKind = "" }) {
