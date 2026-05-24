@@ -1917,7 +1917,8 @@ function WatchChangeReportContent({ product, report }) {
   const changedCards = isBaselineReport ? [] : getWatchReportChangeCards(report, visibleSections);
   const biggestChanges = isBaselineReport ? [] : getWatchReportBiggestChanges(report, sourceChanges, visibleSections);
   const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
-  const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0;
+  const categoryCards = isBaselineReport ? [] : getWatchCategoryChangeCards(report, sourceChanges);
+  const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0 || categoryCards.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
   const statusLabel = getWatchReportStatusLabel(effectiveStatus);
@@ -1925,6 +1926,7 @@ function WatchChangeReportContent({ product, report }) {
   return (
     <>
       <WatchlistInsightReport report={report} statusTone={statusTone} biggestChanges={biggestChanges} />
+      {categoryCards.length ? <WatchCategoryChangeCards cards={categoryCards} /> : null}
       {snapshotRows.length ? <WatchSnapshotComparisonTable report={report} rows={snapshotRows} /> : null}
 
       <div className="ppWatchChangeReportBody">
@@ -2103,6 +2105,50 @@ function WatchChangeReportContent({ product, report }) {
   );
 }
 
+function WatchCategoryChangeCards({ cards = [] }) {
+  return (
+    <section className="ppWatchCategoryChanges" aria-label="Watchlist changes by category">
+      <div className="ppWatchCategoryChangesHeader">
+        <h3>Changes by category</h3>
+        <span>(Compared to previous run)</span>
+      </div>
+      <div className="ppWatchCategoryChangesGrid">
+        {cards.map((card) => <WatchCategoryChangeCard card={card} key={card.id} />)}
+      </div>
+    </section>
+  );
+}
+
+function WatchCategoryChangeCard({ card }) {
+  const badgeIcon = card.badgeIcon || (card.badgeDirection === "down" ? "arrow-down" : card.badgeDirection === "up" ? "arrow-up" : "info");
+  return (
+    <article className={`ppWatchCategoryCard ppWatchCategoryCard-${card.tone || "blue"}`}>
+      <div className="ppWatchCategoryCardHeader">
+        <DashboardIcon type={card.icon || "info"} tone={card.iconTone || card.tone || "blue"} size="small" />
+        <h4>{card.title}</h4>
+        <span className={`ppWatchCategoryBadge ppWatchCategoryBadge-${card.badgeTone || "neutral"}`}>
+          <s-icon type={badgeIcon} size="small"></s-icon>
+          {card.badgeLabel || "Updated"}
+        </span>
+      </div>
+      <div className="ppWatchCategoryRows">
+        {card.rows.map((row) => (
+          <div className="ppWatchCategoryRow" key={row.id || row.label}>
+            <span>{row.label}</span>
+            <strong>{row.value}</strong>
+            {row.deltaLabel ? (
+              <em className={`ppWatchCategoryDelta ppWatchCategoryDelta-${row.tone || "neutral"}`}>
+                <s-icon type={row.direction === "down" ? "arrow-down" : row.direction === "up" ? "arrow-up" : "info"} size="small"></s-icon>
+                {row.deltaLabel}
+              </em>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function WatchSnapshotComparisonTable({ report, rows = [] }) {
   const previousTimestamp = formatWatchReportTimestamp(report?.previousRunAt || report?.previous?.capturedAt);
   const currentTimestamp = formatWatchReportTimestamp(report?.currentRunAt || report?.current?.capturedAt || report?.createdAt);
@@ -2264,6 +2310,371 @@ function getWatchSnapshotComparisonRows(report = {}) {
   ].filter((row) => row && row.hasChanged).slice(0, 3);
 
   return [...baseRows.filter(Boolean), ...extraRows].slice(0, 8);
+}
+
+function getWatchCategoryChangeCards(report = {}, sourceChanges = []) {
+  const previous = report?.previous || {};
+  const current = report?.current || {};
+  const contentSourceChanged = sourceChanges.some((change) => String(change?.source || change?.id || "").toLowerCase().includes("content"));
+
+  return [
+    buildWatchCategoryCard({
+      id: "demand-orders",
+      title: "Demand & orders",
+      icon: "shopify-orders",
+      tone: "green",
+      rows: [
+        watchCategoryActivityRow({ id: "new-orders", label: "New orders", previous, current, field: "orderCount", unitSingular: "order", unitPlural: "orders", higherIsGood: true }),
+        watchCategoryActivityRow({ id: "units-sold", label: "Units sold", previous, current, field: "soldUnits", unitSingular: "unit", unitPlural: "units", higherIsGood: true }),
+        watchCategoryActivityRow({ id: "revenue", label: "Revenue", previous, current, field: "salesAmount", formatter: formatMoney, deltaFormatter: formatMoney, higherIsGood: true }),
+      ],
+    }),
+    buildWatchCategoryCard({
+      id: "customer-friction",
+      title: "Customer friction",
+      icon: "shield-check-mark",
+      tone: "red",
+      rows: [
+        watchCategoryCurrentValueRow({ id: "return-rate", label: "Return rate", previous, current, field: "returnRatePercent", formatter: formatPercent, deltaSuffix: " pp", threshold: 0.2, lowerIsGood: true }),
+        watchCategoryCurrentValueRow({ id: "refund-rate", label: "Refund rate", previous, current, field: "refundRatePercent", formatter: formatPercent, deltaSuffix: " pp", threshold: 0.2, lowerIsGood: true }),
+        watchCategoryCurrentValueRow({
+          id: "return-sentiment",
+          label: "Return sentiment",
+          previous,
+          current,
+          field: "evidenceDetails.returns.sentiment.negative",
+          formatter: (value) => `${formatInteger(value)} negative`,
+          deltaFormatter: formatInteger,
+          threshold: 1,
+          lowerIsGood: true,
+        }),
+      ],
+    }),
+    buildWatchCategoryCard({
+      id: "content-pdp",
+      title: "Content & PDP",
+      icon: "shopify-product",
+      tone: "blue",
+      badgeLabel: "Updated",
+      badgeTone: "blue",
+      badgeIcon: "info",
+      rows: [
+        watchCategoryCurrentValueRow({
+          id: "description-length",
+          label: "Description length",
+          previous,
+          current,
+          field: ["evidenceDetails.content.descriptionWordCount", "descriptionWordCount"],
+          formatter: (value) => `${formatInteger(value)} words`,
+          deltaFormatter: formatInteger,
+          threshold: 1,
+          higherIsGood: true,
+        }),
+        watchCategoryCurrentValueRow({
+          id: "content-quality",
+          label: "Content quality score",
+          previous,
+          current,
+          field: ["evidenceDetails.content.contentQualityScore", "contentQualityScore"],
+          formatter: formatInteger,
+          deltaFormatter: formatInteger,
+          threshold: 1,
+          higherIsGood: true,
+        }),
+        watchCategoryContentIssueRow({ id: "missing-items", label: "Missing items/setup", previous, current }),
+        contentSourceChanged ? {
+          id: "product-content",
+          label: "Product content",
+          value: "Updated",
+          deltaLabel: "Changed",
+          direction: "neutral",
+          tone: "neutral",
+          hasChanged: true,
+        } : null,
+      ],
+    }),
+    buildWatchCategoryCard({
+      id: "diagnosis-evidence",
+      title: "Diagnosis & evidence",
+      icon: "chart-line",
+      tone: "purple",
+      rows: [
+        watchCategoryCurrentValueRow({ id: "evidence-signals", label: "Evidence signals", previous, current, field: "signalCount", formatter: formatInteger, deltaFormatter: formatInteger, threshold: 1, higherIsGood: true }),
+        watchCategoryTextRow({ id: "top-diagnosis", label: "Top diagnosis", previous, current, field: "primaryIssue" }),
+        watchCategoryCurrentValueRow({ id: "confidence", label: "Confidence", previous, current, field: "confidence", formatter: formatPercent, deltaSuffix: " pp", threshold: 1, higherIsGood: true }),
+      ],
+      contextRows: [
+        watchCategoryContextRow({ id: "top-diagnosis-current", label: "Top diagnosis", value: current?.primaryIssue }),
+      ],
+    }),
+    buildWatchCategoryCard({
+      id: "financial-exposure",
+      title: "Financial exposure",
+      icon: "cash-dollar",
+      tone: "orange",
+      rows: [
+        watchCategoryCurrentValueRow({ id: "estimated-impact", label: "Est. impact", previous, current, field: "estimatedImpact", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
+        watchCategoryCurrentValueRow({ id: "margin-at-risk", label: "Margin at risk", previous, current, field: "marginAtRisk", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
+        watchCategoryCurrentValueRow({ id: "revenue-at-risk", label: "Revenue at risk", previous, current, field: "revenueAtRisk", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
+      ],
+    }),
+    buildWatchCategoryCard({
+      id: "reviews",
+      title: "Reviews",
+      icon: "star",
+      tone: "blue",
+      rows: [
+        watchCategoryActivityRow({ id: "new-reviews", label: "New reviews", previous, current, field: "reviewCount", unitSingular: "review", unitPlural: "reviews", higherIsGood: true }),
+        watchCategoryCurrentValueRow({
+          id: "negative-reviews",
+          label: "Negative reviews",
+          previous,
+          current,
+          field: "negativeReviewCount",
+          formatter: (value) => `${formatInteger(value)} negative`,
+          deltaFormatter: formatInteger,
+          threshold: 1,
+          lowerIsGood: true,
+        }),
+        watchCategoryCurrentValueRow({
+          id: "average-rating",
+          label: "Average rating",
+          previous,
+          current,
+          field: ["evidenceDetails.reviews.averageRating", "avgRating", "reviewRating"],
+          formatter: (value) => `${formatDecimal(value, 1)} / 5`,
+          deltaFormatter: (value) => `${formatDecimal(value, 1)} stars`,
+          threshold: 0.1,
+          higherIsGood: true,
+        }),
+      ],
+    }),
+  ].filter(Boolean);
+}
+
+function buildWatchCategoryCard({
+  id,
+  title,
+  icon,
+  tone = "blue",
+  rows = [],
+  contextRows = [],
+  badgeLabel = "",
+  badgeTone = "",
+  badgeIcon = "",
+}) {
+  const changedRows = rows.filter(Boolean);
+  if (!changedRows.some((row) => row.hasChanged)) return null;
+  const supportingRows = contextRows
+    .filter(Boolean)
+    .filter((row) => !changedRows.some((changedRow) => changedRow.id === row.id || changedRow.label === row.label));
+  const badge = badgeLabel
+    ? { badgeLabel, badgeTone, badgeIcon, badgeDirection: "neutral" }
+    : getWatchCategoryBadge(changedRows);
+  return {
+    id,
+    title,
+    icon,
+    tone,
+    iconTone: tone === "red" ? "red" : tone,
+    rows: [...changedRows, ...supportingRows].slice(0, 4),
+    ...badge,
+  };
+}
+
+function watchCategoryActivityRow({
+  id,
+  label,
+  previous = {},
+  current = {},
+  field,
+  formatter,
+  deltaFormatter,
+  unitSingular = "",
+  unitPlural = "",
+  threshold = 1,
+  lowerIsGood = false,
+  higherIsGood = false,
+}) {
+  const previousValue = getWatchCategoryNumericValue(previous, field);
+  const currentValue = getWatchCategoryNumericValue(current, field);
+  if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue)) return null;
+  const delta = currentValue - previousValue;
+  if (Math.abs(delta) < threshold) return null;
+  const absolute = Math.abs(delta);
+  const value = formatter
+    ? formatter(absolute)
+    : formatWatchCategoryCount(absolute, unitSingular, unitPlural);
+  const deltaLabel = deltaFormatter ? deltaFormatter(absolute) : formatInteger(absolute);
+  return makeWatchCategoryNumericRow({ id, label, value, delta, deltaLabel, lowerIsGood, higherIsGood });
+}
+
+function watchCategoryCurrentValueRow({
+  id,
+  label,
+  previous = {},
+  current = {},
+  field,
+  formatter,
+  deltaFormatter,
+  suffix = "",
+  deltaSuffix = suffix,
+  threshold = 0.0001,
+  lowerIsGood = false,
+  higherIsGood = false,
+}) {
+  const previousValue = getWatchCategoryNumericValue(previous, field);
+  const currentValue = getWatchCategoryNumericValue(current, field);
+  if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue)) return null;
+  const delta = currentValue - previousValue;
+  if (Math.abs(delta) < threshold) return null;
+  const formatValue = formatter || ((value) => suffix ? `${formatDecimal(value, 1).replace(/\.0$/, "")}${suffix}` : formatInteger(value));
+  const deltaLabel = formatWatchCategoryDeltaValue(Math.abs(delta), deltaSuffix, deltaFormatter);
+  return makeWatchCategoryNumericRow({
+    id,
+    label,
+    value: formatValue(currentValue),
+    delta,
+    deltaLabel,
+    lowerIsGood,
+    higherIsGood,
+  });
+}
+
+function watchCategoryContentIssueRow({ id, label, previous = {}, current = {} }) {
+  const previousValue = getWatchCategoryContentIssueCount(previous);
+  const currentValue = getWatchCategoryContentIssueCount(current);
+  if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue)) return null;
+  const delta = currentValue - previousValue;
+  if (Math.abs(delta) < 1) return null;
+  return makeWatchCategoryNumericRow({
+    id,
+    label,
+    value: `${formatInteger(currentValue)} issue${currentValue === 1 ? "" : "s"}`,
+    delta,
+    deltaLabel: formatInteger(Math.abs(delta)),
+    lowerIsGood: true,
+  });
+}
+
+function watchCategoryTextRow({ id, label, previous = {}, current = {}, field }) {
+  const previousText = getWatchCategoryStringValue(previous, field);
+  const currentText = getWatchCategoryStringValue(current, field);
+  if (!previousText || !currentText || previousText === currentText) return null;
+  return {
+    id,
+    label,
+    value: currentText,
+    deltaLabel: "Changed",
+    direction: "neutral",
+    tone: "neutral",
+    hasChanged: true,
+  };
+}
+
+function watchCategoryContextRow({ id, label, value }) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return {
+    id,
+    label,
+    value: text,
+    deltaLabel: "",
+    direction: "neutral",
+    tone: "neutral",
+    hasChanged: false,
+  };
+}
+
+function makeWatchCategoryNumericRow({ id, label, value, delta, deltaLabel, lowerIsGood = false, higherIsGood = false }) {
+  return {
+    id,
+    label,
+    value,
+    deltaLabel,
+    direction: delta > 0 ? "up" : delta < 0 ? "down" : "neutral",
+    tone: getWatchSnapshotDeltaTone({ delta, lowerIsGood, higherIsGood }),
+    hasChanged: Math.abs(Number(delta || 0)) > 0.0001,
+  };
+}
+
+function getWatchCategoryBadge(rows = []) {
+  const changedRows = rows.filter((row) => row?.hasChanged);
+  const badRows = changedRows.filter((row) => row.tone === "bad");
+  const goodRows = changedRows.filter((row) => row.tone === "good");
+  if (badRows.length && !goodRows.length) {
+    return {
+      badgeLabel: badRows.some((row) => row.direction === "up") ? "Increased" : "Needs attention",
+      badgeTone: "bad",
+      badgeDirection: badRows[0]?.direction || "neutral",
+    };
+  }
+  if (goodRows.length && !badRows.length) {
+    return {
+      badgeLabel: "Improved",
+      badgeTone: "good",
+      badgeDirection: goodRows[0]?.direction || "neutral",
+    };
+  }
+  if (badRows.length && goodRows.length) {
+    return { badgeLabel: "Changed", badgeTone: "neutral", badgeDirection: "neutral" };
+  }
+  return { badgeLabel: "Updated", badgeTone: "blue", badgeDirection: "neutral" };
+}
+
+function getWatchCategoryNumericValue(snapshot = {}, field) {
+  const fields = Array.isArray(field) ? field : [field];
+  for (const candidate of fields) {
+    const value = getWatchCategoryPathValue(snapshot, candidate);
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return NaN;
+}
+
+function getWatchCategoryStringValue(snapshot = {}, field) {
+  const fields = Array.isArray(field) ? field : [field];
+  for (const candidate of fields) {
+    const value = getWatchCategoryPathValue(snapshot, candidate);
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function getWatchCategoryPathValue(snapshot = {}, field = "") {
+  if (!field) return undefined;
+  if (!String(field).includes(".")) return snapshot?.[field];
+  return String(field).split(".").reduce((acc, key) => acc?.[key], snapshot);
+}
+
+function getWatchCategoryContentIssueCount(snapshot = {}) {
+  const directValue = getWatchCategoryNumericValue(snapshot, [
+    "contentIssueCount",
+    "missingItemCount",
+    "missingItemsCount",
+    "evidenceDetails.content.issueCount",
+  ]);
+  if (Number.isFinite(directValue)) return directValue;
+  const issues = getWatchCategoryPathValue(snapshot, "evidenceDetails.content.contentIssues");
+  if (Array.isArray(issues)) {
+    return issues.reduce((total, issue) => total + Math.max(1, Number(issue?.count || 1)), 0);
+  }
+  return NaN;
+}
+
+function formatWatchCategoryCount(value, singular, plural) {
+  const absolute = Math.abs(Number(value || 0));
+  const unit = absolute === 1 ? singular : plural;
+  return unit ? `${formatInteger(absolute)} ${unit}` : formatInteger(absolute);
+}
+
+function formatWatchCategoryDeltaValue(value, suffix = "", formatter = null) {
+  if (typeof formatter === "function") return formatter(value);
+  const cleanSuffix = String(suffix || "").trim();
+  if (cleanSuffix === "pp") return `${formatDecimal(value, 1).replace(/\.0$/, "")} pp`;
+  if (cleanSuffix === "%") return formatPercent(value);
+  return `${formatDecimal(value, 1).replace(/\.0$/, "")}${suffix}`;
 }
 
 function watchSnapshotNumericRow({

@@ -510,6 +510,11 @@ describe("ProductPulse screens", () => {
           currentRunAt: "2026-05-17T10:00:00.000Z",
           previous: {
             riskScore: 58,
+            confidence: 70,
+            primaryIssue: "Product quality",
+            estimatedImpact: 460,
+            marginAtRisk: 180,
+            revenueAtRisk: 680,
             returnRatePercent: 15,
             refundRatePercent: 9,
             signalCount: 45,
@@ -519,13 +524,26 @@ describe("ProductPulse screens", () => {
             salesAmount: 720,
             returnUnits: 1,
             refundUnits: 1,
+            reviewCount: 4,
             negativeReviewCount: 3,
+            evidenceDetails: {
+              returns: { sentiment: { negative: 5 } },
+              content: {
+                descriptionWordCount: 28,
+                contentQualityScore: 62,
+                contentIssues: [{ label: "Care instructions" }, { label: "Sizing" }, { label: "Warranty" }],
+              },
+              reviews: { averageRating: 3.1 },
+            },
           },
           current: {
             riskLabel: "Medium",
             riskScore: 63,
             confidence: 72,
             primaryIssue: "Product quality",
+            estimatedImpact: 520,
+            marginAtRisk: 210,
+            revenueAtRisk: 760,
             returnRatePercent: 12,
             refundRatePercent: 6,
             signalCount: 47,
@@ -536,7 +554,17 @@ describe("ProductPulse screens", () => {
             salesAmount: 1104,
             returnUnits: 3,
             refundUnits: 1,
+            reviewCount: 7,
             negativeReviewCount: 5,
+            evidenceDetails: {
+              returns: { sentiment: { negative: 2 } },
+              content: {
+                descriptionWordCount: 58,
+                contentQualityScore: 66,
+                contentIssues: [{ label: "Warranty" }],
+              },
+              reviews: { averageRating: 3.8 },
+            },
           },
           sourceChanges: [{
             id: "new-returns",
@@ -580,16 +608,24 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/Your baseline is captured/i)).toBeInTheDocument();
     expect(screen.getByText("AI Watchlist insight")).toBeInTheDocument();
     expect(screen.getByText("Biggest changes")).toBeInTheDocument();
+    expect(screen.getByText("Changes by category")).toBeInTheDocument();
+    expect(screen.getByText("Demand & orders")).toBeInTheDocument();
+    expect(screen.getByText("Customer friction")).toBeInTheDocument();
+    expect(screen.getByText("Content & PDP")).toBeInTheDocument();
+    expect(screen.getByText("Diagnosis & evidence")).toBeInTheDocument();
+    expect(screen.getByText("Financial exposure")).toBeInTheDocument();
+    expect(screen.getByText("Reviews")).toBeInTheDocument();
     expect(screen.getByText("Previous snapshot")).toBeInTheDocument();
     expect(screen.getByText("Current snapshot")).toBeInTheDocument();
     expect(screen.getByText("Risk score")).toBeInTheDocument();
-    expect(screen.getByText("Evidence signals")).toBeInTheDocument();
-    expect(screen.getByText("Units sold")).toBeInTheDocument();
+    expect(screen.getAllByText("Evidence signals").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Units sold").length).toBeGreaterThan(0);
     expect(screen.getByText("What happened since the last run")).toBeInTheDocument();
     expect(screen.getAllByText("New returns").length).toBeGreaterThan(0);
     expect(screen.getByText("2 returned units · +2 return signals")).toBeInTheDocument();
     expect(screen.getByText("Calculated product-state changes")).toBeInTheDocument();
     expect(screen.getByText("Return evidence changed")).toBeInTheDocument();
+    expect(screen.queryByText("View details")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
   });
