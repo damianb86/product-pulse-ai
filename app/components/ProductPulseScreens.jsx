@@ -1912,17 +1912,14 @@ function WatchChangeReportContent({ product, report }) {
   const sections = isBaselineReport ? [] : (Array.isArray(report?.sections) ? report.sections : []);
   const visibleSections = isBaselineReport ? [] : getVisibleWatchReportSections(sections);
   const sourceChanges = isBaselineReport ? [] : getWatchSourceChangeCards(report);
-  const sourceInsights = isBaselineReport ? [] : (Array.isArray(report?.sourceInsights) ? report.sourceInsights : []);
-  const current = report?.current || {};
   const biggestChanges = isBaselineReport ? [] : getWatchReportBiggestChanges(report, sourceChanges, visibleSections);
   const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
   const categoryCards = isBaselineReport ? [] : getWatchCategoryChangeCards(report, sourceChanges);
   const trendCharts = isBaselineReport ? [] : getWatchRunTrendCharts(report);
   const runHistoryRows = getWatchRunHistoryTableRows(report, product);
-  const hasVisibleChanges = sourceChanges.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0 || categoryCards.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
+  const hasVisibleChanges = sourceChanges.length > 0 || visibleSections.length > 0 || categoryCards.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
-  const statusLabel = getWatchReportStatusLabel(effectiveStatus);
 
   return (
     <>
@@ -1930,128 +1927,7 @@ function WatchChangeReportContent({ product, report }) {
       {categoryCards.length ? <WatchCategoryChangeCards cards={categoryCards} /> : null}
       {snapshotRows.length ? <WatchSnapshotComparisonTable report={report} rows={snapshotRows} /> : null}
       {trendCharts.length ? <WatchRunTrendCharts charts={trendCharts} /> : null}
-
-      <div className="ppWatchChangeReportBody">
-          <div className="ppWatchChangeReportMeta">
-            <div>
-              <DashboardIcon type="calendar" tone="blue" size="small" />
-              <span>Previous run</span>
-              <strong>{formatWatchReportTimestamp(report?.previousRunAt) || "No previous run"}</strong>
-            </div>
-            <div>
-              <DashboardIcon type="clock" tone="blue" size="small" />
-              <span>Current run</span>
-              <strong>{formatWatchReportTimestamp(report?.currentRunAt || report?.createdAt)}</strong>
-            </div>
-            <div>
-              <DashboardIcon type="file" tone="blue" size="small" />
-              <span>Tracked changes</span>
-              <strong>{Number(report?.changeCount || 0)}</strong>
-            </div>
-            <div>
-              <DashboardIcon type={effectiveStatus === "unchanged" ? "check" : "alert-circle"} tone={statusTone} size="small" />
-              <span>Scan status</span>
-              <strong className={`ppWatchChangeReportStatus ppWatchChangeReportStatus-${statusTone}`}>{statusLabel}</strong>
-            </div>
-          </div>
-
-          {isBaselineReport ? (
-            <section className="ppWatchBaselinePanel" aria-label="No previous Watchlist data">
-              <DashboardIcon type="calendar" tone="blue" />
-              <div>
-                <h3>No previous Watchlist data</h3>
-                <p>
-                  This was the first Watchlist run for {product.title}. ProductPulse saved the current diagnosis as the baseline.
-                  Future Watchlist runs will compare new reviews, returns, refunds, product risk, momentum and evidence against this point.
-                </p>
-                <div className="ppWatchBaselinePills">
-                  <span>Baseline captured</span>
-                  <span>No comparison yet</span>
-                  <span>Changes start next run</span>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          {!isBaselineReport && effectiveStatus === "unchanged" ? (
-            <section className="ppWatchNoChangesPanel" aria-label="No Watchlist changes detected">
-              <DashboardIcon type="check" tone="green" />
-              <div>
-                <h3>No new activity detected</h3>
-                <p>No new orders, returns, refunds, reviews or meaningful calculated product-state movement was detected since the previous Watchlist run.</p>
-              </div>
-            </section>
-          ) : null}
-
-          {!isBaselineReport && sourceInsights.length ? (
-            <div className="ppWatchChangeReportInsights">
-              {sourceInsights.map((insight) => {
-                const quote = getWatchInsightQuote(insight);
-                const bullets = getWatchInsightBullets(insight);
-                return (
-                  <article className={`ppWatchChangeReportInsight ppWatchChangeReportInsight-${insight.tone || "blue"}`} key={insight.id || insight.title}>
-                    <div className="ppWatchChangeReportInsightHeader">
-                      <DashboardIcon type={getWatchReportInsightIcon(insight.id)} tone={insight.tone || "blue"} size="small" />
-                      <div>
-                        <h3>{insight.title}</h3>
-                        <p>{insight.summary}</p>
-                      </div>
-                    </div>
-                    <div className="ppWatchInsightPills">
-                      {getWatchInsightPills(insight).map((pill) => <span key={pill}>{pill}</span>)}
-                    </div>
-                    {bullets.length ? (
-                      <ul>
-                        {bullets.map((item) => <li key={item}>{item}</li>)}
-                      </ul>
-                    ) : null}
-                    {quote ? <blockquote>{quote}</blockquote> : null}
-                  </article>
-                );
-              })}
-            </div>
-          ) : null}
-
-          {!isBaselineReport && !sourceChanges.length && report?.headline ? (
-            <div className={`ppWatchChangeReportHeadline ppWatchChangeReportHeadline-${statusTone}`}>
-              <s-icon type="info" size="small"></s-icon>
-              <span>{report.headline}</span>
-            </div>
-          ) : null}
-
-          <div className="ppWatchChangeReportSections">
-            {visibleSections.map((section) => (
-              <article className="ppWatchChangeReportSection" key={section.id || section.title}>
-                <div className="ppWatchChangeReportSectionHeader">
-                  <DashboardIcon type={getWatchReportSectionIcon(section.id)} tone={section.tone || "blue"} size="small" />
-                  <h3>{section.title}</h3>
-                </div>
-                <div className="ppWatchChangeRows">
-                  {(section.changes || []).map((change) => (
-                    <div className="ppWatchChangeRow" key={change.id || change.label}>
-                      <strong>{change.label}</strong>
-                      <span>{change.from} <s-icon type="arrow-right" size="small"></s-icon> {change.to}</span>
-                      <em className={`ppWatchChangeDelta ppWatchChangeDelta-${getWatchChangeDeltaTone(change)}`}>{change.delta}</em>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <div className="ppWatchChangeReportSnapshot">
-            <DashboardIcon type="shield-check-mark" tone="blue" size="small" />
-            <h3>Current product state</h3>
-            <div>
-              <span className="ppWatchSnapshotRisk"><b>Risk:</b> {current.riskLabel || "Pending"} · {current.riskScore ?? "-"}</span>
-              <span className="ppWatchSnapshotConfidence"><b>Confidence:</b> {current.confidence ?? "-"}%</span>
-              <span><b>Primary issue:</b> {current.primaryIssue || "No primary issue"}</span>
-              <span className="ppWatchSnapshotReturn"><b>Return rate:</b> {current.returnRatePercent ?? 0}%</span>
-              <span className="ppWatchSnapshotMomentum"><b>Momentum:</b> {current.productMomentumTier || "No momentum"} · {current.productMomentumScore ?? 0} / 100</span>
-            </div>
-          </div>
-      </div>
-      {runHistoryRows.length ? <WatchRunHistoryTable product={product} rows={runHistoryRows} /> : null}
+      {runHistoryRows.length ? <WatchRunHistoryTable rows={runHistoryRows} /> : null}
     </>
   );
 }
@@ -2181,18 +2057,11 @@ function WatchRunTrendChart({ chart }) {
   );
 }
 
-function WatchRunHistoryTable({ product, rows = [] }) {
-  const fullHistoryHref = product?.productGid
-    ? `/app/watchlist/activity?product=${encodeURIComponent(product.productGid)}`
-    : "/app/watchlist/activity";
+function WatchRunHistoryTable({ rows = [] }) {
   return (
     <section className="ppWatchRunHistory" aria-label="Watchlist run history">
       <div className="ppWatchRunHistoryHeader">
         <h3>Run history</h3>
-        <Link to={fullHistoryHref}>
-          View full history
-          <s-icon type="arrow-right" size="small"></s-icon>
-        </Link>
       </div>
       <div className="ppWatchRunHistoryScroll">
         <table className="ppWatchRunHistoryTable">
@@ -3260,47 +3129,6 @@ function getWatchReportStatusLabel(status) {
   if (status === "unchanged") return "No changes";
   if (status === "baseline") return "Baseline";
   return "Changes detected";
-}
-
-function getWatchReportSectionIcon(sectionId) {
-  if (sectionId === "risk") return "target";
-  if (sectionId === "evidence") return "view";
-  if (sectionId === "impact") return "cash-dollar";
-  if (sectionId === "momentum") return "chart-line";
-  return "info";
-}
-
-function getWatchReportInsightIcon(insightId) {
-  if (insightId === "order-evidence") return "shopify-orders";
-  if (insightId === "return-evidence") return "shopify-returns";
-  if (insightId === "review-evidence") return "star";
-  if (insightId === "refund-evidence") return "shopify-refunds";
-  if (insightId === "product-content") return "shopify-product";
-  return "info";
-}
-
-function getWatchInsightPills(insight = {}) {
-  const pills = [insight.metric].filter(Boolean);
-  const bullets = Array.isArray(insight.bullets) ? insight.bullets : [];
-  bullets.slice(0, 2).forEach((bullet) => {
-    const text = String(bullet || "").split(":")[0].replace(/\.$/, "").trim();
-    if (text) pills.push(text);
-  });
-  return Array.from(new Set(pills)).slice(0, 3);
-}
-
-function getWatchInsightQuote(insight = {}) {
-  const bullets = Array.isArray(insight.bullets) ? insight.bullets : [];
-  const quoteBullet = bullets.find((bullet) => /representative/i.test(String(bullet || "")));
-  if (!quoteBullet) return "";
-  return String(quoteBullet).replace(/^Representative [^:]+:\s*/i, "").trim();
-}
-
-function getWatchInsightBullets(insight = {}) {
-  const bullets = Array.isArray(insight.bullets) ? insight.bullets : [];
-  return bullets
-    .filter((bullet) => !/representative/i.test(String(bullet || "")))
-    .slice(0, 4);
 }
 
 function getWatchChangeDirectionTone(direction) {

@@ -637,7 +637,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Viewing")).toBeInTheDocument();
     expect(screen.getByText(/^May 11,/)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "View run" })[0]).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl?runId=run-6");
-    expect(screen.getByRole("link", { name: /View full history/i })).toHaveAttribute("href", "/app/watchlist/activity?product=gid%3A%2F%2Fshopify%2FProduct%2F1");
+    expect(screen.queryByRole("link", { name: /View full history/i })).not.toBeInTheDocument();
     expect(screen.getAllByText("Risk score").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Evidence signals").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Units sold").length).toBeGreaterThan(0);
@@ -645,7 +645,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("New returns").length).toBeGreaterThan(0);
     expect(screen.getByText("2 returned units · +2 return signals")).toBeInTheDocument();
     expect(screen.queryByText("Calculated product-state changes")).not.toBeInTheDocument();
-    expect(screen.getByText("Return evidence changed")).toBeInTheDocument();
+    expect(screen.queryByText("Return evidence changed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Previous run")).not.toBeInTheDocument();
+    expect(screen.queryByText("Current product state")).not.toBeInTheDocument();
     expect(screen.queryByText("View details")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
