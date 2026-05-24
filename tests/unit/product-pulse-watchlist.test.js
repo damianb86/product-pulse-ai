@@ -76,7 +76,7 @@ describe("ProductPulse watchlist helpers", () => {
         impactScore: 11,
         confidence: 72,
         primaryIssue: "Product quality",
-        metrics: { returnRate: 0.12, negativeReviewCount: 3 },
+        metrics: { returnRate: 0.12, refundAmount: 218, negativeReviewCount: 3 },
       },
       createdAt: new Date("2026-05-17T10:00:00.000Z"),
     });
@@ -84,6 +84,7 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.status).toBe("baseline");
     expect(report.changeCount).toBe(0);
     expect(report.current.riskScore).toBe(63);
+    expect(report.current.refundAmount).toBe(218);
     expect(report.headline).toBe("No previous Watchlist data");
     expect(report.sections).toHaveLength(0);
     expect(report.sourceInsights).toHaveLength(0);

@@ -723,11 +723,23 @@ async function getLatestWatchChangeReportsForProducts(shop, productGids = []) {
     orderBy: { createdAt: "desc" },
     take: productGids.length * 8,
   });
-  const byProductGid = new Map();
+  const groupedReports = new Map();
   reports.forEach((activity) => {
-    if (activity.productGid && !byProductGid.has(activity.productGid)) {
-      byProductGid.set(activity.productGid, formatWatchChangeReportActivity(activity));
-    }
+    if (!activity.productGid) return;
+    const group = groupedReports.get(activity.productGid) || [];
+    group.push(activity);
+    groupedReports.set(activity.productGid, group);
+  });
+  const byProductGid = new Map();
+  groupedReports.forEach((activities, productGid) => {
+    const latest = formatWatchChangeReportActivity(activities[0]);
+    latest.history = activities
+      .slice()
+      .reverse()
+      .map(formatWatchRunHistoryPoint)
+      .filter(Boolean)
+      .slice(-6);
+    byProductGid.set(productGid, latest);
   });
   return byProductGid;
 }
@@ -799,6 +811,29 @@ function formatWatchChangeReportActivity(activity = {}) {
     sourceInsights: Array.isArray(report.sourceInsights) ? report.sourceInsights : [],
     sections: Array.isArray(report.sections) ? report.sections : [],
     changes: Array.isArray(report.changes) ? report.changes : [],
+  };
+}
+
+function formatWatchRunHistoryPoint(activity = {}) {
+  const metadata = activity.metadata || {};
+  const report = metadata.report || {};
+  const current = report.current || metadata.snapshotSummary || {};
+  if (!current || typeof current !== "object") return null;
+  const timestamp = report.currentRunAt || current.capturedAt || activity.createdAt?.toISOString?.() || activity.createdAt || null;
+  return {
+    id: activity.id,
+    status: report.status || "",
+    currentRunAt: timestamp,
+    capturedAt: current.capturedAt || timestamp,
+    riskScore: findWatchNumber(current.riskScore),
+    returnRatePercent: findWatchNumber(current.returnRatePercent),
+    refundRatePercent: findWatchNumber(current.refundRatePercent),
+    productMomentumScore: findWatchNumber(current.productMomentumScore),
+    orderCount: findWatchNumber(current.orderCount),
+    soldUnits: findWatchNumber(current.soldUnits),
+    salesAmount: findWatchNumber(current.salesAmount),
+    refundAmount: findWatchNumber(current.refundAmount, current.evidenceDetails?.refunds?.amount),
+    signalCount: findWatchNumber(current.signalCount),
   };
 }
 
@@ -932,6 +967,7 @@ function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefin
     orderCount: clampRoundNumber(firstNumber(metrics.orderCount, metrics.monthlyOrderActivity?.summary?.totalOrders, evidenceDetails.orders?.totalOrders)),
     soldUnits: clampRoundNumber(firstNumber(metrics.soldUnits, metrics.monthlyOrderActivity?.summary?.totalOrderUnits, evidenceDetails.orders?.totalUnits)),
     salesAmount: roundMoney(firstNumber(metrics.salesAmount, metrics.monthlyOrderActivity?.summary?.totalRevenue, evidenceDetails.orders?.totalRevenue)),
+    refundAmount: roundMoney(firstNumber(metrics.refundAmount, metrics.refunds?.amount, evidenceDetails.refunds?.amount)),
     returnRatePercent,
     refundRatePercent,
     returnUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.returns?.units, metrics.monthlyOrderActivity?.summary?.totalReturnedUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),

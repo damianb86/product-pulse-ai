@@ -577,6 +577,14 @@ describe("ProductPulse screens", () => {
             icon: "shopify-returns",
             detail: "New return text sentiment: 2 negative, 0 neutral, 0 positive.",
           }],
+          history: [
+            { id: "run-1", currentRunAt: "2026-05-12T10:00:00.000Z", riskScore: 58, returnRatePercent: 16, refundRatePercent: 8, productMomentumScore: 54, orderCount: 7, soldUnits: 12, refundAmount: 90, signalCount: 38 },
+            { id: "run-2", currentRunAt: "2026-05-13T10:00:00.000Z", riskScore: 59, returnRatePercent: 15, refundRatePercent: 8, productMomentumScore: 57, orderCount: 8, soldUnits: 13, refundAmount: 92, signalCount: 40 },
+            { id: "run-3", currentRunAt: "2026-05-14T10:00:00.000Z", riskScore: 60, returnRatePercent: 14, refundRatePercent: 7, productMomentumScore: 61, orderCount: 9, soldUnits: 15, refundAmount: 98, signalCount: 42 },
+            { id: "run-4", currentRunAt: "2026-05-15T10:00:00.000Z", riskScore: 62, returnRatePercent: 13, refundRatePercent: 7, productMomentumScore: 66, orderCount: 10, soldUnits: 17, refundAmount: 120, signalCount: 44 },
+            { id: "run-5", currentRunAt: "2026-05-16T10:00:00.000Z", riskScore: 58, returnRatePercent: 15, refundRatePercent: 9, productMomentumScore: 59, orderCount: 10, soldUnits: 16, refundAmount: 140, signalCount: 45 },
+            { id: "run-6", currentRunAt: "2026-05-17T10:00:00.000Z", riskScore: 63, returnRatePercent: 12, refundRatePercent: 6, productMomentumScore: 74, orderCount: 11, soldUnits: 20, refundAmount: 218, signalCount: 47 },
+          ],
           sections: [{
             id: "risk",
             title: "Risk and diagnosis",
@@ -617,6 +625,11 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Reviews")).toBeInTheDocument();
     expect(screen.getByText("Previous snapshot")).toBeInTheDocument();
     expect(screen.getByText("Current snapshot")).toBeInTheDocument();
+    expect(screen.getByText("Performance trends (rates & scores)")).toBeInTheDocument();
+    expect(screen.getByText("Operational & commercial activity")).toBeInTheDocument();
+    expect(screen.getAllByText("Across last 6 watchlist runs")).toHaveLength(2);
+    expect(screen.getByText("Risk score (0-100)")).toBeInTheDocument();
+    expect(screen.getByText("Refund amount ($)")).toBeInTheDocument();
     expect(screen.getByText("Risk score")).toBeInTheDocument();
     expect(screen.getAllByText("Evidence signals").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Units sold").length).toBeGreaterThan(0);

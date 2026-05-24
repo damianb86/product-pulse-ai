@@ -1918,7 +1918,8 @@ function WatchChangeReportContent({ product, report }) {
   const biggestChanges = isBaselineReport ? [] : getWatchReportBiggestChanges(report, sourceChanges, visibleSections);
   const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
   const categoryCards = isBaselineReport ? [] : getWatchCategoryChangeCards(report, sourceChanges);
-  const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0 || categoryCards.length > 0;
+  const trendCharts = isBaselineReport ? [] : getWatchRunTrendCharts(report);
+  const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0 || categoryCards.length > 0 || trendCharts.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
   const statusLabel = getWatchReportStatusLabel(effectiveStatus);
@@ -1928,6 +1929,7 @@ function WatchChangeReportContent({ product, report }) {
       <WatchlistInsightReport report={report} statusTone={statusTone} biggestChanges={biggestChanges} />
       {categoryCards.length ? <WatchCategoryChangeCards cards={categoryCards} /> : null}
       {snapshotRows.length ? <WatchSnapshotComparisonTable report={report} rows={snapshotRows} /> : null}
+      {trendCharts.length ? <WatchRunTrendCharts charts={trendCharts} /> : null}
 
       <div className="ppWatchChangeReportBody">
           <div className="ppWatchChangeReportMeta">
@@ -2149,6 +2151,87 @@ function WatchCategoryChangeCard({ card }) {
   );
 }
 
+function WatchRunTrendCharts({ charts = [] }) {
+  return (
+    <section className="ppWatchRunTrends" aria-label="Watchlist run trends">
+      {charts.map((chart) => <WatchRunTrendChart chart={chart} key={chart.id} />)}
+    </section>
+  );
+}
+
+function WatchRunTrendChart({ chart }) {
+  const width = 760;
+  const height = 272;
+  const plot = { left: 54, right: 676, top: 28, bottom: 204 };
+  const plotWidth = plot.right - plot.left;
+  const plotHeight = plot.bottom - plot.top;
+  const pointCount = chart.points.length;
+  const lastX = getWatchTrendX(pointCount - 1, pointCount, plot);
+  const bandWidth = Math.min(96, Math.max(54, plotWidth / Math.max(pointCount - 1, 1) * 0.78));
+  const endpointLabels = getWatchTrendEndpointLabels(chart, plot);
+
+  return (
+    <article className="ppWatchRunTrendCard">
+      <header>
+        <h3>{chart.title}</h3>
+        <p>{chart.subtitle}</p>
+      </header>
+      <div className="ppWatchRunTrendLegend">
+        {chart.series.map((series) => (
+          <span key={series.id}>
+            <i style={{ backgroundColor: series.color }} />
+            {series.label}
+          </span>
+        ))}
+      </div>
+      <svg className="ppWatchRunTrendSvg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${chart.title}. ${chart.subtitle}.`}>
+        <rect className="ppWatchTrendCurrentBand" x={lastX - bandWidth / 2} y={plot.top} width={bandWidth} height={plotHeight + 52} rx="3" />
+        {chart.ticks.map((tick) => {
+          const y = getWatchTrendY(tick.value, chart.axisMax, plot);
+          return (
+            <g key={tick.value}>
+              <line className="ppWatchTrendGridLine" x1={plot.left} x2={plot.right} y1={y} y2={y} />
+              <text className="ppWatchTrendAxisLabel" x={plot.left - 14} y={y + 4} textAnchor="end">{tick.label}</text>
+            </g>
+          );
+        })}
+        {chart.points.map((point, index) => {
+          const x = getWatchTrendX(index, pointCount, plot);
+          return (
+            <g className="ppWatchTrendXTick" key={point.id || `${point.currentRunAt}-${index}`}>
+              <text x={x} y={plot.bottom + 28} textAnchor="middle">{point.dateLabel}</text>
+              <text x={x} y={plot.bottom + 50} textAnchor="middle">{point.timeLabel}</text>
+            </g>
+          );
+        })}
+        {chart.series.map((series) => {
+          const coordinates = getWatchTrendSeriesCoordinates(series, chart.points, chart.axisMax, plot);
+          if (!coordinates.length) return null;
+          return (
+            <g key={series.id}>
+              <polyline
+                className="ppWatchTrendLine"
+                fill="none"
+                points={coordinates.map((point) => `${point.x},${point.y}`).join(" ")}
+                stroke={series.color}
+              />
+              {coordinates.map((point) => (
+                <circle className="ppWatchTrendDot" cx={point.x} cy={point.y} fill={series.color} key={`${series.id}-${point.index}`} r="4.2" />
+              ))}
+            </g>
+          );
+        })}
+        {endpointLabels.map((label) => (
+          <g className="ppWatchTrendEndpoint" key={label.id} transform={`translate(${plot.right + 16} ${label.y - 13})`}>
+            <rect width={label.width} height="26" rx="8" fill={label.color} />
+            <text x={label.width / 2} y="17" textAnchor="middle">{label.value}</text>
+          </g>
+        ))}
+      </svg>
+    </article>
+  );
+}
+
 function WatchSnapshotComparisonTable({ report, rows = [] }) {
   const previousTimestamp = formatWatchReportTimestamp(report?.previousRunAt || report?.previous?.capturedAt);
   const currentTimestamp = formatWatchReportTimestamp(report?.currentRunAt || report?.current?.capturedAt || report?.createdAt);
@@ -2310,6 +2393,227 @@ function getWatchSnapshotComparisonRows(report = {}) {
   ].filter((row) => row && row.hasChanged).slice(0, 3);
 
   return [...baseRows.filter(Boolean), ...extraRows].slice(0, 8);
+}
+
+function getWatchRunTrendCharts(report = {}) {
+  const points = getWatchRunTrendPoints(report);
+  if (points.length < 2) return [];
+
+  const performanceSeries = [
+    { id: "risk-score", key: "riskScore", label: "Risk score (0-100)", color: "var(--pp-pulse-blue)", formatter: formatWatchTrendNumber },
+    { id: "return-rate", key: "returnRatePercent", label: "Return rate (%)", color: "var(--pp-risk-red)", formatter: formatWatchTrendNumber },
+    { id: "refund-rate", key: "refundRatePercent", label: "Refund rate (%)", color: "var(--pp-insight-violet)", formatter: formatWatchTrendNumber },
+    { id: "momentum", key: "productMomentumScore", label: "Momentum (0-100)", color: "var(--pp-success-green)", formatter: formatWatchTrendNumber },
+  ].filter((series) => hasWatchTrendSeriesData(points, series.key));
+
+  const activitySeries = [
+    { id: "orders", key: "orderCount", label: "Orders (count)", color: "var(--pp-pulse-blue)", formatter: formatWatchTrendInteger },
+    { id: "units-sold", key: "soldUnits", label: "Units sold", color: "var(--pp-success-green)", formatter: formatWatchTrendInteger },
+    { id: "refund-amount", key: "refundAmount", label: "Refund amount ($)", color: "var(--pp-insight-violet)", formatter: formatWatchTrendMoney },
+    { id: "evidence-signals", key: "signalCount", label: "Evidence signals", color: "var(--pp-warning-amber)", formatter: formatWatchTrendInteger },
+  ].filter((series) => hasWatchTrendSeriesData(points, series.key));
+
+  return [
+    performanceSeries.length ? {
+      id: "performance",
+      title: "Performance trends (rates & scores)",
+      subtitle: `Across last ${points.length} watchlist runs`,
+      axisMax: 100,
+      ticks: [0, 25, 50, 75, 100].map((value) => ({ value, label: formatInteger(value) })),
+      points,
+      series: performanceSeries,
+    } : null,
+    activitySeries.length ? {
+      id: "activity",
+      title: "Operational & commercial activity",
+      subtitle: `Across last ${points.length} watchlist runs`,
+      axisMax: getWatchTrendActivityAxisMax(points, activitySeries),
+      ticks: getWatchTrendTicks(getWatchTrendActivityAxisMax(points, activitySeries)),
+      points,
+      series: activitySeries,
+    } : null,
+  ].filter(Boolean);
+}
+
+function getWatchRunTrendPoints(report = {}) {
+  const history = Array.isArray(report?.history) ? report.history : [];
+  const normalizedHistory = history
+    .map((entry, index) => normalizeWatchTrendPoint(entry, entry?.currentRunAt || entry?.capturedAt || entry?.createdAt || `${index}`))
+    .filter(Boolean);
+  const sourcePoints = normalizedHistory.length >= 2
+    ? normalizedHistory
+    : [
+      normalizeWatchTrendPoint(report?.previous, report?.previousRunAt || report?.previous?.capturedAt || "previous"),
+      normalizeWatchTrendPoint(report?.current, report?.currentRunAt || report?.current?.capturedAt || report?.createdAt || "current"),
+    ].filter(Boolean);
+
+  const byTimestamp = new Map();
+  sourcePoints.forEach((point, index) => {
+    const key = point.currentRunAt || point.capturedAt || String(index);
+    byTimestamp.set(key, point);
+  });
+  return Array.from(byTimestamp.values())
+    .sort((a, b) => new Date(a.currentRunAt || a.capturedAt).getTime() - new Date(b.currentRunAt || b.capturedAt).getTime())
+    .slice(-6)
+    .map((point, index) => ({
+      ...point,
+      id: point.id || `${point.currentRunAt || point.capturedAt || "watch-run"}-${index}`,
+      ...formatWatchTrendPointLabels(point.currentRunAt || point.capturedAt),
+    }));
+}
+
+function normalizeWatchTrendPoint(entry = {}, fallbackTimestamp = "") {
+  const source = entry?.current && typeof entry.current === "object" ? entry.current : entry;
+  if (!source || typeof source !== "object") return null;
+  const timestamp = entry?.currentRunAt || source.currentRunAt || source.capturedAt || entry?.createdAt || fallbackTimestamp;
+  const point = {
+    id: entry?.id || source.id || "",
+    currentRunAt: timestamp,
+    capturedAt: source.capturedAt || timestamp,
+    riskScore: getWatchTrendMetricValue(source, ["riskScore"]),
+    returnRatePercent: getWatchTrendMetricValue(source, ["returnRatePercent"]),
+    refundRatePercent: getWatchTrendMetricValue(source, ["refundRatePercent"]),
+    productMomentumScore: getWatchTrendMetricValue(source, ["productMomentumScore"]),
+    orderCount: getWatchTrendMetricValue(source, ["orderCount", "evidenceDetails.orders.totalOrders"]),
+    soldUnits: getWatchTrendMetricValue(source, ["soldUnits", "evidenceDetails.orders.totalUnits"]),
+    salesAmount: getWatchTrendMetricValue(source, ["salesAmount", "evidenceDetails.orders.totalRevenue"]),
+    refundAmount: getWatchTrendMetricValue(source, ["refundAmount", "evidenceDetails.refunds.amount"]),
+    signalCount: getWatchTrendMetricValue(source, ["signalCount"]),
+  };
+  const hasMetric = Object.entries(point).some(([key, value]) => !["id", "currentRunAt", "capturedAt"].includes(key) && Number.isFinite(value));
+  return hasMetric ? point : null;
+}
+
+function getWatchTrendMetricValue(source = {}, paths = []) {
+  for (const path of paths) {
+    const value = String(path).split(".").reduce((acc, key) => acc?.[key], source);
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function hasWatchTrendSeriesData(points = [], key = "") {
+  return points.some((point) => Number.isFinite(Number(point?.[key])));
+}
+
+function getWatchTrendActivityAxisMax(points = [], series = []) {
+  const maxValue = Math.max(0, ...series.flatMap((item) => points.map((point) => Number(point?.[item.key])).filter(Number.isFinite)));
+  if (maxValue <= 100) return 100;
+  const magnitude = 10 ** Math.floor(Math.log10(maxValue));
+  const normalized = maxValue / magnitude;
+  const niceStep = normalized <= 1
+    ? 1
+    : normalized <= 2
+      ? 2
+      : normalized <= 2.5
+        ? 2.5
+        : normalized <= 5
+          ? 5
+          : 10;
+  return niceStep * magnitude;
+}
+
+function getWatchTrendTicks(axisMax = 100) {
+  const step = axisMax / 5;
+  return Array.from({ length: 6 }, (_, index) => {
+    const value = Math.round(step * index * 10) / 10;
+    return { value, label: formatWatchTrendAxisValue(value) };
+  });
+}
+
+function getWatchTrendSeriesCoordinates(series, points = [], axisMax = 100, plot) {
+  return points
+    .map((point, index) => {
+      const value = Number(point?.[series.key]);
+      if (!Number.isFinite(value)) return null;
+      return {
+        index,
+        value,
+        x: getWatchTrendX(index, points.length, plot),
+        y: getWatchTrendY(value, axisMax, plot),
+      };
+    })
+    .filter(Boolean);
+}
+
+function getWatchTrendEndpointLabels(chart, plot) {
+  const rawLabels = chart.series
+    .map((series) => {
+      const pointIndex = findLatestWatchTrendPointIndex(chart.points, series.key);
+      if (pointIndex < 0) return null;
+      const value = Number(chart.points[pointIndex]?.[series.key]);
+      if (!Number.isFinite(value)) return null;
+      const label = series.formatter(value);
+      return {
+        id: series.id,
+        value: label,
+        width: Math.max(38, Math.min(72, label.length * 8 + 18)),
+        color: series.color,
+        y: getWatchTrendY(value, chart.axisMax, plot),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.y - b.y);
+  const minGap = 28;
+  rawLabels.forEach((label, index) => {
+    if (index === 0) {
+      label.y = Math.max(plot.top + 13, label.y);
+      return;
+    }
+    label.y = Math.max(label.y, rawLabels[index - 1].y + minGap);
+  });
+  for (let index = rawLabels.length - 1; index >= 0; index -= 1) {
+    const maxY = plot.bottom - 13 - (rawLabels.length - 1 - index) * minGap;
+    rawLabels[index].y = Math.min(rawLabels[index].y, maxY);
+  }
+  return rawLabels;
+}
+
+function findLatestWatchTrendPointIndex(points = [], key = "") {
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    if (Number.isFinite(Number(points[index]?.[key]))) return index;
+  }
+  return -1;
+}
+
+function getWatchTrendX(index, pointCount, plot) {
+  if (pointCount <= 1) return plot.left;
+  return plot.left + (index / (pointCount - 1)) * (plot.right - plot.left);
+}
+
+function getWatchTrendY(value, axisMax, plot) {
+  const normalized = clampNumber(Number(value || 0), 0, axisMax) / Math.max(axisMax, 1);
+  return plot.bottom - normalized * (plot.bottom - plot.top);
+}
+
+function formatWatchTrendPointLabels(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { dateLabel: "Run", timeLabel: "" };
+  }
+  return {
+    dateLabel: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date),
+    timeLabel: new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(date),
+  };
+}
+
+function formatWatchTrendAxisValue(value) {
+  const number = Number(value || 0);
+  if (Math.abs(number) >= 1000) return formatCompactWholeNumber(number);
+  return formatDecimal(number, 1).replace(/\.0$/, "");
+}
+
+function formatWatchTrendInteger(value) {
+  return formatInteger(value);
+}
+
+function formatWatchTrendNumber(value) {
+  return formatDecimal(value, 1).replace(/\.0$/, "");
+}
+
+function formatWatchTrendMoney(value) {
+  return `$${formatCompactWholeNumber(value)}`;
 }
 
 function getWatchCategoryChangeCards(report = {}, sourceChanges = []) {
