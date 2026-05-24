@@ -68,6 +68,8 @@ Safeguards:
 - Structured-output repair retries are capped by `AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES`.
 - Tool call start/success/error/blocked events are logged.
 
+The orchestrator also exposes `product_pulse_send_support_contact`, a server-owned support/contact tool. It is not a data-access tool and does not mutate Shopify. When the merchant asks to report a problem or contact the team, the model can call this tool after collecting enough detail. The backend adds authenticated shop context, page context, and recent chat transcript, stores a `ContactRequest` row, and sends the report through the existing SMTP configuration to `CONTACT_EMAIL`.
+
 ## Model Config
 
 Environment variables:

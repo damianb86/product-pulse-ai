@@ -36,6 +36,9 @@ const {
 const {
   normalizeOpenAiTokenUsage,
 } = await import("../../app/ai/observability/tokenUsage");
+const {
+  AI_SUPPORT_CONTACT_TOOL_NAME,
+} = await import("../../app/ai/support/supportContactTool.server");
 
 const baseContext = {
   shop: "shop-a.myshopify.com",
@@ -552,9 +555,60 @@ describe("ProductPulse AI chat orchestrator", () => {
       fallbackUsed: true,
     });
   });
+
+  it("lets the model send a support contact report through the backend tool", async () => {
+    const store = new InMemoryConversationStore();
+    const supportContactExecutor = vi.fn().mockResolvedValue({
+      ok: true,
+      toolName: AI_SUPPORT_CONTACT_TOOL_NAME,
+      data: {
+        sent: true,
+        type: "problem_report",
+        subject: "AI chat problem: evidence tab issue",
+        contactRequestId: "contact-1",
+        safeMessage: "Thanks, the ProductPulse team received the problem report and will review it.",
+      },
+      metadata: { resultCount: 1 },
+    });
+    const openAiCreate = vi.fn()
+      .mockResolvedValueOnce(openAiToolCallResponse({
+        name: AI_SUPPORT_CONTACT_TOOL_NAME,
+        arguments: {
+          type: "problem_report",
+          subject: "Evidence tab does not open",
+          userMessage: "The evidence button does not open anything on the Mona Lisa product.",
+          interpretation: "The merchant is reporting a ChatKit navigation/action issue on a product page.",
+          relatedProductRef: "gid://shopify/Product/1",
+          relatedProductTitle: "Mona Lisa",
+          relatedData: [{ label: "Screen", value: "Product detail" }],
+        },
+      }))
+      .mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+        assistantText: "Gracias, ya informé el problema al equipo de ProductPulse. Lo vamos a revisar y nos vamos a mantener en contacto.",
+      })));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate, supportContactExecutor });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      conversationId: "conversation-1",
+      message: "Quiero reportar que el botón de evidencia no abre nada.",
+      pageContext: {
+        type: "product",
+        entityId: "gid://shopify/Product/1",
+        entityHandle: "mona-lisa",
+      },
+    });
+
+    expect(result.assistantText).toContain("informé el problema");
+    expect(supportContactExecutor).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({ shop: baseContext.shop, conversationId: "conversation-1" }),
+      conversationId: "conversation-1",
+      pageContext: expect.objectContaining({ type: "product", entityId: "gid://shopify/Product/1" }),
+    }));
+    expect(store.toolCalls.find((call) => call.toolName === AI_SUPPORT_CONTACT_TOOL_NAME && call.status === "success")).toBeTruthy();
+  });
 });
 
-function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry, store, openAiCreate, config = {} } = {}) {
+function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry, store, openAiCreate, config = {}, supportContactExecutor } = {}) {
   return new AiChatOrchestrator({
     toolRegistry: registry || createRegistryWithRepositories(),
     actionRegistry,
@@ -565,6 +619,7 @@ function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry,
         create: openAiCreate || vi.fn().mockResolvedValue(openAiTextResponse(validAssistantResponse())),
       },
     },
+    supportContactExecutor,
     env: {
       OPENAI_API_KEY: "test-key",
       AI_MODEL_PRICING_JSON: JSON.stringify({

@@ -47,6 +47,12 @@ import {
   type OpenAiResponseOutputItem,
   type OpenAiResponsesClient,
 } from "./openAiClient.server";
+import {
+  AI_SUPPORT_CONTACT_TOOL_NAME,
+  buildSupportContactOpenAiToolDefinition,
+  executeAiSupportContactTool,
+  type ExecuteAiSupportContactToolInput,
+} from "../support/supportContactTool.server";
 
 const MAX_USER_MESSAGE_LENGTH = 3000;
 
@@ -95,6 +101,7 @@ export interface AiChatOrchestratorDependencies {
   config?: AiChatConfig;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
+  supportContactExecutor?: (input: ExecuteAiSupportContactToolInput) => Promise<AiToolExecutionResult>;
 }
 
 interface ToolCallExecutionSummary {
@@ -123,6 +130,7 @@ export class AiChatOrchestrator {
   private config: AiChatConfig;
   private env: NodeJS.ProcessEnv;
   private now: () => Date;
+  private supportContactExecutor: (input: ExecuteAiSupportContactToolInput) => Promise<AiToolExecutionResult>;
 
   constructor(dependencies: AiChatOrchestratorDependencies = {}) {
     this.openAiClient = dependencies.openAiClient;
@@ -133,6 +141,7 @@ export class AiChatOrchestrator {
     this.config = { ...getAiChatConfig(dependencies.env), ...(dependencies.config || {}) };
     this.env = dependencies.env || process.env;
     this.now = dependencies.now || (() => new Date());
+    this.supportContactExecutor = dependencies.supportContactExecutor || executeAiSupportContactTool;
   }
 
   async runAiChatTurn(input: RunAiChatTurnInput): Promise<AiChatTurnResult> {
@@ -266,6 +275,9 @@ export class AiChatOrchestrator {
       this.config.maxRecentMessages,
     );
     const adapter = toOpenAiToolAdapterResult(this.toolRegistry);
+    const openAiNameToInternalName = new Map(adapter.openAiNameToInternalName);
+    const supportContactTool = buildSupportContactOpenAiToolDefinition(sanitizeJsonSchemaForOpenAi);
+    openAiNameToInternalName.set(supportContactTool.name, AI_SUPPORT_CONTACT_TOOL_NAME);
     const actionProposalTool = buildActionProposalOpenAiToolDefinition();
     const actionDefinitions = this.config.internalActionsEnabled && this.config.actionConfirmationsEnabled
       ? this.actionRegistry.listAiActions()
@@ -294,12 +306,14 @@ export class AiChatOrchestrator {
         userMessageId: userMessage.id,
         instructions,
         inputItems,
+        pageContext,
         tools: [
           ...adapter.tools,
+          supportContactTool,
           ...(actionDefinitions.length ? [actionProposalTool] : []),
           ...(appMutationDefinitions.length ? [appMutationProposalTool] : []),
         ],
-        openAiNameToInternalName: adapter.openAiNameToInternalName,
+        openAiNameToInternalName,
       });
       const parseResult = await this.parseOrRecoverAssistantResponse({
         client,
@@ -426,6 +440,7 @@ export class AiChatOrchestrator {
     userMessageId: string;
     instructions: string;
     inputItems: Array<Record<string, unknown>>;
+    pageContext: AiPageContext;
     tools: unknown[];
     openAiNameToInternalName: Map<string, string>;
   }): Promise<{
@@ -459,6 +474,7 @@ export class AiChatOrchestrator {
               userMessageId: input.userMessageId,
               toolCall,
               openAiNameToInternalName: input.openAiNameToInternalName,
+              pageContext: input.pageContext,
             });
 
         if (summary.status === "blocked") blockedToolCalls += 1;
@@ -488,6 +504,7 @@ export class AiChatOrchestrator {
     userMessageId: string;
     toolCall: OpenAiResponseOutputItem;
     openAiNameToInternalName: Map<string, string>;
+    pageContext: AiPageContext;
   }): Promise<ToolCallExecutionSummary> {
     const callId = String(input.toolCall.call_id || input.toolCall.id || `tool-${this.now().getTime()}`);
     const openAiToolName = String(input.toolCall.name || "");
@@ -509,6 +526,15 @@ export class AiChatOrchestrator {
       ? await this.executeActionProposalTool(input.chatContext, rawArguments)
       : internalToolName === AI_APP_MUTATION_PROPOSAL_TOOL_NAME
       ? await this.appMutationRegistry.executeProposalTool(input.chatContext, rawArguments)
+      : internalToolName === AI_SUPPORT_CONTACT_TOOL_NAME
+      ? await this.supportContactExecutor({
+          context: input.chatContext,
+          conversationId: input.conversationId,
+          rawArguments,
+          conversationStore: this.conversationStore,
+          pageContext: input.pageContext,
+          now: this.now,
+        })
       : await this.toolRegistry.executeAiTool(internalToolName, input.chatContext, rawArguments);
     const durationMs = Date.now() - startedAt;
     const output = compactToolExecutionResult(result, this.config.maxToolResultCharacters);

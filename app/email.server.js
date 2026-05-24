@@ -19,6 +19,7 @@ export async function sendContactEmail({
   type,
   subject,
   message,
+  html,
   replyEmail,
   shop,
 }) {
@@ -77,6 +78,7 @@ export async function sendContactEmail({
       "",
       message,
     ].join("\n"),
+    html,
     headers: {
       "X-Product-Pulse-Shop": shop,
       "X-Product-Pulse-Type": type,
