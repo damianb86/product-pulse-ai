@@ -80,12 +80,12 @@ export async function getWatchlistForShop(shop) {
   };
 }
 
-export async function getWatchlistProductForShop(shop, productId) {
+export async function getWatchlistProductForShop(shop, productId, { runId = "" } = {}) {
   const lookupValues = getWatchlistProductLookupValues(productId);
   if (!shop || !lookupValues.length) return null;
 
   const watchlist = await getWatchlistForShop(shop);
-  return (watchlist.rows || []).find((row) => {
+  const product = (watchlist.rows || []).find((row) => {
     const rowValues = getWatchlistProductLookupValues([
       row.id,
       row.productGid,
@@ -93,6 +93,24 @@ export async function getWatchlistProductForShop(shop, productId) {
     ]);
     return rowValues.some((value) => lookupValues.includes(value));
   }) || null;
+  if (!product || !runId) return product;
+
+  const run = await prisma.productWatchActivity.findFirst({
+    where: {
+      shop,
+      id: String(runId),
+      productGid: product.productGid,
+      eventType: WATCH_CHANGE_REPORT_EVENT,
+    },
+  });
+  if (!run) return product;
+  return {
+    ...product,
+    latestChangeReport: {
+      ...formatWatchChangeReportActivity(run),
+      history: Array.isArray(product.latestChangeReport?.history) ? product.latestChangeReport.history : [],
+    },
+  };
 }
 
 export async function getWatchSettingsForShop(shop) {
@@ -721,7 +739,7 @@ async function getLatestWatchChangeReportsForProducts(shop, productGids = []) {
   const reports = await prisma.productWatchActivity.findMany({
     where: { shop, productGid: { in: productGids }, eventType: WATCH_CHANGE_REPORT_EVENT },
     orderBy: { createdAt: "desc" },
-    take: productGids.length * 8,
+    take: productGids.length * 50,
   });
   const groupedReports = new Map();
   reports.forEach((activity) => {
@@ -737,8 +755,7 @@ async function getLatestWatchChangeReportsForProducts(shop, productGids = []) {
       .slice()
       .reverse()
       .map(formatWatchRunHistoryPoint)
-      .filter(Boolean)
-      .slice(-6);
+      .filter(Boolean);
     byProductGid.set(productGid, latest);
   });
   return byProductGid;
@@ -820,9 +837,11 @@ function formatWatchRunHistoryPoint(activity = {}) {
   const current = report.current || metadata.snapshotSummary || {};
   if (!current || typeof current !== "object") return null;
   const timestamp = report.currentRunAt || current.capturedAt || activity.createdAt?.toISOString?.() || activity.createdAt || null;
+  const sourceChanges = Array.isArray(report.sourceChanges) ? report.sourceChanges : [];
   return {
     id: activity.id,
     status: report.status || "",
+    changeCount: Number(report.changeCount || 0),
     currentRunAt: timestamp,
     capturedAt: current.capturedAt || timestamp,
     riskScore: findWatchNumber(current.riskScore),
@@ -831,9 +850,12 @@ function formatWatchRunHistoryPoint(activity = {}) {
     productMomentumScore: findWatchNumber(current.productMomentumScore),
     orderCount: findWatchNumber(current.orderCount),
     soldUnits: findWatchNumber(current.soldUnits),
+    returnUnits: findWatchNumber(current.returnUnits),
+    refundUnits: findWatchNumber(current.refundUnits),
     salesAmount: findWatchNumber(current.salesAmount),
     refundAmount: findWatchNumber(current.refundAmount, current.evidenceDetails?.refunds?.amount),
     signalCount: findWatchNumber(current.signalCount),
+    contentUpdated: sourceChanges.some((change) => String(change?.source || change?.id || "").toLowerCase().includes("content")),
   };
 }
 

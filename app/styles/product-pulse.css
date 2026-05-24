@@ -23616,6 +23616,158 @@ s-page[inline-size="large-500"] {
   font-weight: 950;
 }
 
+.ppWatchRunHistory {
+  overflow: hidden;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.12);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.035), rgba(255, 255, 255, 0.94)),
+    var(--pp-cloud-white);
+  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppWatchRunHistoryHeader {
+  min-height: 54px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px 8px;
+}
+
+.ppWatchRunHistoryHeader h3 {
+  margin: 0;
+  color: var(--pp-slate-950);
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.ppWatchRunHistoryHeader a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 18px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.10);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--pp-slate-800);
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.035);
+}
+
+.ppWatchRunHistoryScroll {
+  overflow-x: auto;
+  padding: 0 10px 10px;
+}
+
+.ppWatchRunHistoryTable {
+  width: 100%;
+  min-width: 1380px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--pp-slate-700);
+}
+
+.ppWatchRunHistoryTable th,
+.ppWatchRunHistoryTable td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ppWatchRunHistoryTable thead th {
+  color: var(--pp-slate-500);
+  font-size: 12.5px;
+  font-weight: 900;
+}
+
+.ppWatchRunHistoryTable tbody tr {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.ppWatchRunHistoryTable tbody tr.isCurrent,
+.ppWatchRunHistoryTable tbody tr.isSelected {
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchRunHistoryTable tbody tr:last-child th,
+.ppWatchRunHistoryTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ppWatchRunHistoryTable tbody th {
+  color: var(--pp-slate-800);
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.ppWatchRunHistoryTable tbody td {
+  color: var(--pp-slate-700);
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.ppWatchRunHistoryValue {
+  font-weight: 950;
+}
+
+.ppWatchRunHistoryValue-good {
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchRunHistoryValue-bad {
+  color: var(--pp-risk-red);
+}
+
+.ppWatchRunHistoryValue-strong {
+  color: var(--pp-slate-900);
+}
+
+.ppWatchRunHistoryValue-subdued,
+.ppWatchRunHistoryDash {
+  color: var(--pp-slate-400);
+}
+
+.ppWatchRunHistoryCheck {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-pulse-blue);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 6px 12px rgba(var(--pp-pulse-blue-rgb), 0.22);
+}
+
+.ppWatchRunHistoryCheck s-icon {
+  transform: scale(0.86);
+}
+
+.ppWatchRunHistoryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 13px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 6px 14px rgba(var(--pp-shadow-rgb), 0.035);
+}
+
+.ppWatchRunHistoryButton.isDisabled {
+  color: var(--pp-slate-400);
+}
+
 .ppWatchSnapshotCompare {
   overflow: hidden;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
@@ -24820,6 +24972,25 @@ s-page[inline-size="large-500"] {
 
   .ppWatchRunTrendLegend span {
     font-size: 11px;
+  }
+
+  .ppWatchRunHistoryHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 12px;
+  }
+
+  .ppWatchRunHistoryHeader a {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ppWatchRunHistoryScroll {
+    padding: 0 8px 8px;
+  }
+
+  .ppWatchRunHistoryTable {
+    min-width: 1180px;
   }
 
   .ppWatchChangeReportMeta,

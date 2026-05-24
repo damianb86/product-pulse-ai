@@ -1919,7 +1919,8 @@ function WatchChangeReportContent({ product, report }) {
   const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
   const categoryCards = isBaselineReport ? [] : getWatchCategoryChangeCards(report, sourceChanges);
   const trendCharts = isBaselineReport ? [] : getWatchRunTrendCharts(report);
-  const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0 || categoryCards.length > 0 || trendCharts.length > 0;
+  const runHistoryRows = getWatchRunHistoryTableRows(report, product);
+  const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0 || categoryCards.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
   const statusLabel = getWatchReportStatusLabel(effectiveStatus);
@@ -2103,6 +2104,7 @@ function WatchChangeReportContent({ product, report }) {
             </div>
           </div>
       </div>
+      {runHistoryRows.length ? <WatchRunHistoryTable product={product} rows={runHistoryRows} /> : null}
     </>
   );
 }
@@ -2229,6 +2231,69 @@ function WatchRunTrendChart({ chart }) {
         ))}
       </svg>
     </article>
+  );
+}
+
+function WatchRunHistoryTable({ product, rows = [] }) {
+  const fullHistoryHref = product?.productGid
+    ? `/app/watchlist/activity?product=${encodeURIComponent(product.productGid)}`
+    : "/app/watchlist/activity";
+  return (
+    <section className="ppWatchRunHistory" aria-label="Watchlist run history">
+      <div className="ppWatchRunHistoryHeader">
+        <h3>Run history</h3>
+        <Link to={fullHistoryHref}>
+          View full history
+          <s-icon type="arrow-right" size="small"></s-icon>
+        </Link>
+      </div>
+      <div className="ppWatchRunHistoryScroll">
+        <table className="ppWatchRunHistoryTable">
+          <thead>
+            <tr>
+              <th aria-label="Run"></th>
+              <th>Risk score</th>
+              <th>Return rate</th>
+              <th>Refund rate</th>
+              <th>Evidence signals</th>
+              <th>Momentum</th>
+              <th>New units</th>
+              <th>Returned units</th>
+              <th>Refunded units</th>
+              <th>Revenue</th>
+              <th>Content updates</th>
+              <th aria-label="Action"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr className={[row.isCurrent ? "isCurrent" : "", row.isSelected ? "isSelected" : ""].filter(Boolean).join(" ")} key={row.id || row.label}>
+                <th scope="row">{row.label}</th>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.riskTone}`}>{row.riskScore}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.returnTone}`}>{row.returnRate}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.refundTone}`}>{row.refundRate}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.signalTone}`}>{row.evidenceSignals}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.momentumTone}`}>{row.momentum}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.newUnitsTone}`}>{row.newUnits}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.returnedUnitsTone}`}>{row.returnedUnits}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.refundedUnitsTone}`}>{row.refundedUnits}</span></td>
+                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.revenueTone}`}>{row.revenue}</span></td>
+                <td>
+                  {row.contentUpdated ? (
+                    <span className="ppWatchRunHistoryCheck" aria-label="Content updated"><s-icon type="check" size="small"></s-icon></span>
+                  ) : (
+                    <span className="ppWatchRunHistoryDash">-</span>
+                  )}
+                </td>
+                <td>
+                  {row.href ? <Link className="ppWatchRunHistoryButton" to={row.href}>View run</Link> : <span className="ppWatchRunHistoryButton isDisabled">View run</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -2436,6 +2501,10 @@ function getWatchRunTrendCharts(report = {}) {
 }
 
 function getWatchRunTrendPoints(report = {}) {
+  return getWatchRunHistoryPoints(report).slice(-6);
+}
+
+function getWatchRunHistoryPoints(report = {}) {
   const history = Array.isArray(report?.history) ? report.history : [];
   const normalizedHistory = history
     .map((entry, index) => normalizeWatchTrendPoint(entry, entry?.currentRunAt || entry?.capturedAt || entry?.createdAt || `${index}`))
@@ -2454,12 +2523,56 @@ function getWatchRunTrendPoints(report = {}) {
   });
   return Array.from(byTimestamp.values())
     .sort((a, b) => new Date(a.currentRunAt || a.capturedAt).getTime() - new Date(b.currentRunAt || b.capturedAt).getTime())
-    .slice(-6)
     .map((point, index) => ({
       ...point,
       id: point.id || `${point.currentRunAt || point.capturedAt || "watch-run"}-${index}`,
       ...formatWatchTrendPointLabels(point.currentRunAt || point.capturedAt),
     }));
+}
+
+function getWatchRunHistoryTableRows(report = {}, product = {}) {
+  const points = getWatchRunHistoryPoints(report);
+  if (!points.length) return [];
+  const selectedRunId = String(report?.id || "");
+  const latestRunId = String(points[points.length - 1]?.id || "");
+  const watchlistHref = product.watchlistHref || getWatchlistProductPageHref(product);
+  return points
+    .map((point, index) => {
+      const previous = index > 0 ? points[index - 1] : null;
+      const isCurrent = point.id ? String(point.id) === latestRunId : index === points.length - 1;
+      const rowLabel = isCurrent
+        ? `Current (${formatWatchRunHistoryTimestamp(point.currentRunAt || point.capturedAt)})`
+        : formatWatchRunHistoryTimestamp(point.currentRunAt || point.capturedAt);
+      const newUnits = getWatchRunDeltaValue(point.soldUnits, previous?.soldUnits);
+      const revenue = getWatchRunDeltaValue(point.salesAmount, previous?.salesAmount);
+      return {
+        id: point.id || `${point.currentRunAt || point.capturedAt}-${index}`,
+        isCurrent,
+        isSelected: selectedRunId && point.id ? String(point.id) === selectedRunId : false,
+        label: rowLabel,
+        href: point.id && watchlistHref ? `${watchlistHref}?runId=${encodeURIComponent(point.id)}` : "",
+        riskScore: formatWatchRunTableNumber(point.riskScore),
+        riskTone: getWatchRunTableTone(point.riskScore, previous?.riskScore, { lowerIsGood: true }),
+        returnRate: formatWatchRunTablePercent(point.returnRatePercent),
+        returnTone: getWatchRunTableTone(point.returnRatePercent, previous?.returnRatePercent, { lowerIsGood: true }),
+        refundRate: formatWatchRunTablePercent(point.refundRatePercent),
+        refundTone: getWatchRunTableTone(point.refundRatePercent, previous?.refundRatePercent, { lowerIsGood: true }),
+        evidenceSignals: formatWatchRunTableNumber(point.signalCount),
+        signalTone: getWatchRunTableTone(point.signalCount, previous?.signalCount, { higherIsGood: true }),
+        momentum: formatWatchRunTableNumber(point.productMomentumScore),
+        momentumTone: getWatchRunTableTone(point.productMomentumScore, previous?.productMomentumScore, { higherIsGood: true }),
+        newUnits: Number.isFinite(newUnits) ? formatInteger(Math.max(0, newUnits)) : "-",
+        newUnitsTone: Number.isFinite(newUnits) && newUnits > 0 ? "good" : "subdued",
+        returnedUnits: formatWatchRunTableNumber(point.returnUnits),
+        returnedUnitsTone: getWatchRunTableTone(point.returnUnits, previous?.returnUnits, { lowerIsGood: true }),
+        refundedUnits: formatWatchRunTableNumber(point.refundUnits),
+        refundedUnitsTone: getWatchRunTableTone(point.refundUnits, previous?.refundUnits, { lowerIsGood: true }),
+        revenue: Number.isFinite(revenue) ? formatMoney(Math.max(0, revenue)) : "-",
+        revenueTone: Number.isFinite(revenue) && revenue > 0 ? "good" : "subdued",
+        contentUpdated: Boolean(point.contentUpdated),
+      };
+    })
+    .reverse();
 }
 
 function normalizeWatchTrendPoint(entry = {}, fallbackTimestamp = "") {
@@ -2476,12 +2589,48 @@ function normalizeWatchTrendPoint(entry = {}, fallbackTimestamp = "") {
     productMomentumScore: getWatchTrendMetricValue(source, ["productMomentumScore"]),
     orderCount: getWatchTrendMetricValue(source, ["orderCount", "evidenceDetails.orders.totalOrders"]),
     soldUnits: getWatchTrendMetricValue(source, ["soldUnits", "evidenceDetails.orders.totalUnits"]),
+    returnUnits: getWatchTrendMetricValue(source, ["returnUnits", "evidenceDetails.returns.totalUnits"]),
+    refundUnits: getWatchTrendMetricValue(source, ["refundUnits", "evidenceDetails.refunds.totalUnits"]),
     salesAmount: getWatchTrendMetricValue(source, ["salesAmount", "evidenceDetails.orders.totalRevenue"]),
     refundAmount: getWatchTrendMetricValue(source, ["refundAmount", "evidenceDetails.refunds.amount"]),
     signalCount: getWatchTrendMetricValue(source, ["signalCount"]),
+    contentUpdated: Boolean(entry?.contentUpdated || source.contentUpdated || (Array.isArray(entry?.sourceChanges) && entry.sourceChanges.some((change) => String(change?.source || change?.id || "").toLowerCase().includes("content")))),
   };
   const hasMetric = Object.entries(point).some(([key, value]) => !["id", "currentRunAt", "capturedAt"].includes(key) && Number.isFinite(value));
   return hasMetric ? point : null;
+}
+
+function getWatchRunDeltaValue(current, previous) {
+  const currentNumber = Number(current);
+  const previousNumber = Number(previous);
+  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) return NaN;
+  return currentNumber - previousNumber;
+}
+
+function getWatchRunTableTone(current, previous, { lowerIsGood = false, higherIsGood = false } = {}) {
+  const currentNumber = Number(current);
+  const previousNumber = Number(previous);
+  if (!Number.isFinite(currentNumber)) return "subdued";
+  if (!Number.isFinite(previousNumber) || Math.abs(currentNumber - previousNumber) < 0.0001) return "strong";
+  if (lowerIsGood) return currentNumber < previousNumber ? "good" : "bad";
+  if (higherIsGood) return currentNumber > previousNumber ? "good" : "bad";
+  return "strong";
+}
+
+function formatWatchRunTableNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? formatInteger(number) : "-";
+}
+
+function formatWatchRunTablePercent(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? formatPercent(number) : "-";
+}
+
+function formatWatchRunHistoryTimestamp(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Run";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
 function getWatchTrendMetricValue(source = {}, paths = []) {

@@ -5,8 +5,11 @@ import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request, params }) => {
   const { session } = await authenticate.admin(request);
+  const url = new URL(request.url);
   return {
-    product: await getWatchlistProductForShop(session.shop, params.productId),
+    product: await getWatchlistProductForShop(session.shop, params.productId, {
+      runId: url.searchParams.get("runId"),
+    }),
   };
 };
 

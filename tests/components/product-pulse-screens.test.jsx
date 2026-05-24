@@ -578,12 +578,13 @@ describe("ProductPulse screens", () => {
             detail: "New return text sentiment: 2 negative, 0 neutral, 0 positive.",
           }],
           history: [
-            { id: "run-1", currentRunAt: "2026-05-12T10:00:00.000Z", riskScore: 58, returnRatePercent: 16, refundRatePercent: 8, productMomentumScore: 54, orderCount: 7, soldUnits: 12, refundAmount: 90, signalCount: 38 },
-            { id: "run-2", currentRunAt: "2026-05-13T10:00:00.000Z", riskScore: 59, returnRatePercent: 15, refundRatePercent: 8, productMomentumScore: 57, orderCount: 8, soldUnits: 13, refundAmount: 92, signalCount: 40 },
-            { id: "run-3", currentRunAt: "2026-05-14T10:00:00.000Z", riskScore: 60, returnRatePercent: 14, refundRatePercent: 7, productMomentumScore: 61, orderCount: 9, soldUnits: 15, refundAmount: 98, signalCount: 42 },
-            { id: "run-4", currentRunAt: "2026-05-15T10:00:00.000Z", riskScore: 62, returnRatePercent: 13, refundRatePercent: 7, productMomentumScore: 66, orderCount: 10, soldUnits: 17, refundAmount: 120, signalCount: 44 },
-            { id: "run-5", currentRunAt: "2026-05-16T10:00:00.000Z", riskScore: 58, returnRatePercent: 15, refundRatePercent: 9, productMomentumScore: 59, orderCount: 10, soldUnits: 16, refundAmount: 140, signalCount: 45 },
-            { id: "run-6", currentRunAt: "2026-05-17T10:00:00.000Z", riskScore: 63, returnRatePercent: 12, refundRatePercent: 6, productMomentumScore: 74, orderCount: 11, soldUnits: 20, refundAmount: 218, signalCount: 47 },
+            { id: "run-0", currentRunAt: "2026-05-11T10:00:00.000Z", riskScore: 56, returnRatePercent: 17, refundRatePercent: 9, productMomentumScore: 51, orderCount: 6, soldUnits: 10, returnUnits: 1, refundUnits: 1, salesAmount: 640, refundAmount: 86, signalCount: 36 },
+            { id: "run-1", currentRunAt: "2026-05-12T10:00:00.000Z", riskScore: 58, returnRatePercent: 16, refundRatePercent: 8, productMomentumScore: 54, orderCount: 7, soldUnits: 12, returnUnits: 1, refundUnits: 1, salesAmount: 720, refundAmount: 90, signalCount: 38 },
+            { id: "run-2", currentRunAt: "2026-05-13T10:00:00.000Z", riskScore: 59, returnRatePercent: 15, refundRatePercent: 8, productMomentumScore: 57, orderCount: 8, soldUnits: 13, returnUnits: 2, refundUnits: 1, salesAmount: 780, refundAmount: 92, signalCount: 40 },
+            { id: "run-3", currentRunAt: "2026-05-14T10:00:00.000Z", riskScore: 60, returnRatePercent: 14, refundRatePercent: 7, productMomentumScore: 61, orderCount: 9, soldUnits: 15, returnUnits: 3, refundUnits: 2, salesAmount: 900, refundAmount: 98, signalCount: 42 },
+            { id: "run-4", currentRunAt: "2026-05-15T10:00:00.000Z", riskScore: 62, returnRatePercent: 13, refundRatePercent: 7, productMomentumScore: 66, orderCount: 10, soldUnits: 17, returnUnits: 3, refundUnits: 2, salesAmount: 980, refundAmount: 120, signalCount: 44 },
+            { id: "run-5", currentRunAt: "2026-05-16T10:00:00.000Z", riskScore: 58, returnRatePercent: 15, refundRatePercent: 9, productMomentumScore: 59, orderCount: 10, soldUnits: 16, returnUnits: 1, refundUnits: 1, salesAmount: 720, refundAmount: 140, signalCount: 45 },
+            { id: "run-6", currentRunAt: "2026-05-17T10:00:00.000Z", riskScore: 63, returnRatePercent: 12, refundRatePercent: 6, productMomentumScore: 74, orderCount: 11, soldUnits: 20, returnUnits: 3, refundUnits: 1, salesAmount: 1104, refundAmount: 218, signalCount: 47, contentUpdated: true },
           ],
           sections: [{
             id: "risk",
@@ -630,7 +631,13 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Across last 6 watchlist runs")).toHaveLength(2);
     expect(screen.getByText("Risk score (0-100)")).toBeInTheDocument();
     expect(screen.getByText("Refund amount ($)")).toBeInTheDocument();
-    expect(screen.getByText("Risk score")).toBeInTheDocument();
+    expect(screen.getByText("Run history")).toBeInTheDocument();
+    expect(screen.getByText("Content updates")).toBeInTheDocument();
+    expect(screen.getByText(/^Current \(May 17,/)).toBeInTheDocument();
+    expect(screen.getByText(/^May 11,/)).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "View run" })[0]).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl?runId=run-6");
+    expect(screen.getByRole("link", { name: /View full history/i })).toHaveAttribute("href", "/app/watchlist/activity?product=gid%3A%2F%2Fshopify%2FProduct%2F1");
+    expect(screen.getAllByText("Risk score").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Evidence signals").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Units sold").length).toBeGreaterThan(0);
     expect(screen.getByText("What happened since the last run")).toBeInTheDocument();
