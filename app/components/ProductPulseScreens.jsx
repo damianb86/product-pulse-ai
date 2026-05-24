@@ -14731,6 +14731,7 @@ function EvidenceSummaryCompactRow({ source, onSelect }) {
 }
 
 function ProductRiskHistoryPanel({ detail }) {
+  const gradientId = `ppProductRiskHistoryAreaGradient-${useId().replace(/:/g, "")}`;
   const historyPoints = getProductRiskHistoryPoints(detail);
   const chart = getProductRiskHistoryChart(historyPoints);
   const latest = historyPoints[historyPoints.length - 1] || null;
@@ -14780,7 +14781,7 @@ function ProductRiskHistoryPanel({ detail }) {
       <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
         <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={changeLabel}>
           <defs>
-            <linearGradient id="ppProductRiskHistoryAreaGradient" x1="0" x2="0" y1="0" y2="1">
+            <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="currentColor" stopOpacity="0.24" />
               <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
             </linearGradient>
@@ -14803,7 +14804,7 @@ function ProductRiskHistoryPanel({ detail }) {
               <text x={tick.x} y={chart.plot.bottom + 28} textAnchor={tick.anchor}>{tick.label}</text>
             </g>
           ))}
-          <path className="ppProductRiskHistoryArea" d={chart.areaPath} />
+          <path className="ppProductRiskHistoryArea" d={chart.areaPath} style={{ fill: `url(#${gradientId})` }} />
           <path className="ppProductRiskHistoryLine" d={chart.linePath} />
         </svg>
         {chart.points.map((point, index) => (

@@ -1481,6 +1481,13 @@ describe("ProductPulse screens", () => {
             source: "quickscan",
             recordedAt: "2026-05-01T12:00:00.000Z",
             primaryIssue: "Initial return anomaly",
+            returnRate: 12,
+            refundRate: 4,
+            negativeReviewCount: 1,
+            reviewCount: 12,
+            avgRating: 4.2,
+            refundAmount: 20,
+            signalCount: 24,
           },
           {
             id: "history-2",
@@ -1488,6 +1495,27 @@ describe("ProductPulse screens", () => {
             source: "full-diagnosis",
             recordedAt: "2026-05-10T18:10:00.000Z",
             primaryIssue: "Fit runs small around waist and inseam",
+            returnRate: 25,
+            refundRate: 6,
+            negativeReviewCount: 3,
+            reviewCount: 14,
+            avgRating: 3.7,
+            refundAmount: 30,
+            signalCount: 36,
+          },
+          {
+            id: "history-3",
+            riskScore: 92,
+            source: "watchlist-scan",
+            recordedAt: "2026-05-17T18:10:00.000Z",
+            primaryIssue: "Refund pressure increased after new returns",
+            returnRate: 26,
+            refundRate: 14,
+            negativeReviewCount: 5,
+            reviewCount: 16,
+            avgRating: 3.2,
+            refundAmount: 150,
+            signalCount: 44,
           },
         ],
         returnRatePrediction: {
@@ -1514,10 +1542,19 @@ describe("ProductPulse screens", () => {
     expect(predictionPanel).toBeInTheDocument();
     expect(Boolean(predictionPanel.compareDocumentPosition(historyPanel) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(within(historyPanel).getByText("Product risk over time")).toBeInTheDocument();
-    expect(within(historyPanel).getByText("88 / 100")).toBeInTheDocument();
-    expect(within(historyPanel).getByText("Up 16 pts since last analysis")).toBeInTheDocument();
-    expect(within(historyPanel).getByText("2 saved scores · May 1, 2026 to May 10, 2026")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("92 / 100")).toBeInTheDocument();
+    expect(within(historyPanel).getByText("+4 pts")).toBeInTheDocument();
+    expect(within(historyPanel).getAllByText("Return rate spike").length).toBeGreaterThan(0);
+    expect(within(historyPanel).getAllByText("Refund pressure increased").length).toBeGreaterThan(0);
+    expect(within(historyPanel).getByText("Medium risk 55")).toBeInTheDocument();
+    expect(within(historyPanel).getAllByText("3 saved scores · May 1, 2026 to May 17, 2026").length).toBeGreaterThan(0);
     expect(within(historyPanel).queryByText("Fit runs small around waist and inseam")).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(within(historyPanel).getByRole("button", { name: "May 17, 2026: product risk 92 of 100" }));
+    const riskTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppProductRiskHistoryPopover"));
+    expect(riskTooltip).toHaveTextContent("Refund pressure increased");
+    expect(riskTooltip).toHaveTextContent("Refund rate");
+    expect(riskTooltip).toHaveTextContent("14%");
   });
 
   it("renders Product Momentum in the product detail view", () => {
