@@ -613,6 +613,7 @@ describe("ProductPulse screens", () => {
     />);
 
     expect(screen.getByRole("heading", { name: "Product Watchlist" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Back to Watchlist/i })).toHaveClass("ppProductBackButton");
     expect(screen.getByRole("heading", { name: "Nintendo New 3DS XL" })).toBeInTheDocument();
     expect(screen.getByText(/Your baseline is captured/i)).toBeInTheDocument();
     expect(screen.getByText("AI Watchlist insight")).toBeInTheDocument();
@@ -651,6 +652,41 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("View details")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+  });
+
+  it("shows a designed empty state for Watchlist product reports without stored content", () => {
+    renderWithRouter(<WatchlistProductScreen
+      product={{
+        id: "watch-empty",
+        productGid: "gid://shopify/Product/empty",
+        title: "Quiet Product",
+        handle: "quiet-product",
+        latestChangeReport: {
+          id: "empty-run",
+          status: "unchanged",
+          title: "No Watchlist data",
+          summary: "",
+          narrative: "",
+          headline: "",
+          changeCount: 0,
+          previousRunAt: "",
+          currentRunAt: "",
+          previous: {},
+          current: {},
+          sourceChanges: [],
+          sourceInsights: [],
+          sections: [],
+          history: [],
+        },
+      }}
+    />);
+
+    expect(screen.getByRole("link", { name: /Back to Watchlist/i })).toHaveClass("ppProductBackButton");
+    expect(screen.getByLabelText("Empty Watchlist report")).toBeInTheDocument();
+    expect(screen.getByText("Empty")).toBeInTheDocument();
+    expect(screen.getByText("No Watchlist report data yet")).toBeInTheDocument();
+    expect(screen.getAllByText(/Quiet Product/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("AI Watchlist insight")).not.toBeInTheDocument();
   });
 
   it("renders full watchlist activity history", () => {

@@ -492,7 +492,7 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose }) {
       </header>
 
       <JobPopoverSection title="Current" jobs={activeJobs} emptyText="No active background processes." now={now} onClose={onClose} current />
-      <JobPopoverSection title="History" jobs={pastJobs.slice(0, 4)} emptyText="No recent jobs yet." now={now} onClose={onClose} />
+      <JobPopoverSection title="History" jobs={pastJobs} emptyText="No recent jobs yet." now={now} onClose={onClose} />
       <button className="ppGlobalTopbarJobsFooter" type="button" onClick={onClose}>
         <span aria-hidden="true" className="ppGlobalTopbarJobsFooterIcon">
           <i></i>

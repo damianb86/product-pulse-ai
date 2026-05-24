@@ -139,6 +139,28 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");
   });
 
+  it("does not cap the top bar history below the loaded recent jobs", () => {
+    const recentJobs = Array.from({ length: 25 }, (_, index) => ({
+      id: `job-${index + 1}`,
+      kind: "product-diagnosis",
+      name: "Completed scan",
+      displayTitle: `Background Process ${index + 1}`,
+      displaySubtitle: "AI product diagnostics completed",
+      status: "Completed",
+      productHref: `/app/products/background-process-${index + 1}`,
+      startedAtIso: new Date(Date.now() - (index + 2) * 1000).toISOString(),
+      updatedAtIso: new Date(Date.now() - (index + 1) * 1000).toISOString(),
+      finishedAtIso: new Date(Date.now() - (index + 1) * 1000).toISOString(),
+    }));
+
+    renderMonitor({ activeJobs: [], recentJobs, logs: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+
+    expect(screen.getByText("Background Process 25")).toBeVisible();
+    expect(document.querySelectorAll(".ppGlobalTopbarJobSection.isHistory .ppGlobalTopbarJobItem")).toHaveLength(25);
+  });
+
   it("shows recent failed jobs as user-visible alerts", () => {
     const initialMonitor = {
       activeJobs: [],

@@ -1859,7 +1859,7 @@ export function WatchlistProductScreen({ product }) {
     return (
       <FullWidthPage heading="Watchlist product not found">
         <ScreenShell className="ppDashboard ppWatchlistProductPage">
-          <Link className="ppBackLink" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
+          <Link className="ppProductBackButton ppProductBackButtonStandalone" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
           <p className="ppDashboardSubtitle">This product is not currently tracked on the Watchlist.</p>
         </ScreenShell>
       </FullWidthPage>
@@ -1878,7 +1878,7 @@ export function WatchlistProductScreen({ product }) {
   return (
     <FullWidthPage heading="Product Watchlist">
       <ScreenShell className="ppDashboard ppWatchlistProductPage">
-        <Link className="ppBackLink" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
+        <Link className="ppProductBackButton ppProductBackButtonStandalone" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
 
         <section className="ppWatchlistProductHero" aria-labelledby="watchlist-product-title">
           <span className="ppWatchlistProductHeroImage">
@@ -1920,6 +1920,11 @@ function WatchChangeReportContent({ product, report }) {
   const hasVisibleChanges = sourceChanges.length > 0 || visibleSections.length > 0 || categoryCards.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
+  const hasReportContent = biggestChanges.length > 0 || categoryCards.length > 0 || snapshotRows.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
+
+  if (!hasReportContent) {
+    return <WatchlistProductEmptyState product={product} report={report} />;
+  }
 
   return (
     <>
@@ -1929,6 +1934,24 @@ function WatchChangeReportContent({ product, report }) {
       {trendCharts.length ? <WatchRunTrendCharts charts={trendCharts} /> : null}
       {runHistoryRows.length ? <WatchRunHistoryTable rows={runHistoryRows} /> : null}
     </>
+  );
+}
+
+function WatchlistProductEmptyState({ product }) {
+  return (
+    <section className="ppWatchlistProductEmpty" aria-label="Empty Watchlist report">
+      <span className="ppWatchlistProductEmptyIcon" aria-hidden="true">
+        <s-icon type="chart-line" size="large"></s-icon>
+      </span>
+      <div>
+        <strong>Empty</strong>
+        <h3>No Watchlist report data yet</h3>
+        <p>
+          Run a Watchlist scan or wait for the next scheduled scan to compare orders, returns, refunds, reviews,
+          risk, momentum and evidence for {product?.title || "this product"}.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -3272,7 +3295,7 @@ export function WatchlistActivityScreen({ data = {} }) {
       <ScreenShell className="ppDashboard ppWatchlistScreen ppWatchActivityScreen">
         <div className="ppWatchlistHeader">
           <div>
-            <Link className="ppBackLink" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
+            <Link className="ppProductBackButton ppProductBackButtonStandalone" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
             <p className="ppDashboardSubtitle">Complete activity log for watched products, scan updates and watchlist changes.</p>
           </div>
         </div>

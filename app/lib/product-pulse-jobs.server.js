@@ -46,6 +46,7 @@ const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
@@ -476,7 +477,7 @@ export async function getRecentJobsForShop(shop) {
   const jobs = await prisma.catalogSignalJob.findMany({
     where: { shop },
     orderBy: [{ updatedAt: "desc" }],
-    take: 12,
+    take: JOB_MONITOR_RECENT_JOB_LIMIT,
   });
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
@@ -494,7 +495,7 @@ export async function getJobMonitorForShop(shop) {
     prisma.catalogSignalJob.findMany({
       where: { shop },
       orderBy: [{ updatedAt: "desc" }],
-      take: 12,
+      take: JOB_MONITOR_RECENT_JOB_LIMIT,
     }),
     getJobLogsForShop(shop, 100),
   ]);
