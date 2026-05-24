@@ -8,6 +8,14 @@ import {
   judgeMeConnectionLinks,
   upsertLocalConnectionRecord,
 } from "../lib/product-pulse-connect";
+import {
+  PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
+  PRODUCT_PULSE_HTML_STYLE_PRESETS,
+  PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS,
+  buildProductPulseHtmlStylePreviewHtml,
+  getProductPulseHtmlStylePreset,
+  normalizeProductPulseHtmlStyle,
+} from "../lib/product-pulse-html-style-presets";
 
 const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 4_000;
 const RISK_THRESHOLD_HANDLE_GAP = 5;
@@ -2541,11 +2549,14 @@ export function SettingsScreen({ data = {}, actionData }) {
   const normalizedMomentumThreshold = normalizeClientMomentumThreshold(settings.momentum?.minimumScore);
   const normalizedQueueLimit = normalizeClientQueueLimit(settings.diagnosis?.maxQueuedPerSubmission);
   const normalizedLookbackDays = normalizeClientLookbackDays(settings.analysis?.lookbackDays);
+  const normalizedHtmlStyle = useMemo(() => normalizeProductPulseHtmlStyle(settings.htmlStyle), [settings.htmlStyle]);
   const mockDataset = actionData?.mockDataset || data.mockDataset || null;
   const [riskThresholds, setRiskThresholds] = useState(normalizedSettingsRisk);
   const [momentumThreshold, setMomentumThreshold] = useState(normalizedMomentumThreshold);
   const [queueLimit, setQueueLimit] = useState(normalizedQueueLimit);
   const [lookbackDays, setLookbackDays] = useState(normalizedLookbackDays);
+  const [htmlStylePreset, setHtmlStylePreset] = useState(normalizedHtmlStyle.preset);
+  const [htmlStyleCustomTemplate, setHtmlStyleCustomTemplate] = useState(normalizedHtmlStyle.customTemplate);
   const isSaving = navigation.state === "submitting";
   const pendingMockDatasetStage = navigation.state === "submitting"
     && navigation.formData?.get("_action") === "start-shopify-mock-dataset"
@@ -2557,14 +2568,22 @@ export function SettingsScreen({ data = {}, actionData }) {
     || riskThresholds.highThreshold !== normalizedSettingsRisk.highThreshold
     || Number(momentumThreshold) !== Number(normalizedMomentumThreshold)
     || Number(queueLimit) !== Number(normalizedQueueLimit)
-    || Number(lookbackDays) !== Number(normalizedLookbackDays);
+    || Number(lookbackDays) !== Number(normalizedLookbackDays)
+    || htmlStylePreset !== normalizedHtmlStyle.preset
+    || htmlStyleCustomTemplate !== normalizedHtmlStyle.customTemplate;
+  const activeHtmlStyle = useMemo(() => normalizeProductPulseHtmlStyle({
+    preset: htmlStylePreset,
+    customTemplate: htmlStyleCustomTemplate,
+  }), [htmlStylePreset, htmlStyleCustomTemplate]);
 
   useEffect(() => {
     setRiskThresholds(normalizedSettingsRisk);
     setMomentumThreshold(normalizedMomentumThreshold);
     setQueueLimit(normalizedQueueLimit);
     setLookbackDays(normalizedLookbackDays);
-  }, [normalizedSettingsRisk, normalizedMomentumThreshold, normalizedQueueLimit, normalizedLookbackDays]);
+    setHtmlStylePreset(normalizedHtmlStyle.preset);
+    setHtmlStyleCustomTemplate(normalizedHtmlStyle.customTemplate);
+  }, [normalizedSettingsRisk, normalizedMomentumThreshold, normalizedQueueLimit, normalizedLookbackDays, normalizedHtmlStyle]);
 
   useEffect(() => {
     const saveBar = getShopifySaveBarApi();
@@ -2592,6 +2611,8 @@ export function SettingsScreen({ data = {}, actionData }) {
     formData.set("momentumMinimumScore", String(momentumThreshold));
     formData.set("maxQueuedPerSubmission", String(queueLimit));
     formData.set("analysisLookbackDays", String(lookbackDays));
+    formData.set("htmlStylePreset", htmlStylePreset);
+    formData.set("htmlStyleCustomTemplate", htmlStyleCustomTemplate);
     submit(formData, { method: "post" });
   };
 
@@ -2600,6 +2621,8 @@ export function SettingsScreen({ data = {}, actionData }) {
     setMomentumThreshold(normalizedMomentumThreshold);
     setQueueLimit(normalizedQueueLimit);
     setLookbackDays(normalizedLookbackDays);
+    setHtmlStylePreset(normalizedHtmlStyle.preset);
+    setHtmlStyleCustomTemplate(normalizedHtmlStyle.customTemplate);
     getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
   };
 
@@ -2695,6 +2718,28 @@ export function SettingsScreen({ data = {}, actionData }) {
 
               <AnalysisLookbackSlider value={lookbackDays} onChange={setLookbackDays} />
             </section>
+          </section>
+
+          <section className="ppSettingsCard ppSettingsHtmlStyleCard" aria-labelledby="settings-html-style-title">
+            <input type="hidden" name="htmlStylePreset" value={htmlStylePreset} />
+            <input type="hidden" name="htmlStyleCustomTemplate" value={htmlStyleCustomTemplate} />
+            <div className="ppSettingsCardHeader">
+              <DashboardIcon type="file" tone="purple" />
+              <div>
+                <span>Visual style presets</span>
+                <h2 id="settings-html-style-title">Product HTML injection style</h2>
+                <p>
+                  Choose the HTML wrapper ProductPulse uses when applying notes, FAQ blocks, specs, or other generated product-description content in Shopify.
+                </p>
+              </div>
+            </div>
+
+            <HtmlStylePresetSettings
+              value={activeHtmlStyle}
+              onPresetChange={setHtmlStylePreset}
+              customTemplate={htmlStyleCustomTemplate}
+              onCustomTemplateChange={setHtmlStyleCustomTemplate}
+            />
           </section>
         </Form>
 
@@ -2811,6 +2856,87 @@ export function SettingsScreen({ data = {}, actionData }) {
         </div>
       </ScreenShell>
     </FullWidthPage>
+  );
+}
+
+function HtmlStylePresetSettings({ value, onPresetChange, customTemplate, onCustomTemplateChange }) {
+  const selectedPreset = value.preset === PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET
+    ? getProductPulseHtmlStylePreset(PRODUCT_PULSE_HTML_STYLE_PRESETS[0].id)
+    : getProductPulseHtmlStylePreset(value.preset);
+  const previewHtml = buildProductPulseHtmlStylePreviewHtml(value, {
+    title: "Product note",
+  });
+  const customSelected = value.preset === PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET;
+
+  return (
+    <div className="ppSettingsHtmlStyle">
+      <div className="ppSettingsHtmlPresetGrid" role="list" aria-label="HTML style presets">
+        {PRODUCT_PULSE_HTML_STYLE_PRESETS.map((preset) => {
+          const selected = value.preset === preset.id;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              className={`ppSettingsHtmlPresetCard ppSettingsHtmlPresetCard-${preset.tone}${selected ? " isSelected" : ""}`}
+              onClick={() => onPresetChange(preset.id)}
+              aria-pressed={selected}
+            >
+              <span>{preset.shortLabel}</span>
+              <strong>{preset.label}</strong>
+              <small>{preset.description}</small>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="ppSettingsHtmlPreviewGrid">
+        <div className="ppSettingsHtmlPreviewPanel">
+          <div>
+            <span>Live preview</span>
+            <strong>{customSelected ? "Custom HTML template" : selectedPreset.label}</strong>
+            <p>
+              The preview uses sample ProductPulse content. Shopify receives the selected wrapper around generated notes or FAQs.
+            </p>
+          </div>
+          <iframe title="Product HTML style preview" sandbox="" srcDoc={previewHtml}></iframe>
+        </div>
+
+        <div className="ppSettingsHtmlEditorPanel">
+          <div className="ppSettingsHtmlEditorHeader">
+            <div>
+              <span>Custom template</span>
+              <strong>Edit the wrapper HTML</strong>
+            </div>
+            <button
+              type="button"
+              className={`ppSecondaryButton${customSelected ? " isActive" : ""}`}
+              onClick={() => onPresetChange(PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET)}
+            >
+              Use custom HTML
+            </button>
+          </div>
+          <label className="ppSettingsHtmlTemplateField">
+            <span>HTML template</span>
+            <textarea
+              aria-label="Custom HTML template"
+              value={customTemplate}
+              onChange={(event) => onCustomTemplateChange(event.target.value)}
+              placeholder={`<section ${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes}>\n  <h3>${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.title}</h3>\n  ${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}\n</section>`}
+              rows={8}
+            />
+          </label>
+          <div className="ppSettingsHtmlPlaceholderList" aria-label="Template placeholders">
+            <span><code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes}</code> tracking attributes and wrapper classes</span>
+            <span><code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.headingHtml}</code> styled ProductPulse heading</span>
+            <span><code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.title}</code> plain title text</span>
+            <span><code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}</code> generated note, FAQ, specs, or content</span>
+          </div>
+          <p>
+            Custom templates must include <code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}</code>. If you omit <code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes}</code>, ProductPulse wraps your HTML to preserve tracking.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3031,6 +3157,7 @@ function getDefaultProductPulseClientSettings() {
     analysis: {
       lookbackDays: 60,
     },
+    htmlStyle: normalizeProductPulseHtmlStyle(),
   };
 }
 

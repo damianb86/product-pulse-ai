@@ -619,6 +619,10 @@ describe("ProductPulse screens", () => {
         momentum: { minimumScore: 72 },
         diagnosis: { maxQueuedPerSubmission: 12 },
         analysis: { lookbackDays: 120 },
+        htmlStyle: {
+          preset: "professional-card",
+          customTemplate: "",
+        },
       },
     }} />);
 
@@ -633,6 +637,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Max diagnoses queued at once")).toHaveValue(12);
     expect(screen.getByText("Evidence lookback")).toBeInTheDocument();
     expect(screen.getByLabelText("Analysis lookback days")).toHaveValue("120");
+    expect(screen.getByText("Product HTML injection style")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Professional card/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Custom HTML template")).toHaveAttribute("placeholder", expect.stringContaining("{{CONTENT_HTML}}"));
+    expect(screen.getByTitle("Product HTML style preview")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Back to Products" })).not.toBeInTheDocument();
     expect(screen.queryByText("Cost control")).not.toBeInTheDocument();
     expect(screen.queryByText(/OpenAI Batch/)).not.toBeInTheDocument();

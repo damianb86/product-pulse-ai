@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET } from "../../app/lib/product-pulse-html-style-presets";
 import {
   getQuickScanMinimumRiskScore,
   getQuickScanMinimumMomentumScore,
@@ -21,6 +22,7 @@ describe("ProductPulse settings", () => {
     expect(settings.momentum).toEqual({ minimumScore: 70 });
     expect(settings.diagnosis.maxQueuedPerSubmission).toBe(25);
     expect(settings.analysis.lookbackDays).toBe(60);
+    expect(settings.htmlStyle).toEqual({ preset: "productpulse-current", customTemplate: "" });
   });
 
   it("uses custom risk thresholds for labels and status", () => {
@@ -103,5 +105,27 @@ describe("ProductPulse settings", () => {
         lookbackDays: 4,
       },
     })).toMatch(/Analysis lookback/);
+  });
+
+  it("normalizes and validates HTML injection style settings", () => {
+    const settings = normalizeProductPulseSettings({
+      htmlStyle: {
+        preset: PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
+        customTemplate: "<section {{ATTRIBUTES}}><h3>{{TITLE}}</h3>{{CONTENT_HTML}}</section>",
+      },
+    });
+
+    expect(settings.htmlStyle).toEqual({
+      preset: PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
+      customTemplate: "<section {{ATTRIBUTES}}><h3>{{TITLE}}</h3>{{CONTENT_HTML}}</section>",
+    });
+    expect(validateProductPulseSettings({
+      risk: { minimumScore: 40, mediumThreshold: 60, highThreshold: 80 },
+      diagnosis: { maxQueuedPerSubmission: 10 },
+      htmlStyle: {
+        preset: PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
+        customTemplate: "<section>No replacement marker</section>",
+      },
+    })).toMatch(/CONTENT_HTML/);
   });
 });

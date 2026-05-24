@@ -21,6 +21,12 @@ import {
   getStatusLabelForScore,
 } from "./product-pulse-settings.server";
 import {
+  PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS,
+  getProductPulseHtmlStylePreset,
+  getProductPulseHtmlStyleTemplate,
+  normalizeProductPulseHtmlStyle,
+} from "./product-pulse-html-style-presets";
+import {
   getProductScoreHistoryForProductsForShop,
   getProductScoreHistoryForShop,
 } from "./product-pulse-history.server";
@@ -1095,12 +1101,13 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     return { status: "validation_error", message: "Shopify Admin access is required to apply this action." };
   }
 
+  const htmlStyle = normalizeProductPulseHtmlStyle((await getProductPulseSettings(snapshot.shop)).htmlStyle);
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
   const normalizedField = String(payload.field || "").toLowerCase();
 
   if (isFaqRecommendationAction(action, payload)) {
-    return applyFaqRecommendationAction({ admin, snapshot, action, payload });
+    return applyFaqRecommendationAction({ admin, snapshot, action, payload, htmlStyle });
   }
 
   if (normalizedId.includes("add-to-watchlist")) {
@@ -1313,6 +1320,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
       currentHtml: currentProduct.descriptionHtml || "",
       changes: payload.descriptionChanges,
       action,
+      htmlStyle,
     });
     if (!descriptionHtml) return { status: "validation_error", message: "This description action does not include text to apply." };
     const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
@@ -1336,6 +1344,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
       draftText: payload.draftText,
       operation,
       action,
+      htmlStyle,
     });
     const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
     if (result.status === "validation_error") return result;
@@ -1532,7 +1541,7 @@ async function addProductTags(admin, productGid, tags) {
   }
 }
 
-async function applyFaqRecommendationAction({ admin, snapshot, action, payload }) {
+async function applyFaqRecommendationAction({ admin, snapshot, action, payload, htmlStyle }) {
   const variant = getFaqApplyVariant(payload);
   const faqItems = normalizeFaqItemsForApply(payload.faqItems, payload.draftText);
   if (!faqItems.length) {
@@ -1547,6 +1556,7 @@ async function applyFaqRecommendationAction({ admin, snapshot, action, payload }
       type: metafield.type,
       faqItems,
       sourceActionId: action.id,
+      htmlStyle,
     });
     if (result.status === "validation_error") return result;
     return {
@@ -1554,7 +1564,7 @@ async function applyFaqRecommendationAction({ admin, snapshot, action, payload }
       change: {
         target: "Product metafield",
         operation: "set",
-        value: buildProductPulseFaqHtml({ faqItems, variant: "description-section", action }),
+        value: buildProductPulseFaqHtml({ faqItems, variant: "description-section", action, htmlStyle }),
         namespace: metafield.namespace,
         key: metafield.key,
         type: metafield.type,
@@ -1564,7 +1574,7 @@ async function applyFaqRecommendationAction({ admin, snapshot, action, payload }
 
   const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
   if (currentProduct.status === "validation_error") return currentProduct;
-  const faqHtml = buildProductPulseFaqHtml({ faqItems, variant, action });
+  const faqHtml = buildProductPulseFaqHtml({ faqItems, variant, action, htmlStyle });
   const mergedFaqHtml = payload.existingFaqDetected
     ? mergeFaqItemsIntoExistingDescriptionHtml({
         descriptionHtml: currentProduct.descriptionHtml || "",
@@ -1658,14 +1668,19 @@ function buildProductPulseDomId(prefix, value) {
   return `${prefix}-${normalized || "item"}`;
 }
 
-function buildProductPulseFaqHtml({ faqItems, variant, action }) {
+function buildProductPulseFaqHtml({ faqItems, variant, action, htmlStyle }) {
   const actionId = escapeHtml(action.id || "product-faq");
-  const calloutAttributes = buildProductPulseCalloutAttributes(actionId, "productpulse-faq");
   const headingHtml = buildProductPulseCalloutHeading("Frequently asked questions");
   const itemsHtml = buildProductPulseFaqItemsHtml(faqItems);
 
   if (variant === "description-section") {
-    return `<section ${calloutAttributes}>\n${headingHtml}\n<dl style="margin:0;">\n${itemsHtml}\n</dl>\n</section>`;
+    return buildProductPulseStyledHtmlBlock({
+      actionId,
+      className: "productpulse-faq",
+      title: "Frequently asked questions",
+      contentHtml: `<dl style="margin:0;">\n${itemsHtml}\n</dl>`,
+      htmlStyle,
+    });
   }
 
   if (variant === "description-modal") {
@@ -1681,10 +1696,24 @@ function buildProductPulseFaqHtml({ faqItems, variant, action }) {
       `#${escapedModalId}[open]{display:block;}`,
       "</style>",
     ].join("");
-    return `<section ${calloutAttributes}>\n${modalStyles}\n<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">\n<div>\n${headingHtml}\n<p style="margin:0;color:#475569;line-height:1.55;font-size:14px;">Open a focused FAQ without expanding the full product description.</p>\n</div>\n<button type="button" onclick="var d=document.getElementById('${escapedModalId}');if(d&&d.showModal)d.showModal();" style="appearance:none;border:0;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800;padding:10px 14px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(99,102,241,.18);">View FAQ</button>\n</div>\n<dialog id="${escapedModalId}" aria-label="Frequently asked questions">\n<div style="padding:24px;max-height:calc(100vh - 48px);overflow:auto;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);">\n<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #e5e7eb;padding-bottom:14px;margin-bottom:16px;">\n<div>\n<p style="margin:0 0 6px;color:#4f46e5;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;">Product FAQ</p>\n<h3 style="margin:0;color:#111827;font-size:22px;line-height:1.2;font-weight:850;">Frequently asked questions</h3>\n<p style="margin:8px 0 0;color:#64748b;font-size:14px;line-height:1.5;">Quick answers based on the product details and customer evidence.</p>\n</div>\n<form method="dialog" style="margin:0;">\n<button type="submit" aria-label="Close FAQ modal" style="appearance:none;width:38px;height:38px;border:1px solid #dbe3ef;border-radius:12px;background:#ffffff;color:#334155;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.06);">&times;</button>\n</form>\n</div>\n<dl style="margin:0;display:grid;gap:0;">\n${modalItemsHtml}\n</dl>\n<form method="dialog" style="margin:22px 0 0;display:flex;justify-content:flex-end;">\n<button type="submit" style="appearance:none;border:0;border-radius:12px;background:#1f2937;color:#ffffff;font-weight:800;padding:11px 18px;cursor:pointer;box-shadow:0 8px 18px rgba(15,23,42,.18);">Close</button>\n</form>\n</div>\n</dialog>\n</section>`;
+    return buildProductPulseStyledHtmlBlock({
+      actionId,
+      className: "productpulse-faq",
+      title: "Frequently asked questions",
+      contentHtml: `${modalStyles}\n<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">\n<div>\n${headingHtml}\n<p style="margin:0;color:#475569;line-height:1.55;font-size:14px;">Open a focused FAQ without expanding the full product description.</p>\n</div>\n<button type="button" onclick="var d=document.getElementById('${escapedModalId}');if(d&&d.showModal)d.showModal();" style="appearance:none;border:0;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800;padding:10px 14px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(99,102,241,.18);">View FAQ</button>\n</div>\n<dialog id="${escapedModalId}" aria-label="Frequently asked questions">\n<div style="padding:24px;max-height:calc(100vh - 48px);overflow:auto;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);">\n<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #e5e7eb;padding-bottom:14px;margin-bottom:16px;">\n<div>\n<p style="margin:0 0 6px;color:#4f46e5;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;">Product FAQ</p>\n<h3 style="margin:0;color:#111827;font-size:22px;line-height:1.2;font-weight:850;">Frequently asked questions</h3>\n<p style="margin:8px 0 0;color:#64748b;font-size:14px;line-height:1.5;">Quick answers based on the product details and customer evidence.</p>\n</div>\n<form method="dialog" style="margin:0;">\n<button type="submit" aria-label="Close FAQ modal" style="appearance:none;width:38px;height:38px;border:1px solid #dbe3ef;border-radius:12px;background:#ffffff;color:#334155;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.06);">&times;</button>\n</form>\n</div>\n<dl style="margin:0;display:grid;gap:0;">\n${modalItemsHtml}\n</dl>\n<form method="dialog" style="margin:22px 0 0;display:flex;justify-content:flex-end;">\n<button type="submit" style="appearance:none;border:0;border-radius:12px;background:#1f2937;color:#ffffff;font-weight:800;padding:11px 18px;cursor:pointer;box-shadow:0 8px 18px rgba(15,23,42,.18);">Close</button>\n</form>\n</div>\n</dialog>`,
+      htmlStyle,
+      includeHeading: false,
+    });
   }
 
-  return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>\n</section>`;
+  return buildProductPulseStyledHtmlBlock({
+    actionId,
+    className: "productpulse-faq",
+    title: "Frequently asked questions",
+    contentHtml: `<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>`,
+    htmlStyle,
+    includeHeading: false,
+  });
 }
 
 function buildProductPulseFaqItemsHtml(faqItems = []) {
@@ -1733,12 +1762,13 @@ function normalizeShopifyMetafieldKey(value) {
   return String(value || "").trim().replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "faq_html";
 }
 
-async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId }) {
+async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId, htmlStyle }) {
   try {
     const value = buildProductPulseFaqHtml({
       faqItems,
       variant: "description-section",
       action: { id: sourceActionId || "product-faq-metafield" },
+      htmlStyle,
     });
     const response = await admin.graphql(
       `#graphql
@@ -1839,7 +1869,7 @@ function getDescriptionOperationLabel(operation) {
   return "Product description was updated";
 }
 
-function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action }) {
+function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action, htmlStyle }) {
   if (operation === "replace" && action?.payload?.preserveHtml && action?.payload?.descriptionReplacements?.length && currentHtml) {
     const patchedHtml = applyDescriptionHtmlReplacements(currentHtml, action.payload.descriptionReplacements);
     if (patchedHtml.changed) return patchedHtml.html;
@@ -1851,19 +1881,19 @@ function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation,
     });
     if (placementDraft) {
       const blocks = [];
-      if (placementDraft.prependText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.prependText, action));
+      if (placementDraft.prependText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.prependText, action, htmlStyle));
       blocks.push(currentHtml);
-      if (placementDraft.appendText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.appendText, action));
+      if (placementDraft.appendText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.appendText, action, htmlStyle));
       return blocks.filter(Boolean).join("\n");
     }
   }
-  if (operation === "replace") return buildProductPulseDescriptionReplacement(draftText, action);
-  const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action);
+  if (operation === "replace") return buildProductPulseDescriptionReplacement(draftText, action, htmlStyle);
+  const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action, htmlStyle);
   if (operation === "append") return [currentHtml, suggestionHtml].filter(Boolean).join("\n");
   return [suggestionHtml, currentHtml].filter(Boolean).join("\n");
 }
 
-function buildUpdatedProductDescriptionHtmlFromChanges({ currentHtml, changes = [], action }) {
+function buildUpdatedProductDescriptionHtmlFromChanges({ currentHtml, changes = [], action, htmlStyle }) {
   const normalizedChanges = normalizeDescriptionChangesOverride(changes);
   if (!normalizedChanges.length) return "";
 
@@ -1873,17 +1903,17 @@ function buildUpdatedProductDescriptionHtmlFromChanges({ currentHtml, changes = 
   const blocks = [];
 
   prependChanges.forEach((change) => {
-    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change)));
+    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change), htmlStyle));
   });
 
   if (replacementChange) {
-    blocks.push(buildProductPulseDescriptionReplacement(replacementChange.text, buildDescriptionChangeAction(action, replacementChange)));
+    blocks.push(buildProductPulseDescriptionReplacement(replacementChange.text, buildDescriptionChangeAction(action, replacementChange), htmlStyle));
   } else if (currentHtml) {
     blocks.push(currentHtml);
   }
 
   appendChanges.forEach((change) => {
-    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change)));
+    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change), htmlStyle));
   });
 
   return blocks.filter(Boolean).join("\n");
@@ -1931,24 +1961,37 @@ function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildProductPulseDescriptionBlock(text, action) {
+function buildProductPulseDescriptionBlock(text, action, htmlStyle) {
   const heading = String(action.id || "").includes("faq") ? "Product FAQ" : "Product note";
   const actionId = escapeHtml(action.id || "product-action");
-  return `<section ${buildProductPulseCalloutAttributes(actionId, "productpulse-note")}>\n${buildProductPulseCalloutHeading(heading)}\n${buildHtmlParagraphs(text)}\n</section>`;
+  return buildProductPulseStyledHtmlBlock({
+    actionId,
+    className: "productpulse-note",
+    title: heading,
+    contentHtml: buildHtmlParagraphs(text, htmlStyle),
+    htmlStyle,
+  });
 }
 
-function buildProductPulseDescriptionReplacement(text, action) {
+function buildProductPulseDescriptionReplacement(text, action, htmlStyle) {
   const actionId = escapeHtml(action.id || "product-action");
-  return `<div ${buildProductPulseCalloutAttributes(actionId, "productpulse-description-update")}>\n${buildProductPulseCalloutHeading("Updated product description")}\n${buildHtmlParagraphs(text)}\n</div>`;
+  return buildProductPulseStyledHtmlBlock({
+    actionId,
+    className: "productpulse-description-update",
+    title: "Updated product description",
+    contentHtml: buildHtmlParagraphs(text, htmlStyle),
+    htmlStyle,
+  });
 }
 
-function buildHtmlParagraphs(text) {
+function buildHtmlParagraphs(text, htmlStyle) {
   if (containsAllowedProductPulseHtml(text)) return sanitizeProductPulseDescriptionHtml(text);
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
   return String(text || "")
     .split(/\n{2,}|\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => `<p style="margin:0 0 10px;color:#374151;line-height:1.6;">${escapeHtml(line)}</p>`)
+    .map((line) => `<p style="${escapeHtml(preset.paragraphStyle)}">${escapeHtml(line)}</p>`)
     .join("\n");
 }
 
@@ -1990,16 +2033,39 @@ function sanitizeProductPulseDescriptionTag(tag = "") {
   return escapeHtml(selfClosing ? `<${tagName} />` : tag);
 }
 
-function buildProductPulseCalloutAttributes(actionId, className = "productpulse-callout") {
+function buildProductPulseStyledHtmlBlock({ actionId, className, title, contentHtml, htmlStyle, includeHeading = true }) {
+  const style = normalizeProductPulseHtmlStyle(htmlStyle);
+  const preset = getProductPulseHtmlStylePreset(style.preset);
+  const template = getProductPulseHtmlStyleTemplate(style);
+  const attributes = buildProductPulseCalloutAttributes(actionId, className, style);
+  const headingHtml = includeHeading ? buildProductPulseCalloutHeading(title, style) : "";
+  const rendered = template
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes, attributes)
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.title, escapeHtml(title))
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.headingHtml, headingHtml)
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml, contentHtml || "");
+
+  if (rendered.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml)) {
+    return `<section ${attributes}>\n${headingHtml}\n${contentHtml || ""}\n</section>`;
+  }
+  if (!rendered.includes("data-productpulse-action=") && !template.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes)) {
+    return `<section ${attributes}>\n${rendered}\n</section>`;
+  }
+  return rendered.replaceAll("__PRODUCTPULSE_PRESET_TONE__", escapeHtml(preset.tone || "blue"));
+}
+
+function buildProductPulseCalloutAttributes(actionId, className = "productpulse-callout", htmlStyle) {
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
   return [
     `data-productpulse-action="${actionId}"`,
     `class="${escapeHtml(className)} productpulse-callout"`,
-    "style=\"margin:18px 0;padding:16px 18px;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;border-radius:12px;background:#eff6ff;color:#1f2937;box-shadow:0 1px 2px rgba(15,23,42,0.04);\"",
+    `style="${escapeHtml(preset.attributeStyle)}"`,
   ].join(" ");
 }
 
-function buildProductPulseCalloutHeading(label) {
-  return `<p style="margin:0 0 10px;color:#1d4ed8;font-size:12px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;">${escapeHtml(label)}</p>`;
+function buildProductPulseCalloutHeading(label, htmlStyle) {
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
+  return `<p style="${escapeHtml(preset.headingStyle)}">${escapeHtml(label)}</p>`;
 }
 
 function extractPlacedDescriptionDraft({ currentText = "", draftText = "" } = {}) {

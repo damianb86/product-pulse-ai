@@ -1,4 +1,9 @@
 import prisma from "../db.server";
+import {
+  PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET,
+  normalizeProductPulseHtmlStyle,
+  validateProductPulseHtmlStyle,
+} from "./product-pulse-html-style-presets";
 
 export const PRODUCT_PULSE_SETTINGS_SOURCE_KEY = "__productpulse_settings";
 export const PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES = 500;
@@ -19,6 +24,10 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   },
   analysis: {
     lookbackDays: 60,
+  },
+  htmlStyle: {
+    preset: PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET,
+    customTemplate: "",
   },
 };
 
@@ -89,6 +98,7 @@ export function normalizeProductPulseSettings(input = {}) {
   const momentum = source.momentum && typeof source.momentum === "object" ? source.momentum : {};
   const diagnosis = source.diagnosis && typeof source.diagnosis === "object" ? source.diagnosis : {};
   const analysis = source.analysis && typeof source.analysis === "object" ? source.analysis : {};
+  const htmlStyle = source.htmlStyle && typeof source.htmlStyle === "object" ? source.htmlStyle : {};
 
   const minimumScore = clampInteger(risk.minimumScore, 0, 90, DEFAULT_PRODUCT_PULSE_SETTINGS.risk.minimumScore);
   const mediumThreshold = clampInteger(
@@ -129,6 +139,7 @@ export function normalizeProductPulseSettings(input = {}) {
         DEFAULT_PRODUCT_PULSE_SETTINGS.analysis.lookbackDays,
       ),
     },
+    htmlStyle: normalizeProductPulseHtmlStyle(htmlStyle),
   };
 }
 
@@ -148,6 +159,10 @@ export function parseSettingsFormData(formData) {
     analysis: {
       lookbackDays: formDataNumber(formData, "analysisLookbackDays"),
     },
+    htmlStyle: {
+      preset: String(formData.get("htmlStylePreset") || "").trim(),
+      customTemplate: String(formData.get("htmlStyleCustomTemplate") || "").trim(),
+    },
   };
 }
 
@@ -156,6 +171,7 @@ export function validateProductPulseSettings(input = {}) {
   const momentum = input.momentum || {};
   const diagnosis = input.diagnosis || {};
   const analysis = input.analysis || {};
+  const htmlStyle = input.htmlStyle || {};
   const minimumScore = Number(risk.minimumScore);
   const mediumThreshold = Number(risk.mediumThreshold);
   const highThreshold = Number(risk.highThreshold);
@@ -187,6 +203,8 @@ export function validateProductPulseSettings(input = {}) {
   if (!Number.isFinite(lookbackDays) || lookbackDays < PRODUCT_PULSE_MIN_LOOKBACK_DAYS || lookbackDays > PRODUCT_PULSE_MAX_LOOKBACK_DAYS) {
     return `Analysis lookback must be between ${PRODUCT_PULSE_MIN_LOOKBACK_DAYS} and ${PRODUCT_PULSE_MAX_LOOKBACK_DAYS} days.`;
   }
+  const htmlStyleValidation = validateProductPulseHtmlStyle(htmlStyle);
+  if (htmlStyleValidation) return htmlStyleValidation;
 
   return "";
 }

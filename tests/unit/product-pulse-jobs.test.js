@@ -77,6 +77,25 @@ describe("ProductPulse product job helpers", () => {
     expect(modal).toContain("View FAQ");
   });
 
+  it("uses custom HTML style templates for generated ProductPulse description blocks", () => {
+    const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
+      currentHtml: "<p>Existing copy.</p>",
+      draftText: "Add clearer expectation guidance.",
+      operation: "append",
+      action: { id: "add-guidance-note", payload: {} },
+      htmlStyle: {
+        preset: "custom",
+        customTemplate: "<aside {{ATTRIBUTES}}><h3>{{TITLE}}</h3><div class=\"merchant-guidance\">{{CONTENT_HTML}}</div></aside>",
+      },
+    });
+
+    expect(html).toContain("<p>Existing copy.</p>");
+    expect(html).toContain("<aside data-productpulse-action=\"add-guidance-note\"");
+    expect(html).toContain("<h3>Product note</h3>");
+    expect(html).toContain("merchant-guidance");
+    expect(html).toContain("Add clearer expectation guidance.");
+  });
+
   it("adds missing FAQ items to an existing FAQ definition list when possible", () => {
     const currentHtml = [
       "<section class=\"productpulse-faq productpulse-callout\">",
