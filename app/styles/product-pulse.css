@@ -5164,9 +5164,11 @@ s-page[inline-size="large-500"] {
   gap: 7px;
   margin-top: 10px;
   padding: 8px 12px;
+  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.20);
   border-radius: 999px;
-  background: var(--pp-red-soft);
+  background: var(--pp-cloud-white);
   color: var(--pp-risk-red);
+  box-shadow: 0 5px 14px rgba(var(--pp-shadow-rgb), 0.06);
   font-size: 16px;
   font-style: normal;
   font-weight: 900;
@@ -5178,17 +5180,20 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRiskHistoryTrendBadge-green {
-  background: var(--pp-green-soft);
+  border-color: rgba(var(--pp-success-green-rgb), 0.22);
+  background: var(--pp-cloud-white);
   color: var(--pp-success-green);
 }
 
 .ppProductRiskHistoryTrendBadge-orange {
-  background: rgba(var(--pp-warning-amber-rgb), 0.12);
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.24);
+  background: var(--pp-cloud-white);
   color: var(--pp-warning-amber);
 }
 
 .ppProductRiskHistoryTrendBadge-blue {
-  background: var(--pp-blue-soft);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.22);
+  background: var(--pp-cloud-white);
   color: var(--pp-pulse-blue);
 }
 
@@ -5347,8 +5352,8 @@ s-page[inline-size="large-500"] {
 .ppProductRiskHistoryPoint {
   position: absolute;
   z-index: 2;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -5366,12 +5371,18 @@ s-page[inline-size="large-500"] {
   border: 3px solid var(--pp-cloud-white);
   border-radius: inherit;
   background: currentColor;
+  opacity: 0;
   box-shadow: 0 4px 10px rgba(var(--pp-shadow-rgb), 0.20);
+  transform: scale(0.68);
+  transition: opacity 140ms ease, transform 140ms ease, box-shadow 140ms ease;
 }
 
+.ppProductRiskHistoryPoint.isActive > span,
 .ppProductRiskHistoryPoint:focus-visible > span,
 .ppProductRiskHistoryPoint:hover > span {
+  opacity: 1;
   box-shadow: 0 0 0 5px rgba(var(--pp-risk-red-rgb), 0.16), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
+  transform: scale(1);
 }
 
 .ppProductRiskHistoryPanel-green .ppProductRiskHistoryChart,
@@ -5391,7 +5402,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductRiskHistoryMilestone {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   max-width: min(210px, 34%);
   padding: 10px 12px;
   border: 1px solid var(--pp-slate-200);
@@ -5405,19 +5416,56 @@ s-page[inline-size="large-500"] {
   transform: translateX(-90%);
 }
 
-.ppProductRiskHistoryMilestone::after {
-  content: "";
+.ppProductRiskHistoryMilestoneRule {
   position: absolute;
-  bottom: -52px;
-  left: 18px;
+  z-index: 1;
   width: 1px;
-  height: 52px;
-  border-left: 1px dashed rgba(var(--pp-slate-500-rgb), 0.28);
+  border-left: 1px dashed rgba(var(--pp-risk-red-rgb), 0.38);
+  pointer-events: none;
 }
 
-.ppProductRiskHistoryMilestone-right::after {
-  right: 18px;
-  left: auto;
+.ppProductRiskHistoryMilestoneRule::before,
+.ppProductRiskHistoryMilestoneRule::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  border-radius: 999px;
+  transform: translateX(-50%);
+}
+
+.ppProductRiskHistoryMilestoneRule::before {
+  top: 0;
+  width: 7px;
+  height: 7px;
+  background: rgba(var(--pp-risk-red-rgb), 0.78);
+  box-shadow: 0 0 0 5px rgba(var(--pp-risk-red-rgb), 0.10);
+}
+
+.ppProductRiskHistoryMilestoneRule::after {
+  bottom: 0;
+  width: 5px;
+  height: 5px;
+  background: var(--pp-risk-red);
+}
+
+.ppProductRiskHistoryMilestoneRule-orange {
+  border-left-color: rgba(var(--pp-warning-amber-rgb), 0.46);
+}
+
+.ppProductRiskHistoryMilestoneRule-orange::before,
+.ppProductRiskHistoryMilestoneRule-orange::after {
+  background: var(--pp-warning-amber);
+  box-shadow: 0 0 0 5px rgba(var(--pp-warning-amber-rgb), 0.11);
+}
+
+.ppProductRiskHistoryMilestoneRule-green {
+  border-left-color: rgba(var(--pp-success-green-rgb), 0.42);
+}
+
+.ppProductRiskHistoryMilestoneRule-green::before,
+.ppProductRiskHistoryMilestoneRule-green::after {
+  background: var(--pp-success-green);
+  box-shadow: 0 0 0 5px rgba(var(--pp-success-green-rgb), 0.11);
 }
 
 .ppProductRiskHistoryMilestone small,

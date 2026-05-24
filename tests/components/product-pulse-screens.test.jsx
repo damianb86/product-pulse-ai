@@ -1548,9 +1548,12 @@ describe("ProductPulse screens", () => {
     expect(within(historyPanel).getAllByText("Refund pressure increased").length).toBeGreaterThan(0);
     expect(within(historyPanel).getByText("Medium risk 55")).toBeInTheDocument();
     expect(within(historyPanel).getAllByText("3 saved scores · May 1, 2026 to May 17, 2026").length).toBeGreaterThan(0);
+    expect(historyPanel.querySelectorAll(".ppProductRiskHistoryMilestoneRule").length).toBeGreaterThan(0);
     expect(within(historyPanel).queryByText("Fit runs small around waist and inseam")).not.toBeInTheDocument();
 
-    fireEvent.mouseEnter(within(historyPanel).getByRole("button", { name: "May 17, 2026: product risk 92 of 100" }));
+    const latestRiskPoint = within(historyPanel).getByRole("button", { name: "May 17, 2026: product risk 92 of 100" });
+    fireEvent.mouseEnter(latestRiskPoint);
+    expect(latestRiskPoint).toHaveClass("isActive");
     const riskTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppProductRiskHistoryPopover"));
     expect(riskTooltip).toHaveTextContent("Refund pressure increased");
     expect(riskTooltip).toHaveTextContent("Refund rate");

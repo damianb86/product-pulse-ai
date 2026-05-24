@@ -14817,7 +14817,7 @@ function ProductRiskHistoryPanel({ detail }) {
           />
         ))}
         {milestones.map((milestone) => (
-          <ProductRiskHistoryMilestoneLabel milestone={milestone} key={milestone.id} />
+          <ProductRiskHistoryMilestoneLabel milestone={milestone} key={milestone.id} chart={chart} />
         ))}
       </div>
       <div className="ppProductRiskHistoryMeta">
@@ -14850,7 +14850,7 @@ function ProductRiskHistoryPointButton({ point, previousPoint, chartPoint, chart
   return (
     <button
       type="button"
-      className={`ppProductRiskHistoryPoint ppProductRiskHistoryPoint-${pointEvents[0]?.tone || "red"}`}
+      className={`ppProductRiskHistoryPoint ppProductRiskHistoryPoint-${pointEvents[0]?.tone || "red"}${open ? " isActive" : ""}`}
       ref={triggerRef}
       style={{ left, top }}
       aria-label={label}
@@ -14879,16 +14879,31 @@ function ProductRiskHistoryPointButton({ point, previousPoint, chartPoint, chart
   );
 }
 
-function ProductRiskHistoryMilestoneLabel({ milestone }) {
+function ProductRiskHistoryMilestoneLabel({ milestone, chart }) {
   if (!milestone) return null;
+  const chartHeight = Number(chart?.height || 330);
+  const plotBottom = Number(chart?.plot?.bottom || 250);
+  const ruleTop = 6;
+  const ruleBottom = Math.min(88, Math.max(ruleTop + 20, (plotBottom / chartHeight) * 100));
   return (
-    <div
-      className={`ppProductRiskHistoryMilestone ppProductRiskHistoryMilestone-${milestone.align} ppProductRiskHistoryMilestone-${milestone.tone}`}
-      style={{ left: `${milestone.xPercent}%`, top: `${milestone.topPercent}%` }}
-    >
-      <small>{milestone.label}</small>
-      <strong>{milestone.title}</strong>
-    </div>
+    <>
+      <span
+        className={`ppProductRiskHistoryMilestoneRule ppProductRiskHistoryMilestoneRule-${milestone.tone}`}
+        style={{
+          left: `${milestone.xPercent}%`,
+          top: `${ruleTop}%`,
+          height: `${ruleBottom - ruleTop}%`,
+        }}
+        aria-hidden="true"
+      />
+      <div
+        className={`ppProductRiskHistoryMilestone ppProductRiskHistoryMilestone-${milestone.align} ppProductRiskHistoryMilestone-${milestone.tone}`}
+        style={{ left: `${milestone.xPercent}%`, top: `${milestone.topPercent}%` }}
+      >
+        <small>{milestone.label}</small>
+        <strong>{milestone.title}</strong>
+      </div>
+    </>
   );
 }
 
@@ -15143,6 +15158,7 @@ function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
       xPercent: Math.max(12, Math.min(88, (chartPoint.x / 1000) * 100)),
       topPercent: index % 2 === 0 ? 16 : 8,
       align: chartPoint.x > 760 ? "right" : "left",
+      pointYPercent: (chartPoint.y / 330) * 100,
       priority: event.priority || 0,
     });
   }
