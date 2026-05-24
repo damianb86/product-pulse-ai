@@ -1719,8 +1719,8 @@ export function WatchlistScreen({ data = {}, actionData }) {
         </s-section>
 
         <div className="ppWatchlistBottomGrid">
-          <WatchlistActivityPanel activities={activities} />
           <WatchlistTrendPanel trend={trend} />
+          <WatchlistActivityPanel activities={activities} />
           <WatchlistSettingsPanel settings={settings} watchedCount={watchedCount} activeWatchedCount={activeWatchedCount} actionData={actionData} />
         </div>
       </ScreenShell>
@@ -3231,9 +3231,35 @@ function WatchlistActivityPanel({ activities = [], showAllLink = true }) {
 }
 
 function WatchlistTrendPanel({ trend = {} }) {
-  const series = Array.isArray(trend.series) ? trend.series.filter((item) => item.path) : [];
+  const series = useMemo(() => (
+    Array.isArray(trend.series)
+      ? trend.series.filter((item) => item.path).map((item, index) => ({
+        ...item,
+        trendKey: getWatchTrendSeriesKey(item, index),
+      }))
+      : []
+  ), [trend.series]);
+  const defaultVisibleSeriesKeys = useMemo(() => series.slice(0, 5).map((item) => item.trendKey), [series]);
+  const [visibleSeriesKeys, setVisibleSeriesKeys] = useState(() => new Set(defaultVisibleSeriesKeys));
   const hasSeries = series.length > 0;
   const riskScore = Number.isFinite(Number(trend.riskScore)) ? Math.round(Number(trend.riskScore)) : null;
+  const visibleSeries = series.filter((item) => visibleSeriesKeys.has(item.trendKey));
+
+  useEffect(() => {
+    setVisibleSeriesKeys(new Set(defaultVisibleSeriesKeys));
+  }, [defaultVisibleSeriesKeys]);
+
+  const handleToggleSeries = (trendKey) => {
+    setVisibleSeriesKeys((current) => {
+      const next = new Set(current);
+      if (next.has(trendKey)) {
+        next.delete(trendKey);
+      } else {
+        next.add(trendKey);
+      }
+      return next;
+    });
+  };
 
   return (
     <section className="ppWatchlistPanel ppWatchTrendPanel">
@@ -3249,11 +3275,11 @@ function WatchlistTrendPanel({ trend = {} }) {
       </div>
       <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-          {series.map((item) => {
+          {visibleSeries.map((item) => {
             const linePoints = Array.isArray(item.points) && item.points.length ? item.points : parseSvgPointString(item.path);
             return (
               <path
-                key={item.productGid || item.productTitle}
+                key={item.trendKey}
                 className="ppWatchTrendLine"
                 d={buildSmoothSvgPath(linePoints)}
                 stroke={item.color || "#2563EB"}
@@ -3263,13 +3289,23 @@ function WatchlistTrendPanel({ trend = {} }) {
         </svg>
       </div>
       <div className="ppWatchTrendLegend" aria-label="Watched product trend legend">
-        {hasSeries ? series.map((item) => (
-          <Link key={item.productGid || item.productTitle} to={item.href || "/app/products"} title={item.productTitle}>
-            <span style={{ backgroundColor: item.color || "#2563EB" }} aria-hidden="true" />
-            <strong>{item.productTitle || "Watched product"}</strong>
-            <small>{Number.isFinite(Number(item.riskScore)) ? `${item.riskScore} · ${item.riskLabel}` : item.riskLabel || "No data"}</small>
-          </Link>
-        )) : (
+        {hasSeries ? series.map((item) => {
+          const active = visibleSeriesKeys.has(item.trendKey);
+          return (
+            <button
+              aria-pressed={active}
+              className={`ppWatchTrendLegendItem${active ? "" : " isDisabled"}`}
+              key={item.trendKey}
+              onClick={() => handleToggleSeries(item.trendKey)}
+              title={item.productTitle}
+              type="button"
+            >
+              <span style={{ backgroundColor: active ? item.color || "#2563EB" : undefined }} aria-hidden="true" />
+              <strong>{item.productTitle || "Watched product"}</strong>
+              <small>{Number.isFinite(Number(item.riskScore)) ? `${item.riskScore} · ${item.riskLabel}` : item.riskLabel || "No data"}</small>
+            </button>
+          );
+        }) : (
           <span className="ppWatchTrendLegendEmpty">Run diagnostics to start storing score history.</span>
         )}
       </div>
@@ -3283,6 +3319,10 @@ function WatchlistTrendPanel({ trend = {} }) {
       </div>
     </section>
   );
+}
+
+function getWatchTrendSeriesKey(item = {}, index = 0) {
+  return String(item.productGid || item.productId || item.href || item.productTitle || `watch-trend-${index}`);
 }
 
 export function WatchlistActivityScreen({ data = {} }) {

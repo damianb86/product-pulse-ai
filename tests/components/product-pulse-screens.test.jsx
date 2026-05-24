@@ -435,6 +435,42 @@ describe("ProductPulse screens", () => {
                 riskLabel: "Low",
                 path: "0,56 100,54",
               },
+              {
+                productGid: "gid://shopify/Product/3",
+                productTitle: "Canvas Field Bag",
+                href: "/app/products/canvas-field-bag",
+                color: "#0F766E",
+                riskScore: 51,
+                riskLabel: "Medium",
+                path: "0,42 100,49",
+              },
+              {
+                productGid: "gid://shopify/Product/4",
+                productTitle: "Trail Coffee Mug",
+                href: "/app/products/trail-coffee-mug",
+                color: "#EA580C",
+                riskScore: 39,
+                riskLabel: "Low",
+                path: "0,60 100,61",
+              },
+              {
+                productGid: "gid://shopify/Product/5",
+                productTitle: "Desk Cable Dock",
+                href: "/app/products/desk-cable-dock",
+                color: "#DB2777",
+                riskScore: 72,
+                riskLabel: "High",
+                path: "0,34 100,28",
+              },
+              {
+                productGid: "gid://shopify/Product/6",
+                productTitle: "Studio Desk Lamp",
+                href: "/app/products/studio-desk-lamp",
+                color: "#64748B",
+                riskScore: 44,
+                riskLabel: "Low",
+                path: "0,58 100,55",
+              },
             ],
             calloutTitle: "Nintendo New 3DS XL is currently highest at 63/100",
             calloutDetail: "Each line shows saved risk score movement.",
@@ -468,6 +504,18 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Watchlist trend (risk activity)")).toBeInTheDocument();
     expect(screen.getByText("63 · Medium")).toBeInTheDocument();
     expect(screen.getByText("46 · Low")).toBeInTheDocument();
+    const trendChart = screen.getByLabelText("Watchlist product risk trend");
+    const trendLegend = screen.getByLabelText("Watched product trend legend");
+    expect(trendChart.querySelectorAll(".ppWatchTrendLine")).toHaveLength(5);
+    const hiddenTrendToggle = within(trendLegend).getByRole("button", { name: /Studio Desk Lamp/ });
+    expect(hiddenTrendToggle).toHaveAttribute("aria-pressed", "false");
+    expect(hiddenTrendToggle).toHaveClass("isDisabled");
+    fireEvent.click(hiddenTrendToggle);
+    expect(hiddenTrendToggle).toHaveAttribute("aria-pressed", "true");
+    expect(hiddenTrendToggle).not.toHaveClass("isDisabled");
+    expect(trendChart.querySelectorAll(".ppWatchTrendLine")).toHaveLength(6);
+    fireEvent.click(within(trendLegend).getByRole("button", { name: /Nintendo New 3DS XL/ }));
+    expect(trendChart.querySelectorAll(".ppWatchTrendLine")).toHaveLength(5);
     expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
     expect(screen.getByRole("link", { name: "View Watchlist report for Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl");
     expect(screen.queryByRole("dialog", { name: "Nintendo New 3DS XL" })).not.toBeInTheDocument();
