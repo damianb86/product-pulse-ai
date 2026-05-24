@@ -2682,6 +2682,11 @@ describe("ProductPulse screens", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
 
     const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
+    const currentDescriptionPanel = confirmDialog.querySelector(".ppActionConfirmCurrent");
+    expect(currentDescriptionPanel).not.toBeNull();
+    expect(currentDescriptionPanel.querySelectorAll(".ppActionPreviewInsertedText")).toHaveLength(2);
+    expect(within(currentDescriptionPanel).getByText("Edited fit note for layering. More room.")).toBeInTheDocument();
+    expect(within(currentDescriptionPanel).getByText("Edited technical specifications block.")).toBeInTheDocument();
     expect(confirmDialog).toHaveTextContent("Edited fit note for layering.");
     expect(confirmDialog).toHaveTextContent("Edited technical specifications block.");
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "Accept and apply change" }));

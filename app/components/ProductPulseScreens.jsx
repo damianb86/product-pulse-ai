@@ -7543,6 +7543,7 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
   if (descriptionActions.length <= 1 && descriptionChanges.length <= 1) return actions;
 
   const payloads = descriptionActions.map((action) => action.payload || {});
+  const currentDescriptionText = getCurrentDescriptionForAction(product, payloads.find((payload) => payload.currentDescriptionText) || {});
   const groupMetadata = getDescriptionActionGroupMetadata(descriptionActions, product);
   const groupedAction = {
     id: "product-description-changes",
@@ -7553,6 +7554,7 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
     payload: {
       descriptionChangeGroup: true,
       descriptionChanges,
+      currentDescriptionText,
       operation: "replace",
       trigger: "ProductPulse found multiple product-description improvements that should be reviewed together.",
       proposedChange: "Apply selected description changes in one Shopify update.",
@@ -7734,6 +7736,7 @@ function buildDescriptionChangeDescriptor(action = {}, product = {}) {
     operation: normalizedText.operation,
     operationLabel: getDescriptionOperationText(normalizedText.operation),
     text: normalizedText.text,
+    currentDescriptionText: currentDescription,
     intro: getDescriptionActionIntro(normalizedText.operation, action),
     reason: getDescriptionChangeSpecificReason(action, product, normalizedText.operation) || getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
     causeKey: payload.causeKey || "",
@@ -8205,11 +8208,13 @@ function getFaqPreviewItems(application = {}, detailText = "") {
 
 function getGroupedDescriptionActionApplication(action, product = null, options = {}) {
   const payload = action.payload || {};
-  const currentDescription = getCurrentDescriptionForAction(product, payload);
   const editedDescriptionChangeTexts = options.editedDescriptionChangeTexts && typeof options.editedDescriptionChangeTexts === "object"
     ? options.editedDescriptionChangeTexts
     : {};
-  const descriptionChanges = normalizeDescriptionChangesForApplication(payload.descriptionChanges)
+  const normalizedDescriptionChanges = normalizeDescriptionChangesForApplication(payload.descriptionChanges);
+  const fallbackCurrentDescription = normalizedDescriptionChanges.find((change) => String(change.currentDescriptionText || "").trim())?.currentDescriptionText || "";
+  const currentDescription = getCurrentDescriptionForAction(product, payload) || fallbackCurrentDescription;
+  const descriptionChanges = normalizedDescriptionChanges
     .map((change) => Object.prototype.hasOwnProperty.call(editedDescriptionChangeTexts, change.id)
       ? { ...change, text: preserveEditableActionText(editedDescriptionChangeTexts[change.id]) }
       : change);
@@ -8262,6 +8267,7 @@ function normalizeDescriptionChangesForApplication(changes = []) {
         operation,
         operationLabel: change.operationLabel || getDescriptionOperationText(operation),
         text,
+        currentDescriptionText: String(change.currentDescriptionText || ""),
         intro: change.intro || getDescriptionActionIntro(operation),
         reason: change.reason || "",
       };
@@ -22292,6 +22298,35 @@ function updateSelectedDescriptionChangeIds(current = [], changeId = "", selecte
 
 function CurrentDescriptionInsertionPreview({ application, asPre = false }) {
   const currentValue = String(application.currentValue || "");
+  const target = String(application.target || "").toLowerCase();
+  const isDescription = target.includes("description");
+
+  if (isDescription) {
+    const preview = getRecommendedActionPreviewParts(application, application.value || "");
+    const afterHighlights = [
+      ...(Array.isArray(preview.afterHighlights) ? preview.afterHighlights : []),
+      ...(preview.highlightText ? [{ text: preview.highlightText, position: preview.highlightPosition || "before" }] : []),
+    ];
+    const leadingAfterHighlights = afterHighlights.filter((highlight) => highlight.position !== "after");
+    const trailingAfterHighlights = afterHighlights.filter((highlight) => highlight.position === "after");
+
+    if (leadingAfterHighlights.length || trailingAfterHighlights.length || preview.afterText) {
+      return (
+        <div className={`ppDescriptionInsertionPreview ppDescriptionInsertionPreview-composed${asPre ? " isPre" : ""}`.trim()}>
+          {leadingAfterHighlights.map((highlight, index) => (
+            <ActionPreviewHighlightBlock highlight={highlight} key={`current-highlight-leading-${index}`} />
+          ))}
+          {preview.afterText && (asPre
+            ? <pre>{renderAnalysisText(preview.afterText)}</pre>
+            : <p>{renderAnalysisText(preview.afterText)}</p>)}
+          {trailingAfterHighlights.map((highlight, index) => (
+            <ActionPreviewHighlightBlock highlight={highlight} key={`current-highlight-trailing-${index}`} />
+          ))}
+        </div>
+      );
+    }
+  }
+
   const marker = getDescriptionInsertionMarker(application);
   const content = (
     <>
