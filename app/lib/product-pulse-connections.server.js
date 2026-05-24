@@ -4,7 +4,13 @@ import {
   connectSourceDefinitions,
   getConnectSourceDefinition,
 } from "./product-pulse-connect";
-import { CSV_REVIEW_IMPORT_DISPLAY_NAME, CsvReviewImportError, processCsvReviewUpload } from "./product-pulse-csv.server";
+import {
+  CSV_REVIEW_IMPORT_DISPLAY_NAME,
+  CsvReviewImportError,
+  analyzeCsvReviewUpload,
+  finalizeCsvReviewUpload,
+  processCsvReviewUpload,
+} from "./product-pulse-csv.server";
 import { PRODUCT_PULSE_SETTINGS_SOURCE_KEY } from "./product-pulse-settings.server";
 
 export async function getConnectViewDataForShop(shop) {
@@ -77,10 +83,66 @@ export async function connectChatMeReviews(shop, privateApiToken) {
   return { status: "success", message: "Connected to ChatMe.", providerKey: "chatmeReviews" };
 }
 
-export async function uploadCsvReviews(shop, file) {
+export async function previewCsvReviews(shop, file, { admin } = {}) {
   const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
   try {
-    const result = await processCsvReviewUpload({ shop, file });
+    const result = await analyzeCsvReviewUpload({ shop, file, admin });
+    const displayFileName = result.displayFileName || CSV_REVIEW_IMPORT_DISPLAY_NAME;
+    return {
+      status: "csv_preview",
+      message: `${displayFileName} was analyzed. Review the preview before saving it.`,
+      providerKey: "csvReviews",
+      csvPreview: buildCsvPreviewActionPayload(result),
+    };
+  } catch (error) {
+    return {
+      status: error instanceof CsvReviewImportError ? "validation_error" : "error",
+      message: error instanceof CsvReviewImportError
+        ? error.message
+        : `No se pudo procesar ${fileName}. ${error?.message || "Intentalo de nuevo más tarde."}`,
+      providerKey: "csvReviews",
+      errorCode: error?.code || "CSV_IMPORT_FAILED",
+      errorDetails: error?.details || null,
+    };
+  }
+}
+
+export async function confirmCsvReviews(shop, preview) {
+  const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
+  try {
+    const result = await finalizeCsvReviewUpload({ shop, preview });
+    return saveCsvReviewSource(shop, result);
+  } catch (error) {
+    return {
+      status: error instanceof CsvReviewImportError ? "validation_error" : "error",
+      message: error instanceof CsvReviewImportError
+        ? error.message
+        : `No se pudo guardar ${fileName}. ${error?.message || "Intentalo de nuevo más tarde."}`,
+      providerKey: "csvReviews",
+      errorCode: error?.code || "CSV_CONFIRM_FAILED",
+      errorDetails: error?.details || null,
+    };
+  }
+}
+
+export async function uploadCsvReviews(shop, file, { admin } = {}) {
+  const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
+  try {
+    const result = await processCsvReviewUpload({ shop, file, admin });
+    return saveCsvReviewSource(shop, result);
+  } catch (error) {
+    return {
+      status: error instanceof CsvReviewImportError ? "validation_error" : "error",
+      message: error instanceof CsvReviewImportError
+        ? error.message
+        : `No se pudo procesar ${fileName}. ${error?.message || "Intentalo de nuevo más tarde."}`,
+      providerKey: "csvReviews",
+      errorCode: error?.code || "CSV_IMPORT_FAILED",
+    };
+  }
+}
+
+async function saveCsvReviewSource(shop, result) {
     const displayFileName = result.displayFileName || CSV_REVIEW_IMPORT_DISPLAY_NAME;
     const now = new Date();
     await upsertSource(shop, "csvReviews", {
@@ -101,9 +163,10 @@ export async function uploadCsvReviews(shop, file) {
         storageKey: result.storageKey,
         normalizedRowCount: result.normalizedRowCount,
         totalRowCount: result.totalRows,
-        rejectedRowCount: result.rejectedRows.length,
+        rejectedRowCount: getCsvRejectedRowCount(result),
         mappedColumns: result.mapping,
         originalHeaders: result.headers,
+        productRelation: result.productRelation || null,
       },
       connectedAt: now,
       disabledAt: null,
@@ -116,20 +179,35 @@ export async function uploadCsvReviews(shop, file) {
       providerKey: "csvReviews",
       csvImport: {
         rows: result.normalizedRowCount,
-        rejectedRows: result.rejectedRows.length,
+        rejectedRows: getCsvRejectedRowCount(result),
         normalizedFilePath: result.normalizedFilePath,
       },
     };
-  } catch (error) {
-    return {
-      status: error instanceof CsvReviewImportError ? "validation_error" : "error",
-      message: error instanceof CsvReviewImportError
-        ? error.message
-        : `No se pudo procesar ${fileName}. ${error?.message || "Intentalo de nuevo más tarde."}`,
-      providerKey: "csvReviews",
-      errorCode: error?.code || "CSV_IMPORT_FAILED",
-    };
-  }
+}
+
+function getCsvRejectedRowCount(result = {}) {
+  const explicit = Number(result.rejectedRowCount);
+  if (Number.isFinite(explicit)) return explicit;
+  return Array.isArray(result.rejectedRows) ? result.rejectedRows.length : 0;
+}
+
+function buildCsvPreviewActionPayload(result) {
+  return {
+    fileName: result.fileName,
+    displayFileName: result.displayFileName,
+    checksum: result.checksum,
+    headers: result.headers,
+    mapping: result.mapping,
+    productRelation: result.productRelation || null,
+    totalRows: result.totalRows,
+    normalizedRowCount: result.normalizedRowCount,
+    rejectedRowCount: result.rejectedRows.length,
+    rejectedRows: result.rejectedRows.slice(0, 10),
+    previewRows: result.previewRows,
+    normalizedFileName: result.normalizedFileName,
+    importId: result.importId,
+    storageKey: result.storageKey,
+  };
 }
 
 export async function setSourceActive(shop, sourceKey, active) {

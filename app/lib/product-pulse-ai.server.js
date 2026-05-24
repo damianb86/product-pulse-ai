@@ -34,6 +34,12 @@ const AI_TASKS = {
     maxOutputTokens: 1600,
     temperature: 0.1,
   },
+  content_coverage_validation: {
+    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-nano",
+    maxOutputTokens: 1800,
+    temperature: 0,
+  },
   action_rationale: {
     modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
     fallbackModel: "gpt-5.4-nano",
@@ -195,6 +201,34 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     recommendation_copy: {},
   });
 
+  let contentCoverageValidationResponse = null;
+  let contentCoverageValidation = { coverage: [], summary: "No product-content coverage validation was run." };
+  const contentCoveragePrompt = buildContentCoverageValidationPrompt(input, report, contentGaps);
+  if (contentCoveragePrompt) {
+    try {
+      contentCoverageValidationResponse = await generateAiText({
+        shop,
+        jobId,
+        task: "content_coverage_validation",
+        prompt: contentCoveragePrompt,
+        usageTracker,
+      });
+      contentCoverageValidation = parseAiJson(contentCoverageValidationResponse.text, {
+        coverage: [],
+        summary: "Product-content coverage validation was unavailable.",
+      });
+    } catch (error) {
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.content_coverage_validation_failed",
+        message: "AI product-content coverage validation failed; deterministic duplicate checks will be used.",
+        data: { error: serializeError(error) },
+      }).catch(() => {});
+    }
+  }
+
   const actionRationaleResponse = await generateAiText({
     shop,
     jobId,
@@ -253,6 +287,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       classification: pickAiModelSummary(classificationResponse),
       emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
       contentGap: pickAiModelSummary(gapResponse),
+      contentCoverageValidation: contentCoverageValidationResponse ? pickAiModelSummary(contentCoverageValidationResponse) : null,
       actionRationale: pickAiModelSummary(actionRationaleResponse),
       relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
       finalReport: pickAiModelSummary(reportResponse),
@@ -260,6 +295,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     classification,
     emergentSentiments,
     contentGaps,
+    contentCoverageValidation,
     actionRationales,
     relationshipInsights,
     report,
@@ -267,6 +303,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       classification: classificationResponse.text,
       emergentSentiments: emergentSentimentResponse.text,
       contentGaps: gapResponse.text,
+      contentCoverageValidation: contentCoverageValidationResponse?.text || "",
       actionRationales: actionRationaleResponse.text,
       relationshipInsights: relationshipInsightsResponse?.text || "",
       report: reportResponse.text,
@@ -514,6 +551,8 @@ function buildContentGapPrompt(input, classification) {
     "Score content quality by shopper decision completeness, not just whether the copy is coherent. Short descriptions can be accurate but should not receive a near-perfect score if they omit specs, use cases, limits, included items, sizing, materials, compatibility, care or expectation guidance.",
     "As a calibration guide: descriptions below 35 words are usually thin and should rarely score above 70; descriptions below 50 words should rarely score above 80 unless the product is genuinely simple and all purchase-critical details are present.",
     "Do not treat product type, tags, or collections missing from the description as a primary product problem. Treat them as low-priority copy improvement suggestions unless they create a real contradiction.",
+    "Before marking a content gap, compare the gap against the existing plain description and description_html_excerpt. If the product already covers the buyer question, FAQ, usage limit, fit note, compatibility note, material/care guidance, or expectation setting, do not report it as missing.",
+    "If existing copy partially covers a gap, report only the missing delta. Do not ask for a new FAQ or full description rewrite when a small addition to the current copy is enough.",
     "A subjective mismatch must be explicitly grounded in the supplied fields.",
     "Return valid JSON only. Do not calculate financial metrics, rates, customer-signal counts, confidence, or risk score.",
     "Schema:",
@@ -568,6 +607,9 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Only provide a full product_description rewrite when the current description is missing, very short, incoherent, contradictory, or clearly about the wrong product. If the current description is good and only needs a specific clarification, leave product_description empty or provide a short add-on note instead of a full rewrite.",
     "If the issue is a specific contradiction such as description text mentioning a color or variant that is not available, do not rewrite the whole description. Keep product_description empty unless your proposed text actually corrects that contradiction.",
     "Never return product_description as a copy of the current description. If you cannot improve it materially, return an empty string.",
+    "Before writing pdp_copy, product_description, specs_details_block, or FAQ content, compare your proposal against Product.description and Product.descriptionHtml. Do not restate content that is already covered, including existing FAQ questions and answers.",
+    "If the current product page partially covers the issue, write only the missing sentence, bullet, or FAQ item. The app will apply that delta to the existing product content and highlight only the added text.",
+    "For FAQ items, do not generate questions that are already present or already answered by the product description. If an existing FAQ is present, generate only new missing questions and match the existing concise question/answer style.",
     "When recommendation candidates include a FAQ, generate 2 to 4 concrete customer-facing FAQ items. Each FAQ must answer a repeated buyer uncertainty, content gap, compatibility concern, fit/size concern, return/review pattern, or product expectation issue. Do not invent precise specs; if a fact is not known, word the answer as guidance to check the selected variant, size, materials, compatibility, or product detail.",
     "When recommendation candidates include add-specs-details-block, generate recommendation_copy.specs_details_block. This must be a useful technical/customer-facing checklist for the product type and the specific issue evidence, not a recap of vendor, product type, option names, or SKUs.",
     "For specs_details_block, infer the kinds of details a shopper would expect from the product title, description, product type, variants, returns, refunds, and customer language. Use concise bullet lines with titles such as voltage, capacity, dimensions, temperature range, timer behavior, water/condensation guidance, compatibility, materials, care, safety limits, included items, or variant-specific notes when relevant.",
@@ -675,6 +717,110 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Recommendation candidates chosen by rules:",
     JSON.stringify(input?.recommendationCandidates || [], null, 2),
   ].join("\n\n");
+}
+
+function buildContentCoverageValidationPrompt(input, report, contentGaps) {
+  const product = input?.product || {};
+  const candidates = buildContentCoverageValidationCandidates(report);
+  if (!candidates.length) return "";
+
+  return [
+    "You are validating whether proposed Shopify product-page copy is already covered by the current product page.",
+    "This is a duplicate-prevention step. Do not judge metrics, risk, impact, tone, or priority.",
+    "Read the current product description and existing FAQ content semantically. Wording does not need to match exactly.",
+    "For every candidate, decide whether its buyer-facing information is already present, partially present, or not present.",
+    "Mark FAQ candidates as already_covered when the same buyer question is already answered by the description or an existing FAQ, even if the question uses different words.",
+    "If a general FAQ is already answered and only one narrow detail is new, prefer remaining_text for the narrow detail and recommended_application description_note, not another duplicate FAQ.",
+    "Treat higher-priority proposed notes as context too: if pdp_copy or another proposed note already carries the only new detail, FAQ candidates repeating that detail should be already_covered or partially_covered with no remaining FAQ answer.",
+    "If a candidate is partially covered, return only the missing merchant-ready buyer-facing text in remaining_text. Do not return instructions like add a note, create a FAQ, this note is based on, or description says.",
+    "Use confidence high only when the current content clearly covers or clearly lacks the candidate. Use medium for close semantic paraphrases. Use low if uncertain.",
+    "Return valid JSON only. No markdown.",
+    "Schema:",
+    JSON.stringify({
+      coverage: [{
+        id: "faq_item_1",
+        status: "already_covered|partially_covered|not_covered|unclear",
+        confidence: "low|medium|high",
+        recommended_application: "skip|description_note|faq|description_addendum|keep_original",
+        matched_existing_text: "short quote or paraphrase from current product content",
+        remaining_text: "only the missing buyer-facing text, empty if fully covered",
+        remaining_question: "FAQ question only when a new FAQ is still needed",
+        remaining_answer: "FAQ answer only when a new FAQ is still needed",
+        reason: "brief explanation",
+      }],
+      summary: "brief validation summary",
+    }, null, 2),
+    "Current product content:",
+    JSON.stringify({
+      title: product.title,
+      handle: product.handle,
+      description: String(product.description || "").slice(0, 7000),
+      description_html_excerpt: product.descriptionHtml ? String(product.descriptionHtml).slice(0, 7000) : "",
+      options: product.options || [],
+      variants: (product.variants || []).slice(0, 50),
+    }, null, 2),
+    "PDP content-gap analysis:",
+    JSON.stringify({
+      present: contentGaps?.present || [],
+      missing: contentGaps?.missing || [],
+      content_issues: contentGaps?.content_issues || [],
+      issue_specific_gaps: contentGaps?.issue_specific_gaps || [],
+    }, null, 2),
+    "Proposed copy candidates to validate:",
+    JSON.stringify(candidates, null, 2),
+  ].join("\n\n");
+}
+
+function buildContentCoverageValidationCandidates(report = {}) {
+  const copy = report?.recommendation_copy || {};
+  const candidates = [];
+  const add = (candidate) => {
+    const text = [candidate.text, candidate.question, candidate.answer].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    if (!candidate.id || !text) return;
+    candidates.push(candidate);
+  };
+
+  add({
+    id: "pdp_copy",
+    kind: "description_note",
+    priority: 1,
+    text: String(copy.pdp_copy || "").trim(),
+  });
+  add({
+    id: "product_description",
+    kind: "product_description",
+    priority: 2,
+    text: String(copy.product_description || "").trim(),
+  });
+  add({
+    id: "specs_details_block",
+    kind: "description_addendum",
+    priority: 3,
+    text: String(copy.specs_details_block || copy.specs_block || "").trim(),
+  });
+
+  (Array.isArray(copy.faq_items) ? copy.faq_items : []).slice(0, 8).forEach((item, index) => {
+    add({
+      id: `faq_item_${index + 1}`,
+      kind: "faq",
+      priority: 4,
+      question: String(item?.question || "").trim(),
+      answer: String(item?.answer || "").trim(),
+      reason: String(item?.reason || "").trim(),
+    });
+  });
+
+  if (copy.faq_question || copy.faq_answer) {
+    add({
+      id: "legacy_faq",
+      kind: "faq",
+      priority: 4,
+      question: String(copy.faq_question || "").trim(),
+      answer: String(copy.faq_answer || "").trim(),
+    });
+  }
+
+  return candidates.slice(0, 14);
 }
 
 function buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report) {

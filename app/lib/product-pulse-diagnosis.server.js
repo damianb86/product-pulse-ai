@@ -3444,6 +3444,17 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     !matchedBy ? "source_or_material_metrics_changed" : null,
   ].filter(Boolean);
   const shouldReuse = blockers.length === 0;
+  const recommendationReevaluation = buildRecommendationReevaluationDecision({
+    shouldReuse,
+    blockers,
+    matchedBy,
+    materialComparison,
+    sourceChanges,
+    productContentReused,
+    customerTextUnchanged,
+    refundsUnchanged,
+    noNewAiEvidence,
+  });
 
   return {
     shouldReuse,
@@ -3460,6 +3471,37 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     sourceFingerprintUnchanged,
     sourceChanges,
     materialComparison,
+    recommendationReevaluation,
+  };
+}
+
+function buildRecommendationReevaluationDecision({
+  shouldReuse,
+  blockers = [],
+  matchedBy = null,
+  materialComparison = {},
+  sourceChanges = {},
+  productContentReused = false,
+  customerTextUnchanged = false,
+  refundsUnchanged = false,
+  noNewAiEvidence = false,
+} = {}) {
+  const triggers = [...blockers];
+  return {
+    required: !shouldReuse,
+    reason: shouldReuse ? "current_recommendations_remain_current" : "changes_may_affect_recommendations",
+    matchedBy,
+    triggers,
+    sufficientToSkip: shouldReuse && productContentReused && customerTextUnchanged && refundsUnchanged && noNewAiEvidence && Boolean(matchedBy),
+    materialMetricChanges: Array.isArray(materialComparison.changed) ? materialComparison.changed : [],
+    sourceFingerprintChanged: sourceChanges.unchanged === false,
+    policy: [
+      "Reevaluate recommendations when product content changed or was not comparable.",
+      "Reevaluate when new return, refund, review, or customer-text evidence was analyzed.",
+      "Reevaluate when source extraction is incomplete because reuse would be unsafe.",
+      "Reevaluate when source fingerprints or material diagnosis metrics changed.",
+      "Reuse existing recommendations only when all concrete sources and material metrics are unchanged.",
+    ],
   };
 }
 
@@ -4360,6 +4402,7 @@ function getFaqTopicForText(value) {
 function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const copy = ai.report?.recommendation_copy || {};
   const actionRationales = getAiActionRationaleMap(ai);
+  const contentCoverage = getAiContentCoverageMap(ai);
   const recommendations = [];
   const issueLabel = getHumanIssueLabel(mainIssue);
   const topReasons = deterministic.metrics.topReturnReasons || [];
@@ -4367,10 +4410,27 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const recipeSignals = getRecommendationRecipeSignals(deterministic);
   const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic);
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
-  const pdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
+  const rawPdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
+  const pdpCopy = copy.pdp_copy
+    ? applyAiContentCoverageToText({
+        coverageMap: contentCoverage,
+        id: "pdp_copy",
+        text: rawPdpCopy,
+      })
+    : rawPdpCopy;
+  const aiProductDescription = applyAiContentCoverageToText({
+    coverageMap: contentCoverage,
+    id: "product_description",
+    text: copy.product_description || "",
+  });
+  const aiSpecsBlock = applyAiContentCoverageToText({
+    coverageMap: contentCoverage,
+    id: "specs_details_block",
+    text: copy.specs_details_block || copy.specs_block || "",
+  });
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
-  const currentDescriptionText = deterministic.product?.description || "";
+  const currentDescriptionText = getCurrentProductDescriptionText(deterministic.product);
   const descriptionReplacements = getDescriptionReplacementsFromContentIssues(contentIssues);
   const correctedDescriptionDraft = buildCorrectedDescriptionDraft({
     currentDescription: currentDescriptionText,
@@ -4398,26 +4458,48 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const criticalContentIssue = hasCriticalContentIssue(contentIssues);
   const canRecommendCustomerFacingFix = canRecommendCustomerFacingCopy
     && (!lowRiskMonitoringOnly || materialCustomerProblemEvidence || criticalContentIssue);
-  const primaryPdpDescriptionAction = Boolean(canRecommendCustomerFacingFix && hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction && pdpCopy);
-  const shopperGuidanceForDescription = primaryPdpDescriptionAction ? pdpCopy : "";
+  const primaryPdpDescriptionPlan = buildDescriptionCoveragePlan({
+    currentDescription: currentDescriptionText,
+    proposedText: pdpCopy,
+    operation: getPdpCopyPlacement(mainIssue),
+  });
+  const primaryPdpDescriptionAction = Boolean(canRecommendCustomerFacingFix
+    && hasActionableMainIssue
+    && mainIssue !== "product_content"
+    && shouldRecommendSubjectiveAction
+    && primaryPdpDescriptionPlan.shouldRecommend);
+  const shopperGuidanceForDescription = primaryPdpDescriptionAction ? primaryPdpDescriptionPlan.draftText : "";
   const descriptionDraftForRewrite = shouldRewriteDescription ? buildEnhancedDescriptionDraft({
     title: snapshot.productTitle,
     currentDescription: currentDescriptionText,
-    suggestedDescription: copy.product_description || "",
+    suggestedDescription: aiProductDescription || "",
     shopperGuidance: shopperGuidanceForDescription,
     contentAnalysis,
   }) : "";
   const appendedDescriptionGuidance = getAppendedDescriptionText(currentDescriptionText, descriptionDraftForRewrite);
-  const rewriteDescriptionOperation = shouldRewriteDescription && appendedDescriptionGuidance ? "append" : "replace";
+  const initialRewriteDescriptionOperation = shouldRewriteDescription && appendedDescriptionGuidance ? "append" : "replace";
+  const descriptionRewritePlan = shouldRewriteDescription ? buildDescriptionCoveragePlan({
+    currentDescription: currentDescriptionText,
+    proposedText: initialRewriteDescriptionOperation === "append"
+      ? (appendedDescriptionGuidance || descriptionDraftForRewrite)
+      : descriptionDraftForRewrite,
+    operation: initialRewriteDescriptionOperation,
+    allowReplace: true,
+  }) : buildEmptyDescriptionCoveragePlan("No product description rewrite was needed.");
+  const rewriteDescriptionOperation = descriptionRewritePlan.operation || initialRewriteDescriptionOperation;
+  const hasRewriteDescriptionAction = Boolean(shouldRewriteDescription && descriptionRewritePlan.shouldRecommend);
   const rewriteDescriptionLabel = rewriteDescriptionOperation === "append" ? "Add text to end of description" : "Rewrite product description";
   const faqNeed = deterministic.metrics.faqNeed || {};
-  const faqItems = buildRecommendedFaqItems({
+  const faqRecommendation = buildRecommendedFaqRecommendation({
     copy,
     snapshot,
     mainIssue,
     pdpCopy,
     faqNeed,
+    currentDescriptionText,
+    contentCoverage,
   });
+  const faqItems = faqRecommendation.items;
 
   if (primaryPdpDescriptionAction) {
     recommendations.push({
@@ -4427,26 +4509,21 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       effort: "Low",
       status: "Draft",
       payload: {
-        draftText: pdpCopy,
+        draftText: primaryPdpDescriptionPlan.draftText,
         issue: mainIssue,
-        placement: getPdpCopyPlacement(mainIssue),
-        causeKey: getRecommendationCauseKey({ issue: mainIssue, text: pdpCopy, deterministic }),
-        relatedActionIds: shouldRewriteDescription ? ["rewrite-product-description"] : shouldCorrectDescription ? ["correct-product-description"] : [],
-        relatedActionLabels: shouldRewriteDescription ? [rewriteDescriptionLabel] : shouldCorrectDescription ? ["Correct product description"] : [],
+        currentDescriptionText,
+        operation: primaryPdpDescriptionPlan.operation,
+        placement: primaryPdpDescriptionPlan.operation,
+        contentCoverage: primaryPdpDescriptionPlan.coverage,
+        causeKey: getRecommendationCauseKey({ issue: mainIssue, text: primaryPdpDescriptionPlan.draftText, deterministic }),
+        relatedActionIds: hasRewriteDescriptionAction ? ["rewrite-product-description"] : shouldCorrectDescription ? ["correct-product-description"] : [],
+        relatedActionLabels: hasRewriteDescriptionAction ? [rewriteDescriptionLabel] : shouldCorrectDescription ? ["Correct product description"] : [],
       },
     });
   }
 
   if (contentIssues.length > 0 && canRecommendCustomerFacingFix) {
-    if (shouldRewriteDescription) {
-      const descriptionDraft = buildEnhancedDescriptionDraft({
-        title: snapshot.productTitle,
-        currentDescription: currentDescriptionText,
-        suggestedDescription: copy.product_description || "",
-        shopperGuidance: primaryPdpDescriptionAction ? pdpCopy : "",
-        contentAnalysis,
-      });
-
+    if (hasRewriteDescriptionAction) {
       recommendations.push({
         id: "rewrite-product-description",
         label: rewriteDescriptionOperation === "append" ? "Add text to end of description" : "Rewrite product description",
@@ -4454,7 +4531,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         effort: "Low",
         status: "Draft",
         payload: {
-          draftText: rewriteDescriptionOperation === "append" ? (getAppendedDescriptionText(currentDescriptionText, descriptionDraft) || appendedDescriptionGuidance || descriptionDraft) : descriptionDraft,
+          draftText: descriptionRewritePlan.draftText,
           issue: "product_content",
           currentDescriptionText,
           contentIssues: contentIssues.map((issue) => ({
@@ -4466,7 +4543,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           changeStrategy: rewriteDescriptionOperation === "append" ? "add-guidance" : currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
           operation: rewriteDescriptionOperation,
           placement: rewriteDescriptionOperation === "append" ? "append" : undefined,
-          causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionDraft, deterministic }),
+          contentCoverage: descriptionRewritePlan.coverage,
+          causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionRewritePlan.draftText, deterministic }),
           relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
           relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
         },
@@ -4501,11 +4579,16 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       const descriptionGuidanceDraft = buildDescriptionGuidanceAddendum({
         title: snapshot.productTitle,
         contentIssues,
-        suggestedDescription: copy.product_description || "",
+        suggestedDescription: aiProductDescription || "",
         shopperGuidance: primaryPdpDescriptionAction ? "" : pdpCopy,
       });
       const duplicatesPrimaryPdpAction = primaryPdpDescriptionAction && hasSubstantialOverlap(descriptionGuidanceDraft, pdpCopy);
-      if (descriptionGuidanceDraft && !duplicatesPrimaryPdpAction) {
+      const descriptionGuidancePlan = buildDescriptionCoveragePlan({
+        currentDescription: currentDescriptionText,
+        proposedText: descriptionGuidanceDraft,
+        operation: "append",
+      });
+      if (descriptionGuidancePlan.shouldRecommend && !duplicatesPrimaryPdpAction) {
         recommendations.push({
           id: "add-product-description-guidance",
           label: "Add product description guidance",
@@ -4513,7 +4596,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           effort: "Low",
           status: "Draft",
           payload: {
-            draftText: descriptionGuidanceDraft,
+            draftText: descriptionGuidancePlan.draftText,
             issue: "product_content",
             currentDescriptionText,
             contentIssues: contentIssues.map((issue) => ({
@@ -4523,9 +4606,10 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
               code: issue.code,
             })),
             changeStrategy: "add-guidance",
-            operation: "append",
-            placement: "append",
-            causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionGuidanceDraft, deterministic }),
+            operation: descriptionGuidancePlan.operation,
+            placement: descriptionGuidancePlan.operation,
+            contentCoverage: descriptionGuidancePlan.coverage,
+            causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionGuidancePlan.draftText, deterministic }),
             relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
             relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
           },
@@ -4549,7 +4633,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (canRecommendCustomerFacingFix && faqNeed.shouldRecommend && faqItems.length) {
     recommendations.push({
       id: "create-product-faq",
-      label: getFaqActionLabel(mainIssue),
+      label: getFaqActionLabel(mainIssue, faqRecommendation.coverage),
       type: "FAQ",
       effort: "Low",
       status: "Draft",
@@ -4557,6 +4641,9 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         draftText: formatFaqItemsAsText(faqItems),
         faqItems,
         faqNeed,
+        existingFaqDetected: faqRecommendation.coverage.existingFaqDetected,
+        skippedExistingFaqItems: faqRecommendation.coverage.skippedItems,
+        contentCoverage: faqRecommendation.coverage,
         issue: mainIssue,
         operation: "append",
         placement: "append",
@@ -4646,31 +4733,39 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       contentIssues,
       mainIssue,
       deterministic,
-      aiSpecsBlock: copy.specs_details_block || copy.specs_block || "",
+      aiSpecsBlock,
     });
-    recommendations.push({
-      id: "add-specs-details-block",
-      label: "Add specs/details block",
-      type: "PDP copy",
-      effort: "Low",
-      status: "Draft",
-      payload: {
-        draftText: specsBlock,
-        issue: "product_content",
-        currentDescriptionText,
-        contentIssues: contentIssues.map((issue) => ({
-          label: issue.label,
-          evidence: issue.evidence,
-          severity: issue.severity,
-          code: issue.code,
-        })),
-        operation: "append",
-        placement: "append",
-        changeStrategy: "add-specs-block",
-        causeKey: getRecommendationCauseKey({ issue: "specs_block", text: specsBlock, deterministic }),
-        trigger: recipeSignals.specs.reason,
-      },
+    const specsBlockPlan = buildDescriptionCoveragePlan({
+      currentDescription: currentDescriptionText,
+      proposedText: specsBlock,
+      operation: "append",
     });
+    if (specsBlockPlan.shouldRecommend) {
+      recommendations.push({
+        id: "add-specs-details-block",
+        label: "Add specs/details block",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: specsBlockPlan.draftText,
+          issue: "product_content",
+          currentDescriptionText,
+          contentIssues: contentIssues.map((issue) => ({
+            label: issue.label,
+            evidence: issue.evidence,
+            severity: issue.severity,
+            code: issue.code,
+          })),
+          operation: specsBlockPlan.operation,
+          placement: specsBlockPlan.operation,
+          contentCoverage: specsBlockPlan.coverage,
+          changeStrategy: "add-specs-block",
+          causeKey: getRecommendationCauseKey({ issue: "specs_block", text: specsBlockPlan.draftText, deterministic }),
+          trigger: recipeSignals.specs.reason,
+        },
+      });
+    }
   }
 
   if (recipeSignals.media.shouldRecommend) {
@@ -5183,6 +5278,87 @@ function getAiActionRationaleMap(ai = {}) {
       normalizeRecommendationRationaleText(item?.rationale || item?.why_this_action || item?.why || ""),
     ])
     .filter(([key, value]) => key && value));
+}
+
+function getAiContentCoverageMap(ai = {}) {
+  const entries = Array.isArray(ai.contentCoverageValidation?.coverage)
+    ? ai.contentCoverageValidation.coverage
+    : [];
+  return new Map(entries
+    .map((item) => {
+      const id = normalizeAiContentCoverageId(item?.id || item?.candidate_id || item?.candidateId);
+      if (!id) return null;
+      return [id, {
+        id,
+        status: normalizeAiContentCoverageStatus(item?.status),
+        confidence: normalizeAiContentCoverageConfidence(item?.confidence),
+        recommendedApplication: normalizeAiContentCoverageApplication(item?.recommended_application || item?.recommendedApplication),
+        remainingText: normalizeDraftParagraph(item?.remaining_text || item?.remainingText || ""),
+        remainingQuestion: normalizeDraftParagraph(item?.remaining_question || item?.remainingQuestion || ""),
+        remainingAnswer: normalizeDraftParagraph(item?.remaining_answer || item?.remainingAnswer || ""),
+        matchedExistingText: normalizeDraftParagraph(item?.matched_existing_text || item?.matchedExistingText || ""),
+        reason: normalizeDraftParagraph(item?.reason || ""),
+      }];
+    })
+    .filter(Boolean));
+}
+
+function applyAiContentCoverageToText({ coverageMap, id, text = "" } = {}) {
+  const original = normalizeDraftParagraph(text);
+  if (!original) return "";
+  const coverage = getAiContentCoverageEntry(coverageMap, id);
+  if (!coverage || coverage.confidence === "low") return original;
+  if (coverage.status === "already_covered") return "";
+  if (coverage.status === "partially_covered") return coverage.remainingText || "";
+  return original;
+}
+
+function applyAiContentCoverageToFaqItem(item = {}, coverageMap, id) {
+  const coverage = getAiContentCoverageEntry(coverageMap, id);
+  if (!coverage || coverage.confidence === "low") return item;
+  if (coverage.status === "already_covered") return null;
+  if (coverage.status !== "partially_covered") return item;
+  if (coverage.recommendedApplication && coverage.recommendedApplication !== "faq") return null;
+  const question = coverage.remainingQuestion || item.question;
+  const answer = coverage.remainingAnswer || coverage.remainingText || "";
+  if (!question || !answer) return null;
+  return {
+    ...item,
+    question,
+    answer,
+    reason: item.reason || coverage.reason,
+    aiContentCoverage: coverage,
+  };
+}
+
+function getAiContentCoverageEntry(coverageMap, id) {
+  if (!(coverageMap instanceof Map)) return null;
+  return coverageMap.get(normalizeAiContentCoverageId(id)) || null;
+}
+
+function normalizeAiContentCoverageId(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function normalizeAiContentCoverageStatus(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z_]+/g, "_");
+  if (["already_covered", "covered", "duplicate"].includes(normalized)) return "already_covered";
+  if (["partially_covered", "partial"].includes(normalized)) return "partially_covered";
+  if (["not_covered", "missing", "new"].includes(normalized)) return "not_covered";
+  return "unclear";
+}
+
+function normalizeAiContentCoverageConfidence(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized.includes("high")) return "high";
+  if (normalized.includes("medium") || normalized.includes("moderate")) return "medium";
+  return "low";
+}
+
+function normalizeAiContentCoverageApplication(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_+|_+$/g, "");
+  if (["skip", "description_note", "faq", "description_addendum", "keep_original"].includes(normalized)) return normalized;
+  return "";
 }
 
 function attachAiActionRationale(action = {}, rationaleMap = new Map()) {
@@ -7095,16 +7271,55 @@ function getRecommendedRiskTags({ mainIssue, deterministic }) {
   return uniqueBy(tags, normalizeText).slice(0, 10);
 }
 
-function buildRecommendedFaqItems({ copy = {}, snapshot, mainIssue, pdpCopy = "", faqNeed = {} }) {
-  const aiItems = normalizeFaqItems(copy.faq_items);
-  const legacyItem = normalizeFaqItems([{
+function buildRecommendedFaqRecommendation({ copy = {}, snapshot, mainIssue, pdpCopy = "", faqNeed = {}, currentDescriptionText = "", contentCoverage = new Map() }) {
+  const normalizedAiItems = normalizeFaqItems(copy.faq_items);
+  const normalizedLegacyItems = normalizeFaqItems([{
     question: copy.faq_question,
     answer: copy.faq_answer,
     reason: "AI generated from product diagnosis signals.",
   }]);
-  const fallbackItems = buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy, faqNeed });
-  return uniqueBy([...aiItems, ...legacyItem, ...fallbackItems], (item) => normalizeText(item.question))
-    .slice(0, 4);
+  const hadPreferredItems = normalizedAiItems.length > 0 || normalizedLegacyItems.length > 0;
+  const aiItems = tagFaqItemSource(normalizedAiItems
+    .map((item, index) => applyAiContentCoverageToFaqItem(item, contentCoverage, `faq_item_${index + 1}`))
+    .filter(Boolean), "ai");
+  const legacyItem = tagFaqItemSource(normalizedLegacyItems
+    .map((item) => applyAiContentCoverageToFaqItem(item, contentCoverage, "legacy_faq"))
+    .filter(Boolean), "ai");
+  const fallbackItems = tagFaqItemSource(buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy, faqNeed }), "fallback");
+  const preferredItems = uniqueBy([...aiItems, ...legacyItem], (item) => normalizeText(item.question));
+  const allCandidates = uniqueBy([...preferredItems, ...fallbackItems], (item) => normalizeText(item.question));
+  const coverage = getFaqContentCoverage({
+    items: allCandidates,
+    preferredItems,
+    currentDescriptionText,
+    pdpCopy,
+    mainIssue,
+    faqNeed,
+    hadPreferredItems,
+  });
+  const retainedItems = allCandidates
+    .filter((item) => !coverage.skippedItemKeys.has(normalizeFaqQuestionKey(item.question)))
+    .filter((item) => coverage.allowFallbackItems || item.source !== "fallback");
+
+  return {
+    items: retainedItems
+      .map(({ source, ...item }) => item)
+      .slice(0, 4),
+    coverage: {
+      existingFaqDetected: coverage.existingFaqDetected,
+      skippedItems: coverage.skippedItems,
+      skippedQuestionCount: coverage.skippedItems.length,
+      currentContentCoveredPreferredItems: coverage.currentContentCoveredPreferredItems,
+    },
+  };
+}
+
+function buildRecommendedFaqItems(args = {}) {
+  return buildRecommendedFaqRecommendation(args).items;
+}
+
+function tagFaqItemSource(items = [], source = "") {
+  return (Array.isArray(items) ? items : []).map((item) => ({ ...item, source }));
 }
 
 function normalizeFaqItems(items = []) {
@@ -7179,11 +7394,104 @@ function formatFaqItemsAsText(items = []) {
     .join("\n\n");
 }
 
-function getFaqActionLabel(mainIssue) {
-  if (mainIssue === "fit_sizing") return "Create fit FAQ";
-  if (mainIssue === "compatibility") return "Create compatibility FAQ";
-  if (mainIssue === "color_expectation") return "Create color expectations FAQ";
-  return "Create product FAQ";
+function getFaqContentCoverage({
+  items = [],
+  preferredItems = [],
+  currentDescriptionText = "",
+  hadPreferredItems = false,
+}) {
+  const current = normalizeDraftParagraph(currentDescriptionText);
+  const existingQuestions = extractExistingFaqQuestions(current);
+  const existingFaqDetected = hasExistingFaqContent(current, existingQuestions);
+  const skippedItems = [];
+  const skippedItemKeys = new Set();
+
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    if (!isFaqItemCoveredByCurrentContent(item, current, existingQuestions)) return;
+    const key = normalizeFaqQuestionKey(item.question);
+    skippedItemKeys.add(key);
+    skippedItems.push({
+      question: item.question,
+      reason: existingQuestions.some((question) => faqQuestionsOverlap(question, item.question))
+        ? "Existing FAQ already covers this question."
+        : "Current product copy already covers this answer.",
+    });
+  });
+
+  const retainedPreferredCount = (Array.isArray(preferredItems) ? preferredItems : [])
+    .filter((item) => !skippedItemKeys.has(normalizeFaqQuestionKey(item.question)))
+    .length;
+  const currentContentCoveredPreferredItems = preferredItems.length > 0 && retainedPreferredCount === 0;
+
+  return {
+    existingFaqDetected,
+    skippedItems: uniqueBy(skippedItems, (item) => normalizeFaqQuestionKey(item.question)),
+    skippedItemKeys,
+    currentContentCoveredPreferredItems,
+    allowFallbackItems: !hadPreferredItems || retainedPreferredCount > 0,
+  };
+}
+
+function hasExistingFaqContent(currentDescriptionText = "", existingQuestions = []) {
+  const normalized = normalizeText(currentDescriptionText);
+  if (!normalized) return false;
+  if (/\b(faq|faqs|frequently asked|questions and answers|q\s*:|question\s*:)\b/.test(normalized)) return true;
+  return existingQuestions.length >= 2;
+}
+
+function extractExistingFaqQuestions(value = "") {
+  const text = stripHtml(value);
+  const candidates = [];
+  text.split(/\n+/).forEach((line) => {
+    const cleaned = line.replace(/^\s*(q|question)\s*[:.-]\s*/i, "").trim();
+    if (cleaned.endsWith("?")) candidates.push(cleaned);
+  });
+  const inlineMatches = text.match(/[^.!?\n]{8,180}\?/g) || [];
+  candidates.push(...inlineMatches.map((match) => match.trim()));
+  return uniqueBy(candidates, normalizeFaqQuestionKey);
+}
+
+function isFaqItemCoveredByCurrentContent(item = {}, currentDescriptionText = "", existingQuestions = []) {
+  const current = normalizeDraftParagraph(currentDescriptionText);
+  if (!current) return false;
+  const question = String(item.question || "").trim();
+  const answer = String(item.answer || "").trim();
+  if (question && existingQuestions.some((existingQuestion) => faqQuestionsOverlap(existingQuestion, question))) return true;
+  if (question && normalizeText(current).includes(normalizeFaqQuestionKey(question))) return true;
+  if (answer && isTextCoveredByCurrentContent(answer, current, { minTokenCoverage: 0.76 })) return true;
+  const combined = [question, answer].filter(Boolean).join(" ");
+  return Boolean(combined && isTextCoveredByCurrentContent(combined, current, { minTokenCoverage: 0.72 }));
+}
+
+function faqQuestionsOverlap(firstQuestion = "", secondQuestion = "") {
+  const first = normalizeFaqQuestionKey(firstQuestion);
+  const second = normalizeFaqQuestionKey(secondQuestion);
+  if (!first || !second) return false;
+  if (first === second || first.includes(second) || second.includes(first)) return true;
+  const overlap = Math.max(tokenCoverage(second, first), tokenCoverage(first, second));
+  if (overlap >= 0.72) return true;
+  const anchorTokens = new Set(["fit", "size", "sizing", "color", "colour", "variant", "wash", "washing", "material", "fabric", "compatible", "compatibility"]);
+  const firstTokens = new Set(meaningfulTokens(first));
+  const secondTokens = new Set(meaningfulTokens(second));
+  const sharedAnchors = [...anchorTokens].filter((token) => firstTokens.has(token) && secondTokens.has(token));
+  return sharedAnchors.length > 0 && overlap >= 0.5;
+}
+
+function normalizeFaqQuestionKey(value = "") {
+  return normalizeText(value)
+    .replace(/^\s*(q|question)\s+/i, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(this|that|with|from|your|shopper|shoppers|customer|customers|before|buying|product|products|does|should|would|could|will|what|when|where|which|are|all|same|way|vary|expected|option|options)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getFaqActionLabel(mainIssue, coverage = {}) {
+  const prefix = coverage.existingFaqDetected ? "Add missing" : "Create";
+  if (mainIssue === "fit_sizing") return `${prefix} fit FAQ`;
+  if (mainIssue === "compatibility") return `${prefix} compatibility FAQ`;
+  if (mainIssue === "color_expectation") return `${prefix} color expectations FAQ`;
+  return `${prefix} product FAQ`;
 }
 
 function getFaqApplicationOptions() {
@@ -13153,17 +13461,45 @@ function buildDescriptionGuidanceAddendum({ title, contentIssues = [], suggested
   if (focusedGuidance) return focusedGuidance;
 
   const suggested = normalizeDraftParagraph(suggestedDescription);
-  if (suggested && !looksLikeFullDescriptionRewrite(suggested, title)) return suggested;
+  if (suggested && !looksLikeFullDescriptionRewrite(suggested, title) && !isInstructionalDescriptionDraft(suggested)) return suggested;
 
-  const issueLabels = (Array.isArray(contentIssues) ? contentIssues : [])
-    .map((issue) => issue.label || getContentIssueLabel(issue.code))
-    .filter(Boolean);
-  const evidence = (Array.isArray(contentIssues) ? contentIssues : [])
-    .map((issue) => issue.evidence)
-    .filter(Boolean);
-  const focus = issueLabels.length ? issueLabels.slice(0, 3).join(", ").toLowerCase() : "product expectations";
-  const detail = evidence.length ? ` This note is based on: ${evidence.slice(0, 2).join(" ")}` : "";
-  return `${title}: add a short shopper-facing note that clarifies ${focus}.${detail}`;
+  return buildCustomerFacingDescriptionAddendum({ contentIssues }) || buildDefaultCustomerFacingDescriptionAddendum(title);
+}
+
+function buildCustomerFacingDescriptionAddendum({ contentIssues = [] } = {}) {
+  const issueText = normalizeText((Array.isArray(contentIssues) ? contentIssues : [])
+    .map((issue) => `${issue.label || ""} ${issue.evidence || ""} ${issue.code || ""}`)
+    .join(" "));
+  const sentences = [];
+  if (/\b(material|fiber|fabric|linen|cotton|composition|blend)\b/.test(issueText)) {
+    sentences.push("Before ordering, confirm the fabric composition for the selected variant if exact material percentages are important to you.");
+  }
+  if (/\b(size chart|measurement|measurements|chest|shoulder|sleeve|inseam|waist|length|fit|sizing)\b/.test(issueText)) {
+    sentences.push("Compare the selected size against the garment measurements, especially the fit points that matter most for how you want the item to sit.");
+  }
+  if (/\b(included|package|box|bundle|accessor|accessories|comes with|what.*include)\b/.test(issueText)) {
+    sentences.push("Check the product details for what is included with the item before checkout.");
+  }
+  if (/\b(compatib|works with|adapter|device|model|setup)\b/.test(issueText)) {
+    sentences.push("Confirm the selected variant is compatible with your setup before purchase.");
+  }
+  if (/\b(color|colour|photo|image|lighting|appearance|pictured)\b/.test(issueText)) {
+    sentences.push("Review the selected variant photos and color name carefully, since lighting and screens can affect how the product appears.");
+  }
+  return uniqueBy(sentences, normalizeText).slice(0, 3).join(" ");
+}
+
+function buildDefaultCustomerFacingDescriptionAddendum(title = "") {
+  const label = String(title || "this product").trim();
+  return `Before ordering ${label}, review the selected variant, product details and any available measurements so the item matches your expectations.`;
+}
+
+function isInstructionalDescriptionDraft(value = "") {
+  const normalized = normalizeText(value);
+  return /\b(add|insert|create|write|draft|include|clarif(y|ies)|update)\b.{0,80}\b(shopper facing|customer facing|note|section|copy|description|faq)\b/.test(normalized)
+    || /\bthis note is based on\b/.test(normalized)
+    || /\bdescription says\b/.test(normalized)
+    || /\bcopy repeatedly advises\b/.test(normalized);
 }
 
 function looksLikeFullDescriptionRewrite(value, title) {
@@ -13215,6 +13551,182 @@ function getAppendedDescriptionText(currentDescription = "", proposedDescription
     .slice(current.length)
     .replace(/^[\s:;,.-]+/, "")
     .trim();
+}
+
+function getCurrentProductDescriptionText(product = {}) {
+  const plain = normalizeDraftParagraph(product?.description || "");
+  const html = normalizeDraftParagraph(stripHtml(product?.descriptionHtml || product?.bodyHtml || ""));
+  if (!plain) return html;
+  if (!html) return plain;
+  const normalizedPlain = normalizeText(plain);
+  const normalizedHtml = normalizeText(html);
+  if (!normalizedPlain) return html;
+  if (!normalizedHtml) return plain;
+  if (normalizedHtml.includes(normalizedPlain)) return html;
+  if (normalizedPlain.includes(normalizedHtml)) return plain;
+  if (hasSubstantialOverlap(plain, html)) return plain;
+  return `${plain}\n\n${html}`;
+}
+
+function buildEmptyDescriptionCoveragePlan(reason = "") {
+  return {
+    shouldRecommend: false,
+    draftText: "",
+    operation: "",
+    coverage: {
+      skipped: true,
+      reason,
+    },
+  };
+}
+
+function buildDescriptionCoveragePlan({
+  currentDescription = "",
+  proposedText = "",
+  operation = "append",
+  allowReplace = false,
+} = {}) {
+  const current = normalizeDraftParagraph(currentDescription);
+  const proposed = normalizeDraftParagraph(cleanDescriptionDraftForCoverage(proposedText));
+  const requestedOperation = ["replace", "prepend", "append"].includes(operation) ? operation : "append";
+  if (!proposed) return buildEmptyDescriptionCoveragePlan("No proposed text was generated.");
+  if (!current) {
+    return {
+      shouldRecommend: true,
+      draftText: proposed,
+      operation: allowReplace && requestedOperation === "replace" ? "replace" : requestedOperation,
+      coverage: { currentCoverage: "none", extractedMissingOnly: false },
+    };
+  }
+
+  const appended = getAppendedDescriptionText(current, proposed);
+  if (appended && !isTextCoveredByCurrentContent(appended, current)) {
+    return {
+      shouldRecommend: true,
+      draftText: appended,
+      operation: "append",
+      coverage: { currentCoverage: "partial", extractedMissingOnly: true },
+    };
+  }
+
+  if (isTextCoveredByCurrentContent(proposed, current)) {
+    return buildEmptyDescriptionCoveragePlan("Current product copy already covers the proposed text.");
+  }
+
+  const units = splitDraftIntoCoverageUnits(proposed);
+  const missingUnits = units.filter((unit) => !isTextCoveredByCurrentContent(unit, current));
+  if (missingUnits.length && missingUnits.length < units.length) {
+    const draftText = missingUnits.join("\n\n").trim();
+    return {
+      shouldRecommend: Boolean(draftText),
+      draftText,
+      operation: requestedOperation === "prepend" ? "prepend" : "append",
+      coverage: {
+        currentCoverage: "partial",
+        extractedMissingOnly: true,
+        originalUnitCount: units.length,
+        missingUnitCount: missingUnits.length,
+      },
+    };
+  }
+
+  if (requestedOperation === "replace" && allowReplace) {
+    return {
+      shouldRecommend: true,
+      draftText: proposed,
+      operation: "replace",
+      coverage: { currentCoverage: "low", extractedMissingOnly: false },
+    };
+  }
+
+  return {
+    shouldRecommend: true,
+    draftText: proposed,
+    operation: requestedOperation === "replace" ? "append" : requestedOperation,
+    coverage: { currentCoverage: "low", extractedMissingOnly: false },
+  };
+}
+
+function splitDraftIntoCoverageUnits(value = "") {
+  const text = normalizeDraftParagraph(value);
+  if (!text) return [];
+  return text
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => {
+      const trimmed = paragraph.trim();
+      if (!trimmed) return [];
+      const lines = trimmed.split(/\n/).map((line) => line.trim()).filter(Boolean);
+      if (lines.length > 1) return lines.flatMap(splitDescriptionCoverageSentences);
+      return splitDescriptionCoverageSentences(trimmed);
+    })
+    .map(cleanDescriptionDraftUnitForCoverage)
+    .filter((unit) => !isInstructionalDescriptionDraft(unit))
+    .filter((unit) => meaningfulTokens(unit).length >= 2 || unit.length >= 18);
+}
+
+function isTextCoveredByCurrentContent(proposedText = "", currentText = "", { minTokenCoverage = 0.8 } = {}) {
+  const proposed = normalizeDraftParagraph(proposedText);
+  const current = normalizeDraftParagraph(currentText);
+  if (!proposed || !current) return false;
+  const normalizedProposed = normalizeText(proposed);
+  const normalizedCurrent = normalizeText(current);
+  if (!normalizedProposed || !normalizedCurrent) return false;
+  if (hasSpecificNewVariantOrOptionDetail(proposed, current)) return false;
+  if (normalizedCurrent.includes(normalizedProposed)) return true;
+  if (isCoveredFitOrCareGuidance(normalizedProposed, normalizedCurrent) && tokenCoverage(proposed, current) >= 0.45) return true;
+  if (hasSubstantialOverlap(current, proposed)) return true;
+  return tokenCoverage(proposed, current) >= minTokenCoverage;
+}
+
+function tokenCoverage(needleText = "", haystackText = "") {
+  const needleTokens = meaningfulTokens(needleText);
+  if (!needleTokens.length) return 0;
+  const haystackTokens = new Set(meaningfulTokens(haystackText));
+  if (!haystackTokens.size) return 0;
+  const shared = needleTokens.filter((token) => haystackTokens.has(token)).length;
+  return shared / needleTokens.length;
+}
+
+function splitDescriptionCoverageSentences(value = "") {
+  return String(value || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isCoveredFitOrCareGuidance(normalizedProposed = "", normalizedCurrent = "") {
+  const proposesSizingGuidance = /\b(between sizes|size up|sizing up|roomier|extra room|snug|tight|fit)\b/.test(normalizedProposed);
+  const currentHasSizingGuidance = /\b(between sizes|size up|sizing up|roomier|extra room|snug|tight|fit|size chart|measurements)\b/.test(normalizedCurrent);
+  if (proposesSizingGuidance && currentHasSizingGuidance) return true;
+  const proposesCareGuidance = /\b(wash|washing|washed|care instructions|hang dry|tighter after washing)\b/.test(normalizedProposed);
+  const currentHasCareGuidance = /\b(wash|washing|washed|care instructions|hang dry|tighter after washing|tighter feel after washing)\b/.test(normalizedCurrent);
+  return proposesCareGuidance && currentHasCareGuidance;
+}
+
+function cleanDescriptionDraftForCoverage(value = "") {
+  return normalizeDraftParagraph(value)
+    .split(/\n+/)
+    .map(cleanDescriptionDraftUnitForCoverage)
+    .filter(Boolean)
+    .join("\n");
+}
+
+function cleanDescriptionDraftUnitForCoverage(value = "") {
+  return String(value || "")
+    .replace(/^\s*(fit note|product note|important note|note)\s*\([^)]*\)\s*:\s*/i, "")
+    .replace(/^\s*(please\s+)?(add|insert|place)\s+[^:]{0,120}:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasSpecificNewVariantOrOptionDetail(proposedText = "", currentText = "") {
+  const proposedTokens = new Set(meaningfulTokens(proposedText));
+  const currentTokens = new Set(meaningfulTokens(currentText));
+  const specificTokens = [
+    "white", "black", "blue", "navy", "green", "red", "pink", "purple", "yellow", "brown", "gray", "grey", "beige", "cream", "orange",
+    "xs", "small", "medium", "large", "xl", "xxl", "petite", "tall", "wide", "narrow",
+  ];
+  return specificTokens.some((token) => proposedTokens.has(token) && !currentTokens.has(token));
 }
 
 function normalizeDraftParagraph(value) {

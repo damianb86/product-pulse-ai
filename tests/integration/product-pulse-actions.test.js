@@ -288,6 +288,48 @@ describe("ProductPulse actions", () => {
     });
   });
 
+  it("keeps a repeated recommendation open when the matching action belongs to an older diagnosis", () => {
+    const product = {
+      id: "gid://shopify/Product/reanalyzed",
+      handle: "reanalyzed-product",
+      title: "Reanalyzed Product",
+      riskScore: 78,
+      confidence: 84,
+      analysisDepth: "full",
+      primaryIssue: "Product content",
+      metrics: {
+        latestDiagnosisId: "diagnosis-new",
+        marginAtRisk: 420,
+        revenueAtRisk: 1100,
+        signalCount: 9,
+      },
+      recommendedActions: [
+        { id: "rewrite-description", label: "Rewrite product description", type: "PDP copy", status: "Ready" },
+      ],
+      actionHistory: [
+        {
+          id: "action-old-rewrite",
+          diagnosisId: "diagnosis-old",
+          actionId: "rewrite-description",
+          label: "Rewrite product description",
+          status: "applied",
+        },
+      ],
+    };
+
+    const dashboard = buildDashboardViewData([product]);
+    const analytics = buildAnalyticsViewData([product]);
+
+    expect(dashboard.totals.pendingActions).toBe(1);
+    expect(dashboard.totals.appliedActions).toBe(1);
+    expect(dashboard.actionQueue.total).toBe(1);
+    expect(analytics.actionPerformance).toMatchObject({
+      suggested: 2,
+      pending: 1,
+      applied: 1,
+    });
+  });
+
   it("prioritizes product-change actions over investigation-only actions on the dashboard", () => {
     const investigationOnlyProduct = {
       id: "gid://shopify/Product/investigate",

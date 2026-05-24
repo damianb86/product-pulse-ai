@@ -4,9 +4,10 @@ import { ConnectScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 import {
   connectJudgeMeReviews,
+  confirmCsvReviews,
   getConnectViewDataForShop,
+  previewCsvReviews,
   setSourceActive,
-  uploadCsvReviews,
 } from "../lib/product-pulse-connections.server";
 
 export const loader = async ({ request }) => {
@@ -19,7 +20,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const actionType = String(formData.get("_action") || "");
 
@@ -27,8 +28,12 @@ export const action = async ({ request }) => {
     return connectJudgeMeReviews(session.shop, formData.get("privateApiToken"));
   }
 
-  if (actionType === "upload-csv") {
-    return uploadCsvReviews(session.shop, formData.get("csvFile"));
+  if (actionType === "preview-csv") {
+    return previewCsvReviews(session.shop, formData.get("csvFile"), { admin });
+  }
+
+  if (actionType === "confirm-csv") {
+    return confirmCsvReviews(session.shop, String(formData.get("csvPreview") || ""));
   }
 
   if (actionType === "set-source-active") {

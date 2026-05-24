@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import prisma from "../../app/db.server";
 import {
+  analyzeCsvReviewUpload,
   getNormalizedCsvReviewsForShop,
   parseCsvText,
   processCsvReviewUpload,
@@ -100,6 +101,64 @@ describe("ProductPulse CSV review import", () => {
     expect(normalized).toContain("product_handle,shopify_product_id,rating");
     expect(normalized).toContain("linen-shirt,,5,Great,Great product");
     expect(normalized).toContain("\"Comfortable, light vest\"");
+  });
+
+  it("falls back to a Shopify product ID column when sampled handles do not exist", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify({
+        product_handle: "Handle",
+        shopify_product_id: null,
+        rating: "Stars",
+        review_body: "Review Body",
+        review_title: "Title",
+        review_date: "Created At",
+        reviewer_name: "Reviewer",
+        review_status: "Status",
+        source_product_id: "External Product ID",
+        confidence: 0.94,
+        notes: "Headers identify review fields.",
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    const admin = {
+      graphql: vi.fn(async (query, options) => {
+        if (String(query).includes("ProductPulseCsvProductByHandle")) {
+          return new Response(JSON.stringify({ data: { products: { nodes: [] } } }), { status: 200 });
+        }
+        if (options?.variables?.id === "gid://shopify/Product/10002") {
+          return new Response(JSON.stringify({
+            data: { product: { id: "gid://shopify/Product/10002", handle: "valid-desk", title: "Valid Desk" } },
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ data: { product: null } }), { status: 200 });
+      }),
+    };
+
+    const csv = [
+      "Handle,External Product ID,Stars,Title,Review Body,Created At,Reviewer,Status",
+      "not-a-real-handle,10001,5,Great,First review,2026-05-01,Ana,published",
+      "still-not-real,10002,4,Good,Second review,2026-05-02,Leo,published",
+    ].join("\n");
+
+    const result = await analyzeCsvReviewUpload({
+      shop: "Test-Shop.myshopify.com",
+      admin,
+      file: new File([csv], "reviews.csv", { type: "text/csv" }),
+    });
+
+    expect(result.mapping.product_handle).toBeNull();
+    expect(result.mapping.shopify_product_id).toBe("External Product ID");
+    expect(result.productRelation).toMatchObject({
+      status: "confirmed",
+      field: "shopify_product_id",
+      header: "External Product ID",
+      sampleValue: "gid://shopify/Product/10002",
+    });
+    expect(result.previewRows[0]).toMatchObject({
+      shopifyProductId: "10001",
+      rating: "5",
+      reviewBody: "First review",
+    });
   });
 
   it("does not load normalized CSV rows when the CSV source is disabled", async () => {

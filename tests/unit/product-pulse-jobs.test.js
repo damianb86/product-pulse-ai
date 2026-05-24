@@ -77,6 +77,28 @@ describe("ProductPulse product job helpers", () => {
     expect(modal).toContain("View FAQ");
   });
 
+  it("adds missing FAQ items to an existing FAQ definition list when possible", () => {
+    const currentHtml = [
+      "<section class=\"productpulse-faq productpulse-callout\">",
+      "<p>Frequently asked questions</p>",
+      "<dl>",
+      "<dt>How does this fit?</dt>",
+      "<dd>Check measurements before purchase.</dd>",
+      "</dl>",
+      "</section>",
+    ].join("\n");
+
+    const merged = productPulseJobsTestHooks.mergeFaqItemsIntoExistingDescriptionHtml({
+      descriptionHtml: currentHtml,
+      faqItems: [{ question: "Can I use it outdoors?", answer: "Review the selected variant and product details." }],
+    });
+
+    expect(merged).toContain("<dt>How does this fit?</dt>");
+    expect(merged).toContain("Can I use it outdoors?");
+    expect(merged.indexOf("Can I use it outdoors?")).toBeLessThan(merged.indexOf("</dl>"));
+    expect((merged.match(/productpulse-faq/g) || []).length).toBe(1);
+  });
+
   it("keeps open recommendations neutral in return-rate forecasts", () => {
     const prediction = {
       forecastPoints: [
@@ -172,6 +194,23 @@ describe("ProductPulse product job helpers", () => {
     expect(html).toContain("productpulse-callout");
     expect(html).toContain("Please note: check compatibility before purchase.");
     expect(html).toContain("Product note");
+  });
+
+  it("applies grouped description changes as separate wrapped blocks", () => {
+    const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtmlFromChanges({
+      currentHtml: "<div><p>Current product description.</p></div>",
+      changes: [
+        { id: "fit-note", operation: "prepend", text: "Edited fit note for layering." },
+        { id: "specs-note", operation: "append", text: "Edited technical specifications block." },
+      ],
+      action: { id: "product-description-changes", payload: {} },
+    });
+
+    expect(html).toContain('data-productpulse-action="fit-note"');
+    expect(html).toContain('data-productpulse-action="specs-note"');
+    expect(html).toContain("<div><p>Current product description.</p></div>");
+    expect(html.indexOf('data-productpulse-action="fit-note"')).toBeLessThan(html.indexOf("<div><p>Current product description.</p></div>"));
+    expect(html.indexOf("<div><p>Current product description.</p></div>")).toBeLessThan(html.indexOf('data-productpulse-action="specs-note"'));
   });
 
   it("renders safe generated HTML inside ProductPulse description notes", () => {
@@ -365,5 +404,59 @@ describe("ProductPulse product job helpers", () => {
     expect(detail.metrics.productPurchaseContextScoringImpact).toEqual([
       "Usually bought alone, so negative signals are easier to attribute.",
     ]);
+  });
+
+  it("exposes stored action diagnosis ids so reanalysis can reopen equivalent recommendations", () => {
+    const detail = productPulseJobsTestHooks.formatSnapshotForDiagnosis(
+      {
+        productGid: "gid://shopify/Product/reanalyzed",
+        productTitle: "Reanalyzed Product",
+        handle: "reanalyzed-product",
+        riskScore: 78,
+        confidence: 84,
+        primaryIssue: "Product content",
+        updatedAt: "2026-05-18T12:00:00.000Z",
+        sourceCoverage: ["Shopify products"],
+        metrics: {
+          latestDiagnosisId: "diagnosis-new",
+          soldUnits: 4,
+          signalCount: 3,
+        },
+      },
+      [{
+        id: "action-old",
+        diagnosisId: "diagnosis-old",
+        actionType: "rewrite-description",
+        label: "Rewrite product description",
+        status: "applied",
+        payload: { sourceActionId: "rewrite-description" },
+        createdAt: "2026-05-14T10:00:00.000Z",
+        appliedAt: "2026-05-14T10:00:00.000Z",
+      }],
+      {
+        id: "diagnosis-new",
+        status: "Completed",
+        productGid: "gid://shopify/Product/reanalyzed",
+        riskScore: 78,
+        confidence: 84,
+        likelyCause: "Product content",
+        recommendations: [{
+          id: "rewrite-description",
+          label: "Rewrite product description",
+          type: "PDP copy",
+          status: "Ready",
+        }],
+        issues: [],
+        evidence: [],
+        completedAt: "2026-05-18T12:30:00.000Z",
+      },
+    );
+
+    expect(detail.latestDiagnosisId).toBe("diagnosis-new");
+    expect(detail.actionHistory[0]).toMatchObject({
+      diagnosisId: "diagnosis-old",
+      actionId: "rewrite-description",
+      status: "applied",
+    });
   });
 });

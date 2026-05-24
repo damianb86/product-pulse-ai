@@ -176,6 +176,62 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("60% effective customer-signal coverage")).toBeInTheDocument();
   });
 
+  it("shows a CSV review preview before saving the upload", async () => {
+    const csvPreview = {
+      fileName: "reviews.csv",
+      displayFileName: "CSV import",
+      totalRows: 12,
+      normalizedRowCount: 10,
+      rejectedRowCount: 2,
+      mapping: {
+        product_handle: "Product Handle",
+        shopify_product_id: null,
+        rating: "Stars",
+        review_title: "Title",
+        review_body: "Review Body",
+        review_date: "Created At",
+        reviewer_name: "Reviewer",
+        review_status: "Status",
+      },
+      productRelation: {
+        status: "confirmed",
+        label: "Shopify product handle confirmed",
+        detail: "Matched Product Handle to Core Linen Trouser.",
+      },
+      previewRows: [
+        {
+          sourceRow: "2",
+          productHandle: "core-linen-trouser",
+          rating: "5",
+          reviewTitle: "Great fit",
+          reviewBody: "Soft fabric and accurate sizing.",
+          reviewDate: "2026-05-01",
+          reviewerName: "Ana",
+          reviewStatus: "published",
+        },
+      ],
+      normalizedFileName: "csv-review-import-20260523-120000-abcdef123456.normalized.csv",
+      storageKey: "test-shop.myshopify.com",
+    };
+
+    renderWithRouter(<ConnectScreen
+      data={{ ...defaultView, persistConnectState: true }}
+      actionData={{ status: "csv_preview", providerKey: "csvReviews", csvPreview }}
+    />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Review detected CSV data" });
+    expect(within(dialog).getByText("Reviews ready")).toBeInTheDocument();
+    expect(within(dialog).getByText("10")).toBeInTheDocument();
+    expect(within(dialog).getByText("Product Handle")).toBeInTheDocument();
+    expect(within(dialog).getByText("core-linen-trouser")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Accept and save CSV" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "View required CSV fields" }));
+    expect(screen.getByRole("dialog", { name: "Structure review CSV files" })).toBeInTheDocument();
+    expect(screen.getByText("product_handle")).toBeInTheDocument();
+    expect(screen.getByText("shopify_product_id")).toBeInTheDocument();
+  });
+
   it("renders product table tabs and switches between diagnostics, candidates and resolved products", () => {
     const resolvedProduct = {
       title: "Resolved Linen Shirt",
@@ -2551,6 +2607,80 @@ describe("ProductPulse screens", () => {
     expect(confirmDialog).not.toHaveTextContent(bottomNote);
   });
 
+  it("keeps grouped product description edits separate when applying", async () => {
+    const currentDescription = "The Trail Jacket is a lightweight shell with a water-resistant finish and adjustable cuffs.";
+    const topNote = "Fit note: size up if you plan to wear thick layers under this jacket.";
+    const bottomNote = "Specs note: includes sealed seams and a drawcord hem.";
+    let submittedChanges = [];
+    let submittedDraftText = "";
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      submittedDraftText = String(formData.get("draftText") || "");
+      submittedChanges = JSON.parse(String(formData.get("descriptionChangesJson") || "[]"));
+      return {
+        status: "success",
+        message: "Selected product description changes were applied.",
+        action: { id: String(formData.get("actionId") || "") },
+        actionRecordStatus: "applied",
+      };
+    });
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [
+        {
+          id: "add-fit-note",
+          label: "Add fit note",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: topNote,
+            currentDescriptionText: currentDescription,
+            operation: "prepend",
+          },
+        },
+        {
+          id: "add-specs-note",
+          label: "Add specifications note",
+          type: "PDP copy",
+          effort: "Low",
+          status: "Draft",
+          payload: {
+            draftText: bottomNote,
+            currentDescriptionText: currentDescription,
+            operation: "append",
+          },
+        },
+      ],
+    };
+
+    renderWithAction(<ProductDiagnosisActionHarness data={defaultView} product={product} />, action);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Update product description" }));
+    const dialog = screen.getByRole("dialog", { name: "Update product description" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit text" }));
+
+    fireEvent.change(within(dialog).getByLabelText("Description text to apply for Add fit note"), {
+      target: { value: "Edited fit note for layering." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Description text to apply for Add specifications note"), {
+      target: { value: "Edited technical specifications block." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
+
+    const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
+    expect(confirmDialog).toHaveTextContent("Edited fit note for layering.");
+    expect(confirmDialog).toHaveTextContent("Edited technical specifications block.");
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "Accept and apply change" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(submittedDraftText).toContain("Edited fit note for layering.");
+    expect(submittedDraftText).toContain("Edited technical specifications block.");
+    expect(submittedChanges).toEqual([
+      expect.objectContaining({ id: "add-fit-note", operation: "prepend", text: "Edited fit note for layering." }),
+      expect.objectContaining({ id: "add-specs-note", operation: "append", text: "Edited technical specifications block." }),
+    ]);
+  });
+
   it("keeps SEO title recommendations out of product description groups", () => {
     const product = {
       ...defaultView.startHere,
@@ -2695,6 +2825,45 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     expect(screen.getAllByRole("button", { name: "Open recommended action Create product FAQ" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Expand Create product FAQ" })).toBeInTheDocument();
+  });
+
+  it("does not archive a fresh recommendation because an equivalent action was applied in an older diagnosis", () => {
+    const product = {
+      ...defaultView.startHere,
+      latestDiagnosisId: "diagnosis-new",
+      metrics: {
+        ...defaultView.startHere.metrics,
+        latestDiagnosisId: "diagnosis-new",
+      },
+      recommendedActions: [{
+        id: "fit-note",
+        label: "Add fit note",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          draftText: "Add the new fit language from the latest review window.",
+        },
+      }],
+      actionHistory: [{
+        id: "stored-old-fit-note",
+        diagnosisId: "diagnosis-old",
+        actionId: "fit-note",
+        actionType: "fit-note",
+        label: "Add fit note",
+        status: "applied",
+        payload: {
+          sourceActionId: "fit-note",
+          canonicalActionId: "fit-note",
+          actionAliases: ["fit-note", "product-description-changes"],
+        },
+        appliedAt: "2026-05-14T10:00:00.000Z",
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expand Add fit note" })).not.toBeInTheDocument();
   });
 
   it("shows Add to Watchlist as a workflow action without a before/after preview", () => {
@@ -3777,6 +3946,39 @@ describe("ProductPulse screens", () => {
       target: { value: "Add care guidance for brushed cotton before purchase." },
     });
     expect(within(dialog).queryByText(/must be replaced before applying/)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Apply change" })).not.toBeDisabled();
+  });
+
+  it("does not treat CSS rule blocks as generated placeholders", () => {
+    const cssDescription = [
+      "<style>",
+      ".product-pulse-panel{background:rgba(15,23,42,.44);backdrop-filter:blur(2px);}",
+      ".product-pulse-panel strong{display:block;}",
+      "</style>",
+      "<p>Inflatable standing desk details are ready to publish.</p>",
+    ].join("");
+    const product = {
+      ...defaultView.startHere,
+      handle: "gen-inflatable-standing-desk-26a108d0",
+      recommendedActions: [{
+        id: "css-description",
+        label: "Update Product Description",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: cssDescription,
+          currentDescriptionText: "Existing product description.",
+          operation: "replace",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Update Product Description" }));
+    const dialog = screen.getByRole("dialog", { name: "Update Product Description" });
+    expect(within(dialog).queryByText(/must be replaced before applying/)).not.toBeInTheDocument();
+    expect(dialog.querySelector(".ppEditablePlaceholder")).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Apply change" })).not.toBeDisabled();
   });
 

@@ -664,6 +664,7 @@ export async function searchShopifyProductsForDiagnosis(shop, admin, rawQuery) {
 export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}, admin = null) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
+  const descriptionChangesOverride = normalizeDescriptionChangesOverride(payloadOverride.descriptionChangesJson || payloadOverride.descriptionChanges);
 
   const metrics = snapshot.metrics || {};
   const latestDiagnosis = await prisma.productDiagnosis.findFirst({
@@ -689,8 +690,8 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     action = getSyntheticProductActionForRecord(actionId, payloadOverride);
   }
 
-  if (!action && payloadOverride.draftText) {
-    const isDescriptionFallback = actionId === "product-description-changes" || payloadOverride.descriptionOperation;
+  if (!action && (payloadOverride.draftText || descriptionChangesOverride.length)) {
+    const isDescriptionFallback = actionId === "product-description-changes" || payloadOverride.descriptionOperation || descriptionChangesOverride.length;
     action = {
       id: actionId || "custom-draft",
       label: payloadOverride.label || "Custom product action draft",
@@ -701,6 +702,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
         draftText: payloadOverride.draftText,
         ...(payloadOverride.field ? { field: payloadOverride.field } : {}),
         ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
+        ...(descriptionChangesOverride.length ? { descriptionChangeGroup: true, descriptionChanges: descriptionChangesOverride } : {}),
       },
     };
   }
@@ -716,6 +718,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     ...(payloadOverride.tag ? { tag: payloadOverride.tag } : {}),
     ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
     ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
+    ...(descriptionChangesOverride.length ? { descriptionChangeGroup: true, descriptionChanges: descriptionChangesOverride } : {}),
     ...(payloadOverride.metafieldNamespace ? { metafieldNamespace: payloadOverride.metafieldNamespace } : {}),
     ...(payloadOverride.metafieldKey ? { metafieldKey: payloadOverride.metafieldKey } : {}),
     ...(payloadOverride.metafieldType ? { metafieldType: payloadOverride.metafieldType } : {}),
@@ -739,13 +742,15 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       ...(equivalentActionIds.length ? [{ actionType: { in: equivalentActionIds } }] : []),
       ...(equivalentActionLabels.length ? [{ label: { in: equivalentActionLabels } }] : []),
     ];
+    const restoreWhere = {
+      shop,
+      productGid: snapshot.productGid,
+      status: "dismissed",
+      OR: restoreMatchers.length ? restoreMatchers : [{ actionType: recordActionId }],
+    };
+    if (latestDiagnosis?.id) restoreWhere.diagnosisId = latestDiagnosis.id;
     await prisma.productAction.updateMany({
-      where: {
-        shop,
-        productGid: snapshot.productGid,
-        status: "dismissed",
-        OR: restoreMatchers.length ? restoreMatchers : [{ actionType: recordActionId }],
-      },
+      where: restoreWhere,
       data: {
         status: "active",
         appliedAt: null,
@@ -786,13 +791,15 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       ...(equivalentActionIds.length ? [{ actionType: { in: equivalentActionIds } }] : []),
       ...(equivalentActionLabels.length ? [{ label: { in: equivalentActionLabels } }] : []),
     ];
+    const duplicateWhere = {
+      shop,
+      productGid: snapshot.productGid,
+      status,
+      OR: duplicateMatchers.length ? duplicateMatchers : [{ actionType: recordActionId }],
+    };
+    if (latestDiagnosis?.id) duplicateWhere.diagnosisId = latestDiagnosis.id;
     const existingCompletedAction = await prisma.productAction.findFirst({
-      where: {
-        shop,
-        productGid: snapshot.productGid,
-        status,
-        OR: duplicateMatchers.length ? duplicateMatchers : [{ actionType: recordActionId }],
-      },
+      where: duplicateWhere,
       orderBy: { createdAt: "desc" },
     });
     if (existingCompletedAction) {
@@ -961,6 +968,44 @@ function getSyntheticProductActionForRecord(actionId, payloadOverride = {}) {
     status: "Ready",
     payload: {},
   };
+}
+
+function normalizeDescriptionChangesOverride(value) {
+  const rawChanges = (() => {
+    if (Array.isArray(value)) return value;
+    const text = String(value || "").trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  return rawChanges
+    .map((change, index) => {
+      const operation = ["replace", "prepend", "append"].includes(change?.operation) ? change.operation : "append";
+      const text = String(change?.text || change?.draftText || "").trim();
+      if (!text) return null;
+      const id = String(change?.id || change?.actionId || `description-change-${index + 1}`).trim() || `description-change-${index + 1}`;
+      return {
+        id,
+        actionId: String(change?.actionId || id).trim() || id,
+        title: String(change?.title || getDescriptionOperationTextForChange(operation)).trim(),
+        operation,
+        operationLabel: String(change?.operationLabel || getDescriptionOperationTextForChange(operation)).trim(),
+        text,
+      };
+    })
+    .filter(Boolean);
+}
+
+function getDescriptionOperationTextForChange(operation = "") {
+  if (operation === "replace") return "Rewrite product description";
+  if (operation === "prepend") return "Add to top of description";
+  if (operation === "append") return "Add to end of description";
+  return "Update product description";
 }
 
 function inferProductActionTypeFromText(value = "") {
@@ -1261,6 +1306,27 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
+  if (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length && (normalizedType.includes("pdp") || normalizedId.includes("description") || payload.descriptionChangeGroup)) {
+    const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
+    if (currentProduct.status === "validation_error") return currentProduct;
+    const descriptionHtml = buildUpdatedProductDescriptionHtmlFromChanges({
+      currentHtml: currentProduct.descriptionHtml || "",
+      changes: payload.descriptionChanges,
+      action,
+    });
+    if (!descriptionHtml) return { status: "validation_error", message: "This description action does not include text to apply." };
+    const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Selected product description changes were applied for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product description",
+        operation: "apply_grouped_changes",
+        value: payload.descriptionChanges,
+      },
+    };
+  }
+
   if (payload.draftText && (normalizedType.includes("pdp") || normalizedType.includes("faq") || normalizedId.includes("description") || normalizedId.includes("fit"))) {
     const operation = getDescriptionOperationForAction({ ...action, payload });
     const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
@@ -1499,15 +1565,22 @@ async function applyFaqRecommendationAction({ admin, snapshot, action, payload }
   const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
   if (currentProduct.status === "validation_error") return currentProduct;
   const faqHtml = buildProductPulseFaqHtml({ faqItems, variant, action });
-  const descriptionHtml = [currentProduct.descriptionHtml || "", faqHtml].filter(Boolean).join("\n");
+  const mergedFaqHtml = payload.existingFaqDetected
+    ? mergeFaqItemsIntoExistingDescriptionHtml({
+        descriptionHtml: currentProduct.descriptionHtml || "",
+        faqItems,
+      })
+    : "";
+  const operation = mergedFaqHtml ? "merge-existing-faq" : variant;
+  const descriptionHtml = mergedFaqHtml || [currentProduct.descriptionHtml || "", faqHtml].filter(Boolean).join("\n");
   const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
   if (result.status === "validation_error") return result;
 
   return {
-    message: `${getFaqApplyVariantLabel(variant)} for ${snapshot.productTitle}.`,
+    message: `${getFaqApplyVariantLabel(operation)} for ${snapshot.productTitle}.`,
     change: {
       target: "Product description",
-      operation: variant,
+      operation,
       value: faqItems,
       descriptionHtml,
     },
@@ -1531,6 +1604,7 @@ function isFaqMetafieldApplyVariant(variant = "") {
 }
 
 function getFaqApplyVariantLabel(variant) {
+  if (variant === "merge-existing-faq") return "Missing FAQ questions were added to the existing FAQ";
   if (variant === "description-section") return "Product FAQ section was appended";
   if (variant === "description-modal") return "Product FAQ modal block was appended";
   if (isFaqMetafieldApplyVariant(variant)) return "Product FAQ metafield was saved";
@@ -1588,9 +1662,7 @@ function buildProductPulseFaqHtml({ faqItems, variant, action }) {
   const actionId = escapeHtml(action.id || "product-faq");
   const calloutAttributes = buildProductPulseCalloutAttributes(actionId, "productpulse-faq");
   const headingHtml = buildProductPulseCalloutHeading("Frequently asked questions");
-  const itemsHtml = faqItems.map((item) => (
-    `<dt style="font-weight:700;color:#111827;margin-top:12px;">${escapeHtml(item.question)}</dt>\n<dd style="margin:4px 0 0;color:#374151;line-height:1.55;">${escapeHtml(item.answer)}</dd>`
-  )).join("\n");
+  const itemsHtml = buildProductPulseFaqItemsHtml(faqItems);
 
   if (variant === "description-section") {
     return `<section ${calloutAttributes}>\n${headingHtml}\n<dl style="margin:0;">\n${itemsHtml}\n</dl>\n</section>`;
@@ -1613,6 +1685,33 @@ function buildProductPulseFaqHtml({ faqItems, variant, action }) {
   }
 
   return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>\n</section>`;
+}
+
+function buildProductPulseFaqItemsHtml(faqItems = []) {
+  return (Array.isArray(faqItems) ? faqItems : []).map((item) => (
+    `<dt style="font-weight:700;color:#111827;margin-top:12px;">${escapeHtml(item.question)}</dt>\n<dd style="margin:4px 0 0;color:#374151;line-height:1.55;">${escapeHtml(item.answer)}</dd>`
+  )).join("\n");
+}
+
+function mergeFaqItemsIntoExistingDescriptionHtml({ descriptionHtml = "", faqItems = [] } = {}) {
+  const html = String(descriptionHtml || "");
+  const itemsHtml = buildProductPulseFaqItemsHtml(faqItems);
+  if (!html.trim() || !itemsHtml) return "";
+
+  const patterns = [
+    /(<section\b[^>]*class=(?:"[^"]*productpulse-faq[^"]*"|'[^']*productpulse-faq[^']*')[^>]*>[\s\S]*?<dl\b[^>]*>)([\s\S]*?)(<\/dl>)/i,
+    /(<details\b[^>]*>[\s\S]*?(?:faq|frequently asked questions)[\s\S]*?<dl\b[^>]*>)([\s\S]*?)(<\/dl>)/i,
+    /((?:faq|frequently asked questions)[\s\S]{0,1500}<dl\b[^>]*>)([\s\S]*?)(<\/dl>)/i,
+  ];
+
+  for (const pattern of patterns) {
+    if (!pattern.test(html)) continue;
+    return html.replace(pattern, (_match, opening, existingItems, closing) => (
+      `${opening}${String(existingItems || "").trim()}\n${itemsHtml}\n${closing}`
+    ));
+  }
+
+  return "";
 }
 
 function getFaqMetafieldConfig(payload = {}) {
@@ -1762,6 +1861,45 @@ function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation,
   const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action);
   if (operation === "append") return [currentHtml, suggestionHtml].filter(Boolean).join("\n");
   return [suggestionHtml, currentHtml].filter(Boolean).join("\n");
+}
+
+function buildUpdatedProductDescriptionHtmlFromChanges({ currentHtml, changes = [], action }) {
+  const normalizedChanges = normalizeDescriptionChangesOverride(changes);
+  if (!normalizedChanges.length) return "";
+
+  const prependChanges = normalizedChanges.filter((change) => change.operation === "prepend");
+  const replacementChange = normalizedChanges.find((change) => change.operation === "replace");
+  const appendChanges = normalizedChanges.filter((change) => change.operation === "append");
+  const blocks = [];
+
+  prependChanges.forEach((change) => {
+    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change)));
+  });
+
+  if (replacementChange) {
+    blocks.push(buildProductPulseDescriptionReplacement(replacementChange.text, buildDescriptionChangeAction(action, replacementChange)));
+  } else if (currentHtml) {
+    blocks.push(currentHtml);
+  }
+
+  appendChanges.forEach((change) => {
+    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change)));
+  });
+
+  return blocks.filter(Boolean).join("\n");
+}
+
+function buildDescriptionChangeAction(action = {}, change = {}) {
+  const id = change.actionId || change.id || action.id || "product-description-change";
+  return {
+    ...action,
+    id,
+    label: change.title || action.label,
+    payload: {
+      ...(action.payload || {}),
+      operation: change.operation,
+    },
+  };
 }
 
 function applyDescriptionHtmlReplacements(currentHtml, replacements = []) {
@@ -3665,6 +3803,7 @@ function formatStoredProductAction(action) {
   const payload = action.payload || {};
   return {
     id: action.id,
+    diagnosisId: action.diagnosisId || payload.sourceDiagnosisId || payload.diagnosisId || null,
     actionId: action.actionType,
     label: action.label,
     status: action.status,
@@ -4671,10 +4810,12 @@ export const __productPulseJobsTestHooks = {
   buildManualProductRiskSnapshotPayload,
   buildProductPulseFaqHtml,
   buildUpdatedProductDescriptionHtml,
+  buildUpdatedProductDescriptionHtmlFromChanges,
   formatSnapshotForDiagnosis,
   filterProductSnapshots,
   getProductTableFilterOptions,
   getSignalLifecycleBars,
+  mergeFaqItemsIntoExistingDescriptionHtml,
   normalizeFaqItemsForApply,
   getFaqApplyVariant,
 };

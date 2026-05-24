@@ -254,6 +254,8 @@ export function ConnectScreen({ data, actionData }) {
   const [activeModal, setActiveModal] = useState(null);
   const [localToast, setLocalToast] = useState(null);
   const [localConnecting, setLocalConnecting] = useState(false);
+  const [csvPreview, setCsvPreview] = useState(null);
+  const [csvGuideReturnModal, setCsvGuideReturnModal] = useState("csv");
   const persistConnectState = Boolean(data?.persistConnectState);
   const connectView = buildConnectViewData(records);
   const isSubmitting = navigation.state === "submitting";
@@ -275,7 +277,13 @@ export function ConnectScreen({ data, actionData }) {
   }, [data?.connect?.records]);
 
   useEffect(() => {
+    if (actionData?.status === "csv_preview" && actionData?.csvPreview) {
+      setCsvPreview(actionData.csvPreview);
+      setActiveModal("csv-preview");
+      return;
+    }
     if (actionData?.status === "success") {
+      setCsvPreview(null);
       setActiveModal(null);
     }
   }, [actionData]);
@@ -340,18 +348,68 @@ export function ConnectScreen({ data, actionData }) {
     const file = formData.get("csvFile");
     const originalFileName = file?.name || "reviews.csv";
     const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
+    setLocalConnecting(true);
+    window.setTimeout(() => {
+      setCsvPreview({
+        fileName: originalFileName,
+        displayFileName: fileName,
+        totalRows: 5,
+        normalizedRowCount: 5,
+        rejectedRowCount: 0,
+        mapping: {
+          product_handle: "product_handle",
+          shopify_product_id: null,
+          rating: "rating",
+          review_title: "review_title",
+          review_body: "review_body",
+          review_date: "review_date",
+          reviewer_name: "reviewer_name",
+          review_status: "review_status",
+        },
+        productRelation: {
+          status: "confirmed",
+          label: "Shopify product handle confirmed",
+          detail: "Matched sample rows to Shopify products.",
+        },
+        previewRows: [
+          { sourceRow: "2", productHandle: "core-linen-trouser", rating: "5", reviewTitle: "Great fit", reviewBody: "Soft fabric and accurate sizing.", reviewDate: "2026-05-01", reviewerName: "Ana", reviewStatus: "published" },
+          { sourceRow: "3", productHandle: "trail-run-vest", rating: "4", reviewTitle: "Good vest", reviewBody: "Comfortable and light for short runs.", reviewDate: "2026-05-02", reviewerName: "Leo", reviewStatus: "published" },
+        ],
+      });
+      setLocalConnecting(false);
+      setActiveModal("csv-preview");
+    }, 450);
+  };
+
+  const handleLocalCsvConfirm = (event) => {
+    event.preventDefault();
     setRecords((current) => upsertLocalConnectionRecord(current, "csvReviews", {
       connected: true,
       active: true,
       ignored: false,
       available: true,
       health: "connected",
-      config: { fileName, displayFileName: fileName, originalFileName, uploadedAt: new Date().toISOString() },
+      config: {
+        fileName,
+        displayFileName: fileName,
+        originalFileName: csvPreview?.fileName || "reviews.csv",
+        uploadedAt: new Date().toISOString(),
+        normalizedRowCount: Number(csvPreview?.normalizedRowCount || 0),
+        totalRowCount: Number(csvPreview?.totalRows || 0),
+        rejectedRowCount: Number(csvPreview?.rejectedRowCount || 0),
+        mappedColumns: csvPreview?.mapping || {},
+      },
       connectedAt: new Date().toISOString(),
       lastSyncedAt: new Date().toISOString(),
     }));
     setActiveModal(null);
-    setLocalToast({ status: "success", message: `${fileName} is ready for review analysis.` });
+    setCsvPreview(null);
+    setLocalToast({ status: "success", message: `${fileName} was processed and ${Number(csvPreview?.normalizedRowCount || 0)} review rows were normalized.` });
+  };
+
+  const handleOpenCsvGuide = (returnModal = activeModal || "csv") => {
+    setCsvGuideReturnModal(returnModal);
+    setActiveModal("csv-guide");
   };
 
   const handleLocalActiveChange = (source, active) => {
@@ -367,7 +425,7 @@ export function ConnectScreen({ data, actionData }) {
   return (
     <FullWidthPage label="Connect" className="ppConnectPage">
       <ScreenShell className="ppDashboard ppConnectScreen">
-        <ProductPulseToast actionData={localToast || actionData} />
+        <ProductPulseToast actionData={localToast || (actionData?.status === "csv_preview" ? null : actionData)} />
 
         <div className="ppConnectHeader">
           <div>
@@ -474,10 +532,36 @@ export function ConnectScreen({ data, actionData }) {
           <CsvUploadModal
             source={csvSource}
             persistConnectState={persistConnectState}
-            isUploading={pendingAction === "upload-csv"}
+            isUploading={pendingAction === "preview-csv" || localConnecting}
             actionData={csvActionData}
             onCancel={() => setActiveModal(null)}
+            onOpenGuide={() => handleOpenCsvGuide("csv")}
             onLocalSubmit={handleLocalCsvUpload}
+          />
+        )}
+
+        {activeModal === "csv-preview" && csvPreview && (
+          <CsvReviewPreviewModal
+            preview={csvPreview}
+            persistConnectState={persistConnectState}
+            isConfirming={pendingAction === "confirm-csv"}
+            actionData={csvActionData}
+            onCancel={() => {
+              setCsvPreview(null);
+              setActiveModal("csv");
+            }}
+            onClose={() => {
+              setCsvPreview(null);
+              setActiveModal(null);
+            }}
+            onOpenGuide={() => handleOpenCsvGuide("csv-preview")}
+            onLocalConfirm={handleLocalCsvConfirm}
+          />
+        )}
+
+        {activeModal === "csv-guide" && (
+          <CsvFormatGuideModal
+            onClose={() => setActiveModal(csvPreview && csvGuideReturnModal === "csv-preview" ? "csv-preview" : "csv")}
           />
         )}
       </ScreenShell>
@@ -3335,7 +3419,21 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
   const isTagChange = String(application.target || "").toLowerCase().includes("tag");
   const tagOverride = String(confirmation.tagOverride || "");
   const valuePreview = editedText || "No value supplied.";
-  const unresolvedPlaceholders = getEditableTextPlaceholders(editedText);
+  const isGroupedDescription = Array.isArray(application.descriptionChanges) && application.descriptionChanges.length > 0;
+  const selectedDescriptionChanges = isGroupedDescription ? getSelectedDescriptionChanges(application) : [];
+  const selectedDescriptionChangesJson = isGroupedDescription ? JSON.stringify(selectedDescriptionChanges.map((change) => ({
+    id: change.id,
+    actionId: change.actionId || change.id,
+    title: change.title || "",
+    operation: change.operation || "append",
+    operationLabel: change.operationLabel || getDescriptionOperationText(change.operation || "append"),
+    text: change.text || "",
+  }))) : "";
+  const missingGroupedDescriptionText = isGroupedDescription
+    && (!selectedDescriptionChanges.length || selectedDescriptionChanges.some((change) => !String(change.text || "").trim()));
+  const unresolvedPlaceholders = isGroupedDescription
+    ? getActionApplicationPlaceholders(application, "")
+    : getEditableTextPlaceholders(editedText);
   const metafieldMissing = application.isMetafield && (!String(application.metafieldNamespace || "").trim() || !String(application.metafieldKey || "").trim());
   const submitLabel = pending ? "Applying change..." : application.confirmationSubmitLabel || "Accept and apply change";
 
@@ -3379,7 +3477,21 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
 
         <div className="ppActionConfirmChange">
           <span>{application.valueLabel || "New value"}</span>
-          <pre>{renderAnalysisText(valuePreview)}</pre>
+          {isGroupedDescription ? (
+            <div className="ppActionConfirmDescriptionChanges">
+              {selectedDescriptionChanges.map((change) => (
+                <article key={change.id}>
+                  <div>
+                    <strong>{change.title || "Description change"}</strong>
+                    <small>{change.operationLabel || getDescriptionOperationText(change.operation)}</small>
+                  </div>
+                  <pre>{renderAnalysisText(change.text || "No proposed value supplied.")}</pre>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <pre>{renderAnalysisText(valuePreview)}</pre>
+          )}
         </div>
 
         {unresolvedPlaceholders.length > 0 && (
@@ -3397,6 +3509,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           <input type="hidden" name="actionId" value={action.id || ""} />
           <input type="hidden" name="label" value={action.title || action.label || ""} />
           <input type="hidden" name="draftText" value={editedText} />
+          {isGroupedDescription && <input type="hidden" name="descriptionChangesJson" value={selectedDescriptionChangesJson} />}
           <input type="hidden" name="field" value={application.field || ""} />
           {tagOverride && <input type="hidden" name="tag" value={tagOverride} />}
           <input type="hidden" name="applyMode" value="apply" />
@@ -3406,7 +3519,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           <input type="hidden" name="metafieldKey" value={application.metafieldKey || ""} />
           <input type="hidden" name="metafieldType" value={application.metafieldType || ""} />
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button className="ppPrimaryButton" type="submit" disabled={pending || !editedText.trim() || unresolvedPlaceholders.length > 0 || metafieldMissing}>
+          <button className="ppPrimaryButton" type="submit" disabled={pending || (!isGroupedDescription && !editedText.trim()) || missingGroupedDescriptionText || unresolvedPlaceholders.length > 0 || metafieldMissing}>
             <s-icon type={isTagChange ? "tag" : "wand"} size="small"></s-icon>
             {submitLabel}
           </button>
@@ -6658,7 +6771,7 @@ function getProductRecommendedActions(product) {
     action: getRecommendedActionButtonLabel(action, index),
     mode: getRecommendedActionMode(action, index),
     payload: action.payload || {},
-    appliedRecord: getRecommendedActionHistoryRecord(action, actionHistory),
+    appliedRecord: getRecommendedActionHistoryRecord(action, actionHistory, product),
     submit: getRecommendedActionMode(action, index) === "submit",
   }));
 }
@@ -6981,9 +7094,10 @@ function isSensitiveRecommendedAction(action = {}, application = {}) {
   return /\b(price|compare-at|inventory|status|archive|draft|unlisted|pause affected|reduce availability|stop selling)\b/.test(normalized);
 }
 
-function getRecommendedActionHistoryRecord(action = {}, actionHistory = []) {
+function getRecommendedActionHistoryRecord(action = {}, actionHistory = [], product = {}) {
   const records = (Array.isArray(actionHistory) ? actionHistory : [])
     .filter((record) => !isSystemRecommendedActionRecord(record))
+    .filter((record) => isStoredRecommendedActionCurrentForProduct(record, product))
     .sort((first, second) => getRecommendedActionRecordTime(second) - getRecommendedActionRecordTime(first));
   const actionKeys = getRecommendedActionMatchKeys(action);
   const hasPreciseIdentity = hasPreciseRecommendedActionIdentity(action);
@@ -6998,6 +7112,22 @@ function getRecommendedActionHistoryRecord(action = {}, actionHistory = []) {
     getRecommendedActionPersistenceFamily(record) === actionFamily
   ));
   return familyRecord && getArchivedActionStateFromRecordStatus(familyRecord.status) ? familyRecord : null;
+}
+
+function isStoredRecommendedActionCurrentForProduct(record = {}, product = {}) {
+  const currentDiagnosisId = getCurrentProductDiagnosisId(product);
+  const recordDiagnosisId = getStoredRecommendedActionDiagnosisId(record);
+  if (!currentDiagnosisId || !recordDiagnosisId) return true;
+  return currentDiagnosisId === recordDiagnosisId;
+}
+
+function getCurrentProductDiagnosisId(product = {}) {
+  return String(product.latestDiagnosisId || product.metrics?.latestDiagnosisId || "").trim();
+}
+
+function getStoredRecommendedActionDiagnosisId(record = {}) {
+  const payload = record.payload || {};
+  return String(record.diagnosisId || payload.sourceDiagnosisId || payload.diagnosisId || "").trim();
 }
 
 function getRecommendedActionRecordTime(record = {}) {
@@ -7462,20 +7592,144 @@ function buildDescriptionChangeDescriptor(action = {}, product = {}) {
   const payload = action.payload || {};
   const currentDescription = getCurrentDescriptionForAction(product, payload);
   const operation = getResolvedDescriptionOperationForAction(action, product, currentDescription);
-  const text = getDescriptionActionValue({ action, product, operation, currentDescription });
-  if (!normalizeActionText(text)) return null;
+  const rawText = getDescriptionActionValue({ action, product, operation, currentDescription });
+  const normalizedText = getVisibleDescriptionChangeText({
+    text: rawText,
+    currentDescription,
+    operation,
+  });
+  if (!normalizeActionText(normalizedText.text)) return null;
 
   return {
     id: action.id || normalizeIssueIgnoreKey(action.label || action.title || operation),
     actionId: action.id || "",
     title: getRecommendedActionTitle(action, product),
-    operation,
-    operationLabel: getDescriptionOperationText(operation),
-    text,
-    intro: getDescriptionActionIntro(operation, action),
-    reason: getDescriptionChangeSpecificReason(action, product, operation) || getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
+    operation: normalizedText.operation,
+    operationLabel: getDescriptionOperationText(normalizedText.operation),
+    text: normalizedText.text,
+    intro: getDescriptionActionIntro(normalizedText.operation, action),
+    reason: getDescriptionChangeSpecificReason(action, product, normalizedText.operation) || getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
     causeKey: payload.causeKey || "",
   };
+}
+
+function getVisibleDescriptionChangeText({ text = "", currentDescription = "", operation = "append" } = {}) {
+  const current = normalizeActionText(currentDescription);
+  const proposed = cleanDescriptionDraftForDisplay(text);
+  const resolvedOperation = ["replace", "prepend", "append"].includes(operation) ? operation : "append";
+  if (!proposed || !current || resolvedOperation === "replace") {
+    return { text: proposed, operation: resolvedOperation };
+  }
+
+  const units = splitDescriptionDraftUnitsForDisplay(proposed);
+  const missingUnits = units.filter((unit) => !isDescriptionUnitCoveredForDisplay(unit, current));
+  if (!missingUnits.length) return { text: "", operation: resolvedOperation };
+  return {
+    text: missingUnits.join("\n\n"),
+    operation: resolvedOperation,
+  };
+}
+
+function cleanDescriptionDraftForDisplay(value = "") {
+  return normalizeActionText(value)
+    .split(/\n+/)
+    .map(cleanDescriptionDraftUnitForDisplay)
+    .filter(Boolean)
+    .join("\n");
+}
+
+function cleanDescriptionDraftUnitForDisplay(value = "") {
+  return String(value || "")
+    .replace(/^\s*(fit note|product note|important note|note)\s*\([^)]*\)\s*:\s*/i, "")
+    .replace(/^\s*(please\s+)?(add|insert|place)\s+[^:]{0,120}:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitDescriptionDraftUnitsForDisplay(value = "") {
+  return normalizeActionText(value)
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => {
+      const trimmed = paragraph.trim();
+      if (!trimmed) return [];
+      const lines = trimmed.split(/\n/).map((line) => line.trim()).filter(Boolean);
+      if (lines.length > 1) return lines.flatMap(splitDescriptionDisplaySentences);
+      return splitDescriptionDisplaySentences(trimmed);
+    })
+    .map(cleanDescriptionDraftUnitForDisplay)
+    .filter((unit) => unit && !isInstructionalDescriptionUnitForDisplay(unit))
+    .filter((unit) => getDescriptionMeaningfulTokens(unit).length >= 2 || unit.length >= 18);
+}
+
+function isDescriptionUnitCoveredForDisplay(unit = "", currentDescription = "") {
+  if (hasSpecificNewVariantDetailForDisplay(unit, currentDescription)) return false;
+  if (textIncludesMeaning(currentDescription, unit)) return true;
+  if (isCoveredFitOrCareGuidanceForDisplay(unit, currentDescription) && getDescriptionTokenCoverage(unit, currentDescription) >= 0.45) return true;
+  return getDescriptionTokenCoverage(unit, currentDescription) >= 0.64;
+}
+
+function splitDescriptionDisplaySentences(value = "") {
+  return String(value || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isCoveredFitOrCareGuidanceForDisplay(unit = "", currentDescription = "") {
+  const proposed = String(unit || "").toLowerCase();
+  const current = String(currentDescription || "").toLowerCase();
+  const proposesSizingGuidance = /\b(between sizes|size up|sizing up|roomier|extra room|snug|tight|fit)\b/.test(proposed);
+  const currentHasSizingGuidance = /\b(between sizes|size up|sizing up|roomier|extra room|snug|tight|fit|size chart|measurements)\b/.test(current);
+  if (proposesSizingGuidance && currentHasSizingGuidance) return true;
+  const proposesCareGuidance = /\b(wash|washing|washed|care instructions|hang dry|tighter after washing)\b/.test(proposed);
+  const currentHasCareGuidance = /\b(wash|washing|washed|care instructions|hang dry|tighter after washing|tighter feel after washing)\b/.test(current);
+  return proposesCareGuidance && currentHasCareGuidance;
+}
+
+function isInstructionalDescriptionUnitForDisplay(value = "") {
+  const normalized = String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return /\b(add|insert|create|write|draft|include|clarify|update)\b.{0,80}\b(shopper facing|customer facing|note|section|copy|description|faq)\b/.test(normalized)
+    || /\bthis note is based on\b/.test(normalized)
+    || /\bdescription says\b/.test(normalized)
+    || /\bcopy repeatedly advises\b/.test(normalized);
+}
+
+function hasSpecificNewVariantDetailForDisplay(proposedText = "", currentText = "") {
+  const proposedTokens = new Set(getDescriptionMeaningfulTokens(proposedText));
+  const currentTokens = new Set(getDescriptionMeaningfulTokens(currentText));
+  const specificTokens = [
+    "white", "black", "blue", "navy", "green", "red", "pink", "purple", "yellow", "brown", "gray", "grey", "beige", "cream", "orange",
+    "small", "medium", "large", "petite", "tall", "wide", "narrow",
+  ];
+  return specificTokens.some((token) => proposedTokens.has(token) && !currentTokens.has(token));
+}
+
+function getDescriptionTokenCoverage(needleText = "", haystackText = "") {
+  const needleTokens = getDescriptionMeaningfulTokens(needleText);
+  if (!needleTokens.length) return 0;
+  const haystackTokens = new Set(getDescriptionMeaningfulTokens(haystackText));
+  if (!haystackTokens.size) return 0;
+  const shared = needleTokens.filter((token) => haystackTokens.has(token)).length;
+  return shared / needleTokens.length;
+}
+
+function getDescriptionMeaningfulTokens(value = "") {
+  const stopWords = new Set(["and", "the", "for", "with", "from", "this", "that", "product", "products", "shopify", "before", "after", "ordering", "purchase", "customers"]);
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z0-9]+/)
+    .map(normalizeDescriptionDisplayToken)
+    .filter((token) => token.length > 3 && !stopWords.has(token));
+}
+
+function normalizeDescriptionDisplayToken(token = "") {
+  const value = String(token || "").trim();
+  if (value.length > 5 && value.endsWith("ing")) return value.slice(0, -3);
+  if (value.length > 5 && value.endsWith("ed")) return value.slice(0, -2);
+  if (value.length > 4 && value.endsWith("s")) return value.slice(0, -1);
+  return value;
 }
 
 function getDescriptionChangeSpecificReason(action = {}, product = {}, operation = "") {
@@ -7737,18 +7991,21 @@ function getFaqApplicationVariants(payload = {}) {
 function getFaqApplicationIntro(variantId, payload = {}, metafield = null) {
   const reasons = Array.isArray(payload.faqNeed?.reasons) ? payload.faqNeed.reasons : [];
   const reasonText = reasons.length ? ` ProductPulse is suggesting FAQ coverage because ${reasons[0].toLowerCase()}` : "";
+  const missingOnlyText = payload.existingFaqDetected
+    ? " Existing FAQ/content was detected, so this action includes only the missing questions ProductPulse still found useful. When the current FAQ HTML can be matched, ProductPulse will add them to that FAQ instead of creating a duplicate FAQ block."
+    : "";
   if (variantId === "description-section") {
-    return `This will append the generated questions and answers as a visible FAQ section in the Shopify product description.${reasonText}`;
+    return `This will append the generated questions and answers as a visible FAQ section in the Shopify product description.${missingOnlyText}${reasonText}`;
   }
   if (variantId === "description-modal") {
-    return `This will append a modal-style FAQ block to the Shopify product description using HTML that can be styled by the theme.${reasonText}`;
+    return `This will append a modal-style FAQ block to the Shopify product description using HTML that can be styled by the theme.${missingOnlyText}${reasonText}`;
   }
   if (variantId === "metafield-html") {
     const namespace = metafield?.namespace || payload.metafield?.namespace || "productpulse";
     const key = metafield?.key || payload.metafield?.key || "faq_html";
-    return `This will save the generated FAQ HTML in the product metafield ${namespace}.${key}. If the metafield is not present on the product, Shopify will create it when the value is saved.${reasonText}`;
+    return `This will save the generated FAQ HTML in the product metafield ${namespace}.${key}. If the metafield is not present on the product, Shopify will create it when the value is saved.${missingOnlyText}${reasonText}`;
   }
-  return `This will append a compact collapsible FAQ to the Shopify product description so shoppers can open it without making the PDP much longer.${reasonText}`;
+  return `This will append a compact collapsible FAQ to the Shopify product description so shoppers can open it without making the PDP much longer.${missingOnlyText}${reasonText}`;
 }
 
 function getFaqConfirmationDetail(variantId, payload = {}, metafield = null) {
@@ -7822,11 +8079,17 @@ function getFaqPreviewItems(application = {}, detailText = "") {
 function getGroupedDescriptionActionApplication(action, product = null, options = {}) {
   const payload = action.payload || {};
   const currentDescription = getCurrentDescriptionForAction(product, payload);
-  const descriptionChanges = normalizeDescriptionChangesForApplication(payload.descriptionChanges);
+  const editedDescriptionChangeTexts = options.editedDescriptionChangeTexts && typeof options.editedDescriptionChangeTexts === "object"
+    ? options.editedDescriptionChangeTexts
+    : {};
+  const descriptionChanges = normalizeDescriptionChangesForApplication(payload.descriptionChanges)
+    .map((change) => Object.prototype.hasOwnProperty.call(editedDescriptionChangeTexts, change.id)
+      ? { ...change, text: normalizeActionText(editedDescriptionChangeTexts[change.id]) }
+      : change);
   const selectedChangeIds = Array.isArray(options.selectedChangeIds)
     ? options.selectedChangeIds
     : descriptionChanges.map((change) => change.id);
-  const selectedChanges = descriptionChanges.filter((change) => selectedChangeIds.includes(change.id));
+  const selectedChanges = getSelectedDescriptionChanges({ descriptionChanges, selectedChangeIds });
   const value = buildGroupedDescriptionValue(currentDescription, selectedChanges);
 
   return withRecipeApplicationFields(action, {
@@ -7848,6 +8111,14 @@ function getGroupedDescriptionActionApplication(action, product = null, options 
     selectedChangeIds,
     relatedActions: descriptionChanges.map((change) => change.title),
   });
+}
+
+function getSelectedDescriptionChanges(application = {}) {
+  const descriptionChanges = Array.isArray(application.descriptionChanges) ? application.descriptionChanges : [];
+  const selectedIds = Array.isArray(application.selectedChangeIds)
+    ? new Set(application.selectedChangeIds)
+    : new Set(descriptionChanges.map((change) => change.id));
+  return descriptionChanges.filter((change) => selectedIds.has(change.id));
 }
 
 function normalizeDescriptionChangesForApplication(changes = []) {
@@ -19787,12 +20058,21 @@ function formatQuotedInlineList(items = []) {
   return formatInlineList(items.map(quoteSourceText).filter(Boolean));
 }
 
+const EDITABLE_TEXT_PLACEHOLDER_PATTERN = /\{([A-Za-z][^{}\n]{0,80})\}/g;
+
+function isEditableTextPlaceholder(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return /^[A-Za-z][A-Za-z0-9 _/'&-]{0,80}$/.test(text);
+}
+
 function getEditableTextPlaceholders(value = "") {
   const text = String(value || "");
-  const pattern = /\{([A-Za-z][^{}\n]{0,80})\}/g;
+  const pattern = new RegExp(EDITABLE_TEXT_PLACEHOLDER_PATTERN.source, "g");
   const placeholders = [];
   let match;
   while ((match = pattern.exec(text))) {
+    if (!isEditableTextPlaceholder(match[1])) continue;
     const placeholder = `{${String(match[1] || "").trim()}}`;
     if (placeholder.length > 2 && !placeholders.includes(placeholder)) placeholders.push(placeholder);
   }
@@ -19802,9 +20082,10 @@ function getEditableTextPlaceholders(value = "") {
 function getActionApplicationPlaceholders(application = {}, text = "") {
   const values = [text];
   if (Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
-    const selectedIds = new Set(Array.isArray(application.selectedChangeIds) ? application.selectedChangeIds : []);
+    const hasExplicitSelection = Array.isArray(application.selectedChangeIds);
+    const selectedIds = new Set(hasExplicitSelection ? application.selectedChangeIds : []);
     application.descriptionChanges.forEach((change) => {
-      if (!selectedIds.size || selectedIds.has(change.id)) values.push(change.text);
+      if (!hasExplicitSelection || selectedIds.has(change.id)) values.push(change.text);
     });
   }
   return uniqueStrings(values.flatMap(getEditableTextPlaceholders));
@@ -19879,18 +20160,22 @@ function renderAnalysisText(value = "") {
   const text = String(value || "");
   if (!text) return "";
   const parts = [];
-  const pattern = /"([^"]+)"|“([^”]+)”|(\{[A-Za-z][^{}\n]{0,80}\})/g;
+  const pattern = /"([^"]+)"|“([^”]+)”|(\{([A-Za-z][^{}\n]{0,80})\})/g;
   let lastIndex = 0;
   let match;
 
   while ((match = pattern.exec(text))) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
     if (match[3]) {
-      parts.push(
-        <span className="ppEditablePlaceholder" key={`placeholder-${match.index}`}>
-          {match[3]}
-        </span>,
-      );
+      if (isEditableTextPlaceholder(match[4])) {
+        parts.push(
+          <span className="ppEditablePlaceholder" key={`placeholder-${match.index}`}>
+            {match[3]}
+          </span>,
+        );
+      } else {
+        parts.push(match[3]);
+      }
     } else {
       parts.push(
         <q className="ppInlineQuote" key={`quote-${match.index}`}>
@@ -20559,6 +20844,7 @@ function RecommendedActionReviewBody({
   onDetailExpandedChange,
   onDescriptionChangeExpandedToggle,
   onDescriptionChangeSelectedChange,
+  onDescriptionChangeTextChange,
   onEditedTextChange,
   onEditText,
   onSelectedVariantChange,
@@ -20584,14 +20870,23 @@ function RecommendedActionReviewBody({
         {unresolvedPlaceholders.length > 0 && (
           <PlaceholderReviewNotice placeholders={unresolvedPlaceholders} />
         )}
-        {application.descriptionChanges?.length && !isEditingInline ? (
-          <RecommendedActionDescriptionChangeGroup
-            changes={application.descriptionChanges}
-            expandedIds={application.expandedDescriptionChangeIds}
-            selectedIds={application.selectedChangeIds}
-            onExpandedToggle={onDescriptionChangeExpandedToggle}
-            onSelectedChange={onDescriptionChangeSelectedChange}
-          />
+        {application.descriptionChanges?.length ? (
+          isEditingInline ? (
+            <RecommendedActionDescriptionChangeEditors
+              changes={application.descriptionChanges}
+              selectedIds={application.selectedChangeIds}
+              onSelectedChange={onDescriptionChangeSelectedChange}
+              onTextChange={onDescriptionChangeTextChange}
+            />
+          ) : (
+            <RecommendedActionDescriptionChangeGroup
+              changes={application.descriptionChanges}
+              expandedIds={application.expandedDescriptionChangeIds}
+              selectedIds={application.selectedChangeIds}
+              onExpandedToggle={onDescriptionChangeExpandedToggle}
+              onSelectedChange={onDescriptionChangeSelectedChange}
+            />
+          )
         ) : (
           <RecommendedActionProposedChange
             action={action}
@@ -20638,7 +20933,7 @@ function RecommendedActionReviewBody({
         </RecommendedActionReviewSection>
       )}
 
-      <RecommendedActionReviewSection icon="chart-line" title="Why this action">
+      <RecommendedActionReviewSection icon="chart-line" title="Evidence summary">
         <RecommendedActionWhyItems action={action} product={product} />
       </RecommendedActionReviewSection>
 
@@ -20985,6 +21280,48 @@ function RecommendedActionDescriptionChangeGroup({
   );
 }
 
+function RecommendedActionDescriptionChangeEditors({
+  changes = [],
+  selectedIds = [],
+  onSelectedChange,
+  onTextChange,
+}) {
+  const selectedSet = new Set(selectedIds);
+
+  return (
+    <div className="ppDescriptionChangeEditorGroup">
+      {changes.map((change) => {
+        const selected = selectedSet.has(change.id);
+        return (
+          <article className={`ppDescriptionChangeEditorItem ${selected ? "isSelected" : "isUnselected"}`.trim()} key={change.id}>
+            <label className="ppDescriptionChangeEditorHeader">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={(event) => onSelectedChange?.(change.id, event.target instanceof HTMLInputElement ? event.target.checked : false)}
+              />
+              <span>
+                <strong>{change.title}</strong>
+                <small>{change.operationLabel}</small>
+              </span>
+            </label>
+            <label className="ppActionInlineEditor ppActionInlineEditor-review ppDescriptionChangeInlineEditor">
+              <span>Text for this description change</span>
+              <textarea
+                aria-label={`Description text to apply for ${change.title}`}
+                value={change.text || ""}
+                rows={5}
+                disabled={!selected}
+                onChange={(event) => onTextChange?.(change.id, event.target.value)}
+              />
+            </label>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function RecommendedActionProposedChange({
   action,
   application,
@@ -21112,10 +21449,7 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
   const emptyCurrent = isDescription ? "No current Shopify description was loaded for this product." : "No current Shopify value was loaded.";
 
   if (isDescription && Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
-    const selectedIds = Array.isArray(application.selectedChangeIds) && application.selectedChangeIds.length
-      ? new Set(application.selectedChangeIds)
-      : new Set(application.descriptionChanges.map((change) => change.id));
-    const selectedChanges = application.descriptionChanges.filter((change) => selectedIds.has(change.id));
+    const selectedChanges = getSelectedDescriptionChanges(application);
     const replacement = selectedChanges.find((change) => change.operation === "replace");
     const prependChanges = selectedChanges.filter((change) => change.operation === "prepend");
     const appendChanges = selectedChanges.filter((change) => change.operation === "append");
@@ -21632,9 +21966,11 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const defaultDescriptionChangeKey = defaultDescriptionChangeIds.join("|");
   const [selectedDescriptionChangeIds, setSelectedDescriptionChangeIds] = useState(defaultDescriptionChangeIds);
   const [expandedDescriptionChangeIds, setExpandedDescriptionChangeIds] = useState({});
+  const [editedDescriptionChangeTexts, setEditedDescriptionChangeTexts] = useState({});
   const application = getRecommendedActionApplication(action, product, {
     variantId: selectedVariantId || baseApplication.defaultVariantId,
     selectedChangeIds: selectedDescriptionChangeIds,
+    editedDescriptionChangeTexts,
     metafieldNamespace,
     metafieldKey,
   });
@@ -21651,7 +21987,9 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const actionKind = forcedActionKind || getRecommendedActionKind(mode, application);
   const investigationTag = actionKind === "investigation" ? getInvestigationTagForAction(action) : "";
   const actionId = action.id || action.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const hasSelectedDescriptionChanges = !application.descriptionChanges?.length || application.selectedChangeIds?.length > 0;
+  const selectedDescriptionChanges = getSelectedDescriptionChanges(application);
+  const hasSelectedDescriptionChanges = !application.descriptionChanges?.length
+    || (selectedDescriptionChanges.length > 0 && selectedDescriptionChanges.every((change) => String(change.text || "").trim()));
   const defaultButtonText = applied
     ? "Applied"
     : drafted
@@ -21671,7 +22009,9 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     : application;
   const detailText = String(effectiveApplication.editable ? editedText : action.detail || "");
   const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
-  const placeholderApplication = isEditingInline ? { ...effectiveApplication, descriptionChanges: [] } : effectiveApplication;
+  const placeholderApplication = isEditingInline && !effectiveApplication.descriptionChanges?.length
+    ? { ...effectiveApplication, descriptionChanges: [] }
+    : effectiveApplication;
   const unresolvedPlaceholders = getActionApplicationPlaceholders(placeholderApplication, detailText);
   const metafieldMissing = effectiveApplication.isMetafield && (!String(effectiveApplication.metafieldNamespace || "").trim() || !String(effectiveApplication.metafieldKey || "").trim());
   const disabled = pending || applied || !hasSelectedDescriptionChanges || metafieldMissing || (actionKind === "applyable" && unresolvedPlaceholders.length > 0);
@@ -21693,14 +22033,14 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     setMetafieldKey(baseApplication.metafieldKey || "");
     setSelectedDescriptionChangeIds(defaultDescriptionChangeKey ? defaultDescriptionChangeKey.split("|") : []);
     setExpandedDescriptionChangeIds({});
+    setEditedDescriptionChangeTexts({});
     setIsEditingInline(false);
     setDetailExpanded(false);
   }, [actionStateKey, productStateKey, baseApplication.defaultVariantId, baseApplication.variantId, baseApplication.metafieldNamespace, baseApplication.metafieldKey, defaultDescriptionChangeKey]);
 
   useEffect(() => {
-    setEditedText(application.value || action.detail || "");
-    setIsEditingInline(false);
-  }, [application.value, action.detail]);
+    if (!isEditingInline) setEditedText(application.value || action.detail || "");
+  }, [application.value, action.detail, isEditingInline]);
 
   const actionBody = (
     <RecommendedActionReviewBody
@@ -21716,6 +22056,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       onDetailExpandedChange={setDetailExpanded}
       onDescriptionChangeExpandedToggle={(changeId) => setExpandedDescriptionChangeIds((current) => ({ ...current, [changeId]: !current[changeId] }))}
       onDescriptionChangeSelectedChange={(changeId, selected) => setSelectedDescriptionChangeIds((current) => updateSelectedDescriptionChangeIds(current, changeId, selected, baseApplication))}
+      onDescriptionChangeTextChange={(changeId, value) => setEditedDescriptionChangeTexts((current) => ({ ...current, [changeId]: value }))}
       onEditedTextChange={setEditedText}
       onEditText={() => setIsEditingInline(true)}
       onMetafieldNamespaceChange={setMetafieldNamespace}
@@ -21850,6 +22191,9 @@ function getDescriptionInsertionMarker(application = {}) {
 
 function getRecommendedActionButton(action, mode, buttonText, disabled, context) {
   const { actionId, application, editedText, product, onCopy, onEdit, onRequestApply, onReview, actionKind } = context;
+  const textToApply = application.descriptionChanges?.length
+    ? application.value
+    : application.editable ? editedText : application.value;
   const content = (
     <>
       <span>{buttonText}</span>
@@ -21874,7 +22218,7 @@ function getRecommendedActionButton(action, mode, buttonText, disabled, context)
   }
   if (mode === "apply-product") {
     return (
-      <button className="ppActionCtaButton" type="button" disabled={disabled} onClick={() => onRequestApply(action, application.editable ? editedText : application.value, application)}>
+      <button className="ppActionCtaButton" type="button" disabled={disabled} onClick={() => onRequestApply(action, textToApply, application)}>
         {content}
       </button>
     );
@@ -22243,12 +22587,12 @@ function ChatMeConnectionModal({ source, persistConnectState, isConnecting, onCa
   );
 }
 
-function CsvUploadModal({ source, persistConnectState, isUploading, actionData, onCancel, onLocalSubmit }) {
+function CsvUploadModal({ source, persistConnectState, isUploading, actionData, onCancel, onOpenGuide, onLocalSubmit }) {
   const formProps = persistConnectState ? { method: "post", encType: "multipart/form-data" } : { onSubmit: onLocalSubmit };
-  const uploadError = actionData?.status && actionData.status !== "success" ? actionData.message : "";
+  const uploadError = actionData?.status && !["success", "csv_preview"].includes(actionData.status) ? actionData.message : "";
   return (
     <div className="ppConnectionModalOverlay" role="presentation">
-      <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="csv-upload-title">
+      <section className={`ppConnectionModal ppCsvUploadModal${isUploading ? " isBusy" : ""}`} role="dialog" aria-modal="true" aria-labelledby="csv-upload-title">
         <div className="ppConnectionModalHeader">
           <ConnectSourceLogo source={source} />
           <div>
@@ -22259,27 +22603,24 @@ function CsvUploadModal({ source, persistConnectState, isUploading, actionData, 
         </div>
 
         <Form {...formProps} className="ppConnectionForm">
-          <input type="hidden" name="_action" value="upload-csv" />
+          <input type="hidden" name="_action" value="preview-csv" />
           <label className="ppConnectionField">
             <span>CSV file</span>
             <input name="csvFile" type="file" accept=".csv,text/csv" required disabled={isUploading} />
           </label>
           <p className="ppConnectionHint">
-            ProductPulse reads the headers with AI, finds product, rating and review text columns, then saves a normalized review file for this store.
+            ProductPulse reads the headers with AI, finds product, rating and review text columns, verifies the product relation against Shopify, then shows a preview before anything is saved.
           </p>
-          {isUploading && (
-            <div className="ppCsvProcessingPanel" role="status">
-              <span className="ppCsvProcessingSpinner" aria-hidden="true"></span>
-              <div>
-                <strong>Processing CSV</strong>
-                <p>Uploading the file, detecting review columns and normalizing product-linked reviews.</p>
-              </div>
-            </div>
-          )}
           {uploadError && !isUploading && (
             <div className="ppCsvUploadError" role="alert">
               <s-icon type="alert-circle" size="small"></s-icon>
-              <span>{uploadError}</span>
+              <span>
+                {uploadError}
+                {" "}
+                If the detected columns do not look right, review the CSV structure guidelines.
+                {" "}
+                <button className="ppInlineTextButton" type="button" onClick={onOpenGuide}>Open CSV field guide</button>
+              </span>
             </div>
           )}
 
@@ -22288,10 +22629,219 @@ function CsvUploadModal({ source, persistConnectState, isUploading, actionData, 
               Cancel
             </button>
             <button className="ppPrimaryButton" type="submit" disabled={isUploading}>
-              {isUploading ? "Processing..." : "Upload CSV"}
+              {isUploading ? "Analyzing..." : "Upload CSV"}
             </button>
           </div>
         </Form>
+        {isUploading && (
+          <div className="ppCsvModalBusyOverlay" role="status" aria-live="polite">
+            <span className="ppCsvProcessingSpinner" aria-hidden="true"></span>
+            <strong>Analyzing CSV</strong>
+            <p>Detecting columns, checking Shopify product identifiers and preparing a sample preview.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function CsvReviewPreviewModal({ preview, persistConnectState, isConfirming, actionData, onCancel, onClose, onOpenGuide, onLocalConfirm }) {
+  const formProps = persistConnectState ? { method: "post" } : { onSubmit: onLocalConfirm };
+  const confirmError = actionData?.status && actionData.status !== "success" && actionData.status !== "csv_preview" ? actionData.message : "";
+  const previewRows = Array.isArray(preview?.previewRows) ? preview.previewRows.slice(0, 5) : [];
+  const previewPayload = JSON.stringify(preview || {});
+
+  return (
+    <div className="ppConnectionModalOverlay" role="presentation">
+      <section className="ppConnectionModal ppCsvPreviewModal" role="dialog" aria-modal="true" aria-labelledby="csv-preview-title">
+        <div className="ppConnectionModalHeader">
+          <ConnectSourceLogo source={{ tone: "green", logoUrl: "https://cdn.jsdelivr.net/npm/@tabler/icons@latest/icons/file-type-csv.svg" }} />
+          <div>
+            <span>CSV reviews</span>
+            <h2 id="csv-preview-title">Review detected CSV data</h2>
+            <p>Check the mapped columns and sample rows. ProductPulse will save this source only after you confirm.</p>
+          </div>
+        </div>
+
+        <div className="ppCsvPreviewSummary" aria-label="CSV import summary">
+          <CsvPreviewMetric label="Rows read" value={preview?.totalRows || 0} />
+          <CsvPreviewMetric label="Reviews ready" value={preview?.normalizedRowCount || 0} />
+          <CsvPreviewMetric label="Rows skipped" value={preview?.rejectedRowCount || preview?.rejectedRows?.length || 0} />
+          <CsvPreviewMetric label="Product match" value={preview?.productRelation?.label || "Checked"} compact />
+        </div>
+
+        <div className="ppCsvMappingPanel">
+          <div>
+            <span>Detected columns</span>
+            <p>These are the fields ProductPulse will extract from the file.</p>
+          </div>
+          <div className="ppCsvMappingGrid">
+            {getCsvPreviewMappingItems(preview?.mapping).map((item) => (
+              <span key={item.label}>
+                <strong>{item.label}</strong>
+                <small>{item.value || "Not detected"}</small>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {preview?.productRelation?.detail && (
+          <div className="ppCsvProductMatchNotice">
+            <s-icon type="check-circle" size="small"></s-icon>
+            <span>{preview.productRelation.detail}</span>
+          </div>
+        )}
+
+        <div className="ppCsvPreviewTableWrap">
+          <table className="ppCsvPreviewTable">
+            <thead>
+              <tr>
+                <th>Row</th>
+                <th>Product</th>
+                <th>Rating</th>
+                <th>Review</th>
+                <th>Reviewer</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {previewRows.map((row) => (
+                <tr key={`${row.sourceRow}-${row.productHandle || row.shopifyProductId}-${row.reviewBody}`}>
+                  <td>{row.sourceRow}</td>
+                  <td>
+                    <strong>{row.productHandle || row.shopifyProductId || "Missing product"}</strong>
+                    {row.sourceProductId && <small>Source ID {row.sourceProductId}</small>}
+                  </td>
+                  <td>{row.rating}</td>
+                  <td>
+                    <strong>{row.reviewTitle || "Untitled review"}</strong>
+                    <small>{truncateText(row.reviewBody, 150)}</small>
+                  </td>
+                  <td>{row.reviewerName || "Unknown"}</td>
+                  <td>{row.reviewDate || "No date"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="ppCsvPreviewGuidance">
+          <s-icon type="info" size="small"></s-icon>
+          <p>
+            If product identifiers, ratings or review text look wrong, cancel and adjust the CSV before saving.
+            {" "}
+            <button className="ppInlineTextButton" type="button" onClick={onOpenGuide}>View required CSV fields</button>
+          </p>
+        </div>
+
+        {confirmError && (
+          <div className="ppCsvUploadError" role="alert">
+            <s-icon type="alert-circle" size="small"></s-icon>
+            <span>{confirmError}</span>
+          </div>
+        )}
+
+        <Form {...formProps} className="ppConnectionModalFooter">
+          <input type="hidden" name="_action" value="confirm-csv" />
+          <input type="hidden" name="csvPreview" value={previewPayload} />
+          <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel} disabled={isConfirming}>
+            Back
+          </button>
+          <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onClose} disabled={isConfirming}>
+            Cancel
+          </button>
+          <button className="ppPrimaryButton" type="submit" disabled={isConfirming}>
+            {isConfirming ? "Saving..." : "Accept and save CSV"}
+          </button>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
+function CsvPreviewMetric({ label, value, compact = false }) {
+  return (
+    <span className={compact ? "isCompact" : ""}>
+      <small>{label}</small>
+      <strong>{value}</strong>
+    </span>
+  );
+}
+
+function getCsvPreviewMappingItems(mapping = {}) {
+  return [
+    { label: "Product handle", value: mapping.product_handle },
+    { label: "Shopify product ID", value: mapping.shopify_product_id },
+    { label: "Rating", value: mapping.rating },
+    { label: "Review text", value: mapping.review_body },
+    { label: "Review title", value: mapping.review_title },
+    { label: "Review date", value: mapping.review_date },
+    { label: "Reviewer", value: mapping.reviewer_name },
+    { label: "Status", value: mapping.review_status },
+  ];
+}
+
+function CsvFormatGuideModal({ onClose }) {
+  const rows = [
+    ["product_handle", "Shopify product handle/slug, e.g. core-linen-trouser. Preferred."],
+    ["shopify_product_id", "Shopify Product GID or numeric product ID. Use when no handle column exists."],
+    ["rating", "Required. Numeric star rating from 1 to 5."],
+    ["review_body", "Required. Customer review text/body/comment."],
+    ["review_title", "Optional. Review headline."],
+    ["review_date", "Optional. Date the review was created or published."],
+    ["reviewer_name", "Optional. Customer or reviewer display name."],
+    ["review_status", "Optional. Published, hidden, approved, pending, etc."],
+    ["source_product_id", "Optional. Review-platform internal product ID; not used as Shopify ID unless it matches Shopify."],
+  ];
+
+  return (
+    <div className="ppConnectionModalOverlay" role="presentation">
+      <section className="ppConnectionModal ppCsvGuideModal" role="dialog" aria-modal="true" aria-labelledby="csv-guide-title">
+        <div className="ppConnectionModalHeader">
+          <span className="ppConnectSourceLogo ppConnectSourceLogo-green" aria-hidden="true">
+            <s-icon type="file" size="small"></s-icon>
+          </span>
+          <div>
+            <span>CSV field guide</span>
+            <h2 id="csv-guide-title">Structure review CSV files</h2>
+            <p>Use clear headers so ProductPulse can map reviews to Shopify products before saving the import.</p>
+          </div>
+        </div>
+
+        <div className="ppCsvGuideIntro">
+          <p>
+            At minimum, include one Shopify product relation field, a numeric rating and review text.
+            ProductPulse tests recent product identifiers against Shopify before accepting the file.
+          </p>
+        </div>
+
+        <div className="ppCsvGuideTableWrap">
+          <table className="ppCsvGuideTable">
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>How to format it</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([field, detail]) => (
+                <tr key={field}>
+                  <td><code>{field}</code></td>
+                  <td>{detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="ppCsvPreviewGuidance">
+          <s-icon type="info" size="small"></s-icon>
+          <p>Headers can use similar names, like Product Handle, Stars, Review Body, Created At or Reviewer. Avoid using review-platform internal IDs as Shopify product IDs unless they are actual Shopify IDs.</p>
+        </div>
+
+        <div className="ppConnectionModalFooter">
+          <button className="ppPrimaryButton" type="button" onClick={onClose}>Back</button>
+        </div>
       </section>
     </div>
   );

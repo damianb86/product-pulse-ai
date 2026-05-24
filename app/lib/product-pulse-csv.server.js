@@ -29,7 +29,11 @@ export class CsvReviewImportError extends Error {
   }
 }
 
-export async function processCsvReviewUpload({ shop, file }) {
+export async function processCsvReviewUpload({ shop, file, admin } = {}) {
+  return analyzeCsvReviewUpload({ shop, file, admin });
+}
+
+export async function analyzeCsvReviewUpload({ shop, file, admin } = {}) {
   const fileName = normalizeUploadedCsvFileName(typeof file?.name === "string" && file.name ? file.name : "reviews.csv");
   if (!file || typeof file.text !== "function") {
     throw new CsvReviewImportError("No se pudo cargar el CSV porque no se recibió ningún archivo.", "CSV_FILE_MISSING");
@@ -48,9 +52,23 @@ export async function processCsvReviewUpload({ shop, file }) {
     );
   }
 
-  const normalized = normalizeCsvReviewRows({
+  const productRelation = await resolveCsvProductRelationMapping({
+    admin,
+    headers: parsed.headers,
     rows: parsed.rows,
     mapping: validation.mapping,
+  });
+  if (!productRelation.valid) {
+    throw new CsvReviewImportError(
+      productRelation.message || "No se pudo confirmar ninguna columna que conecte las reviews con productos de Shopify.",
+      "CSV_PRODUCT_RELATION_NOT_FOUND",
+      { mapping: validation.mapping, candidates: productRelation.candidates },
+    );
+  }
+
+  const normalized = normalizeCsvReviewRows({
+    rows: parsed.rows,
+    mapping: productRelation.mapping,
   });
 
   if (!normalized.rows.length) {
@@ -68,14 +86,57 @@ export async function processCsvReviewUpload({ shop, file }) {
     displayFileName: CSV_REVIEW_IMPORT_DISPLAY_NAME,
     checksum,
     headers: parsed.headers,
-    mapping: validation.mapping,
+    mapping: productRelation.mapping,
+    productRelation: productRelation.summary,
     totalRows: parsed.rows.length,
     normalizedRowCount: normalized.rows.length,
     rejectedRows: normalized.rejectedRows,
+    previewRows: buildCsvReviewPreviewRows(normalized.rows),
     normalizedFilePath: saved.filePath,
     normalizedFileName: saved.fileName,
     importId: saved.importId,
     storageKey: saved.storageKey,
+  };
+}
+
+export async function finalizeCsvReviewUpload({ shop, preview }) {
+  const pending = parseCsvImportPreviewPayload(preview);
+  const expectedStorageKey = sanitizeStorageSegment(shop || "unknown-shop");
+  const storageKey = sanitizeStorageSegment(pending.storageKey || expectedStorageKey);
+  if (storageKey !== expectedStorageKey) {
+    throw new CsvReviewImportError("No se pudo confirmar el CSV porque la previsualización no corresponde a esta tienda.", "CSV_PREVIEW_INVALID");
+  }
+  const fileName = String(pending.normalizedFileName || "").trim();
+  if (!fileName || fileName.includes("/") || fileName.includes("\\")) {
+    throw new CsvReviewImportError("No se pudo confirmar el CSV porque falta el archivo normalizado.", "CSV_PREVIEW_INVALID");
+  }
+
+  const filePath = getNormalizedCsvStoragePath({ shop, storageKey, fileName });
+  const csvText = await readFile(filePath, "utf8").catch(() => {
+    throw new CsvReviewImportError("No se pudo confirmar el CSV porque el análisis expiró o no está disponible. Volvé a subir el archivo.", "CSV_PREVIEW_EXPIRED");
+  });
+  const parsed = parseCsvText(csvText);
+  const normalizedRowCount = parsed.rows.length;
+  if (!normalizedRowCount) {
+    throw new CsvReviewImportError("No se pudo confirmar el CSV porque no hay reviews normalizadas.", "CSV_PREVIEW_EMPTY");
+  }
+
+  return {
+    fileName: pending.fileName || CSV_REVIEW_IMPORT_DISPLAY_NAME,
+    displayFileName: pending.displayFileName || CSV_REVIEW_IMPORT_DISPLAY_NAME,
+    checksum: pending.checksum || "",
+    headers: Array.isArray(pending.headers) ? pending.headers : [],
+    mapping: pending.mapping || {},
+    productRelation: pending.productRelation || null,
+    totalRows: Number(pending.totalRows || normalizedRowCount),
+    normalizedRowCount,
+    rejectedRowCount: Number(pending.rejectedRowCount || 0),
+    rejectedRows: Array.isArray(pending.rejectedRows) ? pending.rejectedRows : [],
+    previewRows: Array.isArray(pending.previewRows) ? pending.previewRows : [],
+    normalizedFilePath: filePath,
+    normalizedFileName: fileName,
+    importId: pending.importId || fileName.replace(/\.normalized\.csv$/i, ""),
+    storageKey,
   };
 }
 
@@ -449,6 +510,234 @@ export function normalizeCsvReviewRows({ rows, mapping }) {
   return { rows: normalizedRows, rejectedRows };
 }
 
+async function resolveCsvProductRelationMapping({ admin, headers = [], rows = [], mapping = {} } = {}) {
+  if (!admin?.graphql) {
+    return {
+      valid: true,
+      mapping,
+      summary: {
+        status: "not_checked",
+        label: "Product relation not verified",
+        detail: "Shopify product matching was skipped because no Admin API client was available.",
+      },
+    };
+  }
+
+  const candidates = buildCsvProductRelationCandidates({ headers, mapping });
+  const candidateSummaries = [];
+  for (const candidate of candidates) {
+    const values = collectRecentCsvColumnValues(rows, candidate.header, 10, candidate.type);
+    if (!values.length) {
+      candidateSummaries.push({ ...candidate, tested: 0, matched: 0 });
+      continue;
+    }
+
+    let matchedProduct = null;
+    let tested = 0;
+    for (const value of values) {
+      tested += 1;
+      matchedProduct = candidate.type === "product_handle"
+        ? await fetchShopifyProductByHandle(admin, value)
+        : await fetchShopifyProductById(admin, value);
+      if (matchedProduct) break;
+    }
+
+    candidateSummaries.push({
+      ...candidate,
+      tested,
+      matched: matchedProduct ? 1 : 0,
+      matchedValue: matchedProduct ? values[tested - 1] : "",
+      matchedProduct,
+    });
+
+    if (matchedProduct) {
+      const resolvedMapping = {
+        ...mapping,
+        product_handle: candidate.type === "product_handle" ? candidate.header : null,
+        shopify_product_id: candidate.type === "shopify_product_id" ? candidate.header : null,
+      };
+      return {
+        valid: true,
+        mapping: resolvedMapping,
+        candidates: candidateSummaries,
+        summary: {
+          status: "confirmed",
+          field: candidate.type,
+          header: candidate.header,
+          tested,
+          sampleValue: values[tested - 1],
+          matchedProduct,
+          label: candidate.type === "product_handle" ? "Shopify product handle confirmed" : "Shopify product ID confirmed",
+          detail: `Matched ${candidate.header} to ${matchedProduct.title || matchedProduct.handle || matchedProduct.id}.`,
+        },
+      };
+    }
+  }
+
+  return {
+    valid: false,
+    mapping,
+    candidates: candidateSummaries,
+    message: "No se pudo confirmar una columna de producto en Shopify. Probá incluir una columna product_handle con el handle de Shopify o shopify_product_id con el ID/GID del producto.",
+  };
+}
+
+function buildCsvProductRelationCandidates({ headers = [], mapping = {} } = {}) {
+  const candidates = [];
+  const addCandidate = (type, header, priority) => {
+    const normalizedHeader = normalizeHeaderLookup(header);
+    if (!normalizedHeader) return;
+    if (!headers.some((item) => normalizeHeaderLookup(item) === normalizedHeader)) return;
+    if (candidates.some((candidate) => candidate.type === type && normalizeHeaderLookup(candidate.header) === normalizedHeader)) return;
+    candidates.push({ type, header, priority });
+  };
+
+  addCandidate("product_handle", mapping.product_handle, 0);
+  headers.forEach((header, index) => {
+    if (isProductHandleHeaderCandidate(header)) addCandidate("product_handle", header, 10 + index);
+  });
+
+  addCandidate("shopify_product_id", mapping.shopify_product_id, 100);
+  headers.forEach((header, index) => {
+    if (isShopifyProductIdHeaderCandidate(header)) addCandidate("shopify_product_id", header, 110 + index);
+  });
+  addCandidate("shopify_product_id", mapping.source_product_id, 190);
+
+  return candidates.sort((a, b) => a.priority - b.priority);
+}
+
+function isProductHandleHeaderCandidate(header) {
+  const normalized = normalizeHeaderLookup(header).replace(/[_-]+/g, " ");
+  if (!normalized) return false;
+  if (/\b(review|customer|user|author|source|internal)\b/.test(normalized)) return false;
+  return /\b(product\s*)?(handle|slug)\b/.test(normalized) || /\burl handle\b/.test(normalized);
+}
+
+function isShopifyProductIdHeaderCandidate(header) {
+  const normalized = normalizeHeaderLookup(header).replace(/[_-]+/g, " ");
+  if (!normalized) return false;
+  if (/\b(review|customer|user|author|order|variant)\b/.test(normalized)) return false;
+  if (/\b(source|internal)\b/.test(normalized) && !/\bexternal\b/.test(normalized)) return false;
+  return /\bshopify\b.*\bproduct\b.*\bid\b/.test(normalized)
+    || /\bproduct\b.*\bgid\b/.test(normalized)
+    || /\bplatform\b.*\bproduct\b.*\bid\b/.test(normalized)
+    || /\bexternal\b.*\bproduct\b.*\bid\b/.test(normalized)
+    || /^product id$/.test(normalized)
+    || /^productid$/.test(normalized)
+    || /^id$/.test(normalized);
+}
+
+function collectRecentCsvColumnValues(rows = [], header, limit = 10, type = "product_handle") {
+  const seen = new Set();
+  const values = [];
+  for (let index = rows.length - 1; index >= 0 && values.length < limit; index -= 1) {
+    const rawValue = cleanScalar(getMappedValue(rows[index], header));
+    const value = type === "product_handle"
+      ? normalizePotentialShopifyHandle(rawValue)
+      : normalizePotentialShopifyProductId(rawValue);
+    const key = normalizeHeaderLookup(value);
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    values.push(value);
+  }
+  return values;
+}
+
+function normalizePotentialShopifyHandle(value) {
+  const text = cleanScalar(value);
+  if (!text || /^gid:\/\/shopify\/Product\//i.test(text)) return "";
+  try {
+    const url = new URL(text);
+    const segments = url.pathname.split("/").filter(Boolean);
+    const productIndex = segments.findIndex((segment) => segment.toLowerCase() === "products");
+    if (productIndex >= 0 && segments[productIndex + 1]) return cleanScalar(decodeURIComponent(segments[productIndex + 1]));
+  } catch {
+    // Keep non-URL values as possible handles.
+  }
+  return text.replace(/^\/+|\/+$/g, "");
+}
+
+function normalizePotentialShopifyProductId(value) {
+  const text = cleanScalar(value);
+  if (!text) return "";
+  if (/^gid:\/\/shopify\/Product\/\d+$/i.test(text)) return text.replace(/^gid:\/\/shopify\/product\//i, "gid://shopify/Product/");
+  const numeric = text.match(/\b\d{4,}\b/);
+  if (numeric) return `gid://shopify/Product/${numeric[0]}`;
+  return "";
+}
+
+async function fetchShopifyProductByHandle(admin, handle) {
+  if (!handle) return null;
+  const data = await csvShopifyGraphql(admin, `#graphql
+    query ProductPulseCsvProductByHandle($query: String!) {
+      products(first: 1, query: $query) {
+        nodes {
+          id
+          handle
+          title
+        }
+      }
+    }`,
+    { query: `handle:${escapeShopifyQueryValue(handle)}` },
+  ).catch(() => null);
+  return data?.products?.nodes?.[0] || null;
+}
+
+async function fetchShopifyProductById(admin, productId) {
+  const gid = normalizePotentialShopifyProductId(productId);
+  if (!gid) return null;
+  const data = await csvShopifyGraphql(admin, `#graphql
+    query ProductPulseCsvProductById($id: ID!) {
+      product(id: $id) {
+        id
+        handle
+        title
+      }
+    }`,
+    { id: gid },
+  ).catch(() => null);
+  return data?.product || null;
+}
+
+async function csvShopifyGraphql(admin, query, variables) {
+  const response = await admin.graphql(query, variables ? { variables } : undefined);
+  const json = await response.json();
+  if (json.errors?.length) {
+    throw new Error(json.errors.map((error) => error.message).join("; "));
+  }
+  return json.data;
+}
+
+function escapeShopifyQueryValue(value) {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function buildCsvReviewPreviewRows(rows = []) {
+  return rows.slice(0, 5).map((row) => ({
+    sourceRow: row.source_row,
+    productHandle: row.product_handle,
+    shopifyProductId: row.shopify_product_id,
+    rating: row.rating,
+    reviewTitle: row.review_title,
+    reviewBody: row.review_body,
+    reviewDate: row.review_date,
+    reviewerName: row.reviewer_name,
+    reviewStatus: row.review_status,
+    sourceProductId: row.source_product_id,
+  }));
+}
+
+function parseCsvImportPreviewPayload(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch {
+    // Throw a normalized import error below.
+  }
+  throw new CsvReviewImportError("No se pudo confirmar el CSV porque la previsualización no es válida.", "CSV_PREVIEW_INVALID");
+}
+
 function getMappedValue(row, header) {
   if (!header) return "";
   return row.values?.[header] ?? "";
@@ -484,13 +773,11 @@ function normalizeRating(value) {
 }
 
 async function saveNormalizedCsvReviews({ shop, rows, checksum }) {
-  const storageRoot = process.env.PRODUCT_PULSE_CSV_STORAGE_DIR
-    || path.join(process.cwd(), ".cache", "product-pulse", "csv-reviews");
   const storageKey = sanitizeStorageSegment(shop || "unknown-shop");
-  const shopDir = path.join(storageRoot, storageKey);
   const importId = buildNormalizedCsvImportId(checksum);
   const fileName = `${importId}.normalized.csv`;
-  const filePath = path.join(shopDir, fileName);
+  const filePath = getNormalizedCsvStoragePath({ shop, storageKey, fileName });
+  const shopDir = path.dirname(filePath);
   const tmpPath = `${filePath}.${Date.now()}.tmp`;
 
   await mkdir(shopDir, { recursive: true });
@@ -498,6 +785,12 @@ async function saveNormalizedCsvReviews({ shop, rows, checksum }) {
   await rename(tmpPath, filePath);
 
   return { filePath, fileName, importId, storageKey };
+}
+
+function getNormalizedCsvStoragePath({ shop, storageKey, fileName }) {
+  const storageRoot = process.env.PRODUCT_PULSE_CSV_STORAGE_DIR
+    || path.join(process.cwd(), ".cache", "product-pulse", "csv-reviews");
+  return path.join(storageRoot, sanitizeStorageSegment(storageKey || shop || "unknown-shop"), fileName);
 }
 
 function buildNormalizedCsvImportId(checksum) {

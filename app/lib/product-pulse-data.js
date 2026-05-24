@@ -686,7 +686,7 @@ function buildDashboardActionRows(productList) {
     const history = Array.isArray(product.actionHistory) ? product.actionHistory : [];
     const rows = actions.map((action) => {
       const actionId = action.id || action.label || "";
-      const record = getDashboardActionHistoryRecord(action, history);
+      const record = getDashboardActionHistoryRecord(action, history, product);
       const status = normalizeDashboardActionStatus(record?.status || action.status);
       const actionTier = getDashboardActionTier(action);
       const priorityScore = getDashboardActionPriorityScore(product, action, { maxMarginRisk });
@@ -716,10 +716,10 @@ function buildDashboardActionRows(productList) {
     const rowFamilies = new Set(rows.map((row) => row.family).filter((family) => family && family !== "other"));
     const historicalRows = history
       .filter((record) => !isSystemProductActionRecord(record))
-      .filter((record) => !rowIds.has(record.actionId || record.id))
+      .filter((record) => !rowIds.has(record.actionId || record.id) || !isDashboardActionRecordCurrentForProduct(record, product))
       .filter((record) => {
         const family = getDashboardActionFamily(record);
-        return !family || family === "other" || !rowFamilies.has(family);
+        return !family || family === "other" || !rowFamilies.has(family) || !isDashboardActionRecordCurrentForProduct(record, product);
       })
       .map((record) => {
         const status = normalizeDashboardActionStatus(record.status);
@@ -765,9 +765,10 @@ function isSystemProductActionRecord(record = {}) {
   return ["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue", "run-ai-diagnosis"].includes(actionId);
 }
 
-function getDashboardActionHistoryRecord(action = {}, history = []) {
+function getDashboardActionHistoryRecord(action = {}, history = [], product = {}) {
   const currentRecords = (Array.isArray(history) ? history : [])
     .filter((record) => !isSystemProductActionRecord(record))
+    .filter((record) => isDashboardActionRecordCurrentForProduct(record, product))
     .sort((first, second) => new Date(second.appliedAt || second.createdAt || 0).getTime() - new Date(first.appliedAt || first.createdAt || 0).getTime());
   const actionIdentityTokens = getDashboardActionIdentityTokens(action);
   const exactRecord = currentRecords.find((record) => {
@@ -791,6 +792,22 @@ function getDashboardActionHistoryRecord(action = {}, history = []) {
     getDashboardActionFamily(record) === family
       && normalizeDashboardActionStatus(record.status) !== "pending"
   )) || null;
+}
+
+function isDashboardActionRecordCurrentForProduct(record = {}, product = {}) {
+  const currentDiagnosisId = getDashboardProductCurrentDiagnosisId(product);
+  const recordDiagnosisId = getDashboardActionRecordDiagnosisId(record);
+  if (!currentDiagnosisId || !recordDiagnosisId) return true;
+  return currentDiagnosisId === recordDiagnosisId;
+}
+
+function getDashboardProductCurrentDiagnosisId(product = {}) {
+  return String(product.latestDiagnosisId || product.metrics?.latestDiagnosisId || "").trim();
+}
+
+function getDashboardActionRecordDiagnosisId(record = {}) {
+  const payload = record.payload || {};
+  return String(record.diagnosisId || payload.sourceDiagnosisId || payload.diagnosisId || "").trim();
 }
 
 function getDashboardActionIdentityTokens(action = {}) {

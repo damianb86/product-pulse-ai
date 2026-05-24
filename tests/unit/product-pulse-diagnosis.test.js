@@ -1563,6 +1563,11 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(decision.shouldReuse).toBe(true);
     expect(decision.matchedBy).toBe("source_fingerprint");
+    expect(decision.recommendationReevaluation).toMatchObject({
+      required: false,
+      reason: "current_recommendations_remain_current",
+      sufficientToSkip: true,
+    });
   });
 
   it("does not reuse cached diagnosis when source fingerprints changed", () => {
@@ -1605,6 +1610,11 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(decision.shouldReuse).toBe(false);
     expect(decision.blockers).toContain("source_or_material_metrics_changed");
+    expect(decision.recommendationReevaluation).toMatchObject({
+      required: true,
+      reason: "changes_may_affect_recommendations",
+      sourceFingerprintChanged: true,
+    });
   });
 
   it("does not reuse cached diagnosis when incremental Shopify source extraction was incomplete", () => {
@@ -2168,6 +2178,441 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       type: "multi_line_text_field",
     });
     expect(faq.payload.whyThisAction).toBe("Returns and negative reviews repeat fit uncertainty, so an FAQ gives shoppers a direct answer before checkout.");
+  });
+
+  it("does not recommend a FAQ when current product content already covers the AI question", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 4 },
+      product: {
+        title: "Core Linen Trouser",
+        description: [
+          "A breathable linen trouser for warm weather.",
+          "FAQ",
+          "How does this trouser fit?",
+          "It may feel closer around the waist; check measurements before purchase.",
+        ].join("\n"),
+      },
+      metrics: {
+        faqNeed: {
+          shouldRecommend: true,
+          score: 6,
+          signals: 4,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit and sizing signals repeat enough to answer before purchase."],
+          sourceTypes: ["Issue signals"],
+        },
+        topReturnReasons: ["Too small"],
+        affectedVariants: [],
+        returnUnits: 2,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        contentIssueCount: 0,
+        signalCount: 4,
+        customerSignalCount: 4,
+        textInsights: {},
+        contentAnalysis: { issues: [] },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Core Linen Trouser",
+      },
+      deterministic,
+      mainIssue: "fit_sizing",
+      ai: {
+        report: {
+          recommendation_copy: {
+            faq_items: [{
+              question: "How does this trouser fit?",
+              answer: "It may feel closer around the waist; check measurements before purchase.",
+              reason: "Fit signals repeated.",
+            }],
+          },
+        },
+      },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+  });
+
+  it("keeps only missing FAQ items when an existing FAQ covers part of the recommendation", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 5 },
+      product: {
+        title: "Core Linen Trouser",
+        description: [
+          "A breathable linen trouser for warm weather.",
+          "Frequently asked questions",
+          "How does this trouser fit?",
+          "It has a relaxed leg and may feel closer around the waist.",
+        ].join("\n"),
+      },
+      metrics: {
+        faqNeed: {
+          shouldRecommend: true,
+          score: 7,
+          signals: 5,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit and sizing signals repeat enough to answer before purchase."],
+          sourceTypes: ["Issue signals"],
+        },
+        topReturnReasons: ["Too small"],
+        affectedVariants: [],
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        contentIssueCount: 0,
+        signalCount: 5,
+        customerSignalCount: 5,
+        textInsights: {},
+        contentAnalysis: { issues: [] },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Core Linen Trouser",
+      },
+      deterministic,
+      mainIssue: "fit_sizing",
+      ai: {
+        report: {
+          recommendation_copy: {
+            faq_items: [
+              {
+                question: "How does this trouser fit?",
+                answer: "It has a relaxed leg and may feel closer around the waist.",
+                reason: "Fit signals repeated.",
+              },
+              {
+                question: "Should shoppers check measurements before buying?",
+                answer: "Yes. Review the waist and inseam measurements before checkout if you are between sizes.",
+                reason: "Returns mention fit uncertainty.",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const faq = recommendations.find((item) => item.id === "create-product-faq");
+    expect(faq).toBeTruthy();
+    expect(faq.label).toBe("Add missing fit FAQ");
+    expect(faq.payload.existingFaqDetected).toBe(true);
+    expect(faq.payload.faqItems.map((item) => item.question)).toEqual([
+      "Should shoppers check measurements before buying?",
+    ]);
+    expect(faq.payload.skippedExistingFaqItems[0]).toMatchObject({
+      question: "How does this trouser fit?",
+    });
+  });
+
+  it("does not recommend shopper-facing description copy when the current description already covers it", () => {
+    const coveredCopy = "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts.";
+    const deterministic = {
+      mainIssue: "quality_defect",
+      issueSignalCounts: { quality_defect: 5 },
+      product: {
+        title: "GEN CloudSoft Yoga Mat 12mm",
+        description: coveredCopy,
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 5,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        topReturnReasons: ["Too soft"],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/yoga",
+        productTitle: "GEN CloudSoft Yoga Mat 12mm",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: coveredCopy } } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("draft-quality-note");
+  });
+
+  it("reduces partially covered description copy to only the missing sentence", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      issueSignalCounts: { quality_defect: 5 },
+      product: {
+        title: "GEN CloudSoft Yoga Mat 12mm",
+        description: "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts.",
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 5,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        topReturnReasons: ["Too soft"],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/yoga",
+        productTitle: "GEN CloudSoft Yoga Mat 12mm",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts. It is not designed for fast balance transitions.",
+          },
+        },
+      },
+    });
+
+    const descriptionAction = recommendations.find((item) => item.id === "draft-quality-note");
+    expect(descriptionAction).toBeTruthy();
+    expect(descriptionAction.payload.draftText).toBe("It is not designed for fast balance transitions.");
+    expect(descriptionAction.payload.contentCoverage).toMatchObject({
+      currentCoverage: "partial",
+      extractedMissingOnly: true,
+    });
+  });
+
+  it("keeps only genuinely new fit details when the PDP already has fit and washing FAQs", () => {
+    const existingDescription = [
+      "PRODUCT NOTE",
+      "Note: This shirt features a tailored, slim-cut design. If you prefer a truly relaxed fit or are between sizes, we recommend sizing up. Please follow care instructions carefully to maintain the garment's shape.",
+      "Lightweight linen shirt",
+      "Relaxed warm-weather shirt made from breathable linen blend.",
+      "Care: machine wash cold, hang dry.",
+      "How does this shirt fit?",
+      "This shirt has a tailored, slim-cut fit. It is designed to sit closer through the chest, shoulders, and sleeves than a loose relaxed-fit shirt. If you prefer a roomier feel or are between sizes, choose one size up and review the size chart before ordering.",
+      "Should I size up?",
+      "If you are between sizes, prefer a looser warm-weather fit, or want extra room through the upper body, sizing up is the safer choice. Checking the selected size against the garment measurements is especially important for this style.",
+      "Does the fit change after washing?",
+      "Some customers have reported a tighter feel after washing, so it is important to follow the care instructions closely. Wash cold and hang dry, and consider this when choosing between sizes if you prefer a less fitted result.",
+      "Are all color and size options expected to fit the same way?",
+      "Fit feedback has not been identical across all options, so we recommend checking the selected variant carefully before purchase. If you are deciding between variants and want the safest fit choice, compare the size chart and choose the option that gives you enough room through the chest and shoulders.",
+    ].join("\n\n");
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 9 },
+      product: {
+        title: "GEN Linen Breeze Shirt",
+        description: existingDescription,
+      },
+      metrics: {
+        customerSignalCount: 9,
+        signalCount: 12,
+        returnUnits: 4,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        topReturnReasons: ["Too small"],
+        affectedVariants: ["White / Medium"],
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit feedback repeats across returns and reviews."],
+        },
+        contentIssueCount: 3,
+        contentAnalysis: {
+          issues: [
+            { code: "missing_specifications", label: "Missing material composition details", severity: "medium", evidence: "Description says breathable linen blend but does not specify the actual fiber composition." },
+            { code: "missing_customer_guidance", label: "Missing size chart/measurement guidance", severity: "medium", evidence: "Copy advises reviewing the size chart but does not provide measurement points." },
+            { code: "missing_specifications", label: "Missing expectation on included items", severity: "low", evidence: "Included items are not specified." },
+          ],
+        },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/shirt",
+        productTitle: "GEN Linen Breeze Shirt",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: [
+              "Fit note (please add near the size/fit section):",
+              "Important: White (especially Medium) has the strongest runs small/tight feedback. If you’re between sizes or prefer extra room in the upper body, choose the next size up and compare your favorite shirt’s chest/shoulder fit to the size chart before ordering.",
+              "After washing: some customers report the fit feels tighter after washing (even with cold wash). For the most comfortable, less-fitted result, follow the care instructions and consider sizing up if you’re sensitive to a snug feel.",
+            ].join("\n"),
+            faq_items: [{
+              question: "Does the fit vary by color?",
+              answer: "Fit feedback isn’t identical across all options. The strongest “runs small/tight” feedback is for White (especially Medium). If you’re choosing White, double-check the size chart and consider sizing up for a roomier feel.",
+              reason: "Variant fit feedback is concentrated in White Medium.",
+            }],
+          },
+        },
+      },
+    });
+
+    const fitNote = recommendations.find((item) => item.id === "draft-fit-note");
+    expect(fitNote).toBeTruthy();
+    expect(fitNote.payload.draftText).toContain("White");
+    expect(fitNote.payload.draftText).toContain("Medium");
+    expect(fitNote.payload.draftText).not.toMatch(/After washing/i);
+    expect(fitNote.payload.draftText).not.toMatch(/between sizes/i);
+
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+    const guidance = recommendations.find((item) => item.id === "add-product-description-guidance");
+    expect(guidance?.payload.draftText || "").not.toMatch(/add a short shopper-facing note/i);
+  });
+
+  it("uses AI content coverage validation to skip semantically covered FAQ proposals", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 8 },
+      product: {
+        title: "GEN Linen Breeze Shirt",
+        description: [
+          "How does this shirt fit?",
+          "This shirt has a tailored, slim-cut fit through the chest, shoulders, and sleeves. If you prefer a roomier feel or are between sizes, choose one size up and review the size chart before ordering.",
+          "Are all color and size options expected to fit the same way?",
+          "Fit feedback has not been identical across all options, so we recommend checking the selected variant carefully before purchase.",
+        ].join("\n"),
+      },
+      metrics: {
+        customerSignalCount: 8,
+        signalCount: 8,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        topReturnReasons: ["Too small"],
+        affectedVariants: [],
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit and sizing signals repeat enough to answer before purchase."],
+        },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/shirt",
+        productTitle: "GEN Linen Breeze Shirt",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        contentCoverageValidation: {
+          coverage: [
+            {
+              id: "faq_item_1",
+              status: "already_covered",
+              confidence: "high",
+              recommended_application: "skip",
+              matched_existing_text: "How does this shirt fit?",
+            },
+            {
+              id: "faq_item_2",
+              status: "already_covered",
+              confidence: "medium",
+              recommended_application: "skip",
+              matched_existing_text: "Are all color and size options expected to fit the same way?",
+            },
+          ],
+        },
+        report: {
+          recommendation_copy: {
+            faq_items: [
+              {
+                question: "How does this product fit?",
+                answer: "This shirt has a tailored, slim cut through the chest, shoulders, and sleeves. If you want a more relaxed fit, size up.",
+                reason: "Fit feedback repeats.",
+              },
+              {
+                question: "Do White and Navy fit the same way?",
+                answer: "Fit feedback is not identical across variants, so check the selected variant before purchase.",
+                reason: "Variant fit feedback repeats.",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+  });
+
+  it("uses AI content coverage validation to reduce description notes to the missing delta", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 8 },
+      product: {
+        title: "GEN Linen Breeze Shirt",
+        description: "This shirt has a tailored, slim-cut fit. If you are between sizes, size up.",
+      },
+      metrics: {
+        customerSignalCount: 8,
+        signalCount: 8,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        topReturnReasons: ["Too small"],
+        affectedVariants: ["White / Medium"],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/shirt",
+        productTitle: "GEN Linen Breeze Shirt",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        contentCoverageValidation: {
+          coverage: [{
+            id: "pdp_copy",
+            status: "partially_covered",
+            confidence: "high",
+            recommended_application: "description_note",
+            remaining_text: "White Medium has the strongest tight-fit feedback in the shoulders and chest.",
+          }],
+        },
+        report: {
+          recommendation_copy: {
+            pdp_copy: "If you are between sizes, size up. White Medium has the strongest tight-fit feedback in the shoulders and chest.",
+          },
+        },
+      },
+    });
+
+    const fitNote = recommendations.find((item) => item.id === "draft-fit-note");
+    expect(fitNote).toBeTruthy();
+    expect(fitNote.payload.draftText).toBe("White Medium has the strongest tight-fit feedback in the shoulders and chest.");
   });
 
   it("does not create duplicate description actions from the same cause and copy", () => {
