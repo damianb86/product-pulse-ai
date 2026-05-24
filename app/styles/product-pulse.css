@@ -15324,7 +15324,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionsOverflow.isExpanded {
-  max-height: 900px;
+  max-height: 1320px;
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
