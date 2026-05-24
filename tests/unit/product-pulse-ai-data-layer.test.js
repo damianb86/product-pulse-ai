@@ -766,9 +766,9 @@ function createRegistryWithRepositories(overrides = {}) {
       },
       watchlistRepository: {
         getWatchlistSnapshot: vi.fn().mockResolvedValue({
-          maxProducts: 5,
+          maxProducts: 50,
           watchedCount: 0,
-          slotsAvailable: 5,
+          slotsAvailable: 50,
           alertsEnabled: true,
           alertRecipientCount: 0,
           scanCadenceDays: 3,

@@ -31,6 +31,7 @@ vi.mock("../../app/lib/product-pulse-job-logs.server", () => ({
 }));
 
 const {
+  __productPulseAiTestHooks,
   buildCompactProductRelationshipAiInput,
   generateProductDiagnosisTestText,
   normalizeProductRelationshipAiInsights,
@@ -139,6 +140,63 @@ describe("ProductPulse AI provider fallback", () => {
         configuredBy: "PRODUCT_PULSE_AI_LEVEL",
       }),
     }));
+  });
+
+  it("builds Watchlist narrative prompts from concrete changes instead of historical aggregates", () => {
+    const prompt = __productPulseAiTestHooks.buildWatchChangeReportNarrativePrompt({
+      productTitle: "GEN EchoLock Voice Safe",
+      report: {
+        status: "changed",
+        headline: "New orders increased.",
+        sourceChanges: [{
+          id: "new-orders",
+          source: "orders",
+          label: "New orders",
+          value: "1 order",
+          delta: "+4 units",
+          detail: "New activity by variant/SKU: Matte Black.",
+          items: [{ variant: "Matte Black", quantity: 4, amount: 384, createdAt: "2026-05-24T03:43:48.000Z" }],
+        }],
+        sourceInsights: [{
+          id: "return-evidence",
+          title: "Return evidence changed",
+          metric: "7 returned units",
+          summary: "Return pressure moved from 50% to 39%.",
+        }],
+        changes: [
+          { label: "Return rate", from: "50%", to: "39%", delta: "-11%" },
+          { label: "Refund rate", from: "29%", to: "22%", delta: "-6.4%" },
+        ],
+        previous: {
+          returnUnits: 7,
+          refundUnits: 4,
+          reviewCount: 52,
+          evidenceDetails: {
+            returns: { items: [{ text: "Historical return note that must not be sent." }] },
+          },
+        },
+        current: {
+          returnUnits: 7,
+          refundUnits: 4,
+          reviewCount: 52,
+          evidenceDetails: {
+            returns: { items: [{ text: "Historical current return note that must not be sent." }] },
+          },
+        },
+      },
+    });
+    const payload = JSON.parse(prompt.slice(prompt.indexOf("{")));
+
+    expect(payload.concreteSourceTypes).toEqual(["orders"]);
+    expect(payload.notNewSourceTypes).toEqual(expect.arrayContaining(["returns", "refunds", "reviews", "content"]));
+    expect(payload.concreteSourceChanges[0]).toMatchObject({
+      source: "orders",
+      value: "1 order",
+      delta: "+4 units",
+    });
+    expect(JSON.stringify(payload)).not.toContain("Historical return note");
+    expect(prompt).toContain("Only say there were new returns, refunds, reviews");
+    expect(prompt).toContain("notNewSourceTypes");
   });
 
   it("uses OpenAI basic for every task when AI level 2 is configured", async () => {

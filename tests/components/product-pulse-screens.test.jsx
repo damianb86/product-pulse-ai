@@ -307,9 +307,9 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<WatchlistScreen
       data={{
         watchlist: {
-          maxProducts: 5,
+          maxProducts: 50,
           watchedCount: 2,
-          slotsAvailable: 3,
+          slotsAvailable: 48,
           rows: [
             {
               id: "watch-1",
@@ -458,7 +458,7 @@ describe("ProductPulse screens", () => {
     />);
 
     expect(screen.getByText("Watched products")).toBeInTheDocument();
-    expect(screen.getByText("2 / 5")).toBeInTheDocument();
+    expect(screen.getByText("2 / 50")).toBeInTheDocument();
     expect(screen.getAllByText("Nintendo New 3DS XL").length).toBeGreaterThan(0);
     expect(screen.getByText("Recent watch activity")).toBeInTheDocument();
     expect(screen.getByText("Product added to watchlist")).toBeInTheDocument();
@@ -495,9 +495,9 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<WatchlistActivityScreen
       data={{
         watchlist: {
-          maxProducts: 5,
+          maxProducts: 50,
           watchedCount: 1,
-          slotsAvailable: 4,
+          slotsAvailable: 49,
           rows: [{ status: "Watching" }],
           activities: [
             { id: "a1", eventType: "product_added", icon: "plus", tone: "blue", title: "Product added to watchlist", detail: "Nintendo New 3DS XL", timestamp: "May 15, 10:20 AM" },

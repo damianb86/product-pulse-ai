@@ -678,9 +678,9 @@ function createRegistryWithRepositories(overrides = {}) {
       },
       watchlistRepository: {
         getWatchlistSnapshot: vi.fn().mockResolvedValue({
-          maxProducts: 5,
+          maxProducts: 50,
           watchedCount: 0,
-          slotsAvailable: 5,
+          slotsAvailable: 50,
           alertsEnabled: true,
           alertRecipientCount: 0,
           scanCadenceDays: 3,
@@ -753,7 +753,7 @@ function actionProposalFixture() {
     summary: "Add Core Linen Trouser to the app watchlist.",
     reason: "High risk",
     expectedResult: "ProductPulse will create a watchlist row. Shopify product data will not be changed.",
-    risks: ["The watchlist has a small product limit."],
+    risks: ["The watchlist supports up to 50 products, so this may fail if it is full."],
     confirmationLevel: "low",
     sideEffectLevel: "low",
     reversible: true,

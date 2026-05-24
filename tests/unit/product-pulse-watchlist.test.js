@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { __productPulseWatchlistTestHooks } from "../../app/lib/product-pulse-watchlist.server";
+import { WATCHLIST_MAX_PRODUCTS, __productPulseWatchlistTestHooks } from "../../app/lib/product-pulse-watchlist.server";
 
 describe("ProductPulse watchlist helpers", () => {
+  it("allows up to fifty watched products per shop", () => {
+    expect(WATCHLIST_MAX_PRODUCTS).toBe(50);
+  });
+
   it("labels watchlist row risk with configured ProductPulse thresholds", () => {
     const row = __productPulseWatchlistTestHooks.formatWatchlistRow(
       {
@@ -391,6 +395,134 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.sourceInsights[0].id).toBe("order-evidence");
     expect(report.changes).toEqual([]);
     expect(report.headline).toContain("New orders");
+  });
+
+  it("keeps historical returns, refunds, reviews and cache-missing content out of concrete Watchlist changes", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-23T13:16:25.154Z",
+      riskScore: 100,
+      riskLabel: "High",
+      confidence: 99,
+      primaryIssue: "Voice unlock reliability",
+      orderCount: 14,
+      soldUnits: 14,
+      salesAmount: 816,
+      returnUnits: 7,
+      refundUnits: 4,
+      returnRatePercent: 50,
+      refundRatePercent: 28.6,
+      reviewCount: 52,
+      negativeReviewCount: 25,
+      evidenceDetails: {
+        orders: {
+          totalOrders: 14,
+          totalUnits: 14,
+          totalRevenue: 816,
+          items: [{
+            key: "sale:old-safe-order",
+            orderId: "old-safe-order",
+            quantity: 1,
+            amount: 96,
+            variant: "Matte Black",
+            createdAt: "2026-05-20T02:00:00.000Z",
+          }],
+        },
+        returns: {
+          totalUnits: 7,
+          rate: 50,
+          items: [{ key: "return-old", text: "Voice opened for TV phrase.", sentiment: "negative", createdAt: "2026-05-20T02:00:00.000Z" }],
+        },
+        refunds: {
+          totalUnits: 4,
+          rate: 28.6,
+          items: [{ key: "refund-old", text: "Goodwill no restock.", sentiment: "neutral", createdAt: "2026-05-20T02:00:00.000Z" }],
+        },
+        reviews: {
+          total: 52,
+          negative: 25,
+          items: [{ key: "review-old", text: "Voice lock feels inconsistent.", sentiment: "negative", rating: 2, createdAt: "2026-05-20T02:00:00.000Z" }],
+        },
+        content: {
+          changed: true,
+          reason: "product_content_cache_missing",
+          signature: "safe-signature",
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/safe",
+        productTitle: "GEN EchoLock Voice Safe",
+        riskScore: 100,
+        confidence: 99,
+        primaryIssue: "Voice unlock reliability",
+        metrics: {
+          soldUnits: 18,
+          salesAmount: 1200,
+          returnUnits: 7,
+          refundUnits: 4,
+          returnRate: 38.9,
+          refundRate: 22.2,
+          reviewCount: 52,
+          negativeReviewCount: 25,
+          incrementalDiagnosis: {
+            productContent: {
+              changed: true,
+              reason: "product_content_cache_missing",
+              signature: "safe-signature",
+            },
+            cache: {
+              sourceEvents: {
+                sales: [
+                  {
+                    cacheKey: "sale:old-safe-order",
+                    orderId: "old-safe-order",
+                    quantity: 1,
+                    amount: 96,
+                    variantTitle: "Matte Black",
+                    createdAt: "2026-05-20T02:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:new-safe-order",
+                    orderId: "new-safe-order",
+                    quantity: 4,
+                    amount: 384,
+                    variantTitle: "Matte Black",
+                    createdAt: "2026-05-24T03:43:48.000Z",
+                  },
+                ],
+              },
+              customerText: {
+                returnItems: [{ key: "return-old", text: "Voice opened for TV phrase.", sentiment: "negative", createdAt: "2026-05-20T02:00:00.000Z" }],
+                reviewItems: [{ key: "review-old", text: "Voice lock feels inconsistent.", sentiment: "negative", rating: 2, createdAt: "2026-05-20T02:00:00.000Z" }],
+              },
+              refunds: {
+                items: [{ key: "refund-old", text: "Goodwill no restock.", sentiment: "neutral", createdAt: "2026-05-20T02:00:00.000Z" }],
+              },
+            },
+          },
+          monthlyOrderActivity: {
+            summary: {
+              totalOrders: 15,
+              totalOrderUnits: 18,
+              totalRevenue: 1200,
+              returnRate: 38.9,
+              refundRate: 22.2,
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-24T03:45:39.597Z"),
+    });
+
+    expect(report.sourceChanges.map((change) => change.id)).toEqual(["new-orders"]);
+    expect(report.sourceInsights.some((insight) => insight.id === "product-content")).toBe(false);
+    expect(report.changes.map((change) => change.id)).toEqual(expect.arrayContaining(["return-rate", "refund-rate"]));
+    expect(report.narrative).toContain("New orders");
+    expect(report.narrative).toContain("Matte Black");
+    expect(report.narrative).not.toMatch(/new return|new refund|new review|product content/i);
   });
 
   it("uses stored evidence keys instead of review dates when comparing two item-level reports", () => {

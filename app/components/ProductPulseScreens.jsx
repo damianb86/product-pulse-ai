@@ -23,6 +23,7 @@ const PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID = "product-pulse-settings-save-bar";
 const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 const DEFAULT_MOMENTUM_INCLUSION_THRESHOLD = 70;
+const WATCHLIST_MAX_PRODUCTS_DEFAULT = 50;
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -1574,7 +1575,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const trend = watchlist.trend || {};
   const settings = watchlist.settings || {};
   const mock = watchlist.mock || {};
-  const maxProducts = Number(watchlist.maxProducts || 5);
+  const maxProducts = Number(watchlist.maxProducts || WATCHLIST_MAX_PRODUCTS_DEFAULT);
   const watchedCount = Number(watchlist.watchedCount ?? rows.length);
   const activeWatchedCount = rows.filter((row) => row.status !== "Paused").length;
   const slotsAvailable = Math.max(0, Number(watchlist.slotsAvailable ?? maxProducts - watchedCount));
@@ -1648,7 +1649,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
       <ScreenShell className="ppDashboard ppWatchlistScreen">
         <div className="ppWatchlistHeader">
           <div>
-            <p className="ppDashboardSubtitle">Monitor up to 5 products with automatic rescans and email alerts.</p>
+            <p className="ppDashboardSubtitle">Monitor up to 50 products with automatic rescans and email alerts.</p>
           </div>
           <div className="ppWatchlistHeaderActions">
             <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={atCapacity || pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
@@ -1696,7 +1697,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
                         <DashboardIcon type="binoculars" tone="watch" />
                         <div>
                           <h2>No watched products yet</h2>
-                          <p>Add up to five Shopify products to monitor on the watch cadence.</p>
+                          <p>Add up to 50 Shopify products to monitor on the watch cadence.</p>
                         </div>
                         <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
                           <s-icon type="plus" size="small"></s-icon>
@@ -1735,7 +1736,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
           onQueryChange={setShopifyProductSearchQuery}
           title="Add watched product"
           eyebrow="Watchlist"
-          description="Search the live Shopify catalog and add one product to automatic monitoring. You can watch up to five products."
+          description="Search the live Shopify catalog and add one product to automatic monitoring. You can watch up to 50 products."
           actionLabel="Add to watchlist"
           actionIcon="plus"
           addedProductIds={watchedProductIds}
@@ -2368,7 +2369,7 @@ export function WatchlistActivityScreen({ data = {} }) {
           </div>
         </div>
         <div className="ppWatchlistStats" aria-label="Watch activity overview">
-          <WatchlistStatCard icon="binoculars" tone="watch" label="Watched products" value={`${watchlist.watchedCount || 0} / ${watchlist.maxProducts || 5}`} detail={`${watchlist.slotsAvailable || 0} slots available`} />
+          <WatchlistStatCard icon="binoculars" tone="watch" label="Watched products" value={`${watchlist.watchedCount || 0} / ${watchlist.maxProducts || WATCHLIST_MAX_PRODUCTS_DEFAULT}`} detail={`${watchlist.slotsAvailable || 0} slots available`} />
           <WatchlistStatCard icon="refresh" tone="blue" label="Stored events" value={activities.length} detail="Latest watchlist activity" />
           <WatchlistStatCard icon="pause" tone="purple" label="Paused products" value={(watchlist.rows || []).filter((row) => row.status === "Paused").length} detail="Not included in automatic watches" />
           <WatchlistStatCard icon="wand" tone="orange" label="Risk updates" value={activities.filter((activity) => ["watch_scan_completed", "diagnosis_completed"].includes(activity.eventType)).length} detail="Scan or diagnosis events" />
@@ -3463,7 +3464,7 @@ function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
           <p>
             {removing
               ? "You can add this product back later from the product detail page or the Products table."
-              : "The Watchlist supports up to five products. If it is full, ProductPulse will ask you to remove one first."}
+              : "The Watchlist supports up to 50 products. If it is full, ProductPulse will ask you to remove one first."}
           </p>
         </div>
 
@@ -13822,9 +13823,9 @@ export function PreviewScreen({ data, actionData }) {
 function getPreviewWatchlistData(data = {}) {
   const product = data.startHere || {};
   return {
-    maxProducts: 5,
+    maxProducts: WATCHLIST_MAX_PRODUCTS_DEFAULT,
     watchedCount: product.title ? 1 : 0,
-    slotsAvailable: product.title ? 4 : 5,
+    slotsAvailable: product.title ? WATCHLIST_MAX_PRODUCTS_DEFAULT - 1 : WATCHLIST_MAX_PRODUCTS_DEFAULT,
     rows: product.title ? [{
       id: "preview-watch-1",
       productGid: product.productGid || product.id || "gid://shopify/Product/preview",

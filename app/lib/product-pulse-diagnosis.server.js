@@ -9742,11 +9742,13 @@ function resolveProductContentAnalysisState({ product = {}, previousCache = {}, 
   const productUpdatedAt = toIso(product.updatedAt || product.createdAt);
   const cachedContent = previousCache?.deterministicContent;
   const cachedSignature = String(previousCache?.signature || "");
+  const hasCachedSignature = Boolean(cachedSignature);
+  const signatureChanged = hasCachedSignature && cachedSignature !== signature;
   const changed = Boolean(
     !cutoff
     || !cachedContent
-    || cachedSignature !== signature
-    || isChangedAfterCutoff(productUpdatedAt, cutoff),
+    || !hasCachedSignature
+    || signatureChanged,
   );
 
   if (!changed && cachedContent) {
@@ -9768,8 +9770,21 @@ function resolveProductContentAnalysisState({ product = {}, previousCache = {}, 
     cachedContentGaps: null,
     reused: false,
     changed: true,
-    reason: cutoff ? "product_content_changed_or_cache_missing" : "no_previous_cutoff",
+    reason: getProductContentAnalysisChangeReason({
+      cutoff,
+      cachedContent,
+      hasCachedSignature,
+      signatureChanged,
+    }),
   };
+}
+
+function getProductContentAnalysisChangeReason({ cutoff = null, cachedContent = null, hasCachedSignature = false, signatureChanged = false } = {}) {
+  if (!cutoff) return "no_previous_cutoff";
+  if (!cachedContent) return "product_content_cache_missing";
+  if (!hasCachedSignature) return "product_content_signature_missing";
+  if (signatureChanged) return "product_content_signature_changed";
+  return "product_content_changed";
 }
 
 function buildProductContentSignature(product = {}) {

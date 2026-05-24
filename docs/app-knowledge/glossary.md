@@ -38,7 +38,7 @@ Evidence strength:
 
 Watchlist:
 
-- ProductPulse monitored product list capped at 5 products.
+- ProductPulse monitored product list capped at 50 products.
 
 ProductAction:
 

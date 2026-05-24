@@ -3,7 +3,7 @@ import { generateWatchChangeReportNarrative } from "./product-pulse-ai.server";
 import { getProductScoreHistoryForProductsForShop } from "./product-pulse-history.server";
 import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 
-export const WATCHLIST_MAX_PRODUCTS = 5;
+export const WATCHLIST_MAX_PRODUCTS = 50;
 export const WATCH_SCAN_CADENCE_OPTIONS = [
   { value: "1", label: "Every day" },
   { value: "2", label: "Every 2 days" },
@@ -969,6 +969,8 @@ function buildWatchEvidenceDetails(metrics = {}) {
       changed: Boolean(metrics.incrementalDiagnosis?.productContent?.changed),
       mode: metrics.incrementalDiagnosis?.productContent?.mode || "",
       reason: metrics.incrementalDiagnosis?.productContent?.reason || "",
+      signature: metrics.incrementalDiagnosis?.productContent?.signature || cache.productContent?.signature || "",
+      productUpdatedAt: metrics.incrementalDiagnosis?.productContent?.productUpdatedAt || cache.productContent?.productUpdatedAt || "",
       descriptionWordCount: clampRoundNumber(firstNumber(metrics.descriptionWordCount)),
       contentQualityScore: clampRoundNumber(firstNumber(metrics.contentQualityScore), 0, 100),
       contentIssues: normalizeWatchCountRows((Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []).map((item) => ({
@@ -987,7 +989,7 @@ function buildWatchSourceChangeCards(previous, current) {
     buildWatchReturnSourceChange(previous, current, previousDetails.returns, currentDetails.returns),
     buildWatchRefundSourceChange(previous, current, previousDetails.refunds, currentDetails.refunds),
     buildWatchReviewSourceChange(previous, current, previousDetails.reviews, currentDetails.reviews),
-    buildWatchContentSourceChange(currentDetails.content),
+    buildWatchContentSourceChange(previousDetails.content, currentDetails.content),
   ].filter(Boolean);
 }
 
@@ -1110,8 +1112,9 @@ function buildWatchReviewSourceChange(previous, current, previousReviews = {}, c
   };
 }
 
-function buildWatchContentSourceChange(currentContent = {}) {
+function buildWatchContentSourceChange(previousContent = {}, currentContent = {}) {
   if (!currentContent?.changed) return null;
+  if (!isConcreteWatchContentChange(previousContent, currentContent)) return null;
   return {
     id: "product-content-updated",
     source: "content",
@@ -1124,6 +1127,17 @@ function buildWatchContentSourceChange(currentContent = {}) {
     detail: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous deep diagnosis.",
     items: [],
   };
+}
+
+function isConcreteWatchContentChange(previousContent = {}, currentContent = {}) {
+  const reason = String(currentContent.reason || "").toLowerCase();
+  if (!reason || reason.includes("cache_missing") || reason.includes("signature_missing") || reason === "no_previous_cutoff") {
+    return false;
+  }
+  const previousSignature = String(previousContent.signature || "").trim();
+  const currentSignature = String(currentContent.signature || "").trim();
+  if (previousSignature && currentSignature) return previousSignature !== currentSignature;
+  return reason.includes("signature_changed") || reason.includes("content_changed");
 }
 
 function buildWatchEvidenceChangeInsights(previous, current) {
@@ -1248,6 +1262,7 @@ function buildWatchRefundInsight(previous, current, previousRefunds = {}, curren
 
 function buildWatchContentInsight(previousContent = {}, currentContent = {}) {
   if (!currentContent?.changed) return null;
+  if (!isConcreteWatchContentChange(previousContent, currentContent)) return null;
   return {
     id: "product-content",
     title: "Product content changed",
@@ -1493,15 +1508,16 @@ function buildWatchChangeDeterministicNarrative({ productTitle = "This product",
     .slice(0, 4)
     .map((change) => `${change.label}: ${[change.value, change.delta].filter(Boolean).join(" · ")}${change.detail ? ` (${change.detail})` : ""}`)
     .join(" ");
-  const insightText = (report.sourceInsights || [])
-    .slice(0, 3)
-    .map((insight) => `${insight.title}: ${insight.summary}`)
-    .join(" ");
+  const calculatedContextText = (report.changes || [])
+    .slice(0, 4)
+    .map((change) => `${change.label} ${change.delta || "changed"}${change.from && change.to ? ` (${change.from} to ${change.to})` : ""}`)
+    .join("; ");
   return [
-    `${productTitle} changed since the previous Watchlist run.`,
-    sourceChangeText || "No concrete source-event changes were isolated; the movement below is calculated product-state context.",
-    report.headline || "",
-    insightText || "Calculated changes in product risk, rates, exposure and momentum are secondary context.",
+    sourceChangeText
+      ? `Since the previous Watchlist run, ${productTitle} had these concrete source changes: ${sourceChangeText}`
+      : `${productTitle} had no concrete new orders, returns, refunds, reviews or product-content updates isolated since the previous Watchlist run.`,
+    calculatedContextText ? `Secondary calculated context: ${calculatedContextText}.` : "",
+    report.headline && !sourceChangeText ? report.headline : "",
   ].filter(Boolean).join(" ");
 }
 
