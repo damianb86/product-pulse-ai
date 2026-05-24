@@ -2110,7 +2110,7 @@ describe("ProductPulse screens", () => {
             co_order_rate: 0.333,
             affinity_score: 2.1,
           }],
-          interpretation: "AI basket interpretation says this item is mostly read as a standalone purchase, but companion products and variant choice still matter when judging downstream friction.",
+          basket_context_interpretation: "AI basket interpretation says this item is mostly read as a standalone purchase, but companion products and variant choice still matter when judging downstream friction.",
           monthly_context: [
             { key: "2026-04", label: "Apr", orders_containing_product: 8, solo_product_orders: 6, multi_product_orders: 2, avg_product_quantity_per_order: 1.2 },
             { key: "2026-05", label: "May", orders_containing_product: 10, solo_product_orders: 7, multi_product_orders: 3, avg_product_quantity_per_order: 1.6 },

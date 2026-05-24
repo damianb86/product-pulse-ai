@@ -5982,9 +5982,16 @@ function normalizeProductPurchaseContext(summaryValue = null, factorsValue = nul
   const primaryContext = firstNonEmptyString(signalBreakdown.primaryContext, factors.context?.primaryContext);
   const interpretation = firstNonEmptyString(
     summary.interpretation,
+    summary.basket_context_interpretation,
+    summary.basketContextInterpretation,
     summary.backend_interpretation,
+    summary.backendInterpretation,
     summary.ai_interpretation,
     summary.aiInterpretation,
+    metrics.basket_context_interpretation,
+    metrics.basketContextInterpretation,
+    asPlainObject(metrics.diagnosisReport).basket_context_interpretation,
+    asPlainObject(metrics.diagnosisReport).basketContextInterpretation,
   );
 
   return {
