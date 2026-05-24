@@ -350,13 +350,13 @@ describe("ProductPulse watchlist helpers", () => {
         confidence: 79,
         primaryIssue: "Color expectations",
         metrics: {
-          soldUnits: 5,
-          salesAmount: 260,
+          soldUnits: 6,
+          salesAmount: 320,
           monthlyOrderActivity: {
             summary: {
               totalOrders: 2,
-              totalOrderUnits: 5,
-              totalRevenue: 260,
+              totalOrderUnits: 6,
+              totalRevenue: 320,
             },
           },
           incrementalDiagnosis: {
@@ -372,11 +372,19 @@ describe("ProductPulse watchlist helpers", () => {
                     createdAt: "2026-05-18T02:00:00.000Z",
                   },
                   {
-                    cacheKey: "sale:new-order",
+                    cacheKey: "sale:new-order:rose",
                     orderId: "new-order",
                     quantity: 3,
                     amount: 180,
                     variantTitle: "Rose",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:new-order:black",
+                    orderId: "new-order",
+                    quantity: 1,
+                    amount: 60,
+                    variantTitle: "Black",
                     createdAt: "2026-05-19T03:00:00.000Z",
                   },
                 ],
@@ -392,10 +400,74 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.sourceChangeCount).toBe(1);
     expect(report.sourceChanges[0].id).toBe("new-orders");
     expect(report.sourceChanges[0].value).toBe("1 order");
-    expect(report.sourceChanges[0].delta).toBe("+3 units");
+    expect(report.sourceChanges[0].delta).toBe("+4 units");
     expect(report.sourceInsights[0].id).toBe("order-evidence");
+    expect(report.sourceInsights[0].metric).toBe("1 new order");
     expect(report.changes).toEqual([]);
     expect(report.headline).toContain("New orders");
+  });
+
+  it("deduplicates multi-variant order lines in Watchlist order changes", () => {
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary: {
+        capturedAt: "2026-05-19T02:00:00.000Z",
+        riskScore: 40,
+        riskLabel: "Low",
+        confidence: 80,
+        primaryIssue: "No primary issue",
+        orderCount: 0,
+        soldUnits: 0,
+        salesAmount: 0,
+        evidenceDetails: { orders: { totalOrders: 0, totalUnits: 0, totalRevenue: 0, items: [] } },
+      },
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 40,
+        confidence: 80,
+        primaryIssue: "No primary issue",
+        metrics: {
+          soldUnits: 2,
+          salesAmount: 120,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [
+                  {
+                    cacheKey: "sale:multi-variant-order:black",
+                    orderId: "multi-variant-order",
+                    quantity: 1,
+                    amount: 60,
+                    variantTitle: "Black",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:multi-variant-order:white",
+                    orderId: "multi-variant-order",
+                    quantity: 1,
+                    amount: 60,
+                    variantTitle: "White",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-19T04:00:00.000Z"),
+    });
+
+    expect(report.current.orderCount).toBe(1);
+    expect(report.current.evidenceDetails.orders.totalOrders).toBe(1);
+    expect(report.sourceChanges[0]).toMatchObject({
+      id: "new-orders",
+      value: "1 order",
+      delta: "+2 units",
+    });
+    expect(report.sourceInsights[0]).toMatchObject({
+      id: "order-evidence",
+      metric: "1 new order",
+    });
   });
 
   it("keeps historical returns, refunds, reviews and cache-missing content out of concrete Watchlist changes", () => {

@@ -1031,7 +1031,7 @@ function buildWatchEvidenceDetails(metrics = {}) {
   const monthlySummary = metrics.monthlyOrderActivity?.summary || {};
   return {
     orders: {
-      totalOrders: clampRoundNumber(firstNumber(metrics.orderCount, monthlySummary.totalOrders, orderItems.length)),
+      totalOrders: clampRoundNumber(firstNumber(metrics.orderCount, monthlySummary.totalOrders, countWatchUniqueOrders(orderItems))),
       totalUnits: clampRoundNumber(firstNumber(metrics.soldUnits, monthlySummary.totalOrderUnits, sumWatchItemNumbers(orderItems, "quantity"))),
       totalRevenue: roundMoney(firstNumber(metrics.salesAmount, monthlySummary.totalRevenue, sumWatchItemNumbers(orderItems, "amount"))),
       items: orderItems.map(trimWatchSourceEventItem),
@@ -1098,7 +1098,7 @@ function buildWatchOrderSourceChange(previous, current, previousOrders = {}, cur
   const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
   const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
-  const newOrderCount = newItems.length || Math.max(0, Math.round(orderDelta));
+  const newOrderCount = countWatchUniqueOrders(newItems) || Math.max(0, Math.round(orderDelta));
   const newUnits = sumWatchItemNumbers(newItems, "quantity") || Math.max(0, Math.round(unitDelta));
   const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || Math.max(0, revenueDelta));
   if (!newOrderCount && !newUnits && newRevenue < 1) return null;
@@ -1257,7 +1257,7 @@ function buildWatchOrderInsight(previous, current, previousOrders = {}, currentO
   const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
   const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
-  const newOrderCount = newItems.length || Math.max(0, Math.round(orderDelta));
+  const newOrderCount = countWatchUniqueOrders(newItems) || Math.max(0, Math.round(orderDelta));
   const newUnits = sumWatchItemNumbers(newItems, "quantity") || Math.max(0, Math.round(unitDelta));
   const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || Math.max(0, revenueDelta));
   if (!newOrderCount && !newUnits && newRevenue < 1) return null;
@@ -2065,7 +2065,7 @@ function summarizeWatchVariants(items = []) {
 }
 
 function summarizeWatchGeography(items = []) {
-  const places = countWatchTerms((Array.isArray(items) ? items : [])
+  const places = countWatchTerms(getWatchUniqueOrderItems(items)
     .map((item) => [item?.city, item?.province, item?.country].filter(Boolean).join(", "))
     .filter(Boolean));
   return places.length ? `New order geography: ${formatWatchCountList(places, 3)}.` : "";
@@ -2073,6 +2073,26 @@ function summarizeWatchGeography(items = []) {
 
 function sumWatchItemNumbers(items = [], key) {
   return (Array.isArray(items) ? items : []).reduce((total, item) => total + Number(item?.[key] || 0), 0);
+}
+
+function countWatchUniqueOrders(items = []) {
+  return getWatchUniqueOrderItems(items).length;
+}
+
+function getWatchUniqueOrderItems(items = []) {
+  const orderIds = new Set();
+  const uniqueItems = [];
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const orderId = String(item?.orderId || "").trim();
+    if (orderId) {
+      if (orderIds.has(orderId)) return;
+      orderIds.add(orderId);
+      uniqueItems.push(item);
+    } else if (item?.key || item?.id) {
+      uniqueItems.push(item);
+    }
+  });
+  return uniqueItems;
 }
 
 function humanizeWatchLabel(value) {
