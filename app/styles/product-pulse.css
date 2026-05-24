@@ -23011,72 +23011,56 @@ s-page[inline-size="large-500"] {
   background: rgba(var(--pp-pulse-blue-rgb), 0.09);
 }
 
-.ppWatchChangeReportOverlay {
-  z-index: 900;
+.ppWatchlistProductPage {
+  gap: 14px;
 }
 
-.ppWatchChangeReportModal {
-  width: min(1180px, calc(100vw - 36px));
-  max-height: min(900px, calc(100vh - 32px));
-  max-height: min(900px, calc(100dvh - 32px));
+.ppWatchlistProductHero {
+  position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 22px 24px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(var(--pp-pulse-blue-rgb), 0.10), transparent 30%),
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+  box-shadow: 0 18px 42px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppWatchlistProductHeroImage {
+  width: 92px;
+  height: 92px;
+  display: block;
   overflow: hidden;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
   border-radius: 18px;
   background: var(--pp-cloud-white);
-  box-shadow: 0 28px 80px rgba(var(--pp-shadow-rgb), 0.28);
+  box-shadow: 0 14px 28px rgba(var(--pp-pulse-blue-rgb), 0.12);
 }
 
-.ppWatchChangeReportHeader {
-  position: relative;
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) 44px;
-  gap: 16px;
-  align-items: start;
-  padding: 24px 28px 20px;
-  border-bottom: 1px solid var(--pp-slate-200);
-  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+.ppWatchlistProductHeroImage .ppProductArt {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
 }
 
-.ppWatchChangeReportHeader .ppDashboardIcon {
-  width: 62px;
-  height: 62px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-}
-
-.ppWatchChangeReportHeader .ppDashboardIcon s-icon {
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-  transform: none;
-}
-
-.ppWatchChangeReportHeader .ppDashboardIcon svg {
-  width: 30px;
-  height: 30px;
-}
-
-.ppWatchChangeReportHeader h2,
-.ppWatchChangeReportHeader p {
+.ppWatchlistProductHero h2,
+.ppWatchlistProductHero p {
   margin: 0;
 }
 
-.ppWatchChangeReportHeader h2 {
+.ppWatchlistProductHero h2 {
   color: var(--pp-slate-950);
   font-size: clamp(24px, 2.5vw, 34px);
   font-weight: 950;
   line-height: 1.1;
 }
 
-.ppWatchChangeReportHeader p {
+.ppWatchlistProductHero p {
   max-width: none;
   margin-top: 9px;
   color: var(--pp-slate-600);
@@ -23084,6 +23068,374 @@ s-page[inline-size="large-500"] {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.5;
+}
+
+.ppWatchlistProductHero .ppWatchChangeReportHeaderStatus {
+  position: static;
+  align-self: start;
+}
+
+.ppWatchlistInsightReport {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(360px, 0.9fr);
+  gap: 22px;
+  align-items: stretch;
+  padding: 16px 18px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 3% 18%, rgba(var(--pp-pulse-blue-rgb), 0.10), transparent 24%),
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.035), rgba(255, 255, 255, 0.92)),
+    var(--pp-cloud-white);
+  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppWatchlistInsightNarrative {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  padding-right: 22px;
+  border-right: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchlistInsightIcon {
+  width: 52px;
+  height: 52px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--pp-pulse-blue), var(--pp-insight-violet));
+  color: var(--pp-cloud-white);
+  box-shadow: 0 14px 28px rgba(var(--pp-pulse-blue-rgb), 0.26);
+}
+
+.ppWatchlistInsightIcon s-icon {
+  transform: scale(1.55);
+}
+
+.ppWatchlistInsightTitleRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ppWatchlistInsightTitleRow h3,
+.ppWatchlistInsightNarrative p,
+.ppWatchlistBiggestChanges h4,
+.ppWatchlistBiggestChanges p {
+  margin: 0;
+}
+
+.ppWatchlistInsightTitleRow h3,
+.ppWatchlistBiggestChanges h4 {
+  color: var(--pp-slate-950);
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.ppWatchlistInsightTitleRow span {
+  padding: 3px 8px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppWatchlistInsightNarrative p {
+  margin-top: 8px;
+  color: var(--pp-slate-600);
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.ppWatchlistInsightNarrative p strong {
+  color: var(--pp-slate-950);
+  font-weight: 900;
+}
+
+.ppWatchlistBiggestChanges {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.ppWatchlistBiggestChanges ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppWatchlistBiggestChanges li {
+  display: grid;
+  grid-template-columns: 22px minmax(116px, 0.72fr) minmax(120px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ppWatchBigChangeIcon {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.ppWatchBigChangeIcon s-icon {
+  transform: scale(1.05);
+}
+
+.ppWatchBigChangeIcon-good {
+  background: rgba(var(--pp-success-green-rgb), 0.10);
+  color: var(--pp-success-green);
+}
+
+.ppWatchBigChangeIcon-bad {
+  background: rgba(var(--pp-risk-red-rgb), 0.08);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchBigChangeIcon-neutral {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+}
+
+.ppWatchlistBiggestChanges strong,
+.ppWatchlistBiggestChanges span,
+.ppWatchlistBiggestChanges em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchlistBiggestChanges strong {
+  color: var(--pp-slate-700);
+  font-weight: 850;
+}
+
+.ppWatchlistBiggestChanges li > span:not(.ppWatchBigChangeIcon) {
+  color: var(--pp-slate-600);
+  text-align: right;
+}
+
+.ppWatchBigChangeDelta {
+  justify-self: end;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.ppWatchBigChangeDelta-good {
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  color: color-mix(in srgb, var(--pp-success-green) 74%, var(--pp-midnight-ink));
+}
+
+.ppWatchBigChangeDelta-bad {
+  background: rgba(var(--pp-risk-red-rgb), 0.08);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchBigChangeDelta-neutral {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-600);
+}
+
+.ppWatchlistBiggestChanges > p {
+  color: var(--pp-slate-500);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppWatchSnapshotCompare {
+  overflow: hidden;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 16px;
+  background:
+    linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.045), rgba(var(--pp-pulse-blue-rgb), 0.02) 58%, rgba(var(--pp-success-green-rgb), 0.08)),
+    var(--pp-cloud-white);
+  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppWatchSnapshotCompareHeader,
+.ppWatchSnapshotCompareRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) 220px minmax(0, 1fr);
+}
+
+.ppWatchSnapshotCompareHeader {
+  min-height: 48px;
+  align-items: center;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ppWatchSnapshotCompareHeader > div {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 18px;
+}
+
+.ppWatchSnapshotCompareHeader > div:nth-child(2) {
+  justify-content: center;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.035);
+}
+
+.ppWatchSnapshotCompareHeader > div:nth-child(3) {
+  background: rgba(var(--pp-success-green-rgb), 0.075);
+}
+
+.ppWatchSnapshotCompareHeader strong {
+  color: var(--pp-pulse-blue);
+  font-size: 14px;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppWatchSnapshotCompareHeader > div:nth-child(3) strong {
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchSnapshotCompareHeader span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchSnapshotCompareRows {
+  margin: 0 10px 10px;
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchSnapshotCompareRow {
+  min-height: 54px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchSnapshotCompareRow:last-child {
+  border-bottom: 0;
+}
+
+.ppWatchSnapshotMetric {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 18px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.ppWatchSnapshotMetric .ppDashboardIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+}
+
+.ppWatchSnapshotMetric .ppDashboardIcon s-icon,
+.ppWatchSnapshotMetric .ppDashboardIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ppWatchSnapshotMetric span {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.ppWatchSnapshotMetric strong,
+.ppWatchSnapshotMetric small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchSnapshotMetric strong {
+  color: var(--pp-slate-800);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.ppWatchSnapshotMetric small {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppWatchSnapshotMetric > b,
+.ppWatchSnapshotCurrent strong {
+  color: var(--pp-slate-950);
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.ppWatchSnapshotDelta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 14px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.035);
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppWatchSnapshotDelta s-icon {
+  transform: scale(1.1);
+}
+
+.ppWatchSnapshotDelta-good {
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchSnapshotDelta-bad {
+  color: var(--pp-risk-red);
+}
+
+.ppWatchSnapshotDelta-neutral {
+  color: var(--pp-slate-500);
+}
+
+.ppWatchSnapshotCurrent {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 28px;
+  background: rgba(var(--pp-success-green-rgb), 0.075);
+}
+
+.ppWatchSnapshotCurrent strong {
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
 }
 
 .ppWatchChangeReportEyebrow {
@@ -23097,9 +23449,6 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchChangeReportHeaderStatus {
-  position: absolute;
-  top: 24px;
-  right: 80px;
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -23151,8 +23500,16 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 10px;
   padding: 14px 28px 16px;
-  overflow: auto;
+  overflow: visible;
   background: linear-gradient(180deg, var(--pp-subcard-bg), var(--pp-cloud-white));
+}
+
+.ppWatchlistProductPage .ppWatchChangeReportBody {
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--pp-subcard-bg), var(--pp-cloud-white));
+  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppWatchChangeReportMeta {
@@ -23939,54 +24296,45 @@ s-page[inline-size="large-500"] {
   background: rgba(var(--pp-success-green-rgb), 0.08) !important;
 }
 
-.ppWatchChangeReportFooter {
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 14px 28px 18px;
-  border-top: 1px solid var(--pp-slate-200);
-  background: var(--pp-cloud-white);
-}
-
-.ppWatchChangeReportFooter.ppAnalysisConfirmFooter {
-  margin-top: 0;
-}
-
-.ppWatchChangeReportFooter .ppSecondaryButton,
-.ppWatchChangeReportFooter .ppPrimaryButton {
-  min-width: 128px;
-  min-height: 34px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.ppWatchChangeReportFooter .ppSecondaryButton {
-  border-color: var(--pp-slate-300);
-  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-slate-50));
-  color: var(--pp-slate-800);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset;
-}
-
-.ppWatchChangeReportFooter .ppPrimaryButton {
-  background: linear-gradient(180deg, var(--pp-pulse-blue), color-mix(in srgb, var(--pp-pulse-blue) 78%, var(--pp-midnight-ink)));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.24) inset, 0 12px 22px rgba(var(--pp-pulse-blue-rgb), 0.28);
-}
-
 @media (max-width: 980px) {
-  .ppWatchChangeReportHeader {
-    grid-template-columns: 58px minmax(0, 1fr) 44px;
+  .ppWatchlistProductHero {
+    grid-template-columns: 76px minmax(0, 1fr);
   }
 
-  .ppWatchChangeReportHeaderStatus {
-    top: 18px;
-    right: 68px;
+  .ppWatchlistProductHeroImage {
+    width: 76px;
+    height: 76px;
+  }
+
+  .ppWatchlistProductHero .ppWatchChangeReportHeaderStatus {
+    grid-column: 1 / -1;
     width: max-content;
   }
 
-  .ppWatchChangeReportHeader .ppModalCloseButton {
-    grid-column: 3;
-    grid-row: 1;
+  .ppWatchlistInsightReport {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .ppWatchlistInsightNarrative {
+    padding-right: 0;
+    padding-bottom: 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--pp-slate-200);
+  }
+
+  .ppWatchSnapshotCompareHeader,
+  .ppWatchSnapshotCompareRow {
+    grid-template-columns: minmax(0, 1fr) 150px minmax(0, 0.85fr);
+  }
+
+  .ppWatchSnapshotMetric {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .ppWatchSnapshotMetric > b {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .ppWatchChangeReportMeta,
@@ -24005,29 +24353,71 @@ s-page[inline-size="large-500"] {
 }
 
 @media (max-width: 720px) {
-  .ppWatchChangeReportModal {
-    width: calc(100vw - 18px);
-    max-height: calc(100vh - 18px);
-    border-radius: 14px;
+  .ppWatchlistProductHero {
+    grid-template-columns: 64px minmax(0, 1fr);
+    padding: 18px;
   }
 
-  .ppWatchChangeReportHeader,
-  .ppWatchChangeReportBody,
-  .ppWatchChangeReportFooter {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-
-  .ppWatchChangeReportHeader {
-    grid-template-columns: 58px minmax(0, 1fr) 38px;
-    padding-top: 52px;
+  .ppWatchlistProductHeroImage {
+    width: 64px;
+    height: 64px;
   }
 
   .ppWatchChangeReportHeaderStatus {
-    top: 12px;
-    right: 62px;
     padding: 7px 10px;
     font-size: 12px;
+  }
+
+  .ppWatchlistInsightReport {
+    padding: 14px;
+  }
+
+  .ppWatchlistInsightNarrative {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .ppWatchlistInsightIcon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ppWatchlistBiggestChanges li {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .ppWatchlistBiggestChanges li > span:not(.ppWatchBigChangeIcon) {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+
+  .ppWatchSnapshotCompareHeader {
+    display: none;
+  }
+
+  .ppWatchSnapshotCompareRows {
+    margin: 10px;
+    border-radius: 12px;
+  }
+
+  .ppWatchSnapshotCompareRow {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .ppWatchSnapshotMetric,
+  .ppWatchSnapshotDelta,
+  .ppWatchSnapshotCurrent {
+    padding: 10px 12px;
+  }
+
+  .ppWatchSnapshotDelta {
+    justify-content: flex-start;
+  }
+
+  .ppWatchlistProductPage .ppWatchChangeReportBody {
+    padding: 12px;
   }
 
   .ppWatchChangeReportMeta,

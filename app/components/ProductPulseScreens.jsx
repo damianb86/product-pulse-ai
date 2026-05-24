@@ -1761,110 +1761,153 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
 }
 
 function WatchlistProductRow({ product }) {
-  const [reportOpen, setReportOpen] = useState(false);
   const latestTone = product.latestChangeTone || "slate";
   const hasScore = Number.isFinite(Number(product.riskScore));
   const paused = product.status === "Paused";
-  const latestReport = product.latestChangeReport || null;
-  const hasReport = Boolean(latestReport);
   const diagnosisState = getProductDiagnosisState(product);
+  const watchlistProductHref = getWatchlistProductPageHref(product);
 
   return (
-    <>
-      <tr className={diagnosisState ? "isDiagnosing" : ""}>
-        <td>
-          <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
-            <span className="ppWatchlistProductImageWrap">
-              <ProductArt
-                variant={product.variant || "shirt"}
-                label={product.title}
-                imageUrl={product.imageUrl}
-                imageAlt={product.imageAlt}
-              />
-              {diagnosisState && (
-                <span className="ppProductDiagnosisLoader" aria-label={`${diagnosisState.label} for ${product.title}`}>
-                  <span aria-hidden="true" />
-                </span>
-              )}
-            </span>
-            <span>
-              <strong>{product.title}</strong>
-              {diagnosisState && <small className="ppWatchlistDiagnosisLabel">{diagnosisState.label}</small>}
-              <small>{product.sku ? `SKU: ${product.sku}` : product.handle ? `/${product.handle}` : "Shopify product"}</small>
-            </span>
-          </Link>
-        </td>
-        <td>
-          <span className={`ppWatchStatus ppWatchStatus-${product.statusTone || "success"}`}>
-            <span aria-hidden="true" />
-            {product.status || "Watching"}
+    <tr className={diagnosisState ? "isDiagnosing" : ""}>
+      <td>
+        <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
+          <span className="ppWatchlistProductImageWrap">
+            <ProductArt
+              variant={product.variant || "shirt"}
+              label={product.title}
+              imageUrl={product.imageUrl}
+              imageAlt={product.imageAlt}
+            />
+            {diagnosisState && (
+              <span className="ppProductDiagnosisLoader" aria-label={`${diagnosisState.label} for ${product.title}`}>
+                <span aria-hidden="true" />
+              </span>
+            )}
           </span>
-        </td>
-        <td>
-          <div className="ppWatchRiskCell">
-            <span className={`ppWatchRiskDial ppWatchRiskDial-${product.riskTone || "subdued"}`}>{hasScore ? product.riskScore : "-"}</span>
-            <strong className={`ppWatchRiskLabel ppWatchRiskLabel-${product.riskTone || "subdued"}`}>{product.riskLabel || "Pending"}</strong>
-          </div>
-        </td>
-        <td>
-          <div className="ppWatchIssueCell">
-            <span className={`ppWatchIssueDot ppWatchIssueDot-${latestTone}`} aria-hidden="true" />
-            <span>
-              <strong>{product.latestChange || "Awaiting first scan"}</strong>
-              <small>{product.latestChangeDetail || "This product will be checked on the next watch run."}</small>
-            </span>
-          </div>
-        </td>
-        <td>
-          <div className="ppWatchUpdateCell">
-            <strong>{product.lastIssue || "Not scanned yet"}</strong>
-            <small>{product.lastIssueDetail || "Waiting for automatic watch cadence"}</small>
-          </div>
-        </td>
-        <td>
-          <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
-            <button
-              className="ppWatchActionsButton ppWatchActionsButton-report"
-              type="button"
-              disabled={!hasReport}
-              aria-label={`View latest Watchlist change report for ${product.title}`}
-              onClick={() => setReportOpen(true)}
-            >
-              <s-icon type="chart-line" size="small"></s-icon>
+          <span>
+            <strong>{product.title}</strong>
+            {diagnosisState && <small className="ppWatchlistDiagnosisLabel">{diagnosisState.label}</small>}
+            <small>{product.sku ? `SKU: ${product.sku}` : product.handle ? `/${product.handle}` : "Shopify product"}</small>
+          </span>
+        </Link>
+      </td>
+      <td>
+        <span className={`ppWatchStatus ppWatchStatus-${product.statusTone || "success"}`}>
+          <span aria-hidden="true" />
+          {product.status || "Watching"}
+        </span>
+      </td>
+      <td>
+        <div className="ppWatchRiskCell">
+          <span className={`ppWatchRiskDial ppWatchRiskDial-${product.riskTone || "subdued"}`}>{hasScore ? product.riskScore : "-"}</span>
+          <strong className={`ppWatchRiskLabel ppWatchRiskLabel-${product.riskTone || "subdued"}`}>{product.riskLabel || "Pending"}</strong>
+        </div>
+      </td>
+      <td>
+        <div className="ppWatchIssueCell">
+          <span className={`ppWatchIssueDot ppWatchIssueDot-${latestTone}`} aria-hidden="true" />
+          <span>
+            <strong>{product.latestChange || "Awaiting first scan"}</strong>
+            <small>{product.latestChangeDetail || "This product will be checked on the next watch run."}</small>
+          </span>
+        </div>
+      </td>
+      <td>
+        <div className="ppWatchUpdateCell">
+          <strong>{product.lastIssue || "Not scanned yet"}</strong>
+          <small>{product.lastIssueDetail || "Waiting for automatic watch cadence"}</small>
+        </div>
+      </td>
+      <td>
+        <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
+          <Link
+            className="ppWatchActionsButton ppWatchActionsButton-report"
+            to={watchlistProductHref}
+            aria-label={`View Watchlist report for ${product.title}`}
+          >
+            <s-icon type="chart-line" size="small"></s-icon>
+          </Link>
+          <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
+            <s-icon type="view" size="small"></s-icon>
+          </Link>
+          <Form method="post">
+            <input type="hidden" name="_action" value={paused ? "resume-watched-product" : "pause-watched-product"} />
+            <input type="hidden" name="productGid" value={product.productGid || ""} />
+            <button className="ppWatchActionsButton" type="submit" aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}>
+              {paused ? (
+                <s-icon type="play" size="small"></s-icon>
+              ) : (
+                <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
+              )}
             </button>
-            <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
-              <s-icon type="view" size="small"></s-icon>
-            </Link>
-            <Form method="post">
-              <input type="hidden" name="_action" value={paused ? "resume-watched-product" : "pause-watched-product"} />
-              <input type="hidden" name="productGid" value={product.productGid || ""} />
-              <button className="ppWatchActionsButton" type="submit" aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}>
-                {paused ? (
-                  <s-icon type="play" size="small"></s-icon>
-                ) : (
-                  <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
-                )}
-              </button>
-            </Form>
-            <Form method="post">
-              <input type="hidden" name="_action" value="remove-watched-product" />
-              <input type="hidden" name="productGid" value={product.productGid || ""} />
-              <button className="ppWatchActionsButton ppWatchActionsButton-danger" type="submit" aria-label={`Remove ${product.title} from watchlist`}>
-                <s-icon type="x" size="small"></s-icon>
-              </button>
-            </Form>
-          </div>
-        </td>
-      </tr>
-      {reportOpen && hasReport ? (
-        <WatchChangeReportModal product={product} report={latestReport} onClose={() => setReportOpen(false)} />
-      ) : null}
-    </>
+          </Form>
+          <Form method="post">
+            <input type="hidden" name="_action" value="remove-watched-product" />
+            <input type="hidden" name="productGid" value={product.productGid || ""} />
+            <button className="ppWatchActionsButton ppWatchActionsButton-danger" type="submit" aria-label={`Remove ${product.title} from watchlist`}>
+              <s-icon type="x" size="small"></s-icon>
+            </button>
+          </Form>
+        </div>
+      </td>
+    </tr>
   );
 }
 
-function WatchChangeReportModal({ product, report, onClose }) {
-  if (typeof document === "undefined") return null;
+export function WatchlistProductScreen({ product }) {
+  if (!product) {
+    return (
+      <FullWidthPage heading="Watchlist product not found">
+        <ScreenShell className="ppDashboard ppWatchlistProductPage">
+          <Link className="ppBackLink" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
+          <p className="ppDashboardSubtitle">This product is not currently tracked on the Watchlist.</p>
+        </ScreenShell>
+      </FullWidthPage>
+    );
+  }
+
+  const report = product.latestChangeReport || getWatchlistFallbackReport(product);
+  const effectiveStatus = report.status === "baseline"
+    ? "baseline"
+    : Number(report.changeCount || 0) > 0
+      ? report.status || "changed"
+      : "unchanged";
+  const statusTone = getWatchReportStatusTone(effectiveStatus);
+  const statusLabel = getWatchReportStatusLabel(effectiveStatus);
+
+  return (
+    <FullWidthPage heading="Product Watchlist">
+      <ScreenShell className="ppDashboard ppWatchlistProductPage">
+        <Link className="ppBackLink" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
+
+        <section className="ppWatchlistProductHero" aria-labelledby="watchlist-product-title">
+          <span className="ppWatchlistProductHeroImage">
+            <ProductArt
+              variant={product.variant || "shirt"}
+              label={product.title}
+              imageUrl={product.imageUrl}
+              imageAlt={product.imageAlt}
+            />
+          </span>
+          <div>
+            <span className="ppWatchChangeReportEyebrow">Watchlist</span>
+            <h2 id="watchlist-product-title">{product.title || "Watched product"}</h2>
+            <p>Your baseline is captured. Watchlist will monitor key signals and compare future scans to surface changes, trends, and risks over time.</p>
+          </div>
+          <strong className={`ppWatchChangeReportHeaderStatus ppWatchChangeReportHeaderStatus-${statusTone}`}>
+            <span aria-hidden="true" />
+            {statusLabel}
+          </strong>
+        </section>
+
+        <WatchChangeReportContent product={product} report={report} />
+      </ScreenShell>
+    </FullWidthPage>
+  );
+}
+
+function WatchChangeReportContent({ product, report }) {
+  report = report || getWatchlistFallbackReport(product);
   const isBaselineReport = report?.status === "baseline";
   const sections = isBaselineReport ? [] : (Array.isArray(report?.sections) ? report.sections : []);
   const visibleSections = isBaselineReport ? [] : getVisibleWatchReportSections(sections);
@@ -1872,31 +1915,19 @@ function WatchChangeReportModal({ product, report, onClose }) {
   const sourceInsights = isBaselineReport ? [] : (Array.isArray(report?.sourceInsights) ? report.sourceInsights : []);
   const current = report?.current || {};
   const changedCards = isBaselineReport ? [] : getWatchReportChangeCards(report, visibleSections);
+  const biggestChanges = isBaselineReport ? [] : getWatchReportBiggestChanges(report, sourceChanges, visibleSections);
+  const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
   const hasVisibleChanges = sourceChanges.length > 0 || changedCards.length > 0 || visibleSections.length > 0 || sourceInsights.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
   const statusLabel = getWatchReportStatusLabel(effectiveStatus);
 
-  return createPortal(
-    <div className="ppAnalysisConfirmOverlay ppWatchChangeReportOverlay" role="presentation">
-      <section className="ppWatchChangeReportModal" role="dialog" aria-modal="true" aria-labelledby="watch-change-report-title">
-        <header className="ppWatchChangeReportHeader">
-          <DashboardIcon type={effectiveStatus === "unchanged" ? "check" : "chart-line"} tone="blue" />
-          <div>
-            <span className="ppWatchChangeReportEyebrow">Watchlist change report</span>
-            <h2 id="watch-change-report-title">{product.title}</h2>
-            <p>{report?.narrative || report?.summary || "Latest Watchlist comparison for this product."}</p>
-          </div>
-          <strong className={`ppWatchChangeReportHeaderStatus ppWatchChangeReportHeaderStatus-${statusTone}`}>
-            <span aria-hidden="true" />
-            {statusLabel}
-          </strong>
-          <button className="ppModalCloseButton" type="button" aria-label="Close Watchlist change report" onClick={onClose}>
-            <s-icon type="x" size="small"></s-icon>
-          </button>
-        </header>
+  return (
+    <>
+      <WatchlistInsightReport report={report} statusTone={statusTone} biggestChanges={biggestChanges} />
+      {snapshotRows.length ? <WatchSnapshotComparisonTable report={report} rows={snapshotRows} /> : null}
 
-        <div className="ppWatchChangeReportBody">
+      <div className="ppWatchChangeReportBody">
           <div className="ppWatchChangeReportMeta">
             <div>
               <DashboardIcon type="calendar" tone="blue" size="small" />
@@ -2067,22 +2098,121 @@ function WatchChangeReportModal({ product, report, onClose }) {
               <span className="ppWatchSnapshotMomentum"><b>Momentum:</b> {current.productMomentumTier || "No momentum"} · {current.productMomentumScore ?? 0} / 100</span>
             </div>
           </div>
-        </div>
-
-        <footer className="ppAnalysisConfirmFooter ppWatchChangeReportFooter">
-          <Link className="ppSecondaryButton" to={product.href || "/app/products"} onClick={onClose}>
-            <s-icon type="external" size="small"></s-icon>
-            Open product
-          </Link>
-          <button className="ppPrimaryButton" type="button" onClick={onClose}>
-            Done
-            <s-icon type="check" size="small"></s-icon>
-          </button>
-        </footer>
-      </section>
-    </div>,
-    document.body,
+      </div>
+    </>
   );
+}
+
+function WatchSnapshotComparisonTable({ report, rows = [] }) {
+  const previousTimestamp = formatWatchReportTimestamp(report?.previousRunAt || report?.previous?.capturedAt);
+  const currentTimestamp = formatWatchReportTimestamp(report?.currentRunAt || report?.current?.capturedAt || report?.createdAt);
+  return (
+    <section className="ppWatchSnapshotCompare" aria-label="Watchlist snapshot comparison">
+      <div className="ppWatchSnapshotCompareHeader">
+        <div>
+          <strong>Previous snapshot</strong>
+          {previousTimestamp ? <span>({previousTimestamp})</span> : null}
+        </div>
+        <div>Change</div>
+        <div>
+          <strong>Current snapshot</strong>
+          {currentTimestamp ? <span>({currentTimestamp})</span> : null}
+        </div>
+      </div>
+      <div className="ppWatchSnapshotCompareRows">
+        {rows.map((row) => (
+          <div className="ppWatchSnapshotCompareRow" key={row.id}>
+            <div className="ppWatchSnapshotMetric">
+              <DashboardIcon type={row.icon} tone={row.iconTone || "blue"} size="small" />
+              <span>
+                <strong>{row.label}</strong>
+                {row.hint ? <small>{row.hint}</small> : null}
+              </span>
+              <b>{row.previousLabel}</b>
+            </div>
+            <div className={`ppWatchSnapshotDelta ppWatchSnapshotDelta-${row.tone}`}>
+              <s-icon type={row.direction === "down" ? "arrow-down" : row.direction === "up" ? "arrow-up" : "info"} size="small"></s-icon>
+              <strong>{row.deltaLabel}</strong>
+            </div>
+            <div className="ppWatchSnapshotCurrent">
+              <strong>{row.currentLabel}</strong>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WatchlistInsightReport({ report, statusTone, biggestChanges = [] }) {
+  const hasRows = biggestChanges.length > 0;
+  return (
+    <section className={`ppWatchlistInsightReport ppWatchlistInsightReport-${statusTone}`} aria-label="AI Watchlist insight">
+      <div className="ppWatchlistInsightNarrative">
+        <span className="ppWatchlistInsightIcon" aria-hidden="true">
+          <s-icon type="wand" size="small"></s-icon>
+        </span>
+        <div>
+          <div className="ppWatchlistInsightTitleRow">
+            <h3>AI Watchlist insight</h3>
+            <span>Beta</span>
+          </div>
+          <p>{report?.narrative || report?.summary || "Latest Watchlist comparison for this product."}</p>
+        </div>
+      </div>
+      <div className="ppWatchlistBiggestChanges">
+        <h4>Biggest changes</h4>
+        {hasRows ? (
+          <ul>
+            {biggestChanges.map((change) => (
+              <li key={change.key}>
+                <span className={`ppWatchBigChangeIcon ppWatchBigChangeIcon-${change.tone}`} aria-hidden="true">
+                  <s-icon type={change.direction === "down" ? "arrow-down" : change.direction === "up" ? "arrow-up" : "info"} size="small"></s-icon>
+                </span>
+                <strong>{change.label}</strong>
+                <span>{change.value}</span>
+                <em className={`ppWatchBigChangeDelta ppWatchBigChangeDelta-${change.tone}`}>{change.delta}</em>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No concrete source movement was detected in this Watchlist run.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function getWatchlistProductPageHref(product = {}) {
+  if (product.watchlistHref) return product.watchlistHref;
+  const productKey = product.handle || product.productGid || product.id || "";
+  return productKey ? `/app/watchlist/${encodeURIComponent(productKey)}` : "/app/watchlist";
+}
+
+function getWatchlistFallbackReport(product = {}) {
+  return {
+    status: "baseline",
+    title: "Watchlist baseline",
+    summary: "ProductPulse saved the current product state as the Watchlist baseline.",
+    narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, momentum and evidence against this stored point.",
+    headline: "No previous Watchlist data",
+    changeCount: 0,
+    previousRunAt: null,
+    currentRunAt: product.updatedAtIso || product.lastAnalysisAt || product.addedAtIso || null,
+    current: {
+      riskLabel: product.riskLabel || "Pending",
+      riskScore: product.riskScore ?? null,
+      confidence: product.confidence ?? "-",
+      primaryIssue: product.latestChangeDetail || product.primaryIssue || "No primary issue",
+      returnRatePercent: product.returnRatePercent ?? 0,
+      productMomentumTier: product.productMomentumTier || "No momentum",
+      productMomentumScore: product.productMomentumScore ?? 0,
+    },
+    sourceChanges: [],
+    sourceInsights: [],
+    sections: [],
+    changes: [],
+  };
 }
 
 function getWatchReportChangeCards(report, sections = []) {
@@ -2093,6 +2223,193 @@ function getWatchReportChangeCards(report, sections = []) {
       : []
   ));
   return (explicit.length ? explicit : sectionChanges).filter(isMeaningfulWatchReportChange).slice(0, 4);
+}
+
+function getWatchReportBiggestChanges(report = {}, sourceChanges = [], sections = []) {
+  const physicalRows = sourceChanges
+    .filter((change) => change && typeof change === "object")
+    .map((change) => makeWatchPhysicalBigChange(change))
+    .filter(Boolean);
+  const calculatedRows = getWatchReportCalculatedBigChanges(report, sections);
+  const seen = new Set();
+  return [...physicalRows, ...calculatedRows]
+    .filter((change) => {
+      const key = String(change.key || change.label || "").toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0))
+    .slice(0, 5);
+}
+
+function getWatchSnapshotComparisonRows(report = {}) {
+  const previous = report?.previous || {};
+  const current = report?.current || {};
+  const baseRows = [
+    watchSnapshotNumericRow({ id: "risk-score", label: "Risk score", hint: "(0-100)", icon: "target", previous, current, field: "riskScore", lowerIsGood: true }),
+    watchSnapshotNumericRow({ id: "return-rate", label: "Return rate", icon: "return", previous, current, field: "returnRatePercent", suffix: "%", deltaSuffix: " pp", lowerIsGood: true }),
+    watchSnapshotNumericRow({ id: "refund-rate", label: "Refund rate", icon: "cash-dollar", previous, current, field: "refundRatePercent", suffix: "%", deltaSuffix: " pp", lowerIsGood: true }),
+    watchSnapshotNumericRow({ id: "evidence-signals", label: "Evidence signals", icon: "chart-line", previous, current, field: "signalCount", higherIsGood: true }),
+    watchSnapshotNumericRow({ id: "momentum-score", label: "Momentum", hint: "(0-100)", icon: "wand", previous, current, field: "productMomentumScore", higherIsGood: true }),
+  ];
+  const extraRows = [
+    watchSnapshotNumericRow({ id: "orders", label: "Orders", icon: "shopify-orders", previous, current, field: "orderCount", higherIsGood: true }),
+    watchSnapshotNumericRow({ id: "sold-units", label: "Units sold", icon: "product", previous, current, field: "soldUnits", higherIsGood: true }),
+    watchSnapshotNumericRow({ id: "revenue", label: "Revenue", icon: "cash-dollar", previous, current, field: "salesAmount", formatter: formatMoney, deltaFormatter: formatMoney, higherIsGood: true }),
+    watchSnapshotNumericRow({ id: "returned-units", label: "Returned units", icon: "shopify-returns", previous, current, field: "returnUnits", lowerIsGood: true }),
+    watchSnapshotNumericRow({ id: "refunded-units", label: "Refunded units", icon: "shopify-refunds", previous, current, field: "refundUnits", lowerIsGood: true }),
+    watchSnapshotNumericRow({ id: "negative-reviews", label: "Negative reviews", icon: "star", previous, current, field: "negativeReviewCount", lowerIsGood: true }),
+    watchSnapshotNumericRow({ id: "review-rating", label: "Review rating", icon: "star", previous, current, field: "evidenceDetails.reviews.averageRating", formatter: (value) => formatDecimal(value, 1), higherIsGood: true }),
+  ].filter((row) => row && row.hasChanged).slice(0, 3);
+
+  return [...baseRows.filter(Boolean), ...extraRows].slice(0, 8);
+}
+
+function watchSnapshotNumericRow({
+  id,
+  label,
+  hint = "",
+  icon = "chart-line",
+  iconTone = "blue",
+  previous = {},
+  current = {},
+  field,
+  suffix = "",
+  deltaSuffix = suffix,
+  formatter,
+  deltaFormatter,
+  lowerIsGood = false,
+  higherIsGood = false,
+}) {
+  const previousValue = getWatchSnapshotNumericValue(previous, field);
+  const currentValue = getWatchSnapshotNumericValue(current, field);
+  if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue)) return null;
+  const delta = currentValue - previousValue;
+  const direction = delta > 0 ? "up" : delta < 0 ? "down" : "neutral";
+  const tone = getWatchSnapshotDeltaTone({ delta, lowerIsGood, higherIsGood });
+  const formatValue = formatter || ((value) => suffix ? `${formatDecimal(value, 1).replace(/\\.0$/, "")}${suffix}` : formatInteger(value));
+  return {
+    id,
+    label,
+    hint,
+    icon,
+    iconTone,
+    previousLabel: formatValue(previousValue),
+    currentLabel: formatValue(currentValue),
+    deltaLabel: formatWatchSnapshotDelta(delta, deltaSuffix, deltaFormatter),
+    direction,
+    tone,
+    hasChanged: Math.abs(delta) > 0.0001,
+  };
+}
+
+function getWatchSnapshotNumericValue(snapshot = {}, field = "") {
+  if (!field.includes(".")) return Number(snapshot?.[field]);
+  const value = field.split(".").reduce((acc, key) => acc?.[key], snapshot);
+  return Number(value);
+}
+
+function getWatchSnapshotDeltaTone({ delta, lowerIsGood = false, higherIsGood = false } = {}) {
+  if (Math.abs(Number(delta || 0)) < 0.0001) return "neutral";
+  if (lowerIsGood) return delta < 0 ? "good" : "bad";
+  if (higherIsGood) return delta > 0 ? "good" : "bad";
+  return "neutral";
+}
+
+function formatWatchSnapshotDelta(delta, suffix = "", formatter = null) {
+  const absolute = Math.abs(Number(delta || 0));
+  if (typeof formatter === "function") return formatter(absolute);
+  const value = suffix === "%"
+    ? `${formatDecimal(absolute, 1).replace(/\.0$/, "")}%`
+    : suffix.trim() === "pp"
+      ? `${formatDecimal(absolute, 1).replace(/\.0$/, "")} pp`
+      : `${formatDecimal(absolute, 1).replace(/\.0$/, "")}${suffix}`;
+  return value;
+}
+
+function makeWatchPhysicalBigChange(change = {}) {
+  const label = change.label || "Source activity";
+  const value = getWatchPhysicalChangeValue(change);
+  const delta = String(change.delta || change.value || "Changed").trim();
+  if (!value && !delta) return null;
+  const direction = change.direction === "down" ? "down" : change.direction === "up" ? "up" : "neutral";
+  return {
+    key: change.id || change.source || label,
+    label,
+    value: value || "New source activity",
+    delta,
+    direction,
+    tone: getWatchBigChangeTone(change),
+    priority: 200 + getWatchBigChangeMagnitude(delta || value),
+  };
+}
+
+function getWatchPhysicalChangeValue(change = {}) {
+  const value = String(change.value || "").trim();
+  const delta = String(change.delta || "").trim();
+  const parts = [];
+  if (value) parts.push(value);
+  if (delta && !value.includes(delta)) parts.push(delta);
+  const detail = String(change.detail || "");
+  const id = String(change.id || change.source || "").toLowerCase();
+  if (id.includes("order")) {
+    const revenue = detail.match(/\$[\d,]+(?:\.\d+)?/)?.[0];
+    if (revenue && !parts.some((part) => part.includes(revenue))) parts.push(`${revenue} revenue`);
+  }
+  if (id.includes("review")) {
+    const ratingMove = detail.match(/Average rating moved from\s+([^.]+?)\s+to\s+([^.]+?)\./i);
+    const sentiment = detail.match(/New review sentiment:\s*([^.]+)\./i);
+    if (ratingMove) {
+      parts.push(`${ratingMove[1]} → ${ratingMove[2]} stars`);
+    } else if (sentiment) {
+      parts.push(sentiment[1].replace(/ negative/i, " neg").replace(/ neutral/i, " neu").replace(/ positive/i, " pos"));
+    }
+  }
+  return parts.join(" · ");
+}
+
+function getWatchReportCalculatedBigChanges(report = {}, sections = []) {
+  const explicit = Array.isArray(report?.changes) ? report.changes : [];
+  const sectionChanges = sections.flatMap((section) => (
+    Array.isArray(section?.changes)
+      ? section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title }))
+      : []
+  ));
+  return (explicit.length ? explicit : sectionChanges)
+    .filter(isMeaningfulWatchReportChange)
+    .map((change) => {
+      const delta = String(change.delta || "").trim();
+      return {
+        key: change.id || change.label,
+        label: change.label || "Calculated change",
+        value: `${change.from ?? "-"} → ${change.to ?? "-"}`,
+        delta: delta || "Changed",
+        direction: change.direction === "down" ? "down" : change.direction === "up" ? "up" : "neutral",
+        tone: getWatchBigChangeTone(change),
+        priority: getWatchBigChangeMagnitude(delta || `${change.from} ${change.to}`),
+      };
+    })
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+}
+
+function getWatchBigChangeMagnitude(value) {
+  const numbers = String(value || "").match(/-?\d+(?:\.\d+)?/g) || [];
+  return numbers.reduce((max, item) => Math.max(max, Math.abs(Number(item) || 0)), 0);
+}
+
+function getWatchBigChangeTone(change = {}) {
+  if (change.source) {
+    const deltaTone = getWatchSourceChangeDeltaTone(change);
+    if (deltaTone === "bad" || deltaTone === "down") return "bad";
+    if (deltaTone === "good" || deltaTone === "up") return "good";
+  }
+  const calculatedTone = getWatchChangeDeltaTone(change);
+  if (calculatedTone === "bad" || calculatedTone === "down") return "bad";
+  if (calculatedTone === "good" || calculatedTone === "up") return "good";
+  if (change.direction === "down") return "bad";
+  if (change.direction === "up") return "good";
+  return "neutral";
 }
 
 function getWatchSourceChangeCards(report) {

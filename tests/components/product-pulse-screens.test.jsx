@@ -11,6 +11,7 @@ import {
   ProductsScreen,
   SettingsScreen,
   WatchlistActivityScreen,
+  WatchlistProductScreen,
   WatchlistScreen,
 } from "../../app/components/ProductPulseScreens";
 import { defaultView } from "../fixtures/product-pulse-fixtures";
@@ -316,6 +317,7 @@ describe("ProductPulse screens", () => {
               productGid: "gid://shopify/Product/1",
               title: "Nintendo New 3DS XL",
               sku: "N3DSXL-BLUE",
+              handle: "nintendo-new-3ds-xl",
               status: "Watching",
               statusTone: "success",
               riskScore: 63,
@@ -327,6 +329,7 @@ describe("ProductPulse screens", () => {
               lastIssue: "Detected 6h ago",
               lastIssueDetail: "May 18, 2:02 AM",
               href: "/app/products/nintendo-new-3ds-xl",
+              watchlistHref: "/app/watchlist/nintendo-new-3ds-xl",
               latestChangeReport: {
                 status: "changed",
                 title: "Watchlist changes detected",
@@ -466,16 +469,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("63 · Medium")).toBeInTheDocument();
     expect(screen.getByText("46 · Low")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
-    fireEvent.click(screen.getByRole("button", { name: "View latest Watchlist change report for Nintendo New 3DS XL" }));
-    const reportDialog = screen.getByRole("dialog", { name: "Nintendo New 3DS XL" });
-    expect(within(reportDialog).getByText("Watchlist change report")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("What happened since the last run")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("New returns")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("2 returned units")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("Calculated product-state changes")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("Return evidence changed")).toBeInTheDocument();
-    expect(within(reportDialog).getByText("Nintendo New 3DS XL picked up new return and review evidence since the last Watchlist scan.")).toBeInTheDocument();
-    fireEvent.click(within(reportDialog).getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("link", { name: "View Watchlist report for Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl");
+    expect(screen.queryByRole("dialog", { name: "Nintendo New 3DS XL" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Move Nintendo New 3DS XL/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/app/watchlist/activity");
     expect(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" })).toBeInTheDocument();
@@ -489,6 +484,114 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add watched product" }));
     expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
     expect(screen.getByText(/add one product to automatic monitoring/i)).toBeInTheDocument();
+  });
+
+  it("renders a dedicated product Watchlist report page", () => {
+    renderWithRouter(<WatchlistProductScreen
+      product={{
+        id: "watch-1",
+        productGid: "gid://shopify/Product/1",
+        title: "Nintendo New 3DS XL",
+        sku: "N3DSXL-BLUE",
+        handle: "nintendo-new-3ds-xl",
+        status: "Watching",
+        riskScore: 63,
+        riskLabel: "Medium",
+        latestChangeDetail: "Product quality",
+        href: "/app/products/nintendo-new-3ds-xl",
+        latestChangeReport: {
+          status: "changed",
+          title: "Watchlist changes detected",
+          summary: "2 meaningful changes since the previous Watchlist run. Product risk increased from 58 to 63.",
+          narrative: "Nintendo New 3DS XL picked up new return and review evidence since the last Watchlist scan.",
+          headline: "New returns: 2 returned units · +2 return signals.",
+          changeCount: 3,
+          previousRunAt: "2026-05-16T10:00:00.000Z",
+          currentRunAt: "2026-05-17T10:00:00.000Z",
+          previous: {
+            riskScore: 58,
+            returnRatePercent: 15,
+            refundRatePercent: 9,
+            signalCount: 45,
+            productMomentumScore: 59,
+            orderCount: 10,
+            soldUnits: 16,
+            salesAmount: 720,
+            returnUnits: 1,
+            refundUnits: 1,
+            negativeReviewCount: 3,
+          },
+          current: {
+            riskLabel: "Medium",
+            riskScore: 63,
+            confidence: 72,
+            primaryIssue: "Product quality",
+            returnRatePercent: 12,
+            refundRatePercent: 6,
+            signalCount: 47,
+            productMomentumTier: "Rising",
+            productMomentumScore: 74,
+            orderCount: 11,
+            soldUnits: 20,
+            salesAmount: 1104,
+            returnUnits: 3,
+            refundUnits: 1,
+            negativeReviewCount: 5,
+          },
+          sourceChanges: [{
+            id: "new-returns",
+            source: "returns",
+            label: "New returns",
+            value: "2 returned units",
+            delta: "+2 return signals",
+            direction: "up",
+            tone: "orange",
+            icon: "shopify-returns",
+            detail: "New return text sentiment: 2 negative, 0 neutral, 0 positive.",
+          }],
+          sections: [{
+            id: "risk",
+            title: "Risk and diagnosis",
+            tone: "purple",
+            changes: [{
+              id: "risk-score",
+              label: "Product risk",
+              from: "58",
+              to: "63",
+              delta: "+5",
+              direction: "up",
+              detail: "Product risk changed based on the latest stored evidence and score model.",
+            }],
+          }],
+          sourceInsights: [{
+            id: "return-evidence",
+            title: "Return evidence changed",
+            tone: "orange",
+            metric: "+2 returned units",
+            summary: "2 new return text signals were captured since the previous Watchlist report.",
+            bullets: ["New return sentiment: 2 negative, 0 neutral, 0 positive."],
+          }],
+        },
+      }}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Product Watchlist" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Nintendo New 3DS XL" })).toBeInTheDocument();
+    expect(screen.getByText(/Your baseline is captured/i)).toBeInTheDocument();
+    expect(screen.getByText("AI Watchlist insight")).toBeInTheDocument();
+    expect(screen.getByText("Biggest changes")).toBeInTheDocument();
+    expect(screen.getByText("Previous snapshot")).toBeInTheDocument();
+    expect(screen.getByText("Current snapshot")).toBeInTheDocument();
+    expect(screen.getByText("Risk score")).toBeInTheDocument();
+    expect(screen.getByText("Evidence signals")).toBeInTheDocument();
+    expect(screen.getByText("Units sold")).toBeInTheDocument();
+    expect(screen.getByText("What happened since the last run")).toBeInTheDocument();
+    expect(screen.getAllByText("New returns").length).toBeGreaterThan(0);
+    expect(screen.getByText("2 returned units · +2 return signals")).toBeInTheDocument();
+    expect(screen.getByText("Calculated product-state changes")).toBeInTheDocument();
+    expect(screen.getByText("Return evidence changed")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
   });
 
   it("renders full watchlist activity history", () => {

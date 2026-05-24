@@ -80,6 +80,21 @@ export async function getWatchlistForShop(shop) {
   };
 }
 
+export async function getWatchlistProductForShop(shop, productId) {
+  const lookupValues = getWatchlistProductLookupValues(productId);
+  if (!shop || !lookupValues.length) return null;
+
+  const watchlist = await getWatchlistForShop(shop);
+  return (watchlist.rows || []).find((row) => {
+    const rowValues = getWatchlistProductLookupValues([
+      row.id,
+      row.productGid,
+      row.handle,
+    ]);
+    return rowValues.some((value) => lookupValues.includes(value));
+  }) || null;
+}
+
 export async function getWatchSettingsForShop(shop) {
   const settings = await prisma.productWatchSettings.upsert({
     where: { shop },
@@ -589,6 +604,7 @@ function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, la
     imageUrl: item.imageUrl || null,
     imageAlt: item.imageAlt || item.productTitle,
     href: item.handle ? `/app/products/${item.handle}` : `/app/products/${encodeURIComponent(item.productGid)}`,
+    watchlistHref: item.handle ? `/app/watchlist/${item.handle}` : `/app/watchlist/${encodeURIComponent(item.productGid)}`,
     riskScore,
     riskLabel,
     riskTone,
@@ -598,9 +614,35 @@ function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, la
     lastIssue: hasSnapshot ? `Updated ${formatWatchDate(updatedAt)}` : "Not scanned yet",
     lastIssueDetail: hasSnapshot ? formatWatchTimestamp(updatedAt) : "Waiting for automatic watch cadence",
     addedAt: formatWatchDate(item.addedAt),
+    addedAtIso: toWatchIso(item.addedAt),
+    updatedAtIso: toWatchIso(updatedAt),
     latestChangeReport,
     diagnosisJob: activeDiagnosisJob ? formatWatchlistDiagnosisJob(activeDiagnosisJob) : null,
   };
+}
+
+function getWatchlistProductLookupValues(input) {
+  const rawValues = Array.isArray(input) ? input : [input];
+  const values = new Set();
+  rawValues.forEach((rawValue) => {
+    const raw = String(rawValue || "").trim();
+    if (!raw) return;
+    [raw, safeDecodeWatchlistLookupValue(raw)].forEach((value) => {
+      const normalized = String(value || "").trim();
+      if (!normalized) return;
+      values.add(normalized);
+      values.add(normalized.toLowerCase());
+    });
+  });
+  return Array.from(values);
+}
+
+function safeDecodeWatchlistLookupValue(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 async function getActiveWatchlistDiagnosisJobsForShop(shop) {
