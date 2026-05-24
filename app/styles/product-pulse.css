@@ -5563,6 +5563,12 @@ s-page[inline-size="large-500"] {
 .ppProductRiskHistoryPopover {
   display: grid;
   gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 16px 34px rgba(var(--pp-shadow-rgb), 0.16);
+  color: var(--pp-slate-900);
 }
 
 .ppProductRiskHistoryPopover strong,
