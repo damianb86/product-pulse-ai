@@ -83,6 +83,7 @@ function getAiPageContext(location) {
   if (pathname.startsWith("/app/watchlist")) return { type: "watchlist", filters };
   if (pathname.startsWith("/app/analytics")) return { type: "analytics", filters };
   if (pathname.startsWith("/app/ai-costs")) return { type: "analytics", filters };
+  if (pathname.startsWith("/app/background-processes")) return { type: "background-processes", filters };
   if (pathname.startsWith("/app/connect")) return { type: "connect", filters };
   if (pathname.startsWith("/app/settings")) return { type: "settings", filters };
   return { type: "unknown", filters };

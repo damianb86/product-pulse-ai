@@ -331,6 +331,63 @@ describe("ProductPulse product job helpers", () => {
     expect(snapshot.metrics.descriptionWordCount).toBeGreaterThan(0);
   });
 
+  it("formats background process details with payload summaries and per-job logs", () => {
+    const process = productPulseJobsTestHooks.formatBackgroundProcess(
+      {
+        id: "job-1",
+        shop: "test.myshopify.com",
+        kind: "product-diagnosis",
+        source: "Queued AI Product Diagnosis - GEN EchoLock Voice Safe",
+        status: "Running",
+        progress: 42,
+        payload: {
+          productGid: "gid://shopify/Product/123",
+          handle: "gen-echolock-voice-safe",
+          productTitle: "GEN EchoLock Voice Safe",
+          riskScore: 81,
+          queuedAt: "2026-05-24T14:00:00.000Z",
+        },
+        startedAt: new Date("2026-05-24T14:00:00.000Z"),
+        updatedAt: new Date("2026-05-24T14:02:00.000Z"),
+        finishedAt: null,
+      },
+      [{ id: "log-1", jobId: "job-1", event: "product_diagnosis.started", message: "Started.", createdAtIso: "2026-05-24T14:00:10.000Z" }],
+    );
+
+    expect(process.displayTitle).toBe("GEN EchoLock Voice Safe");
+    expect(process.productHref).toBe("/app/products/gen-echolock-voice-safe");
+    expect(process.statusKey).toBe("running");
+    expect(process.logCount).toBe(1);
+    expect(process.payloadItems).toEqual(expect.arrayContaining([
+      { label: "Product GID", value: "gid://shopify/Product/123" },
+      { label: "Handle", value: "gen-echolock-voice-safe" },
+      { label: "Queued risk score", value: "81" },
+    ]));
+  });
+
+  it("summarizes background process counts by status and kind", () => {
+    const stats = productPulseJobsTestHooks.buildBackgroundProcessStats([
+      { kind: "product-diagnosis", status: "Running", updatedAt: new Date("2026-05-24T14:02:00.000Z") },
+      { kind: "shopify-mock-dataset", status: "Completed", updatedAt: new Date("2026-05-24T14:00:00.000Z") },
+      { kind: "fast-product-scan", status: "Failed", updatedAt: new Date("2026-05-24T13:00:00.000Z") },
+    ], [{ id: "log-1" }, { id: "log-2" }]);
+
+    expect(stats).toMatchObject({
+      total: 3,
+      active: 1,
+      running: 1,
+      queued: 0,
+      completed: 1,
+      failed: 1,
+      logs: 2,
+    });
+    expect(stats.kindCounts).toMatchObject({
+      "AI Product Diagnosis": 1,
+      "Shopify mock dataset": 1,
+      "Fast product scan": 1,
+    });
+  });
+
   it("preserves persisted evidence metrics when formatting stored product snapshots", () => {
     const detail = productPulseJobsTestHooks.formatSnapshotForDiagnosis({
       productGid: "gid://shopify/Product/linen",

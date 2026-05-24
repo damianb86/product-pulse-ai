@@ -5097,110 +5097,531 @@ s-page[inline-size="large-500"] {
 
 .ppProductRiskHistoryPanel {
   display: grid;
-  gap: 12px;
-  padding: 16px;
-  overflow: hidden;
+  gap: 16px;
+  padding: 18px;
+  overflow: visible;
 }
 
 .ppProductDetailPrimary > .ppProductRiskHistoryPanel {
   width: 100%;
-  padding: 18px;
 }
 
 .ppProductRiskHistoryHeader {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.7fr);
+  gap: 18px;
+  align-items: stretch;
 }
 
-.ppProductRiskHistoryHeader div {
+.ppProductRiskHistoryTitleBlock {
   display: grid;
-  gap: 3px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
   min-width: 0;
 }
 
-.ppProductRiskHistoryHeader span {
-  color: var(--pp-slate-500);
-  font-size: 11px;
-  font-weight: 850;
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
+.ppProductRiskHistoryIcon {
+  width: 46px;
+  height: 46px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
 }
 
-.ppProductRiskHistoryHeader strong {
+.ppProductRiskHistoryIcon .ppDashboardIcon {
+  width: 36px;
+  height: 36px;
+}
+
+.ppProductRiskHistoryTitleBlock > div {
+  min-width: 0;
+}
+
+.ppProductRiskHistoryTitleBlock > div > span {
+  color: var(--pp-slate-500);
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.ppProductRiskHistoryTitleBlock strong {
+  display: inline-block;
+  margin-top: 8px;
   color: var(--pp-slate-900);
-  font-size: 24px;
+  font-size: clamp(42px, 7vw, 64px);
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 0.95;
+}
+
+.ppProductRiskHistoryTrendBadge {
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ppProductRiskHistoryTrendBadge s-icon {
+  transform: scale(0.86);
+}
+
+.ppProductRiskHistoryTrendBadge-green {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppProductRiskHistoryTrendBadge-orange {
+  background: rgba(var(--pp-warning-amber-rgb), 0.12);
+  color: var(--pp-warning-amber);
+}
+
+.ppProductRiskHistoryTrendBadge-blue {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductRiskHistoryStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ppProductRiskHistoryStat {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 76px;
+  padding: 11px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 11px;
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+}
+
+.ppProductRiskHistoryStat > span {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductRiskHistoryStat > span s-icon {
+  transform: scale(1.05);
+}
+
+.ppProductRiskHistoryStat-red > span {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppProductRiskHistoryStat-orange > span {
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: var(--pp-warning-amber);
+}
+
+.ppProductRiskHistoryStat-purple > span {
+  background: rgba(var(--pp-insight-violet-rgb), 0.12);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductRiskHistoryStat-green > span {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppProductRiskHistoryStat div,
+.ppProductRiskHistoryStat strong,
+.ppProductRiskHistoryStat small,
+.ppProductRiskHistoryStat em {
+  min-width: 0;
+}
+
+.ppProductRiskHistoryStat strong,
+.ppProductRiskHistoryStat small,
+.ppProductRiskHistoryStat em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductRiskHistoryStat strong {
+  color: var(--pp-slate-900);
+  font-size: 17px;
   font-weight: 950;
 }
 
+.ppProductRiskHistoryStat small {
+  margin-top: 2px;
+  color: var(--pp-slate-700);
+  font-size: 11.5px;
+  font-weight: 850;
+}
+
+.ppProductRiskHistoryStat em {
+  margin-top: 3px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 650;
+}
+
 .ppProductRiskHistoryChart {
-  height: 116px;
-  padding: 12px 10px;
+  position: relative;
+  height: 300px;
+  padding: 0;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 12px;
+  border-radius: 14px;
   background:
-    linear-gradient(rgba(var(--pp-slate-500-rgb), 0.12) 1px, transparent 1px) 0 0 / 100% 25%,
-    linear-gradient(90deg, rgba(var(--pp-slate-500-rgb), 0.09) 1px, transparent 1px) 0 0 / 20% 100%,
+    radial-gradient(circle at 92% 12%, rgba(var(--pp-risk-red-rgb), 0.08), transparent 30%),
     linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+  color: var(--pp-risk-red);
+  overflow: hidden;
 }
 
 .ppProductRiskHistoryChart svg {
   width: 100%;
   height: 100%;
-  overflow: visible;
+  display: block;
+}
+
+.ppProductRiskHistoryGridLine line {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.14);
+  stroke-dasharray: 4 6;
+}
+
+.ppProductRiskHistoryGridLine text,
+.ppProductRiskHistoryXTick text {
+  fill: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ppProductRiskHistoryAxis {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.18);
+}
+
+.ppProductRiskHistoryReference line {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.36);
+  stroke-dasharray: 8 8;
+}
+
+.ppProductRiskHistoryReference text {
+  fill: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ppProductRiskHistoryXTick line {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.22);
+}
+
+.ppProductRiskHistoryArea {
+  fill: url("#ppProductRiskHistoryAreaGradient");
 }
 
 .ppProductRiskHistoryLine {
   fill: none;
-  stroke: var(--pp-pulse-blue);
+  stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.4;
-  vector-effect: non-scaling-stroke;
+  stroke-width: 4;
 }
 
 .ppProductRiskHistoryPoint {
-  fill: var(--pp-cloud-white);
-  stroke: var(--pp-pulse-blue);
-  stroke-width: 1.8;
-  vector-effect: non-scaling-stroke;
+  position: absolute;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
 }
 
-.ppProductRiskHistoryPanel-red .ppProductRiskHistoryLine,
-.ppProductRiskHistoryPanel-red .ppProductRiskHistoryPoint {
-  stroke: var(--pp-risk-red);
+.ppProductRiskHistoryPoint > span {
+  width: 13px;
+  height: 13px;
+  border: 3px solid var(--pp-cloud-white);
+  border-radius: inherit;
+  background: currentColor;
+  box-shadow: 0 4px 10px rgba(var(--pp-shadow-rgb), 0.20);
 }
 
-.ppProductRiskHistoryPanel-orange .ppProductRiskHistoryLine,
-.ppProductRiskHistoryPanel-orange .ppProductRiskHistoryPoint {
-  stroke: var(--pp-warning-amber);
+.ppProductRiskHistoryPoint:focus-visible > span,
+.ppProductRiskHistoryPoint:hover > span {
+  box-shadow: 0 0 0 5px rgba(var(--pp-risk-red-rgb), 0.16), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
 }
 
-.ppProductRiskHistoryPanel-green .ppProductRiskHistoryLine,
+.ppProductRiskHistoryPanel-green .ppProductRiskHistoryChart,
 .ppProductRiskHistoryPanel-green .ppProductRiskHistoryPoint {
-  stroke: var(--pp-signal-teal);
+  color: var(--pp-success-green);
+}
+
+.ppProductRiskHistoryPanel-orange .ppProductRiskHistoryChart,
+.ppProductRiskHistoryPanel-orange .ppProductRiskHistoryPoint {
+  color: var(--pp-warning-amber);
+}
+
+.ppProductRiskHistoryPanel-blue .ppProductRiskHistoryChart,
+.ppProductRiskHistoryPanel-blue .ppProductRiskHistoryPoint {
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductRiskHistoryMilestone {
+  position: absolute;
+  z-index: 1;
+  max-width: min(210px, 34%);
+  padding: 10px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 24px rgba(var(--pp-shadow-rgb), 0.08);
+  transform: translateX(-10%);
+}
+
+.ppProductRiskHistoryMilestone-right {
+  transform: translateX(-90%);
+}
+
+.ppProductRiskHistoryMilestone::after {
+  content: "";
+  position: absolute;
+  bottom: -52px;
+  left: 18px;
+  width: 1px;
+  height: 52px;
+  border-left: 1px dashed rgba(var(--pp-slate-500-rgb), 0.28);
+}
+
+.ppProductRiskHistoryMilestone-right::after {
+  right: 18px;
+  left: auto;
+}
+
+.ppProductRiskHistoryMilestone small,
+.ppProductRiskHistoryMilestone strong {
+  display: block;
+}
+
+.ppProductRiskHistoryMilestone small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppProductRiskHistoryMilestone strong {
+  margin-top: 3px;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
 }
 
 .ppProductRiskHistoryMeta {
   display: grid;
-  gap: 4px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+  overflow: hidden;
 }
 
-.ppProductRiskHistoryMeta span {
-  display: inline-flex;
+.ppProductRiskHistoryMetaCard {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
-  gap: 6px;
-  color: var(--pp-slate-800);
-  font-size: 12px;
+  padding: 12px 14px;
+}
+
+.ppProductRiskHistoryMetaCard + .ppProductRiskHistoryMetaCard {
+  border-left: 1px solid var(--pp-slate-200);
+}
+
+.ppProductRiskHistoryMetaCard > span:first-child {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppProductRiskHistoryMetaCard-green > span:first-child {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppProductRiskHistoryMetaCard-blue > span:first-child {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductRiskHistoryMetaCard-purple > span:first-child {
+  background: rgba(var(--pp-insight-violet-rgb), 0.12);
+  color: var(--pp-insight-violet);
+}
+
+.ppProductRiskHistoryMetaCard-orange > span:first-child {
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: var(--pp-warning-amber);
+}
+
+.ppProductRiskHistoryMetaCard strong,
+.ppProductRiskHistoryMetaCard small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductRiskHistoryMetaCard strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
   font-weight: 900;
 }
 
-.ppProductRiskHistoryMeta small {
+.ppProductRiskHistoryMetaCard small {
+  margin-top: 3px;
   color: var(--pp-slate-500);
   font-size: 11px;
+  font-weight: 700;
+}
+
+.ppProductRiskHistoryPopover {
+  display: grid;
+  gap: 10px;
+}
+
+.ppProductRiskHistoryPopover strong,
+.ppProductRiskHistoryPopover p {
+  margin: 0;
+}
+
+.ppProductRiskHistoryPopover > strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppProductRiskHistoryPopover p {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ppProductRiskHistoryPopoverScore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: var(--pp-slate-50);
+}
+
+.ppProductRiskHistoryPopoverScore b {
+  color: var(--pp-slate-950);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.ppProductRiskHistoryPopoverScore small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppProductRiskHistoryPopoverRows {
+  display: grid;
+  gap: 6px;
+}
+
+.ppProductRiskHistoryPopoverRows span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--pp-slate-600);
+  font-size: 11.5px;
   font-weight: 750;
-  line-height: 1.45;
+}
+
+.ppProductRiskHistoryPopoverRows b {
+  color: var(--pp-slate-700);
+}
+
+@media (max-width: 1100px) {
+  .ppProductRiskHistoryHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .ppProductRiskHistoryStats,
+  .ppProductRiskHistoryMeta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppProductRiskHistoryMetaCard:nth-child(2n + 1) {
+    border-left: 0;
+  }
+
+  .ppProductRiskHistoryMetaCard:nth-child(n + 3) {
+    border-top: 1px solid var(--pp-slate-200);
+  }
+}
+
+@media (max-width: 720px) {
+  .ppProductRiskHistoryPanel {
+    padding: 14px;
+  }
+
+  .ppProductRiskHistoryStats,
+  .ppProductRiskHistoryMeta {
+    grid-template-columns: 1fr;
+  }
+
+  .ppProductRiskHistoryMetaCard,
+  .ppProductRiskHistoryMetaCard + .ppProductRiskHistoryMetaCard,
+  .ppProductRiskHistoryMetaCard:nth-child(n + 3) {
+    border-left: 0;
+    border-top: 1px solid var(--pp-slate-200);
+  }
+
+  .ppProductRiskHistoryMetaCard:first-child {
+    border-top: 0;
+  }
+
+  .ppProductRiskHistoryChart {
+    height: 250px;
+  }
+
+  .ppProductRiskHistoryMilestone {
+    display: none;
+  }
 }
 
 .ppPurchaseContextPanel {
@@ -24565,6 +24986,446 @@ s-page[inline-size="large-500"] {
   border-bottom: 0;
 }
 
+.ppBackgroundProcessesScreen .ppWatchlistHeader {
+  align-items: end;
+}
+
+.ppBackgroundProcessesRefresh {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppBackgroundProcessesRefresh a {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.ppBackgroundProcessesRefresh a:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.28);
+  color: var(--pp-pulse-blue);
+}
+
+.ppBackgroundProcessStats {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.ppBackgroundProcessStats-noLogs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ppBackgroundProcessesGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 14px;
+  align-items: start;
+}
+
+.ppBackgroundProcessListPanel,
+.ppBackgroundProcessSidePanel {
+  padding: 16px;
+}
+
+.ppBackgroundProcessList {
+  display: grid;
+  gap: 12px;
+}
+
+.ppBackgroundProcessCard {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppBackgroundProcessCard-running,
+.ppBackgroundProcessCard-queued {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.22);
+  background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.035), var(--pp-cloud-white));
+}
+
+.ppBackgroundProcessCard-failed {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.24);
+}
+
+.ppBackgroundProcessCardHeader {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.ppBackgroundProcessCardHeader h2 {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessCardHeader p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessStatusIcon {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+}
+
+.ppBackgroundProcessStatusIcon-running,
+.ppBackgroundProcessStatusIcon-queued {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppBackgroundProcessStatusIcon-running s-icon {
+  animation: ppGlobalTopbarSpin 1.25s linear infinite;
+}
+
+.ppBackgroundProcessStatusIcon-completed {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppBackgroundProcessStatusIcon-failed {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppBackgroundProcessStatusPill {
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.ppBackgroundProcessStatusPill-running,
+.ppBackgroundProcessStatusPill-queued {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppBackgroundProcessStatusPill-completed {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppBackgroundProcessStatusPill-failed {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppBackgroundProcessProductLink {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.26);
+  border-radius: 8px;
+  color: var(--pp-pulse-blue);
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessProductLink:hover {
+  background: var(--pp-blue-soft);
+  text-decoration: none;
+}
+
+.ppBackgroundProcessProgress {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppBackgroundProcessProgress span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-signal-teal));
+}
+
+.ppBackgroundProcessMetrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.ppBackgroundProcessMetrics div,
+.ppBackgroundProcessPayload span,
+.ppBackgroundProcessKindList span {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-slate-50);
+}
+
+.ppBackgroundProcessMetrics dt,
+.ppBackgroundProcessPayload small {
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessMetrics dd,
+.ppBackgroundProcessPayload strong {
+  display: block;
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 11.5px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessPayload {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.ppBackgroundProcessLogs {
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 9px;
+  background: var(--pp-cloud-white);
+}
+
+.ppBackgroundProcessLogs summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ppBackgroundProcessLogs summary::-webkit-details-marker {
+  display: none;
+}
+
+.ppBackgroundProcessLogs[open] summary {
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppBackgroundProcessLogs[open] summary s-icon {
+  transform: rotate(180deg);
+}
+
+.ppBackgroundProcessLogList,
+.ppBackgroundEventStream,
+.ppBackgroundProcessMiniList,
+.ppBackgroundProcessKindList {
+  display: grid;
+  gap: 8px;
+}
+
+.ppBackgroundProcessLogList {
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.ppBackgroundProcessLogLine {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 120px;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-slate-50);
+}
+
+.ppBackgroundProcessLogLine.isCompact {
+  grid-template-columns: 50px minmax(0, 1fr);
+}
+
+.ppBackgroundProcessLogLine.isCompact time {
+  grid-column: 2;
+}
+
+.ppBackgroundProcessLogLine > span {
+  width: max-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.ppBackgroundProcessLogLine-error > span,
+.ppBackgroundProcessLogLine-failed > span {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppBackgroundProcessLogLine-warning > span,
+.ppBackgroundProcessLogLine-warn > span {
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppBackgroundProcessLogLine strong,
+.ppBackgroundProcessMiniItem strong,
+.ppBackgroundProcessKindList strong {
+  display: block;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessLogLine p {
+  margin: 3px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ppBackgroundProcessLogLine pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--pp-slate-900);
+  color: var(--pp-cloud-white);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.ppBackgroundProcessLogLine time,
+.ppBackgroundProcessMiniItem small,
+.ppBackgroundProcessKindList small,
+.ppBackgroundProcessEmptyText,
+.ppBackgroundProcessNoLogs {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ppBackgroundProcessLogLine time {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessNoLogs,
+.ppBackgroundProcessEmptyText {
+  margin: 0;
+}
+
+.ppBackgroundProcessSidePanel {
+  position: sticky;
+  top: 82px;
+  display: grid;
+  gap: 12px;
+}
+
+.ppBackgroundProcessMiniItem {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 9px;
+  background: var(--pp-slate-50);
+}
+
+.ppBackgroundProcessMiniItem .ppBackgroundProcessStatusIcon {
+  width: 30px;
+  height: 30px;
+}
+
+.ppBackgroundProcessMiniItem small,
+.ppBackgroundProcessKindList small {
+  display: block;
+  margin-top: 3px;
+}
+
+.ppBackgroundProcessKindList {
+  grid-template-columns: 1fr;
+}
+
+.ppBackgroundProcessKindList span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ppBackgroundProcessDivider {
+  height: 1px;
+  background: var(--pp-slate-200);
+}
+
+.ppBackgroundProcessSubHeader {
+  margin-top: 2px;
+}
+
 .ppWatchTrendCallout strong,
 .ppWatchTrendCallout small {
   display: block;
@@ -24587,6 +25448,27 @@ s-page[inline-size="large-500"] {
 @media (max-width: 980px) {
   .ppWatchlistBottomGrid {
     grid-template-columns: 1fr;
+  }
+
+  .ppBackgroundProcessStats,
+  .ppBackgroundProcessesGrid,
+  .ppBackgroundProcessMetrics {
+    grid-template-columns: 1fr;
+  }
+
+  .ppBackgroundProcessSidePanel {
+    position: static;
+  }
+
+  .ppBackgroundProcessCardHeader,
+  .ppBackgroundProcessLogLine {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .ppBackgroundProcessProductLink,
+  .ppBackgroundProcessLogLine time {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .ppWatchTrendPanel {
@@ -27790,6 +28672,7 @@ s-page[inline-size="large-500"] {
   font-size: 11.5px;
   font-weight: 650;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 

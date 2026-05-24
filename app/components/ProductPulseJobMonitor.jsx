@@ -493,7 +493,7 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose }) {
 
       <JobPopoverSection title="Current" jobs={activeJobs} emptyText="No active background processes." now={now} onClose={onClose} current />
       <JobPopoverSection title="History" jobs={pastJobs} emptyText="No recent jobs yet." now={now} onClose={onClose} />
-      <button className="ppGlobalTopbarJobsFooter" type="button" onClick={onClose}>
+      <Link className="ppGlobalTopbarJobsFooter" to="/app/background-processes" onClick={onClose}>
         <span aria-hidden="true" className="ppGlobalTopbarJobsFooterIcon">
           <i></i>
           <i></i>
@@ -501,7 +501,7 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose }) {
         </span>
         <span>View all background processes</span>
         <s-icon type="chevron-right" size="small"></s-icon>
-      </button>
+      </Link>
     </div>
   );
 }

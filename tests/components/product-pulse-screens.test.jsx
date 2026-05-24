@@ -4,6 +4,7 @@ import { createMemoryRouter, RouterProvider, useActionData } from "react-router"
 import { describe, expect, it, vi } from "vitest";
 import {
   AnalyticsScreen,
+  BackgroundProcessesScreen,
   ConnectScreen,
   DashboardScreen,
   ProductDiagnosisScreen,
@@ -765,6 +766,134 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Watch activity" })).toBeInTheDocument();
     expect(screen.getByText("All watch activity")).toBeInTheDocument();
     expect(screen.getByText("Watch scan updated product risk")).toBeInTheDocument();
+  });
+
+  it("renders the full background process history with active jobs, payload details, and logs", () => {
+    renderWithRouter(<BackgroundProcessesScreen
+      data={{
+        developmentMode: true,
+        backgroundProcesses: {
+          updatedAt: "2026-05-24T15:00:00.000Z",
+          activeProcesses: [
+            {
+              id: "job-running",
+              name: "AI Product Diagnosis",
+              displayTitle: "GEN EchoLock Voice Safe",
+              displaySubtitle: "Running AI product diagnostics",
+              status: "Running",
+              progress: 42,
+              updatedAtIso: "2026-05-24T15:00:00.000Z",
+              startedAtIso: "2026-05-24T14:59:00.000Z",
+              executionStartedAtIso: "2026-05-24T14:59:00.000Z",
+              elapsedMs: 60_000,
+              productHref: "/app/products/gen-echolock-voice-safe",
+              payloadItems: [{ label: "Product GID", value: "gid://shopify/Product/123" }],
+              logCount: 1,
+              logs: [{ id: "log-1", jobId: "job-running", level: "info", event: "product_diagnosis.started", message: "Diagnosis started.", createdAtIso: "2026-05-24T14:59:10.000Z" }],
+            },
+          ],
+          processes: [
+            {
+              id: "job-running",
+              name: "AI Product Diagnosis",
+              displayTitle: "GEN EchoLock Voice Safe",
+              displaySubtitle: "Running AI product diagnostics",
+              status: "Running",
+              progress: 42,
+              updatedAtIso: "2026-05-24T15:00:00.000Z",
+              startedAtIso: "2026-05-24T14:59:00.000Z",
+              executionStartedAtIso: "2026-05-24T14:59:00.000Z",
+              elapsedMs: 60_000,
+              productHref: "/app/products/gen-echolock-voice-safe",
+              payloadItems: [{ label: "Product GID", value: "gid://shopify/Product/123" }],
+              logCount: 1,
+              logs: [{ id: "log-1", jobId: "job-running", level: "info", event: "product_diagnosis.started", message: "Diagnosis started.", createdAtIso: "2026-05-24T14:59:10.000Z" }],
+            },
+            {
+              id: "job-completed",
+              name: "Shopify mock dataset",
+              displayTitle: "Shopify mock dataset",
+              displaySubtitle: "Controlled Shopify mock dataset created",
+              status: "Completed",
+              progress: 100,
+              updatedAtIso: "2026-05-24T14:00:00.000Z",
+              startedAtIso: "2026-05-24T13:50:00.000Z",
+              executionStartedAtIso: "2026-05-24T13:50:00.000Z",
+              finishedAtIso: "2026-05-24T14:00:00.000Z",
+              elapsedMs: 600_000,
+              payloadItems: [{ label: "Orders", value: "24" }, { label: "Returns", value: "7" }],
+              logCount: 0,
+              logs: [],
+            },
+          ],
+          logs: [{ id: "log-1", jobId: "job-running", level: "info", event: "product_diagnosis.started", message: "Diagnosis started.", createdAtIso: "2026-05-24T14:59:10.000Z" }],
+          stats: {
+            total: 2,
+            active: 1,
+            running: 1,
+            queued: 0,
+            completed: 1,
+            failed: 0,
+            logs: 1,
+            kindCounts: { "AI Product Diagnosis": 1, "Shopify mock dataset": 1 },
+          },
+        },
+      }}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Background processes" })).toBeInTheDocument();
+    expect(screen.getAllByText("GEN EchoLock Voice Safe").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: /Open product/i })).toHaveAttribute("href", "/app/products/gen-echolock-voice-safe");
+    expect(screen.getByText("Product GID")).toBeInTheDocument();
+    expect(screen.getAllByText("product_diagnosis.started").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Shopify mock dataset").length).toBeGreaterThan(0);
+    expect(screen.getByText("Current queue")).toBeInTheDocument();
+  });
+
+  it("hides background process log UI outside development mode", () => {
+    renderWithRouter(<BackgroundProcessesScreen
+      data={{
+        developmentMode: false,
+        backgroundProcesses: {
+          updatedAt: "2026-05-24T15:00:00.000Z",
+          activeProcesses: [],
+          processes: [
+            {
+              id: "job-completed",
+              name: "AI Product Diagnosis",
+              displayTitle: "GEN EchoLock Voice Safe",
+              displaySubtitle: "AI product diagnostics completed",
+              status: "Completed",
+              progress: 100,
+              updatedAtIso: "2026-05-24T15:00:00.000Z",
+              startedAtIso: "2026-05-24T14:59:00.000Z",
+              executionStartedAtIso: "2026-05-24T14:59:00.000Z",
+              finishedAtIso: "2026-05-24T15:00:00.000Z",
+              elapsedMs: 60_000,
+              logCount: 1,
+              logs: [{ id: "log-1", jobId: "job-completed", level: "info", event: "product_diagnosis.completed", message: "Done.", createdAtIso: "2026-05-24T15:00:00.000Z" }],
+            },
+          ],
+          logs: [{ id: "log-1", jobId: "job-completed", level: "info", event: "product_diagnosis.completed", message: "Done.", createdAtIso: "2026-05-24T15:00:00.000Z" }],
+          stats: {
+            total: 1,
+            active: 0,
+            running: 0,
+            queued: 0,
+            completed: 1,
+            failed: 0,
+            logs: 1,
+            kindCounts: { "AI Product Diagnosis": 1 },
+          },
+        },
+      }}
+    />);
+
+    expect(screen.getByText("GEN EchoLock Voice Safe")).toBeInTheDocument();
+    expect(screen.queryByText("Event logs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Latest events")).not.toBeInTheDocument();
+    expect(screen.queryByText("Events")).not.toBeInTheDocument();
+    expect(screen.queryByText("product_diagnosis.completed")).not.toBeInTheDocument();
   });
 
   it("searches live Shopify products without resubmitting the same query loop", async () => {

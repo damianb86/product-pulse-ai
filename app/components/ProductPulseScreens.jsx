@@ -3381,6 +3381,257 @@ export function WatchlistActivityScreen({ data = {} }) {
   );
 }
 
+export function BackgroundProcessesScreen({ data = {} }) {
+  const backgroundProcesses = data.backgroundProcesses || {};
+  const developmentMode = Boolean(data.developmentMode);
+  const processes = Array.isArray(backgroundProcesses.processes) ? backgroundProcesses.processes : [];
+  const activeProcesses = Array.isArray(backgroundProcesses.activeProcesses)
+    ? backgroundProcesses.activeProcesses
+    : processes.filter((process) => isBackgroundProcessActive(process.status));
+  const logs = Array.isArray(backgroundProcesses.logs) ? backgroundProcesses.logs : [];
+  const stats = backgroundProcesses.stats || {};
+  const latestEvents = logs.slice(0, 8);
+  const kindEntries = Object.entries(stats.kindCounts || {});
+
+  return (
+    <FullWidthPage heading="Background processes">
+      <ScreenShell className="ppDashboard ppBackgroundProcessesScreen">
+        <div className="ppWatchlistHeader">
+          <div>
+            <Link className="ppProductBackButton ppProductBackButtonStandalone" to="/app"><s-icon type="arrow-left" size="small"></s-icon> Back to Dashboard</Link>
+            <p className="ppDashboardSubtitle">
+              Full job history for ProductPulse background work in this shop, including active scans, queued AI analyses and completed setup jobs.
+            </p>
+          </div>
+          <div className="ppBackgroundProcessesRefresh">
+            <span>Updated {formatWatchReportTimestamp(backgroundProcesses.updatedAt)}</span>
+            <Link to="/app/background-processes">
+              <s-icon type="refresh" size="small"></s-icon>
+              Refresh
+            </Link>
+          </div>
+        </div>
+
+        <div className={`ppWatchlistStats ppBackgroundProcessStats${developmentMode ? "" : " ppBackgroundProcessStats-noLogs"}`} aria-label="Background process overview">
+          <WatchlistStatCard icon="refresh" tone="blue" label="Total processes" value={formatInteger(stats.total || processes.length)} detail="All stored jobs for this shop" />
+          <WatchlistStatCard icon="clock" tone="purple" label="Active now" value={formatInteger(stats.active || activeProcesses.length)} detail={`${formatInteger(stats.running || 0)} running · ${formatInteger(stats.queued || 0)} queued`} />
+          <WatchlistStatCard icon="check-circle" tone="green" label="Completed" value={formatInteger(stats.completed || 0)} detail="Finished successfully" />
+          <WatchlistStatCard icon="alert-circle" tone={stats.failed ? "red" : "slate"} label="Failed" value={formatInteger(stats.failed || 0)} detail="Needs retry or investigation" />
+          {developmentMode ? (
+            <WatchlistStatCard icon="file" tone="blue" label="Event logs" value={formatInteger(stats.logs || logs.length)} detail={backgroundProcesses.logsLimited ? `Latest ${formatInteger(backgroundProcesses.logLimit || stats.logs || 0)} loaded` : "Available detailed events"} />
+          ) : null}
+        </div>
+
+        <div className="ppBackgroundProcessesGrid">
+          <section className="ppWatchlistPanel ppBackgroundProcessListPanel">
+            <div className="ppWatchlistPanelHeader">
+              <h2>All processes</h2>
+              <span>{formatInteger(processes.length)} process{processes.length === 1 ? "" : "es"}</span>
+            </div>
+            {processes.length ? (
+              <div className="ppBackgroundProcessList">
+                {processes.map((process) => (
+                  <BackgroundProcessCard process={process} showLogs={developmentMode} key={process.id} />
+                ))}
+              </div>
+            ) : (
+              <div className="ppWatchPanelEmpty ppWatchPanelEmpty-large">
+                <DashboardIcon type="clock" tone="blue" />
+                <span>No background processes have been recorded yet.</span>
+              </div>
+            )}
+          </section>
+
+          <aside className="ppWatchlistPanel ppBackgroundProcessSidePanel">
+            <div className="ppWatchlistPanelHeader">
+              <h2>Current queue</h2>
+              <span>{formatInteger(activeProcesses.length)} active</span>
+            </div>
+            <div className="ppBackgroundProcessMiniList">
+              {activeProcesses.length ? activeProcesses.map((process) => (
+                <BackgroundProcessMiniItem process={process} key={process.id} />
+              )) : (
+                <p className="ppBackgroundProcessEmptyText">No background jobs are currently running or queued.</p>
+              )}
+            </div>
+
+            <div className="ppBackgroundProcessDivider" />
+
+            <div className="ppWatchlistPanelHeader ppBackgroundProcessSubHeader">
+              <h2>Process types</h2>
+              <span>{formatInteger(kindEntries.length)} type{kindEntries.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="ppBackgroundProcessKindList">
+              {kindEntries.length ? kindEntries.map(([kind, count]) => (
+                <span key={kind}>
+                  <strong>{kind}</strong>
+                  <small>{formatInteger(count)}</small>
+                </span>
+              )) : <p className="ppBackgroundProcessEmptyText">No process type data yet.</p>}
+            </div>
+
+            {developmentMode ? (
+              <>
+                <div className="ppBackgroundProcessDivider" />
+
+                <div className="ppWatchlistPanelHeader ppBackgroundProcessSubHeader">
+                  <h2>Latest events</h2>
+                  <span>{formatInteger(latestEvents.length)}</span>
+                </div>
+                <div className="ppBackgroundEventStream">
+                  {latestEvents.length ? latestEvents.map((log) => (
+                    <BackgroundProcessLogLine log={log} compact key={log.id} />
+                  )) : (
+                    <p className="ppBackgroundProcessEmptyText">Detailed job events are only available when ProductPulse job logging is enabled.</p>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </aside>
+        </div>
+      </ScreenShell>
+    </FullWidthPage>
+  );
+}
+
+function BackgroundProcessCard({ process, showLogs = false }) {
+  const statusKey = getBackgroundProcessStatusKey(process.status);
+  const logCount = Number(process.logCount || process.logs?.length || 0);
+  const payloadItems = Array.isArray(process.payloadItems) ? process.payloadItems : [];
+  const logs = Array.isArray(process.logs) ? process.logs : [];
+  const metrics = [
+    ["Kind", process.name || process.kind || "Background job"],
+    ["Started", process.status === "Queued" ? "Waiting" : formatWatchReportTimestamp(process.executionStartedAtIso || process.startedAtIso)],
+    ["Updated", formatWatchReportTimestamp(process.updatedAtIso)],
+    ["Finished", process.finishedAtIso ? formatWatchReportTimestamp(process.finishedAtIso) : "Not finished"],
+    ["Duration", formatBackgroundProcessDuration(process.elapsedMs)],
+    ...(showLogs ? [["Events", formatInteger(logCount)]] : []),
+  ];
+
+  return (
+    <article className={`ppBackgroundProcessCard ppBackgroundProcessCard-${statusKey}`}>
+      <header className="ppBackgroundProcessCardHeader">
+        <span className={`ppBackgroundProcessStatusIcon ppBackgroundProcessStatusIcon-${statusKey}`} aria-hidden="true">
+          <s-icon type={getBackgroundProcessStatusIcon(process.status)} size="small"></s-icon>
+        </span>
+        <div>
+          <span className={`ppBackgroundProcessStatusPill ppBackgroundProcessStatusPill-${statusKey}`}>{process.status || "Unknown"}</span>
+          <h2>{process.displayTitle || process.productTitle || process.name || "Background process"}</h2>
+          <p>{process.displaySubtitle || process.source || process.rawSource || process.name || "ProductPulse background job"}</p>
+        </div>
+        {process.productHref ? (
+          <Link className="ppBackgroundProcessProductLink" to={process.productHref}>
+            Open product
+            <s-icon type="chevron-right" size="small"></s-icon>
+          </Link>
+        ) : null}
+      </header>
+
+      <div className="ppBackgroundProcessProgress" aria-label={`${process.status || "Process"} progress ${formatInteger(process.progress || 0)}%`}>
+        <span style={{ width: `${Math.min(100, Math.max(0, Number(process.progress || 0)))}%` }}></span>
+      </div>
+
+      <dl className="ppBackgroundProcessMetrics">
+        {metrics.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {payloadItems.length ? (
+        <div className="ppBackgroundProcessPayload" aria-label="Process payload">
+          {payloadItems.map((item) => (
+            <span key={`${item.label}-${item.value}`}>
+              <small>{item.label}</small>
+              <strong>{item.value}</strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {showLogs && logs.length ? (
+        <details className="ppBackgroundProcessLogs">
+          <summary>
+            <span>{formatInteger(logs.length)} event log{logs.length === 1 ? "" : "s"}</span>
+            <s-icon type="chevron-down" size="small"></s-icon>
+          </summary>
+          <div className="ppBackgroundProcessLogList">
+            {logs.map((log) => <BackgroundProcessLogLine log={log} key={log.id} />)}
+          </div>
+        </details>
+      ) : showLogs ? (
+        <p className="ppBackgroundProcessNoLogs">No detailed event logs stored for this process.</p>
+      ) : null}
+    </article>
+  );
+}
+
+function BackgroundProcessMiniItem({ process }) {
+  const statusKey = getBackgroundProcessStatusKey(process.status);
+  return (
+    <article className="ppBackgroundProcessMiniItem">
+      <span className={`ppBackgroundProcessStatusIcon ppBackgroundProcessStatusIcon-${statusKey}`} aria-hidden="true">
+        <s-icon type={getBackgroundProcessStatusIcon(process.status)} size="small"></s-icon>
+      </span>
+      <div>
+        <strong>{process.displayTitle || process.name || "Background process"}</strong>
+        <small>{process.status || "Unknown"} · {formatInteger(process.progress || 0)}% · {formatWatchReportTimestamp(process.updatedAtIso)}</small>
+      </div>
+    </article>
+  );
+}
+
+function BackgroundProcessLogLine({ log, compact = false }) {
+  const levelKey = getBackgroundProcessStatusKey(log.level || "info");
+  return (
+    <article className={`ppBackgroundProcessLogLine ppBackgroundProcessLogLine-${levelKey}${compact ? " isCompact" : ""}`}>
+      <span>{log.level || "info"}</span>
+      <div>
+        <strong>{log.event || "job.event"}</strong>
+        <p>{log.message || "No message stored."}</p>
+        {!compact && log.data ? <pre>{formatBackgroundProcessLogData(log.data)}</pre> : null}
+      </div>
+      <time dateTime={log.createdAtIso || undefined}>{formatWatchReportTimestamp(log.createdAtIso)}</time>
+    </article>
+  );
+}
+
+function isBackgroundProcessActive(status) {
+  return status === "Queued" || status === "Running";
+}
+
+function getBackgroundProcessStatusKey(status) {
+  return String(status || "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "unknown";
+}
+
+function getBackgroundProcessStatusIcon(status) {
+  const key = getBackgroundProcessStatusKey(status);
+  if (key === "completed") return "check-circle";
+  if (key === "failed") return "alert-circle";
+  if (key === "queued") return "clock";
+  return "refresh";
+}
+
+function formatBackgroundProcessDuration(value) {
+  const totalSeconds = Math.max(0, Math.floor(Number(value || 0) / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function formatBackgroundProcessLogData(data) {
+  try {
+    return JSON.stringify(data, null, 2);
+  } catch {
+    return String(data || "");
+  }
+}
+
 function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatchedCount = watchedCount, actionData }) {
   const navigation = useNavigation();
   const [editing, setEditing] = useState(false);
@@ -14490,28 +14741,152 @@ function ProductRiskHistoryPanel({ detail }) {
   const hasSavedHistory = historyPoints.some((point) => point.kind === "history");
   const changeLabel = getProductRiskHistoryChangeLabel(change, hasSavedHistory);
   const windowLabel = getProductRiskHistoryWindowLabel(historyPoints, hasSavedHistory);
+  const statCards = getProductRiskHistoryStatCards(detail, historyPoints, change, changeLabel, windowLabel);
+  const milestones = getProductRiskHistoryMilestones(historyPoints, chart.points);
+  const footerCards = getProductRiskHistoryFooterCards(historyPoints, changeLabel, windowLabel, milestones);
+  const trendLabel = detail.riskTrendLabel || getProductRiskHistoryTrendLabel(historyPoints);
 
   return (
     <div className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}`}>
       <div className="ppProductRiskHistoryHeader">
-        <div>
-          <span>Product risk over time</span>
-          <strong>{formatInteger(currentRisk)} / 100</strong>
+        <div className="ppProductRiskHistoryTitleBlock">
+          <span className="ppProductRiskHistoryIcon" aria-hidden="true">
+            <DashboardIcon type="shield-check-mark" tone={trendTone === "green" ? "green" : trendTone === "red" ? "red" : "orange"} size="small" />
+          </span>
+          <div>
+            <span>Product risk over time</span>
+            <strong>{formatInteger(currentRisk)} / 100</strong>
+            <em className={`ppProductRiskHistoryTrendBadge ppProductRiskHistoryTrendBadge-${trendTone}`}>
+              {trendLabel}
+              <s-icon type="chart-line" size="small"></s-icon>
+            </em>
+          </div>
         </div>
-        <s-badge tone={getBadgeToneFromTrendTone(trendTone)}>{detail.riskTrendLabel}</s-badge>
+        <div className="ppProductRiskHistoryStats" aria-label="Product risk history summary">
+          {statCards.map((card) => (
+            <div className={`ppProductRiskHistoryStat ppProductRiskHistoryStat-${card.tone}`} key={card.id}>
+              <span aria-hidden="true">
+                <s-icon type={card.icon} size="small"></s-icon>
+              </span>
+              <div>
+                <strong>{card.value}</strong>
+                <small>{card.label}</small>
+                <em>{card.detail}</em>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={changeLabel}>
-          <path className="ppProductRiskHistoryLine" d={buildSmoothSvgPath(chart.points)} />
+        <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={changeLabel}>
+          <defs>
+            <linearGradient id="ppProductRiskHistoryAreaGradient" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="currentColor" stopOpacity="0.24" />
+              <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          {chart.yTicks.map((tick) => (
+            <g className="ppProductRiskHistoryGridLine" key={tick.value}>
+              <line x1={chart.plot.left} x2={chart.plot.right} y1={tick.y} y2={tick.y} />
+              <text x={chart.plot.left - 16} y={tick.y + 5} textAnchor="end">{tick.label}</text>
+            </g>
+          ))}
+          <line className="ppProductRiskHistoryAxis" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
+          <line className="ppProductRiskHistoryAxis" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
+          <g className="ppProductRiskHistoryReference">
+            <line x1={chart.plot.left} x2={chart.plot.right} y1={chart.reference.y} y2={chart.reference.y} />
+            <text x={chart.plot.left + 10} y={chart.reference.y - 10}>{chart.reference.label}</text>
+          </g>
+          {chart.xTicks.map((tick) => (
+            <g className="ppProductRiskHistoryXTick" key={`${tick.label}-${tick.x}`}>
+              <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
+              <text x={tick.x} y={chart.plot.bottom + 28} textAnchor={tick.anchor}>{tick.label}</text>
+            </g>
+          ))}
+          <path className="ppProductRiskHistoryArea" d={chart.areaPath} />
+          <path className="ppProductRiskHistoryLine" d={chart.linePath} />
         </svg>
+        {chart.points.map((point, index) => (
+          <ProductRiskHistoryPointButton
+            key={historyPoints[index]?.id || historyPoints[index]?.recordedAt || `${historyPoints[index]?.label}-${index}`}
+            point={historyPoints[index]}
+            previousPoint={index > 0 ? historyPoints[index - 1] : null}
+            chartPoint={point}
+            chart={chart}
+          />
+        ))}
+        {milestones.map((milestone) => (
+          <ProductRiskHistoryMilestoneLabel milestone={milestone} key={milestone.id} />
+        ))}
       </div>
       <div className="ppProductRiskHistoryMeta">
-        <span>
-          <s-icon type="chart-line" size="small"></s-icon>
-          {changeLabel}
-        </span>
-        <small>{windowLabel}</small>
+        {footerCards.map((card) => (
+          <span className={`ppProductRiskHistoryMetaCard ppProductRiskHistoryMetaCard-${card.tone}`} key={card.id}>
+            <span aria-hidden="true">
+              <s-icon type={card.icon} size="small"></s-icon>
+            </span>
+            <span>
+              <strong>{card.title}</strong>
+              <small>{card.detail}</small>
+            </span>
+          </span>
+        ))}
       </div>
+    </div>
+  );
+}
+
+function ProductRiskHistoryPointButton({ point, previousPoint, chartPoint, chart }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  if (!point || !chartPoint || !chart?.width || !chart?.height) return null;
+  const pointEvents = getProductRiskHistoryPointEvents(point, previousPoint);
+  const metricRows = getProductRiskHistoryPointMetricRows(point);
+  const left = `${(chartPoint.x / chart.width) * 100}%`;
+  const top = `${(chartPoint.y / chart.height) * 100}%`;
+  const label = `${point.label}: product risk ${formatInteger(point.riskScore)} of 100`;
+
+  return (
+    <button
+      type="button"
+      className={`ppProductRiskHistoryPoint ppProductRiskHistoryPoint-${pointEvents[0]?.tone || "red"}`}
+      ref={triggerRef}
+      style={{ left, top }}
+      aria-label={label}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span aria-hidden="true" />
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppProductRiskHistoryPopover" width={292} estimatedHeight={220} placement="top-center">
+        <strong>{point.label}</strong>
+        <p>{pointEvents[0]?.title || point.primaryIssue || point.source || "Saved ProductPulse score"}</p>
+        <span className="ppProductRiskHistoryPopoverScore">
+          <b>{formatInteger(point.riskScore)} / 100</b>
+          <small>{point.source}</small>
+        </span>
+        {metricRows.length ? (
+          <span className="ppProductRiskHistoryPopoverRows">
+            {metricRows.map((row) => (
+              <span key={row.label}><b>{row.label}</b><small>{row.value}</small></span>
+            ))}
+          </span>
+        ) : null}
+      </FloatingTablePopover>
+    </button>
+  );
+}
+
+function ProductRiskHistoryMilestoneLabel({ milestone }) {
+  if (!milestone) return null;
+  return (
+    <div
+      className={`ppProductRiskHistoryMilestone ppProductRiskHistoryMilestone-${milestone.align} ppProductRiskHistoryMilestone-${milestone.tone}`}
+      style={{ left: `${milestone.xPercent}%`, top: `${milestone.topPercent}%` }}
+    >
+      <small>{milestone.label}</small>
+      <strong>{milestone.title}</strong>
     </div>
   );
 }
@@ -14528,6 +14903,18 @@ function getProductRiskHistoryPoints(detail = {}) {
         source: getProductRiskHistorySourceLabel(entry.source),
         recordedAt: entry.recordedAt || null,
         primaryIssue: entry.primaryIssue || "",
+        confidence: optionalFiniteMetricNumber(entry.confidence),
+        returnRate: optionalFiniteMetricNumber(entry.returnRate),
+        refundRate: optionalFiniteMetricNumber(entry.refundRate),
+        negativeReviewRate: optionalFiniteMetricNumber(entry.negativeReviewRate),
+        returnUnits: optionalFiniteMetricNumber(entry.returnUnits),
+        refundUnits: optionalFiniteMetricNumber(entry.refundUnits),
+        negativeReviewCount: optionalFiniteMetricNumber(entry.negativeReviewCount),
+        reviewCount: optionalFiniteMetricNumber(entry.reviewCount),
+        avgRating: optionalFiniteMetricNumber(entry.avgRating),
+        refundAmount: optionalFiniteMetricNumber(entry.refundAmount),
+        signalCount: optionalFiniteMetricNumber(entry.signalCount),
+        sourceCount: optionalFiniteMetricNumber(entry.sourceCount),
       };
     })
     .filter(Boolean);
@@ -14564,25 +14951,337 @@ function getProductRiskHistoryPoints(detail = {}) {
 
 function getProductRiskHistoryChart(historyPoints = []) {
   const values = historyPoints.map((point) => point.riskScore);
-  if (!values.length) return { path: "", points: [] };
-  if (values.length === 1) {
-    const y = Math.round((100 - values[0]) * 10) / 10;
+  const width = 1000;
+  const height = 330;
+  const plot = { left: 56, right: 972, top: 26, bottom: 250 };
+  const emptyChart = {
+    width,
+    height,
+    plot,
+    linePath: "",
+    areaPath: "",
+    points: [],
+    yTicks: [100, 75, 50, 25, 0].map((value) => ({
+      value,
+      label: formatInteger(value),
+      y: getProductRiskHistoryY(value, plot),
+    })),
+    xTicks: [],
+    reference: { value: 55, label: "Medium risk 55", y: getProductRiskHistoryY(55, plot) },
+  };
+  if (!values.length) return emptyChart;
+
+  const timeValues = historyPoints.map((point) => new Date(point.recordedAt || "").getTime());
+  const hasDatedRange = timeValues.filter((time) => Number.isFinite(time)).length >= 2
+    && Math.max(...timeValues.filter((time) => Number.isFinite(time))) > Math.min(...timeValues.filter((time) => Number.isFinite(time)));
+  const minTime = hasDatedRange ? Math.min(...timeValues.filter((time) => Number.isFinite(time))) : 0;
+  const maxTime = hasDatedRange ? Math.max(...timeValues.filter((time) => Number.isFinite(time))) : 0;
+  const points = values.map((value, index) => {
+    const rawTime = timeValues[index];
+    const xRatio = hasDatedRange && Number.isFinite(rawTime)
+      ? (rawTime - minTime) / Math.max(1, maxTime - minTime)
+      : values.length === 1
+        ? 0.5
+        : index / (values.length - 1);
     return {
-      path: `0,${y} 100,${y}`,
-      points: [{ x: 0, y }, { x: 100, y }],
+      x: Math.round((plot.left + xRatio * (plot.right - plot.left)) * 10) / 10,
+      y: getProductRiskHistoryY(value, plot),
+      value,
     };
-  }
-  const min = Math.max(0, Math.min(...values) - 6);
-  const max = Math.min(100, Math.max(...values) + 6);
-  const range = Math.max(1, max - min);
-  const points = values.map((value, index) => ({
-    x: Math.round((index / (values.length - 1)) * 1000) / 10,
-    y: Math.round((100 - ((value - min) / range) * 100) * 10) / 10,
+  });
+  const linePath = buildSmoothSvgPath(points);
+  const first = points[0];
+  const last = points[points.length - 1];
+  const areaPath = points.length
+    ? `${linePath} L ${last.x},${plot.bottom} L ${first.x},${plot.bottom} Z`
+    : "";
+  const xTickIndexes = getProductRiskHistoryTickIndexes(historyPoints.length);
+  const xTicks = xTickIndexes.map((index) => ({
+    x: points[index]?.x || plot.left,
+    label: getProductRiskHistoryTickLabel(historyPoints[index], index),
+    anchor: index === 0 ? "start" : index === historyPoints.length - 1 ? "end" : "middle",
   }));
   return {
-    path: points.map((point) => `${point.x},${point.y}`).join(" "),
+    ...emptyChart,
+    linePath,
+    areaPath,
     points,
+    xTicks,
   };
+}
+
+function getProductRiskHistoryY(value, plot) {
+  const score = Math.max(0, Math.min(100, Number(value) || 0));
+  return Math.round((plot.top + ((100 - score) / 100) * (plot.bottom - plot.top)) * 10) / 10;
+}
+
+function getProductRiskHistoryTickIndexes(length) {
+  if (length <= 0) return [];
+  if (length === 1) return [0];
+  if (length === 2) return [0, 1];
+  return Array.from(new Set([0, Math.floor((length - 1) / 2), length - 1]));
+}
+
+function getProductRiskHistoryTickLabel(point, index = 0) {
+  if (point?.recordedAt) {
+    const date = new Date(point.recordedAt);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+    }
+  }
+  return point?.label || `Point ${index + 1}`;
+}
+
+function getProductRiskHistoryStatCards(detail = {}, historyPoints = [], change = 0, changeLabel = "", windowLabel = "") {
+  const values = historyPoints.map((point) => point.riskScore).filter((value) => Number.isFinite(value));
+  const minRisk = values.length ? Math.min(...values) : Number(detail.riskScore || 0);
+  const maxRisk = values.length ? Math.max(...values) : Number(detail.riskScore || 0);
+  const last = historyPoints[historyPoints.length - 1] || null;
+  const first = historyPoints[0] || null;
+  const rangeLabel = `${formatInteger(minRisk)} - ${formatInteger(maxRisk)}`;
+  return [
+    {
+      id: "change",
+      icon: "chart-line",
+      tone: change > 0 ? "red" : change < 0 ? "green" : "blue",
+      value: getProductRiskHistoryDeltaValue(change),
+      label: "vs last analysis",
+      detail: last?.label ? `${formatInteger(last.riskScore)} on ${last.label}` : changeLabel,
+    },
+    {
+      id: "saved-scores",
+      icon: "database",
+      tone: "purple",
+      value: formatInteger(historyPoints.length),
+      label: "Saved scores",
+      detail: first?.label && last?.label && first.label !== last.label ? `${first.label} - ${last.label}` : windowLabel,
+    },
+    {
+      id: "range",
+      icon: "chart-line",
+      tone: "orange",
+      value: rangeLabel,
+      label: "Saved range",
+      detail: `Min ${formatInteger(minRisk)} · Max ${formatInteger(maxRisk)}`,
+    },
+    {
+      id: "percentile",
+      icon: "profile",
+      tone: "red",
+      value: getProductRiskHistoryPercentileLabel(detail, last),
+      label: "Risk percentile",
+      detail: "vs similar products",
+    },
+  ];
+}
+
+function getProductRiskHistoryDeltaValue(change = 0) {
+  if (change > 0) return `+${formatInteger(change)} pts`;
+  if (change < 0) return `${formatInteger(change)} pts`;
+  return "0 pts";
+}
+
+function getProductRiskHistoryPercentileLabel(detail = {}, latest = null) {
+  const explicit = optionalFiniteMetricNumber(detail.riskPercentile, detail.metrics?.riskPercentile, latest?.riskPercentile);
+  const risk = optionalFiniteMetricNumber(latest?.riskScore, detail.riskScore);
+  const percentile = explicit ?? Math.max(1, Math.min(99, Math.round(risk || 0)));
+  return `${formatInteger(percentile)}th`;
+}
+
+function getProductRiskHistoryFooterCards(historyPoints = [], changeLabel = "", windowLabel = "", milestones = []) {
+  const first = historyPoints[0] || null;
+  const latest = historyPoints[historyPoints.length - 1] || null;
+  const largestJump = getProductRiskHistoryLargestJump(historyPoints);
+  const longChange = first && latest ? latest.riskScore - first.riskScore : 0;
+  const mainMilestone = milestones[0];
+  return [
+    {
+      id: "last-change",
+      icon: "chart-line",
+      tone: longChange > 0 ? "red" : longChange < 0 ? "green" : "blue",
+      title: changeLabel,
+      detail: first && latest ? `${formatInteger(first.riskScore)} -> ${formatInteger(latest.riskScore)}` : windowLabel,
+    },
+    {
+      id: "largest-jump",
+      icon: "alert-circle",
+      tone: largestJump.change > 0 ? "red" : "orange",
+      title: mainMilestone?.title || "Largest movement",
+      detail: largestJump.label || "Waiting for more saved history",
+    },
+    {
+      id: "trend",
+      icon: "chart-line",
+      tone: longChange > 0 ? "purple" : longChange < 0 ? "green" : "blue",
+      title: getProductRiskHistoryTrendSummary(historyPoints),
+      detail: getProductRiskHistoryLongRangeDetail(historyPoints),
+    },
+    {
+      id: "saved",
+      icon: "calendar",
+      tone: "green",
+      title: `${formatInteger(historyPoints.length)} saved score${historyPoints.length === 1 ? "" : "s"}`,
+      detail: windowLabel,
+    },
+  ];
+}
+
+function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
+  const candidates = [];
+  for (let index = 1; index < historyPoints.length; index += 1) {
+    const point = historyPoints[index];
+    const previous = historyPoints[index - 1];
+    const event = getProductRiskHistoryPointEvents(point, previous)[0];
+    if (!event) continue;
+    const chartPoint = chartPoints[index];
+    if (!chartPoint) continue;
+    candidates.push({
+      id: `${event.title}-${index}`,
+      ...event,
+      label: point.label,
+      xPercent: Math.max(12, Math.min(88, (chartPoint.x / 1000) * 100)),
+      topPercent: index % 2 === 0 ? 16 : 8,
+      align: chartPoint.x > 760 ? "right" : "left",
+      priority: event.priority || 0,
+    });
+  }
+  return candidates
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, 2)
+    .sort((a, b) => a.xPercent - b.xPercent);
+}
+
+function getProductRiskHistoryPointEvents(point = {}, previous = null) {
+  const events = [];
+  const add = (event) => {
+    if (event?.title) events.push(event);
+  };
+  const riskDelta = previous ? point.riskScore - previous.riskScore : 0;
+  if (Math.abs(riskDelta) >= 8) {
+    add({
+      title: riskDelta > 0 ? "Risk score jumped" : "Risk score improved",
+      detail: `${formatInteger(previous.riskScore)} -> ${formatInteger(point.riskScore)} (${riskDelta > 0 ? "+" : ""}${formatInteger(riskDelta)} pts)`,
+      tone: riskDelta > 0 ? "red" : "green",
+      priority: 70 + Math.abs(riskDelta),
+    });
+  }
+
+  const returnDelta = getProductRiskHistoryMetricDelta(point, previous, "returnRate");
+  if (returnDelta !== null && returnDelta >= 5) {
+    add({
+      title: "Return rate spike",
+      detail: `${formatPercent(previous.returnRate)} -> ${formatPercent(point.returnRate)}`,
+      tone: "red",
+      priority: 90 + returnDelta,
+    });
+  }
+
+  const refundDelta = getProductRiskHistoryMetricDelta(point, previous, "refundRate");
+  const refundAmountDelta = getProductRiskHistoryMetricDelta(point, previous, "refundAmount");
+  if ((refundDelta !== null && refundDelta >= 5) || (refundAmountDelta !== null && refundAmountDelta > 0)) {
+    add({
+      title: "Refund pressure increased",
+      detail: refundDelta !== null
+        ? `${formatPercent(previous.refundRate)} -> ${formatPercent(point.refundRate)}`
+        : `Refund value ${formatMoney(point.refundAmount || 0)}`,
+      tone: "orange",
+      priority: 84 + Math.max(refundDelta || 0, Math.min(20, (refundAmountDelta || 0) / 10)),
+    });
+  }
+
+  const negativeReviewDelta = getProductRiskHistoryMetricDelta(point, previous, "negativeReviewCount");
+  if (negativeReviewDelta !== null && negativeReviewDelta > 0) {
+    add({
+      title: "Negative reviews increased",
+      detail: `${formatInteger(previous.negativeReviewCount || 0)} -> ${formatInteger(point.negativeReviewCount || 0)} negative reviews`,
+      tone: "orange",
+      priority: 80 + negativeReviewDelta,
+    });
+  }
+
+  const ratingDelta = getProductRiskHistoryMetricDelta(point, previous, "avgRating");
+  if (ratingDelta !== null && ratingDelta <= -0.4) {
+    add({
+      title: "Average rating dropped",
+      detail: `${formatDecimal(previous.avgRating, 1)} -> ${formatDecimal(point.avgRating, 1)} stars`,
+      tone: "red",
+      priority: 78 + Math.abs(ratingDelta),
+    });
+  }
+
+  if (!events.length && point.primaryIssue) {
+    add({
+      title: point.primaryIssue,
+      detail: point.source || "Saved product-risk snapshot",
+      tone: "blue",
+      priority: 10,
+    });
+  }
+
+  return events.sort((a, b) => b.priority - a.priority);
+}
+
+function getProductRiskHistoryMetricDelta(point = {}, previous = {}, key = "") {
+  if (!previous) return null;
+  const current = optionalFiniteMetricNumber(point[key]);
+  const prior = optionalFiniteMetricNumber(previous[key]);
+  if (current === null || prior === null) return null;
+  return current - prior;
+}
+
+function getProductRiskHistoryPointMetricRows(point = {}) {
+  return [
+    Number.isFinite(Number(point.returnRate)) ? { label: "Return rate", value: formatPercent(point.returnRate) } : null,
+    Number.isFinite(Number(point.refundRate)) ? { label: "Refund rate", value: formatPercent(point.refundRate) } : null,
+    Number.isFinite(Number(point.negativeReviewCount)) ? { label: "Negative reviews", value: formatInteger(point.negativeReviewCount) } : null,
+    Number.isFinite(Number(point.avgRating)) ? { label: "Average rating", value: `${formatDecimal(point.avgRating, 1)} / 5` } : null,
+    Number.isFinite(Number(point.signalCount)) ? { label: "Evidence signals", value: formatInteger(point.signalCount) } : null,
+    Number.isFinite(Number(point.refundAmount)) ? { label: "Refund value", value: formatMoney(point.refundAmount) } : null,
+  ].filter(Boolean);
+}
+
+function getProductRiskHistoryLargestJump(historyPoints = []) {
+  let largest = { change: 0, label: "" };
+  for (let index = 1; index < historyPoints.length; index += 1) {
+    const current = historyPoints[index];
+    const previous = historyPoints[index - 1];
+    const change = current.riskScore - previous.riskScore;
+    if (Math.abs(change) > Math.abs(largest.change)) {
+      largest = {
+        change,
+        label: `${current.label} · ${change > 0 ? "+" : ""}${formatInteger(change)} pts from previous score`,
+      };
+    }
+  }
+  return largest;
+}
+
+function getProductRiskHistoryTrendLabel(historyPoints = []) {
+  const first = historyPoints[0];
+  const last = historyPoints[historyPoints.length - 1];
+  if (!first || !last || first === last) return "No trend";
+  const delta = last.riskScore - first.riskScore;
+  if (delta >= 5) return "Rising";
+  if (delta <= -5) return "Improving";
+  return "Stable";
+}
+
+function getProductRiskHistoryTrendSummary(historyPoints = []) {
+  const first = historyPoints[0];
+  const last = historyPoints[historyPoints.length - 1];
+  if (!first || !last || first === last) return "Waiting for trend";
+  const delta = last.riskScore - first.riskScore;
+  if (delta >= 5) return "Consistent uptrend";
+  if (delta <= -5) return "Risk improving";
+  return "Mostly stable";
+}
+
+function getProductRiskHistoryLongRangeDetail(historyPoints = []) {
+  const first = historyPoints[0];
+  const last = historyPoints[historyPoints.length - 1];
+  if (!first || !last || first === last) return "More saved scores needed.";
+  const delta = last.riskScore - first.riskScore;
+  return `${delta > 0 ? "+" : ""}${formatInteger(delta)} pts across ${formatInteger(historyPoints.length)} saved scores`;
 }
 
 function parseSvgPointString(value = "") {

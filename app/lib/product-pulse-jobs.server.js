@@ -47,6 +47,7 @@ const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
+const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
@@ -512,6 +513,33 @@ export async function getJobMonitorForShop(shop) {
     activeJobs: jobs.filter((job) => isActiveStatus(job.status)).map(formatJob),
     recentJobs: jobs.map(formatJob),
     logs: logs.map(formatJobLog),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function getBackgroundProcessesForShop(shop) {
+  await failStaleFastProductScans(shop);
+  const [jobs, logs] = await Promise.all([
+    prisma.catalogSignalJob.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }],
+    }),
+    getJobLogsForShop(shop, BACKGROUND_PROCESS_LOG_LIMIT),
+  ]);
+
+  ensureWorkersForJobs(shop, jobs);
+
+  const formattedLogs = logs.map(formatJobLog);
+  const logsByJob = groupJobLogsByJobId(formattedLogs);
+  const processes = jobs.map((job) => formatBackgroundProcess(job, logsByJob.get(job.id) || []));
+
+  return {
+    processes,
+    activeProcesses: processes.filter((process) => isActiveStatus(process.status)),
+    logs: formattedLogs,
+    stats: buildBackgroundProcessStats(jobs, formattedLogs),
+    logsLimited: formattedLogs.length >= BACKGROUND_PROCESS_LOG_LIMIT,
+    logLimit: BACKGROUND_PROCESS_LOG_LIMIT,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -4319,6 +4347,150 @@ function formatJobLog(log) {
   };
 }
 
+function formatBackgroundProcess(job, logs = []) {
+  const formatted = formatJob(job);
+  return {
+    ...formatted,
+    rawSource: job.source || "",
+    payloadItems: formatBackgroundProcessPayloadItems(job.payload),
+    logCount: logs.length,
+    logs,
+    latestLog: logs[0] || null,
+    statusKey: normalizeBackgroundProcessKey(job.status),
+    kindKey: normalizeBackgroundProcessKey(job.kind),
+  };
+}
+
+function ensureWorkersForJobs(shop, jobs = []) {
+  jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
+    if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
+    if (job.kind === SHOPIFY_MOCK_DATASET_KIND) ensureShopifyMockDatasetWorker(job);
+  });
+  if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
+    ensureProductDiagnosisQueueWorker(shop);
+  }
+}
+
+function groupJobLogsByJobId(logs = []) {
+  return logs.reduce((byJob, log) => {
+    if (!byJob.has(log.jobId)) byJob.set(log.jobId, []);
+    byJob.get(log.jobId).push(log);
+    return byJob;
+  }, new Map());
+}
+
+function buildBackgroundProcessStats(jobs = [], logs = []) {
+  const statusCounts = jobs.reduce((counts, job) => {
+    const status = job.status || "Unknown";
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
+  const kindCounts = jobs.reduce((counts, job) => {
+    const kind = getJobDisplayName(job.kind);
+    counts[kind] = (counts[kind] || 0) + 1;
+    return counts;
+  }, {});
+
+  return {
+    total: jobs.length,
+    active: jobs.filter((job) => isActiveStatus(job.status)).length,
+    running: statusCounts.Running || 0,
+    queued: statusCounts.Queued || 0,
+    completed: statusCounts.Completed || 0,
+    failed: statusCounts.Failed || 0,
+    logs: logs.length,
+    statusCounts,
+    kindCounts,
+    latestUpdatedAtIso: toIso(jobs[0]?.updatedAt),
+  };
+}
+
+function formatBackgroundProcessPayloadItems(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const items = [];
+  const seen = new Set();
+  [
+    ["productTitle", "Product"],
+    ["handle", "Handle"],
+    ["productId", "Requested product"],
+    ["productGid", "Product GID"],
+    ["riskScore", "Queued risk score"],
+    ["stageLabel", "Dataset stage"],
+    ["stage", "Stage key"],
+    ["expectedProducts", "Expected products"],
+    ["expectedCustomers", "Expected customers"],
+    ["expectedOrders", "Expected orders"],
+    ["summary.productCount", "Products"],
+    ["summary.customerCount", "Customers"],
+    ["summary.orderCount", "Orders"],
+    ["summary.returnCount", "Returns"],
+    ["summary.refundCount", "Refunds"],
+    ["summary.reviewCount", "Reviews"],
+    ["summary.csvReviewFilePath", "CSV review file"],
+    ["summary.manifestPath", "Manifest"],
+    ["manifestPath", "Manifest"],
+    ["queuedAt", "Queued at"],
+    ["generatedAt", "Generated at"],
+    ["summary.generatedAt", "Generated at"],
+  ].forEach(([path, label]) => {
+    addBackgroundPayloadItem(items, seen, payload, path, label);
+  });
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (items.length >= 16 || seen.has(key) || ["summary", "products", "customers"].includes(key)) return;
+    if (!isBackgroundPayloadPrimitive(value)) return;
+    addBackgroundPayloadValue(items, seen, key, formatPayloadLabel(key), value);
+  });
+
+  return items;
+}
+
+function addBackgroundPayloadItem(items, seen, payload, path, label) {
+  const value = getPayloadPathValue(payload, path);
+  if (value === undefined || value === null || value === "") return;
+  addBackgroundPayloadValue(items, seen, path, label, value);
+}
+
+function addBackgroundPayloadValue(items, seen, key, label, value) {
+  const displayValue = formatBackgroundPayloadValue(value);
+  if (!displayValue || seen.has(key) || seen.has(`${label}:${displayValue}`)) return;
+  seen.add(key);
+  seen.add(`${label}:${displayValue}`);
+  items.push({ label, value: displayValue });
+}
+
+function getPayloadPathValue(payload, path) {
+  return String(path).split(".").reduce((current, key) => current?.[key], payload);
+}
+
+function isBackgroundPayloadPrimitive(value) {
+  return value === null || ["string", "number", "boolean"].includes(typeof value)
+    || (Array.isArray(value) && value.every((item) => ["string", "number", "boolean"].includes(typeof item)));
+}
+
+function formatBackgroundPayloadValue(value) {
+  if (Array.isArray(value)) {
+    const visible = value.slice(0, 4).map((item) => String(item));
+    const suffix = value.length > visible.length ? ` +${value.length - visible.length} more` : "";
+    return `${visible.join(", ")}${suffix}`;
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function formatPayloadLabel(key) {
+  return String(key || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function normalizeBackgroundProcessKey(value) {
+  return String(value || "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "unknown";
+}
+
 function formatJobDate(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "Recently";
@@ -4879,6 +5051,8 @@ export const __productPulseJobsTestHooks = {
   buildUpdatedProductDescriptionHtml,
   buildUpdatedProductDescriptionHtmlFromChanges,
   formatSnapshotForDiagnosis,
+  formatBackgroundProcess,
+  buildBackgroundProcessStats,
   filterProductSnapshots,
   getProductTableFilterOptions,
   getSignalLifecycleBars,
