@@ -8211,7 +8211,7 @@ function getGroupedDescriptionActionApplication(action, product = null, options 
     : {};
   const descriptionChanges = normalizeDescriptionChangesForApplication(payload.descriptionChanges)
     .map((change) => Object.prototype.hasOwnProperty.call(editedDescriptionChangeTexts, change.id)
-      ? { ...change, text: normalizeActionText(editedDescriptionChangeTexts[change.id]) }
+      ? { ...change, text: preserveEditableActionText(editedDescriptionChangeTexts[change.id]) }
       : change);
   const selectedChangeIds = Array.isArray(options.selectedChangeIds)
     ? options.selectedChangeIds
@@ -8847,6 +8847,10 @@ function normalizeActionText(value) {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function preserveEditableActionText(value) {
+  return String(value ?? "").replace(/\r\n?/g, "\n");
 }
 
 function textIncludesMeaning(firstValue, secondValue) {

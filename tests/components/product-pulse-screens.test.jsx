@@ -2667,9 +2667,15 @@ describe("ProductPulse screens", () => {
     const dialog = screen.getByRole("dialog", { name: "Update product description" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Edit text" }));
 
-    fireEvent.change(within(dialog).getByLabelText("Description text to apply for Add fit note"), {
-      target: { value: "Edited fit note for layering." },
+    const fitNoteEditor = within(dialog).getByLabelText("Description text to apply for Add fit note");
+    fireEvent.change(fitNoteEditor, {
+      target: { value: "Edited fit note for layering. " },
     });
+    expect(fitNoteEditor).toHaveValue("Edited fit note for layering. ");
+    fireEvent.change(fitNoteEditor, {
+      target: { value: "Edited fit note for layering.  More room." },
+    });
+    expect(fitNoteEditor).toHaveValue("Edited fit note for layering.  More room.");
     fireEvent.change(within(dialog).getByLabelText("Description text to apply for Add specifications note"), {
       target: { value: "Edited technical specifications block." },
     });
@@ -2681,10 +2687,10 @@ describe("ProductPulse screens", () => {
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "Accept and apply change" }));
 
     await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
-    expect(submittedDraftText).toContain("Edited fit note for layering.");
+    expect(submittedDraftText).toContain("Edited fit note for layering. More room.");
     expect(submittedDraftText).toContain("Edited technical specifications block.");
     expect(submittedChanges).toEqual([
-      expect.objectContaining({ id: "add-fit-note", operation: "prepend", text: "Edited fit note for layering." }),
+      expect.objectContaining({ id: "add-fit-note", operation: "prepend", text: "Edited fit note for layering.  More room." }),
       expect.objectContaining({ id: "add-specs-note", operation: "append", text: "Edited technical specifications block." }),
     ]);
   });
