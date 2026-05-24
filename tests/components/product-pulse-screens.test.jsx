@@ -1542,7 +1542,8 @@ describe("ProductPulse screens", () => {
     expect(predictionPanel).toBeInTheDocument();
     expect(Boolean(predictionPanel.compareDocumentPosition(historyPanel) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(within(historyPanel).getByText("Product risk over time")).toBeInTheDocument();
-    expect(within(historyPanel).getByText("92 / 100")).toBeInTheDocument();
+    expect(historyPanel.querySelector(".ppProductRiskHistoryScore")).toHaveTextContent("92 / 100");
+    expect(historyPanel.querySelector(".ppProductRiskHistoryScore small")).toHaveTextContent("/ 100");
     expect(within(historyPanel).getByText("+4 pts")).toBeInTheDocument();
     expect(within(historyPanel).getAllByText("Return rate spike").length).toBeGreaterThan(0);
     expect(within(historyPanel).getAllByText("Refund pressure increased").length).toBeGreaterThan(0);
@@ -1550,6 +1551,20 @@ describe("ProductPulse screens", () => {
     expect(within(historyPanel).getAllByText("3 saved scores · May 1, 2026 to May 17, 2026").length).toBeGreaterThan(0);
     expect(historyPanel.querySelectorAll(".ppProductRiskHistoryMilestoneRule").length).toBeGreaterThan(0);
     expect(within(historyPanel).queryByText("Fit runs small around waist and inseam")).not.toBeInTheDocument();
+
+    const savedScoresCard = within(historyPanel).getByRole("button", { name: "Saved scores: 3. May 1, 2026 - May 17, 2026" });
+    fireEvent.mouseEnter(savedScoresCard);
+    const cardTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppProductRiskHistoryCardPopover"));
+    expect(cardTooltip).toHaveTextContent("Saved scores");
+    expect(cardTooltip).toHaveTextContent("May 1, 2026 - May 17, 2026");
+    fireEvent.mouseLeave(savedScoresCard);
+
+    const trendCard = within(historyPanel).getByRole("button", { name: "Consistent uptrend: +20 pts across 3 saved scores" });
+    fireEvent.mouseEnter(trendCard);
+    const footerTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppProductRiskHistoryCardPopover"));
+    expect(footerTooltip).toHaveTextContent("Consistent uptrend");
+    expect(footerTooltip).toHaveTextContent("+20 pts across 3 saved scores");
+    fireEvent.mouseLeave(trendCard);
 
     const latestRiskPoint = within(historyPanel).getByRole("button", { name: "May 17, 2026: product risk 92 of 100" });
     fireEvent.mouseEnter(latestRiskPoint);

@@ -14756,7 +14756,10 @@ function ProductRiskHistoryPanel({ detail }) {
           </span>
           <div>
             <span>Product risk over time</span>
-            <strong>{formatInteger(currentRisk)} / 100</strong>
+            <strong className="ppProductRiskHistoryScore">
+              <span>{formatInteger(currentRisk)}</span>
+              <small> / 100</small>
+            </strong>
             <em className={`ppProductRiskHistoryTrendBadge ppProductRiskHistoryTrendBadge-${trendTone}`}>
               {trendLabel}
               <s-icon type="chart-line" size="small"></s-icon>
@@ -14765,16 +14768,7 @@ function ProductRiskHistoryPanel({ detail }) {
         </div>
         <div className="ppProductRiskHistoryStats" aria-label="Product risk history summary">
           {statCards.map((card) => (
-            <div className={`ppProductRiskHistoryStat ppProductRiskHistoryStat-${card.tone}`} key={card.id}>
-              <span aria-hidden="true">
-                <s-icon type={card.icon} size="small"></s-icon>
-              </span>
-              <div>
-                <strong>{card.value}</strong>
-                <small>{card.label}</small>
-                <em>{card.detail}</em>
-              </div>
-            </div>
+            <ProductRiskHistoryStatCard card={card} key={card.id} />
           ))}
         </div>
       </div>
@@ -14822,18 +14816,80 @@ function ProductRiskHistoryPanel({ detail }) {
       </div>
       <div className="ppProductRiskHistoryMeta">
         {footerCards.map((card) => (
-          <span className={`ppProductRiskHistoryMetaCard ppProductRiskHistoryMetaCard-${card.tone}`} key={card.id}>
-            <span aria-hidden="true">
-              <s-icon type={card.icon} size="small"></s-icon>
-            </span>
-            <span>
-              <strong>{card.title}</strong>
-              <small>{card.detail}</small>
-            </span>
-          </span>
+          <ProductRiskHistoryMetaCard card={card} key={card.id} />
         ))}
       </div>
     </div>
+  );
+}
+
+function ProductRiskHistoryStatCard({ card }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const title = String(card?.label || "");
+  const value = String(card?.value || "");
+  const detail = String(card?.detail || "");
+
+  return (
+    <button
+      type="button"
+      className={`ppProductRiskHistoryStat ppProductRiskHistoryStat-${card.tone}`}
+      ref={triggerRef}
+      aria-label={`${title}: ${value}. ${detail}`}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span aria-hidden="true">
+        <s-icon type={card.icon} size="small"></s-icon>
+      </span>
+      <div>
+        <strong>{card.value}</strong>
+        <small>{card.label}</small>
+        <em>{card.detail}</em>
+      </div>
+      <ProductRiskHistoryCardPopover anchorRef={triggerRef} open={open} title={card.label} value={card.value} detail={card.detail} />
+    </button>
+  );
+}
+
+function ProductRiskHistoryMetaCard({ card }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const title = String(card?.title || "");
+  const detail = String(card?.detail || "");
+
+  return (
+    <button
+      type="button"
+      className={`ppProductRiskHistoryMetaCard ppProductRiskHistoryMetaCard-${card.tone}`}
+      ref={triggerRef}
+      aria-label={`${title}: ${detail}`}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span aria-hidden="true">
+        <s-icon type={card.icon} size="small"></s-icon>
+      </span>
+      <span>
+        <strong>{card.title}</strong>
+        <small>{card.detail}</small>
+      </span>
+      <ProductRiskHistoryCardPopover anchorRef={triggerRef} open={open} title={card.title} detail={card.detail} />
+    </button>
+  );
+}
+
+function ProductRiskHistoryCardPopover({ anchorRef, open, title, value, detail }) {
+  return (
+    <FloatingTablePopover anchorRef={anchorRef} open={open} className="ppProductRiskHistoryPopover ppProductRiskHistoryCardPopover" width={270} estimatedHeight={120} placement="top-center">
+      <strong>{title}</strong>
+      {value ? <p>{value}</p> : null}
+      {detail ? <small>{detail}</small> : null}
+    </FloatingTablePopover>
   );
 }
 
@@ -15165,7 +15221,17 @@ function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
   return candidates
     .sort((a, b) => b.priority - a.priority)
     .slice(0, 2)
-    .sort((a, b) => a.xPercent - b.xPercent);
+    .sort((a, b) => a.xPercent - b.xPercent)
+    .map((milestone, index, selected) => {
+      const previous = selected[index - 1];
+      const isCloseToPrevious = previous && Math.abs(milestone.xPercent - previous.xPercent) < 22;
+      const canSplitHorizontally = isCloseToPrevious && milestone.xPercent > 24 && milestone.xPercent < 76;
+      return {
+        ...milestone,
+        topPercent: isCloseToPrevious ? 30 : milestone.topPercent,
+        align: canSplitHorizontally ? "right" : milestone.align,
+      };
+    });
 }
 
 function getProductRiskHistoryPointEvents(point = {}, previous = null) {

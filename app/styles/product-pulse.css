@@ -5147,14 +5147,22 @@ s-page[inline-size="large-500"] {
   letter-spacing: 0.01em;
 }
 
-.ppProductRiskHistoryTitleBlock strong {
-  display: inline-block;
+.ppProductRiskHistoryScore {
+  display: inline-flex;
+  align-items: baseline;
   margin-top: 8px;
   color: var(--pp-slate-900);
-  font-size: clamp(42px, 7vw, 64px);
+  font-size: clamp(38px, 6.4vw, 60px);
   font-weight: 950;
   letter-spacing: 0;
   line-height: 0.95;
+}
+
+.ppProductRiskHistoryScore small {
+  color: var(--pp-slate-900);
+  font-size: clamp(32px, 5.8vw, 54px);
+  font-weight: inherit;
+  line-height: 1;
 }
 
 .ppProductRiskHistoryTrendBadge {
@@ -5205,6 +5213,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRiskHistoryStat {
+  appearance: none;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 10px;
@@ -5214,6 +5223,17 @@ s-page[inline-size="large-500"] {
   border: 1px solid var(--pp-slate-200);
   border-radius: 11px;
   background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+  color: inherit;
+  cursor: help;
+  font: inherit;
+  text-align: left;
+}
+
+.ppProductRiskHistoryStat:hover,
+.ppProductRiskHistoryStat:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.34);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.10);
 }
 
 .ppProductRiskHistoryStat > span {
@@ -5497,16 +5517,29 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRiskHistoryMetaCard {
+  appearance: none;
   min-width: 0;
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: help;
+  font: inherit;
+  text-align: left;
 }
 
 .ppProductRiskHistoryMetaCard + .ppProductRiskHistoryMetaCard {
   border-left: 1px solid var(--pp-slate-200);
+}
+
+.ppProductRiskHistoryMetaCard:hover,
+.ppProductRiskHistoryMetaCard:focus-visible {
+  outline: none;
+  background: var(--pp-slate-50);
 }
 
 .ppProductRiskHistoryMetaCard > span:first-child {
@@ -5583,6 +5616,14 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRiskHistoryPopover p {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ppProductRiskHistoryCardPopover small {
+  margin: 0;
   color: var(--pp-slate-600);
   font-size: 12px;
   font-weight: 700;
