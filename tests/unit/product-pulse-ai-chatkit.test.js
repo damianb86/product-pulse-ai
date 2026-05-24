@@ -191,6 +191,68 @@ describe("ProductPulse ChatKit integration", () => {
     expect(text).not.toContain("evil.myshopify.com");
   });
 
+  it("normalizes oversized ChatKit history limits instead of rejecting history requests", async () => {
+    const store = new InMemoryConversationStore();
+    store.conversations.push({
+      id: "conversation-1",
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      title: "Existing conversation",
+      createdAt: "2026-05-20T12:00:00.000Z",
+      updatedAt: "2026-05-20T12:00:00.000Z",
+    });
+
+    const response = await handleChatKitMessage(baseContext, JSON.stringify({
+      type: "threads.list",
+      params: {
+        limit: 9999,
+        order: "desc",
+      },
+      metadata: {
+        source: "chatkit_custom_backend",
+        conversationId: "conversation-1",
+        pageContext: { type: "product", entityId: "gid://shopify/Product/1" },
+      },
+    }), {
+      conversationStore: store,
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data[0].id).toBe("conversation-1");
+    expect(store.listConversationInputs[0].limit).toBe(50);
+  });
+
+  it("accepts common ChatKit thread id aliases when loading a conversation", async () => {
+    const store = new InMemoryConversationStore();
+    store.conversations.push({
+      id: "conversation-1",
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      title: "Existing conversation",
+      createdAt: "2026-05-20T12:00:00.000Z",
+      updatedAt: "2026-05-20T12:00:00.000Z",
+    });
+
+    const response = await handleChatKitMessage(baseContext, JSON.stringify({
+      type: "threads.get_by_id",
+      params: {
+        id: "conversation-1",
+      },
+      metadata: {
+        source: "chatkit_custom_backend",
+      },
+    }), {
+      conversationStore: store,
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.id).toBe("conversation-1");
+  });
+
   it("streams navigation widget actions as client effects instead of assistant text", async () => {
     const store = new InMemoryConversationStore();
     store.conversations.push({
@@ -973,6 +1035,7 @@ class InMemoryConversationStore {
     this.conversations = [];
     this.messages = [];
     this.contexts = [];
+    this.listConversationInputs = [];
   }
 
   async getConversation(context, conversationId) {
@@ -996,6 +1059,7 @@ class InMemoryConversationStore {
   }
 
   async listConversations(context, input = {}) {
+    this.listConversationInputs.push(input);
     const conversations = this.conversations
       .filter((conversation) => conversation.shop === context.shop)
       .slice(0, input.limit || 20);

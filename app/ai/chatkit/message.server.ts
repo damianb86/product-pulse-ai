@@ -53,7 +53,7 @@ const userMessageInputSchema = z.object({
 }).passthrough();
 
 const pageParamsSchema = z.object({
-  limit: z.number().int().min(1).max(50).optional(),
+  limit: z.coerce.number().int().optional(),
   order: z.enum(["asc", "desc"]).optional(),
   after: z.string().max(320).nullable().optional(),
 }).passthrough();
@@ -162,7 +162,7 @@ export async function handleChatKitMessage(
     return jsonResponse({ error: { code: "VALIDATION_ERROR", message: "ChatKit request body must be valid JSON." } }, 400);
   }
 
-  const parsed = chatKitServerRequestSchema.safeParse(parsedJson.value);
+  const parsed = chatKitServerRequestSchema.safeParse(normalizeChatKitServerRequest(parsedJson.value));
   if (!parsed.success) {
     return jsonResponse({
       error: {
@@ -742,6 +742,59 @@ function parseJson(rawBody: string): { ok: true; value: unknown } | { ok: false 
   } catch {
     return { ok: false };
   }
+}
+
+function normalizeChatKitServerRequest(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const request = { ...(value as Record<string, unknown>) };
+  const params = request.params && typeof request.params === "object"
+    ? { ...(request.params as Record<string, unknown>) }
+    : {};
+  const type = String(request.type || "");
+
+  if ([
+    "threads.get_by_id",
+    "items.list",
+    "threads.update",
+    "threads.custom_action",
+    "threads.sync_custom_action",
+  ].includes(type)) {
+    const threadId = firstNonEmptyString(
+      params.thread_id,
+      params.threadId,
+      params.id,
+      params.thread,
+      request.thread_id,
+      request.threadId,
+      request.id,
+    );
+    if (threadId && !params.thread_id) params.thread_id = threadId;
+  }
+
+  if (type === "items.feedback") {
+    const threadId = firstNonEmptyString(params.thread_id, params.threadId, params.id, request.thread_id, request.threadId);
+    if (threadId && !params.thread_id) params.thread_id = threadId;
+    if (!params.item_ids && Array.isArray(params.itemIds)) params.item_ids = params.itemIds;
+  }
+
+  if (params.pageSize != null && params.limit == null) params.limit = params.pageSize;
+  if (params.cursor != null && params.after == null) params.after = params.cursor;
+  if (Object.prototype.hasOwnProperty.call(request, "params")) request.params = params;
+  else if (Object.keys(params).length) request.params = params;
+  return request;
+}
+
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    const direct = typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
+    if (direct) return direct;
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const nested = firstNonEmptyString(record.id, record.thread_id, record.threadId);
+      if (nested) return nested;
+    }
+  }
+  return "";
 }
 
 function toIso(value: unknown): string {
