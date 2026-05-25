@@ -1,5 +1,4 @@
 /* global BigInt */
-import { createHash } from "node:crypto";
 import prisma from "../db.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 
@@ -1185,13 +1184,13 @@ function buildCustomerSegments({ record, firstOrder, firstOrderProductLines }) {
   add("acquisition_source", getAcquisitionSource(firstOrder));
   add("discount_used", firstOrder.discountUsed ? "yes" : "no");
   (firstOrder.discountCodes.length ? firstOrder.discountCodes : ["no_discount_code"]).forEach((code) => add("discount_code", code));
-  add("country", firstOrder.country || "unknown");
-  add("province", firstOrder.province || "unknown");
+  add("country", "unknown");
+  add("province", "unknown");
   add("order_channel", firstOrder.sourceName || "unknown");
   (firstOrder.customerTags.length ? firstOrder.customerTags : ["untagged"]).forEach((tag) => add("customer_tag", tag));
   add("quantity_bucket", quantityBucket(sum(firstOrderProductLines, "quantity")));
   add("price_bucket", priceBucket(getFirstProductUnitPriceCents(firstOrderProductLines)));
-  add("marketing_consent", firstOrder.marketingConsent || "unknown");
+  add("marketing_consent", "unknown");
   return dedupeSegments(segments);
 }
 
@@ -1210,9 +1209,7 @@ function normalizeRetentionOrder(order, { timezone, index = 0 }) {
   const lineItems = rawLineItems.map((lineItem, lineIndex) => normalizeRetentionLineItem(lineItem, { order, discountCodes, lineIndex })).filter(Boolean);
   const grossRevenueCents = sum(lineItems, "grossRevenueCents");
   const netRevenueCents = sum(lineItems, "netRevenueCents");
-  const address = normalizeAddress(order?.shippingAddress || order?.shipping_address || order?.billingAddress || order?.billing_address);
   const customer = order?.customer || {};
-  const marketingConsent = normalizeMarketingConsent(order?.marketingConsent || customer.emailMarketingConsent?.marketingState || customer.marketingConsent);
   return {
     id: String(order?.id || order?.orderId || `order:${index}`),
     name: order?.name || order?.orderName || "",
@@ -1228,13 +1225,7 @@ function normalizeRetentionOrder(order, { timezone, index = 0 }) {
     sourceName: order?.sourceName || order?.source_name || order?.channel || "",
     referrerUrl: order?.referrerUrl || order?.referringSite || order?.referring_site || "",
     landingPageUrl: order?.landingPageUrl || order?.landing_page || "",
-    country: address.country,
-    countryCode: address.countryCode,
-    province: address.province,
-    provinceCode: address.provinceCode,
-    city: address.city,
     customerTags: normalizeStringList(order?.customerTags || customer.tags),
-    marketingConsent,
     discountCodes,
     discountUsed: Boolean(discountCodes.length || Number(order?.totalDiscountsCents || 0) > 0 || moneyBagToCents(order?.totalDiscountsSet) > 0),
     lineItems,
@@ -1303,8 +1294,6 @@ function getRetentionCustomerKey(order) {
   const customer = order?.customer || {};
   const customerGid = String(order?.customerGid || order?.customerId || customer.id || "").trim();
   if (customerGid) return `customer:${customerGid}`;
-  const email = normalizeEmail(order?.email || customer.email || order?.customerEmail);
-  if (email) return `email_hash:${hashStableValue(email)}`;
   return "";
 }
 
@@ -1404,8 +1393,6 @@ function normalizeShopifyRetentionOrder(order) {
     sourceName: order.sourceName,
     referrerUrl: order.referrerUrl,
     landingPageUrl: order.landingPageUrl,
-    shippingAddress: order.shippingAddress,
-    billingAddress: order.billingAddress,
     customer: order.customer,
     discountCodes: normalizeDiscountCodes(order.discountApplications),
     totalDiscountsCents: moneyBagToCents(order.totalDiscountsSet),
@@ -1453,20 +1440,6 @@ function buildProductRetentionOrdersQuery() {
           sourceName
           referrerUrl
           landingPageUrl
-          shippingAddress {
-            country
-            countryCodeV2
-            province
-            provinceCode
-            city
-          }
-          billingAddress {
-            country
-            countryCodeV2
-            province
-            provinceCode
-            city
-          }
           customer {
             id
             tags
@@ -2215,14 +2188,6 @@ function subtractNullable(left, right) {
   return roundDecimal(Number(left) - Number(right), 6);
 }
 
-function normalizeEmail(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function hashStableValue(value) {
-  return createHash("sha256").update(String(value || "")).digest("hex");
-}
-
 function normalizeStringList(value) {
   if (Array.isArray(value)) return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)));
   return String(value || "")
@@ -2248,24 +2213,6 @@ function normalizeDiscountCodes(value) {
 
 function sumDiscountAllocations(discountAllocations) {
   return (Array.isArray(discountAllocations) ? discountAllocations : []).reduce((total, allocation) => total + moneyBagToCents(allocation.allocatedAmountSet), 0);
-}
-
-function normalizeAddress(address = {}) {
-  return {
-    country: address.country || address.countryName || "",
-    countryCode: address.countryCodeV2 || address.countryCode || "",
-    province: address.province || address.state || "",
-    provinceCode: address.provinceCode || address.stateCode || "",
-    city: address.city || "",
-  };
-}
-
-function normalizeMarketingConsent(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (!normalized) return "unknown";
-  if (["subscribed", "opted_in", "enabled"].some((item) => normalized.includes(item))) return "subscribed";
-  if (["not_subscribed", "unsubscribed", "opted_out", "disabled"].some((item) => normalized.includes(item))) return "not_subscribed";
-  return "unknown";
 }
 
 function inferCurrency(orders) {
@@ -2369,5 +2316,4 @@ export const __productPulseRetentionTestHooks = {
   buildProductRetentionOrdersQuery,
   calculateRetentionHealthScore,
   getLocalDateKey,
-  hashStableValue,
 };

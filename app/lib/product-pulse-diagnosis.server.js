@@ -672,46 +672,27 @@ async function fetchShopifyProduct({ admin, snapshot }) {
   return normalizeShopifyProduct(data?.products?.nodes?.[0], snapshot);
 }
 
-async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
-  const bundle = await fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays, sinceDate });
-  return bundle.sales;
-}
-
 async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
   if (!admin?.graphql) return { sales: [], relationshipSales: [] };
   const sales = [];
   const relationshipSales = [];
   let cursor = null;
-  let includeGeography = true;
   const querySinceDate = normalizeShopifySinceDate(sinceDate, windowDays);
 
   for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
-    let data = null;
-    try {
-      data = await shopifyGraphql(
-        admin,
-        buildDiagnosisSalesQuery({ includeGeography }),
-        {
-          after: cursor,
-          query: `processed_at:>=${querySinceDate}`,
-          ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
-          lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
-        },
-      );
-    } catch (error) {
-      if (includeGeography && isShopifyOrderGeographyAccessError(error)) {
-        includeGeography = false;
-        cursor = null;
-        sales.length = 0;
-        relationshipSales.length = 0;
-        page = -1;
-        continue;
-      }
-      throw error;
-    }
+    const data = await shopifyGraphql(
+      admin,
+      buildDiagnosisSalesQuery(),
+      {
+        after: cursor,
+        query: `processed_at:>=${querySinceDate}`,
+        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
+        lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
+      },
+    );
 
     (data?.orders?.nodes || []).forEach((order) => {
-      const geography = getOrderAddressGeography(order);
+      const geography = null;
       const orderDate = toIso(getShopifyOrderDate(order));
       const customerKey = order.customer?.id || null;
       const orderLineItems = getNodes(order.lineItems);
@@ -939,7 +920,7 @@ function hasStableDiagnosisEventProductIdentifier(event = {}) {
   return Boolean(event.productId || event.variantId || event.sku);
 }
 
-function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
+function buildDiagnosisSalesQuery() {
   return `#graphql
       query ProductPulseDiagnosisSales($after: String, $query: String!, $ordersFirst: Int!, $lineItemsFirst: Int!) {
         orders(first: $ordersFirst, after: $after, query: $query, sortKey: PROCESSED_AT, reverse: true) {
@@ -954,22 +935,6 @@ function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
             customer {
               id
             }
-            ${includeGeography ? `
-            shippingAddress {
-              country
-              countryCodeV2
-              province
-              provinceCode
-              city
-            }
-            billingAddress {
-              country
-              countryCodeV2
-              province
-              provinceCode
-              city
-            }
-            ` : ""}
             lineItems(first: $lineItemsFirst) {
               nodes {
                 id
@@ -1028,12 +993,6 @@ function buildDiagnosisSalesQuery({ includeGeography = true } = {}) {
           }
         }
       }`;
-}
-
-function getOrderAddressGeography(order = {}) {
-  return normalizeOrderAddressGeography(order.shippingAddress)
-    || normalizeOrderAddressGeography(order.billingAddress)
-    || null;
 }
 
 function getShopifyOrderDate(order = {}) {
@@ -5973,7 +5932,7 @@ function getProductRelationshipRecommendationSignals(deterministic = {}) {
     ),
     crossSellOpportunity: normalizeSignal(
       actionSignals.crossSellOpportunityRelationship,
-      (title, lift, sampleSize) => `${title} appears as a follow-on purchase after this product${lift ? ` (${roundRate(lift, 1)}x lift` : ""} across ${sampleSize} customer sequence${sampleSize === 1 ? "" : "s"}; review post-purchase cross-sell or email flow positioning.`,
+      (title, lift, sampleSize) => `${title} appears as a follow-on purchase after this product${lift ? ` (${roundRate(lift, 1)}x lift` : ""} across ${sampleSize} customer sequence${sampleSize === 1 ? "" : "s"}; review post-purchase cross-sell or lifecycle flow positioning.`,
     ),
     compatibilityWarning: normalizeSignal(
       actionSignals.compatibilityWarningRelationship,
@@ -6503,7 +6462,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   if (id === "create-post-purchase-cross-sell") {
     return {
       ...common,
-      proposedChange: `Review a post-purchase cross-sell or email flow that suggests ${payload.relatedProductTitle || "the related product"} after this product.`,
+      proposedChange: `Review a post-purchase cross-sell or lifecycle flow that suggests ${payload.relatedProductTitle || "the related product"} after this product.`,
       shopifyField: "ProductPulse merchandising workflow",
       expectedImpact: relationshipExpectationMode
         ? "Keep the follow-on purchase pattern as merchandising context until the pairing/expectation risk is handled."
@@ -7367,7 +7326,7 @@ function buildRecommendedFaqRecommendation({ copy = {}, snapshot, mainIssue, pdp
 
   return {
     items: retainedItems
-      .map(({ source, ...item }) => item)
+      .map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => key !== "source")))
       .slice(0, 4),
     coverage: {
       existingFaqDetected: coverage.existingFaqDetected,
@@ -12293,8 +12252,6 @@ function buildOrderGeographyRows(sales = []) {
 
 function normalizeSalesEventGeography(event = {}) {
   return normalizeOrderAddressGeography(event.geography)
-    || normalizeOrderAddressGeography(event.shippingAddress)
-    || normalizeOrderAddressGeography(event.billingAddress)
     || normalizeOrderAddressGeography(event)
     || null;
 }
@@ -13883,12 +13840,6 @@ function getSinceDate(windowDays) {
 function isShopifyOrderAccessDenied(error) {
   const message = `${error?.message || ""} ${JSON.stringify(error?.graphqlErrors || [])}`.toLowerCase();
   return message.includes("access_denied") || message.includes("not approved to access the order object") || message.includes("order object");
-}
-
-function isShopifyOrderGeographyAccessError(error) {
-  const message = `${error?.message || ""} ${JSON.stringify(error?.graphqlErrors || [])}`.toLowerCase();
-  return (message.includes("shippingaddress") || message.includes("billingaddress") || message.includes("countrycodev2") || message.includes("provincecode"))
-    && (message.includes("access") || message.includes("protected customer data") || message.includes("denied") || message.includes("not approved") || message.includes("doesn") || message.includes("undefinedfield"));
 }
 
 function isMissingReturnReasonDefinitionError(error) {

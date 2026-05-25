@@ -954,9 +954,6 @@ const RELTEST_CUSTOMERS = Object.freeze(Array.from({ length: RELTEST_CUSTOMER_CO
   return {
     key: `reltest-customer-${number}`,
     label: `RELTEST_CUSTOMER_${number}`,
-    email: `reltest-customer-${number}@example.com`,
-    firstName: "RELTEST",
-    lastName: `Customer ${number}`,
     tags: [
       RELTEST_TAG,
       RELTEST_CUSTOMER_TAG,
@@ -1531,9 +1528,6 @@ function normalizeExistingReltestCustomer(spec, customer) {
 
 async function createMockCustomer(context, spec) {
   const customerInput = {
-    email: spec.email,
-    firstName: spec.firstName,
-    lastName: spec.lastName,
     note: spec.note,
     tags: [...spec.tags, `run-${context.runSuffix}`],
   };
@@ -2418,8 +2412,6 @@ async function createMockOrder(context, plan, location, currencyCode) {
     note: plan.note,
     tags: plan.tags,
     ...(plan.customerId ? { customer: { toAssociate: { id: plan.customerId } } } : {}),
-    shippingAddress: buildAddress(plan.index),
-    billingAddress: buildAddress(plan.index),
     fulfillment: location?.id ? {
       locationId: location.id,
       notifyCustomer: false,
@@ -2430,7 +2422,7 @@ async function createMockOrder(context, plan, location, currencyCode) {
     lineItems: plan.items.map((item) => ({
       variantId: item.variantId,
       quantity: item.quantity,
-      requiresShipping: true,
+      requiresShipping: false,
     })),
     transactions: [{
       kind: "SALE",
@@ -4420,32 +4412,6 @@ function stripNullish(value) {
   return Object.fromEntries(Object.entries(value)
     .filter(([, item]) => item !== null && item !== undefined)
     .map(([key, item]) => [key, stripNullish(item)]));
-}
-
-function buildAddress(index) {
-  const addresses = [
-    { city: "Austin", provinceCode: "TX", countryCode: "US", zip: "78701", street: "Test Dataset Ave" },
-    { city: "Brooklyn", provinceCode: "NY", countryCode: "US", zip: "11201", street: "Atlantic Test Way" },
-    { city: "Los Angeles", provinceCode: "CA", countryCode: "US", zip: "90012", street: "Mock Market St" },
-    { city: "Chicago", provinceCode: "IL", countryCode: "US", zip: "60607", street: "Signal Loop" },
-    { city: "Miami", provinceCode: "FL", countryCode: "US", zip: "33131", street: "Catalog Bay Dr" },
-    { city: "Seattle", provinceCode: "WA", countryCode: "US", zip: "98101", street: "Variant Pier" },
-    { city: "Toronto", provinceCode: "ON", countryCode: "CA", zip: "M5V 2T6", street: "Queen Test St" },
-    { city: "Vancouver", provinceCode: "BC", countryCode: "CA", zip: "V6B 1A1", street: "Return Harbor Rd" },
-    { city: "London", provinceCode: null, countryCode: "GB", zip: "SW1A 1AA", street: "Signal Mews" },
-    { city: "Sydney", provinceCode: "NSW", countryCode: "AU", zip: "2000", street: "Mock Wharf" },
-    { city: "Berlin", provinceCode: null, countryCode: "DE", zip: "10115", street: "Katalogstrasse" },
-  ];
-  const address = addresses[index % addresses.length];
-  return {
-    firstName: "Mock",
-    lastName: `Customer ${index + 1}`,
-    address1: `${100 + index} ${address.street}`,
-    city: address.city,
-    provinceCode: address.provinceCode,
-    countryCode: address.countryCode,
-    zip: address.zip,
-  };
 }
 
 function buildRunId() {

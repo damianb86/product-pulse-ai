@@ -21,22 +21,17 @@ const VARIANT_A_2 = "gid://shopify/ProductVariant/A2";
 function order({
   id,
   customerId,
-  email,
   createdAt,
   lineItems,
   cancelledAt = null,
   test = false,
   sourceName = "web",
   discountCodes = [],
-  country = "United States",
-  province = "CA",
   customerTags = [],
-  marketingConsent = "subscribed",
 }) {
   return {
     id,
     customerGid: customerId ? `gid://shopify/Customer/${customerId}` : null,
-    email,
     createdAt,
     processedAt: createdAt,
     cancelledAt,
@@ -44,12 +39,9 @@ function order({
     displayFinancialStatus: "PAID",
     sourceName,
     discountCodes,
-    shippingAddress: { country, province },
     customer: {
       id: customerId ? `gid://shopify/Customer/${customerId}` : null,
-      email,
       tags: customerTags,
-      emailMarketingConsent: { marketingState: marketingConsent },
     },
     lineItems: lineItems.map((lineItem, index) => ({
       id: `${id}:line:${index + 1}`,
@@ -186,17 +178,15 @@ function buildFixtureOrders() {
       ],
     }),
     order({
-      id: "c12-first-a-email-only",
-      email: " Buyer12@Example.COM ",
+      id: "c12-first-a",
+      customerId: "12",
       createdAt: "2024-02-01T11:00:00.000Z",
-      marketingConsent: "not_subscribed",
       lineItems: [{ productGid: PRODUCT_A, variantGid: VARIANT_A_1, netRevenueCents: 5000 }],
     }),
     order({
-      id: "c12-cross-b-email-only",
-      email: "buyer12@example.com",
+      id: "c12-cross-b",
+      customerId: "12",
       createdAt: "2024-02-15T11:00:00.000Z",
-      marketingConsent: "not_subscribed",
       lineItems: [{ productGid: PRODUCT_B, netRevenueCents: 1000 }],
     }),
     order({
@@ -297,12 +287,14 @@ describe("Product retention deterministic engine", () => {
     });
   });
 
-  it("calculates segment metrics and low-sample flags without exposing plain email identity", () => {
+  it("calculates segment metrics and excludes anonymous orders without protected customer fields", () => {
     const rows = calculateRows();
     const existingCustomer = rows.segmentDaily.find((row) => row.segmentType === "customer_type_at_first_product_purchase" && row.segmentValue === "existing_customer");
     const discountCode = rows.segmentDaily.find((row) => row.segmentType === "discount_code" && row.segmentValue === "SAVE10");
-    const normalizedEmailOrders = __productPulseRetentionTestHooks.normalizeRetentionOrders(buildFixtureOrders(), { timezone: "UTC" })
+    const normalizedCustomerOrders = __productPulseRetentionTestHooks.normalizeRetentionOrders(buildFixtureOrders(), { timezone: "UTC" })
       .filter((row) => row.id.startsWith("c12"));
+    const anonymousOrder = __productPulseRetentionTestHooks.normalizeRetentionOrders(buildFixtureOrders(), { timezone: "UTC" })
+      .find((row) => row.id === "anonymous-excluded");
 
     expect(existingCustomer).toMatchObject({
       cohortSize: 1,
@@ -315,17 +307,17 @@ describe("Product retention deterministic engine", () => {
       ltv90Cents: 10000,
       isLowSampleSize: true,
     });
-    expect(normalizedEmailOrders[0].customerKey).toBe(normalizedEmailOrders[1].customerKey);
-    expect(normalizedEmailOrders[0].customerKey).toMatch(/^email_hash:/);
-    expect(normalizedEmailOrders[0].customerKey).not.toContain("buyer12@example.com");
+    expect(normalizedCustomerOrders[0].customerKey).toBe(normalizedCustomerOrders[1].customerKey);
+    expect(normalizedCustomerOrders[0].customerKey).toBe("customer:gid://shopify/Customer/12");
+    expect(anonymousOrder.customerKey).toBe("");
   });
 
-  it("does not request protected customer email fields from Shopify orders", () => {
+  it("does not request protected customer fields from Shopify orders", () => {
     const query = __productPulseRetentionTestHooks.buildProductRetentionOrdersQuery();
 
     expect(query).toContain("customer {");
     expect(query).toContain("id");
-    expect(query).not.toMatch(/\\bemail\\b/);
+    expect(query).not.toMatch(/\b(email|phone|firstName|lastName|displayName|shippingAddress|billingAddress|address1|address2|city|province|country|zip)\b/i);
     expect(query).not.toContain("emailMarketingConsent");
   });
 

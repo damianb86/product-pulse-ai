@@ -181,17 +181,14 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(queryModes).toEqual(["updated_at", "partially_refunded", "refunded"]);
   });
 
-  it("requests Shopify order geography for sales extraction", () => {
+  it("does not request protected customer fields for sales extraction", () => {
     const query = __productPulseDiagnosisTestHooks.buildDiagnosisSalesQuery();
 
     expect(query).toContain("sortKey: PROCESSED_AT");
     expect(query).toContain("reverse: true");
     expect(query).toContain("customer");
-    expect(query).toContain("shippingAddress");
-    expect(query).toContain("billingAddress");
-    expect(query).toContain("countryCodeV2");
-    expect(query).toContain("provinceCode");
-    expect(query).toContain("city");
+    expect(query).toMatch(/customer\s*{\s*id\s*}/);
+    expect(query).not.toMatch(/\b(email|phone|firstName|lastName|displayName|shippingAddress|billingAddress|address1|address2|city|province|country|zip)\b/i);
     expect(query).toContain("featuredMedia");
     expect(query).toContain("media(first: 1)");
     expect(query).toContain("image");
