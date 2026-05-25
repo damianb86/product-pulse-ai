@@ -5687,6 +5687,11 @@ s-page[inline-size="large-500"] {
   gap: 6px;
 }
 
+.ppProductRiskHistoryPopoverEventRows {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
 .ppProductRiskHistoryPopoverRows span {
   display: flex;
   justify-content: space-between;

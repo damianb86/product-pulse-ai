@@ -1608,6 +1608,63 @@ describe("ProductPulse screens", () => {
     expect(xTickLabels).toEqual(expect.arrayContaining(["Jan 26", "Mar 26"]));
   });
 
+  it("uses evidence events instead of score-only milestones on product risk history", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        riskHistory: [
+          {
+            id: "history-base",
+            riskScore: 60,
+            source: "quickscan",
+            recordedAt: "2026-05-01T12:00:00.000Z",
+            negativeReviewCount: 1,
+            reviewCount: 10,
+            returnUnits: 1,
+            avgRating: 4.4,
+          },
+          {
+            id: "history-reviews",
+            riskScore: 60,
+            source: "watchlist-scan",
+            recordedAt: "2026-05-22T09:00:00.000Z",
+            negativeReviewCount: 13,
+            reviewCount: 22,
+            returnUnits: 1,
+            avgRating: 3.8,
+          },
+          {
+            id: "history-returns",
+            riskScore: 60,
+            source: "watchlist-scan",
+            recordedAt: "2026-05-22T18:00:00.000Z",
+            negativeReviewCount: 13,
+            reviewCount: 22,
+            returnUnits: 9,
+            avgRating: 3.8,
+          },
+        ],
+      },
+    };
+
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const historyPanel = container.querySelector(".ppProductRiskHistoryPanel");
+
+    expect(historyPanel).toBeInTheDocument();
+    expect(within(historyPanel).getAllByText("12 new negative reviews").length).toBeGreaterThan(0);
+    expect(within(historyPanel).queryByText("Risk score jumped")).not.toBeInTheDocument();
+    expect(historyPanel.querySelectorAll(".ppProductRiskHistoryMilestoneRule")).toHaveLength(1);
+
+    const reviewPoint = within(historyPanel).getAllByRole("button", { name: "May 22, 2026: product risk 60 of 100" })[0];
+    fireEvent.mouseEnter(reviewPoint);
+    const riskTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppProductRiskHistoryPopover"));
+    expect(riskTooltip).toHaveTextContent("12 new negative reviews");
+    expect(riskTooltip).toHaveTextContent("1 -> 13 negative reviews");
+    expect(riskTooltip).toHaveTextContent("Negative reviews");
+    expect(riskTooltip).toHaveTextContent("13");
+  });
+
   it("renders Product Momentum in the product detail view", () => {
     const product = {
       ...defaultView.startHere,

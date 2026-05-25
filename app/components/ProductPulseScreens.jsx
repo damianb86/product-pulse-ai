@@ -16467,6 +16467,10 @@ function ProductRiskHistoryPointButton({ point, previousPoint, chartPoint, chart
   const [open, setOpen] = useState(false);
   if (!point || !chartPoint || !chart?.width || !chart?.height) return null;
   const pointEvents = getProductRiskHistoryPointEvents(point, previousPoint);
+  const eventRows = pointEvents
+    .filter((event) => !event.scoreOnly && event.detail)
+    .slice(0, 3)
+    .map((event) => ({ label: event.title, value: event.detail }));
   const metricRows = getProductRiskHistoryPointMetricRows(point);
   const left = `${(chartPoint.x / chart.width) * 100}%`;
   const top = `${(chartPoint.y / chart.height) * 100}%`;
@@ -16492,6 +16496,13 @@ function ProductRiskHistoryPointButton({ point, previousPoint, chartPoint, chart
           <b>{formatInteger(point.riskScore)} / 100</b>
           <small>{point.source}</small>
         </span>
+        {eventRows.length ? (
+          <span className="ppProductRiskHistoryPopoverRows ppProductRiskHistoryPopoverEventRows">
+            {eventRows.map((row) => (
+              <span key={row.label}><b>{row.label}</b><small>{row.value}</small></span>
+            ))}
+          </span>
+        ) : null}
         {metricRows.length ? (
           <span className="ppProductRiskHistoryPopoverRows">
             {metricRows.map((row) => (
@@ -16823,7 +16834,7 @@ function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
   for (let index = 1; index < historyPoints.length; index += 1) {
     const point = historyPoints[index];
     const previous = historyPoints[index - 1];
-    const event = getProductRiskHistoryPointEvents(point, previous)[0];
+    const event = getProductRiskHistoryPointEvents(point, previous).find((item) => !item.scoreOnly) || null;
     if (!event) continue;
     const chartPoint = chartPoints[index];
     if (!chartPoint) continue;
@@ -16831,6 +16842,7 @@ function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
       id: `${event.title}-${index}`,
       ...event,
       label: point.label,
+      dateKey: getProductRiskHistoryPointDateKey(point, index),
       xPercent: Math.max(12, Math.min(88, (chartPoint.x / 1000) * 100)),
       topPercent: index % 2 === 0 ? 16 : 8,
       align: chartPoint.x > 760 ? "right" : "left",
@@ -16838,20 +16850,23 @@ function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
       priority: event.priority || 0,
     });
   }
-  return candidates
+  const selected = [];
+  candidates
     .sort((a, b) => b.priority - a.priority)
-    .slice(0, 2)
-    .sort((a, b) => a.xPercent - b.xPercent)
-    .map((milestone, index, selected) => {
-      const previous = selected[index - 1];
-      const isCloseToPrevious = previous && Math.abs(milestone.xPercent - previous.xPercent) < 22;
-      const canSplitHorizontally = isCloseToPrevious && milestone.xPercent > 24 && milestone.xPercent < 76;
-      return {
-        ...milestone,
-        topPercent: isCloseToPrevious ? 30 : milestone.topPercent,
-        align: canSplitHorizontally ? "right" : milestone.align,
-      };
+    .forEach((candidate) => {
+      if (selected.length >= 2) return;
+      const sameDate = selected.some((item) => item.dateKey && item.dateKey === candidate.dateKey);
+      const tooClose = selected.some((item) => Math.abs(item.xPercent - candidate.xPercent) < 14);
+      if (sameDate || tooClose) return;
+      selected.push(candidate);
     });
+
+  return selected
+    .sort((a, b) => a.xPercent - b.xPercent)
+    .map((milestone, index) => ({
+      ...milestone,
+      topPercent: index === 0 ? 8 : 22,
+    }));
 }
 
 function getProductRiskHistoryPointEvents(point = {}, previous = null) {
@@ -16859,13 +16874,33 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
   const add = (event) => {
     if (event?.title) events.push(event);
   };
-  const riskDelta = previous ? point.riskScore - previous.riskScore : 0;
-  if (Math.abs(riskDelta) >= 8) {
+  const negativeReviewDelta = getProductRiskHistoryMetricDelta(point, previous, "negativeReviewCount");
+  if (negativeReviewDelta !== null && negativeReviewDelta > 0) {
     add({
-      title: riskDelta > 0 ? "Risk score jumped" : "Risk score improved",
-      detail: `${formatInteger(previous.riskScore)} -> ${formatInteger(point.riskScore)} (${riskDelta > 0 ? "+" : ""}${formatInteger(riskDelta)} pts)`,
-      tone: riskDelta > 0 ? "red" : "green",
-      priority: 70 + Math.abs(riskDelta),
+      title: `${formatInteger(negativeReviewDelta)} new negative review${negativeReviewDelta === 1 ? "" : "s"}`,
+      detail: `${formatInteger(previous.negativeReviewCount || 0)} -> ${formatInteger(point.negativeReviewCount || 0)} negative reviews`,
+      tone: "orange",
+      priority: 118 + Math.min(30, negativeReviewDelta),
+    });
+  }
+
+  const ratingDelta = getProductRiskHistoryMetricDelta(point, previous, "avgRating");
+  if (ratingDelta !== null && ratingDelta <= -0.4) {
+    add({
+      title: "Average rating dropped",
+      detail: `${formatDecimal(previous.avgRating, 1)} -> ${formatDecimal(point.avgRating, 1)} stars`,
+      tone: "red",
+      priority: 106 + Math.min(20, Math.abs(ratingDelta) * 10),
+    });
+  }
+
+  const returnUnitsDelta = getProductRiskHistoryMetricDelta(point, previous, "returnUnits");
+  if (returnUnitsDelta !== null && returnUnitsDelta >= 3) {
+    add({
+      title: `${formatInteger(returnUnitsDelta)} returned units added`,
+      detail: `${formatInteger(previous.returnUnits || 0)} -> ${formatInteger(point.returnUnits || 0)} returned units`,
+      tone: "red",
+      priority: 112 + Math.min(30, returnUnitsDelta),
     });
   }
 
@@ -16875,7 +16910,17 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
       title: "Return rate spike",
       detail: `${formatPercent(previous.returnRate)} -> ${formatPercent(point.returnRate)}`,
       tone: "red",
-      priority: 90 + returnDelta,
+      priority: 120 + returnDelta,
+    });
+  }
+
+  const refundUnitsDelta = getProductRiskHistoryMetricDelta(point, previous, "refundUnits");
+  if (refundUnitsDelta !== null && refundUnitsDelta >= 2) {
+    add({
+      title: `${formatInteger(refundUnitsDelta)} refunded units added`,
+      detail: `${formatInteger(previous.refundUnits || 0)} -> ${formatInteger(point.refundUnits || 0)} refunded units`,
+      tone: "orange",
+      priority: 108 + Math.min(26, refundUnitsDelta),
     });
   }
 
@@ -16888,27 +16933,7 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
         ? `${formatPercent(previous.refundRate)} -> ${formatPercent(point.refundRate)}`
         : `Refund value ${formatMoney(point.refundAmount || 0)}`,
       tone: "orange",
-      priority: 84 + Math.max(refundDelta || 0, Math.min(20, (refundAmountDelta || 0) / 10)),
-    });
-  }
-
-  const negativeReviewDelta = getProductRiskHistoryMetricDelta(point, previous, "negativeReviewCount");
-  if (negativeReviewDelta !== null && negativeReviewDelta > 0) {
-    add({
-      title: "Negative reviews increased",
-      detail: `${formatInteger(previous.negativeReviewCount || 0)} -> ${formatInteger(point.negativeReviewCount || 0)} negative reviews`,
-      tone: "orange",
-      priority: 80 + negativeReviewDelta,
-    });
-  }
-
-  const ratingDelta = getProductRiskHistoryMetricDelta(point, previous, "avgRating");
-  if (ratingDelta !== null && ratingDelta <= -0.4) {
-    add({
-      title: "Average rating dropped",
-      detail: `${formatDecimal(previous.avgRating, 1)} -> ${formatDecimal(point.avgRating, 1)} stars`,
-      tone: "red",
-      priority: 78 + Math.abs(ratingDelta),
+      priority: 110 + Math.max(refundDelta || 0, Math.min(24, (refundAmountDelta || 0) / 10)),
     });
   }
 
@@ -16921,7 +16946,26 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
     });
   }
 
+  const riskDelta = previous ? point.riskScore - previous.riskScore : 0;
+  if (!events.length && Math.abs(riskDelta) >= 8) {
+    add({
+      title: "Risk score changed",
+      detail: `${formatInteger(previous.riskScore)} -> ${formatInteger(point.riskScore)} (${riskDelta > 0 ? "+" : ""}${formatInteger(riskDelta)} pts). No supporting signal delta was stored for this snapshot.`,
+      tone: riskDelta > 0 ? "red" : "green",
+      priority: 1,
+      scoreOnly: true,
+    });
+  }
+
   return events.sort((a, b) => b.priority - a.priority);
+}
+
+function getProductRiskHistoryPointDateKey(point = {}, index = 0) {
+  if (point.recordedAt) {
+    const date = new Date(point.recordedAt);
+    if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  }
+  return point.label || `point-${index}`;
 }
 
 function getProductRiskHistoryMetricDelta(point = {}, previous = {}, key = "") {
@@ -16935,8 +16979,11 @@ function getProductRiskHistoryMetricDelta(point = {}, previous = {}, key = "") {
 function getProductRiskHistoryPointMetricRows(point = {}) {
   return [
     Number.isFinite(Number(point.returnRate)) ? { label: "Return rate", value: formatPercent(point.returnRate) } : null,
+    Number.isFinite(Number(point.returnUnits)) ? { label: "Returned units", value: formatInteger(point.returnUnits) } : null,
     Number.isFinite(Number(point.refundRate)) ? { label: "Refund rate", value: formatPercent(point.refundRate) } : null,
+    Number.isFinite(Number(point.refundUnits)) ? { label: "Refunded units", value: formatInteger(point.refundUnits) } : null,
     Number.isFinite(Number(point.negativeReviewCount)) ? { label: "Negative reviews", value: formatInteger(point.negativeReviewCount) } : null,
+    Number.isFinite(Number(point.reviewCount)) ? { label: "Total reviews", value: formatInteger(point.reviewCount) } : null,
     Number.isFinite(Number(point.avgRating)) ? { label: "Average rating", value: `${formatDecimal(point.avgRating, 1)} / 5` } : null,
     Number.isFinite(Number(point.signalCount)) ? { label: "Evidence signals", value: formatInteger(point.signalCount) } : null,
     Number.isFinite(Number(point.refundAmount)) ? { label: "Refund value", value: formatMoney(point.refundAmount) } : null,
