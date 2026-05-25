@@ -1506,6 +1506,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       max: getAnalyticsMax(analysisCoverage),
     },
     impactTrend: buildAnalyticsImpactTrend(productList, { windowDays, totalMarginAtRisk: totals.marginAtRisk }),
+    actionImpactTrend: buildAnalyticsActionImpactTrend(actionRows, productList, { windowDays }),
     issueImpact: {
       rows: buildAnalyticsIssueImpact(productList),
     },
@@ -2245,6 +2246,123 @@ function buildAnalyticsActionPerformance(actionRows = []) {
     rows: rows.map((row) => ({ ...row, valueLabel: formatDashboardNumber(row.value) })),
     effectiveness: buildAnalyticsFixEffectiveness(actionRows),
   };
+}
+
+function buildAnalyticsActionImpactTrend(actionRows = [], productList = [], { windowDays = 90 } = {}) {
+  const appliedRows = (Array.isArray(actionRows) ? actionRows : [])
+    .filter((action) => action.status === "applied")
+    .map((action) => ({
+      ...action,
+      time: new Date(action.appliedAt || action.createdAt || 0).getTime(),
+    }))
+    .filter((action) => Number.isFinite(action.time) && action.time > 0);
+  const rowsByProduct = new Map();
+  appliedRows.forEach((row) => {
+    const product = row.product;
+    if (!product) return;
+    const key = product.id || product.productGid || product.handle || product.title;
+    const current = rowsByProduct.get(key) || { product, rows: [] };
+    current.rows.push(row);
+    rowsByProduct.set(key, current);
+  });
+  const effects = Array.from(rowsByProduct.values())
+    .map(({ product, rows }) => getAnalyticsProductFixEffect(product, rows))
+    .filter(Boolean);
+  const productTimestamps = (Array.isArray(productList) ? productList : [])
+    .flatMap((product) => [
+      product.analysisCompletedAt,
+      product.lastAnalysis,
+      product.metrics?.lastSignalAt,
+      ...(Array.isArray(product.metrics?.riskHistory) ? product.metrics.riskHistory.map((point) => point.recordedAt) : []),
+    ])
+    .map((value) => new Date(value || 0).getTime())
+    .filter((time) => Number.isFinite(time) && time > 0);
+  const timestamps = [
+    ...appliedRows.map((row) => row.time),
+    ...effects.map((effect) => effect.actionTime),
+    ...productTimestamps,
+  ].filter((time) => Number.isFinite(time) && time > 0);
+  const pointCount = Math.min(30, Math.max(7, Math.round(Number(windowDays || 90))));
+  const latestTime = timestamps.length ? Math.max(...timestamps) : Date.now();
+  const earliestAllowed = latestTime - (Math.max(1, Number(windowDays || 90)) - 1) * 24 * 60 * 60 * 1000;
+  const earliestTime = timestamps.length ? Math.max(Math.min(...timestamps), earliestAllowed) : earliestAllowed;
+  const timeline = buildAnalyticsTimeSeriesPoints(earliestTime, latestTime, pointCount);
+  const actionsAppliedValues = timeline.map((time) => appliedRows.filter((row) => row.time <= time).length);
+  const reducedRiskValues = timeline.map((time) => effects.reduce((sum, effect) => {
+    if (Number(effect.actionTime || 0) > time) return sum;
+    const before = toFiniteAnalyticsNumber(effect.before?.marginAtRisk);
+    const after = toFiniteAnalyticsNumber(effect.after?.marginAtRisk);
+    if (before === null || after === null) return sum;
+    return sum + Math.max(0, before - after);
+  }, 0));
+  const reducedReturnsValues = timeline.map((time) => {
+    const rows = effects
+      .filter((effect) => Number(effect.actionTime || 0) <= time)
+      .map((effect) => {
+        const before = toFiniteAnalyticsNumber(effect.before?.returnRate);
+        const after = toFiniteAnalyticsNumber(effect.after?.returnRate);
+        if (before === null || after === null) return null;
+        return Math.max(0, before - after);
+      })
+      .filter((value) => value !== null);
+    return rows.length ? rows.reduce((sum, value) => sum + value, 0) / rows.length : 0;
+  });
+  const latestActions = actionsAppliedValues[actionsAppliedValues.length - 1] || 0;
+  const latestReducedRisk = reducedRiskValues[reducedRiskValues.length - 1] || 0;
+  const latestReducedReturns = reducedReturnsValues[reducedReturnsValues.length - 1] || 0;
+
+  return {
+    hasData: appliedRows.length > 0 || effects.length > 0,
+    labels: timeline.map(formatAnalyticsDateLabel),
+    summary: {
+      actionsApplied: latestActions,
+      actionsAppliedLabel: formatDashboardNumber(latestActions),
+      reducedRisk: latestReducedRisk,
+      reducedRiskLabel: formatDashboardMoney(latestReducedRisk),
+      reducedReturns: latestReducedReturns,
+      reducedReturnsLabel: formatDashboardRate(latestReducedReturns),
+      detail: effects.length
+        ? `${formatDashboardNumber(effects.length)} product${effects.length === 1 ? "" : "s"} compared against a saved pre-action baseline.`
+        : "Action timing is available, but before/after risk history is still needed to measure impact.",
+    },
+    series: [
+      {
+        key: "actionsApplied",
+        label: "Actions applied",
+        color: "purple",
+        axis: "count",
+        values: actionsAppliedValues,
+        displayValue: formatDashboardNumber(latestActions),
+      },
+      {
+        key: "reducedRiskUsd",
+        label: "Reduced risk (USD)",
+        color: "green",
+        axis: "money",
+        values: reducedRiskValues,
+        displayValue: formatDashboardMoney(latestReducedRisk),
+      },
+      {
+        key: "reducedReturns",
+        label: "Reduced returns",
+        color: "blue",
+        axis: "percent",
+        values: reducedReturnsValues,
+        displayValue: formatDashboardRate(latestReducedReturns),
+      },
+    ],
+  };
+}
+
+function buildAnalyticsTimeSeriesPoints(startTime, endTime, pointCount) {
+  const count = Math.max(1, Math.round(Number(pointCount || 1)));
+  const safeEnd = Number.isFinite(endTime) ? endTime : Date.now();
+  const safeStart = Number.isFinite(startTime) && startTime < safeEnd
+    ? startTime
+    : safeEnd - (count - 1) * 24 * 60 * 60 * 1000;
+  if (count === 1) return [safeEnd];
+  const step = (safeEnd - safeStart) / Math.max(count - 1, 1);
+  return Array.from({ length: count }, (_, index) => Math.round(safeStart + index * step));
 }
 
 function buildAnalyticsFixEffectiveness(actionRows = []) {

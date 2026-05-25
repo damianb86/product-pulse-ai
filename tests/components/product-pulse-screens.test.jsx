@@ -4841,6 +4841,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Revenue at risk (USD)").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Issue distribution by type").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Source coverage mix").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Action impact over time").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Apply recommended actions and run another diagnosis/)).toBeInTheDocument();
     expect(screen.getAllByText("Margin at risk over time").length).toBeGreaterThan(0);
     expect(screen.getByText("Current total")).toBeInTheDocument();
     expect(screen.getByText("Trend-weighted now")).toBeInTheDocument();

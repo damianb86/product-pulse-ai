@@ -20839,6 +20839,107 @@ s-page[inline-size="large-500"] {
   color: var(--pp-pulse-blue);
 }
 
+.ppAnalyticsPanelActionImpactTrend .ppAnalyticsPanel {
+  min-height: 352px;
+}
+
+.ppAnalyticsActionImpactChart {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ppAnalyticsActionImpactLegend {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  flex-wrap: wrap;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ppAnalyticsActionImpactLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ppAnalyticsActionImpactLegend i {
+  width: 12px;
+  height: 5px;
+  border-radius: 999px;
+}
+
+.ppAnalyticsActionImpactSvg {
+  display: block;
+  width: 100%;
+  min-height: 250px;
+  overflow: visible;
+}
+
+.ppAnalyticsActionImpactAxisText {
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.ppAnalyticsActionImpactAxisText-count {
+  fill: var(--pp-slate-500);
+  text-anchor: end;
+}
+
+.ppAnalyticsActionImpactAxisText-money {
+  fill: var(--pp-signal-teal);
+}
+
+.ppAnalyticsActionImpactAxisText-percent {
+  fill: #5C8BE8;
+}
+
+.ppAnalyticsActionImpactBar {
+  fill: rgba(var(--pp-insight-violet-rgb), 0.76);
+  filter: drop-shadow(0 6px 10px rgba(var(--pp-insight-violet-rgb), 0.12));
+}
+
+.ppAnalyticsActionImpactLine {
+  fill: none;
+  stroke-width: 2.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppAnalyticsActionImpactLine-risk {
+  stroke: var(--pp-signal-teal);
+}
+
+.ppAnalyticsActionImpactLine-returns {
+  stroke: #5C8BE8;
+}
+
+.ppAnalyticsActionImpactDot {
+  fill: var(--pp-cloud-white);
+  stroke-width: 2.4;
+  filter: drop-shadow(0 3px 7px rgba(var(--pp-shadow-rgb), 0.14));
+}
+
+.ppAnalyticsActionImpactDot-risk {
+  stroke: var(--pp-signal-teal);
+}
+
+.ppAnalyticsActionImpactDot-returns {
+  stroke: #5C8BE8;
+}
+
+.ppAnalyticsActionImpactChart > p {
+  justify-self: end;
+  margin: -2px 0 0;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .ppAnalyticsTimeSelect {
   position: relative;
 }

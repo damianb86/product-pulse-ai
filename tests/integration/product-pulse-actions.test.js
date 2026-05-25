@@ -426,6 +426,7 @@ describe("ProductPulse actions", () => {
       lastAnalysis: "2026-05-20T00:00:00.000Z",
       metrics: {
         latestDiagnosisId: "diagnosis-deep",
+        returnRate: 7,
         marginAtRisk: 1000,
         revenueAtRisk: 4000,
         signalCount: 4,
@@ -436,10 +437,19 @@ describe("ProductPulse actions", () => {
         soldUnits: 10,
         contentIssueCount: 2,
         riskHistory: [
-          { recordedAt: "2026-05-01T00:00:00.000Z", riskScore: 60, marginAtRisk: 600, revenueAtRisk: 2400 },
-          { recordedAt: "2026-05-20T00:00:00.000Z", riskScore: 82, marginAtRisk: 1000, revenueAtRisk: 4000 },
+          { recordedAt: "2026-05-01T00:00:00.000Z", riskScore: 90, returnRate: 12, marginAtRisk: 1400, revenueAtRisk: 5200 },
+          { recordedAt: "2026-05-20T00:00:00.000Z", riskScore: 82, returnRate: 7, marginAtRisk: 1000, revenueAtRisk: 4000 },
         ],
       },
+      actionHistory: [
+        {
+          id: "action-impact-1",
+          actionId: "rewrite-description",
+          label: "Rewrite description",
+          status: "applied",
+          appliedAt: "2026-05-10T00:00:00.000Z",
+        },
+      ],
     };
     const quickScanProduct = {
       id: "gid://shopify/Product/quick",
@@ -461,6 +471,7 @@ describe("ProductPulse actions", () => {
 
     const analytics = buildAnalyticsViewData([fullDiagnosisProduct, quickScanProduct]);
     const trendSeries = analytics.deepDiagnosisCharts.riskMarginTrend.series;
+    const actionImpactSeries = analytics.actionImpactTrend.series;
 
     expect(analytics.deepDiagnosisCharts.productCount).toBe(1);
     expect(trendSeries.find((series) => series.key === "marginAtRisk").values.at(-1)).toBe(1000);
@@ -478,6 +489,9 @@ describe("ProductPulse actions", () => {
       "Product content",
     ]));
     expect(analytics.deepDiagnosisCharts.sourceCoverageMix.total).toBe(20);
+    expect(actionImpactSeries.find((series) => series.key === "actionsApplied").values.at(-1)).toBe(1);
+    expect(actionImpactSeries.find((series) => series.key === "reducedRiskUsd").values.at(-1)).toBe(400);
+    expect(actionImpactSeries.find((series) => series.key === "reducedReturns").values.at(-1)).toBe(5);
   });
 
   it("creates expanded recommended action recipes with impact tiers", () => {

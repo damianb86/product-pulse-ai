@@ -17195,6 +17195,7 @@ export function AnalyticsScreen({ data }) {
   const businessImpact = analyticsView.businessImpact || { title: "Estimated business impact", subtitle: "", metrics: [] };
   const riskBubbles = analyticsView.riskBubbles || [];
   const impactTrend = analyticsView.impactTrend || { series: [], labels: [] };
+  const actionImpactTrend = analyticsView.actionImpactTrend || { series: [], labels: [] };
   const issueImpact = analyticsView.issueImpact || { rows: [] };
   const impactBreakdown = analyticsView.impactBreakdown || { defaultKey: "collection", filters: [] };
   const breakdownFilters = impactBreakdown.filters || [];
@@ -17234,6 +17235,8 @@ export function AnalyticsScreen({ data }) {
           <AnalyticsIssueDistributionPanel distribution={deepDiagnosisCharts.issueDistribution} />
           <AnalyticsSourceCoverageMixPanel mix={deepDiagnosisCharts.sourceCoverageMix} />
         </div>
+
+        <AnalyticsActionImpactTrendPanel chart={actionImpactTrend} />
 
         <div className="ppAnalyticsChartGrid">
           <AnalyticsPanel title="Risk vs. margin impact" subtitle="X: product risk · Y: margin at risk · Bubble size: revenue at risk" className="ppAnalyticsPanelRiskMargin">
@@ -26904,6 +26907,17 @@ function getAnalyticsPanelInfo(title = "") {
       ],
     };
   }
+  if (normalizedTitle.includes("action impact")) {
+    return {
+      title: "Action impact over time",
+      body: "Tracks applied recommended actions and the measurable before/after impact stored in product risk history.",
+      items: [
+        "Purple bars are cumulative applied actions.",
+        "Reduced risk is measured as lower margin-at-risk dollars after actions.",
+        "Reduced returns is measured as average return-rate reduction after actions.",
+      ],
+    };
+  }
   if (normalizedTitle.includes("catalog coverage")) {
     return {
       title: "Catalog coverage",
@@ -27230,6 +27244,104 @@ function AnalyticsSourceCoverageMixPanel({ mix }) {
   );
 }
 
+function AnalyticsActionImpactTrendPanel({ chart }) {
+  return (
+    <AnalyticsPanel
+      title="Action impact over time"
+      subtitle="Applied recommendations and measured before/after product impact"
+      className="ppAnalyticsPanelActionImpactTrend"
+    >
+      <AnalyticsActionImpactTrendChart chart={chart} />
+    </AnalyticsPanel>
+  );
+}
+
+function AnalyticsActionImpactTrendChart({ chart }) {
+  const series = Array.isArray(chart?.series) ? chart.series : [];
+  const labels = Array.isArray(chart?.labels) ? chart.labels : [];
+  const actionsSeries = series.find((row) => row.key === "actionsApplied") || { values: [], label: "Actions applied", color: "purple" };
+  const riskSeries = series.find((row) => row.key === "reducedRiskUsd") || { values: [], label: "Reduced risk (USD)", color: "green" };
+  const returnsSeries = series.find((row) => row.key === "reducedReturns") || { values: [], label: "Reduced returns", color: "blue" };
+  const pointCount = Math.max(labels.length, actionsSeries.values.length, riskSeries.values.length, returnsSeries.values.length, 0);
+  const safeLabels = labels.length ? labels : Array.from({ length: pointCount }, (_, index) => (index === pointCount - 1 ? "Today" : ""));
+  const layout = { left: 54, right: 812, top: 28, bottom: 226, width: 758, height: 198, labelY: 266, moneyAxisX: 852, percentAxisX: 914, viewBoxWidth: 948, viewBoxHeight: 288 };
+  const actionAxisMax = getAnalyticsCountAxisMax(actionsSeries.values);
+  const moneyAxisMax = getAnalyticsChartAxisMax(riskSeries.values);
+  const percentAxisMax = getAnalyticsPercentAxisMax(returnsSeries.values);
+  const labelIndexes = getAnalyticsChartLabelIndexes(pointCount);
+  const barWidth = Math.max(5, Math.min(24, (layout.width / Math.max(pointCount, 1)) * 0.56));
+
+  if (!chart?.hasData) {
+    return <AnalyticsEmptyPanel message="Apply recommended actions and run another diagnosis to measure impact over time." />;
+  }
+
+  const riskPoints = getAnalyticsDualAxisLinePoints(riskSeries.values, moneyAxisMax, layout);
+  const returnsPoints = getAnalyticsDualAxisLinePoints(returnsSeries.values, percentAxisMax, layout);
+
+  return (
+    <div className="ppAnalyticsActionImpactChart">
+      <div className="ppAnalyticsActionImpactLegend">
+        {[actionsSeries, riskSeries, returnsSeries].map((row) => (
+          <span key={row.key || row.label}>
+            <i className={`ppDot-${row.color || "blue"}`} aria-hidden="true" />
+            {row.label}
+          </span>
+        ))}
+      </div>
+      <svg className="ppAnalyticsActionImpactSvg" viewBox={`0 0 ${layout.viewBoxWidth} ${layout.viewBoxHeight}`} role="img" aria-label="Action impact over time">
+        {getAnalyticsCountTicks(actionAxisMax, layout).map((tick, index) => (
+          <g key={`actions-${tick.label}-${index}`}>
+            <line className="ppChartGridLine" x1={layout.left} y1={tick.y} x2={layout.right} y2={tick.y} />
+            <text className="ppAnalyticsActionImpactAxisText ppAnalyticsActionImpactAxisText-count" x={layout.left - 16} y={tick.y + 4}>{tick.label}</text>
+          </g>
+        ))}
+        {getAnalyticsDualAxisTicks(moneyAxisMax, layout).map((tick, index) => (
+          <text className="ppAnalyticsActionImpactAxisText ppAnalyticsActionImpactAxisText-money" key={`money-${tick.label}-${index}`} x={layout.moneyAxisX} y={tick.y + 4}>{tick.label}</text>
+        ))}
+        {getAnalyticsPercentTicks(percentAxisMax, layout).map((tick, index) => (
+          <text className="ppAnalyticsActionImpactAxisText ppAnalyticsActionImpactAxisText-percent" key={`percent-${tick.label}-${index}`} x={layout.percentAxisX} y={tick.y + 4}>{tick.label}</text>
+        ))}
+        <line className="ppChartAxisLine" x1={layout.left} y1={layout.top} x2={layout.left} y2={layout.bottom} />
+        <line className="ppChartAxisLine" x1={layout.right} y1={layout.top} x2={layout.right} y2={layout.bottom} />
+        <line className="ppChartAxisLine" x1={layout.left} y1={layout.bottom} x2={layout.right} y2={layout.bottom} />
+        {(Array.isArray(actionsSeries.values) ? actionsSeries.values : []).map((value, index) => {
+          const x = getAnalyticsChartX(index, pointCount, layout);
+          const height = (Number(value || 0) / Math.max(actionAxisMax, 1)) * layout.height;
+          return (
+            <rect
+              className="ppAnalyticsActionImpactBar"
+              key={`action-bar-${index}`}
+              x={x - barWidth / 2}
+              y={layout.bottom - height}
+              width={barWidth}
+              height={height}
+              rx="3"
+            >
+              <title>{`Actions applied, ${safeLabels[index] || `Point ${index + 1}`}: ${formatInteger(value)}`}</title>
+            </rect>
+          );
+        })}
+        <path className="ppAnalyticsActionImpactLine ppAnalyticsActionImpactLine-risk" d={buildSmoothSvgPath(riskPoints)} />
+        <path className="ppAnalyticsActionImpactLine ppAnalyticsActionImpactLine-returns" d={buildSmoothSvgPath(returnsPoints)} />
+        {riskPoints.map((point, index) => (
+          <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-risk" key={`risk-dot-${index}`} cx={point.x} cy={point.y} r="4.2">
+            <title>{`${riskSeries.label}, ${safeLabels[index] || `Point ${index + 1}`}: ${formatMoney(riskSeries.values[index] || 0)}`}</title>
+          </circle>
+        ))}
+        {returnsPoints.map((point, index) => (
+          <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-returns" key={`returns-dot-${index}`} cx={point.x} cy={point.y} r="4.2">
+            <title>{`${returnsSeries.label}, ${safeLabels[index] || `Point ${index + 1}`}: ${formatPercent(returnsSeries.values[index] || 0)}`}</title>
+          </circle>
+        ))}
+        {labelIndexes.map((index) => (
+          <text className="ppChartAxisText" key={`${safeLabels[index]}-${index}`} x={getAnalyticsChartX(index, pointCount, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === pointCount - 1 ? "end" : "middle"}>{safeLabels[index]}</text>
+        ))}
+      </svg>
+      {chart?.summary?.detail && <p>{chart.summary.detail}</p>}
+    </div>
+  );
+}
+
 function AnalyticsEmptyPanel({ message }) {
   return (
     <div className="ppAnalyticsEmptyPanel">
@@ -27243,10 +27355,41 @@ function getAnalyticsChartAxisMax(values = []) {
   return getRiskBubbleAxisMax(Math.max(...(Array.isArray(values) ? values : []).map((value) => Number(value || 0)), 0));
 }
 
+function getAnalyticsCountAxisMax(values = []) {
+  const max = Math.max(...(Array.isArray(values) ? values : []).map((value) => Number(value || 0)), 0);
+  if (max <= 0) return 4;
+  if (max <= 5) return Math.max(4, Math.ceil(max));
+  if (max <= 20) return Math.ceil(max / 5) * 5;
+  return Math.ceil(max / 15) * 15;
+}
+
+function getAnalyticsCountTicks(maxValue, layout) {
+  const axisMax = Math.max(1, Number(maxValue || 1));
+  return [1, 0.75, 0.5, 0.25, 0].map((ratio) => ({
+    y: layout.bottom - ratio * layout.height,
+    label: formatInteger(axisMax * ratio),
+  }));
+}
+
 function getAnalyticsDualAxisTicks(maxValue, layout) {
   return [1, 0.75, 0.5, 0.25, 0].map((ratio) => ({
     y: layout.bottom - ratio * layout.height,
     label: formatCompactMoney(maxValue * ratio),
+  }));
+}
+
+function getAnalyticsPercentAxisMax(values = []) {
+  const max = Math.max(...(Array.isArray(values) ? values : []).map((value) => Number(value || 0)), 0);
+  if (max <= 0) return 1;
+  if (max <= 4) return 4;
+  return Math.min(100, Math.ceil(max / 5) * 5);
+}
+
+function getAnalyticsPercentTicks(maxValue, layout) {
+  const axisMax = Math.max(1, Number(maxValue || 1));
+  return [1, 0.75, 0.5, 0.25, 0].map((ratio) => ({
+    y: layout.bottom - ratio * layout.height,
+    label: formatPercent(axisMax * ratio),
   }));
 }
 
