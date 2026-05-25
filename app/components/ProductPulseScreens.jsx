@@ -14537,7 +14537,7 @@ function RetentionLineChart({ chart, series, ariaLabel, className = "" }) {
         {chart.xTicks.map((tick) => (
           <g className="ppRetentionLineXTick" key={`${tick.label}-${tick.x}`}>
             <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
-            <text x={tick.x} y={chart.plot.bottom + 24} textAnchor={tick.anchor}>{tick.label}</text>
+            <text x={tick.x} y={chart.plot.bottom + chart.xLabelOffset} textAnchor={tick.anchor}>{tick.label}</text>
           </g>
         ))}
         {series.map((item) => chart.areaPaths[item.key] ? (
@@ -14726,6 +14726,9 @@ function getProductRetentionLtvChart(rows = []) {
     xTicks: PRODUCT_RETENTION_CHART_AGE_TICKS.filter((tick) => tick <= maxAge).map((tick) => ({ value: tick, label: String(tick) })),
     yMax: getRetentionMoneyAxisMax(maxValue),
     yFormatter: formatRetentionMoneyCents,
+    height: 300,
+    plot: { left: 70, right: 968, top: 18, bottom: 260 },
+    xLabelOffset: 14,
   });
 }
 
@@ -14867,11 +14870,20 @@ function groupRetentionOutcomeRowsByMonth(rows = []) {
     }));
 }
 
-function buildRetentionLineChartGeometry({ rows, seriesKeys, xMin, xMax, xTicks, yMax, yFormatter }) {
+function buildRetentionLineChartGeometry({
+  rows,
+  seriesKeys,
+  xMin,
+  xMax,
+  xTicks,
+  yMax,
+  yFormatter,
+  height = 330,
+  plot = { left: 70, right: 968, top: 28, bottom: 250 },
+  xLabelOffset = 24,
+}) {
   const safeRows = rows.filter((row) => Number.isFinite(row.x)).sort((left, right) => left.x - right.x);
   const width = 1000;
-  const height = 330;
-  const plot = { left: 70, right: 968, top: 28, bottom: 250 };
   const safeXMax = Math.max(Number(xMax || 0), xMin + 1);
   const safeYMax = Math.max(Number(yMax || 0), 1);
   const getX = (value) => plot.left + ((Number(value || 0) - xMin) / Math.max(safeXMax - xMin, 1)) * (plot.right - plot.left);
@@ -14924,6 +14936,7 @@ function buildRetentionLineChartGeometry({ rows, seriesKeys, xMin, xMax, xTicks,
       label: tick.label,
       anchor: index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle",
     })),
+    xLabelOffset,
   };
 }
 
@@ -16025,9 +16038,6 @@ function ProductRiskHistoryPanel({ detail }) {
     <section className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}`} aria-label="Product risk over time">
       <div className="ppProductRiskHistoryHeader">
         <div className="ppProductRiskHistoryTitleBlock">
-          <span className="ppProductRiskHistoryIcon" aria-hidden="true">
-            <DashboardIcon type="shield-check-mark" tone={trendTone === "green" ? "green" : trendTone === "red" ? "red" : "orange"} size="small" />
-          </span>
           <div>
             <span>Diagnosis history</span>
             <h2>Product risk over time</h2>

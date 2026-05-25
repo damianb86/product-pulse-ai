@@ -5116,25 +5116,9 @@ s-page[inline-size="large-500"] {
 
 .ppProductRiskHistoryTitleBlock {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
+  gap: 4px;
   align-items: start;
   min-width: 0;
-}
-
-.ppProductRiskHistoryIcon {
-  width: 42px;
-  height: 42px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--pp-red-soft);
-  color: var(--pp-risk-red);
-}
-
-.ppProductRiskHistoryIcon .ppDashboardIcon {
-  width: 30px;
-  height: 30px;
 }
 
 .ppProductRiskHistoryTitleBlock > div {
@@ -5248,13 +5232,13 @@ s-page[inline-size="large-500"] {
 .ppProductRiskHistoryStat {
   appearance: none;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  min-height: 86px;
-  padding: 11px 12px;
+  min-height: 64px;
+  padding: 8px 9px;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 11px;
+  border-radius: 8px;
   background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
   color: inherit;
   cursor: help;
@@ -5270,8 +5254,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRiskHistoryStat > span {
-  width: 42px;
-  height: 42px;
+  width: 30px;
+  height: 30px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
@@ -5280,7 +5264,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRiskHistoryStat > span s-icon {
-  transform: scale(1.05);
+  transform: scale(0.9);
 }
 
 .ppProductRiskHistoryStat-red > span {
@@ -5321,25 +5305,26 @@ s-page[inline-size="large-500"] {
 
 .ppProductRiskHistoryStat strong {
   color: var(--pp-slate-900);
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 950;
   line-height: 1.05;
 }
 
 .ppProductRiskHistoryStat small {
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 850;
   line-height: 1.15;
   text-transform: uppercase;
 }
 
 .ppProductRiskHistoryStat em {
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10px;
   font-style: normal;
-  font-weight: 650;
+  font-weight: 750;
+  line-height: 1.25;
 }
 
 .ppProductRiskHistoryChart {
@@ -5443,11 +5428,6 @@ s-page[inline-size="large-500"] {
   color: var(--pp-success-green);
 }
 
-.ppProductRiskHistoryPanel-green .ppProductRiskHistoryIcon {
-  background: var(--pp-green-soft);
-  color: var(--pp-success-green);
-}
-
 .ppProductRiskHistoryPanel-green .ppProductRiskHistoryTitleBlock > div > span {
   color: var(--pp-success-green);
 }
@@ -5457,22 +5437,12 @@ s-page[inline-size="large-500"] {
   color: var(--pp-warning-amber);
 }
 
-.ppProductRiskHistoryPanel-orange .ppProductRiskHistoryIcon {
-  background: rgba(var(--pp-warning-amber-rgb), 0.14);
-  color: var(--pp-warning-amber);
-}
-
 .ppProductRiskHistoryPanel-orange .ppProductRiskHistoryTitleBlock > div > span {
   color: var(--pp-warning-amber);
 }
 
 .ppProductRiskHistoryPanel-blue .ppProductRiskHistoryChart,
 .ppProductRiskHistoryPanel-blue .ppProductRiskHistoryPoint {
-  color: var(--pp-pulse-blue);
-}
-
-.ppProductRiskHistoryPanel-blue .ppProductRiskHistoryIcon {
-  background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
 }
 
@@ -11324,7 +11294,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRetentionLineChart-ltv {
-  height: 360px;
+  height: 300px;
   background: transparent;
 }
 
