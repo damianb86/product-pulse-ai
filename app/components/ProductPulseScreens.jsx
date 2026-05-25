@@ -27,6 +27,11 @@ const WATCHLIST_MAX_PRODUCTS_DEFAULT = 50;
 const PRODUCT_RETENTION_HEATMAP_MONTHS = 6;
 const PRODUCT_RETENTION_REPEAT_CHART_AGE_TICKS = [0, 15, 30, 45, 60, 90, 120, 180];
 const PRODUCT_RETENTION_LTV_BREAKDOWN_TICKS = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180];
+const PRODUCT_RISK_HISTORY_NEGATIVE_REVIEW_MILESTONE_MIN = 2;
+const PRODUCT_RISK_HISTORY_RETURN_UNIT_MILESTONE_MIN = 2;
+const PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN = 2;
+const PRODUCT_RISK_HISTORY_RATE_ONLY_MILESTONE_MIN = 8;
+const PRODUCT_RISK_HISTORY_REFUND_AMOUNT_ONLY_MILESTONE_MIN = 50;
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -16875,7 +16880,8 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
     if (event?.title) events.push(event);
   };
   const negativeReviewDelta = getProductRiskHistoryMetricDelta(point, previous, "negativeReviewCount");
-  if (negativeReviewDelta !== null && negativeReviewDelta > 0) {
+  const reviewCountDelta = getProductRiskHistoryMetricDelta(point, previous, "reviewCount");
+  if (negativeReviewDelta !== null && negativeReviewDelta >= PRODUCT_RISK_HISTORY_NEGATIVE_REVIEW_MILESTONE_MIN) {
     add({
       title: `${formatInteger(negativeReviewDelta)} new negative review${negativeReviewDelta === 1 ? "" : "s"}`,
       detail: `${formatInteger(previous.negativeReviewCount || 0)} -> ${formatInteger(point.negativeReviewCount || 0)} negative reviews`,
@@ -16885,7 +16891,10 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
   }
 
   const ratingDelta = getProductRiskHistoryMetricDelta(point, previous, "avgRating");
-  if (ratingDelta !== null && ratingDelta <= -0.4) {
+  const hasMaterialReviewVolume = negativeReviewDelta === null
+    ? reviewCountDelta === null || reviewCountDelta >= PRODUCT_RISK_HISTORY_NEGATIVE_REVIEW_MILESTONE_MIN
+    : negativeReviewDelta >= PRODUCT_RISK_HISTORY_NEGATIVE_REVIEW_MILESTONE_MIN;
+  if (ratingDelta !== null && ratingDelta <= -0.5 && hasMaterialReviewVolume) {
     add({
       title: "Average rating dropped",
       detail: `${formatDecimal(previous.avgRating, 1)} -> ${formatDecimal(point.avgRating, 1)} stars`,
@@ -16895,7 +16904,7 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
   }
 
   const returnUnitsDelta = getProductRiskHistoryMetricDelta(point, previous, "returnUnits");
-  if (returnUnitsDelta !== null && returnUnitsDelta >= 3) {
+  if (returnUnitsDelta !== null && returnUnitsDelta >= PRODUCT_RISK_HISTORY_RETURN_UNIT_MILESTONE_MIN) {
     add({
       title: `${formatInteger(returnUnitsDelta)} returned units added`,
       detail: `${formatInteger(previous.returnUnits || 0)} -> ${formatInteger(point.returnUnits || 0)} returned units`,
@@ -16905,7 +16914,12 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
   }
 
   const returnDelta = getProductRiskHistoryMetricDelta(point, previous, "returnRate");
-  if (returnDelta !== null && returnDelta >= 5) {
+  const hasReturnUnitData = optionalFiniteMetricNumber(point.returnUnits, previous?.returnUnits) !== null;
+  if (
+    returnDelta !== null
+    && returnDelta >= PRODUCT_RISK_HISTORY_RATE_ONLY_MILESTONE_MIN
+    && (!hasReturnUnitData || returnUnitsDelta >= PRODUCT_RISK_HISTORY_RETURN_UNIT_MILESTONE_MIN)
+  ) {
     add({
       title: "Return rate spike",
       detail: `${formatPercent(previous.returnRate)} -> ${formatPercent(point.returnRate)}`,
@@ -16915,7 +16929,7 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
   }
 
   const refundUnitsDelta = getProductRiskHistoryMetricDelta(point, previous, "refundUnits");
-  if (refundUnitsDelta !== null && refundUnitsDelta >= 2) {
+  if (refundUnitsDelta !== null && refundUnitsDelta >= PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN) {
     add({
       title: `${formatInteger(refundUnitsDelta)} refunded units added`,
       detail: `${formatInteger(previous.refundUnits || 0)} -> ${formatInteger(point.refundUnits || 0)} refunded units`,
@@ -16926,7 +16940,19 @@ function getProductRiskHistoryPointEvents(point = {}, previous = null) {
 
   const refundDelta = getProductRiskHistoryMetricDelta(point, previous, "refundRate");
   const refundAmountDelta = getProductRiskHistoryMetricDelta(point, previous, "refundAmount");
-  if ((refundDelta !== null && refundDelta >= 5) || (refundAmountDelta !== null && refundAmountDelta > 0)) {
+  const hasRefundUnitData = optionalFiniteMetricNumber(point.refundUnits, previous?.refundUnits) !== null;
+  if (
+    (
+      refundDelta !== null
+      && refundDelta >= PRODUCT_RISK_HISTORY_RATE_ONLY_MILESTONE_MIN
+      && (!hasRefundUnitData || refundUnitsDelta >= PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN)
+    )
+    || (
+      refundAmountDelta !== null
+      && refundAmountDelta >= PRODUCT_RISK_HISTORY_REFUND_AMOUNT_ONLY_MILESTONE_MIN
+      && (!hasRefundUnitData || refundUnitsDelta >= PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN)
+    )
+  ) {
     add({
       title: "Refund pressure increased",
       detail: refundDelta !== null

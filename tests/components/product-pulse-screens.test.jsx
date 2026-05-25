@@ -1665,6 +1665,42 @@ describe("ProductPulse screens", () => {
     expect(riskTooltip).toHaveTextContent("13");
   });
 
+  it("does not promote a single new negative review to a risk history milestone", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        riskHistory: [
+          {
+            id: "history-base",
+            riskScore: 60,
+            source: "quickscan",
+            recordedAt: "2026-05-01T12:00:00.000Z",
+            negativeReviewCount: 1,
+            reviewCount: 10,
+            avgRating: 4.4,
+          },
+          {
+            id: "history-single-review",
+            riskScore: 60,
+            source: "watchlist-scan",
+            recordedAt: "2026-05-22T09:00:00.000Z",
+            negativeReviewCount: 2,
+            reviewCount: 11,
+            avgRating: 4.1,
+          },
+        ],
+      },
+    };
+
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const historyPanel = container.querySelector(".ppProductRiskHistoryPanel");
+
+    expect(historyPanel).toBeInTheDocument();
+    expect(within(historyPanel).queryByText("1 new negative review")).not.toBeInTheDocument();
+    expect(historyPanel.querySelectorAll(".ppProductRiskHistoryMilestoneRule")).toHaveLength(0);
+  });
+
   it("renders Product Momentum in the product detail view", () => {
     const product = {
       ...defaultView.startHere,
