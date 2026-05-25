@@ -11423,7 +11423,7 @@ s-page[inline-size="large-500"] {
 .ppRetentionLtvBreakdownChart {
   position: relative;
   min-width: 0;
-  height: 430px;
+  height: 360px;
   overflow: hidden;
   border: 1px solid rgba(var(--pp-slate-500-rgb), 0.10);
   border-radius: 14px;
@@ -11545,11 +11545,6 @@ s-page[inline-size="large-500"] {
   opacity: 1;
   box-shadow: 0 0 0 5px rgba(var(--pp-pulse-blue-rgb), 0.16), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
   transform: scale(1);
-}
-
-.ppRetentionLineChart-repeat .ppRetentionLinePoint > span {
-  opacity: 1;
-  transform: scale(0.86);
 }
 
 .ppRetentionLineChart-repeat .ppRetentionLinePoint.isActive > span,

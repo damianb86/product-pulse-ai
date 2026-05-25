@@ -14856,7 +14856,7 @@ function getProductRetentionRepeatChart(rows = []) {
     ]),
     0,
   );
-  return buildRetentionLineChartGeometry({
+  const chart = buildRetentionLineChartGeometry({
     rows: chartRows,
     seriesKeys: ["anyRepeatCumulativeRate", "sameProductRepeatCumulativeRate"],
     xMin: 0,
@@ -14865,9 +14865,66 @@ function getProductRetentionRepeatChart(rows = []) {
     yMax: getRetentionRateAxisMax(maxValue),
     yFormatter: formatRetentionRate,
     height: 360,
-    plot: { left: 84, right: 968, top: 26, bottom: 270 },
+    plot: { left: 110, right: 958, top: 26, bottom: 270 },
     xLabelOffset: 24,
   });
+
+  return {
+    ...chart,
+    pointsBySeries: getSampledRetentionRepeatPoints(chart.pointsBySeries),
+  };
+}
+
+function getSampledRetentionRepeatPoints(pointsBySeries = {}) {
+  return Object.fromEntries(
+    Object.entries(pointsBySeries).map(([key, points]) => [
+      key,
+      getSampledRetentionRepeatSeriesPoints(points),
+    ]),
+  );
+}
+
+function getSampledRetentionRepeatSeriesPoints(points = []) {
+  const source = Array.isArray(points) ? points : [];
+  if (source.length <= 6) return source;
+
+  const targetCount = Math.min(18, Math.max(4, Math.ceil(source.length / 3)));
+  const selectedIndexes = new Set([0, source.length - 1]);
+  const minimumGap = Math.max(1, Math.floor(source.length / targetCount / 2));
+  const candidates = source
+    .map((point, index) => {
+      if (index === 0 || index === source.length - 1) return null;
+      const previousValue = Number(source[index - 1]?.value ?? point.value);
+      const currentValue = Number(point.value);
+      const nextValue = Number(source[index + 1]?.value ?? point.value);
+      const previousDelta = currentValue - previousValue;
+      const nextDelta = nextValue - currentValue;
+      const jumpScore = Math.max(Math.abs(previousDelta), Math.abs(nextDelta));
+      const turnScore = Math.abs(nextDelta - previousDelta);
+      const breakoutScore = previousValue <= 0 && currentValue > 0 ? 0.08 : 0;
+      return {
+        index,
+        score: (jumpScore * 10) + (turnScore * 6) + breakoutScore,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score);
+
+  candidates.forEach((candidate) => {
+    if (selectedIndexes.size >= targetCount) return;
+    const hasNearbySelection = Array.from(selectedIndexes).some((index) => Math.abs(index - candidate.index) < minimumGap);
+    if (!hasNearbySelection || candidate.score > 0.08) {
+      selectedIndexes.add(candidate.index);
+    }
+  });
+
+  for (let step = 1; selectedIndexes.size < targetCount && step < targetCount - 1; step += 1) {
+    selectedIndexes.add(Math.round((step * (source.length - 1)) / (targetCount - 1)));
+  }
+
+  return Array.from(selectedIndexes)
+    .sort((left, right) => left - right)
+    .map((index) => source[index]);
 }
 
 function getProductRetentionLtvBreakdownChart(rows = []) {
@@ -14918,9 +14975,9 @@ function getProductRetentionLtvBreakdownChart(rows = []) {
 
 function getProductRetentionLtvBreakdownView(chart, mode = "cumulative") {
   const width = 1000;
-  const height = 420;
-  const plot = { left: 76, right: 968, top: 28, bottom: 326 };
-  const xLabelOffset = 28;
+  const height = 360;
+  const plot = { left: 76, right: 968, top: 24, bottom: 288 };
+  const xLabelOffset = 24;
   const isShareMode = mode === "share";
   const yMax = isShareMode ? 1 : getRetentionMoneyAxisMax(chart.maxTotalCents);
   const xMin = 0;

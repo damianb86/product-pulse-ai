@@ -1843,8 +1843,14 @@ describe("ProductPulse screens", () => {
           })),
           timeToRepeatPurchase: [
             { ageDay: 0, anyRepeatCumulativeRate: 0, sameProductRepeatCumulativeRate: 0, boughtOtherProductCumulativeRate: 0 },
+            { ageDay: 7, anyRepeatCumulativeRate: 0.04, sameProductRepeatCumulativeRate: 0.02, boughtOtherProductCumulativeRate: 0.02 },
+            { ageDay: 14, anyRepeatCumulativeRate: 0.09, sameProductRepeatCumulativeRate: 0.05, boughtOtherProductCumulativeRate: 0.04 },
+            { ageDay: 21, anyRepeatCumulativeRate: 0.13, sameProductRepeatCumulativeRate: 0.08, boughtOtherProductCumulativeRate: 0.05 },
             { ageDay: 30, anyRepeatCumulativeRate: 0.18, sameProductRepeatCumulativeRate: 0.11, boughtOtherProductCumulativeRate: 0.08 },
+            { ageDay: 45, anyRepeatCumulativeRate: 0.22, sameProductRepeatCumulativeRate: 0.13, boughtOtherProductCumulativeRate: 0.1 },
+            { ageDay: 60, anyRepeatCumulativeRate: 0.25, sameProductRepeatCumulativeRate: 0.15, boughtOtherProductCumulativeRate: 0.11 },
             { ageDay: 90, anyRepeatCumulativeRate: 0.29, sameProductRepeatCumulativeRate: 0.17, boughtOtherProductCumulativeRate: 0.13 },
+            { ageDay: 120, anyRepeatCumulativeRate: 0.31, sameProductRepeatCumulativeRate: 0.18, boughtOtherProductCumulativeRate: 0.15 },
             { ageDay: 180, anyRepeatCumulativeRate: 0.32, sameProductRepeatCumulativeRate: 0.19, boughtOtherProductCumulativeRate: 0.16 },
           ],
           ltvCurve: [
@@ -1920,6 +1926,7 @@ describe("ProductPulse screens", () => {
     expect(within(repeatCard).getByText("Days since first purchase")).toBeInTheDocument();
     expect(within(repeatCard).getByText(/Cumulative % of customers/)).toBeInTheDocument();
     expect(within(repeatCard).queryByText("Bought another product")).not.toBeInTheDocument();
+    expect(repeatCard.querySelectorAll(".ppRetentionLinePoint").length).toBeLessThanOrEqual(8);
     expect(within(retentionReport).getByText("90-day retention trend")).toBeInTheDocument();
     expect(within(retentionReport).getByText("Next purchase outcome")).toBeInTheDocument();
     expect(within(retentionReport).getByText("Retention window")).toBeInTheDocument();
