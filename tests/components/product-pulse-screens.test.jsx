@@ -1786,8 +1786,8 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("$86")).toBeInTheDocument();
     expect(within(panel).getByText("72/100")).toBeInTheDocument();
     expect(within(panel).getByText("LTV curve")).toBeInTheDocument();
-    expect(within(panel).getByText("Retention segments")).toBeInTheDocument();
-    expect(within(panel).getByText("New to store")).toBeInTheDocument();
+    expect(within(panel).queryByText("Retention segments")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("New to store")).not.toBeInTheDocument();
     const ltvCard = within(panel).getByText("LTV curve").closest(".ppRetentionChartCard");
     expect(ltvCard).toHaveClass("ppRetentionLtvCard");
     expect(within(panel).queryByText("Retention by purchase cohort")).not.toBeInTheDocument();
@@ -1803,6 +1803,12 @@ describe("ProductPulse screens", () => {
     expect(ltvTooltip).toHaveTextContent("Total LTV: $86");
     expect(ltvTooltip).toHaveTextContent("Same product LTV");
     fireEvent.mouseLeave(totalLtvPoint);
+    expect(ltvTooltip).toHaveClass("ppRetentionLinePopover");
+
+    fireEvent.click(within(ltvCard).getByRole("button", { name: "Hide Same product LTV" }));
+    expect(ltvCard.querySelector(".ppRetentionLine-ltvSame.ppRetentionLinePath")).not.toBeInTheDocument();
+    fireEvent.click(within(ltvCard).getByRole("button", { name: "Show Same product LTV" }));
+    expect(ltvCard.querySelector(".ppRetentionLine-ltvSame.ppRetentionLinePath")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Retention" }));
     const retentionReport = container.querySelector(".ppRetentionEvidenceReport");
@@ -1814,6 +1820,7 @@ describe("ProductPulse screens", () => {
     expect(within(retentionReport).getByText("Retention window")).toBeInTheDocument();
     expect(retentionReport.querySelector(".ppRetentionCohortTable")).toBeInTheDocument();
     expect(retentionReport.querySelectorAll(".ppRetentionLineSvg").length).toBeGreaterThanOrEqual(2);
+    expect(within(retentionReport).queryByText("Retention segments")).not.toBeInTheDocument();
   });
 
   it("renders momentum weekly bars as empty tracks for zero weeks and a visible spike", () => {
@@ -2009,6 +2016,14 @@ describe("ProductPulse screens", () => {
     expect(orderPanel.querySelectorAll(".ppOrderActivityBarTotal")).toHaveLength(2);
     expect(orderPanel.querySelector(".ppOrderActivityBarShell")?.firstElementChild).toHaveClass("ppOrderActivityBarTotal");
     expect(within(orderPanel).queryByRole("button", { name: "Resolution" })).not.toBeInTheDocument();
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Hide orders" }));
+    expect(orderPanel.querySelectorAll(".ppOrderActivityBarTotal")).toHaveLength(0);
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Show orders" }));
+    expect(orderPanel.querySelectorAll(".ppOrderActivityBarTotal")).toHaveLength(2);
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Hide revenue line" }));
+    expect(orderPanel.querySelector(".ppOrderActivityLineRevenue")).not.toBeInTheDocument();
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Show revenue line" }));
+    expect(orderPanel.querySelector(".ppOrderActivityLineRevenue")).toBeInTheDocument();
     fireEvent.click(within(orderPanel).getByRole("button", { name: "Hide unresolved returns line" }));
     expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).not.toBeInTheDocument();
     fireEvent.click(within(orderPanel).getByRole("button", { name: "Show unresolved returns line" }));

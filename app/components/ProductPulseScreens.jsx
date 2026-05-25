@@ -14029,24 +14029,48 @@ function ProductNoDiagnosisPanel({ detail, pending = false, onRunDiagnosis }) {
   );
 }
 
+const ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES = Object.freeze({
+  orders: true,
+  returns: true,
+  refunds: true,
+  revenue: true,
+  unresolved: true,
+});
+
+const ORDER_ACTIVITY_LEGEND_ITEMS = Object.freeze([
+  { key: "orders", label: "Orders", ariaLabel: "orders", className: "ppOrderActivityLegendTotal" },
+  { key: "returns", label: "Returned order cohorts", ariaLabel: "returned order cohorts", className: "ppOrderActivityLegendReturns" },
+  { key: "refunds", label: "Refunded order cohorts", ariaLabel: "refunded order cohorts", className: "ppOrderActivityLegendRefunds" },
+  { key: "revenue", label: "Revenue", ariaLabel: "revenue line", className: "ppOrderActivityLegendRevenue" },
+  { key: "unresolved", label: "Unresolved returns", ariaLabel: "unresolved returns line", className: "ppOrderActivityLegendUnresolved", requiresUnresolvedSeries: true },
+]);
+
 function ProductOrderActivityPanel({ detail }) {
-  const [showUnresolvedReturns, setShowUnresolvedReturns] = useState(true);
+  const [visibleOrderActivitySeries, setVisibleOrderActivitySeries] = useState(() => ({ ...ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES }));
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
   const months = activity.months || [];
   const summary = activity.summary || {};
   const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders || month.revenue);
   const unresolvedReturnSeries = useMemo(() => getOrderActivityUnresolvedReturnSeries(months), [months]);
   const hasUnresolvedReturnSeries = unresolvedReturnSeries.some((point) => point.value || point.opened || point.resolved);
+  const effectiveVisibleSeries = {
+    ...visibleOrderActivitySeries,
+    unresolved: visibleOrderActivitySeries.unresolved && hasUnresolvedReturnSeries,
+  };
   const maxOrders = Math.max(
-    Number(summary.maxOrders || 0),
-    ...months.map((month) => getOrderActivityStackTotal(month)),
-    ...unresolvedReturnSeries.map((point) => Number(point.value || 0)),
+    ...months.map((month) => getOrderActivityStackTotal(month, effectiveVisibleSeries)),
+    ...(effectiveVisibleSeries.unresolved ? unresolvedReturnSeries.map((point) => Number(point.value || 0)) : []),
     1,
   );
-  const maxRevenue = Math.max(Number(summary.maxRevenue || 0), ...months.map((month) => Number(month.revenue || 0)), 1);
+  const maxRevenue = effectiveVisibleSeries.revenue
+    ? Math.max(Number(summary.maxRevenue || 0), ...months.map((month) => Number(month.revenue || 0)), 1)
+    : 1;
   const windowLabel = activity.windowDays ? `${activity.windowDays}-day window` : "Stored window";
   const rangeLabel = getMonthlyOrderActivityRangeLabel(months);
   const chartDescription = "Orders, return cohorts, refund cohorts, revenue and optional unresolved return balance grouped by cohort month.";
+  const toggleOrderActivitySeries = (key) => {
+    setVisibleOrderActivitySeries((current) => ({ ...current, [key]: !current[key] }));
+  };
 
   return (
     <section className="ppProductOrderActivityPanel" aria-label="Monthly order activity">
@@ -14080,24 +14104,24 @@ function ProductOrderActivityPanel({ detail }) {
             maxOrders={maxOrders}
             maxRevenue={maxRevenue}
             unresolvedReturnSeries={unresolvedReturnSeries}
-            showUnresolvedReturns={showUnresolvedReturns && hasUnresolvedReturnSeries}
+            visibleSeries={effectiveVisibleSeries}
           />
           <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
-            <span><i className="ppOrderActivityLegendTotal" />Orders</span>
-            <span><i className="ppOrderActivityLegendReturns" />Returned order cohorts</span>
-            <span><i className="ppOrderActivityLegendRefunds" />Refunded order cohorts</span>
-            <span><i className="ppOrderActivityLegendRevenue" />Revenue</span>
-            {hasUnresolvedReturnSeries && (
-              <button
-                type="button"
-                className={`ppOrderActivityLegendToggle${showUnresolvedReturns ? " isActive" : ""}`}
-                aria-pressed={showUnresolvedReturns}
-                aria-label={`${showUnresolvedReturns ? "Hide" : "Show"} unresolved returns line`}
-                onClick={() => setShowUnresolvedReturns((value) => !value)}
-              >
-                <i className="ppOrderActivityLegendUnresolved" />Unresolved returns
-              </button>
-            )}
+            {ORDER_ACTIVITY_LEGEND_ITEMS.filter((item) => !item.requiresUnresolvedSeries || hasUnresolvedReturnSeries).map((item) => {
+              const active = Boolean(effectiveVisibleSeries[item.key]);
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`ppOrderActivityLegendToggle${active ? " isActive" : ""}`}
+                  aria-pressed={active}
+                  aria-label={`${active ? "Hide" : "Show"} ${item.ariaLabel}`}
+                  onClick={() => toggleOrderActivitySeries(item.key)}
+                >
+                  <i className={item.className} />{item.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       ) : (
@@ -14191,7 +14215,6 @@ function ProductRetentionMetricsPanel({ detail }) {
   const summary = retention.summary || {};
   const hasData = detail.hasProductRetention || hasProductRetentionData(retention);
   const ltvChart = useMemo(() => getProductRetentionLtvChart(retention.ltvCurve), [retention.ltvCurve]);
-  const segmentRows = useMemo(() => getProductRetentionSegmentRows(retention.segments), [retention.segments]);
   const rangeLabel = getProductRetentionRangeLabel(retention.run, summary);
   const warningLabel = getProductRetentionWarningLabel(summary, retention.run);
   const emptyMessage = getProductRetentionEmptyMessage(summary, retention.run);
@@ -14254,8 +14277,6 @@ function ProductRetentionMetricsPanel({ detail }) {
           </div>
 
           <ProductRetentionLtvCurve chart={ltvChart} productTitle={detail.title} />
-
-          <ProductRetentionSegmentsTable rows={segmentRows} />
         </>
       )}
     </section>
@@ -14400,6 +14421,22 @@ function ProductRetentionTrendChart({ chart, productTitle }) {
 }
 
 function ProductRetentionLtvCurve({ chart, productTitle }) {
+  const series = [
+    { key: "cumulativeLtvCents", label: "Total LTV", legendLabel: "Total LTV", className: "ppRetentionLine-ltvTotal", color: "var(--pp-signal-teal)", legendClassName: "ppRetentionLegendLtvTotal" },
+    { key: "sameProductLtvCents", label: "Same product LTV", legendLabel: "Same product", className: "ppRetentionLine-ltvSame", color: "var(--pp-pulse-blue)", legendClassName: "ppRetentionLegendLtvSame" },
+    { key: "otherProductLtvCents", label: "Other product LTV", legendLabel: "Other products", className: "ppRetentionLine-ltvOther", color: "var(--pp-warning-amber)", legendClassName: "ppRetentionLegendLtvOther" },
+  ];
+  const [visibleSeriesKeys, setVisibleSeriesKeys] = useState(() => new Set(series.map((item) => item.key)));
+  const visibleSeries = series.filter((item) => visibleSeriesKeys.has(item.key));
+  const toggleSeries = (key) => {
+    setVisibleSeriesKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
     <article className="ppRetentionChartCard ppRetentionLtvCard">
       <div className="ppRetentionChartHeader">
@@ -14414,16 +14451,24 @@ function ProductRetentionLtvCurve({ chart, productTitle }) {
             ariaLabel={`LTV curve for ${productTitle}`}
             className="ppRetentionLineChart-ltv"
             chart={chart}
-            series={[
-              { key: "cumulativeLtvCents", label: "Total LTV", className: "ppRetentionLine-ltvTotal", color: "var(--pp-signal-teal)" },
-              { key: "sameProductLtvCents", label: "Same product LTV", className: "ppRetentionLine-ltvSame", color: "var(--pp-pulse-blue)" },
-              { key: "otherProductLtvCents", label: "Other product LTV", className: "ppRetentionLine-ltvOther", color: "var(--pp-warning-amber)" },
-            ]}
+            series={visibleSeries}
           />
           <div className="ppRetentionChartLegend">
-            <span><i className="ppRetentionLegendLtvTotal" />Total LTV</span>
-            <span><i className="ppRetentionLegendLtvSame" />Same product</span>
-            <span><i className="ppRetentionLegendLtvOther" />Other products</span>
+            {series.map((item) => {
+              const active = visibleSeriesKeys.has(item.key);
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`ppRetentionLegendToggle${active ? " isActive" : ""}`}
+                  aria-pressed={active}
+                  aria-label={`${active ? "Hide" : "Show"} ${item.label}`}
+                  onClick={() => toggleSeries(item.key)}
+                >
+                  <i className={item.legendClassName} />{item.legendLabel}
+                </button>
+              );
+            })}
           </div>
         </>
       ) : (
@@ -14468,54 +14513,6 @@ function ProductRetentionNextOutcome({ rows }) {
   );
 }
 
-function ProductRetentionSegmentsTable({ rows }) {
-  return (
-    <article className="ppRetentionChartCard">
-      <div className="ppRetentionChartHeader">
-        <div>
-          <h3>Retention segments</h3>
-          <p>Segment-level 90-day repeat, cross-sell and LTV metrics.</p>
-        </div>
-      </div>
-      {rows.length ? (
-        <div className="ppRetentionSegmentsTableWrap">
-          <table className="ppRetentionSegmentsTable">
-            <thead>
-              <tr>
-                <th scope="col">Segment</th>
-                <th scope="col">Customers</th>
-                <th scope="col">Repeat</th>
-                <th scope="col">Same product</th>
-                <th scope="col">Cross-sell</th>
-                <th scope="col">LTV 90</th>
-                <th scope="col">Median days</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key}>
-                  <td>
-                    <strong>{row.valueLabel}</strong>
-                    <small>{row.typeLabel}{row.isLowSampleSize ? " · Low sample" : ""}</small>
-                  </td>
-                  <td>{formatInteger(row.cohortSize)}</td>
-                  <td>{formatRetentionRate(row.repeatPurchaseRate90d)}</td>
-                  <td>{formatRetentionRate(row.sameProductRepurchaseRate90d)}</td>
-                  <td>{formatRetentionRate(row.crossSellRetentionRate90d)}</td>
-                  <td>{formatRetentionMoneyCents(row.ltv90Cents)}</td>
-                  <td>{formatRetentionDays(row.medianDaysToSecondPurchase)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <ProductRetentionEmptySlot message="No retention segments are stored yet." />
-      )}
-    </article>
-  );
-}
-
 function RetentionLineChart({ chart, series, ariaLabel, className = "" }) {
   const gradientIdBase = `ppRetentionLineGradient-${useId().replace(/:/g, "")}`;
   return (
@@ -14540,7 +14537,7 @@ function RetentionLineChart({ chart, series, ariaLabel, className = "" }) {
         {chart.xTicks.map((tick) => (
           <g className="ppRetentionLineXTick" key={`${tick.label}-${tick.x}`}>
             <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
-            <text x={tick.x} y={chart.plot.bottom + 30} textAnchor={tick.anchor}>{tick.label}</text>
+            <text x={tick.x} y={chart.plot.bottom + 24} textAnchor={tick.anchor}>{tick.label}</text>
           </g>
         ))}
         {series.map((item) => chart.areaPaths[item.key] ? (
@@ -14870,18 +14867,6 @@ function groupRetentionOutcomeRowsByMonth(rows = []) {
     }));
 }
 
-function getProductRetentionSegmentRows(rows = []) {
-  return [...rows]
-    .sort((left, right) => right.cohortSize - left.cohortSize || left.segmentType.localeCompare(right.segmentType))
-    .slice(0, 8)
-    .map((row) => ({
-      ...row,
-      key: `${row.segmentType}:${row.segmentValue}`,
-      typeLabel: formatRetentionSegmentType(row.segmentType),
-      valueLabel: formatRetentionSegmentValue(row.segmentValue, row.segmentType),
-    }));
-}
-
 function buildRetentionLineChartGeometry({ rows, seriesKeys, xMin, xMax, xTicks, yMax, yFormatter }) {
   const safeRows = rows.filter((row) => Number.isFinite(row.x)).sort((left, right) => left.x - right.x);
   const width = 1000;
@@ -14994,30 +14979,6 @@ function formatRetentionDateShort(value = "") {
 
 function formatRetentionChartNumber(value) {
   return Math.round(Number(value || 0) * 10) / 10;
-}
-
-function formatRetentionSegmentType(value = "") {
-  const labels = {
-    acquisition_source: "Acquisition source",
-    country: "Country",
-    customer_tag: "Customer tag",
-    customer_type_at_first_product_purchase: "Customer type",
-    discount_code: "Discount code",
-    discount_used: "Discount used",
-    marketing_consent: "Marketing consent",
-    order_channel: "Order channel",
-    price_bucket: "Price bucket",
-    province: "Province",
-    quantity_bucket: "Quantity bucket",
-    variant: "Variant",
-  };
-  return labels[value] || humanizeRetentionLabel(value);
-}
-
-function formatRetentionSegmentValue(value = "", segmentType = "") {
-  const normalized = String(value || "").trim();
-  if (segmentType === "variant" && normalized.includes("/")) return `Variant ${normalized.split("/").filter(Boolean).pop()}`;
-  return humanizeRetentionLabel(normalized);
 }
 
 function humanizeRetentionLabel(value = "") {
@@ -15659,14 +15620,14 @@ function OrderActivityComboChart({
   maxOrders = 1,
   maxRevenue = 1,
   unresolvedReturnSeries = [],
-  showUnresolvedReturns = false,
+  visibleSeries = ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES,
 }) {
   const axisMax = getOrderActivityAxisMax(maxOrders);
   const revenueAxisMax = getOrderActivityRevenueAxisMax(maxRevenue);
   const ticks = getOrderActivityAxisTicks(axisMax);
   const revenueTicks = getOrderActivityRevenueAxisTicks(revenueAxisMax);
-  const revenuePath = getOrderActivityLinePath(months, "revenue", revenueAxisMax);
-  const unresolvedPath = showUnresolvedReturns
+  const revenuePath = visibleSeries.revenue ? getOrderActivityLinePath(months, "revenue", revenueAxisMax) : "";
+  const unresolvedPath = visibleSeries.unresolved
     ? getOrderActivityLinePath(unresolvedReturnSeries, "value", axisMax)
     : "";
 
@@ -15688,6 +15649,7 @@ function OrderActivityComboChart({
               month={month}
               maxOrders={axisMax}
               unresolvedPoint={unresolvedReturnSeries[index]}
+              visibleSeries={visibleSeries}
             />
           ))}
         </div>
@@ -15714,14 +15676,14 @@ function OrderActivityComboChart({
   );
 }
 
-function OrderActivityMonthBar({ month, maxOrders, unresolvedPoint = null }) {
+function OrderActivityMonthBar({ month, maxOrders, unresolvedPoint = null, visibleSeries = ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
   const segments = [
     { key: "orders", value: month.orders, className: "ppOrderActivityBarTotal" },
     { key: "returns", value: month.returnedOrders, className: "ppOrderActivityBarReturns" },
     { key: "refunds", value: month.refundedOrders, className: "ppOrderActivityBarRefunds" },
-  ].filter((segment) => Number(segment.value || 0) > 0);
+  ].filter((segment) => visibleSeries[segment.key] && Number(segment.value || 0) > 0);
   const title = `${month.label}: ${formatInteger(month.orders)} orders, ${formatInteger(month.returnedOrders)} returned, ${formatInteger(month.refundedOrders)} refunded`;
 
   return (
@@ -15819,10 +15781,10 @@ function getOrderActivityUnresolvedReturnSeries(months = []) {
   });
 }
 
-function getOrderActivityStackTotal(month = {}) {
-  return Math.max(0, Number(month.orders || 0))
-    + Math.max(0, Number(month.returnedOrders || 0))
-    + Math.max(0, Number(month.refundedOrders || 0));
+function getOrderActivityStackTotal(month = {}, visibleSeries = ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES) {
+  return (visibleSeries.orders ? Math.max(0, Number(month.orders || 0)) : 0)
+    + (visibleSeries.returns ? Math.max(0, Number(month.returnedOrders || 0)) : 0)
+    + (visibleSeries.refunds ? Math.max(0, Number(month.refundedOrders || 0)) : 0);
 }
 
 function getOrderActivitySegmentHeight(value, maxValue) {
@@ -19415,7 +19377,6 @@ function RetentionEvidencePanel({ source, product }) {
   const repeatChart = useMemo(() => getProductRetentionRepeatChart(retention.timeToRepeatPurchase), [retention.timeToRepeatPurchase]);
   const trendChart = useMemo(() => getProductRetentionTrendChart(retention.dailyRetentionTrend), [retention.dailyRetentionTrend]);
   const outcomeRows = useMemo(() => getProductRetentionOutcomeRows(retention.nextPurchaseOutcome), [retention.nextPurchaseOutcome]);
-  const segmentRows = useMemo(() => getProductRetentionSegmentRows(retention.segments), [retention.segments]);
   const rangeLabel = getProductRetentionRangeLabel(retention.run, summary) || "No window stored";
   const statusLabel = retention.run?.status ? formatProductRetentionStatus(retention.run.status) : "Unavailable";
 
@@ -19461,8 +19422,6 @@ function RetentionEvidencePanel({ source, product }) {
             <ProductRetentionTrendChart chart={trendChart} productTitle={product.title} />
             <ProductRetentionNextOutcome rows={outcomeRows} />
           </div>
-
-          <ProductRetentionSegmentsTable rows={segmentRows} />
         </>
       )}
     </div>
