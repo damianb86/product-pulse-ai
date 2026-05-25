@@ -14067,10 +14067,10 @@ function ProductOrderActivityPanel({ detail }) {
       </div>
 
       <div className="ppOrderActivitySummary">
-        <OrderActivityStat label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
-        <OrderActivityStat label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />
-        <OrderActivityStat label="Refunded units" value={formatInteger(summary.totalRefundedUnits)} detail={`${formatPercent(summary.refundRate)} of ordered units`} tone="red" />
-        <OrderActivityStat label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
+        <OrderActivityStat icon="shopify-orders" label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
+        <OrderActivityStat icon="shopify-returns" label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />
+        <OrderActivityStat icon="shopify-refunds" label="Refunded units" value={formatInteger(summary.totalRefundedUnits)} detail={`${formatPercent(summary.refundRate)} of ordered units`} tone="red" />
+        <OrderActivityStat icon="financial-exposure" label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
       </div>
 
       {hasActivity ? (
@@ -14129,14 +14129,15 @@ function ProductReturnRatePredictionPanel({ detail }) {
 
       <div className="ppReturnPredictionStats">
         <OrderActivityStat
+          icon="shopify-returns"
           label="Total return rate"
           value={formatPercent(summary.totalReturnRate)}
           detail={`${formatInteger(summary.totalReturnedUnits || summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrderUnits || summary.totalOrders)} units`}
           tone="blue"
         />
-        <OrderActivityStat label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
-        <OrderActivityStat label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
-        <OrderActivityStat label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />
+        <OrderActivityStat icon="product-momentum" label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
+        <OrderActivityStat icon="product-risk" label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
+        <OrderActivityStat icon="diagnostic-confidence" label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />
       </div>
 
       {hasPrediction ? (
@@ -15636,12 +15637,19 @@ function getReturnRatePredictionConfidenceTone(confidence) {
   return "neutral";
 }
 
-function OrderActivityStat({ label, value, detail, tone }) {
+function OrderActivityStat({ label, value, detail, tone, icon = null }) {
   return (
-    <div className={`ppOrderActivityStat ppOrderActivityStat-${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
+    <div className={`ppOrderActivityStat ppOrderActivityStat-${tone}${icon ? " hasIcon" : ""}`}>
+      {icon && (
+        <span className="ppOrderActivityStatIcon" aria-hidden="true">
+          <ProductPulseGlyph type={icon} />
+        </span>
+      )}
+      <div className="ppOrderActivityStatBody">
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
     </div>
   );
 }
@@ -16052,29 +16060,34 @@ function ProductRiskHistoryPanel({ detail }) {
   const trendLabel = detail.riskTrendLabel || getProductRiskHistoryTrendLabel(historyPoints);
 
   return (
-    <div className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}`}>
+    <section className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}`} aria-label="Product risk over time">
       <div className="ppProductRiskHistoryHeader">
         <div className="ppProductRiskHistoryTitleBlock">
           <span className="ppProductRiskHistoryIcon" aria-hidden="true">
             <DashboardIcon type="shield-check-mark" tone={trendTone === "green" ? "green" : trendTone === "red" ? "red" : "orange"} size="small" />
           </span>
           <div>
-            <span>Product risk over time</span>
-            <strong className="ppProductRiskHistoryScore">
-              <span>{formatInteger(currentRisk)}</span>
-              <small> / 100</small>
-            </strong>
-            <em className={`ppProductRiskHistoryTrendBadge ppProductRiskHistoryTrendBadge-${trendTone}`}>
-              {trendLabel}
-              <s-icon type="chart-line" size="small"></s-icon>
-            </em>
+            <span>Diagnosis history</span>
+            <h2>Product risk over time</h2>
+            <p>Saved ProductPulse risk scores, signal changes and diagnosis milestones for this product.</p>
           </div>
         </div>
-        <div className="ppProductRiskHistoryStats" aria-label="Product risk history summary">
-          {statCards.map((card) => (
-            <ProductRiskHistoryStatCard card={card} key={card.id} />
-          ))}
+        <div className="ppProductRiskHistoryCurrent">
+          <span>Current risk</span>
+          <strong className="ppProductRiskHistoryScore">
+            <span>{formatInteger(currentRisk)}</span>
+            <small> / 100</small>
+          </strong>
+          <em className={`ppProductRiskHistoryTrendBadge ppProductRiskHistoryTrendBadge-${trendTone}`}>
+            {trendLabel}
+            <s-icon type="chart-line" size="small"></s-icon>
+          </em>
         </div>
+      </div>
+      <div className="ppProductRiskHistoryStats" aria-label="Product risk history summary">
+        {statCards.map((card) => (
+          <ProductRiskHistoryStatCard card={card} key={card.id} />
+        ))}
       </div>
       <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
         <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={changeLabel}>
@@ -16123,7 +16136,7 @@ function ProductRiskHistoryPanel({ detail }) {
           <ProductRiskHistoryMetaCard card={card} key={card.id} />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -16149,8 +16162,8 @@ function ProductRiskHistoryStatCard({ card }) {
         <s-icon type={card.icon} size="small"></s-icon>
       </span>
       <div>
-        <strong>{card.value}</strong>
         <small>{card.label}</small>
+        <strong>{card.value}</strong>
         <em>{card.detail}</em>
       </div>
       <ProductRiskHistoryCardPopover anchorRef={triggerRef} open={open} title={card.label} value={card.value} detail={card.detail} />
