@@ -3081,6 +3081,7 @@ async function calculateAndAttachProductRetentionForDiagnosis({
   if (!diagnosis?.id || !snapshot?.productGid) return null;
   try {
     const lookbackDays = Math.max(PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS, Number(windowDays || 0));
+    const includeTestOrders = shouldIncludeTestOrdersForProductRetention(snapshot);
     const result = await calculateProductRetentionMetrics({
       shopId: shop,
       productGid: snapshot.productGid,
@@ -3090,6 +3091,7 @@ async function calculateAndAttachProductRetentionForDiagnosis({
       asOfDate: diagnosis.completedAt || new Date(),
       lookbackDays,
       maxCohortAgeDays: PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS,
+      includeTestOrders,
     });
     await attachProductRetentionPayloadToDiagnosis({
       shopId: shop,
@@ -3109,6 +3111,12 @@ async function calculateAndAttachProductRetentionForDiagnosis({
     });
     return null;
   }
+}
+
+function shouldIncludeTestOrdersForProductRetention(snapshot) {
+  const title = String(snapshot?.productTitle || snapshot?.title || "").trim().toUpperCase();
+  const handle = String(snapshot?.handle || snapshot?.productHandle || "").trim().toLowerCase();
+  return title.startsWith("GEN ") && handle.startsWith("gen-");
 }
 
 async function ensureProductRelationshipCandidateSnapshots({

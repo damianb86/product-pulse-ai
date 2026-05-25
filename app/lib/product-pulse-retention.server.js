@@ -27,6 +27,7 @@ export async function calculateProductRetentionMetrics({
   maxCohortAgeDays = PRODUCT_RETENTION_DEFAULT_MAX_COHORT_AGE_DAYS,
   currency = "",
   orders = null,
+  includeTestOrders = false,
   db = prisma,
 } = {}) {
   const normalizedShopId = String(shopId || shop || "").trim();
@@ -42,6 +43,7 @@ export async function calculateProductRetentionMetrics({
   const normalizedMaxCohortAgeDays = normalizePositiveInteger(maxCohortAgeDays, PRODUCT_RETENTION_DEFAULT_MAX_COHORT_AGE_DAYS);
   const endDate = parseDate(windowEndDate) || asOf;
   const startDate = parseDate(windowStartDate) || addDaysUtc(endDate, -normalizedLookbackDays);
+  const shouldIncludeTestOrders = Boolean(includeTestOrders);
 
   let retentionRun = null;
   try {
@@ -57,7 +59,7 @@ export async function calculateProductRetentionMetrics({
       maxCohortAgeDays: normalizedMaxCohortAgeDays,
       currency: currency || null,
       status: "partial",
-      metadata: { startedAt: new Date(startedAt).toISOString() },
+      metadata: { startedAt: new Date(startedAt).toISOString(), includeTestOrders: shouldIncludeTestOrders },
     });
 
     let effectiveTimezone = timezone || "";
@@ -101,6 +103,7 @@ export async function calculateProductRetentionMetrics({
       maxCohortAgeDays: normalizedMaxCohortAgeDays,
       currency: effectiveCurrency,
       orders: retentionOrders || [],
+      includeTestOrders: shouldIncludeTestOrders,
     });
 
     const status = getRetentionRunStatus(rows, fetchStats);
@@ -122,6 +125,7 @@ export async function calculateProductRetentionMetrics({
         metadata: {
           ...fetchStats,
           schemaVersion: PRODUCT_RETENTION_SCHEMA_VERSION,
+          includeTestOrders: shouldIncludeTestOrders,
           durationMs: Date.now() - startedAt,
           dataQuality: rows.dataQuality,
         },
@@ -146,6 +150,7 @@ export async function calculateProductRetentionMetrics({
         cohortsGenerated: rows.dailyCohorts.length,
         cohortCellsGenerated: rows.cohortCells.length,
         segmentsGenerated: rows.segmentDaily.length,
+        includeTestOrders: shouldIncludeTestOrders,
         durationMs: Date.now() - startedAt,
       },
     });
@@ -175,6 +180,7 @@ export async function calculateProductRetentionMetrics({
       errorMessage: safeError.message || String(error),
       metadata: {
         schemaVersion: PRODUCT_RETENTION_SCHEMA_VERSION,
+        includeTestOrders: shouldIncludeTestOrders,
         durationMs: Date.now() - startedAt,
         error: safeError,
       },
@@ -222,6 +228,7 @@ export function calculateProductRetentionMetricRows({
   maxCohortAgeDays = PRODUCT_RETENTION_DEFAULT_MAX_COHORT_AGE_DAYS,
   currency = "",
   orders = [],
+  includeTestOrders = false,
 } = {}) {
   const asOf = parseDate(asOfDate) || new Date();
   const windowEnd = parseDate(windowEndDate) || asOf;
@@ -230,7 +237,7 @@ export function calculateProductRetentionMetricRows({
   const normalizedProductGid = String(productGid || "").trim();
   const normalizedOrders = normalizeRetentionOrders(orders, { timezone: effectiveTimezone });
   const validOrders = normalizedOrders
-    .filter((order) => isValidRetentionOrder(order))
+    .filter((order) => isValidRetentionOrder(order, { includeTestOrders }))
     .sort(compareRetentionOrders);
   const validWindowOrders = validOrders.filter((order) => isDateWithinRange(order.orderDate, windowStart, windowEnd));
   const currencyCode = currency || inferCurrency(validOrders);
@@ -1297,10 +1304,10 @@ function getRetentionCustomerKey(order) {
   return "";
 }
 
-function isValidRetentionOrder(order) {
+function isValidRetentionOrder(order, { includeTestOrders = false } = {}) {
   if (!order?.id || !order?.customerKey || !order?.orderDate) return false;
   if (order.cancelledAt) return false;
-  if (order.test) return false;
+  if (order.test && !includeTestOrders) return false;
   const financialStatus = String(order.displayFinancialStatus || "").toUpperCase();
   if (["PENDING", "AUTHORIZED", "VOIDED"].includes(financialStatus)) return false;
   if (!order.lineItems?.length) return false;

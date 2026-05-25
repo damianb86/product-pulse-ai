@@ -204,7 +204,7 @@ function buildFixtureOrders() {
   ];
 }
 
-function calculateRows() {
+function calculateRows(overrides = {}) {
   return calculateProductRetentionMetricRows({
     shopId: "fixture-shop.myshopify.com",
     productGid: PRODUCT_A,
@@ -216,6 +216,7 @@ function calculateRows() {
     windowEndDate: "2024-06-30T23:59:59.000Z",
     maxCohortAgeDays: 180,
     orders: buildFixtureOrders(),
+    ...overrides,
   });
 }
 
@@ -263,6 +264,37 @@ describe("Product retention deterministic engine", () => {
       crossSellRetentionRate90d: 0.555556,
       productLtv90Cents: 10556,
       hasEnoughData: true,
+    });
+  });
+
+  it("excludes Shopify test orders by default and only includes them when explicitly allowed", () => {
+    const testOrder = order({
+      id: "c13-generated-test-first-a",
+      customerId: "13",
+      createdAt: "2024-03-01T10:00:00.000Z",
+      test: true,
+      lineItems: [{ productGid: PRODUCT_A, variantGid: VARIANT_A_1, netRevenueCents: 9000 }],
+    });
+    const orders = [...buildFixtureOrders(), testOrder];
+    const normalizedTestOrder = __productPulseRetentionTestHooks.normalizeRetentionOrders([testOrder], { timezone: "UTC" })[0];
+
+    expect(__productPulseRetentionTestHooks.isValidRetentionOrder(normalizedTestOrder)).toBe(false);
+    expect(__productPulseRetentionTestHooks.isValidRetentionOrder(normalizedTestOrder, { includeTestOrders: true })).toBe(true);
+
+    const defaultRows = calculateRows({ orders });
+    expect(defaultRows.summary.totalCustomersAnalyzed).toBe(10);
+    expect(defaultRows.summary.totalProductOrdersAnalyzed).toBe(14);
+    expect(defaultRows.dailyCohorts.find((row) => row.cohortDate === "2024-03-01")).toBeUndefined();
+
+    const generatedProductRows = calculateRows({ orders, includeTestOrders: true });
+    expect(generatedProductRows.summary.totalCustomersAnalyzed).toBe(11);
+    expect(generatedProductRows.summary.totalProductOrdersAnalyzed).toBe(15);
+    expect(generatedProductRows.dailyCohorts.find((row) => row.cohortDate === "2024-03-01")).toMatchObject({
+      cohortSize: 1,
+      anyRepeatWithin90dCount: 0,
+      sameProductRepeatWithin90dCount: 0,
+      boughtOtherProductWithin90dCount: 0,
+      ltv90Cents: 9000,
     });
   });
 
