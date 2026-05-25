@@ -1401,7 +1401,6 @@ function normalizeShopifyRetentionOrder(order) {
     cancelledAt: order.cancelledAt,
     test: order.test,
     displayFinancialStatus: order.displayFinancialStatus,
-    email: order.email,
     sourceName: order.sourceName,
     referrerUrl: order.referrerUrl,
     landingPageUrl: order.landingPageUrl,
@@ -1451,7 +1450,6 @@ function buildProductRetentionOrdersQuery() {
           cancelledAt
           test
           displayFinancialStatus
-          email
           sourceName
           referrerUrl
           landingPageUrl
@@ -1471,11 +1469,7 @@ function buildProductRetentionOrdersQuery() {
           }
           customer {
             id
-            email
             tags
-            emailMarketingConsent {
-              marketingState
-            }
           }
           totalDiscountsSet {
             shopMoney {
@@ -2372,6 +2366,7 @@ export const __productPulseRetentionTestHooks = {
   normalizeRetentionOrders,
   normalizeRetentionOrder,
   isValidRetentionOrder,
+  buildProductRetentionOrdersQuery,
   calculateRetentionHealthScore,
   getLocalDateKey,
   hashStableValue,

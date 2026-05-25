@@ -320,6 +320,15 @@ describe("Product retention deterministic engine", () => {
     expect(normalizedEmailOrders[0].customerKey).not.toContain("buyer12@example.com");
   });
 
+  it("does not request protected customer email fields from Shopify orders", () => {
+    const query = __productPulseRetentionTestHooks.buildProductRetentionOrdersQuery();
+
+    expect(query).toContain("customer {");
+    expect(query).toContain("id");
+    expect(query).not.toMatch(/\\bemail\\b/);
+    expect(query).not.toContain("emailMarketingConsent");
+  });
+
   it("builds the product detail payload contract and stays idempotent for the same inputs", () => {
     const first = buildProductRetentionPayload(calculateRows());
     const second = buildProductRetentionPayload(calculateRows());

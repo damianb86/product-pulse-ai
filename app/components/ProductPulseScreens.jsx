@@ -14169,6 +14169,7 @@ function ProductRetentionMetricsPanel({ detail }) {
   const segmentRows = useMemo(() => getProductRetentionSegmentRows(retention.segments), [retention.segments]);
   const rangeLabel = getProductRetentionRangeLabel(retention.run, summary);
   const warningLabel = getProductRetentionWarningLabel(summary, retention.run);
+  const emptyMessage = getProductRetentionEmptyMessage(summary, retention.run);
 
   return (
     <section className="ppProductRetentionPanel" aria-label="Product retention metrics">
@@ -14186,7 +14187,7 @@ function ProductRetentionMetricsPanel({ detail }) {
       </div>
 
       {!hasData ? (
-        <EmptyProductDetailState message="No product retention metrics are stored yet. Run product diagnosis after Shopify order evidence is available." />
+        <EmptyProductDetailState message={emptyMessage} />
       ) : (
         <>
           <div className="ppRetentionMetricGrid">
@@ -14942,9 +14943,18 @@ function getProductRetentionRangeLabel(run = null, summary = {}) {
 
 function getProductRetentionWarningLabel(summary = {}, run = null) {
   if (run?.status === "failed") return "Calculation failed";
+  if (summary.errorMessage) return "Calculation failed";
   if (summary.lowSampleWarning) return "Low sample";
   if (!summary.hasEnoughData) return "Partial data";
   return "";
+}
+
+function getProductRetentionEmptyMessage(summary = {}, run = null) {
+  const errorMessage = firstNonEmptyString(summary.errorMessage, run?.errorMessage);
+  if (errorMessage) {
+    return `Product retention calculation failed: ${truncateText(errorMessage, 180)} Re-run product diagnosis to calculate retention metrics.`;
+  }
+  return "No product retention metrics are stored yet. Run product diagnosis after Shopify order evidence is available.";
 }
 
 function formatProductRetentionStatus(status = "") {
