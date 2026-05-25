@@ -1815,6 +1815,12 @@ describe("ProductPulse screens", () => {
     expect(retentionReport).toBeInTheDocument();
     expect(within(retentionReport).getByText("Retention by purchase cohort")).toBeInTheDocument();
     expect(within(retentionReport).getByText("Time to repeat purchase")).toBeInTheDocument();
+    const repeatCard = within(retentionReport).getByText("Time to repeat purchase").closest(".ppRetentionChartCard");
+    expect(repeatCard).toHaveClass("ppRetentionRepeatCard");
+    expect(within(repeatCard).getByText("Cumulative repurchase rate")).toBeInTheDocument();
+    expect(within(repeatCard).getByText("Days since first purchase")).toBeInTheDocument();
+    expect(within(repeatCard).getByText(/Cumulative % of customers/)).toBeInTheDocument();
+    expect(within(repeatCard).queryByText("Bought another product")).not.toBeInTheDocument();
     expect(within(retentionReport).getByText("90-day retention trend")).toBeInTheDocument();
     expect(within(retentionReport).getByText("Next purchase outcome")).toBeInTheDocument();
     expect(within(retentionReport).getByText("Retention window")).toBeInTheDocument();

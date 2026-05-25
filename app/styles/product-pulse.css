@@ -11117,6 +11117,10 @@ s-page[inline-size="large-500"] {
   background: var(--pp-subcard-bg);
 }
 
+.ppRetentionEvidenceReport .ppRetentionRepeatCard {
+  grid-column: 1 / -1;
+}
+
 .ppRetentionLtvCard {
   width: 100%;
 }
@@ -11298,6 +11302,35 @@ s-page[inline-size="large-500"] {
   background: transparent;
 }
 
+.ppRetentionLineChart-repeat {
+  height: 360px;
+}
+
+.ppRetentionLineAxisTitle {
+  position: absolute;
+  z-index: 2;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.ppRetentionLineAxisTitle-y {
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: center;
+  white-space: nowrap;
+}
+
+.ppRetentionLineAxisTitle-x {
+  left: 50%;
+  bottom: 11px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
 .ppRetentionLinePoint {
   position: absolute;
   z-index: 3;
@@ -11330,6 +11363,17 @@ s-page[inline-size="large-500"] {
 .ppRetentionLinePoint:hover > span {
   opacity: 1;
   box-shadow: 0 0 0 5px rgba(var(--pp-pulse-blue-rgb), 0.16), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
+  transform: scale(1);
+}
+
+.ppRetentionLineChart-repeat .ppRetentionLinePoint > span {
+  opacity: 1;
+  transform: scale(0.86);
+}
+
+.ppRetentionLineChart-repeat .ppRetentionLinePoint.isActive > span,
+.ppRetentionLineChart-repeat .ppRetentionLinePoint:focus-visible > span,
+.ppRetentionLineChart-repeat .ppRetentionLinePoint:hover > span {
   transform: scale(1);
 }
 
@@ -11446,6 +11490,15 @@ s-page[inline-size="large-500"] {
   width: 20px;
   height: 4px;
   border-radius: 999px;
+}
+
+.ppRetentionRepeatCard .ppRetentionChartLegend {
+  margin-top: -4px;
+}
+
+.ppRetentionRepeatCard .ppRetentionChartNote {
+  color: var(--pp-slate-500);
+  font-weight: 650;
 }
 
 .ppRetentionLegendAny {

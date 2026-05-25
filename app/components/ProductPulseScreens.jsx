@@ -26,6 +26,7 @@ const DEFAULT_MOMENTUM_INCLUSION_THRESHOLD = 70;
 const WATCHLIST_MAX_PRODUCTS_DEFAULT = 50;
 const PRODUCT_RETENTION_HEATMAP_MONTHS = 6;
 const PRODUCT_RETENTION_CHART_AGE_TICKS = [0, 30, 60, 90, 120, 180];
+const PRODUCT_RETENTION_REPEAT_CHART_AGE_TICKS = [0, 15, 30, 45, 60, 90, 120, 180];
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -14356,7 +14357,7 @@ function ProductRetentionCohortHeatmap({ rows }) {
 
 function ProductRetentionRepeatCurve({ chart, productTitle }) {
   return (
-    <article className="ppRetentionChartCard">
+    <article className="ppRetentionChartCard ppRetentionRepeatCard">
       <div className="ppRetentionChartHeader">
         <div>
           <h3>Time to repeat purchase</h3>
@@ -14367,18 +14368,20 @@ function ProductRetentionRepeatCurve({ chart, productTitle }) {
         <>
           <RetentionLineChart
             ariaLabel={`Time to repeat purchase for ${productTitle}`}
+            className="ppRetentionLineChart-repeat"
             chart={chart}
+            xAxisLabel="Days since first purchase"
+            yAxisLabel="Cumulative repurchase rate"
             series={[
               { key: "anyRepeatCumulativeRate", label: "Any repeat purchase", className: "ppRetentionLine-any", color: "var(--pp-pulse-blue)" },
               { key: "sameProductRepeatCumulativeRate", label: "Same product repurchase", className: "ppRetentionLine-same", color: "var(--pp-signal-teal)" },
-              { key: "boughtOtherProductCumulativeRate", label: "Bought another product", className: "ppRetentionLine-other", color: "var(--pp-insight-violet)" },
             ]}
           />
           <div className="ppRetentionChartLegend">
             <span><i className="ppRetentionLegendAny" />Any repeat purchase</span>
             <span><i className="ppRetentionLegendSame" />Same product repurchase</span>
-            <span><i className="ppRetentionLegendOther" />Bought another product</span>
           </div>
+          <p className="ppRetentionChartNote">Cumulative % of customers who have made a repeat purchase over time. &quot;Same product repurchase&quot; counts only repeat purchases of this product.</p>
         </>
       ) : (
         <ProductRetentionEmptySlot message="No repeat-purchase curve is stored yet." />
@@ -14513,7 +14516,7 @@ function ProductRetentionNextOutcome({ rows }) {
   );
 }
 
-function RetentionLineChart({ chart, series, ariaLabel, className = "" }) {
+function RetentionLineChart({ chart, series, ariaLabel, className = "", xAxisLabel = "", yAxisLabel = "" }) {
   const gradientIdBase = `ppRetentionLineGradient-${useId().replace(/:/g, "")}`;
   return (
     <div className={`ppRetentionLineChart ${className}`.trim()} role="group" aria-label={ariaLabel}>
@@ -14547,6 +14550,8 @@ function RetentionLineChart({ chart, series, ariaLabel, className = "" }) {
           <path key={`path-${item.key}`} className={`${item.className} ppRetentionLinePath`} d={chart.paths[item.key]} />
         ) : null)}
       </svg>
+      {yAxisLabel && <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-y">{yAxisLabel}</span>}
+      {xAxisLabel && <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-x">{xAxisLabel}</span>}
       {series.flatMap((item) => (chart.pointsBySeries[item.key] || []).map((point, index) => (
         <RetentionLinePointButton point={point} seriesItem={item} allSeries={series} chart={chart} key={`${item.key}-${point.x}-${point.y}-${index}`} />
       )))}
@@ -14677,25 +14682,26 @@ function getProductRetentionRepeatChart(rows = []) {
       xLabel: `${formatInteger(row.ageDay)} days`,
       anyRepeatCumulativeRate: row.anyRepeatCumulativeRate,
       sameProductRepeatCumulativeRate: row.sameProductRepeatCumulativeRate,
-      boughtOtherProductCumulativeRate: row.boughtOtherProductCumulativeRate,
     }));
   const maxAge = Math.max(180, ...chartRows.map((row) => row.x), 1);
   const maxValue = Math.max(
     ...chartRows.flatMap((row) => [
       row.anyRepeatCumulativeRate,
       row.sameProductRepeatCumulativeRate,
-      row.boughtOtherProductCumulativeRate,
     ]),
     0,
   );
   return buildRetentionLineChartGeometry({
     rows: chartRows,
-    seriesKeys: ["anyRepeatCumulativeRate", "sameProductRepeatCumulativeRate", "boughtOtherProductCumulativeRate"],
+    seriesKeys: ["anyRepeatCumulativeRate", "sameProductRepeatCumulativeRate"],
     xMin: 0,
     xMax: maxAge,
-    xTicks: PRODUCT_RETENTION_CHART_AGE_TICKS.filter((tick) => tick <= maxAge).map((tick) => ({ value: tick, label: String(tick) })),
+    xTicks: PRODUCT_RETENTION_REPEAT_CHART_AGE_TICKS.filter((tick) => tick <= maxAge).map((tick) => ({ value: tick, label: String(tick) })),
     yMax: getRetentionRateAxisMax(maxValue),
     yFormatter: formatRetentionRate,
+    height: 360,
+    plot: { left: 84, right: 968, top: 26, bottom: 270 },
+    xLabelOffset: 24,
   });
 }
 
@@ -19427,8 +19433,8 @@ function RetentionEvidencePanel({ source, product }) {
           </div>
 
           <div className="ppRetentionEvidenceChartGrid">
-            <ProductRetentionCohortHeatmap rows={cohortRows} />
             <ProductRetentionRepeatCurve chart={repeatChart} productTitle={product.title} />
+            <ProductRetentionCohortHeatmap rows={cohortRows} />
             <ProductRetentionTrendChart chart={trendChart} productTitle={product.title} />
             <ProductRetentionNextOutcome rows={outcomeRows} />
           </div>
