@@ -1915,6 +1915,8 @@ function WatchChangeReportContent({ product, report }) {
   const visibleSections = isBaselineReport ? [] : getVisibleWatchReportSections(sections);
   const sourceChanges = isBaselineReport ? [] : getWatchSourceChangeCards(report);
   const biggestChanges = isBaselineReport ? [] : getWatchReportBiggestChanges(report, sourceChanges, visibleSections);
+  const customerLanguageCards = isBaselineReport ? [] : getWatchCustomerLanguageChangeCards(report);
+  const showCustomerLanguagePanel = !isBaselineReport && (customerLanguageCards.length > 0 || hasWatchCustomerLanguagePanelContext(report));
   const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
   const categoryCards = isBaselineReport ? [] : getWatchCategoryChangeCards(report, sourceChanges);
   const trendCharts = isBaselineReport ? [] : getWatchRunTrendCharts(report);
@@ -1922,7 +1924,7 @@ function WatchChangeReportContent({ product, report }) {
   const hasVisibleChanges = sourceChanges.length > 0 || visibleSections.length > 0 || categoryCards.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
-  const hasReportContent = biggestChanges.length > 0 || categoryCards.length > 0 || snapshotRows.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
+  const hasReportContent = biggestChanges.length > 0 || showCustomerLanguagePanel || categoryCards.length > 0 || snapshotRows.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
 
   if (!hasReportContent) {
     return <WatchlistProductEmptyState product={product} report={report} />;
@@ -1931,6 +1933,7 @@ function WatchChangeReportContent({ product, report }) {
   return (
     <>
       <WatchlistInsightReport report={report} statusTone={statusTone} biggestChanges={biggestChanges} />
+      {showCustomerLanguagePanel ? <WatchCustomerLanguageChangePanel cards={customerLanguageCards} report={report} /> : null}
       {categoryCards.length ? <WatchCategoryChangeCards cards={categoryCards} /> : null}
       {snapshotRows.length ? <WatchSnapshotComparisonTable report={report} rows={snapshotRows} /> : null}
       {trendCharts.length ? <WatchRunTrendCharts charts={trendCharts} /> : null}
@@ -2221,6 +2224,85 @@ function WatchlistInsightReport({ report, statusTone, biggestChanges = [] }) {
   );
 }
 
+function WatchCustomerLanguageChangePanel({ cards = [], report = {} }) {
+  const totalSignals = cards.reduce((sum, card) => sum + Number(card.signalCount || 0), 0);
+  const negativeSignals = cards.reduce((sum, card) => sum + Number(card.sentiment?.negative || 0), 0);
+  const previousTimestamp = formatWatchReportTimestamp(report?.previousRunAt || report?.previous?.capturedAt);
+  const currentTimestamp = formatWatchReportTimestamp(report?.currentRunAt || report?.current?.capturedAt || report?.createdAt);
+  const windowLabel = [previousTimestamp, currentTimestamp].filter(Boolean).join(" -> ");
+
+  return (
+    <section className="ppWatchCustomerLanguagePanel" aria-label="Customer Language Analysis changes">
+      <header className="ppWatchCustomerLanguageHeader">
+        <DashboardIcon type="customer-language-analysis" tone="blue" size="small" />
+        <div>
+          <h3>Customer Language Analysis changes</h3>
+          <p>New return notes, refund notes and review language captured since the previous Watchlist run.</p>
+        </div>
+        <span className={`ppWatchCustomerLanguageSummary${negativeSignals > 0 ? " isWarning" : ""}`}>
+          {cards.length ? `${formatInteger(totalSignals || cards.length)} new text signal${(totalSignals || cards.length) === 1 ? "" : "s"}` : "No new language"}
+        </span>
+      </header>
+
+      {windowLabel ? <p className="ppWatchCustomerLanguageWindow">{windowLabel}</p> : null}
+
+      {cards.length ? (
+        <div className="ppWatchCustomerLanguageGrid">
+          {cards.map((card) => <WatchCustomerLanguageCard card={card} key={card.id} />)}
+        </div>
+      ) : (
+        <div className="ppWatchCustomerLanguageEmpty">
+          <s-icon type="check-circle" size="small"></s-icon>
+          <span>No new return, refund or review language was detected for this Watchlist interval.</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WatchCustomerLanguageCard({ card }) {
+  const sentiment = card.sentiment || {};
+  const hasSentiment = Number(sentiment.total || 0) > 0;
+
+  return (
+    <article className={`ppWatchCustomerLanguageCard ppWatchCustomerLanguageCard-${card.tone || "blue"}`}>
+      <header>
+        <DashboardIcon type={card.icon} tone={card.iconTone || card.tone || "blue"} size="small" />
+        <div>
+          <h4>{card.title}</h4>
+          <span>{card.metric}</span>
+        </div>
+      </header>
+      <p>{card.summary}</p>
+
+      {hasSentiment ? (
+        <div className="ppWatchCustomerLanguageSentiment" aria-label={`${card.title} sentiment`}>
+          <span className="isNegative"><strong>{formatInteger(sentiment.negative)}</strong> negative</span>
+          <span><strong>{formatInteger(sentiment.neutral)}</strong> neutral</span>
+          <span className="isPositive"><strong>{formatInteger(sentiment.positive)}</strong> positive</span>
+        </div>
+      ) : null}
+
+      {card.bullets.length ? (
+        <ul className="ppWatchCustomerLanguageBullets">
+          {card.bullets.slice(0, 4).map((bullet) => <li key={bullet}>{bullet}</li>)}
+        </ul>
+      ) : null}
+
+      {card.snippets.length ? (
+        <div className="ppWatchCustomerLanguageSnippets">
+          {card.snippets.map((snippet) => (
+            <blockquote key={`${snippet.text}-${snippet.meta}`}>
+              <p>{snippet.text}</p>
+              {snippet.meta ? <footer>{snippet.meta}</footer> : null}
+            </blockquote>
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 function getWatchlistProductPageHref(product = {}) {
   if (product.watchlistHref) return product.watchlistHref;
   const productKey = product.handle || product.productGid || product.id || "";
@@ -2407,6 +2489,145 @@ function getWatchRunHistoryTableRows(report = {}, product = {}) {
       };
     })
     .reverse();
+}
+
+function getWatchCustomerLanguageChangeCards(report = {}) {
+  const sourceInsights = Array.isArray(report?.sourceInsights) ? report.sourceInsights : [];
+  const sourceChanges = Array.isArray(report?.sourceChanges) ? report.sourceChanges : [];
+  const definitions = [
+    {
+      id: "returns",
+      insightIds: ["return-evidence"],
+      sourceIds: ["new-returns", "returns"],
+      title: "Returns language",
+      fallbackMetric: "Return notes",
+      emptySummary: "No new return-language signal was captured.",
+      icon: "shopify-returns",
+      tone: "orange",
+    },
+    {
+      id: "refunds",
+      insightIds: ["refund-evidence"],
+      sourceIds: ["new-refunds", "refunds"],
+      title: "Refunds language",
+      fallbackMetric: "Refund notes",
+      emptySummary: "No new refund-language signal was captured.",
+      icon: "shopify-refunds",
+      tone: "purple",
+    },
+    {
+      id: "reviews",
+      insightIds: ["review-evidence"],
+      sourceIds: ["new-reviews", "reviews"],
+      title: "Reviews language",
+      fallbackMetric: "Review text",
+      emptySummary: "No new review-language signal was captured.",
+      icon: "star",
+      tone: "blue",
+    },
+  ];
+
+  return definitions.map((definition) => {
+    const insight = sourceInsights.find((item) => definition.insightIds.includes(String(item?.id || "")));
+    const change = sourceChanges.find((item) => {
+      const id = String(item?.id || "");
+      const source = String(item?.source || "");
+      return definition.sourceIds.includes(id) || definition.sourceIds.includes(source);
+    });
+    const items = Array.isArray(change?.items) ? change.items : [];
+    const snippets = getWatchCustomerLanguageSnippets(items);
+    const sentiment = getWatchCustomerLanguageSentiment(items);
+    const bullets = uniqueStrings([
+      ...(Array.isArray(insight?.bullets) ? insight.bullets : []),
+      change?.detail,
+    ].filter(Boolean));
+
+    if (!insight && !change && !snippets.length) return null;
+
+    return {
+      id: definition.id,
+      title: definition.title,
+      icon: definition.icon,
+      tone: getWatchCustomerLanguageTone(definition.tone, insight, change, sentiment),
+      iconTone: definition.tone === "purple" ? "purple" : definition.tone,
+      metric: insight?.metric || change?.value || definition.fallbackMetric,
+      summary: insight?.summary || change?.detail || definition.emptySummary,
+      bullets,
+      snippets,
+      sentiment,
+      signalCount: Math.max(items.length, Number(sentiment.total || 0), Number(change?.items?.length || 0)),
+    };
+  }).filter(Boolean);
+}
+
+function hasWatchCustomerLanguagePanelContext(report = {}) {
+  return Boolean(
+    report?.previousRunAt
+    || report?.currentRunAt
+    || report?.createdAt
+    || report?.previous?.capturedAt
+    || report?.current?.capturedAt
+    || report?.previous?.evidenceDetails
+    || report?.current?.evidenceDetails,
+  );
+}
+
+function getWatchCustomerLanguageTone(fallbackTone, insight = {}, change = {}, sentiment = {}) {
+  if (insight?.tone) return insight.tone;
+  if (change?.tone) return change.tone;
+  if (Number(sentiment.negative || 0) > Number(sentiment.positive || 0)) return "orange";
+  return fallbackTone || "blue";
+}
+
+function getWatchCustomerLanguageSentiment(items = []) {
+  return items.reduce((summary, item) => {
+    const sentiment = String(item?.sentiment || "").toLowerCase();
+    if (sentiment === "negative") summary.negative += 1;
+    else if (sentiment === "positive") summary.positive += 1;
+    else if (sentiment === "neutral") summary.neutral += 1;
+    else return summary;
+    summary.total += 1;
+    return summary;
+  }, { total: 0, negative: 0, neutral: 0, positive: 0 });
+}
+
+function getWatchCustomerLanguageSnippets(items = []) {
+  return [...items]
+    .reverse()
+    .map((item) => {
+      const text = getWatchCustomerLanguageText(item);
+      if (!text) return null;
+      return {
+        text: `"${truncateText(text, 150)}"`,
+        meta: getWatchCustomerLanguageSnippetMeta(item),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function getWatchCustomerLanguageText(item = {}) {
+  return String(
+    item.analysisText
+    || item.text
+    || item.note
+    || item.message
+    || item.reasonText
+    || item.reason
+    || item.issueCode
+    || item.title
+    || "",
+  ).replace(/\s+/g, " ").trim();
+}
+
+function getWatchCustomerLanguageSnippetMeta(item = {}) {
+  const pieces = [
+    item.sentiment ? String(item.sentiment) : "",
+    Number(item.rating || 0) ? `${Number(item.rating)} star` : "",
+    item.reason || item.reasonText || item.issueCode || "",
+    formatWatchReportTimestamp(item.createdAt || item.processedAt || item.date),
+  ].filter(Boolean);
+  return uniqueStrings(pieces).slice(0, 3).join(" · ");
 }
 
 function normalizeWatchTrendPoint(entry = {}, fallbackTimestamp = "") {

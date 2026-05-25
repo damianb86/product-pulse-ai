@@ -625,6 +625,14 @@ describe("ProductPulse screens", () => {
             tone: "orange",
             icon: "shopify-returns",
             detail: "New return text sentiment: 2 negative, 0 neutral, 0 positive.",
+            items: [
+              {
+                text: "The hinge still feels loose and the screen clicks after one day.",
+                sentiment: "negative",
+                reason: "Quality issue",
+                createdAt: "2026-05-17T09:30:00.000Z",
+              },
+            ],
           }],
           history: [
             { id: "run-0", currentRunAt: "2026-05-11T10:00:00.000Z", riskScore: 56, returnRatePercent: 17, refundRatePercent: 9, productMomentumScore: 51, orderCount: 6, soldUnits: 10, returnUnits: 1, refundUnits: 1, salesAmount: 640, refundAmount: 86, signalCount: 36 },
@@ -667,6 +675,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/Your baseline is captured/i)).toBeInTheDocument();
     expect(screen.getByText("AI Watchlist insight")).toBeInTheDocument();
     expect(screen.getByText("Biggest changes")).toBeInTheDocument();
+    expect(screen.getByText("Customer Language Analysis changes")).toBeInTheDocument();
+    expect(screen.getByText("Returns language")).toBeInTheDocument();
+    expect(screen.getByText("2 new return text signals were captured since the previous Watchlist report.")).toBeInTheDocument();
+    expect(screen.getByText(/hinge still feels loose/)).toBeInTheDocument();
     expect(screen.getByText("Changes by category")).toBeInTheDocument();
     expect(screen.getByText("Demand & orders")).toBeInTheDocument();
     expect(screen.getByText("Customer friction")).toBeInTheDocument();
