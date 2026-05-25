@@ -15,8 +15,14 @@ import { calculateProductScoreModel } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummary } from "./product-pulse-return-refund-relationship.server";
 import { buildProductPurchaseContextSummary } from "./product-pulse-purchase-context.server";
 import { buildProductRelationshipSummary } from "./product-pulse-product-relationships.server";
+import {
+  attachProductRetentionPayloadToDiagnosis,
+  calculateProductRetentionMetrics,
+} from "./product-pulse-retention.server";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
+const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS = 365;
+const PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS = 180;
 const MAX_ORDER_PAGES = 12;
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
@@ -198,6 +204,14 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   });
   const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai });
   const diagnosis = await persistDetailedDiagnosis({ shop, jobId, snapshot, payload: diagnosisPayload });
+  const retentionResult = await calculateAndAttachProductRetentionForDiagnosis({
+    shop,
+    jobId,
+    admin,
+    snapshot,
+    diagnosis,
+    windowDays,
+  });
 
   await recordJobLog({
     shop,
@@ -214,6 +228,13 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       recommendations: diagnosisPayload.recommendations.map((action) => action.label),
       modelsUsed: ai.modelsUsed,
       aiUsage: ai.aiUsage,
+      productRetention: retentionResult
+        ? {
+          status: retentionResult.status,
+          retentionRunId: retentionResult.retentionRunId,
+          hasEnoughData: retentionResult.payload?.summary?.hasEnoughData ?? false,
+        }
+        : null,
     },
   });
 
@@ -227,6 +248,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     model: ai.model,
     modelsUsed: ai.modelsUsed,
     aiUsage: ai.aiUsage,
+    productRetention: retentionResult?.payload || null,
   };
 }
 
@@ -3033,6 +3055,7 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       issues: payload.issues,
       evidence: payload.evidence,
       recommendations: payload.recommendations,
+      metrics: payload.metrics,
       creditsConsumed: 1,
       completedAt: new Date(),
     },
@@ -3086,6 +3109,47 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
   });
 
   return diagnosis;
+}
+
+async function calculateAndAttachProductRetentionForDiagnosis({
+  shop,
+  jobId,
+  admin,
+  snapshot,
+  diagnosis,
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+}) {
+  if (!diagnosis?.id || !snapshot?.productGid) return null;
+  try {
+    const lookbackDays = Math.max(PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS, Number(windowDays || 0));
+    const result = await calculateProductRetentionMetrics({
+      shopId: shop,
+      productGid: snapshot.productGid,
+      diagnosisId: diagnosis.id,
+      admin,
+      jobId,
+      asOfDate: diagnosis.completedAt || new Date(),
+      lookbackDays,
+      maxCohortAgeDays: PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS,
+    });
+    await attachProductRetentionPayloadToDiagnosis({
+      shopId: shop,
+      productGid: snapshot.productGid,
+      diagnosisId: diagnosis.id,
+      payload: result.payload,
+    });
+    return result;
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_retention.attach_failed",
+      message: "Product retention payload could not be attached to the diagnosis; the diagnosis remains completed.",
+      data: { productGid: snapshot.productGid, diagnosisId: diagnosis.id, error: serializeError(error) },
+    });
+    return null;
+  }
 }
 
 async function ensureProductRelationshipCandidateSnapshots({

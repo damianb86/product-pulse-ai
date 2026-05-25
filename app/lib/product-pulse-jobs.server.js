@@ -11,6 +11,7 @@ import {
   recordJobLog,
   serializeError,
 } from "./product-pulse-job-logs.server";
+import { getProductRetentionPayloadForDiagnosis } from "./product-pulse-retention.server";
 import {
   PRODUCT_PULSE_SETTINGS_SOURCE_KEY,
   getProductPulseSettings,
@@ -567,9 +568,24 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 80 }),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+  const productRetention = snapshot.metrics?.productRetention || await getProductRetentionPayloadForDiagnosis({
+    shopId: shop,
+    productGid: snapshot.productGid,
+    diagnosisId: latestDiagnosis?.id || snapshot.metrics?.latestDiagnosisId || "",
+  });
+  const snapshotWithRetention = productRetention
+    ? {
+      ...snapshot,
+      metrics: {
+        ...(snapshot.metrics || {}),
+        productRetention,
+        productRetentionSummary: productRetention.summary || null,
+      },
+    }
+    : snapshot;
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
   const product = {
-    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
+    ...formatSnapshotForDiagnosis(snapshotWithRetention, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
   const productWithUrls = withShopifyAdminUrl(product, shop);
@@ -3763,6 +3779,8 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
         : [],
       purchaseContextSignalBreakdown: metrics.purchaseContextSignalBreakdown || null,
       productRelationshipIntelligenceSummary: metrics.productRelationshipIntelligenceSummary || null,
+      productRetention: metrics.productRetention || null,
+      productRetentionSummary: metrics.productRetentionSummary || metrics.productRetention?.summary || null,
       productMomentumScore: metrics.productMomentumScore || metrics.productMomentum?.score || null,
       productMomentumTier: metrics.productMomentumTier || metrics.productMomentum?.tier || "",
       momentumDirection: metrics.momentumDirection || metrics.productMomentum?.direction || "",
