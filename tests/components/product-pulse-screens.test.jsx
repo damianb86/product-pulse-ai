@@ -1785,19 +1785,15 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("29 days")).toBeInTheDocument();
     expect(within(panel).getByText("$86")).toBeInTheDocument();
     expect(within(panel).getByText("72/100")).toBeInTheDocument();
-    expect(within(panel).getByText("Retention by purchase cohort")).toBeInTheDocument();
-    expect(within(panel).getByText("Time to repeat purchase")).toBeInTheDocument();
-    expect(within(panel).getByText("90-day retention trend")).toBeInTheDocument();
     expect(within(panel).getByText("LTV curve")).toBeInTheDocument();
-    expect(within(panel).getByText("Next purchase outcome")).toBeInTheDocument();
     expect(within(panel).getByText("Retention segments")).toBeInTheDocument();
     expect(within(panel).getByText("New to store")).toBeInTheDocument();
     const ltvCard = within(panel).getByText("LTV curve").closest(".ppRetentionChartCard");
-    const cohortCard = within(panel).getByText("Retention by purchase cohort").closest(".ppRetentionChartCard");
     expect(ltvCard).toHaveClass("ppRetentionLtvCard");
-    expect(Boolean(ltvCard.compareDocumentPosition(cohortCard) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(panel.querySelector(".ppRetentionCohortTable")).toBeInTheDocument();
-    expect(panel.querySelectorAll(".ppRetentionLineSvg").length).toBeGreaterThanOrEqual(3);
+    expect(within(panel).queryByText("Retention by purchase cohort")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("Time to repeat purchase")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("90-day retention trend")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("Next purchase outcome")).not.toBeInTheDocument();
 
     const totalLtvPoint = within(ltvCard).getByRole("button", { name: "Total LTV, 90 days: $86" });
     fireEvent.mouseEnter(totalLtvPoint);
@@ -1807,6 +1803,17 @@ describe("ProductPulse screens", () => {
     expect(ltvTooltip).toHaveTextContent("Total LTV: $86");
     expect(ltvTooltip).toHaveTextContent("Same product LTV");
     fireEvent.mouseLeave(totalLtvPoint);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Retention" }));
+    const retentionReport = container.querySelector(".ppRetentionEvidenceReport");
+    expect(retentionReport).toBeInTheDocument();
+    expect(within(retentionReport).getByText("Retention by purchase cohort")).toBeInTheDocument();
+    expect(within(retentionReport).getByText("Time to repeat purchase")).toBeInTheDocument();
+    expect(within(retentionReport).getByText("90-day retention trend")).toBeInTheDocument();
+    expect(within(retentionReport).getByText("Next purchase outcome")).toBeInTheDocument();
+    expect(within(retentionReport).getByText("Retention window")).toBeInTheDocument();
+    expect(retentionReport.querySelector(".ppRetentionCohortTable")).toBeInTheDocument();
+    expect(retentionReport.querySelectorAll(".ppRetentionLineSvg").length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders momentum weekly bars as empty tracks for zero weeks and a visible spike", () => {

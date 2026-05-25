@@ -10996,6 +10996,18 @@ s-page[inline-size="large-500"] {
   background: var(--pp-subcard-bg);
 }
 
+.ppRetentionEvidenceChartGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.ppRetentionEvidenceReport .ppRetentionChartCard {
+  min-height: 100%;
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+}
+
 .ppRetentionLtvCard {
   width: 100%;
 }
@@ -12148,7 +12160,8 @@ s-page[inline-size="large-500"] {
   }
 
   .ppRetentionMainGrid,
-  .ppRetentionSecondaryGrid {
+  .ppRetentionSecondaryGrid,
+  .ppRetentionEvidenceChartGrid {
     grid-template-columns: minmax(0, 1fr);
   }
 

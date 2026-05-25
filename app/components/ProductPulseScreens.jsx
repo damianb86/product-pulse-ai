@@ -5686,7 +5686,7 @@ function getProductDetailModel(product) {
   const detectedIssueRows = getProductDetectedIssues(product, issueCategory, hasRiskSnapshot);
   const recommendedActions = hasFullDiagnosis ? getProductRecommendedActions(product) : [];
   const firstAction = recommendedActions[0];
-  const evidenceSources = getProductEvidenceSources(product);
+  const baseEvidenceSources = getProductEvidenceSources(product);
   const checkedItems = getProductCheckedItems(product);
   const mainFinding = sanitizeProductMainFinding(product.mainFinding);
   const riskTrendValues = getProductRiskTrendValues(product);
@@ -5721,6 +5721,7 @@ function getProductDetailModel(product) {
   const hasMonthlyOrderActivity = hasProductMonthlyOrderActivity(monthlyOrderActivity);
   const hasReturnRatePrediction = hasProductReturnRatePrediction(returnRatePrediction);
   const hasProductRetention = hasProductRetentionData(productRetention);
+  const evidenceSources = withProductRetentionEvidenceSource(baseEvidenceSources, productRetention, hasProductRetention);
   const productStatus = product.status || metrics.productStatus || "";
   const productCollections = Array.isArray(metrics.collections) && metrics.collections.length
     ? metrics.collections
@@ -6941,6 +6942,33 @@ function hasProductRetentionData(retention = null) {
       || (Array.isArray(retention?.ltvCurve) && retention.ltvCurve.length)
       || (Array.isArray(retention?.segments) && retention.segments.length)
   );
+}
+
+function withProductRetentionEvidenceSource(sources = [], retention = null, hasRetentionData = false) {
+  const normalizedSources = Array.isArray(sources) ? sources : [];
+  if (!hasRetentionData || normalizedSources.some((source) => isRetentionEvidenceSource(source?.title))) return normalizedSources;
+  const summary = retention?.summary || {};
+  const points = [
+    `${formatInteger(summary.totalCustomersAnalyzed)} customers analyzed`,
+    `${formatRetentionRate(summary.repeatPurchaseRate90d)} 90-day repeat purchase rate`,
+    `${formatRetentionRate(summary.sameProductRepurchaseRate90d)} same-product repurchase rate`,
+    `${formatRetentionMoneyCents(summary.productLtv90Cents)} 90-day product LTV`,
+  ];
+  const retentionSource = {
+    key: "retention",
+    title: "Retention",
+    tone: summary.hasEnoughData ? "teal" : "amber",
+    icon: "product-momentum",
+    summary: "Product-level retention cohorts, repeat purchase timing and next purchase outcomes.",
+    points,
+  };
+  const orderSourceIndex = normalizedSources.findIndex((source) => isShopifyOrdersEvidenceSource(source?.title));
+  if (orderSourceIndex < 0) return [...normalizedSources, retentionSource];
+  return [
+    ...normalizedSources.slice(0, orderSourceIndex + 1),
+    retentionSource,
+    ...normalizedSources.slice(orderSourceIndex + 1),
+  ];
 }
 
 function normalizeProductMomentum(momentum = null) {
@@ -14161,11 +14189,7 @@ function ProductRetentionMetricsPanel({ detail }) {
   const retention = detail.productRetention || normalizeProductRetention(null);
   const summary = retention.summary || {};
   const hasData = detail.hasProductRetention || hasProductRetentionData(retention);
-  const cohortRows = useMemo(() => getProductRetentionMonthlyCohortRows(retention.cohortHeatmap), [retention.cohortHeatmap]);
-  const repeatChart = useMemo(() => getProductRetentionRepeatChart(retention.timeToRepeatPurchase), [retention.timeToRepeatPurchase]);
   const ltvChart = useMemo(() => getProductRetentionLtvChart(retention.ltvCurve), [retention.ltvCurve]);
-  const trendChart = useMemo(() => getProductRetentionTrendChart(retention.dailyRetentionTrend), [retention.dailyRetentionTrend]);
-  const outcomeRows = useMemo(() => getProductRetentionOutcomeRows(retention.nextPurchaseOutcome), [retention.nextPurchaseOutcome]);
   const segmentRows = useMemo(() => getProductRetentionSegmentRows(retention.segments), [retention.segments]);
   const rangeLabel = getProductRetentionRangeLabel(retention.run, summary);
   const warningLabel = getProductRetentionWarningLabel(summary, retention.run);
@@ -14229,16 +14253,6 @@ function ProductRetentionMetricsPanel({ detail }) {
           </div>
 
           <ProductRetentionLtvCurve chart={ltvChart} productTitle={detail.title} />
-
-          <div className="ppRetentionMainGrid">
-            <ProductRetentionCohortHeatmap rows={cohortRows} />
-            <ProductRetentionRepeatCurve chart={repeatChart} productTitle={detail.title} />
-          </div>
-
-          <div className="ppRetentionSecondaryGrid">
-            <ProductRetentionTrendChart chart={trendChart} productTitle={detail.title} />
-            <ProductRetentionNextOutcome rows={outcomeRows} />
-          </div>
 
           <ProductRetentionSegmentsTable rows={segmentRows} />
         </>
@@ -18120,6 +18134,9 @@ function normalizeSourceToken(source) {
   if (normalized.includes("order") || normalized.includes("sale")) {
     return { key: "orders", label: "Orders", shortLabel: "ORD", detail: "Shopify order line items and sold units." };
   }
+  if (normalized.includes("retention") || normalized.includes("cohort")) {
+    return { key: "retention", label: "Retention", shortLabel: "RTN", detail: "Product cohorts, repeat purchases and LTV curves." };
+  }
   if (normalized.includes("refund")) {
     return { key: "refunds", label: "Refunds", shortLabel: "REF", detail: "Shopify refunded units and refund amount." };
   }
@@ -18798,6 +18815,7 @@ function getEvidenceSourceReportKind(source = "") {
   if (isShopifyRefundsEvidenceSource(source)) return "refunds";
   if (isShopifyReturnsEvidenceSource(source)) return "returns";
   if (isShopifyOrdersEvidenceSource(source)) return "orders";
+  if (isRetentionEvidenceSource(source)) return "retention";
   if (isReviewEvidenceSource(source)) return "reviews";
   if (isShopifyProductEvidenceSource(source)) return "shopify-product";
   if (isAiEvidenceSynthesisSource(source)) return "ai-synthesis";
@@ -18821,6 +18839,9 @@ function EvidenceSourceReportPanelContent({ source, product, reportHref, cards =
   }
   if (sourceReportKind === "orders") {
     return <OrdersEvidencePanel source={source} product={product} reportHref={reportHref} />;
+  }
+  if (sourceReportKind === "retention") {
+    return <RetentionEvidencePanel source={source} product={product} />;
   }
   if (sourceReportKind === "shopify-product") {
     return <ShopifyProductEvidencePanel source={source} product={product} reportHref={reportHref} />;
@@ -18853,6 +18874,10 @@ function isShopifyRefundsEvidenceSource(source = "") {
 function isShopifyOrdersEvidenceSource(source = "") {
   const normalized = String(source || "").toLowerCase();
   return normalized.includes("order") || normalized.includes("sales");
+}
+
+function isRetentionEvidenceSource(source = "") {
+  return String(source || "").toLowerCase().trim() === "retention";
 }
 
 function isShopifyProductEvidenceSource(source = "") {
@@ -19364,6 +19389,69 @@ function OrdersEvidencePanel({ source, product, reportHref }) {
         </section>
         <EvidenceFullReportCard href={reportHref} />
       </div>
+    </div>
+  );
+}
+
+function RetentionEvidencePanel({ source, product }) {
+  const metrics = product.metrics || {};
+  const retention = normalizeProductRetention(metrics.productRetention || product.productRetention);
+  const summary = retention.summary || {};
+  const hasData = hasProductRetentionData(retention);
+  const cohortRows = useMemo(() => getProductRetentionMonthlyCohortRows(retention.cohortHeatmap), [retention.cohortHeatmap]);
+  const repeatChart = useMemo(() => getProductRetentionRepeatChart(retention.timeToRepeatPurchase), [retention.timeToRepeatPurchase]);
+  const trendChart = useMemo(() => getProductRetentionTrendChart(retention.dailyRetentionTrend), [retention.dailyRetentionTrend]);
+  const outcomeRows = useMemo(() => getProductRetentionOutcomeRows(retention.nextPurchaseOutcome), [retention.nextPurchaseOutcome]);
+  const segmentRows = useMemo(() => getProductRetentionSegmentRows(retention.segments), [retention.segments]);
+  const rangeLabel = getProductRetentionRangeLabel(retention.run, summary) || "No window stored";
+  const statusLabel = retention.run?.status ? formatProductRetentionStatus(retention.run.status) : "Unavailable";
+
+  return (
+    <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppRetentionEvidenceReport">
+      <EvidenceSourceReportHeader source={source} title="Retention" eyebrow="Retention" summary="Product cohorts, repeat purchase timing and follow-on purchase outcomes from deterministic Shopify order metrics." />
+
+      {!hasData ? (
+        <EmptyProductDetailState message={getProductRetentionEmptyMessage(summary, retention.run)} />
+      ) : (
+        <>
+          <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
+            <EvidenceSourceStatCard icon="product-momentum" label="90-day repeat" value={formatRetentionRate(summary.repeatPurchaseRate90d)} detail="Any follow-on purchase" tone="teal" />
+            <EvidenceSourceStatCard icon="shopify-product" label="Same product" value={formatRetentionRate(summary.sameProductRepurchaseRate90d)} detail="90-day repurchase" tone="blue" />
+            <EvidenceSourceStatCard icon="duplicate" label="Cross-sell" value={formatRetentionRate(summary.crossSellRetentionRate90d)} detail="Other products after entry" tone="violet" />
+            <EvidenceSourceStatCard icon="profile" label="Customers" value={formatInteger(summary.totalCustomersAnalyzed)} detail="Analyzed in retention run" tone="blue" />
+          </div>
+
+          <div className="ppEvidenceTwoColumnGrid">
+            <section className="ppEvidenceReportSectionCard">
+              <h4>Retention window</h4>
+              <p>{rangeLabel}</p>
+              <div className="ppEvidenceMiniInsightGrid">
+                <EvidenceMiniInsight label="Status" value={statusLabel} detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"} tone={summary.hasEnoughData ? "teal" : "amber"} />
+                <EvidenceMiniInsight label="Product orders" value={formatInteger(summary.totalProductOrdersAnalyzed)} detail="Orders containing this product" tone="blue" />
+                <EvidenceMiniInsight label="Median second purchase" value={formatRetentionDays(summary.medianDaysToSecondPurchase)} detail="Customer return timing" tone="violet" />
+              </div>
+            </section>
+            <section className="ppEvidenceReportSectionCard">
+              <h4>Retention value</h4>
+              <p>LTV and returning behavior for customers entering through this product.</p>
+              <div className="ppEvidenceMiniInsightGrid">
+                <EvidenceMiniInsight label="LTV 90" value={formatRetentionMoneyCents(summary.productLtv90Cents)} detail="Per cohort customer" tone="teal" />
+                <EvidenceMiniInsight label="LTV 180" value={formatRetentionMoneyCents(summary.productLtv180Cents)} detail="Per cohort customer" tone="blue" />
+                <EvidenceMiniInsight label="Health score" value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`} detail="Retention score" tone={summary.hasEnoughData ? "teal" : "amber"} />
+              </div>
+            </section>
+          </div>
+
+          <div className="ppRetentionEvidenceChartGrid">
+            <ProductRetentionCohortHeatmap rows={cohortRows} />
+            <ProductRetentionRepeatCurve chart={repeatChart} productTitle={product.title} />
+            <ProductRetentionTrendChart chart={trendChart} productTitle={product.title} />
+            <ProductRetentionNextOutcome rows={outcomeRows} />
+          </div>
+
+          <ProductRetentionSegmentsTable rows={segmentRows} />
+        </>
+      )}
     </div>
   );
 }
