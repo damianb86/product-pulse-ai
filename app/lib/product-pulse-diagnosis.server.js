@@ -8410,8 +8410,9 @@ function normalizeAiEvidenceSynthesisSectionKey(value = "") {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
-  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer_language";
+  if (normalized.includes("product_orders_retention") || normalized.includes("product_order_retention") || normalized.includes("orders_retention") || normalized.includes("order_retention") || normalized.includes("retention") || normalized.includes("ltv")) return "product_orders_retention";
   if (normalized.includes("refund") || normalized.includes("return") || normalized.includes("post_purchase") || normalized.includes("postpurchase")) return "post_purchase";
+  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer_language";
   if (normalized.includes("variant") || normalized.includes("sku") || normalized.includes("option")) return "variant_scope";
   if (normalized.includes("pdp") || normalized.includes("catalog") || normalized.includes("content") || normalized.includes("description") || normalized.includes("shopify_product")) return "pdp_catalog";
   if (normalized.includes("operational") || normalized.includes("risk") || normalized.includes("confidence") || normalized.includes("impact") || normalized.includes("exposure")) return "operational_interpretation";
@@ -8422,6 +8423,7 @@ function normalizeAiEvidenceSynthesisSectionKey(value = "") {
 function getAiEvidenceSynthesisSectionTitle(sectionKey = "", fallback = "", index = 0) {
   if (sectionKey === "cross_source") return "Cross-source reading";
   if (sectionKey === "customer_language") return "Customer language";
+  if (sectionKey === "product_orders_retention") return "Product, orders and retention";
   if (sectionKey === "post_purchase") return "Refund and return evidence";
   if (sectionKey === "pdp_catalog") return "PDP and catalog context";
   if (sectionKey === "variant_scope") return "Variant scope";

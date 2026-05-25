@@ -4194,6 +4194,16 @@ describe("ProductPulse screens", () => {
           weight: "Generated from deterministic metrics and stored snippets.",
           points: [
             "Customer language: Stored AI reading highlights expectation-setting language without restating panel metrics.",
+            {
+              section_key: "product_orders_retention",
+              title: "Product, orders and retention",
+              body: "Stored AI product-order reading says variant sales and retention context should be compared before changing the whole product.",
+            },
+            {
+              section_key: "post_purchase",
+              title: "Returns, refunds and negative reviews",
+              body: "Stored AI post-purchase reading says refunds, returns and negative reviews should be treated as quality pressure only when repeated.",
+            },
             "Variant scope: Stored AI variant interpretation says Aurora Blue should be reviewed before broad product changes.",
           ],
         },
@@ -4283,8 +4293,13 @@ describe("ProductPulse screens", () => {
     expect(tabs[0]).toHaveAttribute("aria-label", "AI evidence synthesis");
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     const synthesisSection = screen.getByRole("heading", { name: "Technical synthesis" }).closest("section");
+    expect(synthesisSection.querySelectorAll(".ppEvidenceFinding")).toHaveLength(3);
+    expect(within(synthesisSection).getByText("Customer language")).toBeInTheDocument();
+    expect(within(synthesisSection).getByText("Product, orders and retention")).toBeInTheDocument();
+    expect(within(synthesisSection).getByText("Returns, refunds and negative reviews")).toBeInTheDocument();
     expect(within(synthesisSection).getByText(/Stored AI synthesis says variant evidence should guide action/)).toBeInTheDocument();
     expect(within(synthesisSection).getByText(/Stored AI reading highlights expectation-setting language/)).toBeInTheDocument();
+    expect(within(synthesisSection).getByText(/Stored AI post-purchase reading says refunds/)).toBeInTheDocument();
     expect(synthesisSection.textContent).not.toMatch(/Product Risk is|customer-language signals|affected variant.*stored|\$/);
 
     fireEvent.click(screen.getByRole("tab", { name: "Shopify product" }));

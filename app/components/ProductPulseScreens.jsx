@@ -19975,7 +19975,7 @@ function ShopifyProductEvidencePanel({ source, product, reportHref }) {
 }
 
 function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
-  const sections = getPersistedAiEvidenceSections(source);
+  const sections = getAiEvidenceOverviewSections(source, product);
 
   return (
     <div className="ppEvidenceSourcePanel ppEvidenceSourcePanel-specialized ppAiEvidenceSynthesisReport">
@@ -19990,7 +19990,7 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
         <div className="ppEvidenceReportSectionHeaderRow">
           <div>
             <h4>Technical synthesis</h4>
-            <p>How the evidence fits together</p>
+            <p>Three intermediate AI readings across language, product behavior and post-purchase quality.</p>
           </div>
           <Link to={reportHref}>View full report <s-icon type="chevron-right" size="small"></s-icon></Link>
         </div>
@@ -20173,6 +20173,138 @@ function getPersistedAiEvidenceSections(source = {}) {
     .slice(0, 8);
 }
 
+function getAiEvidenceOverviewSections(source = {}, product = {}) {
+  const persistedSections = getPersistedAiEvidenceSections(source);
+  const grouped = persistedSections.reduce((acc, section) => {
+    const key = getAiEvidenceOverviewGroupKey(section);
+    acc.set(key, [...(acc.get(key) || []), section]);
+    return acc;
+  }, new Map());
+
+  return [
+    {
+      key: "customer-language-overview",
+      title: "Customer language",
+      body: getAiEvidenceOverviewBody(
+        grouped.get("customer-language-overview"),
+        getAiEvidenceCustomerLanguageFallback(product),
+      ),
+      tone: "insight",
+    },
+    {
+      key: "product-orders-retention",
+      title: "Product, orders and retention",
+      body: getAiEvidenceOverviewBody(
+        grouped.get("product-orders-retention"),
+        getAiEvidenceProductOrdersRetentionFallback(product),
+      ),
+      tone: "default",
+    },
+    {
+      key: "post-purchase-quality",
+      title: "Returns, refunds and negative reviews",
+      body: getAiEvidenceOverviewBody(
+        grouped.get("post-purchase-quality"),
+        getAiEvidencePostPurchaseQualityFallback(product),
+      ),
+      tone: "negative",
+    },
+  ].filter((section) => section.body);
+}
+
+function getAiEvidenceOverviewBody(sections = [], fallback = "") {
+  const prioritizedSections = [...(Array.isArray(sections) ? sections : [])]
+    .sort((left, right) => Number(Boolean(left.sourceKey || left.sourceTitle)) - Number(Boolean(right.sourceKey || right.sourceTitle)));
+  const bodies = uniqueStrings(prioritizedSections.map((section) => section.body)).slice(0, 2);
+  if (bodies.length) return bodies.join(" ");
+  return String(fallback || "").trim();
+}
+
+function getAiEvidenceOverviewGroupKey(section = {}) {
+  const key = String(section.key || "").trim();
+  const normalizedText = normalizeEvidenceText(`${section.title || ""} ${section.body || ""}`);
+  if (
+    key === "post-purchase"
+    || /\brefunds?\b/.test(normalizedText)
+    || /\breturns?\b/.test(normalizedText)
+    || normalizedText.includes("negative review")
+    || normalizedText.includes("bad review")
+    || normalizedText.includes("low rating")
+    || normalizedText.includes("rating pressure")
+  ) {
+    return "post-purchase-quality";
+  }
+  if (key === "customer-language") return "customer-language-overview";
+  if (
+    key === "product-orders-retention"
+    || key === "variant-scope"
+    || key === "catalog-context"
+    || key === "cross-source"
+    || key === "operational"
+    || key === "stored-synthesis"
+  ) {
+    return "product-orders-retention";
+  }
+  if (
+    /\bvariants?\b/.test(normalizedText)
+    || /\bskus?\b/.test(normalizedText)
+    || /\borders?\b/.test(normalizedText)
+    || /\bpurchases?\b/.test(normalizedText)
+    || /\bsales?\b/.test(normalizedText)
+    || /\bretention\b/.test(normalizedText)
+    || /\bltv\b/.test(normalizedText)
+    || /\bproduct\b/.test(normalizedText)
+  ) {
+    return "product-orders-retention";
+  }
+  if (/\bcustomer\b/.test(normalizedText) || /\blanguage\b/.test(normalizedText) || /\bsentiment\b/.test(normalizedText)) {
+    return "customer-language-overview";
+  }
+  return "product-orders-retention";
+}
+
+function getAiEvidenceOverviewMetrics(product = {}) {
+  return product?.metrics && typeof product.metrics === "object" ? product.metrics : product || {};
+}
+
+function getAiEvidenceCustomerLanguageFallback(product = {}) {
+  const metrics = getAiEvidenceOverviewMetrics(product);
+  const themes = getCustomerLanguageThemes(metrics.textInsights || {}, [], metrics)
+    .filter((theme) => Number(theme.count || 0) > 0 && !/^no recurring theme/i.test(theme.label));
+  const themeText = themes[0]
+    ? ` Repeated language around ${quoteSourceText(themes[0].label)} should be read as directional unless it repeats across sources.`
+    : "";
+  return `Customer language is the qualitative layer behind the diagnosis: it explains how shoppers describe expectations, confusion, satisfaction or friction across review text, return notes and refund notes.${themeText}`;
+}
+
+function getAiEvidenceProductOrdersRetentionFallback(product = {}) {
+  const metrics = getAiEvidenceOverviewMetrics(product);
+  const variantCount = Number(metrics.variantCount || product.variantCount || getEvidenceList(metrics.variants || product.variants).length || 0);
+  const hasOrders = hasProductMonthlyOrderActivity(normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity || product.monthlyOrderActivity));
+  const hasRetention = hasProductRetentionData(normalizeProductRetention(metrics.productRetention || product.productRetention));
+  const scopeText = variantCount > 1
+    ? "variant-level behavior, Shopify orders and retention"
+    : "product setup, Shopify orders and retention";
+  const dataText = hasOrders || hasRetention
+    ? "Use it to separate product-wide demand patterns from SKU-specific issues and follow-on purchase behavior."
+    : "Order and retention interpretation will become stronger after enough Shopify order evidence is available.";
+  return `${scopeText.charAt(0).toUpperCase()}${scopeText.slice(1)} should be read together. ${dataText}`;
+}
+
+function getAiEvidencePostPurchaseQualityFallback(product = {}) {
+  const metrics = getAiEvidenceOverviewMetrics(product);
+  const hasPostPurchaseSignals = Number(metrics.returnUnits || product.returnUnits || 0) > 0
+    || Number(metrics.refundUnits || product.refundUnits || 0) > 0
+    || Number(metrics.negativeReviewCount || product.negativeReviewCount || 0) > 0
+    || getEvidenceList(metrics.refundInsights?.examples).length > 0
+    || getEvidenceList(metrics.textInsights?.returns?.examples).length > 0
+    || getEvidenceList(metrics.textInsights?.reviews?.examples).length > 0;
+  if (!hasPostPurchaseSignals) {
+    return "No intermediate AI synthesis for returns, refunds or negative reviews is stored yet; this area becomes useful once post-purchase quality signals are present.";
+  }
+  return "Returns, refunds and negative reviews should be read as the post-purchase quality layer: they show whether customer friction is turning into operational action, compensation or public review pressure.";
+}
+
 function isAiEvidenceMetadataText(value = "") {
   const normalized = String(value || "").toLowerCase().trim();
   return normalized === "generated from deterministic metrics and stored snippets."
@@ -20184,6 +20316,7 @@ function getPersistedAiEvidenceSectionTitle(label = "", body = "", index = 0, ex
   const key = explicitKey || getPersistedAiEvidenceSectionKeyFromText(label) || getPersistedAiEvidenceSectionKeyFromText(body);
   if (key === "cross-source") return "Cross-source reading";
   if (key === "customer-language") return "Customer language";
+  if (key === "product-orders-retention") return "Product, orders and retention";
   if (key === "post-purchase") return "Refund and return evidence";
   if (key === "variant-scope") return "Variant scope";
   if (key === "catalog-context") return "PDP and catalog context";
@@ -20197,8 +20330,9 @@ function normalizePersistedAiSectionKey(value = "") {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
   if (!normalized) return "";
-  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer-language";
+  if (normalized.includes("product_orders_retention") || normalized.includes("product_order_retention") || normalized.includes("orders_retention") || normalized.includes("order_retention") || normalized.includes("retention") || normalized.includes("ltv")) return "product-orders-retention";
   if (normalized.includes("refund") || normalized.includes("return") || normalized.includes("post_purchase") || normalized.includes("postpurchase")) return "post-purchase";
+  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer-language";
   if (normalized.includes("variant") || normalized.includes("sku") || normalized.includes("option")) return "variant-scope";
   if (normalized.includes("pdp") || normalized.includes("catalog") || normalized.includes("content") || normalized.includes("description") || normalized.includes("shopify_product")) return "catalog-context";
   if (normalized.includes("operational") || normalized.includes("risk") || normalized.includes("confidence") || normalized.includes("exposure") || normalized.includes("triage")) return "operational";
@@ -20215,8 +20349,9 @@ function getPersistedAiEvidenceSectionKey(title = "", body = "") {
 function getPersistedAiEvidenceSectionKeyFromText(value = "") {
   const normalized = String(value || "").toLowerCase();
   if (/\bcross\b/.test(normalized) || normalized.includes("source agreement") || normalized.includes("source reading")) return "cross-source";
-  if (/\bcustomer\b/.test(normalized) || /\blanguage\b/.test(normalized) || /\breviews?\b/.test(normalized) || /\bsentiment\b/.test(normalized)) return "customer-language";
+  if (normalized.includes("product, orders and retention") || normalized.includes("product orders retention") || /\bretention\b/.test(normalized) || /\bltv\b/.test(normalized)) return "product-orders-retention";
   if (/\brefunds?\b/.test(normalized) || /\breturns?\b/.test(normalized) || normalized.includes("post-purchase") || normalized.includes("post purchase")) return "post-purchase";
+  if (/\bcustomer\b/.test(normalized) || /\blanguage\b/.test(normalized) || /\breviews?\b/.test(normalized) || /\bsentiment\b/.test(normalized)) return "customer-language";
   if (/\bvariants?\b/.test(normalized) || /\bskus?\b/.test(normalized) || /\boptions?\b/.test(normalized)) return "variant-scope";
   if (/\bpdp\b/.test(normalized) || /\bcatalog\b/.test(normalized) || /\bcontent\b/.test(normalized) || /\bdescription\b/.test(normalized) || normalized.includes("shopify product")) return "catalog-context";
   if (/\boperational\b/.test(normalized) || /\brisk\b/.test(normalized) || /\bconfidence\b/.test(normalized) || /\bexposure\b/.test(normalized) || /\btriage\b/.test(normalized)) return "operational";
@@ -20226,6 +20361,7 @@ function getPersistedAiEvidenceSectionKeyFromText(value = "") {
 function getPersistedAiEvidenceSectionTone(key = "", fallbackTone = "default") {
   if (key === "customer-language" || key === "variant-scope" || key === "catalog-context") return "insight";
   if (key === "post-purchase") return "negative";
+  if (key === "product-orders-retention") return "default";
   if (key === "operational") return "default";
   return fallbackTone || "default";
 }
