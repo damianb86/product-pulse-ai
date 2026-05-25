@@ -1587,6 +1587,27 @@ describe("ProductPulse screens", () => {
     expect(riskTooltip).toHaveTextContent("14%");
   });
 
+  it("shows bimonthly month labels on long product risk history charts", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        riskHistory: [
+          { id: "history-nov", riskScore: 62, source: "quickscan", recordedAt: "2025-11-01T12:00:00.000Z", primaryIssue: "Initial risk" },
+          { id: "history-jan", riskScore: 68, source: "watchlist-scan", recordedAt: "2026-01-01T12:00:00.000Z", primaryIssue: "January risk" },
+          { id: "history-mar", riskScore: 76, source: "watchlist-scan", recordedAt: "2026-03-01T12:00:00.000Z", primaryIssue: "March risk" },
+          { id: "history-may", riskScore: 82, source: "full-diagnosis", recordedAt: "2026-05-01T12:00:00.000Z", primaryIssue: "May risk" },
+        ],
+      },
+    };
+
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const historyPanel = container.querySelector(".ppProductRiskHistoryPanel");
+    const xTickLabels = Array.from(historyPanel.querySelectorAll(".ppProductRiskHistoryXTick text")).map((node) => node.textContent);
+
+    expect(xTickLabels).toEqual(expect.arrayContaining(["Jan 26", "Mar 26"]));
+  });
+
   it("renders Product Momentum in the product detail view", () => {
     const product = {
       ...defaultView.startHere,
@@ -1771,8 +1792,21 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("Next purchase outcome")).toBeInTheDocument();
     expect(within(panel).getByText("Retention segments")).toBeInTheDocument();
     expect(within(panel).getByText("New to store")).toBeInTheDocument();
+    const ltvCard = within(panel).getByText("LTV curve").closest(".ppRetentionChartCard");
+    const cohortCard = within(panel).getByText("Retention by purchase cohort").closest(".ppRetentionChartCard");
+    expect(ltvCard).toHaveClass("ppRetentionLtvCard");
+    expect(Boolean(ltvCard.compareDocumentPosition(cohortCard) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(panel.querySelector(".ppRetentionCohortTable")).toBeInTheDocument();
     expect(panel.querySelectorAll(".ppRetentionLineSvg").length).toBeGreaterThanOrEqual(3);
+
+    const totalLtvPoint = within(ltvCard).getByRole("button", { name: "Total LTV, 90 days: $86" });
+    fireEvent.mouseEnter(totalLtvPoint);
+    expect(totalLtvPoint).toHaveClass("isActive");
+    const ltvTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppRetentionLinePopover"));
+    expect(ltvTooltip).toHaveTextContent("90 days");
+    expect(ltvTooltip).toHaveTextContent("Total LTV: $86");
+    expect(ltvTooltip).toHaveTextContent("Same product LTV");
+    fireEvent.mouseLeave(totalLtvPoint);
   });
 
   it("renders momentum weekly bars as empty tracks for zero weeks and a visible spike", () => {

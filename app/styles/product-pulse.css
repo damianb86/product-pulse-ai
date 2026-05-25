@@ -10996,6 +10996,10 @@ s-page[inline-size="large-500"] {
   background: var(--pp-subcard-bg);
 }
 
+.ppRetentionLtvCard {
+  width: 100%;
+}
+
 .ppRetentionChartHeader {
   display: flex;
   justify-content: space-between;
@@ -11102,109 +11106,183 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRetentionLineChart {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 10px;
-  min-width: 0;
-  min-height: 260px;
-}
-
-.ppRetentionLineYAxis {
-  position: relative;
-  height: 220px;
-  color: var(--pp-slate-500);
-  font-size: 10px;
-  font-weight: 850;
-}
-
-.ppRetentionLineYAxis span {
-  position: absolute;
-  right: 0;
-  transform: translateY(-50%);
-  white-space: nowrap;
-}
-
-.ppRetentionLinePlot {
   position: relative;
   min-width: 0;
-  height: 252px;
+  height: 330px;
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 92% 12%, rgba(var(--pp-pulse-blue-rgb), 0.08), transparent 32%),
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
 }
 
 .ppRetentionLineSvg {
   width: 100%;
-  height: 220px;
+  height: 100%;
+  display: block;
   overflow: visible;
 }
 
-.ppRetentionGridLine {
-  fill: none;
-  stroke: var(--pp-grid-line);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
+.ppRetentionGridLine line {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.14);
+  stroke-dasharray: 4 6;
+}
+
+.ppRetentionGridLine text,
+.ppRetentionLineXTick text {
+  fill: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ppRetentionLineAxis {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.18);
+}
+
+.ppRetentionLineXTick line {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.22);
 }
 
 .ppRetentionLineArea {
   stroke: none;
-  opacity: 0.1;
 }
 
 .ppRetentionLinePath {
   fill: none;
+  stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.6;
+  stroke-width: 3.4;
   vector-effect: non-scaling-stroke;
 }
 
-.ppRetentionLineDot {
-  stroke: var(--pp-cloud-white);
-  stroke-width: 1.2;
-  vector-effect: non-scaling-stroke;
+.ppRetentionLine-any {
+  color: var(--pp-pulse-blue);
 }
 
-.ppRetentionLine-any.ppRetentionLinePath {
-  stroke: var(--pp-pulse-blue);
+.ppRetentionLine-same {
+  color: var(--pp-signal-teal);
 }
 
-.ppRetentionLine-any.ppRetentionLineArea,
-.ppRetentionLine-any.ppRetentionLineDot {
-  fill: var(--pp-pulse-blue);
+.ppRetentionLine-other {
+  color: var(--pp-insight-violet);
 }
 
-.ppRetentionLine-same.ppRetentionLinePath {
-  stroke: var(--pp-signal-teal);
+.ppRetentionLine-ltvTotal {
+  color: var(--pp-signal-teal);
 }
 
-.ppRetentionLine-same.ppRetentionLineArea,
-.ppRetentionLine-same.ppRetentionLineDot {
-  fill: var(--pp-signal-teal);
+.ppRetentionLine-ltvSame {
+  color: var(--pp-pulse-blue);
 }
 
-.ppRetentionLine-other.ppRetentionLinePath {
-  stroke: var(--pp-insight-violet);
+.ppRetentionLine-ltvOther {
+  color: var(--pp-warning-amber);
 }
 
-.ppRetentionLine-other.ppRetentionLineArea,
-.ppRetentionLine-other.ppRetentionLineDot {
-  fill: var(--pp-insight-violet);
+.ppRetentionLineChart-ltv {
+  height: 360px;
+  background:
+    radial-gradient(circle at 92% 12%, rgba(var(--pp-success-green-rgb), 0.10), transparent 30%),
+    radial-gradient(circle at 8% 88%, rgba(var(--pp-warning-amber-rgb), 0.08), transparent 28%),
+    linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
 }
 
-.ppRetentionLineXAxis {
+.ppRetentionLinePoint {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 224px;
-  height: 24px;
-  color: var(--pp-slate-500);
-  font-size: 10px;
-  font-weight: 850;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
 }
 
-.ppRetentionLineXAxis span {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  white-space: nowrap;
+.ppRetentionLinePoint > span {
+  width: 12px;
+  height: 12px;
+  border: 3px solid var(--pp-cloud-white);
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  box-shadow: 0 4px 10px rgba(var(--pp-shadow-rgb), 0.20);
+  transform: scale(0.68);
+  transition: opacity 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.ppRetentionLinePoint.isActive > span,
+.ppRetentionLinePoint:focus-visible > span,
+.ppRetentionLinePoint:hover > span {
+  opacity: 1;
+  box-shadow: 0 0 0 5px rgba(var(--pp-pulse-blue-rgb), 0.16), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
+  transform: scale(1);
+}
+
+.ppRetentionLine-same.ppRetentionLinePoint.isActive > span,
+.ppRetentionLine-same.ppRetentionLinePoint:focus-visible > span,
+.ppRetentionLine-same.ppRetentionLinePoint:hover > span,
+.ppRetentionLine-ltvTotal.ppRetentionLinePoint.isActive > span,
+.ppRetentionLine-ltvTotal.ppRetentionLinePoint:focus-visible > span,
+.ppRetentionLine-ltvTotal.ppRetentionLinePoint:hover > span {
+  box-shadow: 0 0 0 5px rgba(var(--pp-success-green-rgb), 0.16), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
+}
+
+.ppRetentionLine-other.ppRetentionLinePoint.isActive > span,
+.ppRetentionLine-other.ppRetentionLinePoint:focus-visible > span,
+.ppRetentionLine-other.ppRetentionLinePoint:hover > span {
+  box-shadow: 0 0 0 5px rgba(var(--pp-insight-violet-rgb), 0.16), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
+}
+
+.ppRetentionLine-ltvOther.ppRetentionLinePoint.isActive > span,
+.ppRetentionLine-ltvOther.ppRetentionLinePoint:focus-visible > span,
+.ppRetentionLine-ltvOther.ppRetentionLinePoint:hover > span {
+  box-shadow: 0 0 0 5px rgba(var(--pp-warning-amber-rgb), 0.18), 0 6px 14px rgba(var(--pp-shadow-rgb), 0.22);
+}
+
+.ppRetentionLinePopover {
+  display: grid;
+  gap: 8px;
+}
+
+.ppRetentionLinePopover strong,
+.ppRetentionLinePopover p {
+  margin: 0;
+}
+
+.ppRetentionLinePopover > strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppRetentionLinePopover p {
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ppRetentionLinePopoverRows {
+  display: grid;
+  gap: 6px;
+}
+
+.ppRetentionLinePopoverRows span {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.ppRetentionLinePopoverRows b,
+.ppRetentionLinePopoverRows small {
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .ppRetentionChartLegend {
@@ -11241,6 +11319,18 @@ s-page[inline-size="large-500"] {
 
 .ppRetentionLegendOther {
   background: var(--pp-insight-violet);
+}
+
+.ppRetentionLegendLtvTotal {
+  background: var(--pp-signal-teal);
+}
+
+.ppRetentionLegendLtvSame {
+  background: var(--pp-pulse-blue);
+}
+
+.ppRetentionLegendLtvOther {
+  background: var(--pp-warning-amber);
 }
 
 .ppRetentionLegendNone {

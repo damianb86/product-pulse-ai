@@ -14228,6 +14228,8 @@ function ProductRetentionMetricsPanel({ detail }) {
             />
           </div>
 
+          <ProductRetentionLtvCurve chart={ltvChart} productTitle={detail.title} />
+
           <div className="ppRetentionMainGrid">
             <ProductRetentionCohortHeatmap rows={cohortRows} />
             <ProductRetentionRepeatCurve chart={repeatChart} productTitle={detail.title} />
@@ -14235,13 +14237,10 @@ function ProductRetentionMetricsPanel({ detail }) {
 
           <div className="ppRetentionSecondaryGrid">
             <ProductRetentionTrendChart chart={trendChart} productTitle={detail.title} />
-            <ProductRetentionLtvCurve chart={ltvChart} productTitle={detail.title} />
+            <ProductRetentionNextOutcome rows={outcomeRows} />
           </div>
 
-          <div className="ppRetentionSecondaryGrid">
-            <ProductRetentionNextOutcome rows={outcomeRows} />
-            <ProductRetentionSegmentsTable rows={segmentRows} />
-          </div>
+          <ProductRetentionSegmentsTable rows={segmentRows} />
         </>
       )}
     </section>
@@ -14334,9 +14333,9 @@ function ProductRetentionRepeatCurve({ chart, productTitle }) {
             ariaLabel={`Time to repeat purchase for ${productTitle}`}
             chart={chart}
             series={[
-              { key: "anyRepeatCumulativeRate", label: "Any repeat purchase", className: "ppRetentionLine-any" },
-              { key: "sameProductRepeatCumulativeRate", label: "Same product repurchase", className: "ppRetentionLine-same" },
-              { key: "boughtOtherProductCumulativeRate", label: "Bought another product", className: "ppRetentionLine-other" },
+              { key: "anyRepeatCumulativeRate", label: "Any repeat purchase", className: "ppRetentionLine-any", color: "var(--pp-pulse-blue)" },
+              { key: "sameProductRepeatCumulativeRate", label: "Same product repurchase", className: "ppRetentionLine-same", color: "var(--pp-signal-teal)" },
+              { key: "boughtOtherProductCumulativeRate", label: "Bought another product", className: "ppRetentionLine-other", color: "var(--pp-insight-violet)" },
             ]}
           />
           <div className="ppRetentionChartLegend">
@@ -14367,9 +14366,9 @@ function ProductRetentionTrendChart({ chart, productTitle }) {
             ariaLabel={`90-day product retention trend for ${productTitle}`}
             chart={chart}
             series={[
-              { key: "repeatPurchaseRate90d", label: "Any repeat", className: "ppRetentionLine-any" },
-              { key: "sameProductRepurchaseRate90d", label: "Same product", className: "ppRetentionLine-same" },
-              { key: "crossSellRetentionRate90d", label: "Cross-sell", className: "ppRetentionLine-other" },
+              { key: "repeatPurchaseRate90d", label: "Any repeat", className: "ppRetentionLine-any", color: "var(--pp-pulse-blue)" },
+              { key: "sameProductRepurchaseRate90d", label: "Same product", className: "ppRetentionLine-same", color: "var(--pp-signal-teal)" },
+              { key: "crossSellRetentionRate90d", label: "Cross-sell", className: "ppRetentionLine-other", color: "var(--pp-insight-violet)" },
             ]}
           />
           <div className="ppRetentionChartLegend">
@@ -14387,7 +14386,7 @@ function ProductRetentionTrendChart({ chart, productTitle }) {
 
 function ProductRetentionLtvCurve({ chart, productTitle }) {
   return (
-    <article className="ppRetentionChartCard">
+    <article className="ppRetentionChartCard ppRetentionLtvCard">
       <div className="ppRetentionChartHeader">
         <div>
           <h3>LTV curve</h3>
@@ -14398,17 +14397,18 @@ function ProductRetentionLtvCurve({ chart, productTitle }) {
         <>
           <RetentionLineChart
             ariaLabel={`LTV curve for ${productTitle}`}
+            className="ppRetentionLineChart-ltv"
             chart={chart}
             series={[
-              { key: "cumulativeLtvCents", label: "Total LTV", className: "ppRetentionLine-any" },
-              { key: "sameProductLtvCents", label: "Same product LTV", className: "ppRetentionLine-same" },
-              { key: "otherProductLtvCents", label: "Other product LTV", className: "ppRetentionLine-other" },
+              { key: "cumulativeLtvCents", label: "Total LTV", className: "ppRetentionLine-ltvTotal", color: "var(--pp-signal-teal)" },
+              { key: "sameProductLtvCents", label: "Same product LTV", className: "ppRetentionLine-ltvSame", color: "var(--pp-pulse-blue)" },
+              { key: "otherProductLtvCents", label: "Other product LTV", className: "ppRetentionLine-ltvOther", color: "var(--pp-warning-amber)" },
             ]}
           />
           <div className="ppRetentionChartLegend">
-            <span><i className="ppRetentionLegendAny" />Total LTV</span>
-            <span><i className="ppRetentionLegendSame" />Same product</span>
-            <span><i className="ppRetentionLegendOther" />Other products</span>
+            <span><i className="ppRetentionLegendLtvTotal" />Total LTV</span>
+            <span><i className="ppRetentionLegendLtvSame" />Same product</span>
+            <span><i className="ppRetentionLegendLtvOther" />Other products</span>
           </div>
         </>
       ) : (
@@ -14501,37 +14501,93 @@ function ProductRetentionSegmentsTable({ rows }) {
   );
 }
 
-function RetentionLineChart({ chart, series, ariaLabel }) {
+function RetentionLineChart({ chart, series, ariaLabel, className = "" }) {
+  const gradientIdBase = `ppRetentionLineGradient-${useId().replace(/:/g, "")}`;
   return (
-    <div className="ppRetentionLineChart" role="img" aria-label={ariaLabel}>
-      <div className="ppRetentionLineYAxis" aria-hidden="true">
+    <div className={`ppRetentionLineChart ${className}`.trim()} role="group" aria-label={ariaLabel}>
+      <svg className="ppRetentionLineSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} aria-hidden="true" focusable="false">
+        <defs>
+          {series.map((item) => (
+            <linearGradient id={`${gradientIdBase}-${item.key}`} x1="0" x2="0" y1="0" y2="1" key={item.key}>
+              <stop offset="0%" stopColor={item.color || "currentColor"} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={item.color || "currentColor"} stopOpacity="0.02" />
+            </linearGradient>
+          ))}
+        </defs>
         {chart.yTicks.map((tick) => (
-          <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
+          <g className="ppRetentionGridLine" key={`grid-${tick.label}`}>
+            <line x1={chart.plot.left} x2={chart.plot.right} y1={tick.y} y2={tick.y} />
+            <text x={chart.plot.left - 14} y={tick.y + 5} textAnchor="end">{tick.label}</text>
+          </g>
         ))}
-      </div>
-      <div className="ppRetentionLinePlot">
-        <svg className="ppRetentionLineSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-          {chart.yTicks.map((tick) => (
-            <path key={`grid-${tick.label}`} className="ppRetentionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
-          ))}
-          {series.map((item) => chart.areaPaths[item.key] ? (
-            <path key={`area-${item.key}`} className={`${item.className} ppRetentionLineArea`} d={chart.areaPaths[item.key]} />
-          ) : null)}
-          {series.map((item) => chart.paths[item.key] ? (
-            <path key={`path-${item.key}`} className={`${item.className} ppRetentionLinePath`} d={chart.paths[item.key]} />
-          ) : null)}
-          {series.map((item) => (chart.dots[item.key] || []).map((dot) => (
-            <circle key={`${item.key}-${dot.x}-${dot.y}`} className={`${item.className} ppRetentionLineDot`} cx={dot.x} cy={dot.y} r="1.6" />
-          )))}
-        </svg>
-        <div className="ppRetentionLineXAxis" aria-hidden="true">
-          {chart.xTicks.map((tick) => (
-            <span key={tick.label} style={{ left: `${tick.x}%` }}>{tick.label}</span>
-          ))}
-        </div>
-      </div>
+        <line className="ppRetentionLineAxis" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
+        <line className="ppRetentionLineAxis" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
+        {chart.xTicks.map((tick) => (
+          <g className="ppRetentionLineXTick" key={`${tick.label}-${tick.x}`}>
+            <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
+            <text x={tick.x} y={chart.plot.bottom + 30} textAnchor={tick.anchor}>{tick.label}</text>
+          </g>
+        ))}
+        {series.map((item) => chart.areaPaths[item.key] ? (
+          <path key={`area-${item.key}`} className={`${item.className} ppRetentionLineArea`} d={chart.areaPaths[item.key]} style={{ fill: `url(#${gradientIdBase}-${item.key})` }} />
+        ) : null)}
+        {series.map((item) => chart.paths[item.key] ? (
+          <path key={`path-${item.key}`} className={`${item.className} ppRetentionLinePath`} d={chart.paths[item.key]} />
+        ) : null)}
+      </svg>
+      {series.flatMap((item) => (chart.pointsBySeries[item.key] || []).map((point, index) => (
+        <RetentionLinePointButton point={point} seriesItem={item} allSeries={series} chart={chart} key={`${item.key}-${point.x}-${point.y}-${index}`} />
+      )))}
     </div>
   );
+}
+
+function RetentionLinePointButton({ point, seriesItem, allSeries, chart }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  if (!point || !chart?.width || !chart?.height) return null;
+  const left = `${(point.x / chart.width) * 100}%`;
+  const top = `${(point.y / chart.height) * 100}%`;
+  const valueLabel = chart.yFormatter(point.value);
+  const metricRows = getRetentionLinePointMetricRows(point, allSeries, chart);
+
+  return (
+    <button
+      type="button"
+      className={`${seriesItem.className} ppRetentionLinePoint${open ? " isActive" : ""}`}
+      ref={triggerRef}
+      style={{ left, top }}
+      aria-label={`${seriesItem.label}, ${point.xLabel}: ${valueLabel}`}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span aria-hidden="true" />
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppRetentionLinePopover" width={292} estimatedHeight={190} placement="top-center">
+        <strong>{point.xLabel}</strong>
+        <p>{seriesItem.label}: {valueLabel}</p>
+        {metricRows.length ? (
+          <span className="ppRetentionLinePopoverRows">
+            {metricRows.map((row) => (
+              <span key={row.label}><b>{row.label}</b><small>{row.value}</small></span>
+            ))}
+          </span>
+        ) : null}
+      </FloatingTablePopover>
+    </button>
+  );
+}
+
+function getRetentionLinePointMetricRows(point, series, chart) {
+  return series
+    .map((item) => {
+      if (point.row?.[item.key] == null) return null;
+      const value = Number(point.row[item.key]);
+      if (!Number.isFinite(value)) return null;
+      return { label: item.label, value: chart.yFormatter(value) };
+    })
+    .filter(Boolean);
 }
 
 function ProductRetentionEmptySlot({ message }) {
@@ -14606,6 +14662,7 @@ function getProductRetentionRepeatChart(rows = []) {
     .filter((row) => Number.isFinite(row.ageDay))
     .map((row) => ({
       x: row.ageDay,
+      xLabel: `${formatInteger(row.ageDay)} days`,
       anyRepeatCumulativeRate: row.anyRepeatCumulativeRate,
       sameProductRepeatCumulativeRate: row.sameProductRepeatCumulativeRate,
       boughtOtherProductCumulativeRate: row.boughtOtherProductCumulativeRate,
@@ -14635,6 +14692,7 @@ function getProductRetentionLtvChart(rows = []) {
     .filter((row) => Number.isFinite(row.ageDay))
     .map((row) => ({
       x: row.ageDay,
+      xLabel: `${formatInteger(row.ageDay)} days`,
       cumulativeLtvCents: row.cumulativeLtvCents,
       sameProductLtvCents: row.sameProductLtvCents,
       otherProductLtvCents: row.otherProductLtvCents,
@@ -14663,6 +14721,7 @@ function getProductRetentionTrendChart(rows = []) {
   const trendRows = getProductRetentionTrendRows(rows);
   const chartRows = trendRows.map((row, index) => ({
     x: index,
+    xLabel: row.label,
     repeatPurchaseRate90d: row.repeatPurchaseRate90d,
     sameProductRepurchaseRate90d: row.sameProductRepurchaseRate90d,
     crossSellRetentionRate90d: row.crossSellRetentionRate90d,
@@ -14810,42 +14869,60 @@ function getProductRetentionSegmentRows(rows = []) {
 
 function buildRetentionLineChartGeometry({ rows, seriesKeys, xMin, xMax, xTicks, yMax, yFormatter }) {
   const safeRows = rows.filter((row) => Number.isFinite(row.x)).sort((left, right) => left.x - right.x);
+  const width = 1000;
+  const height = 330;
+  const plot = { left: 70, right: 968, top: 28, bottom: 250 };
   const safeXMax = Math.max(Number(xMax || 0), xMin + 1);
   const safeYMax = Math.max(Number(yMax || 0), 1);
-  const getX = (value) => 4 + ((Number(value || 0) - xMin) / Math.max(safeXMax - xMin, 1)) * 92;
-  const getY = (value) => 90 - (Number(value || 0) / safeYMax) * 78;
+  const getX = (value) => plot.left + ((Number(value || 0) - xMin) / Math.max(safeXMax - xMin, 1)) * (plot.right - plot.left);
+  const getY = (value) => plot.bottom - (Number(value || 0) / safeYMax) * (plot.bottom - plot.top);
   const paths = {};
   const areaPaths = {};
-  const dots = {};
+  const pointsBySeries = {};
   let hasData = false;
 
   seriesKeys.forEach((key) => {
     const points = safeRows
-      .map((row) => ({ x: getX(row.x), y: getY(row[key]), value: row[key] }))
-      .filter((point) => Number.isFinite(point.value));
+      .map((row) => {
+        if (row[key] == null) return null;
+        const value = Number(row[key]);
+        if (!Number.isFinite(value)) return null;
+        return {
+          x: Math.round(getX(row.x) * 10) / 10,
+          y: Math.round(getY(value) * 10) / 10,
+          value,
+          xValue: row.x,
+          xLabel: row.xLabel || row.label || String(row.x),
+          row,
+        };
+      })
+      .filter(Boolean);
     if (points.length) hasData = true;
-    paths[key] = points.length ? points.map((point, index) => `${index === 0 ? "M" : "L"} ${formatRetentionChartNumber(point.x)} ${formatRetentionChartNumber(point.y)}`).join(" ") : "";
+    paths[key] = points.length ? buildSmoothSvgPath(points) : "";
     areaPaths[key] = points.length > 1
-      ? `M ${formatRetentionChartNumber(points[0].x)} 90 ${points.map((point) => `L ${formatRetentionChartNumber(point.x)} ${formatRetentionChartNumber(point.y)}`).join(" ")} L ${formatRetentionChartNumber(points[points.length - 1].x)} 90 Z`
+      ? `${paths[key]} L ${formatRetentionChartNumber(points[points.length - 1].x)} ${plot.bottom} L ${formatRetentionChartNumber(points[0].x)} ${plot.bottom} Z`
       : "";
-    dots[key] = points.length <= 14
-      ? points
-      : points.filter((_, index) => index === 0 || index === points.length - 1 || index % Math.ceil(points.length / 8) === 0);
+    pointsBySeries[key] = points;
   });
 
   const yTickValues = [safeYMax, safeYMax * 0.75, safeYMax * 0.5, safeYMax * 0.25, 0];
   return {
+    width,
+    height,
+    plot,
     hasData,
     paths,
     areaPaths,
-    dots,
+    pointsBySeries,
+    yFormatter,
     yTicks: yTickValues.map((value) => ({
       y: getY(value),
       label: yFormatter(value),
     })),
-    xTicks: xTicks.map((tick) => ({
-      x: getX(tick.value),
+    xTicks: xTicks.map((tick, index) => ({
+      x: Math.round(getX(tick.value) * 10) / 10,
       label: tick.label,
+      anchor: index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle",
     })),
   };
 }
@@ -16280,12 +16357,9 @@ function getProductRiskHistoryChart(historyPoints = []) {
   const areaPath = points.length
     ? `${linePath} L ${last.x},${plot.bottom} L ${first.x},${plot.bottom} Z`
     : "";
-  const xTickIndexes = getProductRiskHistoryTickIndexes(historyPoints.length);
-  const xTicks = xTickIndexes.map((index) => ({
-    x: points[index]?.x || plot.left,
-    label: getProductRiskHistoryTickLabel(historyPoints[index], index),
-    anchor: index === 0 ? "start" : index === historyPoints.length - 1 ? "end" : "middle",
-  }));
+  const xTicks = hasDatedRange
+    ? getProductRiskHistoryDateTicks({ minTime, maxTime, plot, points, historyPoints })
+    : getProductRiskHistoryIndexedTicks(historyPoints, points, plot);
   return {
     ...emptyChart,
     linePath,
@@ -16298,6 +16372,60 @@ function getProductRiskHistoryChart(historyPoints = []) {
 function getProductRiskHistoryY(value, plot) {
   const score = Math.max(0, Math.min(100, Number(value) || 0));
   return Math.round((plot.top + ((100 - score) / 100) * (plot.bottom - plot.top)) * 10) / 10;
+}
+
+function getProductRiskHistoryIndexedTicks(historyPoints = [], points = [], plot) {
+  const xTickIndexes = getProductRiskHistoryTickIndexes(historyPoints.length);
+  return xTickIndexes.map((index) => ({
+    x: points[index]?.x || plot.left,
+    label: getProductRiskHistoryTickLabel(historyPoints[index], index),
+    anchor: index === 0 ? "start" : index === historyPoints.length - 1 ? "end" : "middle",
+  }));
+}
+
+function getProductRiskHistoryDateTicks({ minTime, maxTime, plot, points = [], historyPoints = [] }) {
+  const firstPoint = historyPoints[0] || null;
+  const lastPoint = historyPoints[historyPoints.length - 1] || null;
+  const monthTicks = getProductRiskHistoryBiMonthlyTicks(minTime, maxTime);
+  const tickTimes = uniqueSortedNumbers([minTime, ...monthTicks, maxTime]);
+  if (tickTimes.length <= 2 && historyPoints.length > 2) {
+    return getProductRiskHistoryIndexedTicks(historyPoints, points, plot);
+  }
+  return tickTimes.map((time, index) => {
+    const xRatio = (time - minTime) / Math.max(1, maxTime - minTime);
+    return {
+      x: Math.round((plot.left + xRatio * (plot.right - plot.left)) * 10) / 10,
+      label: getProductRiskHistoryMonthTickLabel(time, index === 0 ? firstPoint : index === tickTimes.length - 1 ? lastPoint : null),
+      anchor: index === 0 ? "start" : index === tickTimes.length - 1 ? "end" : "middle",
+    };
+  });
+}
+
+function getProductRiskHistoryBiMonthlyTicks(minTime, maxTime) {
+  const start = new Date(minTime);
+  const end = new Date(maxTime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return [];
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+  if (cursor.getTime() <= minTime) cursor.setUTCMonth(cursor.getUTCMonth() + 2);
+  const ticks = [];
+  while (cursor.getTime() < maxTime) {
+    ticks.push(cursor.getTime());
+    cursor.setUTCMonth(cursor.getUTCMonth() + 2);
+  }
+  return ticks;
+}
+
+function getProductRiskHistoryMonthTickLabel(time, point = null) {
+  if (point?.recordedAt) return getProductRiskHistoryTickLabel(point);
+  const date = new Date(time);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
+  }
+  return "";
+}
+
+function uniqueSortedNumbers(values = []) {
+  return Array.from(new Set(values.filter((value) => Number.isFinite(value)).map((value) => Math.round(value)))).sort((left, right) => left - right);
 }
 
 function getProductRiskHistoryTickIndexes(length) {
