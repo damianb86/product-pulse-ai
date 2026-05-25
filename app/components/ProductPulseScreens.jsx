@@ -17233,10 +17233,12 @@ export function AnalyticsScreen({ data }) {
         <div className="ppAnalyticsDeepChartGrid">
           <AnalyticsRiskMarginTrendPanel chart={deepDiagnosisCharts.riskMarginTrend} />
           <AnalyticsIssueDistributionPanel distribution={deepDiagnosisCharts.issueDistribution} />
-          <AnalyticsSourceCoverageMixPanel mix={deepDiagnosisCharts.sourceCoverageMix} />
         </div>
 
-        <AnalyticsActionImpactTrendPanel chart={actionImpactTrend} />
+        <div className="ppAnalyticsActionImpactGrid">
+          <AnalyticsActionImpactTrendPanel chart={actionImpactTrend} />
+          <AnalyticsSourceCoverageMixPanel mix={deepDiagnosisCharts.sourceCoverageMix} />
+        </div>
 
         <div className="ppAnalyticsChartGrid">
           <AnalyticsPanel title="Risk vs. margin impact" subtitle="X: product risk · Y: margin at risk · Bubble size: revenue at risk" className="ppAnalyticsPanelRiskMargin">
@@ -27109,7 +27111,7 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
     values: (Array.isArray(row.values) ? row.values : []).slice(sliceStart),
   }));
   const hasData = Boolean(chart?.hasData && series.some((row) => row.values.some((value) => Number(value || 0) > 0)));
-  const layout = { left: 64, right: 858, top: 26, bottom: 236, width: 794, height: 210, labelY: 278, viewBoxWidth: 930, viewBoxHeight: 300 };
+  const layout = { left: 64, right: 858, top: 24, bottom: 252, width: 794, height: 228, labelY: 294, viewBoxWidth: 930, viewBoxHeight: 316 };
   const marginSeries = series.find((row) => row.key === "marginAtRisk") || series[0] || { values: [] };
   const revenueSeries = series.find((row) => row.key === "revenueAtRisk") || series[1] || { values: [] };
   const leftAxisMax = getAnalyticsChartAxisMax(marginSeries.values);
@@ -27264,7 +27266,7 @@ function AnalyticsActionImpactTrendChart({ chart }) {
   const returnsSeries = series.find((row) => row.key === "reducedReturns") || { values: [], label: "Reduced returns", color: "blue" };
   const pointCount = Math.max(labels.length, actionsSeries.values.length, riskSeries.values.length, returnsSeries.values.length, 0);
   const safeLabels = labels.length ? labels : Array.from({ length: pointCount }, (_, index) => (index === pointCount - 1 ? "Today" : ""));
-  const layout = { left: 54, right: 812, top: 28, bottom: 226, width: 758, height: 198, labelY: 266, moneyAxisX: 852, percentAxisX: 914, viewBoxWidth: 948, viewBoxHeight: 288 };
+  const layout = { left: 44, right: 704, top: 22, bottom: 178, width: 660, height: 156, labelY: 214, moneyAxisX: 732, percentAxisX: 796, viewBoxWidth: 832, viewBoxHeight: 232 };
   const actionAxisMax = getAnalyticsCountAxisMax(actionsSeries.values);
   const moneyAxisMax = getAnalyticsChartAxisMax(riskSeries.values);
   const percentAxisMax = getAnalyticsPercentAxisMax(returnsSeries.values);

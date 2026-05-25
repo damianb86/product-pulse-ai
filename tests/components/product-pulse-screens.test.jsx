@@ -4832,7 +4832,7 @@ describe("ProductPulse screens", () => {
   });
 
   it("renders analytics overview and chart panels", () => {
-    renderWithRouter(<AnalyticsScreen data={defaultView} />);
+    const { container } = renderWithRouter(<AnalyticsScreen data={defaultView} />);
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
     expect(screen.getAllByText("Margin at risk").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Risk and margin trend").length).toBeGreaterThan(0);
@@ -4842,6 +4842,13 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Issue distribution by type").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Source coverage mix").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Action impact over time").length).toBeGreaterThan(0);
+    const deepChartGrid = container.querySelector(".ppAnalyticsDeepChartGrid");
+    const actionImpactGrid = container.querySelector(".ppAnalyticsActionImpactGrid");
+    expect(deepChartGrid).toHaveTextContent("Risk and margin trend");
+    expect(deepChartGrid).toHaveTextContent("Issue distribution by type");
+    expect(deepChartGrid).not.toHaveTextContent("Source coverage mix");
+    expect(actionImpactGrid).toHaveTextContent("Action impact over time");
+    expect(actionImpactGrid).toHaveTextContent("Source coverage mix");
     expect(screen.getByText(/Apply recommended actions and run another diagnosis/)).toBeInTheDocument();
     expect(screen.getAllByText("Margin at risk over time").length).toBeGreaterThan(0);
     expect(screen.getByText("Current total")).toBeInTheDocument();

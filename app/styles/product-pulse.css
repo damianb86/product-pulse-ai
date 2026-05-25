@@ -20320,6 +20320,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsDeepChartGrid,
+.ppAnalyticsActionImpactGrid,
 .ppAnalyticsChartGrid,
 .ppAnalyticsBottom {
   display: grid;
@@ -20328,7 +20329,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsDeepChartGrid {
-  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.82fr) minmax(340px, 0.92fr);
+  grid-template-columns: minmax(0, 1.72fr) minmax(360px, 0.88fr);
+}
+
+.ppAnalyticsActionImpactGrid {
+  grid-template-columns: minmax(0, 1.38fr) minmax(320px, 0.72fr);
 }
 
 .ppAnalyticsChartGrid {
@@ -20350,14 +20355,21 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsDeepChartGrid .ppAnalyticsPanel,
 .ppAnalyticsDeepChartGrid .ppAnalyticsPanelShell,
-.ppAnalyticsDeepChartGrid s-section {
+.ppAnalyticsDeepChartGrid s-section,
+.ppAnalyticsActionImpactGrid .ppAnalyticsPanel,
+.ppAnalyticsActionImpactGrid .ppAnalyticsPanelShell,
+.ppAnalyticsActionImpactGrid s-section {
   min-height: 100%;
 }
 
 .ppAnalyticsPanelRiskMarginTrend .ppAnalyticsPanel,
-.ppAnalyticsPanelIssueDistribution .ppAnalyticsPanel,
-.ppAnalyticsPanelSourceCoverageMix .ppAnalyticsPanel {
-  min-height: 338px;
+.ppAnalyticsPanelIssueDistribution .ppAnalyticsPanel {
+  min-height: 366px;
+}
+
+.ppAnalyticsPanelSourceCoverageMix .ppAnalyticsPanel,
+.ppAnalyticsPanelActionImpactTrend .ppAnalyticsPanel {
+  min-height: 304px;
 }
 
 .ppAnalyticsPanelRiskMargin,
@@ -20624,7 +20636,7 @@ s-page[inline-size="large-500"] {
 .ppAnalyticsRiskMarginTrendSvg {
   display: block;
   width: 100%;
-  min-height: 238px;
+  min-height: 262px;
   overflow: visible;
 }
 
@@ -20673,11 +20685,11 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsIssueDistributionRow {
   display: grid;
-  grid-template-columns: minmax(108px, 0.8fr) minmax(138px, 1.35fr) minmax(68px, auto);
-  gap: 12px;
+  grid-template-columns: minmax(132px, 0.78fr) minmax(170px, 1.45fr) minmax(58px, auto);
+  gap: 10px;
   align-items: center;
   color: var(--pp-slate-700);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
 }
 
@@ -20698,7 +20710,7 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsIssueDistributionRow strong {
   color: var(--pp-slate-800);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
   text-align: right;
   white-space: nowrap;
@@ -20706,7 +20718,7 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsIssueDistributionRow small {
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 760;
 }
 
@@ -20719,7 +20731,7 @@ s-page[inline-size="large-500"] {
   padding-top: 12px;
   border-top: 1px solid var(--pp-slate-200);
   color: var(--pp-slate-800);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 850;
 }
 
@@ -20820,6 +20832,48 @@ s-page[inline-size="large-500"] {
   text-align: center;
 }
 
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageMix {
+  grid-template-columns: minmax(118px, 0.7fr) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 204px;
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageDonut {
+  width: min(142px, 100%);
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageDonut > div {
+  width: 72px;
+  height: 72px;
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageDonut span,
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageDonut small {
+  font-size: 10px;
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageDonut strong {
+  font-size: 21px;
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageLegend {
+  gap: 8px;
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageLegend div {
+  gap: 9px;
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageLegend span,
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageLegend strong {
+  font-size: 11px;
+}
+
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageLegend small,
+.ppAnalyticsActionImpactGrid .ppAnalyticsSourceCoverageMix > p {
+  font-size: 10px;
+}
+
 .ppAnalyticsEmptyPanel {
   display: grid;
   place-items: center;
@@ -20840,7 +20894,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsPanelActionImpactTrend .ppAnalyticsPanel {
-  min-height: 352px;
+  min-height: 304px;
 }
 
 .ppAnalyticsActionImpactChart {
@@ -20853,35 +20907,35 @@ s-page[inline-size="large-500"] {
 .ppAnalyticsActionImpactLegend {
   display: flex;
   align-items: center;
-  gap: 26px;
+  gap: 14px;
   flex-wrap: wrap;
   color: var(--pp-slate-600);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 760;
 }
 
 .ppAnalyticsActionImpactLegend span {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
 }
 
 .ppAnalyticsActionImpactLegend i {
-  width: 12px;
-  height: 5px;
+  width: 10px;
+  height: 4px;
   border-radius: 999px;
 }
 
 .ppAnalyticsActionImpactSvg {
   display: block;
   width: 100%;
-  min-height: 250px;
+  min-height: 204px;
   overflow: visible;
 }
 
 .ppAnalyticsActionImpactAxisText {
-  font-size: 12px;
-  font-weight: 820;
+  font-size: 9px;
+  font-weight: 760;
 }
 
 .ppAnalyticsActionImpactAxisText-count {
@@ -20920,7 +20974,7 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsActionImpactDot {
   fill: var(--pp-cloud-white);
-  stroke-width: 2.4;
+  stroke-width: 2;
   filter: drop-shadow(0 3px 7px rgba(var(--pp-shadow-rgb), 0.14));
 }
 
@@ -20936,7 +20990,7 @@ s-page[inline-size="large-500"] {
   justify-self: end;
   margin: -2px 0 0;
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 750;
 }
 
@@ -31409,12 +31463,13 @@ s-page[inline-size="large-500"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .ppAnalyticsDeepChartGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .ppAnalyticsDeepChartGrid,
+  .ppAnalyticsActionImpactGrid {
+    grid-template-columns: 1fr;
   }
 
   .ppAnalyticsPanelRiskMarginTrend {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 
   .ppAnalyticsPanelRiskMargin,
@@ -31531,6 +31586,7 @@ s-page[inline-size="large-500"] {
   .ppDashboardBottom,
   .ppAnalyticsKpis,
   .ppAnalyticsDeepChartGrid,
+  .ppAnalyticsActionImpactGrid,
   .ppAnalyticsChartGrid,
   .ppAnalyticsBottom,
   .ppSourceContribution,
