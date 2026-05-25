@@ -1667,6 +1667,102 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("42 units · $3,240 revenue in the last 30 days")).toBeInTheDocument();
   });
 
+  it("renders persisted product retention metrics in the product detail view", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productRetention: {
+          run: {
+            status: "completed",
+            windowStartDate: "2024-01-01",
+            windowEndDate: "2024-06-30",
+            timezone: "America/New_York",
+          },
+          summary: {
+            repeatPurchaseRate90d: 0.248,
+            repeatPurchaseRate180d: 0.314,
+            sameProductRepurchaseRate90d: 0.181,
+            sameProductRepurchaseRate180d: 0.206,
+            crossSellRetentionRate90d: 0.125,
+            returningRevenueShare: 0.412,
+            avgDaysToSecondPurchase: 38,
+            medianDaysToSecondPurchase: 29,
+            productLtv90Cents: 8600,
+            productLtv180Cents: 11200,
+            retentionHealthScore: 72,
+            totalCustomersAnalyzed: 120,
+            totalOrdersAnalyzed: 240,
+            totalProductOrdersAnalyzed: 156,
+            hasEnoughData: true,
+            lowSampleWarning: false,
+          },
+          dailyRetentionTrend: [
+            { date: "2024-01-01", cohortSize: 42, repeatPurchaseRate90d: 0.24, sameProductRepurchaseRate90d: 0.16, crossSellRetentionRate90d: 0.12, isMature90d: true },
+            { date: "2024-02-01", cohortSize: 38, repeatPurchaseRate90d: 0.28, sameProductRepurchaseRate90d: 0.18, crossSellRetentionRate90d: 0.15, isMature90d: true },
+          ],
+          nextPurchaseOutcome: [
+            { date: "2024-01-01", sameProductAgainPercent: 0.14, boughtAnotherProductPercent: 0.26, didNotReturnPercent: 0.6 },
+            { date: "2024-02-01", sameProductAgainPercent: 0.18, boughtAnotherProductPercent: 0.22, didNotReturnPercent: 0.6 },
+          ],
+          cohortHeatmap: [0, 30, 60, 90, 120, 150].map((ageDay, index) => ({
+            cohortDate: "2024-01-01",
+            ageDay,
+            cohortSize: 42,
+            anyRepeatRate: [0, 0.31, 0.22, 0.18, 0.14, 0.12][index],
+            sameProductRepeatRate: [0, 0.18, 0.14, 0.12, 0.1, 0.09][index],
+            boughtOtherProductRate: [0, 0.13, 0.08, 0.07, 0.06, 0.05][index],
+            cumulativeLtvCents: [4300, 5800, 7100, 8600, 9900, 11200][index],
+            isObserved: true,
+          })),
+          timeToRepeatPurchase: [
+            { ageDay: 0, anyRepeatCumulativeRate: 0, sameProductRepeatCumulativeRate: 0, boughtOtherProductCumulativeRate: 0 },
+            { ageDay: 30, anyRepeatCumulativeRate: 0.18, sameProductRepeatCumulativeRate: 0.11, boughtOtherProductCumulativeRate: 0.08 },
+            { ageDay: 90, anyRepeatCumulativeRate: 0.29, sameProductRepeatCumulativeRate: 0.17, boughtOtherProductCumulativeRate: 0.13 },
+            { ageDay: 180, anyRepeatCumulativeRate: 0.32, sameProductRepeatCumulativeRate: 0.19, boughtOtherProductCumulativeRate: 0.16 },
+          ],
+          ltvCurve: [
+            { ageDay: 0, cumulativeLtvCents: 4300, sameProductLtvCents: 4300, otherProductLtvCents: 0 },
+            { ageDay: 30, cumulativeLtvCents: 5800, sameProductLtvCents: 3600, otherProductLtvCents: 2200 },
+            { ageDay: 90, cumulativeLtvCents: 8600, sameProductLtvCents: 5100, otherProductLtvCents: 3500 },
+          ],
+          segments: [
+            {
+              segmentType: "customer_type_at_first_product_purchase",
+              segmentValue: "new_to_store",
+              cohortSize: 120,
+              repeatPurchaseRate90d: 0.21,
+              sameProductRepurchaseRate90d: 0.14,
+              crossSellRetentionRate90d: 0.11,
+              ltv90Cents: 7400,
+              medianDaysToSecondPurchase: 33,
+              isLowSampleSize: false,
+            },
+          ],
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const panel = container.querySelector(".ppProductRetentionPanel");
+
+    expect(panel).toBeInTheDocument();
+    expect(within(panel).getByText("Product retention metrics")).toBeInTheDocument();
+    expect(within(panel).getByText("31.4%")).toBeInTheDocument();
+    expect(within(panel).getByText("18.1%")).toBeInTheDocument();
+    expect(within(panel).getByText("29 days")).toBeInTheDocument();
+    expect(within(panel).getByText("$86")).toBeInTheDocument();
+    expect(within(panel).getByText("72/100")).toBeInTheDocument();
+    expect(within(panel).getByText("Retention by purchase cohort")).toBeInTheDocument();
+    expect(within(panel).getByText("Time to repeat purchase")).toBeInTheDocument();
+    expect(within(panel).getByText("90-day retention trend")).toBeInTheDocument();
+    expect(within(panel).getByText("LTV curve")).toBeInTheDocument();
+    expect(within(panel).getByText("Next purchase outcome")).toBeInTheDocument();
+    expect(within(panel).getByText("Retention segments")).toBeInTheDocument();
+    expect(within(panel).getByText("New to store")).toBeInTheDocument();
+    expect(panel.querySelector(".ppRetentionCohortTable")).toBeInTheDocument();
+    expect(panel.querySelectorAll(".ppRetentionLineSvg").length).toBeGreaterThanOrEqual(3);
+  });
+
   it("renders momentum weekly bars as empty tracks for zero weeks and a visible spike", () => {
     const product = {
       ...defaultView.startHere,

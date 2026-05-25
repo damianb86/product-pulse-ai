@@ -2956,6 +2956,7 @@ s-page[inline-size="large-500"] {
 .ppProductNoDiagnosisPanel,
 .ppProductOrderActivityPanel,
 .ppProductReturnPredictionPanel,
+.ppProductRetentionPanel,
 .ppProductMomentumPanel,
 .ppProductRiskHistoryPanel {
   border: 1px solid var(--pp-border-color);
@@ -10844,6 +10845,494 @@ s-page[inline-size="large-500"] {
   font-size: 10px;
 }
 
+.ppProductRetentionPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.ppProductRetentionHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ppProductRetentionHeader > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppProductRetentionHeader span {
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppProductRetentionHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.ppProductRetentionHeader p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppProductRetentionMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 210px;
+}
+
+.ppProductRetentionMeta small {
+  width: 100%;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.ppRetentionMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppRetentionMetricCard {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  min-height: 104px;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+}
+
+.ppRetentionMetricIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.1);
+  color: var(--pp-pulse-blue);
+}
+
+.ppRetentionMetricCard-teal .ppRetentionMetricIcon {
+  background: rgba(var(--pp-signal-teal-rgb), 0.12);
+  color: var(--pp-signal-teal);
+}
+
+.ppRetentionMetricCard-amber .ppRetentionMetricIcon {
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: var(--pp-warning-amber);
+}
+
+.ppRetentionMetricCard > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ppRetentionMetricCard span:not(.ppRetentionMetricIcon) {
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.ppRetentionMetricCard strong {
+  color: var(--pp-pulse-blue);
+  font-size: 24px;
+  font-weight: 950;
+  line-height: 1.05;
+}
+
+.ppRetentionMetricCard small {
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+}
+
+.ppRetentionMainGrid,
+.ppRetentionSecondaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.ppRetentionChartCard {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 12px;
+  background: var(--pp-subcard-bg);
+}
+
+.ppRetentionChartHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ppRetentionChartHeader > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ppRetentionChartHeader h3 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.ppRetentionChartHeader p,
+.ppRetentionChartNote {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.ppRetentionCohortTableWrap,
+.ppRetentionSegmentsTableWrap {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppRetentionCohortTable,
+.ppRetentionSegmentsTable {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.ppRetentionCohortTable th,
+.ppRetentionCohortTable td,
+.ppRetentionSegmentsTable th,
+.ppRetentionSegmentsTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 760;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ppRetentionCohortTable thead th,
+.ppRetentionSegmentsTable thead th {
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ppRetentionCohortTable tbody tr:last-child th,
+.ppRetentionCohortTable tbody tr:last-child td,
+.ppRetentionSegmentsTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ppRetentionCohortTable tbody th {
+  display: grid;
+  gap: 2px;
+  color: var(--pp-slate-900);
+  font-weight: 900;
+}
+
+.ppRetentionCohortTable tbody th small,
+.ppRetentionSegmentsTable td small {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.ppRetentionHeatCell {
+  display: inline-grid;
+  place-items: center;
+  width: 72px;
+  min-height: 28px;
+  border-radius: 6px;
+  background: rgba(var(--pp-pulse-blue-rgb), calc(0.08 + (var(--pp-retention-intensity) * 0.74)));
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ppRetentionHeatCell.isEmpty,
+.ppRetentionHeatCell.isIncomplete {
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-400);
+}
+
+.ppRetentionLineChart {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 260px;
+}
+
+.ppRetentionLineYAxis {
+  position: relative;
+  height: 220px;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.ppRetentionLineYAxis span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.ppRetentionLinePlot {
+  position: relative;
+  min-width: 0;
+  height: 252px;
+}
+
+.ppRetentionLineSvg {
+  width: 100%;
+  height: 220px;
+  overflow: visible;
+}
+
+.ppRetentionGridLine {
+  fill: none;
+  stroke: var(--pp-grid-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppRetentionLineArea {
+  stroke: none;
+  opacity: 0.1;
+}
+
+.ppRetentionLinePath {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppRetentionLineDot {
+  stroke: var(--pp-cloud-white);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppRetentionLine-any.ppRetentionLinePath {
+  stroke: var(--pp-pulse-blue);
+}
+
+.ppRetentionLine-any.ppRetentionLineArea,
+.ppRetentionLine-any.ppRetentionLineDot {
+  fill: var(--pp-pulse-blue);
+}
+
+.ppRetentionLine-same.ppRetentionLinePath {
+  stroke: var(--pp-signal-teal);
+}
+
+.ppRetentionLine-same.ppRetentionLineArea,
+.ppRetentionLine-same.ppRetentionLineDot {
+  fill: var(--pp-signal-teal);
+}
+
+.ppRetentionLine-other.ppRetentionLinePath {
+  stroke: var(--pp-insight-violet);
+}
+
+.ppRetentionLine-other.ppRetentionLineArea,
+.ppRetentionLine-other.ppRetentionLineDot {
+  fill: var(--pp-insight-violet);
+}
+
+.ppRetentionLineXAxis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 224px;
+  height: 24px;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.ppRetentionLineXAxis span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.ppRetentionChartLegend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppRetentionChartLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ppRetentionChartLegend i {
+  display: inline-block;
+  width: 20px;
+  height: 4px;
+  border-radius: 999px;
+}
+
+.ppRetentionLegendAny {
+  background: var(--pp-pulse-blue);
+}
+
+.ppRetentionLegendSame {
+  background: var(--pp-signal-teal);
+}
+
+.ppRetentionLegendOther {
+  background: var(--pp-insight-violet);
+}
+
+.ppRetentionLegendNone {
+  background: var(--pp-slate-300);
+}
+
+.ppRetentionOutcomeRows {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ppRetentionOutcomeRow {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ppRetentionOutcomeRow > span {
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppRetentionOutcomeRow > strong {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 950;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ppRetentionOutcomeBar {
+  display: flex;
+  min-width: 0;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppRetentionOutcomeBar i {
+  display: block;
+  height: 100%;
+}
+
+.ppRetentionOutcomeSame {
+  background: var(--pp-signal-teal);
+}
+
+.ppRetentionOutcomeOther {
+  background: var(--pp-insight-violet);
+}
+
+.ppRetentionOutcomeNone {
+  background: var(--pp-slate-300);
+}
+
+.ppRetentionSegmentsTable {
+  min-width: 760px;
+}
+
+.ppRetentionSegmentsTable td {
+  vertical-align: top;
+}
+
+.ppRetentionSegmentsTable td:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 190px;
+}
+
+.ppRetentionSegmentsTable td:first-child strong {
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppRetentionEmptySlot .ppProductDetailEmpty {
+  min-height: 138px;
+  background: var(--pp-cloud-white);
+}
+
 .ppProductMomentumPanel {
   display: grid;
   gap: 16px;
@@ -11563,8 +12052,14 @@ s-page[inline-size="large-500"] {
 
   .ppOrderActivitySummary,
   .ppReturnPredictionStats,
+  .ppRetentionMetricGrid,
   .ppProductMomentumBreakdown {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppRetentionMainGrid,
+  .ppRetentionSecondaryGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .ppReturnRefundResolutionBody,
@@ -11615,10 +12110,32 @@ s-page[inline-size="large-500"] {
 @media (max-width: 760px) {
   .ppOrderActivityHeader,
   .ppReturnPredictionHeader,
+  .ppProductRetentionHeader,
   .ppProductMomentumHeader,
   .ppProductMomentumBody,
   .ppProductMomentumMeta {
     display: grid;
+  }
+
+  .ppProductRetentionMeta {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  .ppProductRetentionMeta small {
+    text-align: left;
+  }
+
+  .ppRetentionMetricGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppRetentionMetricCard {
+    min-height: 86px;
+  }
+
+  .ppRetentionOutcomeRow {
+    grid-template-columns: 62px minmax(0, 1fr) 48px;
   }
 
   .ppProductMomentumBars {

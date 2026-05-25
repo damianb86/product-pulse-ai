@@ -24,6 +24,8 @@ const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 const DEFAULT_MOMENTUM_INCLUSION_THRESHOLD = 70;
 const WATCHLIST_MAX_PRODUCTS_DEFAULT = 50;
+const PRODUCT_RETENTION_HEATMAP_MONTHS = 6;
+const PRODUCT_RETENTION_CHART_AGE_TICKS = [0, 30, 60, 90, 120, 180];
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -5470,6 +5472,7 @@ function getProductDetailModel(product) {
   const riskDisplay = getProductRiskDisplay(product.riskScore, riskTrendValues, product.riskTone, hasRiskSnapshot);
   const monthlyOrderActivity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
   const returnRatePrediction = normalizeProductReturnRatePrediction(metrics.returnRatePrediction);
+  const productRetention = normalizeProductRetention(metrics.productRetention);
   const productMomentum = normalizeProductMomentum(metrics.productMomentum);
   const returnRefundRelationshipFactors = asPlainObject(metrics.returnRefundRelationshipFactors);
   const returnRefundRelationship = normalizeProductReturnRefundRelationship(
@@ -5496,6 +5499,7 @@ function getProductDetailModel(product) {
   );
   const hasMonthlyOrderActivity = hasProductMonthlyOrderActivity(monthlyOrderActivity);
   const hasReturnRatePrediction = hasProductReturnRatePrediction(returnRatePrediction);
+  const hasProductRetention = hasProductRetentionData(productRetention);
   const productStatus = product.status || metrics.productStatus || "";
   const productCollections = Array.isArray(metrics.collections) && metrics.collections.length
     ? metrics.collections
@@ -5624,6 +5628,8 @@ function getProductDetailModel(product) {
     hasMonthlyOrderActivity,
     returnRatePrediction,
     hasReturnRatePrediction,
+    productRetention,
+    hasProductRetention,
     productMomentum,
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
@@ -6552,6 +6558,168 @@ function hasProductReturnRatePrediction(prediction = null) {
     || Number(summary.totalReturnedUnits || 0) > 0
     || observedPoints.some((point) => Number(point.returnedOrders || 0) > 0 || Number(point.returnedUnits || 0) > 0);
   return hasOrders && hasReturns;
+}
+
+function normalizeProductRetention(retention = null) {
+  const record = asPlainObject(retention);
+  const summary = asPlainObject(record.summary);
+  return {
+    run: record.run && typeof record.run === "object" ? record.run : null,
+    summary: {
+      repeatPurchaseRate90d: normalizeRetentionRate(summary.repeatPurchaseRate90d),
+      repeatPurchaseRate180d: normalizeRetentionRate(summary.repeatPurchaseRate180d),
+      sameProductRepurchaseRate90d: normalizeRetentionRate(summary.sameProductRepurchaseRate90d),
+      sameProductRepurchaseRate180d: normalizeRetentionRate(summary.sameProductRepurchaseRate180d),
+      crossSellRetentionRate90d: normalizeRetentionRate(summary.crossSellRetentionRate90d),
+      returningRevenueShare: normalizeRetentionRate(summary.returningRevenueShare),
+      avgDaysToSecondPurchase: toNullableFiniteNumber(summary.avgDaysToSecondPurchase),
+      medianDaysToSecondPurchase: toNullableFiniteNumber(summary.medianDaysToSecondPurchase),
+      productLtv90Cents: normalizeRetentionCents(summary.productLtv90Cents),
+      productLtv180Cents: normalizeRetentionCents(summary.productLtv180Cents),
+      retentionHealthScore: toNullableFiniteNumber(summary.retentionHealthScore),
+      repeatPurchaseRate90dPrevious: normalizeRetentionRate(summary.repeatPurchaseRate90dPrevious),
+      repeatPurchaseRate90dDelta: normalizeRetentionRateDelta(summary.repeatPurchaseRate90dDelta),
+      sameProductRepurchaseRate90dPrevious: normalizeRetentionRate(summary.sameProductRepurchaseRate90dPrevious),
+      sameProductRepurchaseRate90dDelta: normalizeRetentionRateDelta(summary.sameProductRepurchaseRate90dDelta),
+      ltv90PreviousCents: summary.ltv90PreviousCents == null ? null : normalizeRetentionCents(summary.ltv90PreviousCents),
+      ltv90DeltaCents: summary.ltv90DeltaCents == null ? null : normalizeRetentionCents(summary.ltv90DeltaCents),
+      returningRevenueSharePrevious: normalizeRetentionRate(summary.returningRevenueSharePrevious),
+      returningRevenueShareDelta: normalizeRetentionRateDelta(summary.returningRevenueShareDelta),
+      totalCustomersAnalyzed: normalizeRetentionCount(summary.totalCustomersAnalyzed),
+      totalOrdersAnalyzed: normalizeRetentionCount(summary.totalOrdersAnalyzed),
+      totalProductOrdersAnalyzed: normalizeRetentionCount(summary.totalProductOrdersAnalyzed),
+      earliestOrderDate: firstNonEmptyString(summary.earliestOrderDate),
+      latestOrderDate: firstNonEmptyString(summary.latestOrderDate),
+      hasEnoughData: Boolean(summary.hasEnoughData),
+      lowSampleWarning: Boolean(summary.lowSampleWarning),
+      errorMessage: firstNonEmptyString(summary.errorMessage),
+    },
+    dailyRetentionTrend: normalizeRetentionDailyTrendRows(record.dailyRetentionTrend),
+    nextPurchaseOutcome: normalizeRetentionNextPurchaseRows(record.nextPurchaseOutcome),
+    cohortHeatmap: normalizeRetentionCohortCells(record.cohortHeatmap),
+    timeToRepeatPurchase: normalizeRetentionRepeatCurveRows(record.timeToRepeatPurchase),
+    ltvCurve: normalizeRetentionLtvCurveRows(record.ltvCurve),
+    segments: normalizeRetentionSegments(record.segments),
+    dailyActivity: Array.isArray(record.dailyActivity) ? record.dailyActivity : [],
+    segmentDaily: Array.isArray(record.segmentDaily) ? record.segmentDaily : [],
+  };
+}
+
+function normalizeRetentionDailyTrendRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      date: firstNonEmptyString(row?.date, row?.cohortDate),
+      cohortSize: normalizeRetentionCount(row?.cohortSize),
+      repeatPurchaseRate90d: normalizeRetentionRate(row?.repeatPurchaseRate90d),
+      sameProductRepurchaseRate90d: normalizeRetentionRate(row?.sameProductRepurchaseRate90d),
+      crossSellRetentionRate90d: normalizeRetentionRate(row?.crossSellRetentionRate90d),
+      isMature90d: Boolean(row?.isMature90d),
+    }))
+    .filter((row) => row.date);
+}
+
+function normalizeRetentionNextPurchaseRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      date: firstNonEmptyString(row?.date, row?.cohortDate),
+      sameProductAgainPercent: normalizeRetentionRate(row?.sameProductAgainPercent) || 0,
+      boughtAnotherProductPercent: normalizeRetentionRate(row?.boughtAnotherProductPercent) || 0,
+      didNotReturnPercent: normalizeRetentionRate(row?.didNotReturnPercent) || 0,
+    }))
+    .filter((row) => row.date);
+}
+
+function normalizeRetentionCohortCells(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      cohortDate: firstNonEmptyString(row?.cohortDate, row?.date),
+      ageDay: normalizeRetentionCount(row?.ageDay),
+      cohortSize: normalizeRetentionCount(row?.cohortSize),
+      anyRepeatRate: normalizeRetentionRate(row?.anyRepeatRate),
+      sameProductRepeatRate: normalizeRetentionRate(row?.sameProductRepeatRate),
+      boughtOtherProductRate: normalizeRetentionRate(row?.boughtOtherProductRate),
+      cumulativeLtvCents: normalizeRetentionCents(row?.cumulativeLtvCents),
+      isObserved: row?.isObserved !== false,
+    }))
+    .filter((row) => row.cohortDate && row.ageDay >= 0);
+}
+
+function normalizeRetentionRepeatCurveRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      ageDay: normalizeRetentionCount(row?.ageDay),
+      anyRepeatCumulativeRate: normalizeRetentionRate(row?.anyRepeatCumulativeRate) || 0,
+      sameProductRepeatCumulativeRate: normalizeRetentionRate(row?.sameProductRepeatCumulativeRate) || 0,
+      boughtOtherProductCumulativeRate: normalizeRetentionRate(row?.boughtOtherProductCumulativeRate) || 0,
+    }))
+    .filter((row) => row.ageDay >= 0)
+    .sort((left, right) => left.ageDay - right.ageDay);
+}
+
+function normalizeRetentionLtvCurveRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      ageDay: normalizeRetentionCount(row?.ageDay),
+      cumulativeLtvCents: normalizeRetentionCents(row?.cumulativeLtvCents),
+      sameProductLtvCents: normalizeRetentionCents(row?.sameProductLtvCents),
+      otherProductLtvCents: normalizeRetentionCents(row?.otherProductLtvCents),
+    }))
+    .filter((row) => row.ageDay >= 0)
+    .sort((left, right) => left.ageDay - right.ageDay);
+}
+
+function normalizeRetentionSegments(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      segmentType: firstNonEmptyString(row?.segmentType),
+      segmentValue: firstNonEmptyString(row?.segmentValue),
+      cohortSize: normalizeRetentionCount(row?.cohortSize),
+      repeatPurchaseRate90d: normalizeRetentionRate(row?.repeatPurchaseRate90d),
+      sameProductRepurchaseRate90d: normalizeRetentionRate(row?.sameProductRepurchaseRate90d),
+      crossSellRetentionRate90d: normalizeRetentionRate(row?.crossSellRetentionRate90d),
+      ltv90Cents: normalizeRetentionCents(row?.ltv90Cents),
+      medianDaysToSecondPurchase: toNullableFiniteNumber(row?.medianDaysToSecondPurchase),
+      isLowSampleSize: Boolean(row?.isLowSampleSize),
+    }))
+    .filter((row) => row.segmentType && row.segmentValue);
+}
+
+function normalizeRetentionRate(value) {
+  const number = toNullableFiniteNumber(value);
+  if (number == null) return null;
+  if (Math.abs(number) > 1 && Math.abs(number) <= 100) return clampNumber(number / 100, 0, 1);
+  return clampNumber(number, 0, 1);
+}
+
+function normalizeRetentionRateDelta(value) {
+  const number = toNullableFiniteNumber(value);
+  if (number == null) return null;
+  if (Math.abs(number) > 1 && Math.abs(number) <= 100) return clampNumber(number / 100, -1, 1);
+  return clampNumber(number, -1, 1);
+}
+
+function normalizeRetentionCents(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? Math.round(number) : 0;
+}
+
+function normalizeRetentionCount(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0;
+}
+
+function hasProductRetentionData(retention = null) {
+  const summary = retention?.summary || {};
+  return Boolean(
+    retention?.run
+      || Number(summary.totalCustomersAnalyzed || 0) > 0
+      || Number(summary.totalProductOrdersAnalyzed || 0) > 0
+      || (Array.isArray(retention?.dailyRetentionTrend) && retention.dailyRetentionTrend.length)
+      || (Array.isArray(retention?.cohortHeatmap) && retention.cohortHeatmap.length)
+      || (Array.isArray(retention?.timeToRepeatPurchase) && retention.timeToRepeatPurchase.length)
+      || (Array.isArray(retention?.ltvCurve) && retention.ltvCurve.length)
+      || (Array.isArray(retention?.segments) && retention.segments.length)
+  );
 }
 
 function normalizeProductMomentum(momentum = null) {
@@ -11444,6 +11612,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   </div>
                 ) : null}
 
+                {detail.hasFullDiagnosis && <ProductRetentionMetricsPanel detail={detail} />}
+
                 <ProductRiskHistoryPanel detail={detail} />
               </main>
 
@@ -13764,6 +13934,811 @@ function ProductReturnRatePredictionPanel({ detail }) {
       )}
     </section>
   );
+}
+
+function ProductRetentionMetricsPanel({ detail }) {
+  const retention = detail.productRetention || normalizeProductRetention(null);
+  const summary = retention.summary || {};
+  const hasData = detail.hasProductRetention || hasProductRetentionData(retention);
+  const cohortRows = useMemo(() => getProductRetentionMonthlyCohortRows(retention.cohortHeatmap), [retention.cohortHeatmap]);
+  const repeatChart = useMemo(() => getProductRetentionRepeatChart(retention.timeToRepeatPurchase), [retention.timeToRepeatPurchase]);
+  const ltvChart = useMemo(() => getProductRetentionLtvChart(retention.ltvCurve), [retention.ltvCurve]);
+  const trendChart = useMemo(() => getProductRetentionTrendChart(retention.dailyRetentionTrend), [retention.dailyRetentionTrend]);
+  const outcomeRows = useMemo(() => getProductRetentionOutcomeRows(retention.nextPurchaseOutcome), [retention.nextPurchaseOutcome]);
+  const segmentRows = useMemo(() => getProductRetentionSegmentRows(retention.segments), [retention.segments]);
+  const rangeLabel = getProductRetentionRangeLabel(retention.run, summary);
+  const warningLabel = getProductRetentionWarningLabel(summary, retention.run);
+
+  return (
+    <section className="ppProductRetentionPanel" aria-label="Product retention metrics">
+      <div className="ppProductRetentionHeader">
+        <div>
+          <span>Retention</span>
+          <h2>Product retention metrics</h2>
+          <p>Deterministic Shopify order cohorts, LTV and follow-on purchase behavior for customers who first bought this product.</p>
+        </div>
+        <div className="ppProductRetentionMeta">
+          {retention.run?.status && <s-badge tone={getProductRetentionStatusTone(retention.run.status)}>{formatProductRetentionStatus(retention.run.status)}</s-badge>}
+          {warningLabel && <s-badge tone="warning">{warningLabel}</s-badge>}
+          {rangeLabel && <small>{rangeLabel}</small>}
+        </div>
+      </div>
+
+      {!hasData ? (
+        <EmptyProductDetailState message="No product retention metrics are stored yet. Run product diagnosis after Shopify order evidence is available." />
+      ) : (
+        <>
+          <div className="ppRetentionMetricGrid">
+            <ProductRetentionMetricCard
+              icon="shopify-orders"
+              label="180-day customer retention"
+              value={formatRetentionRate(summary.repeatPurchaseRate180d)}
+              detail={`${formatInteger(summary.totalCustomersAnalyzed)} customers analyzed`}
+              tone="blue"
+            />
+            <ProductRetentionMetricCard
+              icon="shopify-product"
+              label="Same-product repurchase rate"
+              value={formatRetentionRate(summary.sameProductRepurchaseRate90d)}
+              detail="90-day same-product repeat"
+              tone="teal"
+            />
+            <ProductRetentionMetricCard
+              icon="diagnostic-confidence"
+              label="Median time to 2nd purchase"
+              value={formatRetentionDays(summary.medianDaysToSecondPurchase)}
+              detail={summary.avgDaysToSecondPurchase == null ? "Average unavailable" : `${formatRetentionDays(summary.avgDaysToSecondPurchase)} average`}
+              tone="blue"
+            />
+            <ProductRetentionMetricCard
+              icon="financial-exposure"
+              label="Product LTV"
+              value={formatRetentionMoneyCents(summary.productLtv90Cents)}
+              detail="90-day LTV per cohort customer"
+              tone="teal"
+            />
+            <ProductRetentionMetricCard
+              icon="product-momentum"
+              label="Retention health"
+              value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
+              detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
+              tone={summary.hasEnoughData ? "blue" : "amber"}
+            />
+          </div>
+
+          <div className="ppRetentionMainGrid">
+            <ProductRetentionCohortHeatmap rows={cohortRows} />
+            <ProductRetentionRepeatCurve chart={repeatChart} productTitle={detail.title} />
+          </div>
+
+          <div className="ppRetentionSecondaryGrid">
+            <ProductRetentionTrendChart chart={trendChart} productTitle={detail.title} />
+            <ProductRetentionLtvCurve chart={ltvChart} productTitle={detail.title} />
+          </div>
+
+          <div className="ppRetentionSecondaryGrid">
+            <ProductRetentionNextOutcome rows={outcomeRows} />
+            <ProductRetentionSegmentsTable rows={segmentRows} />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ProductRetentionMetricCard({ icon, label, value, detail, tone = "blue" }) {
+  return (
+    <article className={`ppRetentionMetricCard ppRetentionMetricCard-${tone}`}>
+      <span className="ppRetentionMetricIcon" aria-hidden="true">
+        <ProductPulseGlyph type={icon} />
+      </span>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
+    </article>
+  );
+}
+
+function ProductRetentionCohortHeatmap({ rows }) {
+  const monthIndexes = Array.from({ length: PRODUCT_RETENTION_HEATMAP_MONTHS }, (_, index) => index);
+  return (
+    <article className="ppRetentionChartCard ppRetentionCohortCard">
+      <div className="ppRetentionChartHeader">
+        <div>
+          <h3>Retention by purchase cohort</h3>
+          <p>Percent of customers who return after first buying this product.</p>
+        </div>
+      </div>
+      {rows.length ? (
+        <>
+          <div className="ppRetentionCohortTableWrap">
+            <table className="ppRetentionCohortTable">
+              <thead>
+                <tr>
+                  <th scope="col">Cohort</th>
+                  {monthIndexes.map((month) => <th scope="col" key={month}>Month {month}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.key}>
+                    <th scope="row">
+                      <span>{row.label}</span>
+                      <small>{formatInteger(row.cohortSize)}</small>
+                    </th>
+                    {monthIndexes.map((month) => {
+                      const cell = row.cells[month] || {};
+                      const intensity = cell.rate == null ? 0 : clampNumber(cell.rate, 0, 1);
+                      return (
+                        <td key={`${row.key}-${month}`}>
+                          <span
+                            className={`ppRetentionHeatCell${cell.rate == null ? " isEmpty" : ""}${cell.isObserved === false ? " isIncomplete" : ""}`.trim()}
+                            style={{ "--pp-retention-intensity": intensity }}
+                            title={`${row.label} Month ${month}: ${cell.rate == null ? "Incomplete" : formatRetentionRate(cell.rate)}`}
+                          >
+                            {cell.rate == null ? "N/A" : formatRetentionRate(cell.rate)}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="ppRetentionChartNote">Month 0 is the original cohort baseline. Later cells use observed cohort ages only.</p>
+        </>
+      ) : (
+        <ProductRetentionEmptySlot message="No cohort heatmap rows are stored yet." />
+      )}
+    </article>
+  );
+}
+
+function ProductRetentionRepeatCurve({ chart, productTitle }) {
+  return (
+    <article className="ppRetentionChartCard">
+      <div className="ppRetentionChartHeader">
+        <div>
+          <h3>Time to repeat purchase</h3>
+          <p>How quickly customers return after buying this product.</p>
+        </div>
+      </div>
+      {chart.hasData ? (
+        <>
+          <RetentionLineChart
+            ariaLabel={`Time to repeat purchase for ${productTitle}`}
+            chart={chart}
+            series={[
+              { key: "anyRepeatCumulativeRate", label: "Any repeat purchase", className: "ppRetentionLine-any" },
+              { key: "sameProductRepeatCumulativeRate", label: "Same product repurchase", className: "ppRetentionLine-same" },
+              { key: "boughtOtherProductCumulativeRate", label: "Bought another product", className: "ppRetentionLine-other" },
+            ]}
+          />
+          <div className="ppRetentionChartLegend">
+            <span><i className="ppRetentionLegendAny" />Any repeat purchase</span>
+            <span><i className="ppRetentionLegendSame" />Same product repurchase</span>
+            <span><i className="ppRetentionLegendOther" />Bought another product</span>
+          </div>
+        </>
+      ) : (
+        <ProductRetentionEmptySlot message="No repeat-purchase curve is stored yet." />
+      )}
+    </article>
+  );
+}
+
+function ProductRetentionTrendChart({ chart, productTitle }) {
+  return (
+    <article className="ppRetentionChartCard">
+      <div className="ppRetentionChartHeader">
+        <div>
+          <h3>90-day retention trend</h3>
+          <p>Daily or monthly mature cohorts with 90-day outcomes.</p>
+        </div>
+      </div>
+      {chart.hasData ? (
+        <>
+          <RetentionLineChart
+            ariaLabel={`90-day product retention trend for ${productTitle}`}
+            chart={chart}
+            series={[
+              { key: "repeatPurchaseRate90d", label: "Any repeat", className: "ppRetentionLine-any" },
+              { key: "sameProductRepurchaseRate90d", label: "Same product", className: "ppRetentionLine-same" },
+              { key: "crossSellRetentionRate90d", label: "Cross-sell", className: "ppRetentionLine-other" },
+            ]}
+          />
+          <div className="ppRetentionChartLegend">
+            <span><i className="ppRetentionLegendAny" />Any repeat</span>
+            <span><i className="ppRetentionLegendSame" />Same product</span>
+            <span><i className="ppRetentionLegendOther" />Cross-sell</span>
+          </div>
+        </>
+      ) : (
+        <ProductRetentionEmptySlot message="No mature 90-day retention trend is stored yet." />
+      )}
+    </article>
+  );
+}
+
+function ProductRetentionLtvCurve({ chart, productTitle }) {
+  return (
+    <article className="ppRetentionChartCard">
+      <div className="ppRetentionChartHeader">
+        <div>
+          <h3>LTV curve</h3>
+          <p>Cumulative net revenue per cohort customer after first buying this product.</p>
+        </div>
+      </div>
+      {chart.hasData ? (
+        <>
+          <RetentionLineChart
+            ariaLabel={`LTV curve for ${productTitle}`}
+            chart={chart}
+            series={[
+              { key: "cumulativeLtvCents", label: "Total LTV", className: "ppRetentionLine-any" },
+              { key: "sameProductLtvCents", label: "Same product LTV", className: "ppRetentionLine-same" },
+              { key: "otherProductLtvCents", label: "Other product LTV", className: "ppRetentionLine-other" },
+            ]}
+          />
+          <div className="ppRetentionChartLegend">
+            <span><i className="ppRetentionLegendAny" />Total LTV</span>
+            <span><i className="ppRetentionLegendSame" />Same product</span>
+            <span><i className="ppRetentionLegendOther" />Other products</span>
+          </div>
+        </>
+      ) : (
+        <ProductRetentionEmptySlot message="No LTV curve is stored yet." />
+      )}
+    </article>
+  );
+}
+
+function ProductRetentionNextOutcome({ rows }) {
+  return (
+    <article className="ppRetentionChartCard">
+      <div className="ppRetentionChartHeader">
+        <div>
+          <h3>Next purchase outcome</h3>
+          <p>First purchase after the initial product purchase.</p>
+        </div>
+      </div>
+      {rows.length ? (
+        <div className="ppRetentionOutcomeRows">
+          {rows.map((row) => (
+            <div className="ppRetentionOutcomeRow" key={row.key}>
+              <span>{row.label}</span>
+              <div className="ppRetentionOutcomeBar" aria-label={`${row.label}: ${formatRetentionRate(row.sameProductAgainPercent)} same product, ${formatRetentionRate(row.boughtAnotherProductPercent)} another product, ${formatRetentionRate(row.didNotReturnPercent)} did not return`}>
+                <i className="ppRetentionOutcomeSame" style={{ width: `${row.sameProductAgainDisplayShare * 100}%` }} />
+                <i className="ppRetentionOutcomeOther" style={{ width: `${row.boughtAnotherProductDisplayShare * 100}%` }} />
+                <i className="ppRetentionOutcomeNone" style={{ width: `${row.didNotReturnDisplayShare * 100}%` }} />
+              </div>
+              <strong>{formatRetentionRate(row.sameProductAgainPercent + row.boughtAnotherProductPercent)}</strong>
+            </div>
+          ))}
+          <div className="ppRetentionChartLegend">
+            <span><i className="ppRetentionLegendSame" />Same product</span>
+            <span><i className="ppRetentionLegendOther" />Another product</span>
+            <span><i className="ppRetentionLegendNone" />Did not return</span>
+          </div>
+        </div>
+      ) : (
+        <ProductRetentionEmptySlot message="No next-purchase outcome rows are stored yet." />
+      )}
+    </article>
+  );
+}
+
+function ProductRetentionSegmentsTable({ rows }) {
+  return (
+    <article className="ppRetentionChartCard">
+      <div className="ppRetentionChartHeader">
+        <div>
+          <h3>Retention segments</h3>
+          <p>Segment-level 90-day repeat, cross-sell and LTV metrics.</p>
+        </div>
+      </div>
+      {rows.length ? (
+        <div className="ppRetentionSegmentsTableWrap">
+          <table className="ppRetentionSegmentsTable">
+            <thead>
+              <tr>
+                <th scope="col">Segment</th>
+                <th scope="col">Customers</th>
+                <th scope="col">Repeat</th>
+                <th scope="col">Same product</th>
+                <th scope="col">Cross-sell</th>
+                <th scope="col">LTV 90</th>
+                <th scope="col">Median days</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td>
+                    <strong>{row.valueLabel}</strong>
+                    <small>{row.typeLabel}{row.isLowSampleSize ? " · Low sample" : ""}</small>
+                  </td>
+                  <td>{formatInteger(row.cohortSize)}</td>
+                  <td>{formatRetentionRate(row.repeatPurchaseRate90d)}</td>
+                  <td>{formatRetentionRate(row.sameProductRepurchaseRate90d)}</td>
+                  <td>{formatRetentionRate(row.crossSellRetentionRate90d)}</td>
+                  <td>{formatRetentionMoneyCents(row.ltv90Cents)}</td>
+                  <td>{formatRetentionDays(row.medianDaysToSecondPurchase)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <ProductRetentionEmptySlot message="No retention segments are stored yet." />
+      )}
+    </article>
+  );
+}
+
+function RetentionLineChart({ chart, series, ariaLabel }) {
+  return (
+    <div className="ppRetentionLineChart" role="img" aria-label={ariaLabel}>
+      <div className="ppRetentionLineYAxis" aria-hidden="true">
+        {chart.yTicks.map((tick) => (
+          <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
+        ))}
+      </div>
+      <div className="ppRetentionLinePlot">
+        <svg className="ppRetentionLineSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          {chart.yTicks.map((tick) => (
+            <path key={`grid-${tick.label}`} className="ppRetentionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
+          ))}
+          {series.map((item) => chart.areaPaths[item.key] ? (
+            <path key={`area-${item.key}`} className={`${item.className} ppRetentionLineArea`} d={chart.areaPaths[item.key]} />
+          ) : null)}
+          {series.map((item) => chart.paths[item.key] ? (
+            <path key={`path-${item.key}`} className={`${item.className} ppRetentionLinePath`} d={chart.paths[item.key]} />
+          ) : null)}
+          {series.map((item) => (chart.dots[item.key] || []).map((dot) => (
+            <circle key={`${item.key}-${dot.x}-${dot.y}`} className={`${item.className} ppRetentionLineDot`} cx={dot.x} cy={dot.y} r="1.6" />
+          )))}
+        </svg>
+        <div className="ppRetentionLineXAxis" aria-hidden="true">
+          {chart.xTicks.map((tick) => (
+            <span key={tick.label} style={{ left: `${tick.x}%` }}>{tick.label}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductRetentionEmptySlot({ message }) {
+  return (
+    <div className="ppRetentionEmptySlot">
+      <EmptyProductDetailState message={message} />
+    </div>
+  );
+}
+
+function getProductRetentionMonthlyCohortRows(cells = []) {
+  const byCohortDate = new Map();
+  cells
+    .filter((cell) => cell.cohortDate && Number(cell.cohortSize || 0) > 0)
+    .forEach((cell) => {
+      const rows = byCohortDate.get(cell.cohortDate) || [];
+      rows.push(cell);
+      byCohortDate.set(cell.cohortDate, rows);
+    });
+
+  const monthRows = new Map();
+  byCohortDate.forEach((cohortCells, cohortDate) => {
+    const sortedCells = [...cohortCells].sort((left, right) => left.ageDay - right.ageDay);
+    const cohortSize = Math.max(...sortedCells.map((cell) => Number(cell.cohortSize || 0)), 0);
+    if (!cohortSize) return;
+    const monthKey = cohortDate.slice(0, 7);
+    const row = monthRows.get(monthKey) || {
+      key: monthKey,
+      label: formatRetentionMonthLabel(monthKey),
+      cohortSize: 0,
+      cells: Array.from({ length: PRODUCT_RETENTION_HEATMAP_MONTHS }, () => ({
+        observedSize: 0,
+        weightedRate: 0,
+        rate: null,
+        isObserved: false,
+      })),
+    };
+    row.cohortSize += cohortSize;
+
+    for (let month = 0; month < PRODUCT_RETENTION_HEATMAP_MONTHS; month += 1) {
+      const targetAgeDay = month * 30;
+      const targetCell = month === 0
+        ? sortedCells.find((cell) => cell.ageDay === 0) || sortedCells[0]
+        : sortedCells.find((cell) => cell.ageDay === targetAgeDay);
+      const rate = month === 0
+        ? 1
+        : targetCell?.isObserved
+          ? targetCell.anyRepeatRate
+          : null;
+      if (rate == null) continue;
+      row.cells[month].observedSize += cohortSize;
+      row.cells[month].weightedRate += rate * cohortSize;
+      row.cells[month].isObserved = targetCell?.isObserved !== false || month === 0;
+    }
+    monthRows.set(monthKey, row);
+  });
+
+  return Array.from(monthRows.values())
+    .sort((left, right) => left.key.localeCompare(right.key))
+    .slice(-12)
+    .map((row) => ({
+      ...row,
+      cells: row.cells.map((cell) => ({
+        ...cell,
+        rate: cell.observedSize ? cell.weightedRate / cell.observedSize : null,
+      })),
+    }));
+}
+
+function getProductRetentionRepeatChart(rows = []) {
+  const chartRows = rows
+    .filter((row) => Number.isFinite(row.ageDay))
+    .map((row) => ({
+      x: row.ageDay,
+      anyRepeatCumulativeRate: row.anyRepeatCumulativeRate,
+      sameProductRepeatCumulativeRate: row.sameProductRepeatCumulativeRate,
+      boughtOtherProductCumulativeRate: row.boughtOtherProductCumulativeRate,
+    }));
+  const maxAge = Math.max(180, ...chartRows.map((row) => row.x), 1);
+  const maxValue = Math.max(
+    ...chartRows.flatMap((row) => [
+      row.anyRepeatCumulativeRate,
+      row.sameProductRepeatCumulativeRate,
+      row.boughtOtherProductCumulativeRate,
+    ]),
+    0,
+  );
+  return buildRetentionLineChartGeometry({
+    rows: chartRows,
+    seriesKeys: ["anyRepeatCumulativeRate", "sameProductRepeatCumulativeRate", "boughtOtherProductCumulativeRate"],
+    xMin: 0,
+    xMax: maxAge,
+    xTicks: PRODUCT_RETENTION_CHART_AGE_TICKS.filter((tick) => tick <= maxAge).map((tick) => ({ value: tick, label: String(tick) })),
+    yMax: getRetentionRateAxisMax(maxValue),
+    yFormatter: formatRetentionRate,
+  });
+}
+
+function getProductRetentionLtvChart(rows = []) {
+  const chartRows = rows
+    .filter((row) => Number.isFinite(row.ageDay))
+    .map((row) => ({
+      x: row.ageDay,
+      cumulativeLtvCents: row.cumulativeLtvCents,
+      sameProductLtvCents: row.sameProductLtvCents,
+      otherProductLtvCents: row.otherProductLtvCents,
+    }));
+  const maxAge = Math.max(180, ...chartRows.map((row) => row.x), 1);
+  const maxValue = Math.max(
+    ...chartRows.flatMap((row) => [
+      row.cumulativeLtvCents,
+      row.sameProductLtvCents,
+      row.otherProductLtvCents,
+    ]),
+    0,
+  );
+  return buildRetentionLineChartGeometry({
+    rows: chartRows,
+    seriesKeys: ["cumulativeLtvCents", "sameProductLtvCents", "otherProductLtvCents"],
+    xMin: 0,
+    xMax: maxAge,
+    xTicks: PRODUCT_RETENTION_CHART_AGE_TICKS.filter((tick) => tick <= maxAge).map((tick) => ({ value: tick, label: String(tick) })),
+    yMax: getRetentionMoneyAxisMax(maxValue),
+    yFormatter: formatRetentionMoneyCents,
+  });
+}
+
+function getProductRetentionTrendChart(rows = []) {
+  const trendRows = getProductRetentionTrendRows(rows);
+  const chartRows = trendRows.map((row, index) => ({
+    x: index,
+    repeatPurchaseRate90d: row.repeatPurchaseRate90d,
+    sameProductRepurchaseRate90d: row.sameProductRepurchaseRate90d,
+    crossSellRetentionRate90d: row.crossSellRetentionRate90d,
+  }));
+  const maxValue = Math.max(
+    ...chartRows.flatMap((row) => [
+      row.repeatPurchaseRate90d,
+      row.sameProductRepurchaseRate90d,
+      row.crossSellRetentionRate90d,
+    ]),
+    0,
+  );
+  return buildRetentionLineChartGeometry({
+    rows: chartRows,
+    seriesKeys: ["repeatPurchaseRate90d", "sameProductRepurchaseRate90d", "crossSellRetentionRate90d"],
+    xMin: 0,
+    xMax: Math.max(chartRows.length - 1, 1),
+    xTicks: getRetentionCategoryTicks(trendRows),
+    yMax: getRetentionRateAxisMax(maxValue),
+    yFormatter: formatRetentionRate,
+  });
+}
+
+function getProductRetentionTrendRows(rows = []) {
+  const matureRows = rows
+    .filter((row) => row.isMature90d && row.repeatPurchaseRate90d != null)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  if (matureRows.length <= 18) {
+    return matureRows.map((row) => ({
+      key: row.date,
+      label: formatRetentionDateShort(row.date),
+      cohortSize: row.cohortSize,
+      repeatPurchaseRate90d: row.repeatPurchaseRate90d,
+      sameProductRepurchaseRate90d: row.sameProductRepurchaseRate90d,
+      crossSellRetentionRate90d: row.crossSellRetentionRate90d,
+    }));
+  }
+
+  const groups = new Map();
+  matureRows.forEach((row) => {
+    const key = row.date.slice(0, 7);
+    const weight = Math.max(1, Number(row.cohortSize || 0));
+    const group = groups.get(key) || {
+      key,
+      label: formatRetentionMonthLabel(key),
+      cohortSize: 0,
+      repeatWeight: 0,
+      sameWeight: 0,
+      crossWeight: 0,
+      repeatWeighted: 0,
+      sameWeighted: 0,
+      crossWeighted: 0,
+    };
+    group.cohortSize += row.cohortSize;
+    if (row.repeatPurchaseRate90d != null) {
+      group.repeatWeight += weight;
+      group.repeatWeighted += row.repeatPurchaseRate90d * weight;
+    }
+    if (row.sameProductRepurchaseRate90d != null) {
+      group.sameWeight += weight;
+      group.sameWeighted += row.sameProductRepurchaseRate90d * weight;
+    }
+    if (row.crossSellRetentionRate90d != null) {
+      group.crossWeight += weight;
+      group.crossWeighted += row.crossSellRetentionRate90d * weight;
+    }
+    groups.set(key, group);
+  });
+
+  return Array.from(groups.values())
+    .sort((left, right) => left.key.localeCompare(right.key))
+    .slice(-12)
+    .map((group) => ({
+      key: group.key,
+      label: group.label,
+      cohortSize: group.cohortSize,
+      repeatPurchaseRate90d: group.repeatWeight ? group.repeatWeighted / group.repeatWeight : null,
+      sameProductRepurchaseRate90d: group.sameWeight ? group.sameWeighted / group.sameWeight : null,
+      crossSellRetentionRate90d: group.crossWeight ? group.crossWeighted / group.crossWeight : null,
+    }));
+}
+
+function getProductRetentionOutcomeRows(rows = []) {
+  const sourceRows = rows.length > 8 ? groupRetentionOutcomeRowsByMonth(rows) : rows;
+  return sourceRows
+    .slice(-8)
+    .map((row) => {
+      const same = normalizeRetentionRate(row.sameProductAgainPercent) || 0;
+      const other = normalizeRetentionRate(row.boughtAnotherProductPercent) || 0;
+      const none = normalizeRetentionRate(row.didNotReturnPercent) || 0;
+      const total = same + other + none;
+      const displayScale = total > 1 ? 1 / total : 1;
+      return {
+        key: row.key || row.date,
+        label: row.label || formatRetentionDateShort(row.date),
+        sameProductAgainPercent: same,
+        boughtAnotherProductPercent: other,
+        didNotReturnPercent: none,
+        sameProductAgainDisplayShare: same * displayScale,
+        boughtAnotherProductDisplayShare: other * displayScale,
+        didNotReturnDisplayShare: none * displayScale,
+      };
+    });
+}
+
+function groupRetentionOutcomeRowsByMonth(rows = []) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = row.date.slice(0, 7);
+    const group = groups.get(key) || {
+      key,
+      label: formatRetentionMonthLabel(key),
+      count: 0,
+      sameProductAgainPercent: 0,
+      boughtAnotherProductPercent: 0,
+      didNotReturnPercent: 0,
+    };
+    group.count += 1;
+    group.sameProductAgainPercent += normalizeRetentionRate(row.sameProductAgainPercent) || 0;
+    group.boughtAnotherProductPercent += normalizeRetentionRate(row.boughtAnotherProductPercent) || 0;
+    group.didNotReturnPercent += normalizeRetentionRate(row.didNotReturnPercent) || 0;
+    groups.set(key, group);
+  });
+  return Array.from(groups.values())
+    .sort((left, right) => left.key.localeCompare(right.key))
+    .map((group) => ({
+      ...group,
+      sameProductAgainPercent: group.count ? group.sameProductAgainPercent / group.count : 0,
+      boughtAnotherProductPercent: group.count ? group.boughtAnotherProductPercent / group.count : 0,
+      didNotReturnPercent: group.count ? group.didNotReturnPercent / group.count : 0,
+    }));
+}
+
+function getProductRetentionSegmentRows(rows = []) {
+  return [...rows]
+    .sort((left, right) => right.cohortSize - left.cohortSize || left.segmentType.localeCompare(right.segmentType))
+    .slice(0, 8)
+    .map((row) => ({
+      ...row,
+      key: `${row.segmentType}:${row.segmentValue}`,
+      typeLabel: formatRetentionSegmentType(row.segmentType),
+      valueLabel: formatRetentionSegmentValue(row.segmentValue, row.segmentType),
+    }));
+}
+
+function buildRetentionLineChartGeometry({ rows, seriesKeys, xMin, xMax, xTicks, yMax, yFormatter }) {
+  const safeRows = rows.filter((row) => Number.isFinite(row.x)).sort((left, right) => left.x - right.x);
+  const safeXMax = Math.max(Number(xMax || 0), xMin + 1);
+  const safeYMax = Math.max(Number(yMax || 0), 1);
+  const getX = (value) => 4 + ((Number(value || 0) - xMin) / Math.max(safeXMax - xMin, 1)) * 92;
+  const getY = (value) => 90 - (Number(value || 0) / safeYMax) * 78;
+  const paths = {};
+  const areaPaths = {};
+  const dots = {};
+  let hasData = false;
+
+  seriesKeys.forEach((key) => {
+    const points = safeRows
+      .map((row) => ({ x: getX(row.x), y: getY(row[key]), value: row[key] }))
+      .filter((point) => Number.isFinite(point.value));
+    if (points.length) hasData = true;
+    paths[key] = points.length ? points.map((point, index) => `${index === 0 ? "M" : "L"} ${formatRetentionChartNumber(point.x)} ${formatRetentionChartNumber(point.y)}`).join(" ") : "";
+    areaPaths[key] = points.length > 1
+      ? `M ${formatRetentionChartNumber(points[0].x)} 90 ${points.map((point) => `L ${formatRetentionChartNumber(point.x)} ${formatRetentionChartNumber(point.y)}`).join(" ")} L ${formatRetentionChartNumber(points[points.length - 1].x)} 90 Z`
+      : "";
+    dots[key] = points.length <= 14
+      ? points
+      : points.filter((_, index) => index === 0 || index === points.length - 1 || index % Math.ceil(points.length / 8) === 0);
+  });
+
+  const yTickValues = [safeYMax, safeYMax * 0.75, safeYMax * 0.5, safeYMax * 0.25, 0];
+  return {
+    hasData,
+    paths,
+    areaPaths,
+    dots,
+    yTicks: yTickValues.map((value) => ({
+      y: getY(value),
+      label: yFormatter(value),
+    })),
+    xTicks: xTicks.map((tick) => ({
+      x: getX(tick.value),
+      label: tick.label,
+    })),
+  };
+}
+
+function getRetentionCategoryTicks(rows = []) {
+  if (!rows.length) return [];
+  if (rows.length === 1) return [{ value: 0, label: rows[0].label }];
+  const indexes = Array.from(new Set([0, Math.floor((rows.length - 1) / 2), rows.length - 1]));
+  return indexes.map((index) => ({ value: index, label: rows[index].label }));
+}
+
+function getRetentionRateAxisMax(value) {
+  const maxValue = Number(value || 0);
+  if (maxValue <= 0) return 0.1;
+  return Math.min(1, Math.max(0.1, Math.ceil(maxValue * 20) / 20));
+}
+
+function getRetentionMoneyAxisMax(value) {
+  const maxValue = Math.max(0, Number(value || 0));
+  if (maxValue <= 0) return 100;
+  if (maxValue <= 1000) return Math.ceil(maxValue / 100) * 100;
+  if (maxValue <= 10000) return Math.ceil(maxValue / 1000) * 1000;
+  return Math.ceil(maxValue / 5000) * 5000;
+}
+
+function formatRetentionRate(value, fallback = "N/A") {
+  const rate = normalizeRetentionRate(value);
+  return rate == null ? fallback : formatPercent(rate * 100);
+}
+
+function formatRetentionDays(value) {
+  const number = toNullableFiniteNumber(value);
+  if (number == null) return "N/A";
+  const days = Math.round(number);
+  return `${formatInteger(days)} day${days === 1 ? "" : "s"}`;
+}
+
+function formatRetentionMoneyCents(value) {
+  return formatMoney(normalizeRetentionCents(value) / 100);
+}
+
+function formatRetentionMonthLabel(monthKey = "") {
+  const [year, month] = String(monthKey || "").split("-").map((part) => Number(part));
+  if (!year || !month) return monthKey || "Cohort";
+  return new Intl.DateTimeFormat("en-US", { month: "short" }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function formatRetentionDateShort(value = "") {
+  if (!value) return "";
+  const date = new Date(String(value).includes("T") ? value : `${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+}
+
+function formatRetentionChartNumber(value) {
+  return Math.round(Number(value || 0) * 10) / 10;
+}
+
+function formatRetentionSegmentType(value = "") {
+  const labels = {
+    acquisition_source: "Acquisition source",
+    country: "Country",
+    customer_tag: "Customer tag",
+    customer_type_at_first_product_purchase: "Customer type",
+    discount_code: "Discount code",
+    discount_used: "Discount used",
+    marketing_consent: "Marketing consent",
+    order_channel: "Order channel",
+    price_bucket: "Price bucket",
+    province: "Province",
+    quantity_bucket: "Quantity bucket",
+    variant: "Variant",
+  };
+  return labels[value] || humanizeRetentionLabel(value);
+}
+
+function formatRetentionSegmentValue(value = "", segmentType = "") {
+  const normalized = String(value || "").trim();
+  if (segmentType === "variant" && normalized.includes("/")) return `Variant ${normalized.split("/").filter(Boolean).pop()}`;
+  return humanizeRetentionLabel(normalized);
+}
+
+function humanizeRetentionLabel(value = "") {
+  const normalized = String(value || "").replace(/_/g, " ").trim();
+  if (!normalized) return "Unknown";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function getProductRetentionRangeLabel(run = null, summary = {}) {
+  const start = run?.windowStartDate || summary.earliestOrderDate;
+  const end = run?.windowEndDate || summary.latestOrderDate;
+  if (!start || !end) return "";
+  return `${formatProductAnalysisDate(start)} - ${formatProductAnalysisDate(end)}`;
+}
+
+function getProductRetentionWarningLabel(summary = {}, run = null) {
+  if (run?.status === "failed") return "Calculation failed";
+  if (summary.lowSampleWarning) return "Low sample";
+  if (!summary.hasEnoughData) return "Partial data";
+  return "";
+}
+
+function formatProductRetentionStatus(status = "") {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "completed") return "Completed";
+  if (normalized === "partial") return "Partial";
+  if (normalized === "failed") return "Failed";
+  return humanizeRetentionLabel(status);
+}
+
+function getProductRetentionStatusTone(status = "") {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "completed") return "success";
+  if (normalized === "failed") return "critical";
+  return "warning";
 }
 
 function ProductMomentumPanel({ detail }) {
