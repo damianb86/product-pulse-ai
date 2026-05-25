@@ -1758,6 +1758,7 @@ describe("ProductPulse screens", () => {
             { ageDay: 0, cumulativeLtvCents: 4300, sameProductLtvCents: 4300, otherProductLtvCents: 0 },
             { ageDay: 30, cumulativeLtvCents: 5800, sameProductLtvCents: 3600, otherProductLtvCents: 2200 },
             { ageDay: 90, cumulativeLtvCents: 8600, sameProductLtvCents: 5100, otherProductLtvCents: 3500 },
+            { ageDay: 180, cumulativeLtvCents: 11200, sameProductLtvCents: 5650, otherProductLtvCents: 5550 },
           ],
           segments: [
             {
@@ -1785,30 +1786,35 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("29 days")).toBeInTheDocument();
     expect(within(panel).getByText("$86")).toBeInTheDocument();
     expect(within(panel).getByText("72/100")).toBeInTheDocument();
-    expect(within(panel).getByText("LTV curve")).toBeInTheDocument();
+    expect(within(panel).getByText("LTV Breakdown")).toBeInTheDocument();
     expect(within(panel).queryByText("Retention segments")).not.toBeInTheDocument();
     expect(within(panel).queryByText("New to store")).not.toBeInTheDocument();
-    const ltvCard = within(panel).getByText("LTV curve").closest(".ppRetentionChartCard");
-    expect(ltvCard).toHaveClass("ppRetentionLtvCard");
+    const ltvCard = within(panel).getByText("LTV Breakdown").closest(".ppRetentionChartCard");
+    expect(ltvCard).toHaveClass("ppRetentionLtvBreakdownCard");
+    expect(within(ltvCard).getByText("Metric: LTV contribution")).toBeInTheDocument();
+    expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as cumulative dollars" })).toHaveClass("isActive");
+    expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" })).toBeInTheDocument();
+    expect(within(ltvCard).getByText("Initial product (1st purchase)")).toBeInTheDocument();
+    expect(within(ltvCard).getByText("LTV contribution (180 days)")).toBeInTheDocument();
+    expect(within(ltvCard).getByText("Key insights")).toBeInTheDocument();
     expect(within(panel).queryByText("Retention by purchase cohort")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Time to repeat purchase")).not.toBeInTheDocument();
     expect(within(panel).queryByText("90-day retention trend")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Next purchase outcome")).not.toBeInTheDocument();
 
-    const totalLtvPoint = within(ltvCard).getByRole("button", { name: "Total LTV, 90 days: $86" });
+    const totalLtvPoint = within(ltvCard).getByRole("button", { name: "LTV Breakdown, 90 days: $86" });
     fireEvent.mouseEnter(totalLtvPoint);
     expect(totalLtvPoint).toHaveClass("isActive");
     const ltvTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppRetentionLinePopover"));
     expect(ltvTooltip).toHaveTextContent("90 days");
-    expect(ltvTooltip).toHaveTextContent("Total LTV: $86");
-    expect(ltvTooltip).toHaveTextContent("Same product LTV");
+    expect(ltvTooltip).toHaveTextContent("Total$86");
+    expect(ltvTooltip).toHaveTextContent("Cross-sell");
     fireEvent.mouseLeave(totalLtvPoint);
     expect(ltvTooltip).toHaveClass("ppRetentionLinePopover");
 
-    fireEvent.click(within(ltvCard).getByRole("button", { name: "Hide Same product LTV" }));
-    expect(ltvCard.querySelector(".ppRetentionLine-ltvSame.ppRetentionLinePath")).not.toBeInTheDocument();
-    fireEvent.click(within(ltvCard).getByRole("button", { name: "Show Same product LTV" }));
-    expect(ltvCard.querySelector(".ppRetentionLine-ltvSame.ppRetentionLinePath")).toBeInTheDocument();
+    fireEvent.click(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" }));
+    expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" })).toHaveClass("isActive");
+    expect(within(ltvCard).getByText("LTV contribution share")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Retention" }));
     const retentionReport = container.querySelector(".ppRetentionEvidenceReport");

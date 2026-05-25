@@ -25,8 +25,8 @@ const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 const DEFAULT_MOMENTUM_INCLUSION_THRESHOLD = 70;
 const WATCHLIST_MAX_PRODUCTS_DEFAULT = 50;
 const PRODUCT_RETENTION_HEATMAP_MONTHS = 6;
-const PRODUCT_RETENTION_CHART_AGE_TICKS = [0, 30, 60, 90, 120, 180];
 const PRODUCT_RETENTION_REPEAT_CHART_AGE_TICKS = [0, 15, 30, 45, 60, 90, 120, 180];
+const PRODUCT_RETENTION_LTV_BREAKDOWN_TICKS = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180];
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -14215,7 +14215,7 @@ function ProductRetentionMetricsPanel({ detail }) {
   const retention = detail.productRetention || normalizeProductRetention(null);
   const summary = retention.summary || {};
   const hasData = detail.hasProductRetention || hasProductRetentionData(retention);
-  const ltvChart = useMemo(() => getProductRetentionLtvChart(retention.ltvCurve), [retention.ltvCurve]);
+  const ltvChart = useMemo(() => getProductRetentionLtvBreakdownChart(retention.ltvCurve), [retention.ltvCurve]);
   const rangeLabel = getProductRetentionRangeLabel(retention.run, summary);
   const warningLabel = getProductRetentionWarningLabel(summary, retention.run);
   const emptyMessage = getProductRetentionEmptyMessage(summary, retention.run);
@@ -14277,7 +14277,7 @@ function ProductRetentionMetricsPanel({ detail }) {
             />
           </div>
 
-          <ProductRetentionLtvCurve chart={ltvChart} productTitle={detail.title} />
+          <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} summary={summary} />
         </>
       )}
     </section>
@@ -14423,61 +14423,221 @@ function ProductRetentionTrendChart({ chart, productTitle }) {
   );
 }
 
-function ProductRetentionLtvCurve({ chart, productTitle }) {
-  const series = [
-    { key: "cumulativeLtvCents", label: "Total LTV", legendLabel: "Total LTV", className: "ppRetentionLine-ltvTotal", color: "var(--pp-signal-teal)", legendClassName: "ppRetentionLegendLtvTotal" },
-    { key: "sameProductLtvCents", label: "Same product LTV", legendLabel: "Same product", className: "ppRetentionLine-ltvSame", color: "var(--pp-pulse-blue)", legendClassName: "ppRetentionLegendLtvSame" },
-    { key: "otherProductLtvCents", label: "Other product LTV", legendLabel: "Other products", className: "ppRetentionLine-ltvOther", color: "var(--pp-warning-amber)", legendClassName: "ppRetentionLegendLtvOther" },
-  ];
-  const [visibleSeriesKeys, setVisibleSeriesKeys] = useState(() => new Set(series.map((item) => item.key)));
-  const visibleSeries = series.filter((item) => visibleSeriesKeys.has(item.key));
-  const toggleSeries = (key) => {
-    setVisibleSeriesKeys((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+const PRODUCT_RETENTION_LTV_BREAKDOWN_MODES = [
+  { key: "cumulative", label: "Cumulative (USD)", ariaLabel: "Show LTV breakdown as cumulative dollars" },
+  { key: "share", label: "Share", ariaLabel: "Show LTV breakdown as share" },
+  { key: "perCustomer", label: "Per customer", ariaLabel: "Show LTV breakdown per customer" },
+];
+
+function ProductRetentionLtvBreakdown({ chart, productTitle, summary }) {
+  const [mode, setMode] = useState("cumulative");
+  const view = useMemo(() => getProductRetentionLtvBreakdownView(chart, mode), [chart, mode]);
 
   return (
-    <article className="ppRetentionChartCard ppRetentionLtvCard">
-      <div className="ppRetentionChartHeader">
-        <div>
-          <h3>LTV curve</h3>
-          <p>Cumulative net revenue per cohort customer after first buying this product.</p>
+    <article className="ppRetentionChartCard ppRetentionLtvCard ppRetentionLtvBreakdownCard">
+      <div className="ppRetentionBreakdownHeader">
+        <div className="ppRetentionBreakdownTitle">
+          <span className="ppRetentionBreakdownIcon" aria-hidden="true">
+            <ProductPulseGlyph type="financial-exposure" />
+          </span>
+          <div>
+            <h3>LTV Breakdown</h3>
+            <p>Where LTV comes from after the first purchase of this product.</p>
+          </div>
         </div>
+        <span className="ppRetentionBreakdownMetric">Metric: LTV contribution <span aria-hidden="true">⌄</span></span>
       </div>
       {chart.hasData ? (
         <>
-          <RetentionLineChart
-            ariaLabel={`LTV curve for ${productTitle}`}
-            className="ppRetentionLineChart-ltv"
-            chart={chart}
-            series={visibleSeries}
-          />
-          <div className="ppRetentionChartLegend">
-            {series.map((item) => {
-              const active = visibleSeriesKeys.has(item.key);
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={`ppRetentionLegendToggle${active ? " isActive" : ""}`}
-                  aria-pressed={active}
-                  aria-label={`${active ? "Hide" : "Show"} ${item.label}`}
-                  onClick={() => toggleSeries(item.key)}
-                >
-                  <i className={item.legendClassName} />{item.legendLabel}
-                </button>
-              );
-            })}
+          <div className="ppRetentionBreakdownModes" role="group" aria-label="LTV breakdown view">
+            {PRODUCT_RETENTION_LTV_BREAKDOWN_MODES.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={mode === item.key ? "isActive" : ""}
+                aria-pressed={mode === item.key}
+                aria-label={item.ariaLabel}
+                onClick={() => setMode(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <ProductRetentionLtvStackedChart chart={view} productTitle={productTitle} />
+          <ProductRetentionLtvBreakdownLegend />
+          <div className="ppRetentionLtvDetailGrid">
+            <ProductRetentionLtvContributionDonut contribution={chart.contribution} />
+            <ProductRetentionLtvInsights contribution={chart.contribution} summary={summary} />
           </div>
         </>
       ) : (
-        <ProductRetentionEmptySlot message="No LTV curve is stored yet." />
+        <ProductRetentionEmptySlot message="No LTV breakdown is stored yet." />
       )}
     </article>
+  );
+}
+
+function ProductRetentionLtvStackedChart({ chart, productTitle }) {
+  const gradientIdBase = `ppRetentionLtvBreakdownGradient-${useId().replace(/:/g, "")}`;
+  return (
+    <div className="ppRetentionLtvBreakdownChart" role="group" aria-label={`LTV breakdown for ${productTitle}`}>
+      <svg className="ppRetentionLtvBreakdownSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id={`${gradientIdBase}-same`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--pp-insight-violet)" stopOpacity="0.92" />
+            <stop offset="100%" stopColor="var(--pp-insight-violet)" stopOpacity="0.46" />
+          </linearGradient>
+          <linearGradient id={`${gradientIdBase}-other`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--pp-pulse-blue)" stopOpacity="0.88" />
+            <stop offset="100%" stopColor="var(--pp-pulse-blue)" stopOpacity="0.40" />
+          </linearGradient>
+          <linearGradient id={`${gradientIdBase}-initial`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--pp-signal-teal)" stopOpacity="0.86" />
+            <stop offset="100%" stopColor="var(--pp-signal-teal)" stopOpacity="0.36" />
+          </linearGradient>
+        </defs>
+        {chart.yTicks.map((tick) => (
+          <g className="ppRetentionGridLine" key={`ltv-grid-${tick.label}`}>
+            <line x1={chart.plot.left} x2={chart.plot.right} y1={tick.y} y2={tick.y} />
+            <text x={chart.plot.left - 14} y={tick.y + 5} textAnchor="end">{tick.label}</text>
+          </g>
+        ))}
+        <line className="ppRetentionLineAxis" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
+        <line className="ppRetentionLineAxis" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
+        {chart.xTicks.map((tick) => (
+          <g className="ppRetentionLineXTick" key={`ltv-tick-${tick.label}-${tick.x}`}>
+            <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
+            <text x={tick.x} y={chart.plot.bottom + chart.xLabelOffset} textAnchor={tick.anchor}>{tick.label}</text>
+          </g>
+        ))}
+        <path className="ppRetentionLtvArea ppRetentionLtvAreaInitial" d={chart.areaPaths.initial} style={{ fill: `url(#${gradientIdBase}-initial)` }} />
+        <path className="ppRetentionLtvArea ppRetentionLtvAreaOther" d={chart.areaPaths.other} style={{ fill: `url(#${gradientIdBase}-other)` }} />
+        <path className="ppRetentionLtvArea ppRetentionLtvAreaSame" d={chart.areaPaths.same} style={{ fill: `url(#${gradientIdBase}-same)` }} />
+        <path className="ppRetentionLtvLine ppRetentionLtvLineInitial" d={chart.paths.initial} />
+        <path className="ppRetentionLtvLine ppRetentionLtvLineOther" d={chart.paths.other} />
+        <path className="ppRetentionLtvLine ppRetentionLtvLineSame" d={chart.paths.same} />
+        {chart.points.map((point) => (
+          <g className="ppRetentionLtvSamplePoints" key={`ltv-samples-${point.ageDay}-${point.x}`}>
+            <circle className="ppRetentionLtvSampleInitial" cx={point.x} cy={point.initialY} r="4.5" />
+            <circle className="ppRetentionLtvSampleOther" cx={point.x} cy={point.otherY} r="4.5" />
+            <circle className="ppRetentionLtvSampleSame" cx={point.x} cy={point.sameY} r="4.5" />
+          </g>
+        ))}
+      </svg>
+      <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-y">{chart.yAxisLabel}</span>
+      <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-x">Days since first purchase</span>
+      {chart.points.map((point) => (
+        <ProductRetentionLtvBreakdownPointButton point={point} chart={chart} key={`${point.ageDay}-${point.x}-${point.y}`} />
+      ))}
+    </div>
+  );
+}
+
+function ProductRetentionLtvBreakdownPointButton({ point, chart }) {
+  const triggerRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  if (!point) return null;
+  return (
+    <button
+      type="button"
+      className={`ppRetentionLtvPoint${open ? " isActive" : ""}`}
+      ref={triggerRef}
+      style={{ left: `${(point.x / chart.width) * 100}%`, top: `${(point.y / chart.height) * 100}%` }}
+      aria-label={`LTV Breakdown, ${point.xLabel}: ${chart.moneyFormatter(point.totalCents)}`}
+      onBlur={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span aria-hidden="true" />
+      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppRetentionLinePopover ppRetentionLtvPopover" width={286} estimatedHeight={184} placement="top-center">
+        <strong>{point.xLabel}</strong>
+        <span className="ppRetentionLinePopoverRows">
+          <span><b>Initial product</b><small>{chart.valueFormatter(point.initialValue, point.initialProductCents)}</small></span>
+          <span><b>Cross-sell</b><small>{chart.valueFormatter(point.otherValue, point.otherProductCents)}</small></span>
+          <span><b>Same product</b><small>{chart.valueFormatter(point.sameValue, point.sameProductRepeatCents)}</small></span>
+          <span><b>Total</b><small>{chart.valueFormatter(point.totalValue, point.totalCents)}</small></span>
+        </span>
+      </FloatingTablePopover>
+    </button>
+  );
+}
+
+function ProductRetentionLtvBreakdownLegend() {
+  return (
+    <div className="ppRetentionLtvBreakdownLegend">
+      <span><i className="ppRetentionLegendLtvSame" />Same product</span>
+      <span><i className="ppRetentionLegendLtvOther" />Other products (cross-sell)</span>
+      <span><i className="ppRetentionLegendLtvInitial" />Initial product (1st purchase)</span>
+    </div>
+  );
+}
+
+function ProductRetentionLtvContributionDonut({ contribution }) {
+  const total = Math.max(0, Number(contribution.totalCents || 0));
+  const sameShare = total ? (contribution.sameProductRepeatCents / total) * 100 : 0;
+  const otherShare = total ? (contribution.otherProductCents / total) * 100 : 0;
+  const initialShare = Math.max(0, 100 - sameShare - otherShare);
+  const sameEnd = sameShare;
+  const otherEnd = sameShare + otherShare;
+  const background = total
+    ? `conic-gradient(var(--pp-insight-violet) 0 ${sameEnd}%, var(--pp-pulse-blue) ${sameEnd}% ${otherEnd}%, var(--pp-signal-teal) ${otherEnd}% 100%)`
+    : "conic-gradient(var(--pp-slate-200) 0 100%)";
+  const rows = [
+    { key: "same", label: "Same product", value: contribution.sameProductRepeatCents, share: sameShare, className: "ppRetentionLegendLtvSame" },
+    { key: "other", label: "Other products", value: contribution.otherProductCents, share: otherShare, className: "ppRetentionLegendLtvOther" },
+    { key: "initial", label: "Initial product", value: contribution.initialProductCents, share: initialShare, className: "ppRetentionLegendLtvInitial" },
+  ];
+
+  return (
+    <section className="ppRetentionLtvDetailCard">
+      <h4>LTV contribution ({formatInteger(contribution.ageDay)} days)</h4>
+      <div className="ppRetentionLtvDonutWrap">
+        <div className="ppRetentionLtvDonut" style={{ background }} aria-hidden="true">
+          <div>
+            <strong>{formatRetentionMoneyCents(total)}</strong>
+            <span>LTV total</span>
+          </div>
+        </div>
+        <div className="ppRetentionLtvDonutLegend">
+          {rows.map((row) => (
+            <span key={row.key}>
+              <i className={row.className} />
+              <b>{row.label}</b>
+              <strong>{formatRetentionMoneyCents(row.value)} <small>({formatPercent(row.share)})</small></strong>
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProductRetentionLtvInsights({ contribution, summary }) {
+  const total = Math.max(0, Number(contribution.totalCents || 0));
+  const followOnCents = Math.max(0, Number(contribution.sameProductRepeatCents || 0) + Number(contribution.otherProductCents || 0));
+  const followOnShare = total ? followOnCents / total : 0;
+  const sameProductShare = total ? Number(contribution.sameProductRepeatCents || 0) / total : 0;
+  const medianDays = summary?.medianDaysToSecondPurchase == null ? "N/A" : formatRetentionDays(summary.medianDaysToSecondPurchase);
+
+  return (
+    <section className="ppRetentionLtvDetailCard ppRetentionLtvInsightsCard">
+      <h4>Key insights</h4>
+      <div className="ppRetentionLtvInsightRows">
+        <span>
+          <i><ProductPulseGlyph type="product-momentum" /></i>
+          <b>{formatRetentionRate(followOnShare)} of {formatInteger(contribution.ageDay)}-day LTV comes from repeat purchases and cross-sell.</b>
+        </span>
+        <span>
+          <i><ProductPulseGlyph type="diagnostic-confidence" /></i>
+          <b>Median time to second purchase is {medianDays}.</b>
+        </span>
+        <span>
+          <i><ProductPulseGlyph type="shopify-product" /></i>
+          <b>Same-product repurchases contribute {formatRetentionMoneyCents(contribution.sameProductRepeatCents)} ({formatRetentionRate(sameProductShare)}) of LTV.</b>
+        </span>
+      </div>
+    </section>
   );
 }
 
@@ -14705,37 +14865,151 @@ function getProductRetentionRepeatChart(rows = []) {
   });
 }
 
-function getProductRetentionLtvChart(rows = []) {
-  const chartRows = rows
+function getProductRetentionLtvBreakdownChart(rows = []) {
+  const sourceRows = (Array.isArray(rows) ? rows : [])
     .filter((row) => Number.isFinite(row.ageDay))
     .map((row) => ({
+      ageDay: normalizeRetentionCount(row.ageDay),
+      totalCents: normalizeRetentionCents(row.cumulativeLtvCents),
+      sameProductTotalCents: normalizeRetentionCents(row.sameProductLtvCents),
+      otherProductCents: normalizeRetentionCents(row.otherProductLtvCents),
+    }))
+    .filter((row) => row.ageDay >= 0)
+    .sort((left, right) => left.ageDay - right.ageDay);
+  const initialProductBaseCents = sourceRows.find((row) => row.sameProductTotalCents > 0)?.sameProductTotalCents || 0;
+  const chartRows = sourceRows.map((row) => {
+    const totalCents = Math.max(0, row.totalCents);
+    const sameProductTotalCents = clampNumber(row.sameProductTotalCents, 0, totalCents);
+    const initialProductCents = clampNumber(Math.min(initialProductBaseCents, sameProductTotalCents, totalCents), 0, totalCents);
+    const otherProductCents = clampNumber(row.otherProductCents, 0, Math.max(0, totalCents - initialProductCents));
+    const sameProductRepeatCents = Math.max(0, totalCents - initialProductCents - otherProductCents);
+    return {
+      ...row,
       x: row.ageDay,
       xLabel: `${formatInteger(row.ageDay)} days`,
-      cumulativeLtvCents: row.cumulativeLtvCents,
-      sameProductLtvCents: row.sameProductLtvCents,
-      otherProductLtvCents: row.otherProductLtvCents,
-    }));
-  const maxAge = Math.max(180, ...chartRows.map((row) => row.x), 1);
-  const maxValue = Math.max(
-    ...chartRows.flatMap((row) => [
-      row.cumulativeLtvCents,
-      row.sameProductLtvCents,
-      row.otherProductLtvCents,
-    ]),
-    0,
-  );
-  return buildRetentionLineChartGeometry({
-    rows: chartRows,
-    seriesKeys: ["cumulativeLtvCents", "sameProductLtvCents", "otherProductLtvCents"],
-    xMin: 0,
-    xMax: maxAge,
-    xTicks: PRODUCT_RETENTION_CHART_AGE_TICKS.filter((tick) => tick <= maxAge).map((tick) => ({ value: tick, label: String(tick) })),
-    yMax: getRetentionMoneyAxisMax(maxValue),
-    yFormatter: formatRetentionMoneyCents,
-    height: 300,
-    plot: { left: 70, right: 968, top: 18, bottom: 260 },
-    xLabelOffset: 14,
+      totalCents,
+      initialProductCents,
+      otherProductCents,
+      sameProductRepeatCents,
+    };
   });
+  const fallbackContribution = {
+    ageDay: 0,
+    totalCents: 0,
+    initialProductCents: 0,
+    otherProductCents: 0,
+    sameProductRepeatCents: 0,
+  };
+  const contribution = [...chartRows].reverse().find((row) => row.totalCents > 0) || chartRows[chartRows.length - 1] || fallbackContribution;
+
+  return {
+    hasData: chartRows.some((row) => row.totalCents > 0),
+    rows: chartRows,
+    maxAge: Math.max(180, ...chartRows.map((row) => row.ageDay), 1),
+    maxTotalCents: Math.max(...chartRows.map((row) => row.totalCents), 0),
+    contribution,
+  };
+}
+
+function getProductRetentionLtvBreakdownView(chart, mode = "cumulative") {
+  const width = 1000;
+  const height = 420;
+  const plot = { left: 76, right: 968, top: 28, bottom: 326 };
+  const xLabelOffset = 28;
+  const isShareMode = mode === "share";
+  const yMax = isShareMode ? 1 : getRetentionMoneyAxisMax(chart.maxTotalCents);
+  const xMin = 0;
+  const xMax = Math.max(Number(chart.maxAge || 0), 1);
+  const getX = (value) => plot.left + ((Number(value || 0) - xMin) / Math.max(xMax - xMin, 1)) * (plot.right - plot.left);
+  const getY = (value) => plot.bottom - (Number(value || 0) / Math.max(yMax, 1)) * (plot.bottom - plot.top);
+  const valueForMode = (cents, totalCents) => {
+    if (!isShareMode) return Number(cents || 0);
+    return totalCents ? Number(cents || 0) / totalCents : 0;
+  };
+  const chartRows = (chart.rows || []).map((row) => {
+    const initialValue = valueForMode(row.initialProductCents, row.totalCents);
+    const otherValue = valueForMode(row.otherProductCents, row.totalCents);
+    const sameValue = valueForMode(row.sameProductRepeatCents, row.totalCents);
+    const totalValue = isShareMode && row.totalCents > 0 ? 1 : Number(row.totalCents || 0);
+    const initialTopValue = initialValue;
+    const otherTopValue = initialValue + otherValue;
+    const sameTopValue = isShareMode && row.totalCents > 0 ? 1 : initialValue + otherValue + sameValue;
+    const x = Math.round(getX(row.ageDay) * 10) / 10;
+    return {
+      ...row,
+      initialValue,
+      otherValue,
+      sameValue,
+      totalValue,
+      x,
+      initialY: Math.round(getY(initialTopValue) * 10) / 10,
+      otherY: Math.round(getY(otherTopValue) * 10) / 10,
+      sameY: Math.round(getY(sameTopValue) * 10) / 10,
+    };
+  });
+  const initialPoints = chartRows.map((row) => ({ x: row.x, y: row.initialY }));
+  const otherPoints = chartRows.map((row) => ({ x: row.x, y: row.otherY }));
+  const samePoints = chartRows.map((row) => ({ x: row.x, y: row.sameY }));
+  const pointRows = chartRows.filter((row, index) => (
+    PRODUCT_RETENTION_LTV_BREAKDOWN_TICKS.includes(row.ageDay)
+      || index === chartRows.length - 1
+  ));
+  const yFormatter = isShareMode ? formatRetentionRate : formatRetentionMoneyCents;
+  const valueFormatter = isShareMode
+    ? (value, cents) => `${formatRetentionRate(value)} (${formatRetentionMoneyCents(cents)})`
+    : (_value, cents) => formatRetentionMoneyCents(cents);
+  const yTickValues = isShareMode ? [1, 0.75, 0.5, 0.25, 0] : [yMax, yMax * 0.75, yMax * 0.5, yMax * 0.25, 0];
+
+  return {
+    width,
+    height,
+    plot,
+    xLabelOffset,
+    mode,
+    yAxisLabel: isShareMode ? "LTV contribution share" : mode === "perCustomer" ? "LTV per customer (USD)" : "Cumulative LTV (USD)",
+    moneyFormatter: formatRetentionMoneyCents,
+    valueFormatter,
+    yTicks: yTickValues.map((value) => ({
+      y: getY(value),
+      label: yFormatter(value),
+    })),
+    xTicks: PRODUCT_RETENTION_LTV_BREAKDOWN_TICKS.filter((tick) => tick <= xMax).map((tick, index, ticks) => ({
+      x: Math.round(getX(tick) * 10) / 10,
+      label: String(tick),
+      anchor: index === 0 ? "start" : index === ticks.length - 1 ? "end" : "middle",
+    })),
+    paths: {
+      initial: buildSmoothSvgPath(initialPoints),
+      other: buildSmoothSvgPath(otherPoints),
+      same: buildSmoothSvgPath(samePoints),
+    },
+    areaPaths: {
+      initial: buildAreaToBaselinePath(initialPoints, plot.bottom),
+      other: buildStackedAreaPath(otherPoints, initialPoints),
+      same: buildStackedAreaPath(samePoints, otherPoints),
+    },
+    points: pointRows.map((row) => ({
+      ...row,
+      y: row.sameY,
+    })),
+  };
+}
+
+function buildAreaToBaselinePath(points = [], baselineY = 0) {
+  const source = points.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (!source.length) return "";
+  return `${buildSmoothSvgPath(source)} L ${formatRetentionChartNumber(source[source.length - 1].x)} ${baselineY} L ${formatRetentionChartNumber(source[0].x)} ${baselineY} Z`;
+}
+
+function buildStackedAreaPath(upperPoints = [], lowerPoints = []) {
+  const upper = upperPoints.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  const lower = lowerPoints.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (!upper.length || !lower.length) return "";
+  const lowerPath = [...lower]
+    .reverse()
+    .map((point) => `L ${formatRetentionChartNumber(point.x)} ${formatRetentionChartNumber(point.y)}`)
+    .join(" ");
+  return `${buildSmoothSvgPath(upper)} ${lowerPath} Z`;
 }
 
 function getProductRetentionTrendChart(rows = []) {
