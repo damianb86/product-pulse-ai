@@ -1436,6 +1436,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
   const collectionMargin = buildAnalyticsCollectionMargin(productList);
   const riskBubbles = buildAnalyticsRiskBubbles(productList);
   const analysisCoverage = buildAnalyticsAnalysisCoverage({ totalProducts, fullDiagnoses, quickScanOnly });
+  const deepDiagnosisCharts = buildAnalyticsDeepDiagnosisCharts(fullDiagnoses, { windowDays });
 
   return {
     generatedAt: options.generatedAt || new Date().toISOString(),
@@ -1494,6 +1495,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       total: sourceContribution.total,
       totalLabel: formatDashboardNumber(sourceContribution.total),
     },
+    deepDiagnosisCharts,
     riskBubbles,
     collectionMargin: {
       rows: collectionMargin,
@@ -1626,7 +1628,7 @@ function buildAnalyticsRiskSignalSeries(productList) {
   }));
 }
 
-function buildAnalyticsIssueDistribution(productList) {
+function buildAnalyticsIssueDistribution(productList, { limit = 6 } = {}) {
   const grouped = new Map();
   productList.forEach((product) => {
     const metrics = product.metrics || {};
@@ -1648,7 +1650,7 @@ function buildAnalyticsIssueDistribution(productList) {
     }
   });
 
-  return withAnalyticsColors(normalizeDashboardRows(Array.from(grouped.values()), 6, "No issues detected"));
+  return withAnalyticsColors(normalizeDashboardRows(Array.from(grouped.values()), limit, "No issues detected"));
 }
 
 function buildAnalyticsSourceContribution(productList) {
@@ -1689,6 +1691,213 @@ function buildAnalyticsSourceContribution(productList) {
       displayValue: `${formatDashboardNumber(row.count)} signal${Number(row.count) === 1 ? "" : "s"}`,
     })),
   };
+}
+
+function buildAnalyticsDeepDiagnosisCharts(productList = [], { windowDays = 90 } = {}) {
+  const deepProducts = (Array.isArray(productList) ? productList : [])
+    .filter(hasDashboardFullDiagnosis);
+  return {
+    productCount: deepProducts.length,
+    productCountLabel: `${formatDashboardNumber(deepProducts.length)} deep diagnosis product${deepProducts.length === 1 ? "" : "s"}`,
+    riskMarginTrend: buildAnalyticsRiskMarginTrend(deepProducts, { windowDays }),
+    issueDistribution: buildAnalyticsIssueDistributionByType(deepProducts),
+    sourceCoverageMix: buildAnalyticsSourceCoverageMix(deepProducts),
+  };
+}
+
+function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {}) {
+  const products = (Array.isArray(productList) ? productList : []).filter(Boolean);
+  const histories = products
+    .map((product) => ({
+      product,
+      history: getAnalyticsProductExposureHistory(product),
+    }))
+    .filter((row) => row.history.length);
+  const timestamps = [...new Set(histories.flatMap((row) => row.history.map((point) => point.time)))]
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+
+  if (products.length && timestamps.length >= 2) {
+    const labels = timestamps.map(formatAnalyticsDateLabel);
+    const marginValues = timestamps.map((time) => histories.reduce((sum, row) => (
+      sum + getAnalyticsExposureValueAtTime(row.history, time, "marginAtRisk")
+    ), 0));
+    const revenueValues = timestamps.map((time) => histories.reduce((sum, row) => (
+      sum + getAnalyticsExposureValueAtTime(row.history, time, "revenueAtRisk")
+    ), 0));
+    return buildAnalyticsRiskMarginTrendPayload({
+      labels,
+      marginValues,
+      revenueValues,
+      detail: "Built from saved score-history exposure values across deep diagnosis products.",
+    });
+  }
+
+  const length = Math.max(...products.map((product) => getAnalyticsProductTrendValues(product).length), 7);
+  const normalized = products.map((product) => ({
+    product,
+    values: resizeAnalyticsTrend(getAnalyticsProductTrendValues(product), length, Number(product.riskScore || 0)),
+    marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+    revenueAtRisk: getDashboardMetric(product, "revenueAtRisk"),
+  }));
+  const marginValues = Array.from({ length }, (_, index) => normalized.reduce((sum, row) => {
+    const trendValue = Number(row.values[index] || 0);
+    return sum + row.marginAtRisk * clampAnalyticsValue(trendValue / 100, 0.08, 1);
+  }, 0));
+  const revenueValues = Array.from({ length }, (_, index) => normalized.reduce((sum, row) => {
+    const trendValue = Number(row.values[index] || 0);
+    return sum + row.revenueAtRisk * clampAnalyticsValue(trendValue / 100, 0.08, 1);
+  }, 0));
+
+  return buildAnalyticsRiskMarginTrendPayload({
+    labels: getAnalyticsTrendWindowLabels(length, windowDays),
+    marginValues,
+    revenueValues,
+    detail: "Reconstructed from saved risk trends when full exposure history is not available.",
+  });
+}
+
+function buildAnalyticsRiskMarginTrendPayload({ labels = [], marginValues = [], revenueValues = [], detail = "" }) {
+  const marginCurrent = marginValues[marginValues.length - 1] || 0;
+  const revenueCurrent = revenueValues[revenueValues.length - 1] || 0;
+  return {
+    labels,
+    detail,
+    hasData: marginValues.some((value) => Number(value || 0) > 0) || revenueValues.some((value) => Number(value || 0) > 0),
+    series: [
+      {
+        key: "marginAtRisk",
+        label: "Margin at risk (USD)",
+        color: "green",
+        axis: "left",
+        values: marginValues,
+        displayValue: formatDashboardMoney(marginCurrent),
+      },
+      {
+        key: "revenueAtRisk",
+        label: "Revenue at risk (USD)",
+        color: "purple",
+        axis: "right",
+        values: revenueValues,
+        displayValue: formatDashboardMoney(revenueCurrent),
+      },
+    ],
+  };
+}
+
+function getAnalyticsProductExposureHistory(product = {}) {
+  const metrics = product.metrics || {};
+  const currentTime = new Date(product.analysisCompletedAt || product.lastAnalysis || metrics.lastSignalAt || Date.now()).getTime();
+  const currentRisk = Number(product.riskScore || 0);
+  const currentMargin = getDashboardMetric(product, "marginAtRisk");
+  const currentRevenue = getDashboardMetric(product, "revenueAtRisk");
+  const rows = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((point) => {
+      const time = new Date(point.recordedAt || 0).getTime();
+      if (!Number.isFinite(time) || time <= 0) return null;
+      const risk = Number(point.riskScore ?? currentRisk);
+      const riskWeight = clampAnalyticsValue(risk / 100, 0.08, 1);
+      return {
+        time,
+        marginAtRisk: point.marginAtRisk != null && Number.isFinite(Number(point.marginAtRisk)) ? Number(point.marginAtRisk) : currentMargin * riskWeight,
+        revenueAtRisk: point.revenueAtRisk != null && Number.isFinite(Number(point.revenueAtRisk)) ? Number(point.revenueAtRisk) : currentRevenue * riskWeight,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+
+  if (Number.isFinite(currentTime) && currentTime > 0) {
+    const hasCurrentTime = rows.some((point) => Math.abs(point.time - currentTime) < 60 * 1000);
+    if (!hasCurrentTime) {
+      rows.push({ time: currentTime, marginAtRisk: currentMargin, revenueAtRisk: currentRevenue });
+      rows.sort((left, right) => left.time - right.time);
+    }
+  }
+
+  return rows;
+}
+
+function getAnalyticsExposureValueAtTime(history = [], time = 0, key = "") {
+  const eligible = history.filter((point) => Number(point.time || 0) <= time && Number.isFinite(Number(point[key])));
+  if (eligible.length) return Number(eligible[eligible.length - 1][key] || 0);
+  const first = history.find((point) => Number.isFinite(Number(point[key])));
+  return Number(first?.[key] || 0);
+}
+
+function buildAnalyticsIssueDistributionByType(productList = []) {
+  const rows = buildAnalyticsIssueDistribution(productList, { limit: 8 });
+  const filteredRows = rows.filter((row) => row.label !== "No issues detected");
+  const total = filteredRows.reduce((sum, row) => sum + Number(row.value || 0), 0);
+  return {
+    total,
+    totalLabel: formatDashboardNumber(total),
+    rows: filteredRows.map((row) => ({
+      ...row,
+      count: Number(row.value || 0),
+      countLabel: formatDashboardNumber(row.value || 0),
+      percent: total ? Math.round((Number(row.value || 0) / total) * 100) : 0,
+      percentLabel: total ? `${Math.round((Number(row.value || 0) / total) * 100)}%` : "0%",
+    })),
+  };
+}
+
+function buildAnalyticsSourceCoverageMix(productList = []) {
+  const counts = new Map();
+  const increment = (label, value) => {
+    const amount = Math.max(0, Number(value || 0));
+    if (!amount) return;
+    counts.set(label, (counts.get(label) || 0) + amount);
+  };
+
+  productList.forEach((product) => {
+    const metrics = product.metrics || {};
+    const reviewCount = Number(metrics.reviewCount || 0);
+    const csvReviewCount = Number(metrics.csvReviewCount || 0);
+    const judgeMeReviewCount = Number(metrics.judgeMeReviewCount || Math.max(reviewCount - csvReviewCount, 0));
+    increment("Returns", metrics.returnUnits);
+    increment("Reviews", judgeMeReviewCount || metrics.negativeReviewCount);
+    increment("Refunds", metrics.refundUnits);
+    increment("CSV Reviews", csvReviewCount);
+    increment("Orders", metrics.monthlyOrderActivity?.summary?.totalOrders || metrics.soldOrders || metrics.soldUnits);
+    increment("Product content", metrics.contentIssueCount || (Array.isArray(metrics.contentIssues) ? metrics.contentIssues.length : 0));
+  });
+
+  if (!counts.size) {
+    productList.forEach((product) => {
+      (Array.isArray(product.sourceCoverage) ? product.sourceCoverage : []).forEach((source) => {
+        increment(normalizeAnalyticsSourceMixLabel(source), 1);
+      });
+    });
+  }
+
+  const rows = Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 6);
+  const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+
+  return {
+    total,
+    totalLabel: formatDashboardNumber(total),
+    rows: rows.map((row) => ({
+      ...row,
+      value: row.count,
+      countLabel: formatDashboardNumber(row.count),
+      percent: total ? Math.round((Number(row.count || 0) / total) * 100) : 0,
+      percentLabel: total ? `${Math.round((Number(row.count || 0) / total) * 100)}%` : "0%",
+    })),
+  };
+}
+
+function normalizeAnalyticsSourceMixLabel(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("csv")) return "CSV Reviews";
+  if (normalized.includes("return")) return "Returns";
+  if (normalized.includes("refund")) return "Refunds";
+  if (normalized.includes("order")) return "Orders";
+  if (normalized.includes("review") || normalized.includes("judge")) return "Reviews";
+  if (normalized.includes("content") || normalized.includes("product") || normalized.includes("shopify")) return "Product content";
+  return "Other";
 }
 
 function buildAnalyticsCollectionMargin(productList) {
@@ -2693,6 +2902,13 @@ function getAnalyticsMax(rows) {
 
 function formatAnalyticsPercent(value) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0))}%`;
+}
+
+function formatAnalyticsDateLabel(value) {
+  const timestamp = Number(value);
+  const date = Number.isFinite(timestamp) ? new Date(timestamp) : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
 }
 
 function formatAnalyticsRelativeTime(date) {

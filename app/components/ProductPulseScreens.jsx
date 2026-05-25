@@ -17206,6 +17206,7 @@ export function AnalyticsScreen({ data }) {
   const catalogCoverage = analyticsView.catalogCoverage || { rows: [] };
   const evidenceSourceCoverage = analyticsView.evidenceSourceCoverage || [];
   const topProductsAtRisk = analyticsView.topProductsAtRisk || [];
+  const deepDiagnosisCharts = analyticsView.deepDiagnosisCharts || {};
 
   return (
     <FullWidthPage label="Analytics" className="ppAnalyticsPage">
@@ -17226,6 +17227,12 @@ export function AnalyticsScreen({ data }) {
           {kpis.map((kpi) => (
             <AnalyticsKpiCard key={kpi.label} kpi={kpi} />
           ))}
+        </div>
+
+        <div className="ppAnalyticsDeepChartGrid">
+          <AnalyticsRiskMarginTrendPanel chart={deepDiagnosisCharts.riskMarginTrend} />
+          <AnalyticsIssueDistributionPanel distribution={deepDiagnosisCharts.issueDistribution} />
+          <AnalyticsSourceCoverageMixPanel mix={deepDiagnosisCharts.sourceCoverageMix} />
         </div>
 
         <div className="ppAnalyticsChartGrid">
@@ -26854,6 +26861,17 @@ function getAnalyticsPanelInfo(title = "") {
       ],
     };
   }
+  if (normalizedTitle.includes("risk and margin trend")) {
+    return {
+      title: "Risk and margin trend",
+      body: "Shows how current deep-diagnosis exposure moves over time using saved score history when available, then stored risk trend reconstruction as a fallback.",
+      items: [
+        "Margin at risk uses the left axis.",
+        "Revenue at risk uses the right axis.",
+        "Only products with full product diagnosis data are included.",
+      ],
+    };
+  }
   if (normalizedTitle.includes("issue impact")) {
     return {
       title: "Issue impact by type",
@@ -26947,6 +26965,16 @@ function getAnalyticsPanelInfo(title = "") {
       ],
     };
   }
+  if (normalizedTitle.includes("source coverage mix")) {
+    return {
+      title: "Source coverage mix",
+      body: "Breaks the deep-diagnosis signal set into the source categories that produced the evidence shown in Analytics.",
+      items: [
+        "Returns, refunds, reviews, orders and product-content checks are counted from stored diagnosis metrics.",
+        "CSV reviews are kept separate when the import count is available.",
+      ],
+    };
+  }
   if (normalizedTitle.includes("risk vs") || normalizedTitle.includes("risk versus")) {
     return {
       title: "Risk vs. margin impact",
@@ -27005,6 +27033,260 @@ function getAnalyticsPanelInfo(title = "") {
     body: "Explains how this panel is calculated from stored ProductPulse scan and diagnosis data.",
     items: [],
   };
+}
+
+const ANALYTICS_RISK_MARGIN_RANGE_OPTIONS = [
+  { key: "7d", label: "7D", pointLimit: 7 },
+  { key: "30d", label: "30D", pointLimit: 30 },
+  { key: "90d", label: "90D", pointLimit: 90 },
+  { key: "ytd", label: "YTD", pointLimit: Infinity },
+];
+
+const ANALYTICS_SOURCE_MIX_COLORS = {
+  Returns: "var(--pp-insight-violet)",
+  Reviews: "var(--pp-risk-red)",
+  Refunds: "var(--pp-warning-amber)",
+  "CSV Reviews": "#F59E0B",
+  Orders: "#3B82F6",
+  "Product content": "#76C7C0",
+  Other: "var(--pp-slate-400)",
+};
+
+function AnalyticsRiskMarginTrendPanel({ chart }) {
+  const [rangeKey, setRangeKey] = useState("30d");
+  const action = (
+    <div className="ppAnalyticsRangeControl" role="tablist" aria-label="Risk and margin trend range">
+      {ANALYTICS_RISK_MARGIN_RANGE_OPTIONS.map((range) => (
+        <button
+          key={range.key}
+          type="button"
+          role="tab"
+          aria-selected={range.key === rangeKey}
+          className={range.key === rangeKey ? "isActive" : ""}
+          onClick={() => setRangeKey(range.key)}
+        >
+          {range.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <AnalyticsPanel
+      title="Risk and margin trend"
+      subtitle="Deep-diagnosis products · margin and revenue exposure over time"
+      className="ppAnalyticsPanelRiskMarginTrend"
+      action={action}
+    >
+      <AnalyticsRiskMarginTrendChart chart={chart} rangeKey={rangeKey} />
+    </AnalyticsPanel>
+  );
+}
+
+function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
+  const sourceSeries = Array.isArray(chart?.series) ? chart.series : [];
+  const sourceLabels = Array.isArray(chart?.labels) ? chart.labels : [];
+  const range = ANALYTICS_RISK_MARGIN_RANGE_OPTIONS.find((item) => item.key === rangeKey) || ANALYTICS_RISK_MARGIN_RANGE_OPTIONS[1];
+  const pointCount = Math.max(sourceLabels.length, ...sourceSeries.map((row) => row.values?.length || 0), 0);
+  const sliceStart = Number.isFinite(range.pointLimit) ? Math.max(0, pointCount - range.pointLimit) : 0;
+  const labels = (sourceLabels.length ? sourceLabels : Array.from({ length: pointCount }, (_, index) => (index === pointCount - 1 ? "Today" : ""))).slice(sliceStart);
+  const series = sourceSeries.map((row) => ({
+    ...row,
+    values: (Array.isArray(row.values) ? row.values : []).slice(sliceStart),
+  }));
+  const hasData = Boolean(chart?.hasData && series.some((row) => row.values.some((value) => Number(value || 0) > 0)));
+  const layout = { left: 64, right: 858, top: 26, bottom: 236, width: 794, height: 210, labelY: 278, viewBoxWidth: 930, viewBoxHeight: 300 };
+  const marginSeries = series.find((row) => row.key === "marginAtRisk") || series[0] || { values: [] };
+  const revenueSeries = series.find((row) => row.key === "revenueAtRisk") || series[1] || { values: [] };
+  const leftAxisMax = getAnalyticsChartAxisMax(marginSeries.values);
+  const rightAxisMax = getAnalyticsChartAxisMax(revenueSeries.values);
+  const labelIndexes = getAnalyticsChartLabelIndexes(labels.length);
+
+  if (!hasData) {
+    return <AnalyticsEmptyPanel message="Run deep product diagnoses to build risk and margin trend data." />;
+  }
+
+  return (
+    <div className="ppAnalyticsRiskMarginTrendChart">
+      <div className="ppAnalyticsRiskMarginTrendLegend">
+        {series.map((row) => (
+          <span key={row.key || row.label}>
+            <i className={`ppDot-${row.color || "blue"}`} aria-hidden="true" />
+            {row.label}
+          </span>
+        ))}
+      </div>
+      <svg className="ppAnalyticsRiskMarginTrendSvg" viewBox={`0 0 ${layout.viewBoxWidth} ${layout.viewBoxHeight}`} role="img" aria-label="Risk and margin trend for deep diagnosis products">
+        {getAnalyticsDualAxisTicks(leftAxisMax, layout).map((tick, index) => (
+          <g key={`left-${tick.label}-${index}`}>
+            <line className="ppChartGridLine" x1={layout.left} y1={tick.y} x2={layout.right} y2={tick.y} />
+            <text className="ppAnalyticsRiskMarginAxisText ppAnalyticsRiskMarginAxisText-left" x={layout.left - 16} y={tick.y + 4}>{tick.label}</text>
+          </g>
+        ))}
+        {getAnalyticsDualAxisTicks(rightAxisMax, layout).map((tick, index) => (
+          <text className="ppAnalyticsRiskMarginAxisText ppAnalyticsRiskMarginAxisText-right" key={`right-${tick.label}-${index}`} x={layout.right + 16} y={tick.y + 4}>{tick.label}</text>
+        ))}
+        <line className="ppChartAxisLine" x1={layout.left} y1={layout.top} x2={layout.left} y2={layout.bottom} />
+        <line className="ppChartAxisLine" x1={layout.right} y1={layout.top} x2={layout.right} y2={layout.bottom} />
+        <line className="ppChartAxisLine" x1={layout.left} y1={layout.bottom} x2={layout.right} y2={layout.bottom} />
+        {series.map((row) => {
+          const axisMax = row.axis === "right" ? rightAxisMax : leftAxisMax;
+          const points = getAnalyticsDualAxisLinePoints(row.values, axisMax, layout);
+          return (
+            <g className={`ppAnalyticsRiskMarginSeries ppAnalyticsRiskMarginSeries-${row.color || "blue"}`} key={row.key || row.label}>
+              <path className={`ppRiskLine ppRiskLine-${row.color || "blue"}`} d={buildSmoothSvgPath(points)} />
+              {points.map((point, index) => (
+                <circle className="ppAnalyticsRiskMarginDot" key={`${row.key || row.label}-${index}`} cx={point.x} cy={point.y} r="4.2">
+                  <title>{`${row.label}, ${labels[index] || `Point ${index + 1}`}: ${formatMoney(row.values[index] || 0)}`}</title>
+                </circle>
+              ))}
+            </g>
+          );
+        })}
+        {labelIndexes.map((index) => (
+          <text className="ppChartAxisText" key={`${labels[index]}-${index}`} x={getAnalyticsChartX(index, labels.length, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}>{labels[index]}</text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function AnalyticsIssueDistributionPanel({ distribution }) {
+  const rows = Array.isArray(distribution?.rows) ? distribution.rows : [];
+  const [expanded, setExpanded] = useState(false);
+  const visibleRows = expanded ? rows : rows.slice(0, 7);
+  const max = Math.max(...rows.map((row) => Number(row.count || row.value || 0)), 1);
+  const action = rows.length > 7 ? (
+    <button className="ppAnalyticsPanelActionButton" type="button" onClick={() => setExpanded((value) => !value)}>
+      {expanded ? "View less" : "View all"}
+    </button>
+  ) : null;
+
+  return (
+    <AnalyticsPanel
+      title="Issue distribution by type"
+      subtitle="Signal clusters across deep diagnosis products"
+      className="ppAnalyticsPanelIssueDistribution"
+      action={action}
+    >
+      {visibleRows.length ? (
+        <div className="ppAnalyticsIssueDistributionList">
+          {visibleRows.map((row) => {
+            const width = Math.max(6, Math.round((Number(row.count || row.value || 0) / max) * 100));
+            return (
+              <div className="ppAnalyticsIssueDistributionRow" key={row.label}>
+                <span>{row.label}</span>
+                <div aria-hidden="true"><i style={{ width: `${width}%` }} /></div>
+                <strong>{row.countLabel || formatInteger(row.count || row.value || 0)} <small>({row.percentLabel || "0%"})</small></strong>
+              </div>
+            );
+          })}
+          <div className="ppAnalyticsIssueDistributionTotal">
+            <span>Total</span>
+            <strong>{distribution?.totalLabel || formatInteger(distribution?.total || 0)}</strong>
+          </div>
+        </div>
+      ) : (
+        <AnalyticsEmptyPanel message="No deep-diagnosis issue clusters are available yet." />
+      )}
+    </AnalyticsPanel>
+  );
+}
+
+function AnalyticsSourceCoverageMixPanel({ mix }) {
+  const rows = Array.isArray(mix?.rows) ? mix.rows : [];
+  const total = Number(mix?.total || 0);
+  const gradient = getAnalyticsSourceMixGradient(rows, total);
+
+  return (
+    <AnalyticsPanel
+      title="Source coverage mix"
+      subtitle="Where deep diagnosis signals come from"
+      className="ppAnalyticsPanelSourceCoverageMix"
+    >
+      {rows.length ? (
+        <div className="ppAnalyticsSourceCoverageMix">
+          <div className="ppAnalyticsSourceCoverageDonut" style={{ "--pp-source-mix-gradient": gradient }} aria-hidden="true">
+            <div>
+              <span>Total</span>
+              <strong>{mix?.totalLabel || formatInteger(total)}</strong>
+              <small>signals</small>
+            </div>
+          </div>
+          <div className="ppAnalyticsSourceCoverageLegend">
+            {rows.map((row, index) => (
+              <div key={row.label}>
+                <span><i style={{ background: getAnalyticsSourceMixColor(row, index) }} />{row.label}</span>
+                <strong>{row.percentLabel || "0%"} <small>({row.countLabel || formatInteger(row.count || 0)})</small></strong>
+              </div>
+            ))}
+          </div>
+          <p>{rows.length ? "100% of signals with source" : "No source signals yet"}</p>
+        </div>
+      ) : (
+        <AnalyticsEmptyPanel message="No deep-diagnosis source coverage signals are available yet." />
+      )}
+    </AnalyticsPanel>
+  );
+}
+
+function AnalyticsEmptyPanel({ message }) {
+  return (
+    <div className="ppAnalyticsEmptyPanel">
+      <s-icon type="chart-line" size="small"></s-icon>
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function getAnalyticsChartAxisMax(values = []) {
+  return getRiskBubbleAxisMax(Math.max(...(Array.isArray(values) ? values : []).map((value) => Number(value || 0)), 0));
+}
+
+function getAnalyticsDualAxisTicks(maxValue, layout) {
+  return [1, 0.75, 0.5, 0.25, 0].map((ratio) => ({
+    y: layout.bottom - ratio * layout.height,
+    label: formatCompactMoney(maxValue * ratio),
+  }));
+}
+
+function getAnalyticsDualAxisLinePoints(values = [], axisMax = 1, layout) {
+  const safeValues = Array.isArray(values) && values.length ? values : [0];
+  return safeValues.map((value, index) => {
+    const x = getAnalyticsChartX(index, safeValues.length, layout);
+    const y = layout.bottom - (Number(value || 0) / Math.max(axisMax, 1)) * layout.height;
+    return {
+      x: Math.round(x * 10) / 10,
+      y: Math.round(y * 10) / 10,
+    };
+  });
+}
+
+function getAnalyticsChartX(index, length, layout) {
+  return layout.left + index * (layout.width / Math.max(length - 1, 1));
+}
+
+function getAnalyticsChartLabelIndexes(length) {
+  if (length <= 0) return [];
+  if (length <= 4) return Array.from({ length }, (_, index) => index);
+  return [...new Set([0, Math.floor((length - 1) / 3), Math.floor(((length - 1) * 2) / 3), length - 1])];
+}
+
+function getAnalyticsSourceMixColor(row = {}, index = 0) {
+  const fallback = ["var(--pp-insight-violet)", "var(--pp-risk-red)", "var(--pp-warning-amber)", "var(--pp-pulse-blue)", "var(--pp-signal-teal)", "var(--pp-slate-400)"];
+  return ANALYTICS_SOURCE_MIX_COLORS[row.label] || fallback[index % fallback.length];
+}
+
+function getAnalyticsSourceMixGradient(rows = [], total = 0) {
+  if (!rows.length || !total) return "conic-gradient(var(--pp-slate-200) 0 100%)";
+  let cursor = 0;
+  const segments = rows.map((row, index) => {
+    const start = cursor;
+    const share = (Number(row.count || row.value || 0) / total) * 100;
+    cursor += share;
+    return `${getAnalyticsSourceMixColor(row, index)} ${start}% ${cursor}%`;
+  });
+  return `conic-gradient(${segments.join(", ")})`;
 }
 
 function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {

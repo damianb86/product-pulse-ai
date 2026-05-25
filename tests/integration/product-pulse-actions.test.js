@@ -414,6 +414,72 @@ describe("ProductPulse actions", () => {
     expect(analytics.impactTrend.labels[0]).toBe("45d ago");
   });
 
+  it("builds analytics chart data from deep diagnosis products only", () => {
+    const fullDiagnosisProduct = {
+      id: "gid://shopify/Product/deep",
+      handle: "deep-product",
+      title: "Deep Product",
+      riskScore: 82,
+      confidence: 91,
+      analysisDepth: "full",
+      primaryIssue: "Product quality",
+      lastAnalysis: "2026-05-20T00:00:00.000Z",
+      metrics: {
+        latestDiagnosisId: "diagnosis-deep",
+        marginAtRisk: 1000,
+        revenueAtRisk: 4000,
+        signalCount: 4,
+        returnUnits: 2,
+        refundUnits: 1,
+        reviewCount: 5,
+        csvReviewCount: 2,
+        soldUnits: 10,
+        contentIssueCount: 2,
+        riskHistory: [
+          { recordedAt: "2026-05-01T00:00:00.000Z", riskScore: 60, marginAtRisk: 600, revenueAtRisk: 2400 },
+          { recordedAt: "2026-05-20T00:00:00.000Z", riskScore: 82, marginAtRisk: 1000, revenueAtRisk: 4000 },
+        ],
+      },
+    };
+    const quickScanProduct = {
+      id: "gid://shopify/Product/quick",
+      handle: "quick-product",
+      title: "Quick Product",
+      riskScore: 90,
+      analysisDepth: "quickscan",
+      primaryIssue: "Refund impact",
+      metrics: {
+        marginAtRisk: 9000,
+        revenueAtRisk: 30000,
+        signalCount: 20,
+        returnUnits: 12,
+        refundUnits: 8,
+        reviewCount: 40,
+        soldUnits: 50,
+      },
+    };
+
+    const analytics = buildAnalyticsViewData([fullDiagnosisProduct, quickScanProduct]);
+    const trendSeries = analytics.deepDiagnosisCharts.riskMarginTrend.series;
+
+    expect(analytics.deepDiagnosisCharts.productCount).toBe(1);
+    expect(trendSeries.find((series) => series.key === "marginAtRisk").values.at(-1)).toBe(1000);
+    expect(trendSeries.find((series) => series.key === "revenueAtRisk").values.at(-1)).toBe(4000);
+    expect(analytics.deepDiagnosisCharts.issueDistribution.rows[0]).toMatchObject({
+      label: "Product quality",
+      count: 4,
+    });
+    expect(analytics.deepDiagnosisCharts.sourceCoverageMix.rows.map((row) => row.label)).toEqual(expect.arrayContaining([
+      "Orders",
+      "Reviews",
+      "CSV Reviews",
+      "Returns",
+      "Refunds",
+      "Product content",
+    ]));
+    expect(analytics.deepDiagnosisCharts.sourceCoverageMix.total).toBe(20);
+  });
+
   it("creates expanded recommended action recipes with impact tiers", () => {
     const product = {
       id: "gid://shopify/Product/action-recipes",

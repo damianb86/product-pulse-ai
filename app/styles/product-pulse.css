@@ -20319,11 +20319,16 @@ s-page[inline-size="large-500"] {
   vertical-align: 1px;
 }
 
+.ppAnalyticsDeepChartGrid,
 .ppAnalyticsChartGrid,
 .ppAnalyticsBottom {
   display: grid;
   gap: 12px;
   align-items: start;
+}
+
+.ppAnalyticsDeepChartGrid {
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.82fr) minmax(340px, 0.92fr);
 }
 
 .ppAnalyticsChartGrid {
@@ -20341,6 +20346,18 @@ s-page[inline-size="large-500"] {
 
 .ppAnalyticsPanelShell {
   min-width: 0;
+}
+
+.ppAnalyticsDeepChartGrid .ppAnalyticsPanel,
+.ppAnalyticsDeepChartGrid .ppAnalyticsPanelShell,
+.ppAnalyticsDeepChartGrid s-section {
+  min-height: 100%;
+}
+
+.ppAnalyticsPanelRiskMarginTrend .ppAnalyticsPanel,
+.ppAnalyticsPanelIssueDistribution .ppAnalyticsPanel,
+.ppAnalyticsPanelSourceCoverageMix .ppAnalyticsPanel {
+  min-height: 338px;
 }
 
 .ppAnalyticsPanelRiskMargin,
@@ -20517,6 +20534,309 @@ s-page[inline-size="large-500"] {
   margin: 4px 0 0;
   color: var(--pp-slate-700);
   font-size: 13px;
+}
+
+.ppAnalyticsPanelActionButton,
+.ppAnalyticsRangeControl button {
+  min-height: 30px;
+  border: 1px solid var(--pp-slate-200);
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppAnalyticsPanelActionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 8px;
+}
+
+.ppAnalyticsPanelActionButton:hover,
+.ppAnalyticsPanelActionButton:focus-visible,
+.ppAnalyticsRangeControl button:hover,
+.ppAnalyticsRangeControl button:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.25);
+  color: var(--pp-pulse-blue);
+  outline: none;
+}
+
+.ppAnalyticsRangeControl {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+}
+
+.ppAnalyticsRangeControl button {
+  min-width: 56px;
+  border: 0;
+  border-right: 1px solid var(--pp-slate-200);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.ppAnalyticsRangeControl button:last-child {
+  border-right: 0;
+}
+
+.ppAnalyticsRangeControl button.isActive {
+  background: rgba(var(--pp-insight-violet-rgb), 0.08);
+  color: var(--pp-insight-violet);
+  box-shadow: inset 0 0 0 1px rgba(var(--pp-insight-violet-rgb), 0.12);
+}
+
+.ppAnalyticsRiskMarginTrendChart {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ppAnalyticsRiskMarginTrendLegend {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  flex-wrap: wrap;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ppAnalyticsRiskMarginTrendLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ppAnalyticsRiskMarginTrendLegend i {
+  width: 12px;
+  height: 5px;
+  border-radius: 999px;
+}
+
+.ppAnalyticsRiskMarginTrendSvg {
+  display: block;
+  width: 100%;
+  min-height: 238px;
+  overflow: visible;
+}
+
+.ppAnalyticsRiskMarginAxisText {
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.ppAnalyticsRiskMarginAxisText-left {
+  fill: var(--pp-signal-teal);
+  text-anchor: end;
+}
+
+.ppAnalyticsRiskMarginAxisText-right {
+  fill: var(--pp-insight-violet);
+}
+
+.ppAnalyticsRiskMarginSeries {
+  color: var(--pp-pulse-blue);
+}
+
+.ppAnalyticsRiskMarginSeries-green {
+  color: var(--pp-signal-teal);
+}
+
+.ppAnalyticsRiskMarginSeries-purple {
+  color: var(--pp-insight-violet);
+}
+
+.ppAnalyticsRiskMarginSeries .ppRiskLine {
+  stroke-width: 2.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppAnalyticsRiskMarginDot {
+  fill: var(--pp-cloud-white);
+  stroke: currentColor;
+  stroke-width: 2.4;
+  filter: drop-shadow(0 3px 7px rgba(var(--pp-shadow-rgb), 0.14));
+}
+
+.ppAnalyticsIssueDistributionList {
+  display: grid;
+  gap: 10px;
+}
+
+.ppAnalyticsIssueDistributionRow {
+  display: grid;
+  grid-template-columns: minmax(108px, 0.8fr) minmax(138px, 1.35fr) minmax(68px, auto);
+  gap: 12px;
+  align-items: center;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppAnalyticsIssueDistributionRow > div {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+}
+
+.ppAnalyticsIssueDistributionRow i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pp-insight-violet), var(--pp-pulse-blue));
+  box-shadow: 0 5px 12px rgba(var(--pp-insight-violet-rgb), 0.18);
+}
+
+.ppAnalyticsIssueDistributionRow strong {
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ppAnalyticsIssueDistributionRow small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.ppAnalyticsIssueDistributionTotal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-800);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ppAnalyticsSourceCoverageMix {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.82fr) minmax(220px, 1fr);
+  gap: 18px 22px;
+  align-items: center;
+  min-height: 238px;
+}
+
+.ppAnalyticsSourceCoverageDonut {
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: min(190px, 100%);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, var(--pp-cloud-white) 0 45%, transparent 46%),
+    var(--pp-source-mix-gradient, conic-gradient(var(--pp-slate-200) 0 100%));
+  box-shadow: 0 18px 40px rgba(var(--pp-shadow-rgb), 0.10);
+}
+
+.ppAnalyticsSourceCoverageDonut > div {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  width: 90px;
+  height: 90px;
+  color: var(--pp-slate-700);
+  text-align: center;
+}
+
+.ppAnalyticsSourceCoverageDonut span,
+.ppAnalyticsSourceCoverageDonut small {
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.ppAnalyticsSourceCoverageDonut strong {
+  color: var(--pp-slate-900);
+  font-size: 26px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppAnalyticsSourceCoverageLegend {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ppAnalyticsSourceCoverageLegend div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  color: var(--pp-slate-700);
+}
+
+.ppAnalyticsSourceCoverageLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.ppAnalyticsSourceCoverageLegend i {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.82), 0 2px 6px rgba(var(--pp-shadow-rgb), 0.12);
+}
+
+.ppAnalyticsSourceCoverageLegend strong {
+  color: var(--pp-slate-800);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.ppAnalyticsSourceCoverageLegend small {
+  color: var(--pp-slate-500);
+  font-weight: 760;
+}
+
+.ppAnalyticsSourceCoverageMix > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 820;
+  text-align: center;
+}
+
+.ppAnalyticsEmptyPanel {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 204px;
+  padding: 18px;
+  border: 1px dashed var(--pp-slate-300);
+  border-radius: 12px;
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-500);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ppAnalyticsEmptyPanel s-icon {
+  color: var(--pp-pulse-blue);
 }
 
 .ppAnalyticsTimeSelect {
@@ -30988,6 +31308,14 @@ s-page[inline-size="large-500"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ppAnalyticsDeepChartGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppAnalyticsPanelRiskMarginTrend {
+    grid-column: 1 / -1;
+  }
+
   .ppAnalyticsPanelRiskMargin,
   .ppAnalyticsPanelTrend {
     grid-column: span 2;
@@ -31101,9 +31429,11 @@ s-page[inline-size="large-500"] {
   .ppDashboardInsights,
   .ppDashboardBottom,
   .ppAnalyticsKpis,
+  .ppAnalyticsDeepChartGrid,
   .ppAnalyticsChartGrid,
   .ppAnalyticsBottom,
   .ppSourceContribution,
+  .ppAnalyticsSourceCoverageMix,
   .ppAnalysisCoverageDonut,
   .ppImpactFlow,
   .ppImpactExplainGrid,

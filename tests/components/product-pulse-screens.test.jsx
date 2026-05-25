@@ -4835,6 +4835,12 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<AnalyticsScreen data={defaultView} />);
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
     expect(screen.getAllByText("Margin at risk").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Risk and margin trend").length).toBeGreaterThan(0);
+    expect(screen.getByRole("tab", { name: "30D" })).toHaveClass("isActive");
+    expect(screen.getAllByText("Margin at risk (USD)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Revenue at risk (USD)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Issue distribution by type").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Source coverage mix").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Margin at risk over time").length).toBeGreaterThan(0);
     expect(screen.getByText("Current total")).toBeInTheDocument();
     expect(screen.getByText("Trend-weighted now")).toBeInTheDocument();
