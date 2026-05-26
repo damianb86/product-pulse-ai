@@ -5156,13 +5156,13 @@ s-page[inline-size="large-500"] {
 
 .ppMetricTimelinesHeader {
   display: grid;
-  gap: 12px;
+  gap: 6px;
 }
 
 .ppMetricTimelinesHeaderRow {
   display: flex;
   align-items: start;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 20px;
 }
 
@@ -5199,58 +5199,6 @@ s-page[inline-size="large-500"] {
   font-weight: 650;
 }
 
-.ppMetricTimelinesHeaderActions {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-}
-
-.ppMetricTimelinesHeaderActions button,
-.ppMetricTimelinesToolbar > span {
-  min-height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 14px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 8px;
-  background: var(--pp-cloud-white);
-  color: var(--pp-slate-800);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 850;
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
-}
-
-.ppMetricTimelinesHeaderActions button:last-child {
-  width: 42px;
-  padding: 0;
-}
-
-.ppMetricTimelinesToolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 8px;
-  background: var(--pp-cloud-white);
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
-}
-
-.ppMetricTimelinesToolbar small {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  color: var(--pp-slate-600);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .ppMetricTimelineStack {
   display: grid;
   gap: 10px;
@@ -5263,8 +5211,8 @@ s-page[inline-size="large-500"] {
   align-items: stretch;
   gap: 12px;
   min-width: 0;
-  min-height: 132px;
-  padding: 12px 12px 10px;
+  min-height: 172px;
+  padding: 14px 16px 12px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 8px;
   background: var(--pp-cloud-white);
@@ -5366,7 +5314,7 @@ s-page[inline-size="large-500"] {
   position: relative;
   display: block;
   width: 100%;
-  height: 112px;
+  height: 146px;
   min-width: 0;
   overflow: visible;
 }
@@ -5375,6 +5323,7 @@ s-page[inline-size="large-500"] {
 .ppMetricTimelineChartPlot .recharts-surface {
   width: 100% !important;
   height: 100% !important;
+  max-width: none !important;
   overflow: visible;
 }
 
@@ -13317,14 +13266,8 @@ s-page[inline-size="large-500"] {
     text-align: left;
   }
 
-  .ppMetricTimelinesHeaderRow,
-  .ppMetricTimelinesToolbar {
+  .ppMetricTimelinesHeaderRow {
     display: grid;
-  }
-
-  .ppMetricTimelinesHeaderActions,
-  .ppMetricTimelinesToolbar small {
-    margin-left: 0;
   }
 
   .ppMetricTimelineChart {

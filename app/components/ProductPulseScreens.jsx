@@ -12314,18 +12314,6 @@ export function ProductMetricTimelinesScreen({ product }) {
               <h1>Metric timelines</h1>
               <p>{detail.title} · Compare product-quality metrics across the same time window.</p>
             </div>
-            <div className="ppMetricTimelinesHeaderActions">
-              <button type="button">Add to dashboard</button>
-              <button type="button" aria-label="Metric timeline actions">
-                <s-icon type="menu-horizontal" size="small"></s-icon>
-              </button>
-            </div>
-          </div>
-          <div className="ppMetricTimelinesToolbar" aria-label="Metric timeline controls">
-            <span><s-icon type="calendar" size="small"></s-icon>{timelineModel.rangeLabel}</span>
-            <span>Compare: previous signal</span>
-            <span><s-icon type="filter" size="small"></s-icon>Filters</span>
-            <small>All charts share the same timeline <s-icon type="info" size="small"></s-icon></small>
           </div>
         </div>
 
@@ -12371,10 +12359,10 @@ function ProductMetricTimelineChart({ chart }) {
       <div className="ppMetricTimelineChartPlot">
         {chart.points.length ? (
           <AreaChart
-            width={chart.width}
-            height={chart.height}
+            responsive
+            style={{ width: "100%", height: "100%" }}
             data={chart.data}
-            margin={{ top: 18, right: 10, bottom: 18, left: 0 }}
+            margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
             syncId="product-metric-timelines"
           >
             <defs>

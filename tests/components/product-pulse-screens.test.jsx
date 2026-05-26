@@ -1453,6 +1453,10 @@ describe("ProductPulse screens", () => {
 
     expect(screen.getByRole("heading", { name: "Metric timelines" })).toBeInTheDocument();
     expect(screen.getByText(/Timeline Jacket/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add to dashboard" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Compare: previous signal")).not.toBeInTheDocument();
+    expect(screen.queryByText("Filters")).not.toBeInTheDocument();
+    expect(screen.queryByText(/All charts share the same timeline/)).not.toBeInTheDocument();
     [
       "Product risk",
       "Financial exposure",
