@@ -3920,7 +3920,11 @@ function formatProductRiskHistory(scoreHistory = []) {
         avgRating: toNullableNumber(metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating),
         customerSignalCount: toNullableNumber(metrics.customerSignalCount),
         evidenceStrengthScore: toNullableNumber(metrics.evidenceStrengthScore),
+        retentionHealthScore: toNullableNumber(metrics.retentionHealthScore),
         productMomentumScore: toNullableNumber(metrics.productMomentumScore),
+        returnPressureScore: toNullableNumber(metrics.returnPressureScore || metrics.returnRefundRelationship?.returnPressureScore),
+        refundLeakageScore: toNullableNumber(metrics.refundLeakageScore || metrics.returnRefundRelationship?.refundLeakageScore),
+        mainIssueIntensity: toNullableNumber(metrics.mainIssueIntensity || metrics.priorityScore),
         signalCount: toNullableNumber(metrics.signalsCount || metrics.signalCount || metrics.issueCount),
         sourceCount: getHistorySourceCount(metrics.sourceCoverage),
       };

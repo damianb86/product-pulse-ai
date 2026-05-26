@@ -32,6 +32,12 @@ const PRODUCT_RISK_HISTORY_RETURN_UNIT_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_RATE_ONLY_MILESTONE_MIN = 8;
 const PRODUCT_RISK_HISTORY_REFUND_AMOUNT_ONLY_MILESTONE_MIN = 50;
+const PRODUCT_METRIC_TIMELINE_DAY_MS = 86_400_000;
+const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
+  width: 1200,
+  height: 216,
+  plot: { left: 46, right: 1194, top: 28, bottom: 176 },
+});
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -11552,6 +11558,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const productStatusTone = resolved ? "success" : detail.productStatusTone;
   const hasNoStoredDiagnosis = detail.analysisDepth === "catalog" || !detail.hasRiskSnapshot;
   const shopifyAdminUrl = detail.shopifyAdminUrl || "";
+  const metricTimelinesHref = getProductMetricTimelinesHref(detail);
   const productMetaItems = [
     ["Handle", detail.handle || "Unavailable"],
     ["Type", detail.productType || "Product"],
@@ -12016,6 +12023,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <s-icon type="external" size="small"></s-icon>
               </span>
             )}
+            <Link className="ppSecondaryButton ppProductMetricTimelineButton" to={metricTimelinesHref}>
+              <s-icon type="chart-line" size="small"></s-icon>
+              Metric timelines
+            </Link>
             <ProductDetailActionsMenu
               detail={detail}
               product={product}
@@ -12166,8 +12177,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                   </div>
                 ) : null}
 
-                {detail.hasFullDiagnosis && <ProductRetentionMetricsPanel detail={detail} />}
-
                 <ProductRiskHistoryPanel detail={detail} />
               </main>
 
@@ -12179,6 +12188,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
               </aside>
             </div>
+
+            {detail.hasFullDiagnosis && <ProductRetentionMetricsPanel detail={detail} />}
 
             <ProductRelationshipsPanel detail={detail} />
 
@@ -12257,6 +12268,438 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+export function ProductMetricTimelinesScreen({ product }) {
+  if (!product) {
+    return (
+      <FullWidthPage heading="Product not found">
+        <ScreenShell>
+          <ProductPulseToast actionData={PRODUCT_NOT_FOUND_TOAST} />
+          <p className="ppDashboardSubtitle">Return to Products and choose another item.</p>
+          <Link className="ppPrimaryButton" to="/app/products">Back to Products</Link>
+        </ScreenShell>
+      </FullWidthPage>
+    );
+  }
+
+  const detail = getProductDetailModel(product);
+  const timelineModel = getProductMetricTimelineModel(detail);
+
+  return (
+    <FullWidthPage label={`${detail.title} metric timelines`} className="ppMetricTimelinesPage">
+      <ScreenShell className="ppDashboard ppMetricTimelinesScreen">
+        <div className="ppMetricTimelinesHeader">
+          <Link className="ppProductBackButton" to={getProductDetailHref(detail)}>
+            <s-icon type="arrow-left" size="small"></s-icon>
+            Back to product
+          </Link>
+          <div className="ppMetricTimelinesTitleBlock">
+            <span>
+              <s-icon type="chart-line" size="small"></s-icon>
+              Metric timelines
+            </span>
+            <h1>Metric timelines</h1>
+            <p>{detail.title} · {timelineModel.rangeLabel}</p>
+          </div>
+        </div>
+
+        <div className="ppMetricTimelineStack" aria-label="Metric timelines">
+          {timelineModel.charts.map((chart) => (
+            <ProductMetricTimelineChart chart={chart} key={chart.key} />
+          ))}
+        </div>
+
+        {!timelineModel.hasData && (
+          <div className="ppMetricTimelineEmpty">
+            <EmptyProductDetailState message="No dated metric history is stored for this product yet. Run diagnostics over time to build aligned metric timelines." />
+          </div>
+        )}
+      </ScreenShell>
+    </FullWidthPage>
+  );
+}
+
+function ProductMetricTimelineChart({ chart }) {
+  const gradientId = `ppMetricTimelineGradient-${chart.key}-${useId().replace(/:/g, "")}`;
+  return (
+    <article className={`ppMetricTimelineChart ppMetricTimelineChart-${chart.tone}`} aria-label={`${chart.title} timeline`} data-metric-key={chart.key}>
+      <div className="ppMetricTimelineChartTitle">
+        <span aria-hidden="true">
+          <s-icon type={chart.icon} size="small"></s-icon>
+        </span>
+        <h2>{chart.title}</h2>
+      </div>
+      <svg className="ppMetricTimelineChartSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} preserveAspectRatio="none" role="img" aria-label={chart.ariaLabel}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {chart.yTicks.map((tick) => (
+          <g className="ppMetricTimelineGridLine" key={`${chart.key}-y-${tick.value}`}>
+            <line x1={chart.plot.left} x2={chart.plot.right} y1={tick.y} y2={tick.y} />
+            <text x={chart.plot.left - 13} y={tick.y + 4} textAnchor="end">{tick.label}</text>
+          </g>
+        ))}
+        <line className="ppMetricTimelineAxis" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
+        <line className="ppMetricTimelineAxis" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
+        {chart.xTicks.map((tick) => (
+          <g className="ppMetricTimelineXTick" key={`${chart.key}-x-${tick.value}`}>
+            <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 5} />
+            <text x={tick.x} y={chart.plot.bottom + 24} textAnchor={tick.anchor}>{tick.label}</text>
+          </g>
+        ))}
+        {chart.areaPath && <path className="ppMetricTimelineArea" d={chart.areaPath} style={{ fill: `url(#${gradientId})` }} />}
+        {chart.linePath && <path className="ppMetricTimelineLine" d={chart.linePath} />}
+        {!chart.points.length && (
+          <text className="ppMetricTimelineNoData" x={(chart.plot.left + chart.plot.right) / 2} y={(chart.plot.top + chart.plot.bottom) / 2} textAnchor="middle">
+            No timeline data
+          </text>
+        )}
+      </svg>
+    </article>
+  );
+}
+
+function getProductMetricTimelineModel(detail = {}) {
+  const historyPoints = getProductMetricTimelineHistoryPoints(detail);
+  const definitions = getProductMetricTimelineDefinitions();
+  const series = definitions.map((definition) => getProductMetricTimelineSeries(definition, detail, historyPoints));
+  const domain = getProductMetricTimelineDomain(series);
+  const xTicks = getProductMetricTimelineXTicks(domain);
+  const charts = series.map((item) => buildProductMetricTimelineChart(item, domain, xTicks));
+  return {
+    charts,
+    hasData: charts.some((chart) => chart.points.length > 0),
+    rangeLabel: getProductMetricTimelineRangeLabel(domain),
+  };
+}
+
+function getProductMetricTimelineDefinitions() {
+  return [
+    {
+      key: "product-risk",
+      title: "Product risk",
+      icon: "alert-circle",
+      tone: "violet",
+      axis: "score",
+      yMin: 0,
+      yMax: 100,
+      value: (point) => optionalFiniteMetricNumber(point.riskScore),
+    },
+    {
+      key: "financial-exposure",
+      title: "Financial exposure",
+      icon: "cash-dollar",
+      tone: "red",
+      axis: "money",
+      value: (point) => optionalFiniteMetricNumber(point.financialExposure, point.revenueAtRisk, point.marginAtRisk),
+    },
+    {
+      key: "return-pressure",
+      title: "Return pressure",
+      icon: "refresh",
+      tone: "orange",
+      axis: "percent",
+      yMin: 0,
+      yMax: 100,
+      value: (point) => optionalFiniteMetricNumber(point.returnPressureScore, point.returnRate),
+    },
+    {
+      key: "retention-health",
+      title: "Retention health",
+      icon: "chart-line",
+      tone: "blue",
+      axis: "score",
+      yMin: 0,
+      yMax: 100,
+      value: (point) => optionalFiniteMetricNumber(point.retentionHealthScore),
+      points: (detail, historyPoints) => {
+        const retention = detail.productRetention || {};
+        const trend = Array.isArray(retention.retentionHealthTrend) ? retention.retentionHealthTrend : [];
+        const trendPoints = trend
+          .map((point) => {
+            const date = parseProductMetricTimelineDate(point.date || point.recordedAt);
+            const value = optionalFiniteMetricNumber(point.retentionHealthScore);
+            return date && value != null ? { time: date.getTime(), label: formatProductMetricTimelinePointLabel(date), value } : null;
+          })
+          .filter(Boolean);
+        return trendPoints.length ? trendPoints : getProductMetricTimelineHistorySeriesPoints(historyPoints, (point) => optionalFiniteMetricNumber(point.retentionHealthScore));
+      },
+    },
+    {
+      key: "product-momentum",
+      title: "Product Momentum",
+      icon: "chart-line",
+      tone: "blue",
+      axis: "number",
+      value: (point) => optionalFiniteMetricNumber(point.productMomentumScore),
+    },
+    {
+      key: "diagnosis-confidence",
+      title: "Diagnosis confidence",
+      icon: "check",
+      tone: "green",
+      axis: "percent",
+      yMin: 0,
+      yMax: 100,
+      value: (point) => optionalFiniteMetricNumber(point.confidence),
+    },
+    {
+      key: "refund-leakage",
+      title: "Refund leakage",
+      icon: "cash-dollar",
+      tone: "red",
+      axis: "percent",
+      yMin: 0,
+      yMax: 100,
+      value: (point) => optionalFiniteMetricNumber(point.refundLeakageScore, point.refundRate),
+    },
+    {
+      key: "evidence-strength",
+      title: "Evidence strength",
+      icon: "chart-line",
+      tone: "green",
+      axis: "number",
+      value: (point) => optionalFiniteMetricNumber(point.evidenceStrengthScore, point.sourceCount),
+    },
+    {
+      key: "customer-signals",
+      title: "Customer signals",
+      icon: "profile",
+      tone: "slate",
+      axis: "number",
+      value: (point) => optionalFiniteMetricNumber(point.customerSignalCount, point.signalCount),
+    },
+    {
+      key: "average-rating",
+      title: "Average rating",
+      icon: "star",
+      tone: "green",
+      axis: "rating",
+      yMin: 1,
+      yMax: 5,
+      value: (point) => optionalFiniteMetricNumber(point.avgRating),
+    },
+    {
+      key: "negative-review-pressure",
+      title: "Negative review pressure",
+      icon: "alert-circle",
+      tone: "blue",
+      axis: "percent",
+      yMin: 0,
+      yMax: 100,
+      value: (point) => optionalFiniteMetricNumber(point.negativeReviewRate),
+    },
+    {
+      key: "main-issue",
+      title: "Main issue",
+      icon: "search",
+      tone: "slate",
+      axis: "percent",
+      yMin: 0,
+      yMax: 100,
+      value: (point) => optionalFiniteMetricNumber(point.mainIssueIntensity, point.riskScore),
+    },
+  ];
+}
+
+function getProductMetricTimelineHistoryPoints(detail = {}) {
+  return (Array.isArray(detail.riskHistory) ? detail.riskHistory : [])
+    .map((entry, index) => {
+      const date = parseProductMetricTimelineDate(entry.recordedAt || entry.periodEnd || entry.date);
+      if (!date) return null;
+      const relationship = asPlainObject(entry.returnRefundRelationship);
+      return {
+        ...entry,
+        time: date.getTime(),
+        label: formatProductMetricTimelinePointLabel(date, index),
+        riskScore: optionalFiniteMetricNumber(entry.riskScore),
+        confidence: optionalFiniteMetricNumber(entry.confidence),
+        financialExposure: optionalFiniteMetricNumber(entry.financialExposure),
+        revenueAtRisk: optionalFiniteMetricNumber(entry.revenueAtRisk),
+        marginAtRisk: optionalFiniteMetricNumber(entry.marginAtRisk),
+        returnRate: optionalFiniteMetricNumber(entry.returnRate),
+        refundRate: optionalFiniteMetricNumber(entry.refundRate),
+        negativeReviewRate: optionalFiniteMetricNumber(entry.negativeReviewRate),
+        returnPressureScore: optionalFiniteMetricNumber(entry.returnPressureScore, relationship.returnPressureScore),
+        refundLeakageScore: optionalFiniteMetricNumber(entry.refundLeakageScore, relationship.refundLeakageScore),
+        retentionHealthScore: optionalFiniteMetricNumber(entry.retentionHealthScore),
+        productMomentumScore: optionalFiniteMetricNumber(entry.productMomentumScore),
+        evidenceStrengthScore: optionalFiniteMetricNumber(entry.evidenceStrengthScore),
+        customerSignalCount: optionalFiniteMetricNumber(entry.customerSignalCount),
+        signalCount: optionalFiniteMetricNumber(entry.signalCount),
+        sourceCount: optionalFiniteMetricNumber(entry.sourceCount),
+        avgRating: optionalFiniteMetricNumber(entry.avgRating),
+        mainIssueIntensity: optionalFiniteMetricNumber(entry.mainIssueIntensity, entry.priorityScore),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+}
+
+function getProductMetricTimelineSeries(definition, detail, historyPoints) {
+  const sourcePoints = typeof definition.points === "function"
+    ? definition.points(detail, historyPoints)
+    : getProductMetricTimelineHistorySeriesPoints(historyPoints, definition.value);
+  const points = sourcePoints
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
+    .sort((left, right) => left.time - right.time);
+  return {
+    ...definition,
+    points,
+  };
+}
+
+function getProductMetricTimelineHistorySeriesPoints(historyPoints, valueAccessor) {
+  return historyPoints
+    .map((point) => {
+      const value = valueAccessor(point);
+      return value == null ? null : {
+        time: point.time,
+        label: point.label,
+        value,
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildProductMetricTimelineChart(series, domain, xTicks) {
+  const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
+  const yDomain = getProductMetricTimelineYDomain(series);
+  const timeRange = Math.max(1, domain.maxTime - domain.minTime);
+  const valueRange = Math.max(1, yDomain.max - yDomain.min);
+  const getX = (time) => plot.left + ((time - domain.minTime) / timeRange) * (plot.right - plot.left);
+  const getY = (value) => plot.bottom - ((value - yDomain.min) / valueRange) * (plot.bottom - plot.top);
+  const points = series.points.map((point) => ({
+    ...point,
+    x: Math.round(getX(point.time) * 10) / 10,
+    y: Math.round(getY(point.value) * 10) / 10,
+    valueLabel: formatProductMetricTimelineValue(point.value, series.axis),
+  }));
+  const linePath = points.length > 1 ? buildSmoothSvgPath(points) : "";
+  const areaPath = points.length > 1
+    ? `${linePath} L ${points[points.length - 1].x} ${plot.bottom} L ${points[0].x} ${plot.bottom} Z`
+    : "";
+  const yTicks = getProductMetricTimelineYTicks(yDomain, series.axis, plot);
+  return {
+    ...series,
+    width,
+    height,
+    plot,
+    linePath,
+    areaPath,
+    points,
+    yTicks,
+    xTicks: xTicks.map((tick, index) => ({
+      ...tick,
+      x: Math.round(getX(tick.value) * 10) / 10,
+      anchor: index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle",
+    })),
+    ariaLabel: `${series.title} from ${getProductMetricTimelineRangeLabel(domain)}`,
+  };
+}
+
+function getProductMetricTimelineYDomain(series) {
+  if (Number.isFinite(series.yMin) && Number.isFinite(series.yMax)) {
+    return { min: series.yMin, max: Math.max(series.yMax, series.yMin + 1) };
+  }
+  const values = series.points.map((point) => point.value).filter(Number.isFinite);
+  const max = values.length ? Math.max(...values) : 1;
+  return {
+    min: 0,
+    max: getProductMetricTimelineNiceMax(max, series.axis),
+  };
+}
+
+function getProductMetricTimelineNiceMax(value, axis = "number") {
+  const max = Math.max(0, Number(value || 0));
+  if (axis === "money") {
+    if (max <= 100) return 100;
+    if (max <= 1000) return Math.ceil(max / 100) * 100;
+    if (max <= 10_000) return Math.ceil(max / 1000) * 1000;
+    return Math.ceil(max / 5000) * 5000;
+  }
+  if (max <= 5) return 5;
+  if (max <= 10) return 10;
+  if (max <= 50) return Math.ceil(max / 10) * 10;
+  if (max <= 150) return Math.ceil(max / 25) * 25;
+  return Math.ceil(max / 50) * 50;
+}
+
+function getProductMetricTimelineYTicks(domain, axis, plot) {
+  const values = [domain.max, (domain.max + domain.min) / 2, domain.min];
+  return values.map((value) => ({
+    value,
+    label: formatProductMetricTimelineValue(value, axis),
+    y: Math.round((plot.bottom - ((value - domain.min) / Math.max(1, domain.max - domain.min)) * (plot.bottom - plot.top)) * 10) / 10,
+  }));
+}
+
+function getProductMetricTimelineDomain(series = []) {
+  const times = series.flatMap((item) => item.points.map((point) => point.time)).filter(Number.isFinite);
+  if (!times.length) {
+    const maxTime = Date.now();
+    return { minTime: getProductMetricTimelineMonthStart(maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS)), maxTime };
+  }
+  const maxTime = Math.max(...times);
+  const minTime = getProductMetricTimelineMonthStart(Math.min(...times));
+  if (times.length === 1 || Math.min(...times) === maxTime) {
+    return { minTime: getProductMetricTimelineMonthStart(maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS)), maxTime };
+  }
+  return { minTime, maxTime };
+}
+
+function getProductMetricTimelineXTicks(domain) {
+  const ticks = [domain.minTime];
+  const start = new Date(domain.minTime);
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+  while (cursor.getTime() < domain.maxTime) {
+    ticks.push(cursor.getTime());
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  ticks.push(domain.maxTime);
+  return uniqueSortedNumbers(ticks).map((time) => ({
+    value: time,
+    label: formatProductMetricTimelineTickDate(time, time === domain.minTime || time === domain.maxTime),
+  }));
+}
+
+function parseProductMetricTimelineDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getProductMetricTimelineMonthStart(time) {
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return time;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+}
+
+function formatProductMetricTimelinePointLabel(date, index = 0) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return `Point ${index + 1}`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+
+function formatProductMetricTimelineTickDate(time, edge = false) {
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return "";
+  const monthStart = date.getUTCDate() === 1;
+  return date.toLocaleDateString("en-US", edge && !monthStart ? { month: "short", day: "numeric", timeZone: "UTC" } : { month: "short", timeZone: "UTC" });
+}
+
+function getProductMetricTimelineRangeLabel(domain) {
+  return `${formatProductMetricTimelineTickDate(domain.minTime, true)} to ${formatProductMetricTimelineTickDate(domain.maxTime, true)}`;
+}
+
+function formatProductMetricTimelineValue(value, axis = "number") {
+  if (axis === "money") return formatCompactMoney(value);
+  if (axis === "percent") return `${formatDecimal(value, 0)}%`;
+  if (axis === "rating") return formatDecimal(value, 1);
+  return formatDecimal(value, Math.abs(Number(value || 0)) < 10 && Number(value || 0) % 1 ? 1 : 0);
 }
 
 const PURCHASE_CONTEXT_HELP = {
@@ -14560,49 +15003,60 @@ function ProductRetentionMetricsPanel({ detail }) {
         <EmptyProductDetailState message={emptyMessage} />
       ) : (
         <>
-          <div className="ppRetentionMetricGrid">
-            <ProductRetentionMetricCard
-              icon="shopify-orders"
-              label="180-day customer retention"
-              value={formatRetentionRate(summary.repeatPurchaseRate180d)}
-              detail={`${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`}
-              tone="blue"
-            />
-            <ProductRetentionMetricCard
-              icon="shopify-product"
-              label="Same-product repurchase rate"
-              value={formatRetentionRate(summary.sameProductRepurchaseRate90d)}
-              detail="90-day same-product repeat"
-              tone="teal"
-            />
-            <ProductRetentionMetricCard
-              icon="diagnostic-confidence"
-              label="Median time to 2nd purchase"
-              value={formatRetentionDays(summary.medianDaysToSecondPurchase)}
-              detail={summary.avgDaysToSecondPurchase == null ? "Average unavailable" : `${formatRetentionDays(summary.avgDaysToSecondPurchase)} average`}
-              tone="blue"
-            />
-            <ProductRetentionMetricCard
-              icon="financial-exposure"
-              label="Product LTV"
-              value={formatRetentionMoneyCents(summary.productLtv90Cents)}
-              detail="90-day LTV per cohort customer"
-              tone="teal"
-            />
-            <ProductRetentionMetricCard
-              icon="product-momentum"
-              label="Retention health"
-              value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
-              detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
-              tone={summary.hasEnoughData ? "blue" : "amber"}
-              />
+          <div className="ppProductRetentionBody">
+            <div className="ppProductRetentionMain">
+              <div className="ppRetentionMetricGrid">
+                <ProductRetentionMetricCard
+                  icon="shopify-orders"
+                  label="180-day customer retention"
+                  value={formatRetentionRate(summary.repeatPurchaseRate180d)}
+                  detail={`${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`}
+                  tone="blue"
+                />
+                <ProductRetentionMetricCard
+                  icon="shopify-product"
+                  label="Same-product repurchase rate"
+                  value={formatRetentionRate(summary.sameProductRepurchaseRate90d)}
+                  detail="90-day same-product repeat"
+                  tone="teal"
+                />
+                <ProductRetentionMetricCard
+                  icon="diagnostic-confidence"
+                  label="Median time to 2nd purchase"
+                  value={formatRetentionDays(summary.medianDaysToSecondPurchase)}
+                  detail={summary.avgDaysToSecondPurchase == null ? "Average unavailable" : `${formatRetentionDays(summary.avgDaysToSecondPurchase)} average`}
+                  tone="blue"
+                />
+                <ProductRetentionMetricCard
+                  icon="financial-exposure"
+                  label="Product LTV"
+                  value={formatRetentionMoneyCents(summary.productLtv90Cents)}
+                  detail="90-day LTV per cohort customer"
+                  tone="teal"
+                />
+                <ProductRetentionMetricCard
+                  icon="product-momentum"
+                  label="Retention health"
+                  value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
+                  detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
+                  tone={summary.hasEnoughData ? "blue" : "amber"}
+                />
+              </div>
+              <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
             </div>
-
-            <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
-            <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} summary={summary} />
-            <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />
-          </>
-        )}
+            <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
+              <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
+              {ltvChart.hasData && (
+                <>
+                  <ProductRetentionLtvContributionDonut contribution={ltvChart.contribution} />
+                  <ProductRetentionLtvInsights contribution={ltvChart.contribution} summary={summary} />
+                </>
+              )}
+            </aside>
+          </div>
+          <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />
+        </>
+      )}
     </section>
   );
 }
@@ -14814,7 +15268,7 @@ const PRODUCT_RETENTION_LTV_BREAKDOWN_MODES = [
   { key: "perCustomer", label: "Per customer", ariaLabel: "Show LTV breakdown per customer" },
 ];
 
-function ProductRetentionLtvBreakdown({ chart, productTitle, summary }) {
+function ProductRetentionLtvBreakdown({ chart, productTitle }) {
   const [mode, setMode] = useState("cumulative");
   const view = useMemo(() => getProductRetentionLtvBreakdownView(chart, mode), [chart, mode]);
 
@@ -14850,10 +15304,6 @@ function ProductRetentionLtvBreakdown({ chart, productTitle, summary }) {
           </div>
           <ProductRetentionLtvStackedChart chart={view} productTitle={productTitle} />
           <ProductRetentionLtvBreakdownLegend />
-          <div className="ppRetentionLtvDetailGrid">
-            <ProductRetentionLtvContributionDonut contribution={chart.contribution} />
-            <ProductRetentionLtvInsights contribution={chart.contribution} summary={summary} />
-          </div>
         </>
       ) : (
         <ProductRetentionEmptySlot message="No LTV breakdown is stored yet." />
@@ -14866,7 +15316,7 @@ function ProductRetentionLtvStackedChart({ chart, productTitle }) {
   const gradientIdBase = `ppRetentionLtvBreakdownGradient-${useId().replace(/:/g, "")}`;
   return (
     <div className="ppRetentionLtvBreakdownChart" role="group" aria-label={`LTV breakdown for ${productTitle}`}>
-      <svg className="ppRetentionLtvBreakdownSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} aria-hidden="true" focusable="false">
+      <svg className="ppRetentionLtvBreakdownSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} focusable="false">
         <defs>
           <linearGradient id={`${gradientIdBase}-same`} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="var(--pp-insight-violet)" stopOpacity="0.92" />
@@ -14902,32 +15352,34 @@ function ProductRetentionLtvStackedChart({ chart, productTitle }) {
         <path className="ppRetentionLtvLine ppRetentionLtvLineOther" d={chart.paths.other} />
         <path className="ppRetentionLtvLine ppRetentionLtvLineSame" d={chart.paths.same} />
         {chart.points.map((point) => (
-          <g className="ppRetentionLtvSamplePoints" key={`ltv-samples-${point.ageDay}-${point.x}`}>
-            <circle className="ppRetentionLtvSampleInitial" cx={point.x} cy={point.initialY} r="4.5" />
-            <circle className="ppRetentionLtvSampleOther" cx={point.x} cy={point.otherY} r="4.5" />
-            <circle className="ppRetentionLtvSampleSame" cx={point.x} cy={point.sameY} r="4.5" />
-          </g>
+          <foreignObject
+            className="ppRetentionLtvPointObject"
+            key={`${point.ageDay}-${point.x}-${point.y}`}
+            x={point.x - 16}
+            y={point.y - 16}
+            width="32"
+            height="32"
+          >
+            <ProductRetentionLtvBreakdownPointButton point={point} chart={chart} embedded />
+          </foreignObject>
         ))}
       </svg>
       <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-y">{chart.yAxisLabel}</span>
       <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-x">Days since first purchase</span>
-      {chart.points.map((point) => (
-        <ProductRetentionLtvBreakdownPointButton point={point} chart={chart} key={`${point.ageDay}-${point.x}-${point.y}`} />
-      ))}
     </div>
   );
 }
 
-function ProductRetentionLtvBreakdownPointButton({ point, chart }) {
+function ProductRetentionLtvBreakdownPointButton({ point, chart, embedded = false }) {
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
   if (!point) return null;
   return (
     <button
       type="button"
-      className={`ppRetentionLtvPoint${open ? " isActive" : ""}`}
+      className={`ppRetentionLtvPoint${embedded ? " isSvgEmbedded" : ""}${open ? " isActive" : ""}`}
       ref={triggerRef}
-      style={{ left: `${(point.x / chart.width) * 100}%`, top: `${(point.y / chart.height) * 100}%` }}
+      style={embedded ? undefined : { left: `${(point.x / chart.width) * 100}%`, top: `${(point.y / chart.height) * 100}%` }}
       aria-label={`LTV Breakdown, ${point.xLabel}: ${chart.moneyFormatter(point.totalCents)}`}
       onBlur={() => setOpen(false)}
       onFocus={() => setOpen(true)}
@@ -18502,6 +18954,10 @@ function getProductDetailHref(product = {}) {
   if (product.href) return product.href;
   const identifier = product.handle || product.slug || product.id;
   return identifier ? `/app/products/${identifier}` : "/app/products";
+}
+
+function getProductMetricTimelinesHref(product = {}) {
+  return `${getProductDetailHref(product)}/metric-timelines`;
 }
 
 function getProductEvidenceSourceHref(product = {}, source = null, fallbackHref = "") {

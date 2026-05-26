@@ -9,6 +9,7 @@ import {
   DashboardScreen,
   ProductDiagnosisScreen,
   ProductEvidenceReportScreen,
+  ProductMetricTimelinesScreen,
   ProductsScreen,
   SettingsScreen,
   WatchlistActivityScreen,
@@ -83,6 +84,96 @@ function makeProductsData(row) {
       totalAll: 0,
       totalPages: 1,
     },
+  };
+}
+
+function makeMetricTimelineProduct(overrides = {}) {
+  const riskHistory = [
+    {
+      recordedAt: "2026-02-15T00:00:00.000Z",
+      riskScore: 42,
+      confidence: 74,
+      financialExposure: 180,
+      returnPressureScore: 22,
+      retentionHealthScore: 66,
+      productMomentumScore: 35,
+      refundLeakageScore: 18,
+      evidenceStrengthScore: 4,
+      customerSignalCount: 14,
+      avgRating: 4.3,
+      negativeReviewRate: 12,
+      mainIssueIntensity: 28,
+    },
+    {
+      recordedAt: "2026-03-01T00:00:00.000Z",
+      riskScore: 48,
+      confidence: 78,
+      financialExposure: 260,
+      returnPressureScore: 34,
+      retentionHealthScore: 72,
+      productMomentumScore: 44,
+      refundLeakageScore: 24,
+      evidenceStrengthScore: 5,
+      customerSignalCount: 16,
+      avgRating: 4.1,
+      negativeReviewRate: 18,
+      mainIssueIntensity: 35,
+    },
+    {
+      recordedAt: "2026-04-01T00:00:00.000Z",
+      riskScore: 61,
+      confidence: 83,
+      financialExposure: 310,
+      returnPressureScore: 47,
+      retentionHealthScore: 79,
+      productMomentumScore: 86,
+      refundLeakageScore: 31,
+      evidenceStrengthScore: 6,
+      customerSignalCount: 20,
+      avgRating: 3.9,
+      negativeReviewRate: 24,
+      mainIssueIntensity: 42,
+    },
+    {
+      recordedAt: "2026-05-29T00:00:00.000Z",
+      riskScore: 70,
+      confidence: 88,
+      financialExposure: 430,
+      returnPressureScore: 58,
+      retentionHealthScore: 93,
+      productMomentumScore: 112,
+      refundLeakageScore: 42,
+      evidenceStrengthScore: 7,
+      customerSignalCount: 31,
+      avgRating: 3.6,
+      negativeReviewRate: 34,
+      mainIssueIntensity: 57,
+    },
+  ];
+
+  return {
+    ...defaultView.startHere,
+    title: "Timeline Jacket",
+    slug: "timeline-jacket",
+    handle: "timeline-jacket",
+    href: "/app/products/timeline-jacket",
+    productGid: "gid://shopify/Product/timeline-jacket",
+    riskScore: 70,
+    riskTone: "warning",
+    confidence: 88,
+    analysisDepth: "full",
+    metrics: {
+      ...(defaultView.startHere.metrics || {}),
+      riskHistory,
+      productRetention: {
+        summary: { retentionHealthScore: 93 },
+        retentionHealthTrend: riskHistory.map((point) => ({
+          date: point.recordedAt.slice(0, 10),
+          retentionHealthScore: point.retentionHealthScore,
+        })),
+      },
+    },
+    ...overrides,
   };
 }
 
@@ -1351,6 +1442,45 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("menuitem", { name: "Mark unresolved" })).toBeInTheDocument();
   });
 
+  it("links product detail to product metric timelines", () => {
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct()} />);
+
+    expect(screen.getByRole("link", { name: "Metric timelines" })).toHaveAttribute("href", "/app/products/timeline-jacket/metric-timelines");
+  });
+
+  it("renders aligned product metric timeline charts", () => {
+    const { container } = renderWithRouter(<ProductMetricTimelinesScreen product={makeMetricTimelineProduct()} />);
+
+    expect(screen.getByRole("heading", { name: "Metric timelines" })).toBeInTheDocument();
+    expect(screen.getByText(/Timeline Jacket/)).toBeInTheDocument();
+    [
+      "Product risk",
+      "Financial exposure",
+      "Return pressure",
+      "Retention health",
+      "Product Momentum",
+      "Diagnosis confidence",
+      "Refund leakage",
+      "Evidence strength",
+      "Customer signals",
+      "Average rating",
+      "Negative review pressure",
+      "Main issue",
+    ].forEach((title) => {
+      expect(screen.getByText(title)).toBeInTheDocument();
+    });
+
+    const charts = Array.from(container.querySelectorAll(".ppMetricTimelineChart"));
+    expect(charts).toHaveLength(12);
+    const viewBoxes = new Set(Array.from(container.querySelectorAll(".ppMetricTimelineChartSvg")).map((svg) => svg.getAttribute("viewBox")));
+    expect(viewBoxes).toEqual(new Set(["0 0 1200 216"]));
+    expect(container.querySelectorAll(".ppMetricTimelineChartSvg[preserveAspectRatio='none']")).toHaveLength(12);
+    expect(container.querySelectorAll(".ppMetricTimelinePoint")).toHaveLength(0);
+    const tickLabelsByChart = charts.map((chart) => Array.from(chart.querySelectorAll(".ppMetricTimelineXTick text")).map((node) => node.textContent));
+    expect(new Set(tickLabelsByChart.map((labels) => labels.join("|"))).size).toBe(1);
+    expect(tickLabelsByChart[0]).toEqual(["Feb", "Mar", "Apr", "May", "May 29"]);
+  });
+
   it("renders product diagnosis evidence and draft actions", () => {
     const { container } = renderWithAction(
       <ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />,
@@ -2004,14 +2134,20 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("Repurchase")).toBeInTheDocument();
     expect(within(panel).queryByText("Retention segments")).not.toBeInTheDocument();
     expect(within(panel).queryByText("New to store")).not.toBeInTheDocument();
+    const retentionMain = panel.querySelector(".ppProductRetentionMain");
+    const retentionMetricGrid = panel.querySelector(".ppRetentionMetricGrid");
+    expect(retentionMain).toContainElement(retentionMetricGrid);
+    expect(panel.querySelector(".ppProductRetentionSideRail")).not.toContainElement(retentionMetricGrid);
     const ltvCard = within(panel).getByText("LTV Breakdown").closest(".ppRetentionChartCard");
+    expect(Array.from(retentionMain.children).indexOf(retentionMetricGrid)).toBeLessThan(Array.from(retentionMain.children).indexOf(ltvCard));
     expect(ltvCard).toHaveClass("ppRetentionLtvBreakdownCard");
     expect(within(ltvCard).getByText("Metric: LTV contribution")).toBeInTheDocument();
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as cumulative dollars" })).toHaveClass("isActive");
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" })).toBeInTheDocument();
     expect(within(ltvCard).getByText("Initial product (1st purchase)")).toBeInTheDocument();
-    expect(within(ltvCard).getByText("LTV contribution (180 days)")).toBeInTheDocument();
-    expect(within(ltvCard).getByText("Key insights")).toBeInTheDocument();
+    expect(panel.querySelector(".ppProductRetentionSideRail")).toBeInTheDocument();
+    expect(within(panel).getByText("LTV contribution (180 days)")).toBeInTheDocument();
+    expect(within(panel).getByText("Key insights")).toBeInTheDocument();
     expect(within(panel).queryByText("Retention by purchase cohort")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Time to repeat purchase")).not.toBeInTheDocument();
     expect(within(panel).queryByText("90-day retention trend")).not.toBeInTheDocument();

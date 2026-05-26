@@ -3686,6 +3686,13 @@ s-page[inline-size="large-500"] {
   opacity: 0.58;
 }
 
+.ppProductMetricTimelineButton {
+  min-height: 38px;
+  gap: 7px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
 .ppProductOverflowButton {
   width: 42px;
   padding: 0;
@@ -5141,6 +5148,172 @@ s-page[inline-size="large-500"] {
   gap: 16px;
   padding: 18px;
   overflow: visible;
+}
+
+.ppMetricTimelinesScreen {
+  gap: 14px;
+}
+
+.ppMetricTimelinesHeader {
+  display: grid;
+  gap: 12px;
+}
+
+.ppMetricTimelinesTitleBlock {
+  display: grid;
+  gap: 4px;
+}
+
+.ppMetricTimelinesTitleBlock > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  color: var(--pp-insight-violet);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ppMetricTimelinesTitleBlock h1 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 28px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+.ppMetricTimelinesTitleBlock p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ppMetricTimelineStack {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.ppMetricTimelineChart {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 8px 4px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppMetricTimelineChartTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 18px;
+  color: currentColor;
+}
+
+.ppMetricTimelineChartTitle span {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, var(--pp-cloud-white));
+}
+
+.ppMetricTimelineChartTitle s-icon {
+  transform: scale(0.76);
+}
+
+.ppMetricTimelineChartTitle h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppMetricTimelineChartSvg {
+  display: block;
+  width: 100%;
+  height: 194px;
+  overflow: visible;
+}
+
+.ppMetricTimelineGridLine line {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.14);
+  stroke-dasharray: 5 7;
+}
+
+.ppMetricTimelineGridLine text,
+.ppMetricTimelineXTick text {
+  fill: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppMetricTimelineAxis {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.22);
+}
+
+.ppMetricTimelineXTick line {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.22);
+}
+
+.ppMetricTimelineArea {
+  color: inherit;
+}
+
+.ppMetricTimelineLine {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.ppMetricTimelineNoData {
+  fill: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppMetricTimelineChart-violet {
+  color: var(--pp-insight-violet);
+}
+
+.ppMetricTimelineChart-red {
+  color: var(--pp-risk-red);
+}
+
+.ppMetricTimelineChart-orange {
+  color: var(--pp-warning-amber);
+}
+
+.ppMetricTimelineChart-blue {
+  color: var(--pp-pulse-blue);
+}
+
+.ppMetricTimelineChart-green {
+  color: var(--pp-success-green);
+}
+
+.ppMetricTimelineChart-slate {
+  color: var(--pp-slate-900);
+}
+
+.ppMetricTimelineEmpty {
+  margin-top: -4px;
 }
 
 .ppProductDetailPrimary > .ppProductRiskHistoryPanel {
@@ -11059,6 +11232,33 @@ s-page[inline-size="large-500"] {
   gap: 10px;
 }
 
+.ppProductRetentionBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.ppProductRetentionMain {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ppProductRetentionSideRail {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ppProductRetentionSideRail .ppRetentionActionCardGrid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ppProductRetentionSideRail .ppRetentionLtvDetailCard {
+  min-height: 0;
+}
+
 .ppRetentionMetricCard {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
@@ -11597,6 +11797,10 @@ s-page[inline-size="large-500"] {
   overflow: visible;
 }
 
+.ppRetentionLtvPointObject {
+  overflow: visible;
+}
+
 .ppRetentionLtvArea,
 .ppRetentionLtvLine {
   vector-effect: non-scaling-stroke;
@@ -11727,6 +11931,13 @@ s-page[inline-size="large-500"] {
   color: var(--pp-insight-violet);
   cursor: pointer;
   transform: translate(-50%, -50%);
+}
+
+.ppRetentionLtvPoint.isSvgEmbedded {
+  position: static;
+  width: 32px;
+  height: 32px;
+  transform: none;
 }
 
 .ppRetentionLtvPoint > span {
@@ -12873,7 +13084,8 @@ s-page[inline-size="large-500"] {
   .ppRetentionMainGrid,
   .ppRetentionSecondaryGrid,
   .ppRetentionEvidenceChartGrid,
-  .ppRetentionLtvDetailGrid {
+  .ppRetentionLtvDetailGrid,
+  .ppProductRetentionBody {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -32203,7 +32415,8 @@ s-page[inline-size="large-500"] {
   }
 
   .ppProductHeaderActions .ppProductAnalyzeButton,
-  .ppProductStoreButton {
+  .ppProductStoreButton,
+  .ppProductMetricTimelineButton {
     flex: 1 1 160px;
   }
 

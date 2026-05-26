@@ -136,6 +136,7 @@ function buildHistoryMetrics(snapshot = {}) {
     customerSignalCount: nullableInteger(metrics.customerSignalCount),
     priorityScore: nullableInteger(metrics.priorityScore),
     evidenceStrengthScore: nullableInteger(metrics.evidenceStrengthScore || metrics.confidenceFactors?.evidenceStrengthScore),
+    retentionHealthScore: nullableInteger(metrics.retentionHealthScore || metrics.productRetentionSummary?.retentionHealthScore || metrics.productRetention?.summary?.retentionHealthScore),
     scoringVersion: metrics.scoringVersion || metrics.returnRefundRelationshipFactors?.version || null,
     returnRefundRelationship: buildRelationshipHistoryMetrics(metrics),
     productMomentumScore: nullableInteger(metrics.productMomentumScore || metrics.productMomentum?.score),
