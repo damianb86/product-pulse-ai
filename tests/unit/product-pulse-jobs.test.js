@@ -455,6 +455,15 @@ describe("ProductPulse product job helpers", () => {
         productPurchaseContextScoringImpact: [
           "Usually bought alone, so negative signals are easier to attribute.",
         ],
+        chartInterpretations: {
+          insightVersion: "product_chart_interpretations_v1",
+          status: "available",
+          interpretations: {
+            monthlyOrderActivity: {
+              text: "Orders and returns moved together, so demand should be read with post-purchase friction.",
+            },
+          },
+        },
       },
     });
 
@@ -480,6 +489,14 @@ describe("ProductPulse product job helpers", () => {
     expect(detail.metrics.productPurchaseContextScoringImpact).toEqual([
       "Usually bought alone, so negative signals are easier to attribute.",
     ]);
+    expect(detail.metrics.chartInterpretations).toMatchObject({
+      status: "available",
+      interpretations: {
+        monthlyOrderActivity: {
+          text: "Orders and returns moved together, so demand should be read with post-purchase friction.",
+        },
+      },
+    });
   });
 
   it("exposes stored action diagnosis ids so reanalysis can reopen equivalent recommendations", () => {

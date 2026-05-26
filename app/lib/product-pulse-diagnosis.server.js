@@ -3511,6 +3511,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
   const sourceExtractionComplete = sourceChanges.sourceExtractionComplete !== false;
   const sourceFingerprintCompared = Boolean(sourceChanges.previousFingerprint && sourceChanges.currentFingerprint);
   const sourceFingerprintUnchanged = sourceChanges.unchanged === true;
+  const chartInterpretationReuse = getProductChartInterpretationReuseState(previousMetrics, metrics, deterministic);
   const materialComparison = compareMaterialDiagnosisMetrics(previousMetrics, {
     ...metrics,
     riskScore: deterministic.riskScore,
@@ -3529,6 +3530,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     !sourceExtractionComplete ? "source_extraction_incomplete" : null,
     !noNewAiEvidence ? "new_ai_evidence_snippets_detected" : null,
     !matchedBy ? "source_or_material_metrics_changed" : null,
+    !chartInterpretationReuse.available ? "missing_chart_interpretations" : null,
   ].filter(Boolean);
   const shouldReuse = blockers.length === 0;
   const recommendationReevaluation = buildRecommendationReevaluationDecision({
@@ -3558,6 +3560,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     sourceFingerprintUnchanged,
     sourceChanges,
     materialComparison,
+    chartInterpretationReuse,
     recommendationReevaluation,
   };
 }
@@ -3594,6 +3597,86 @@ function buildRecommendationReevaluationDecision({
 
 function isIncrementalAnalysisUnchanged(state = {}) {
   return state?.mode === "incremental" && Number(state.analyzedItems || 0) === 0;
+}
+
+function getProductChartInterpretationReuseState(previousMetrics = {}, metrics = {}, deterministic = {}) {
+  const required = hasProductChartInterpretationInputs(metrics, deterministic);
+  if (!required) {
+    return {
+      required: false,
+      available: true,
+      textCount: 0,
+      status: "not_required",
+    };
+  }
+
+  const chartInterpretations = previousMetrics.chartInterpretations || previousMetrics.diagnosisReport?.chartInterpretations || null;
+  const textCount = countStoredProductChartInterpretations(chartInterpretations);
+  return {
+    required: true,
+    available: Boolean(chartInterpretations?.insightVersion) || textCount > 0,
+    textCount,
+    status: chartInterpretations?.status || null,
+    insightVersion: chartInterpretations?.insightVersion || null,
+  };
+}
+
+function hasProductChartInterpretationInputs(metrics = {}, deterministic = {}) {
+  return hasMonthlyOrderActivityForChartInterpretation(metrics.monthlyOrderActivity)
+    || hasReturnRatePredictionForChartInterpretation(metrics.returnRatePrediction)
+    || hasProductRetentionForChartInterpretation(metrics.productRetention || metrics.productRetentionSummary)
+    || hasProductRiskHistoryForChartInterpretation(metrics, deterministic)
+    || hasProductMomentumForChartInterpretation(metrics.productMomentum);
+}
+
+function hasMonthlyOrderActivityForChartInterpretation(activity = null) {
+  const months = Array.isArray(activity?.months) ? activity.months : [];
+  const summary = activity?.summary || {};
+  return months.some((month) => Number(month.orders || month.orderUnits || month.returnedUnits || month.refundedUnits || month.revenue || month.refundAmount || 0) > 0)
+    || Number(summary.totalOrders || summary.totalOrderUnits || summary.totalRevenue || summary.totalReturnedUnits || summary.totalRefundedUnits || summary.totalRefundAmount || 0) > 0;
+}
+
+function hasReturnRatePredictionForChartInterpretation(prediction = null) {
+  const observed = Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [];
+  const forecast = Array.isArray(prediction?.forecastPoints) ? prediction.forecastPoints : [];
+  const summary = prediction?.summary || {};
+  return observed.some((point) => Number(point.orders || point.orderUnits || point.returnedUnits || point.smoothedReturnRate || point.rawReturnRate || 0) > 0)
+    || forecast.some((point) => Number(point.predictedReturnRate || 0) > 0)
+    || Number(summary.totalOrderUnits || summary.totalReturnedUnits || summary.totalReturnRate || summary.forecastNext90ReturnRate || 0) > 0;
+}
+
+function hasProductRetentionForChartInterpretation(retention = null) {
+  const summary = retention?.summary || retention || {};
+  return Boolean(retention?.available)
+    || Number(summary.totalCustomersAnalyzed || summary.totalProductCohortCustomers || summary.retentionHealthScore || summary.productLtv90Cents || summary.productLtv180Cents || 0) > 0
+    || (Array.isArray(retention?.retentionHealthTrend) && retention.retentionHealthTrend.length > 0)
+    || (Array.isArray(retention?.ltvCurve) && retention.ltvCurve.length > 0);
+}
+
+function hasProductRiskHistoryForChartInterpretation(metrics = {}, deterministic = {}) {
+  return (Array.isArray(metrics.reconstructedRiskHistory) && metrics.reconstructedRiskHistory.length > 0)
+    || (Array.isArray(metrics.riskHistory) && metrics.riskHistory.length > 0)
+    || Number.isFinite(Number(deterministic.riskScore ?? metrics.riskScore ?? metrics.riskComponents?.riskScore));
+}
+
+function hasProductMomentumForChartInterpretation(momentum = null) {
+  const inputs = momentum?.inputs || {};
+  const weeklyUnits = Array.isArray(inputs.weeklyUnitsLast4Weeks) ? inputs.weeklyUnitsLast4Weeks : [];
+  return Boolean(momentum)
+    && (Number.isFinite(Number(momentum.score))
+      || weeklyUnits.some((value) => Number(value || 0) > 0)
+      || Number(inputs.unitsLast30Days || inputs.revenueLast30Days || 0) > 0);
+}
+
+function countStoredProductChartInterpretations(chartInterpretations = null) {
+  const raw = chartInterpretations?.interpretations
+    || chartInterpretations?.chart_interpretations
+    || chartInterpretations?.chartInterpretations
+    || {};
+  return Object.values(raw).filter((entry) => {
+    const text = typeof entry === "string" ? entry : entry?.text || entry?.summary || entry?.interpretation || "";
+    return String(text || "").trim().length > 0;
+  }).length;
 }
 
 function compareMaterialDiagnosisMetrics(previousMetrics = {}, currentMetrics = {}) {

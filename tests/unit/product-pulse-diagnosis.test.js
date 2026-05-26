@@ -1344,6 +1344,13 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
           ...first.metrics,
           latestDiagnosisId: "diagnosis-1",
           lastDetailedDiagnosisAt: daysAgo(3),
+          chartInterpretations: {
+            insightVersion: "product_chart_interpretations_v1",
+            status: "available",
+            interpretations: {
+              productRiskOverTime: { text: "Risk stayed stable across the stored evidence window." },
+            },
+          },
         },
       },
       deterministic: second,
@@ -1544,6 +1551,13 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
         riskScore: 62,
         confidence: 65,
         estimatedImpact: 120,
+        chartInterpretations: {
+          insightVersion: "product_chart_interpretations_v1",
+          status: "available",
+          interpretations: {
+            productRiskOverTime: { text: "Risk stayed stable across the stored evidence window." },
+          },
+        },
       },
     };
     const deterministic = {
@@ -1583,6 +1597,67 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       required: false,
       reason: "current_recommendations_remain_current",
       sufficientToSkip: true,
+    });
+  });
+
+  it("does not reuse cached diagnosis when stored chart interpretations are missing", () => {
+    const fingerprint = __productPulseDiagnosisTestHooks.buildDiagnosisSourceFingerprint({
+      productContentSignature: "product-signature-1",
+      sales: [{ id: "sale-1", quantity: 2, amount: 80, createdAt: "2026-05-01T12:00:00.000Z" }],
+      returns: [],
+      refunds: [],
+      judgeMeReviews: [],
+      csvReviews: [],
+      sourceCoverage: ["Shopify product", "Shopify orders"],
+      windowDays: 60,
+    });
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        productGid: "gid://shopify/Product/123",
+        riskScore: 62,
+        confidence: 65,
+        metrics: {
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+          soldUnits: 2,
+          riskScore: 62,
+          confidence: 65,
+        },
+      },
+      deterministic: {
+        riskScore: 62,
+        confidence: 65,
+        estimatedImpact: { estimatedImpact: 120, revenueAtRisk: 260, marginAtRisk: 120 },
+        evidenceSnippets: [],
+        metrics: {
+          soldUnits: 2,
+          riskScore: 62,
+          confidence: 65,
+          monthlyOrderActivity: {
+            months: [{ key: "2026-05", orders: 1, orderUnits: 2, revenue: 80 }],
+            summary: { totalOrders: 1, totalOrderUnits: 2, totalRevenue: 80 },
+          },
+          incrementalDiagnosis: {
+            productContent: { reused: true },
+            customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            sourceChanges: {
+              previousFingerprint: fingerprint,
+              currentFingerprint: fingerprint,
+              unchanged: true,
+            },
+            aiEvidenceSnippetCount: 0,
+          },
+        },
+      },
+    });
+
+    expect(decision.shouldReuse).toBe(false);
+    expect(decision.blockers).toContain("missing_chart_interpretations");
+    expect(decision.chartInterpretationReuse).toMatchObject({
+      required: true,
+      available: false,
+      textCount: 0,
     });
   });
 

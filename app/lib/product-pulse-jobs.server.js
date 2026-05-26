@@ -3867,6 +3867,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       templateSuffix: metrics.templateSuffix || "",
       checkedSources: Array.isArray(diagnosisReport.checkedSources) ? diagnosisReport.checkedSources : [],
       aiModels: diagnosisReport.aiModels || null,
+      chartInterpretations: metrics.chartInterpretations || diagnosisReport.chartInterpretations || null,
       orderAccessDenied: Boolean(metrics.orderAccessDenied),
       descriptionLength: metrics.descriptionLength || 0,
       descriptionWordCount: metrics.descriptionWordCount || 0,
