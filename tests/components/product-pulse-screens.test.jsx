@@ -4884,6 +4884,45 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/designed for prioritization/)).toBeInTheDocument();
   });
 
+  it("shows analytics chart popovers and hides long-range risk margin points until hover", () => {
+    const data = {
+      ...defaultView,
+      analytics: {
+        ...defaultView.analytics,
+        actionImpactTrend: {
+          hasData: true,
+          labels: ["May 1", "May 8", "May 15"],
+          pointDetails: [
+            { label: "May 1", sourceLabel: "Applied recommendation history", basisLabel: "1 applied action recorded by this date." },
+            { label: "May 8", sourceLabel: "Applied recommendation history", basisLabel: "1 product compared against saved pre-action baselines." },
+            { label: "May 15", sourceLabel: "Applied recommendation history", basisLabel: "2 products compared against saved pre-action baselines." },
+          ],
+          summary: { detail: "2 products compared against a saved pre-action baseline." },
+          series: [
+            { key: "actionsApplied", label: "Actions applied", color: "purple", axis: "count", values: [1, 1, 2] },
+            { key: "reducedRiskUsd", label: "Reduced risk (USD)", color: "green", axis: "money", values: [0, 120, 260] },
+            { key: "reducedReturns", label: "Reduced returns", color: "blue", axis: "percent", values: [0, 1.5, 2.4] },
+          ],
+        },
+      },
+    };
+    const { container } = renderWithRouter(<AnalyticsScreen data={data} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "90D" }));
+    const riskPointGroup = container.querySelector(".ppAnalyticsRiskMarginPointGroup");
+    const riskHoverTarget = container.querySelector(".ppAnalyticsRiskMarginHoverTarget");
+    expect(riskPointGroup).not.toHaveClass("isPersistent");
+    fireEvent.mouseEnter(riskHoverTarget);
+    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Margin at risk");
+    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent(/Saved score-history exposure|Reconstructed saved risk trend/);
+    fireEvent.mouseLeave(riskPointGroup);
+
+    const actionTarget = container.querySelector(".ppAnalyticsActionImpactBarTarget");
+    fireEvent.mouseEnter(actionTarget);
+    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Actions applied");
+    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Applied recommendation history");
+  });
+
   it("toggles extra impact breakdown rows from a centered view-more control", () => {
     const rows = Array.from({ length: 8 }, (_, index) => ({
       label: `Collection ${index + 1}`,

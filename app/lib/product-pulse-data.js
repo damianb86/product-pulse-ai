@@ -1730,6 +1730,17 @@ function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {
       labels,
       marginValues,
       revenueValues,
+      pointDetails: timestamps.map((time) => {
+        const directSnapshots = histories.filter((row) => row.history.some((point) => point.time === time)).length;
+        return {
+          label: formatAnalyticsDateLabel(time),
+          sourceLabel: "Saved score-history exposure",
+          basisLabel: directSnapshots
+            ? `${formatDashboardNumber(directSnapshots)} product snapshot${directSnapshots === 1 ? "" : "s"} recorded on this date.`
+            : "Carried forward the latest saved exposure values available by this date.",
+          productCountLabel: `${formatDashboardNumber(products.length)} deep diagnosis product${products.length === 1 ? "" : "s"}`,
+        };
+      }),
       detail: "Built from saved score-history exposure values across deep diagnosis products.",
     });
   }
@@ -1754,16 +1765,28 @@ function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {
     labels: getAnalyticsTrendWindowLabels(length, windowDays),
     marginValues,
     revenueValues,
+    pointDetails: getAnalyticsTrendWindowLabels(length, windowDays).map((label) => ({
+      label,
+      sourceLabel: "Reconstructed saved risk trend",
+      basisLabel: "Estimated from stored risk trend values when full exposure history is not available.",
+      productCountLabel: `${formatDashboardNumber(products.length)} deep diagnosis product${products.length === 1 ? "" : "s"}`,
+    })),
     detail: "Reconstructed from saved risk trends when full exposure history is not available.",
   });
 }
 
-function buildAnalyticsRiskMarginTrendPayload({ labels = [], marginValues = [], revenueValues = [], detail = "" }) {
+function buildAnalyticsRiskMarginTrendPayload({ labels = [], marginValues = [], revenueValues = [], pointDetails = [], detail = "" }) {
   const marginCurrent = marginValues[marginValues.length - 1] || 0;
   const revenueCurrent = revenueValues[revenueValues.length - 1] || 0;
   return {
     labels,
     detail,
+    pointDetails: labels.map((label, index) => ({
+      label,
+      sourceLabel: detail || "Analytics exposure series",
+      basisLabel: "Aggregated from stored ProductPulse analytics data.",
+      ...(pointDetails[index] || {}),
+    })),
     hasData: marginValues.some((value) => Number(value || 0) > 0) || revenueValues.some((value) => Number(value || 0) > 0),
     series: [
       {
@@ -2314,6 +2337,17 @@ function buildAnalyticsActionImpactTrend(actionRows = [], productList = [], { wi
   return {
     hasData: appliedRows.length > 0 || effects.length > 0,
     labels: timeline.map(formatAnalyticsDateLabel),
+    pointDetails: timeline.map((time) => {
+      const appliedByPoint = appliedRows.filter((row) => Number(row.time || 0) <= time).length;
+      const measuredByPoint = effects.filter((effect) => Number(effect.actionTime || 0) <= time).length;
+      return {
+        label: formatAnalyticsDateLabel(time),
+        sourceLabel: "Applied recommendation history",
+        basisLabel: measuredByPoint
+          ? `${formatDashboardNumber(measuredByPoint)} product${measuredByPoint === 1 ? "" : "s"} compared against saved pre-action baselines.`
+          : `${formatDashboardNumber(appliedByPoint)} applied action${appliedByPoint === 1 ? "" : "s"} recorded by this date; before/after impact is still pending.`,
+      };
+    }),
     summary: {
       actionsApplied: latestActions,
       actionsAppliedLabel: formatDashboardNumber(latestActions),

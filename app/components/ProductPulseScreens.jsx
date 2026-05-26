@@ -27100,12 +27100,15 @@ function AnalyticsRiskMarginTrendPanel({ chart }) {
 }
 
 function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
+  const [hoveredPoint, setHoveredPoint] = useState(null);
   const sourceSeries = Array.isArray(chart?.series) ? chart.series : [];
   const sourceLabels = Array.isArray(chart?.labels) ? chart.labels : [];
+  const sourcePointDetails = Array.isArray(chart?.pointDetails) ? chart.pointDetails : [];
   const range = ANALYTICS_RISK_MARGIN_RANGE_OPTIONS.find((item) => item.key === rangeKey) || ANALYTICS_RISK_MARGIN_RANGE_OPTIONS[1];
   const pointCount = Math.max(sourceLabels.length, ...sourceSeries.map((row) => row.values?.length || 0), 0);
   const sliceStart = Number.isFinite(range.pointLimit) ? Math.max(0, pointCount - range.pointLimit) : 0;
   const labels = (sourceLabels.length ? sourceLabels : Array.from({ length: pointCount }, (_, index) => (index === pointCount - 1 ? "Today" : ""))).slice(sliceStart);
+  const pointDetails = sourcePointDetails.slice(sliceStart);
   const series = sourceSeries.map((row) => ({
     ...row,
     values: (Array.isArray(row.values) ? row.values : []).slice(sliceStart),
@@ -27117,6 +27120,7 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
   const leftAxisMax = getAnalyticsChartAxisMax(marginSeries.values);
   const rightAxisMax = getAnalyticsChartAxisMax(revenueSeries.values);
   const labelIndexes = getAnalyticsChartLabelIndexes(labels.length);
+  const showPersistentDots = rangeKey === "7d" || rangeKey === "30d";
 
   if (!hasData) {
     return <AnalyticsEmptyPanel message="Run deep product diagnoses to build risk and margin trend data." />;
@@ -27151,11 +27155,43 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
           return (
             <g className={`ppAnalyticsRiskMarginSeries ppAnalyticsRiskMarginSeries-${row.color || "blue"}`} key={row.key || row.label}>
               <path className={`ppRiskLine ppRiskLine-${row.color || "blue"}`} d={buildSmoothSvgPath(points)} />
-              {points.map((point, index) => (
-                <circle className="ppAnalyticsRiskMarginDot" key={`${row.key || row.label}-${index}`} cx={point.x} cy={point.y} r="4.2">
-                  <title>{`${row.label}, ${labels[index] || `Point ${index + 1}`}: ${formatMoney(row.values[index] || 0)}`}</title>
-                </circle>
-              ))}
+              {points.map((point, index) => {
+                const pointDetail = getAnalyticsPointDetail(pointDetails, index, labels[index], chart?.detail);
+                const tooltip = {
+                  id: `${row.key || row.label}-${index}`,
+                  x: point.x,
+                  y: point.y,
+                  title: row.label,
+                  dateLabel: pointDetail.label || labels[index] || `Point ${index + 1}`,
+                  valueLabel: formatMoney(row.values[index] || 0),
+                  sourceLabel: pointDetail.sourceLabel,
+                  basisLabel: pointDetail.basisLabel,
+                  detailLabel: pointDetail.productCountLabel,
+                };
+                const isActive = hoveredPoint?.id === tooltip.id;
+                return (
+                  <g
+                    className={`ppAnalyticsRiskMarginPointGroup${showPersistentDots ? " isPersistent" : ""}${isActive ? " isActive" : ""}`}
+                    key={tooltip.id}
+                    onMouseEnter={() => setHoveredPoint(tooltip)}
+                    onMouseLeave={() => setHoveredPoint(null)}
+                    onBlur={() => setHoveredPoint(null)}
+                  >
+                    <circle
+                      className="ppAnalyticsRiskMarginHoverTarget"
+                      cx={point.x}
+                      cy={point.y}
+                      r="11"
+                      tabIndex={0}
+                      role="img"
+                      aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
+                      onFocus={() => setHoveredPoint(tooltip)}
+                      onMouseEnter={() => setHoveredPoint(tooltip)}
+                    />
+                    <circle className="ppAnalyticsRiskMarginDot" cx={point.x} cy={point.y} r="4.2" aria-hidden="true" />
+                  </g>
+                );
+              })}
             </g>
           );
         })}
@@ -27163,6 +27199,7 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
           <text className="ppChartAxisText" key={`${labels[index]}-${index}`} x={getAnalyticsChartX(index, labels.length, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}>{labels[index]}</text>
         ))}
       </svg>
+      <AnalyticsSvgPopover point={hoveredPoint} layout={layout} />
     </div>
   );
 }
@@ -27259,8 +27296,10 @@ function AnalyticsActionImpactTrendPanel({ chart }) {
 }
 
 function AnalyticsActionImpactTrendChart({ chart }) {
+  const [hoveredPoint, setHoveredPoint] = useState(null);
   const series = Array.isArray(chart?.series) ? chart.series : [];
   const labels = Array.isArray(chart?.labels) ? chart.labels : [];
+  const pointDetails = Array.isArray(chart?.pointDetails) ? chart.pointDetails : [];
   const actionsSeries = series.find((row) => row.key === "actionsApplied") || { values: [], label: "Actions applied", color: "purple" };
   const riskSeries = series.find((row) => row.key === "reducedRiskUsd") || { values: [], label: "Reduced risk (USD)", color: "green" };
   const returnsSeries = series.find((row) => row.key === "reducedReturns") || { values: [], label: "Reduced returns", color: "blue" };
@@ -27309,39 +27348,162 @@ function AnalyticsActionImpactTrendChart({ chart }) {
         {(Array.isArray(actionsSeries.values) ? actionsSeries.values : []).map((value, index) => {
           const x = getAnalyticsChartX(index, pointCount, layout);
           const height = (Number(value || 0) / Math.max(actionAxisMax, 1)) * layout.height;
+          const tooltip = buildAnalyticsActionImpactTooltip(actionsSeries, pointDetails, safeLabels, index, {
+            x,
+            y: Math.max(layout.top + 6, layout.bottom - height),
+            valueLabel: formatInteger(value),
+          });
           return (
-            <rect
-              className="ppAnalyticsActionImpactBar"
+            <g
+              className="ppAnalyticsActionImpactBarGroup"
               key={`action-bar-${index}`}
-              x={x - barWidth / 2}
-              y={layout.bottom - height}
-              width={barWidth}
-              height={height}
-              rx="3"
+              onMouseEnter={() => setHoveredPoint(tooltip)}
+              onMouseLeave={() => setHoveredPoint(null)}
+              onBlur={() => setHoveredPoint(null)}
             >
-              <title>{`Actions applied, ${safeLabels[index] || `Point ${index + 1}`}: ${formatInteger(value)}`}</title>
-            </rect>
+              <rect
+                className="ppAnalyticsActionImpactBar"
+                x={x - barWidth / 2}
+                y={layout.bottom - height}
+                width={barWidth}
+                height={height}
+                rx="3"
+                aria-hidden="true"
+              />
+              <rect
+                className="ppAnalyticsActionImpactBarTarget"
+                x={x - Math.max(barWidth, 12) / 2}
+                y={layout.top}
+                width={Math.max(barWidth, 12)}
+                height={layout.height}
+                tabIndex={0}
+                role="img"
+                aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
+                onFocus={() => setHoveredPoint(tooltip)}
+                onMouseEnter={() => setHoveredPoint(tooltip)}
+              />
+            </g>
           );
         })}
         <path className="ppAnalyticsActionImpactLine ppAnalyticsActionImpactLine-risk" d={buildSmoothSvgPath(riskPoints)} />
         <path className="ppAnalyticsActionImpactLine ppAnalyticsActionImpactLine-returns" d={buildSmoothSvgPath(returnsPoints)} />
-        {riskPoints.map((point, index) => (
-          <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-risk" key={`risk-dot-${index}`} cx={point.x} cy={point.y} r="4.2">
-            <title>{`${riskSeries.label}, ${safeLabels[index] || `Point ${index + 1}`}: ${formatMoney(riskSeries.values[index] || 0)}`}</title>
-          </circle>
-        ))}
-        {returnsPoints.map((point, index) => (
-          <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-returns" key={`returns-dot-${index}`} cx={point.x} cy={point.y} r="4.2">
-            <title>{`${returnsSeries.label}, ${safeLabels[index] || `Point ${index + 1}`}: ${formatPercent(returnsSeries.values[index] || 0)}`}</title>
-          </circle>
-        ))}
+        {riskPoints.map((point, index) => {
+          const tooltip = buildAnalyticsActionImpactTooltip(riskSeries, pointDetails, safeLabels, index, {
+            x: point.x,
+            y: point.y,
+            valueLabel: formatMoney(riskSeries.values[index] || 0),
+          });
+          return (
+            <g
+              className={`ppAnalyticsActionImpactPointGroup${hoveredPoint?.id === tooltip.id ? " isActive" : ""}`}
+              key={`risk-dot-${index}`}
+              onMouseEnter={() => setHoveredPoint(tooltip)}
+              onMouseLeave={() => setHoveredPoint(null)}
+              onBlur={() => setHoveredPoint(null)}
+            >
+              <circle
+                className="ppAnalyticsActionImpactDotTarget"
+                cx={point.x}
+                cy={point.y}
+                r="10"
+                tabIndex={0}
+                role="img"
+                aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
+                onFocus={() => setHoveredPoint(tooltip)}
+                onMouseEnter={() => setHoveredPoint(tooltip)}
+              />
+              <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-risk" cx={point.x} cy={point.y} r="4.2" aria-hidden="true" />
+            </g>
+          );
+        })}
+        {returnsPoints.map((point, index) => {
+          const tooltip = buildAnalyticsActionImpactTooltip(returnsSeries, pointDetails, safeLabels, index, {
+            x: point.x,
+            y: point.y,
+            valueLabel: formatPercent(returnsSeries.values[index] || 0),
+          });
+          return (
+            <g
+              className={`ppAnalyticsActionImpactPointGroup${hoveredPoint?.id === tooltip.id ? " isActive" : ""}`}
+              key={`returns-dot-${index}`}
+              onMouseEnter={() => setHoveredPoint(tooltip)}
+              onMouseLeave={() => setHoveredPoint(null)}
+              onBlur={() => setHoveredPoint(null)}
+            >
+              <circle
+                className="ppAnalyticsActionImpactDotTarget"
+                cx={point.x}
+                cy={point.y}
+                r="10"
+                tabIndex={0}
+                role="img"
+                aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
+                onFocus={() => setHoveredPoint(tooltip)}
+                onMouseEnter={() => setHoveredPoint(tooltip)}
+              />
+              <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-returns" cx={point.x} cy={point.y} r="4.2" aria-hidden="true" />
+            </g>
+          );
+        })}
         {labelIndexes.map((index) => (
           <text className="ppChartAxisText" key={`${safeLabels[index]}-${index}`} x={getAnalyticsChartX(index, pointCount, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === pointCount - 1 ? "end" : "middle"}>{safeLabels[index]}</text>
         ))}
       </svg>
+      <AnalyticsSvgPopover point={hoveredPoint} layout={layout} />
       {chart?.summary?.detail && <p>{chart.summary.detail}</p>}
     </div>
   );
+}
+
+function AnalyticsSvgPopover({ point, layout }) {
+  if (!point) return null;
+  return (
+    <div className="ppAnalyticsSvgPopover" style={getAnalyticsSvgPopoverStyle(point, layout)} role="tooltip">
+      <span>{point.dateLabel}</span>
+      <strong>{point.title}</strong>
+      <em>{point.valueLabel}</em>
+      {point.sourceLabel && <small>{point.sourceLabel}</small>}
+      {point.basisLabel && <p>{point.basisLabel}</p>}
+      {point.detailLabel && <p>{point.detailLabel}</p>}
+    </div>
+  );
+}
+
+function getAnalyticsPointDetail(pointDetails = [], index = 0, fallbackLabel = "", fallbackSource = "") {
+  const detail = pointDetails[index] || {};
+  return {
+    label: detail.label || fallbackLabel || `Point ${index + 1}`,
+    sourceLabel: detail.sourceLabel || fallbackSource || "Stored ProductPulse analytics",
+    basisLabel: detail.basisLabel || "",
+    productCountLabel: detail.productCountLabel || "",
+  };
+}
+
+function buildAnalyticsActionImpactTooltip(series, pointDetails, labels, index, point) {
+  const detail = getAnalyticsPointDetail(pointDetails, index, labels[index], "Applied recommendation history");
+  return {
+    id: `${series.key || series.label}-${index}`,
+    x: point.x,
+    y: point.y,
+    title: series.label,
+    dateLabel: detail.label,
+    valueLabel: point.valueLabel,
+    sourceLabel: detail.sourceLabel,
+    basisLabel: detail.basisLabel,
+  };
+}
+
+function getAnalyticsSvgPopoverStyle(point, layout) {
+  const left = clampNumber((Number(point.x || 0) / Math.max(Number(layout.viewBoxWidth || 1), 1)) * 100, 8, 92);
+  const top = clampNumber((Number(point.y || 0) / Math.max(Number(layout.viewBoxHeight || 1), 1)) * 100, 18, 88);
+  return {
+    "--pp-popover-left": `${left}%`,
+    "--pp-popover-top": `${top}%`,
+  };
+}
+
+function getAnalyticsTooltipAriaLabel(point) {
+  return [point.title, point.dateLabel, point.valueLabel, point.sourceLabel].filter(Boolean).join(", ");
 }
 
 function AnalyticsEmptyPanel({ message }) {
