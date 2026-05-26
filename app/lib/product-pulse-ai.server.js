@@ -1144,8 +1144,28 @@ function compactReturnRatePredictionForAi(prediction = null) {
 }
 
 function compactProductRetentionForAi(retention = null) {
-  const summary = retention?.summary || {};
-  const healthTrend = (Array.isArray(retention?.retentionHealthTrend) ? retention.retentionHealthTrend : [])
+  const summary = retention?.summary || (retention ? {
+    totalCustomersAnalyzed: retention.totalCustomersAnalyzed ?? retention.totalProductCohortCustomers,
+    totalOrdersAnalyzed: retention.totalOrdersAnalyzed ?? retention.totalProductOrdersAnalyzed,
+    repeatPurchaseRate90d: retention.repeatPurchaseRate90d,
+    repeatPurchaseRate180d: retention.repeatPurchaseRate180d,
+    sameProductRepurchaseRate90d: retention.sameProductRepurchaseRate90d,
+    crossSellRetentionRate90d: retention.crossSellRetentionRate90d,
+    returningRevenueShare: retention.returningRevenueShare,
+    medianDaysToSecondPurchase: retention.medianDaysToSecondPurchase,
+    productLtv90Cents: retention.productLtv90Cents,
+    productLtv180Cents: retention.productLtv180Cents,
+    retentionHealthScore: retention.retentionHealthScore,
+    hasEnoughData: retention.hasEnoughData,
+    earliestOrderDate: retention.earliestOrderDate,
+    latestOrderDate: retention.latestOrderDate,
+  } : {});
+  const retentionTrendSource = Array.isArray(retention?.retentionHealthTrend)
+    ? retention.retentionHealthTrend
+    : Array.isArray(retention?.trend)
+      ? retention.trend
+      : [];
+  const healthTrend = retentionTrendSource
     .slice(-12)
     .map((point) => ({
       date: cleanRelationshipText(point.date || point.asOfDate || point.cohortDate || "", 32),
@@ -1161,8 +1181,9 @@ function compactProductRetentionForAi(retention = null) {
       sameProductLtvCents: toAiNumber(point.sameProductLtvCents),
       otherProductLtvCents: toAiNumber(point.otherProductLtvCents),
     }));
-  const hasRetention = Object.keys(summary).length > 0
-    && (toAiNumber(summary.totalCustomersAnalyzed) > 0 || toAiOptionalNumber(summary.retentionHealthScore) !== null || healthTrend.length > 0 || ltvCurve.length > 0);
+  const hasRetention = Boolean(retention?.available)
+    || (Object.keys(summary).length > 0
+      && (toAiNumber(summary.totalCustomersAnalyzed) > 0 || toAiOptionalNumber(summary.retentionHealthScore) !== null || healthTrend.length > 0 || ltvCurve.length > 0));
 
   return {
     available: hasRetention,

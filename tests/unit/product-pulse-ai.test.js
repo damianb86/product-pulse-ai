@@ -32,6 +32,7 @@ vi.mock("../../app/lib/product-pulse-job-logs.server", () => ({
 
 const {
   __productPulseAiTestHooks,
+  buildCompactProductChartInterpretationInput,
   buildCompactProductRelationshipAiInput,
   generateProductDiagnosisTestText,
   normalizeProductRelationshipAiInsights,
@@ -576,6 +577,72 @@ describe("ProductPulse AI provider fallback", () => {
     });
     expect(result.chartInterpretations.interpretations.monthlyOrderActivity.text).toContain("Orders rose in May");
     expect(result.chartInterpretations.interpretations.productMomentum.text).toContain("latest week");
+  });
+
+  it("marks diagnosis-compacted chart inputs available for all product detail chart interpretations", () => {
+    const compact = buildCompactProductChartInterpretationInput({
+      product: { title: "Cooling Pillow", handle: "gen-cooling-pillow-26a108d0" },
+      deterministic: {
+        riskScore: 84,
+        confidence: 90,
+        metrics: {
+          monthlyOrderActivity: {
+            months: [
+              { key: "2026-04", label: "Apr 2026", orders: 4, orderUnits: 4, returnedUnits: 2, refundedUnits: 1, revenue: 120, refundAmount: 48 },
+              { key: "2026-05", label: "May 2026", orders: 7, orderUnits: 8, returnedUnits: 5, refundedUnits: 2, revenue: 246, refundAmount: 68 },
+            ],
+            summary: { totalOrders: 11, totalOrderUnits: 12, totalReturnedUnits: 7, totalRefundedUnits: 3, totalRevenue: 366, totalRefundAmount: 116, returnRate: 58.33, refundRate: 25 },
+          },
+          returnRatePrediction: {
+            observedPoints: [
+              { key: "2026-W18", label: "W18", orders: 2, orderUnits: 2, returnedUnits: 1, smoothedReturnRate: 25 },
+              { key: "2026-W19", label: "W19", orders: 5, orderUnits: 6, returnedUnits: 4, smoothedReturnRate: 48 },
+            ],
+            forecastPoints: [
+              { key: "2026-W20", label: "W20", predictedReturnRate: 42, basePredictedReturnRate: 45 },
+            ],
+            summary: { totalOrderUnits: 12, totalReturnedUnits: 7, totalReturnRate: 58.33, forecastNext90ReturnRate: 41.86, confidence: "Low" },
+          },
+          productRetention: {
+            available: true,
+            hasEnoughData: true,
+            totalProductCohortCustomers: 7,
+            totalProductOrdersAnalyzed: 14,
+            retentionHealthScore: 93,
+            repeatPurchaseRate90d: 1,
+            sameProductRepurchaseRate90d: 0.857143,
+            crossSellRetentionRate90d: 0.142857,
+            productLtv90Cents: 10200,
+            trend: [{ date: "2026-05-01", retentionHealthScore: 93, repeatPurchaseRate90d: 1, productLtv90Cents: 10200 }],
+          },
+          riskHistory: [
+            { label: "Apr 2026", riskScore: 71, confidence: 88, returnRate: 35, refundRate: 10 },
+            { label: "May 2026", riskScore: 84, confidence: 90, returnRate: 58.33, refundRate: 25 },
+          ],
+          productMomentum: {
+            score: 77,
+            tier: "Active",
+            direction: "rising",
+            confidence: 82,
+            confidenceLabel: "High",
+            components: { currentVelocityScore: 74, growthScore: 80, catalogShareScore: 70, trendConsistencyScore: 68, recencyScore: 95 },
+            inputs: { unitsLast7Days: 2, unitsLast30Days: 8, unitsPrevious30Days: 4, revenueLast30Days: 246, weeklyUnitsLast4Weeks: [1, 1, 2, 4], lastSaleAt: "2026-05-20T12:00:00.000Z" },
+            display: { trendLabel: "Sales activity rising", growthLabel: "+100%", growthPercent: 100, catalogPositionLabel: "Top 30%" },
+          },
+        },
+      },
+    });
+
+    expect(compact.available).toBe(true);
+    expect(compact.charts.monthly_order_activity.available).toBe(true);
+    expect(compact.charts.return_rate_prediction.available).toBe(true);
+    expect(compact.charts.product_retention_metrics.available).toBe(true);
+    expect(compact.charts.product_risk_over_time.available).toBe(true);
+    expect(compact.charts.product_momentum.available).toBe(true);
+    expect(compact.charts.product_retention_metrics.summary).toMatchObject({
+      totalCustomersAnalyzed: 7,
+      retentionHealthScore: 93,
+    });
   });
 
   it("builds sanitized compact relationship insight input without raw customer or order payloads", () => {

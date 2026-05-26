@@ -1926,6 +1926,63 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
   });
 
+  it("keeps product-detail chart data in the compact deterministic AI input", () => {
+    const aiInput = __productPulseDiagnosisTestHooks.buildAiDeterministicInput({
+      riskScore: 84,
+      confidence: 90,
+      mainIssue: "product_quality",
+      mainIssueLabel: "Product quality",
+      metrics: {
+        soldUnits: 12,
+        returnUnits: 7,
+        returnRate: 58.33,
+        refundUnits: 3,
+        refundRate: 25,
+        refundAmount: 116,
+        reviewCount: 0,
+        negativeReviewCount: 0,
+        signalCount: 10,
+        monthlyOrderActivity: {
+          months: [
+            { key: "2026-04", label: "Apr 2026", orders: 4, orderUnits: 4, returnedUnits: 2, refundedUnits: 1, revenue: 120, refundAmount: 48 },
+            { key: "2026-05", label: "May 2026", orders: 7, orderUnits: 8, returnedUnits: 5, refundedUnits: 2, revenue: 246, refundAmount: 68 },
+          ],
+          summary: { totalOrders: 11, totalOrderUnits: 12, totalReturnedUnits: 7, totalRefundedUnits: 3, totalRevenue: 366, totalRefundAmount: 116, returnRate: 58.33, refundRate: 25 },
+        },
+        returnRatePrediction: {
+          observedPoints: [{ key: "2026-W19", label: "W19", orders: 5, orderUnits: 6, returnedUnits: 4, smoothedReturnRate: 48 }],
+          forecastPoints: [{ key: "2026-W20", label: "W20", predictedReturnRate: 42, basePredictedReturnRate: 45 }],
+          summary: { totalOrderUnits: 12, totalReturnedUnits: 7, totalReturnRate: 58.33, forecastNext90ReturnRate: 41.86, confidence: "Low" },
+        },
+        productRetention: {
+          summary: { totalCustomersAnalyzed: 7, totalOrdersAnalyzed: 14, retentionHealthScore: 93, repeatPurchaseRate90d: 1, sameProductRepurchaseRate90d: 0.857143, hasEnoughData: true },
+          retentionHealthTrend: [{ date: "2026-05-01", retentionHealthScore: 93, repeatPurchaseRate90d: 1 }],
+        },
+        productMomentum: {
+          score: 77,
+          tier: "Active",
+          direction: "rising",
+          confidence: 82,
+          inputs: { unitsLast7Days: 2, unitsLast30Days: 8, unitsPrevious30Days: 4, revenueLast30Days: 246, weeklyUnitsLast4Weeks: [1, 1, 2, 4] },
+          components: { currentVelocityScore: 74, growthScore: 80, catalogShareScore: 70, trendConsistencyScore: 68, recencyScore: 95 },
+          display: { trendLabel: "Sales activity rising" },
+        },
+        reconstructedRiskHistory: [
+          { label: "Apr 2026", riskScore: 71, confidence: 88, returnRate: 35, refundRate: 10 },
+          { label: "May 2026", riskScore: 84, confidence: 90, returnRate: 58.33, refundRate: 25 },
+        ],
+      },
+    });
+
+    expect(aiInput.metrics.monthlyOrderActivity).toMatchObject({ available: true });
+    expect(aiInput.metrics.monthlyOrderActivity.months).toHaveLength(2);
+    expect(aiInput.metrics.returnRatePrediction).toMatchObject({ available: true });
+    expect(aiInput.metrics.returnRatePrediction.forecastPoints).toHaveLength(1);
+    expect(aiInput.metrics.productRetention).toMatchObject({ available: true, retentionHealthScore: 93 });
+    expect(aiInput.metrics.productMomentum).toMatchObject({ available: true, score: 77 });
+    expect(aiInput.metrics.riskHistory).toHaveLength(2);
+  });
+
   it("matches CSV reviews by Shopify numeric ID or product handle", () => {
     const snapshot = {
       productGid: "gid://shopify/Product/98765",

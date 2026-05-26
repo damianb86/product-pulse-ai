@@ -3756,11 +3756,131 @@ function buildAiDeterministicInput(deterministic) {
       affectedVariants: deterministic.metrics.affectedVariants,
       variantInsights: deterministic.metrics.variantInsights,
       orderGeography: deterministic.metrics.orderGeography,
+      monthlyOrderActivity: buildAiMonthlyOrderActivityInput(deterministic.metrics.monthlyOrderActivity),
+      returnRatePrediction: buildAiReturnRatePredictionInput(deterministic.metrics.returnRatePrediction),
       productRetention: buildAiProductRetentionInput(deterministic.metrics.productRetention),
+      productMomentum: buildAiProductMomentumInput(deterministic.metrics.productMomentum),
+      riskHistory: buildAiRiskHistoryInput(deterministic.metrics.reconstructedRiskHistory || deterministic.metrics.riskHistory),
       windowDays: deterministic.metrics.windowDays,
       orderAccessDenied: deterministic.metrics.orderAccessDenied,
       incrementalDiagnosis: sanitizeIncrementalDiagnosisForAi(deterministic.metrics.incrementalDiagnosis),
     },
+  };
+}
+
+function buildAiMonthlyOrderActivityInput(activity = null) {
+  if (!activity) return null;
+  const months = (Array.isArray(activity.months) ? activity.months : [])
+    .slice(-14)
+    .map((month) => ({
+      key: month.key || null,
+      label: month.label || month.key || null,
+      startAt: month.startAt || null,
+      orders: numberOrNull(month.orders),
+      orderUnits: numberOrNull(month.orderUnits),
+      revenue: numberOrNull(month.revenue),
+      returnedOrders: numberOrNull(month.returnedOrders),
+      returnedUnits: numberOrNull(month.returnedUnits),
+      refundedOrders: numberOrNull(month.refundedOrders),
+      refundedUnits: numberOrNull(month.refundedUnits),
+      refundAmount: numberOrNull(month.refundAmount),
+      returnRate: numberOrNull(month.returnRate),
+      refundRate: numberOrNull(month.refundRate),
+      resolvedReturnUnits: numberOrNull(month.resolvedReturnUnits ?? month.returnResolvedUnits ?? month.resolvedReturns),
+      unresolvedReturnUnits: numberOrNull(month.unresolvedReturnUnits ?? month.openReturnUnits ?? month.pendingReturnUnits ?? month.unresolvedReturns),
+    }));
+  const summary = activity.summary || {};
+  const hasActivity = months.some((month) => (
+    Number(month.orders || 0) > 0
+    || Number(month.orderUnits || 0) > 0
+    || Number(month.returnedUnits || 0) > 0
+    || Number(month.refundedUnits || 0) > 0
+    || Number(month.revenue || 0) > 0
+    || Number(month.refundAmount || 0) > 0
+  ));
+
+  return {
+    available: hasActivity,
+    source: activity.source || null,
+    windowDays: numberOrNull(activity.windowDays),
+    generatedAt: activity.generatedAt || null,
+    summary: {
+      totalOrders: numberOrNull(summary.totalOrders),
+      totalOrderUnits: numberOrNull(summary.totalOrderUnits),
+      totalRevenue: numberOrNull(summary.totalRevenue),
+      totalReturnedUnits: numberOrNull(summary.totalReturnedUnits),
+      totalRefundedUnits: numberOrNull(summary.totalRefundedUnits),
+      totalRefundAmount: numberOrNull(summary.totalRefundAmount),
+      returnRate: numberOrNull(summary.returnRate),
+      refundRate: numberOrNull(summary.refundRate),
+    },
+    months,
+  };
+}
+
+function buildAiReturnRatePredictionInput(prediction = null) {
+  if (!prediction) return null;
+  const observedPoints = (Array.isArray(prediction.observedPoints) ? prediction.observedPoints : [])
+    .slice(-18)
+    .map((point) => ({
+      key: point.key || null,
+      label: point.label || point.key || null,
+      startAt: point.startAt || null,
+      orders: numberOrNull(point.orders),
+      orderUnits: numberOrNull(point.orderUnits),
+      returnedOrders: numberOrNull(point.returnedOrders),
+      returnedUnits: numberOrNull(point.returnedUnits),
+      rawReturnRate: numberOrNull(point.rawReturnRate),
+      smoothedReturnRate: numberOrNull(point.smoothedReturnRate ?? point.rawReturnRate),
+    }));
+  const forecastPoints = (Array.isArray(prediction.forecastPoints) ? prediction.forecastPoints : [])
+    .slice(0, 14)
+    .map((point) => ({
+      key: point.key || null,
+      label: point.label || point.key || null,
+      startAt: point.startAt || null,
+      predictedReturnRate: numberOrNull(point.predictedReturnRate),
+      basePredictedReturnRate: numberOrNull(point.basePredictedReturnRate),
+      baselineReturnRate: numberOrNull(point.baselineReturnRate),
+      seasonalReturnRate: numberOrNull(point.seasonalReturnRate),
+      lowerBound: numberOrNull(point.lowerBound),
+      upperBound: numberOrNull(point.upperBound),
+    }));
+  const summary = prediction.summary || {};
+  const actionAdjustment = prediction.actionAdjustment || {};
+  const hasPrediction = observedPoints.some((point) => (
+    Number(point.orders || 0) > 0
+    || Number(point.orderUnits || 0) > 0
+    || Number(point.returnedUnits || 0) > 0
+    || point.smoothedReturnRate != null
+  )) || forecastPoints.some((point) => point.predictedReturnRate != null);
+
+  return {
+    available: hasPrediction,
+    source: prediction.source || null,
+    granularity: prediction.granularity || "weekly",
+    windowDays: numberOrNull(prediction.windowDays),
+    generatedAt: prediction.generatedAt || null,
+    summary: {
+      totalOrderUnits: numberOrNull(summary.totalOrderUnits),
+      totalReturnedUnits: numberOrNull(summary.totalReturnedUnits),
+      totalReturnRate: numberOrNull(summary.totalReturnRate),
+      last30DayReturnRate: numberOrNull(summary.last30DayReturnRate),
+      last60DayReturnRate: numberOrNull(summary.last60DayReturnRate),
+      forecastNext90ReturnRate: numberOrNull(summary.forecastNext90ReturnRate),
+      confidence: summary.confidence || null,
+    },
+    actionAdjustment: {
+      adjustmentPoints: numberOrNull(actionAdjustment.adjustmentPoints),
+      uncertaintyLift: numberOrNull(actionAdjustment.uncertaintyLift),
+      applied: numberOrNull(actionAdjustment.applied),
+      reviewed: numberOrNull(actionAdjustment.reviewed),
+      dismissed: numberOrNull(actionAdjustment.dismissed),
+      pending: numberOrNull(actionAdjustment.pending),
+      total: numberOrNull(actionAdjustment.total),
+    },
+    observedPoints,
+    forecastPoints,
   };
 }
 
@@ -3816,6 +3936,71 @@ function buildAiProductRetentionInput(retention = null) {
         productLtv90Cents: numberOrNull(point.productLtv90Cents),
       })),
   };
+}
+
+function buildAiProductMomentumInput(momentum = null) {
+  if (!momentum) return null;
+  const inputs = momentum.inputs || {};
+  const weeklyUnits = Array.isArray(inputs.weeklyUnitsLast4Weeks)
+    ? inputs.weeklyUnitsLast4Weeks.slice(-4).map((value) => Number(value || 0))
+    : [];
+
+  return {
+    available: Boolean(
+      numberOrNull(momentum.score) != null
+      || weeklyUnits.some((value) => value > 0)
+      || Number(inputs.unitsLast30Days || 0) > 0
+      || Number(inputs.revenueLast30Days || 0) > 0
+    ),
+    score: numberOrNull(momentum.score),
+    tier: momentum.tier || null,
+    direction: momentum.direction || null,
+    confidence: numberOrNull(momentum.confidence),
+    confidenceLabel: momentum.confidenceLabel || null,
+    display: {
+      trendLabel: momentum.display?.trendLabel || null,
+      growthLabel: momentum.display?.growthLabel || null,
+      growthPercent: numberOrNull(momentum.display?.growthPercent),
+      catalogPositionLabel: momentum.display?.catalogPositionLabel || null,
+    },
+    components: {
+      currentVelocityScore: numberOrNull(momentum.components?.currentVelocityScore),
+      growthScore: numberOrNull(momentum.components?.growthScore),
+      catalogShareScore: numberOrNull(momentum.components?.catalogShareScore),
+      trendConsistencyScore: numberOrNull(momentum.components?.trendConsistencyScore),
+      recencyScore: numberOrNull(momentum.components?.recencyScore),
+    },
+    inputs: {
+      unitsLast7Days: numberOrNull(inputs.unitsLast7Days),
+      unitsLast30Days: numberOrNull(inputs.unitsLast30Days),
+      unitsPrevious30Days: numberOrNull(inputs.unitsPrevious30Days),
+      revenueLast30Days: numberOrNull(inputs.revenueLast30Days),
+      weeklyUnitsLast4Weeks: weeklyUnits,
+      lastSaleAt: inputs.lastSaleAt || null,
+    },
+  };
+}
+
+function buildAiRiskHistoryInput(history = []) {
+  if (!Array.isArray(history)) return [];
+  return history.slice(-16).map((point, index) => {
+    const metrics = point.metrics || {};
+    return {
+      label: point.label || point.recordedAt || point.calculatedAt || `Point ${index + 1}`,
+      recordedAt: point.recordedAt || point.calculatedAt || point.completedAt || null,
+      riskScore: numberOrNull(point.riskScore ?? metrics.riskScore),
+      confidence: numberOrNull(point.confidence ?? metrics.confidence),
+      returnRate: numberOrNull(point.returnRate ?? metrics.returnRate),
+      refundRate: numberOrNull(point.refundRate ?? metrics.refundRate),
+      returnUnits: numberOrNull(point.returnUnits ?? metrics.returnUnits),
+      refundUnits: numberOrNull(point.refundUnits ?? metrics.refundUnits),
+      negativeReviewCount: numberOrNull(point.negativeReviewCount ?? metrics.negativeReviewCount),
+      reviewCount: numberOrNull(point.reviewCount ?? metrics.reviewCount),
+      avgRating: numberOrNull(point.avgRating ?? point.averageRating ?? metrics.avgRating ?? metrics.averageRating),
+      refundAmount: numberOrNull(point.refundAmount ?? metrics.refundAmount),
+      productMomentumScore: numberOrNull(point.productMomentumScore ?? metrics.productMomentumScore),
+    };
+  });
 }
 
 function buildAiIncrementalDiagnosisInput(deterministic = {}) {
@@ -14736,6 +14921,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildOrderGeographyRows,
   buildIssueSignalCountsFromAnalysis,
   calculateDeterministicDiagnosis,
+  buildAiDeterministicInput,
   buildMonthlyOrderActivity,
   buildReturnRatePrediction,
   buildProductMomentum,
