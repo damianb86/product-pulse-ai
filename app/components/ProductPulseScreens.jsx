@@ -15451,9 +15451,6 @@ function ProductRetentionMetricsPanel({ detail }) {
         <>
           <div className="ppProductRetentionBody">
             <div className="ppProductRetentionMain">
-              <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
-            </div>
-            <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
               <div className="ppRetentionMetricGrid">
                 <ProductRetentionMetricCard
                   icon="shopify-orders"
@@ -15491,6 +15488,9 @@ function ProductRetentionMetricsPanel({ detail }) {
                   tone={summary.hasEnoughData ? "blue" : "amber"}
                 />
               </div>
+              <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
+            </div>
+            <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
               <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
               {ltvChart.hasData && (
                 <>

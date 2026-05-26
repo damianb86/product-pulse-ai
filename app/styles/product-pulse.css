@@ -11327,14 +11327,6 @@ s-page[inline-size="large-500"] {
   min-width: 0;
 }
 
-.ppProductRetentionSideRail .ppRetentionMetricGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.ppProductRetentionSideRail .ppRetentionMetricCard {
-  min-height: 58px;
-}
-
 .ppProductRetentionSideRail .ppRetentionActionCardGrid {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -11406,7 +11398,7 @@ s-page[inline-size="large-500"] {
 .ppRetentionActionReadoutHeader h3 {
   margin: 0;
   color: var(--pp-slate-900);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 950;
 }
 
@@ -11414,9 +11406,9 @@ s-page[inline-size="large-500"] {
 .ppRetentionActionReadoutEmptyText {
   margin: 3px 0 0;
   color: var(--pp-slate-600);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
-  line-height: 1.45;
+  line-height: 1.38;
 }
 
 .ppRetentionActionReadoutHeader > span {
@@ -11425,7 +11417,7 @@ s-page[inline-size="large-500"] {
   border-radius: 999px;
   background: rgba(var(--pp-signal-teal-rgb), 0.1);
   color: var(--pp-signal-teal);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 900;
 }
 
@@ -11458,7 +11450,7 @@ s-page[inline-size="large-500"] {
 
 .ppRetentionActionCard strong {
   color: var(--pp-slate-900);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 950;
 }
 
@@ -11466,14 +11458,14 @@ s-page[inline-size="large-500"] {
 .ppRetentionActionCard small {
   margin: 0;
   color: var(--pp-slate-600);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
-  line-height: 1.45;
+  line-height: 1.38;
 }
 
 .ppRetentionActionCard small {
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
 }
 

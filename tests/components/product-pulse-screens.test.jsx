@@ -2186,10 +2186,11 @@ describe("ProductPulse screens", () => {
     const retentionMain = panel.querySelector(".ppProductRetentionMain");
     const retentionSideRail = panel.querySelector(".ppProductRetentionSideRail");
     const retentionMetricGrid = panel.querySelector(".ppRetentionMetricGrid");
-    expect(retentionSideRail).toContainElement(retentionMetricGrid);
-    expect(retentionMain).not.toContainElement(retentionMetricGrid);
+    expect(retentionMain).toContainElement(retentionMetricGrid);
+    expect(retentionSideRail).not.toContainElement(retentionMetricGrid);
     const ltvCard = within(panel).getByText("LTV Breakdown").closest(".ppRetentionChartCard");
     expect(retentionMain).toContainElement(ltvCard);
+    expect([...retentionMain.children].indexOf(retentionMetricGrid)).toBeLessThan([...retentionMain.children].indexOf(ltvCard));
     expect(ltvCard).toHaveClass("ppRetentionLtvBreakdownCard");
     expect(within(ltvCard).getByText("Metric: LTV contribution")).toBeInTheDocument();
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as cumulative dollars" })).toHaveClass("isActive");
