@@ -27169,13 +27169,12 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
                   detailLabel: pointDetail.productCountLabel,
                 };
                 const isActive = hoveredPoint?.id === tooltip.id;
-                const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithMousePosition(tooltip, event));
+                const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithPointPosition(tooltip, event));
                 return (
                   <g
                     className={`ppAnalyticsRiskMarginPointGroup${showPersistentDots ? " isPersistent" : ""}${isActive ? " isActive" : ""}`}
                     key={tooltip.id}
                     onMouseEnter={showTooltip}
-                    onMouseMove={showTooltip}
                     onMouseLeave={() => setHoveredPoint(null)}
                     onBlur={() => setHoveredPoint(null)}
                   >
@@ -27187,9 +27186,8 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
                       tabIndex={0}
                       role="img"
                       aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
-                      onFocus={() => setHoveredPoint(tooltip)}
+                      onFocus={showTooltip}
                       onMouseEnter={showTooltip}
-                      onMouseMove={showTooltip}
                     />
                     <circle className="ppAnalyticsRiskMarginDot" cx={point.x} cy={point.y} r="4.2" aria-hidden="true" />
                   </g>
@@ -27201,8 +27199,8 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
         {labelIndexes.map((index) => (
           <text className="ppChartAxisText" key={`${labels[index]}-${index}`} x={getAnalyticsChartX(index, labels.length, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}>{labels[index]}</text>
         ))}
-        <AnalyticsSvgPopover point={hoveredPoint} layout={layout} offsetY={6} />
       </svg>
+      <AnalyticsSvgPopover point={hoveredPoint} offsetY={12} />
     </div>
   );
 }
@@ -27356,13 +27354,12 @@ function AnalyticsActionImpactTrendChart({ chart }) {
             y: Math.max(layout.top + 6, layout.bottom - height),
             valueLabel: formatInteger(value),
           });
-          const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithMousePosition(tooltip, event));
+          const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithPointPosition(tooltip, event));
           return (
             <g
               className="ppAnalyticsActionImpactBarGroup"
               key={`action-bar-${index}`}
               onMouseEnter={showTooltip}
-              onMouseMove={showTooltip}
               onMouseLeave={() => setHoveredPoint(null)}
               onBlur={() => setHoveredPoint(null)}
             >
@@ -27384,9 +27381,8 @@ function AnalyticsActionImpactTrendChart({ chart }) {
                 tabIndex={0}
                 role="img"
                 aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
-                onFocus={() => setHoveredPoint(tooltip)}
+                onFocus={showTooltip}
                 onMouseEnter={showTooltip}
-                onMouseMove={showTooltip}
               />
             </g>
           );
@@ -27399,13 +27395,12 @@ function AnalyticsActionImpactTrendChart({ chart }) {
             y: point.y,
             valueLabel: formatMoney(riskSeries.values[index] || 0),
           });
-          const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithMousePosition(tooltip, event));
+          const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithPointPosition(tooltip, event));
           return (
             <g
               className={`ppAnalyticsActionImpactPointGroup${hoveredPoint?.id === tooltip.id ? " isActive" : ""}`}
               key={`risk-dot-${index}`}
               onMouseEnter={showTooltip}
-              onMouseMove={showTooltip}
               onMouseLeave={() => setHoveredPoint(null)}
               onBlur={() => setHoveredPoint(null)}
             >
@@ -27417,9 +27412,8 @@ function AnalyticsActionImpactTrendChart({ chart }) {
                 tabIndex={0}
                 role="img"
                 aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
-                onFocus={() => setHoveredPoint(tooltip)}
+                onFocus={showTooltip}
                 onMouseEnter={showTooltip}
-                onMouseMove={showTooltip}
               />
               <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-risk" cx={point.x} cy={point.y} r="4.2" aria-hidden="true" />
             </g>
@@ -27431,13 +27425,12 @@ function AnalyticsActionImpactTrendChart({ chart }) {
             y: point.y,
             valueLabel: formatPercent(returnsSeries.values[index] || 0),
           });
-          const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithMousePosition(tooltip, event));
+          const showTooltip = (event) => setHoveredPoint(getAnalyticsTooltipWithPointPosition(tooltip, event));
           return (
             <g
               className={`ppAnalyticsActionImpactPointGroup${hoveredPoint?.id === tooltip.id ? " isActive" : ""}`}
               key={`returns-dot-${index}`}
               onMouseEnter={showTooltip}
-              onMouseMove={showTooltip}
               onMouseLeave={() => setHoveredPoint(null)}
               onBlur={() => setHoveredPoint(null)}
             >
@@ -27449,9 +27442,8 @@ function AnalyticsActionImpactTrendChart({ chart }) {
                 tabIndex={0}
                 role="img"
                 aria-label={getAnalyticsTooltipAriaLabel(tooltip)}
-                onFocus={() => setHoveredPoint(tooltip)}
+                onFocus={showTooltip}
                 onMouseEnter={showTooltip}
-                onMouseMove={showTooltip}
               />
               <circle className="ppAnalyticsActionImpactDot ppAnalyticsActionImpactDot-returns" cx={point.x} cy={point.y} r="4.2" aria-hidden="true" />
             </g>
@@ -27460,28 +27452,26 @@ function AnalyticsActionImpactTrendChart({ chart }) {
         {labelIndexes.map((index) => (
           <text className="ppChartAxisText" key={`${safeLabels[index]}-${index}`} x={getAnalyticsChartX(index, pointCount, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === pointCount - 1 ? "end" : "middle"}>{safeLabels[index]}</text>
         ))}
-        <AnalyticsSvgPopover point={hoveredPoint} layout={layout} offsetY={10} />
       </svg>
+      <AnalyticsSvgPopover point={hoveredPoint} offsetY={18} />
       {chart?.summary?.detail && <p>{chart.summary.detail}</p>}
     </div>
   );
 }
 
-function AnalyticsSvgPopover({ point, layout, offsetY = 8 }) {
+function AnalyticsSvgPopover({ point, offsetY = 12 }) {
   if (!point) return null;
-  const box = getAnalyticsSvgPopoverBox(point, layout, offsetY);
-  return (
-    <foreignObject className="ppAnalyticsSvgPopoverObject" x={box.x} y={box.y} width={box.width} height={box.height}>
-      <div xmlns="http://www.w3.org/1999/xhtml" className="ppAnalyticsSvgPopover" style={{ "--pp-popover-arrow-left": `${box.arrowLeft}px` }} role="tooltip">
-        <span>{point.dateLabel}</span>
-        <strong>{point.title}</strong>
-        <em>{point.valueLabel}</em>
-        {point.sourceLabel && <small>{point.sourceLabel}</small>}
-        {point.basisLabel && <p>{point.basisLabel}</p>}
-        {point.detailLabel && <p>{point.detailLabel}</p>}
-      </div>
-    </foreignObject>
+  const popover = (
+    <div className="ppAnalyticsSvgPopover" style={getAnalyticsFixedPopoverStyle(point, offsetY)} role="tooltip">
+      <span>{point.dateLabel}</span>
+      <strong>{point.title}</strong>
+      <em>{point.valueLabel}</em>
+      {point.sourceLabel && <small>{point.sourceLabel}</small>}
+      {point.basisLabel && <p>{point.basisLabel}</p>}
+      {point.detailLabel && <p>{point.detailLabel}</p>}
+    </div>
   );
+  return typeof document === "undefined" ? null : createPortal(popover, document.body);
 }
 
 function getAnalyticsPointDetail(pointDetails = [], index = 0, fallbackLabel = "", fallbackSource = "") {
@@ -27508,31 +27498,32 @@ function buildAnalyticsActionImpactTooltip(series, pointDetails, labels, index, 
   };
 }
 
-function getAnalyticsTooltipWithMousePosition(tooltip, event) {
-  const mousePoint = getAnalyticsSvgMousePoint(event);
-  if (!mousePoint) return tooltip;
+function getAnalyticsTooltipWithPointPosition(tooltip, event) {
+  const clientPoint = getAnalyticsSvgPointClientPosition(event, tooltip);
+  if (!clientPoint) return tooltip;
   return {
     ...tooltip,
-    x: mousePoint.x,
-    y: mousePoint.y,
+    clientX: clientPoint.clientX,
+    clientY: clientPoint.clientY,
   };
 }
 
-function getAnalyticsSvgMousePoint(event) {
+function getAnalyticsSvgPointClientPosition(event, point) {
   const svg = event?.currentTarget?.ownerSVGElement || event?.currentTarget?.closest?.("svg");
-  if (!svg || !Number.isFinite(Number(event?.clientX)) || !Number.isFinite(Number(event?.clientY))) return null;
-  if (Number(event.clientX) === 0 && Number(event.clientY) === 0) return null;
+  const pointX = Number(point?.x);
+  const pointY = Number(point?.y);
+  if (!svg || !Number.isFinite(pointX) || !Number.isFinite(pointY)) return null;
 
   if (typeof svg.createSVGPoint === "function" && typeof svg.getScreenCTM === "function") {
     const matrix = svg.getScreenCTM();
     if (matrix) {
-      const point = svg.createSVGPoint();
-      point.x = event.clientX;
-      point.y = event.clientY;
-      const transformed = point.matrixTransform(matrix.inverse());
+      const svgPoint = svg.createSVGPoint();
+      svgPoint.x = pointX;
+      svgPoint.y = pointY;
+      const transformed = svgPoint.matrixTransform(matrix);
       return {
-        x: Math.round(transformed.x * 10) / 10,
-        y: Math.round(transformed.y * 10) / 10,
+        clientX: Math.round(transformed.x * 10) / 10,
+        clientY: Math.round(transformed.y * 10) / 10,
       };
     }
   }
@@ -27541,25 +27532,25 @@ function getAnalyticsSvgMousePoint(event) {
   const viewBox = svg.viewBox?.baseVal;
   if (!rect || !viewBox || rect.width <= 0 || rect.height <= 0) return null;
   return {
-    x: Math.round((viewBox.x + ((event.clientX - rect.left) / rect.width) * viewBox.width) * 10) / 10,
-    y: Math.round((viewBox.y + ((event.clientY - rect.top) / rect.height) * viewBox.height) * 10) / 10,
+    clientX: Math.round((rect.left + ((pointX - viewBox.x) / viewBox.width) * rect.width) * 10) / 10,
+    clientY: Math.round((rect.top + ((pointY - viewBox.y) / viewBox.height) * rect.height) * 10) / 10,
   };
 }
 
-function getAnalyticsSvgPopoverBox(point, layout, offsetY = 8) {
+function getAnalyticsFixedPopoverStyle(point, offsetY = 12) {
   const width = 224;
   const height = point?.detailLabel ? 116 : 102;
-  const viewBoxHeight = Math.max(Number(layout?.viewBoxHeight || 1), height + 8);
-  const pointX = Number(point?.x || 0);
-  const pointY = Number(point?.y || 0);
-  const x = Math.max(4, pointX + 8);
-  const y = clampNumber(pointY - height - offsetY, 4, viewBoxHeight - height - 4);
+  const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight;
+  const pointX = Number(point?.clientX ?? point?.x ?? 0);
+  const pointY = Number(point?.clientY ?? point?.y ?? 0);
+  const left = clampNumber(pointX, width / 2 + 10, viewportWidth - width / 2 - 10);
+  const top = clampNumber(pointY - offsetY, height + 10, viewportHeight - 10);
+  const arrowLeft = clampNumber(pointX - (left - width / 2), 14, width - 14);
   return {
-    x: Math.round(x * 10) / 10,
-    y: Math.round(y * 10) / 10,
-    width,
-    height,
-    arrowLeft: 14,
+    "--pp-popover-arrow-left": `${Math.round(arrowLeft * 10) / 10}px`,
+    "--pp-popover-left": `${Math.round(left * 10) / 10}px`,
+    "--pp-popover-top": `${Math.round(top * 10) / 10}px`,
   };
 }
 

@@ -4918,14 +4918,14 @@ describe("ProductPulse screens", () => {
     const riskHoverTarget = container.querySelector(".ppAnalyticsRiskMarginHoverTarget");
     expect(riskPointGroup).not.toHaveClass("isPersistent");
     fireEvent.mouseEnter(riskHoverTarget);
-    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Margin at risk");
-    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent(/Saved score-history exposure|Reconstructed saved risk trend/);
+    expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Margin at risk");
+    expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent(/Saved score-history exposure|Reconstructed saved risk trend/);
     fireEvent.mouseLeave(riskPointGroup);
 
     const actionTarget = container.querySelector(".ppAnalyticsActionImpactBarTarget");
     fireEvent.mouseEnter(actionTarget);
-    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Actions applied");
-    expect(container.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Applied recommendation history");
+    expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Actions applied");
+    expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Applied recommendation history");
   });
 
   it("toggles extra impact breakdown rows from a centered view-more control", () => {

@@ -20703,17 +20703,15 @@ s-page[inline-size="large-500"] {
   r: 5.2;
 }
 
-.ppAnalyticsSvgPopoverObject {
-  overflow: visible;
-  pointer-events: none;
-}
-
 .ppAnalyticsSvgPopover {
-  position: relative;
+  position: fixed;
+  top: var(--pp-popover-top, 40vh);
+  left: var(--pp-popover-left, 50vw);
+  z-index: 1200;
   display: grid;
   gap: 3px;
   box-sizing: border-box;
-  width: 100%;
+  width: 224px;
   padding: 8px 10px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
@@ -20721,6 +20719,7 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 14px 34px rgba(var(--pp-shadow-rgb), 0.16), 0 2px 8px rgba(var(--pp-shadow-rgb), 0.08);
   color: var(--pp-slate-700);
   pointer-events: none;
+  transform: translate(-50%, -100%);
 }
 
 .ppAnalyticsSvgPopover::after {
