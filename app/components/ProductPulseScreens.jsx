@@ -4,8 +4,11 @@ import { Form, Link, useFetcher, useLocation, useNavigate, useNavigation, useRev
 import {
   Area,
   AreaChart,
+  Bar,
   CartesianGrid,
   Cell,
+  ComposedChart,
+  Line,
   Pie,
   PieChart,
   Tooltip as RechartsTooltip,
@@ -12358,60 +12361,121 @@ function ProductMetricTimelineChart({ chart }) {
       </div>
       <div className="ppMetricTimelineChartPlot">
         {chart.points.length ? (
-          <AreaChart
-            responsive
-            style={{ width: "100%", height: "100%" }}
-            data={chart.data}
-            margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
-            syncId="product-metric-timelines"
-          >
-            <defs>
-              <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor={chart.color} stopOpacity="0.2" />
-                <stop offset="100%" stopColor={chart.color} stopOpacity="0.02" />
-              </linearGradient>
-            </defs>
-            <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
-            <XAxis
-              dataKey="time"
-              type="number"
-              domain={[chart.xDomain.min, chart.xDomain.max]}
-              ticks={chart.xTicks.map((tick) => tick.value)}
-              tickFormatter={(value) => chart.xTickLabels[String(value)] || ""}
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
-            />
-            <YAxis
-              domain={[chart.yDomain.min, chart.yDomain.max]}
-              ticks={chart.yTicks.map((tick) => tick.value)}
-              tickFormatter={(value) => formatProductMetricTimelineValue(value, chart.axis)}
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
-              width={46}
-            />
-            <RechartsTooltip
-              content={<ProductMetricTimelineTooltip chart={chart} />}
-              cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
-              wrapperStyle={{ outline: "none", zIndex: 8 }}
-            />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke={chart.color}
-              strokeWidth={2.8}
-              fill={`url(#${gradientId})`}
-              dot={false}
-              activeDot={<ProductMetricTimelineActiveDot color={chart.color} />}
-              isAnimationActive={false}
-            />
-          </AreaChart>
+          chart.kind === "orderActivity" ? (
+            <ProductMetricTimelineOrderActivityChart chart={chart} />
+          ) : (
+            <AreaChart
+              responsive
+              style={{ width: "100%", height: "100%" }}
+              data={chart.data}
+              margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
+              syncId="product-metric-timelines"
+              syncMethod={getProductMetricTimelineNearestSyncIndex}
+            >
+              <defs>
+                <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor={chart.color} stopOpacity="0.2" />
+                  <stop offset="100%" stopColor={chart.color} stopOpacity="0.02" />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
+              <XAxis
+                dataKey="time"
+                type="number"
+                domain={[chart.xDomain.min, chart.xDomain.max]}
+                ticks={chart.xTicks.map((tick) => tick.value)}
+                tickFormatter={(value) => chart.xTickLabels[String(value)] || ""}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+              />
+              <YAxis
+                domain={[chart.yDomain.min, chart.yDomain.max]}
+                ticks={chart.yTicks.map((tick) => tick.value)}
+                tickFormatter={(value) => formatProductMetricTimelineValue(value, chart.axis)}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+                width={46}
+              />
+              <RechartsTooltip
+                content={<ProductMetricTimelineTooltip chart={chart} />}
+                cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+                wrapperStyle={{ outline: "none", zIndex: 8 }}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={chart.color}
+                strokeWidth={2.8}
+                fill={`url(#${gradientId})`}
+                dot={false}
+                activeDot={<ProductMetricTimelineActiveDot color={chart.color} />}
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          )
         ) : (
           <div className="ppMetricTimelineNoData">No timeline data</div>
         )}
       </div>
     </article>
+  );
+}
+
+function ProductMetricTimelineOrderActivityChart({ chart }) {
+  return (
+    <ComposedChart
+      responsive
+      style={{ width: "100%", height: "100%" }}
+      data={chart.data}
+      margin={{ top: 18, right: 12, bottom: 20, left: 0 }}
+      syncId="product-metric-timelines"
+      syncMethod={getProductMetricTimelineNearestSyncIndex}
+    >
+      <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
+      <XAxis
+        dataKey="time"
+        type="number"
+        domain={[chart.xDomain.min, chart.xDomain.max]}
+        ticks={chart.xTicks.map((tick) => tick.value)}
+        tickFormatter={(value) => chart.xTickLabels[String(value)] || ""}
+        axisLine={false}
+        tickLine={false}
+        tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+      />
+      <YAxis
+        yAxisId="volume"
+        domain={[chart.yDomain.min, chart.yDomain.max]}
+        ticks={chart.yTicks.map((tick) => tick.value)}
+        tickFormatter={(value) => formatProductMetricTimelineValue(value, "number")}
+        axisLine={false}
+        tickLine={false}
+        tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+        width={46}
+      />
+      <YAxis
+        yAxisId="revenue"
+        orientation="right"
+        domain={[chart.revenueDomain.min, chart.revenueDomain.max]}
+        ticks={chart.revenueTicks.map((tick) => tick.value)}
+        tickFormatter={(value) => formatProductMetricTimelineValue(value, "money")}
+        axisLine={false}
+        tickLine={false}
+        tick={{ fill: "var(--pp-slate-500)", fontSize: 10, fontWeight: 800 }}
+        width={54}
+      />
+      <RechartsTooltip
+        content={<ProductMetricTimelineOrderActivityTooltip />}
+        cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+        wrapperStyle={{ outline: "none", zIndex: 8 }}
+      />
+      <Bar yAxisId="volume" dataKey="orders" stackId="activity" fill="var(--pp-pulse-blue)" radius={[0, 0, 4, 4]} isAnimationActive={false} />
+      <Bar yAxisId="volume" dataKey="returnedOrders" stackId="activity" fill="var(--pp-warning-amber)" isAnimationActive={false} />
+      <Bar yAxisId="volume" dataKey="refundedOrders" stackId="activity" fill="var(--pp-risk-red)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      <Line yAxisId="revenue" type="monotone" dataKey="revenue" stroke="var(--pp-success-green)" strokeWidth={2.6} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-success-green)" />} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="unresolvedReturns" stroke="var(--pp-insight-violet)" strokeWidth={2.4} strokeDasharray="5 5" dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-insight-violet)" />} isAnimationActive={false} />
+    </ComposedChart>
   );
 }
 
@@ -12434,6 +12498,55 @@ function ProductMetricTimelineTooltip({ active, payload, chart }) {
     </div>
   );
 }
+
+function ProductMetricTimelineOrderActivityTooltip({ active, payload }) {
+  const point = Array.isArray(payload) && payload.length ? payload[0]?.payload : null;
+  if (!active || !point) return null;
+  return (
+    <div className="ppRetentionLinePopover ppMetricTimelineTooltip" role="tooltip">
+      <strong>{point.label}</strong>
+      <span><b>Orders</b><small>{formatInteger(point.orders)} orders · {formatInteger(point.orderUnits)} units</small></span>
+      <span><b>Returns</b><small>{formatInteger(point.returnedOrders)} cohorts · {formatInteger(point.returnedUnits)} units</small></span>
+      <span><b>Refunds</b><small>{formatInteger(point.refundedOrders)} cohorts · {formatInteger(point.refundedUnits)} units</small></span>
+      <span><b>Revenue</b><small>{formatMoney(point.revenue || 0)}</small></span>
+      <span><b>Unresolved returns</b><small>{formatInteger(point.unresolvedReturns || 0)}</small></span>
+    </div>
+  );
+}
+
+function getProductMetricTimelineNearestSyncIndex(ticks = [], active = {}) {
+  if (!Array.isArray(ticks) || !ticks.length) return 0;
+  const target = getProductMetricTimelineSyncTime(active?.activeLabel);
+  if (!Number.isFinite(target)) {
+    const fallbackIndex = Math.round(Number(active?.activeTooltipIndex ?? active?.activeIndex ?? 0));
+    return Math.round(clampNumber(fallbackIndex, 0, ticks.length - 1));
+  }
+
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+  ticks.forEach((tick, index) => {
+    const value = getProductMetricTimelineSyncTime(tick?.value);
+    if (!Number.isFinite(value)) return;
+    const distance = Math.abs(value - target);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+  return nearestIndex;
+}
+
+function getProductMetricTimelineSyncTime(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  if (Number.isFinite(number)) return number;
+  const date = parseProductMetricTimelineDate(value);
+  return date ? date.getTime() : null;
+}
+
+export const __productPulseScreensTestHooks = {
+  getProductMetricTimelineNearestSyncIndex,
+};
 
 function getProductMetricTimelineModel(detail = {}) {
   const historyPoints = getProductMetricTimelineHistoryPoints(detail);
@@ -12464,6 +12577,34 @@ function getProductMetricTimelineDefinitions() {
       yMax: 100,
       positiveDirection: "down",
       value: (point) => optionalFiniteMetricNumber(point.riskScore),
+    },
+    {
+      key: "monthly-order-activity",
+      kind: "orderActivity",
+      title: "Monthly order activity",
+      subtitle: "Orders, returns, refunds, revenue",
+      icon: "shopify-orders",
+      glyph: "shopify-orders",
+      tone: "blue",
+      color: "var(--pp-pulse-blue)",
+      axis: "number",
+      positiveDirection: "neutral",
+      points: getProductMetricTimelineOrderActivityPoints,
+    },
+    {
+      key: "return-rate",
+      title: "Return rate",
+      subtitle: "Returned units / ordered units",
+      icon: "shopify-returns",
+      glyph: "shopify-returns",
+      tone: "orange",
+      color: "var(--pp-warning-amber)",
+      axis: "percent",
+      yMin: 0,
+      yMax: 100,
+      positiveDirection: "down",
+      points: getProductMetricTimelineReturnRatePoints,
+      value: (point) => optionalFiniteMetricNumber(point.returnRate),
     },
     {
       key: "financial-exposure",
@@ -12626,6 +12767,64 @@ function getProductMetricTimelineDefinitions() {
   ];
 }
 
+function getProductMetricTimelineOrderActivityPoints(detail = {}) {
+  const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
+  const months = Array.isArray(activity.months) ? activity.months : [];
+  const unresolvedSeries = getOrderActivityUnresolvedReturnSeries(months);
+  return months
+    .map((month, index) => {
+      const date = parseProductMetricTimelineMonthDate(month);
+      if (!date) return null;
+      return {
+        time: date.getTime(),
+        label: month.label || formatProductMetricTimelinePointLabel(date),
+        value: getOrderActivityStackTotal(month),
+        orders: Number(month.orders || 0),
+        orderUnits: Number(month.orderUnits || 0),
+        returnedOrders: Number(month.returnedOrders || 0),
+        returnedUnits: Number(month.returnedUnits || 0),
+        refundedOrders: Number(month.refundedOrders || 0),
+        refundedUnits: Number(month.refundedUnits || 0),
+        revenue: Number(month.revenue || 0),
+        refundAmount: Number(month.refundAmount || 0),
+        unresolvedReturns: Number(unresolvedSeries[index]?.value || 0),
+      };
+    })
+    .filter(Boolean);
+}
+
+function getProductMetricTimelineReturnRatePoints(detail = {}, historyPoints = []) {
+  const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
+  const monthPoints = (Array.isArray(activity.months) ? activity.months : [])
+    .map((month) => {
+      const date = parseProductMetricTimelineMonthDate(month);
+      const value = optionalFiniteMetricNumber(month.returnRate);
+      return date && value != null ? {
+        time: date.getTime(),
+        label: month.label || formatProductMetricTimelinePointLabel(date),
+        value,
+      } : null;
+    })
+    .filter(Boolean);
+  if (monthPoints.length) return monthPoints;
+
+  const prediction = detail.returnRatePrediction || normalizeProductReturnRatePrediction(null);
+  const observedPoints = (Array.isArray(prediction.observedPoints) ? prediction.observedPoints : [])
+    .map((point) => {
+      const date = parseProductMetricTimelineDate(point.startAt || point.key || point.label);
+      const value = optionalFiniteMetricNumber(point.smoothedReturnRate, point.rawReturnRate);
+      return date && value != null ? {
+        time: date.getTime(),
+        label: point.label || formatProductMetricTimelinePointLabel(date),
+        value,
+      } : null;
+    })
+    .filter(Boolean);
+  return observedPoints.length
+    ? observedPoints
+    : getProductMetricTimelineHistorySeriesPoints(historyPoints, (point) => optionalFiniteMetricNumber(point.returnRate));
+}
+
 function getProductMetricTimelineHistoryPoints(detail = {}) {
   return (Array.isArray(detail.riskHistory) ? detail.riskHistory : [])
     .map((entry, index) => {
@@ -12687,6 +12886,9 @@ function getProductMetricTimelineHistorySeriesPoints(historyPoints, valueAccesso
 }
 
 function buildProductMetricTimelineChart(series, domain, xTicks) {
+  if (series.kind === "orderActivity") {
+    return buildProductMetricTimelineOrderActivityChart(series, domain, xTicks);
+  }
   const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
   const yDomain = getProductMetricTimelineYDomain(series);
   const timeRange = Math.max(1, domain.maxTime - domain.minTime);
@@ -12708,11 +12910,7 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
   const comparisonPoint = getProductMetricTimelineComparisonPoint(points);
   const delta = latestPoint && comparisonPoint ? latestPoint.value - comparisonPoint.value : null;
   const deltaTone = getProductMetricTimelineDeltaTone(delta, series.positiveDirection);
-  const mappedXTicks = xTicks.map((tick, index) => ({
-    ...tick,
-    x: Math.round(getX(tick.value) * 10) / 10,
-    anchor: index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle",
-  }));
+  const mappedXTicks = getProductMetricTimelineMappedXTicks(xTicks, domain, plot);
   return {
     ...series,
     width,
@@ -12735,6 +12933,56 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
     xTicks: mappedXTicks,
     xTickLabels: Object.fromEntries(mappedXTicks.map((tick) => [String(tick.value), tick.label])),
     ariaLabel: `${series.title} from ${getProductMetricTimelineRangeLabel(domain)}`,
+  };
+}
+
+function getProductMetricTimelineMappedXTicks(xTicks, domain, plot) {
+  const timeRange = Math.max(1, domain.maxTime - domain.minTime);
+  return xTicks.map((tick, index) => ({
+    ...tick,
+    x: Math.round((plot.left + ((tick.value - domain.minTime) / timeRange) * (plot.right - plot.left)) * 10) / 10,
+    anchor: index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle",
+  }));
+}
+
+function buildProductMetricTimelineOrderActivityChart(series, domain, xTicks) {
+  const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
+  const stackMax = Math.max(...series.points.map((point) => Number(point.value || 0)), 1);
+  const revenueMax = Math.max(...series.points.map((point) => Number(point.revenue || 0)), 1);
+  const yDomain = { min: 0, max: getOrderActivityAxisMax(stackMax) };
+  const revenueDomain = { min: 0, max: getOrderActivityRevenueAxisMax(revenueMax) };
+  const yTicks = getProductMetricTimelineYTicks(yDomain, "number", plot);
+  const revenueTicks = getProductMetricTimelineYTicks(revenueDomain, "money", plot);
+  const points = series.points.map((point) => ({
+    ...point,
+    valueLabel: `${formatInteger(point.orders)} orders`,
+  }));
+  const latestPoint = points[points.length - 1] || null;
+  const mappedXTicks = getProductMetricTimelineMappedXTicks(xTicks, domain, plot);
+  const summary = series.summary || {};
+  const totalOrders = optionalFiniteMetricNumber(summary.totalOrders) ?? points.reduce((sum, point) => sum + Number(point.orders || 0), 0);
+  const totalUnits = optionalFiniteMetricNumber(summary.totalOrderUnits) ?? points.reduce((sum, point) => sum + Number(point.orderUnits || 0), 0);
+  const totalRevenue = optionalFiniteMetricNumber(summary.totalRevenue) ?? points.reduce((sum, point) => sum + Number(point.revenue || 0), 0);
+  return {
+    ...series,
+    width,
+    height,
+    plot,
+    points,
+    data: points,
+    color: series.color || "var(--pp-pulse-blue)",
+    currentLabel: `${formatInteger(totalOrders)} orders`,
+    deltaLabel: `${formatInteger(totalUnits)} units · ${formatMoney(totalRevenue)} revenue`,
+    deltaTone: "neutral",
+    yDomain,
+    yTicks,
+    revenueDomain,
+    revenueTicks,
+    xDomain: { min: domain.minTime, max: domain.maxTime },
+    xTicks: mappedXTicks,
+    xTickLabels: Object.fromEntries(mappedXTicks.map((tick) => [String(tick.value), tick.label])),
+    ariaLabel: `${series.title} from ${getProductMetricTimelineRangeLabel(domain)}`,
+    latestPoint,
   };
 }
 
@@ -12819,20 +13067,19 @@ function getProductMetricTimelineDomain(series = []) {
   const times = series.flatMap((item) => item.points.map((point) => point.time)).filter(Number.isFinite);
   if (!times.length) {
     const maxTime = Date.now();
-    return { minTime: getProductMetricTimelineMonthStart(maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS)), maxTime };
+    return { minTime: maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS), maxTime };
   }
   const maxTime = Math.max(...times);
-  const minTime = getProductMetricTimelineMonthStart(Math.min(...times));
+  const minTime = Math.min(...times);
   if (times.length === 1 || Math.min(...times) === maxTime) {
-    return { minTime: getProductMetricTimelineMonthStart(maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS)), maxTime };
+    return { minTime: maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS), maxTime };
   }
   return { minTime, maxTime };
 }
 
 function getProductMetricTimelineXTicks(domain) {
-  const ticks = [domain.minTime];
-  const start = new Date(domain.minTime);
-  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+  const ticks = [];
+  const cursor = new Date(getProductMetricTimelineFirstFullMonthTick(domain.minTime));
   while (cursor.getTime() < domain.maxTime) {
     ticks.push(cursor.getTime());
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
@@ -12844,16 +13091,30 @@ function getProductMetricTimelineXTicks(domain) {
   }));
 }
 
+function getProductMetricTimelineFirstFullMonthTick(time) {
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return time;
+  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  return date.getUTCDate() === 1 && date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0
+    ? monthStart
+    : Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+}
+
 function parseProductMetricTimelineDate(value) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function getProductMetricTimelineMonthStart(time) {
-  const date = new Date(time);
-  if (Number.isNaN(date.getTime())) return time;
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+function parseProductMetricTimelineMonthDate(month = {}) {
+  const explicit = parseProductMetricTimelineDate(month.startAt || month.date || month.recordedAt);
+  if (explicit) return explicit;
+  const key = String(month.key || month.label || "").trim();
+  const match = key.match(/^(\d{4})-(\d{1,2})/);
+  if (match) {
+    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  }
+  return parseProductMetricTimelineDate(key);
 }
 
 function formatProductMetricTimelinePointLabel(date, index = 0) {

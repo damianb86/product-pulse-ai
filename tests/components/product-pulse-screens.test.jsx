@@ -15,6 +15,7 @@ import {
   WatchlistActivityScreen,
   WatchlistProductScreen,
   WatchlistScreen,
+  __productPulseScreensTestHooks,
 } from "../../app/components/ProductPulseScreens";
 import { defaultView } from "../fixtures/product-pulse-fixtures";
 
@@ -164,6 +165,26 @@ function makeMetricTimelineProduct(overrides = {}) {
     analysisDepth: "full",
     metrics: {
       ...(defaultView.startHere.metrics || {}),
+      monthlyOrderActivity: {
+        months: [
+          { key: "2026-02", label: "Feb 2026", shortLabel: "Feb", startAt: "2026-02-15T00:00:00.000Z", orders: 4, orderUnits: 5, revenue: 320, returnedOrders: 1, returnedUnits: 1, refundedOrders: 0, refundedUnits: 0, refundAmount: 0, returnRate: 20, refundRate: 0 },
+          { key: "2026-03", label: "Mar 2026", shortLabel: "Mar", startAt: "2026-03-01T00:00:00.000Z", orders: 6, orderUnits: 8, revenue: 540, returnedOrders: 2, returnedUnits: 2, refundedOrders: 1, refundedUnits: 1, refundAmount: 80, returnRate: 25, refundRate: 12.5 },
+          { key: "2026-04", label: "Apr 2026", shortLabel: "Apr", startAt: "2026-04-01T00:00:00.000Z", orders: 8, orderUnits: 11, revenue: 760, returnedOrders: 3, returnedUnits: 3, refundedOrders: 2, refundedUnits: 2, refundAmount: 140, returnRate: 27.3, refundRate: 18.2 },
+          { key: "2026-05", label: "May 2026", shortLabel: "May", startAt: "2026-05-01T00:00:00.000Z", orders: 10, orderUnits: 14, revenue: 960, returnedOrders: 4, returnedUnits: 5, refundedOrders: 3, refundedUnits: 3, refundAmount: 210, returnRate: 35.7, refundRate: 21.4 },
+        ],
+        summary: {
+          totalOrders: 28,
+          totalOrderUnits: 38,
+          totalRevenue: 2580,
+          totalReturnedOrders: 10,
+          totalReturnedUnits: 11,
+          totalRefundedOrders: 6,
+          totalRefundedUnits: 6,
+          totalRefundAmount: 430,
+          returnRate: 28.9,
+          refundRate: 15.8,
+        },
+      },
       riskHistory,
       productRetention: {
         summary: { retentionHealthScore: 93 },
@@ -1459,6 +1480,8 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText(/All charts share the same timeline/)).not.toBeInTheDocument();
     [
       "Product risk",
+      "Monthly order activity",
+      "Return rate",
       "Financial exposure",
       "Return pressure",
       "Retention health",
@@ -1475,16 +1498,36 @@ describe("ProductPulse screens", () => {
     });
 
     const charts = Array.from(container.querySelectorAll(".ppMetricTimelineChart"));
-    expect(charts).toHaveLength(12);
+    expect(charts).toHaveLength(14);
     expect(container.querySelectorAll(".ppMetricTimelineChartSvg")).toHaveLength(0);
-    expect(container.querySelectorAll(".ppMetricTimelineSummary")).toHaveLength(12);
-    expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(12);
+    expect(container.querySelectorAll(".ppMetricTimelineSummary")).toHaveLength(14);
+    expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(14);
     expect(container.querySelectorAll(".ppMetricTimelinePoint")).toHaveLength(0);
     expect(within(charts[0]).getByText("Risk score history")).toBeInTheDocument();
     expect(within(charts[0]).getByText("70 / 100")).toBeInTheDocument();
     expect(within(charts[0]).getByText("+9 vs Apr 1")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Orders, returns, refunds, revenue")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("28 orders")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Returned units / ordered units")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("36%")).toBeInTheDocument();
     const chartTextLabels = Array.from(charts[0].querySelectorAll("text")).map((node) => node.textContent);
-    expect(chartTextLabels).toEqual(expect.arrayContaining(["Feb", "Mar", "Apr", "May", "May 29"]));
+    expect(chartTextLabels).toEqual(expect.arrayContaining(["Mar", "Apr", "May", "May 29"]));
+    expect(chartTextLabels).not.toContain("Feb");
+  });
+
+  it("syncs metric timeline hover state to the nearest x-axis point", () => {
+    const { getProductMetricTimelineNearestSyncIndex } = __productPulseScreensTestHooks;
+    const time = (value) => new Date(value).getTime();
+    const ticks = [
+      { value: time("2026-02-01T00:00:00.000Z"), index: 0 },
+      { value: time("2026-03-01T00:00:00.000Z"), index: 1 },
+      { value: time("2026-05-01T00:00:00.000Z"), index: 2 },
+    ];
+
+    expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: String(time("2026-02-20T00:00:00.000Z")) })).toBe(1);
+    expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: time("2026-04-20T00:00:00.000Z") })).toBe(2);
+    expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: "2026-02-10T00:00:00.000Z" })).toBe(0);
+    expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: "", activeTooltipIndex: 9 })).toBe(2);
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
