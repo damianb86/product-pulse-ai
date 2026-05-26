@@ -83,9 +83,12 @@ describe("ProductPulse AI app knowledge repository", () => {
     expect(risk.thresholds.map((threshold) => threshold.value)).toContain(">= 75");
     expect(revenueAtRisk.found).toBe(true);
     expect(revenueAtRisk.formula).toContain("projectedLostRevenue");
+    expect(revenueAtRisk.formula).toContain("relationshipAdjustedRefundAmount");
+    expect(revenueAtRisk.formula).toContain("bulkRevenueExposure");
     expect(revenueAtRisk.caveats.join(" ")).toContain("stored revenueAtRisk");
     expect(marginAtRisk.found).toBe(true);
     expect(marginAtRisk.formula).toContain("projectedLostMargin");
+    expect(marginAtRisk.formula).toContain("bulkQuantityExposure");
     expect(refundRate.found).toBe(true);
     expect(refundRate.formula).toContain("refundUnits / soldUnits");
     expect(candidateScore.found).toBe(true);
@@ -123,6 +126,7 @@ describe("ProductPulse AI app knowledge repository", () => {
     const relationshipTimeline = repository.getProductDetailCardExplanation("Product relationship timeline");
     const lift = repository.getProductDetailCardExplanation("Lift");
     const returnPressure = repository.getProductDetailCardExplanation("Return pressure");
+    const financialExposure = repository.getProductDetailCardExplanation("Financial exposure");
     const search = repository.searchProductDetailCards({ query: "return refund relationship lift", limit: 4 });
     const unknown = repository.getProductDetailCardExplanation("magic card");
 
@@ -138,6 +142,10 @@ describe("ProductPulse AI app knowledge repository", () => {
     expect(lift.supportingFormulas.join(" ")).toContain("shareLiftRatio");
     expect(returnPressure.found).toBe(true);
     expect(returnPressure.supportingFormulas.join(" ")).toContain("returnRiskWeight");
+    expect(financialExposure.found).toBe(true);
+    expect(financialExposure.valueFormula).toContain("observedLossAdjusted");
+    expect(financialExposure.supportingFormulas.join(" ")).toContain("relationshipAdjustedRefundAmount");
+    expect(financialExposure.supportingFormulas.join(" ")).toContain("bulkQuantityExposure");
     expect(search.results.length).toBeGreaterThan(0);
     expect(JSON.stringify(search)).not.toContain("app/lib/");
     expect(unknown.found).toBe(false);

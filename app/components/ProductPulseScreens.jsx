@@ -28129,7 +28129,7 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
             </div>
             <h2 id="business-impact-title">How ProductPulse calculates business impact</h2>
             <p>
-              Business impact estimates the next 90-day exposure from stored product risk signals, returns, refunds, reviews, margin data and recommended actions.
+              Business impact estimates exposure for the selected projection window from stored product risk signals, returns, refunds, reviews, margin data, basket context and recommended actions.
             </p>
           </div>
         </div>
@@ -28203,7 +28203,7 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
           <div>
             <h3>How to interpret this</h3>
             <p>
-              This estimate is designed for prioritization. It shows where product issues may create financial exposure over the next 90 days. It is not a replacement for accounting, payout, tax or profit reporting.
+              This estimate is designed for prioritization. It shows where product issues may create financial exposure over the selected projection window. It is not a replacement for accounting, payout, tax or profit reporting.
             </p>
           </div>
           <div>
@@ -28284,10 +28284,10 @@ function buildBusinessImpactModalFallbackCalculation(metrics = [], windowLabel =
   return {
     windowLabel,
     formulas: [
-      { label: "Revenue at risk", expression: "observed refund value + projected return exposure + review conversion drag" },
-      { label: "Margin at risk", expression: "projected return margin loss + refund margin loss + estimated operational exposure" },
-      { label: "Potential returns", expression: "projected units exposed x estimated return probability" },
-      { label: "Recommended actions", expression: "open actions + applied actions + dismissed actions" },
+      { label: "Revenue at risk", expression: "max(projected lost revenue + return revenue exposure + review conversion revenue drag + relationship-adjusted refund exposure + basket/bulk revenue exposure, stored revenueAtRisk)" },
+      { label: "Margin at risk", expression: "max(projected lost margin + refund margin loss + return processing cost + review conversion margin drag + basket/bulk margin exposure, stored marginAtRisk)" },
+      { label: "Potential returns", expression: "return units x analytics projection window / product source window" },
+      { label: "Recommended actions", expression: "open actions + applied actions + reviewed actions + dismissed actions" },
     ],
     currentBreakdown: [
       { label: "Revenue at risk", valueLabel: revenueMetric?.value || "$0", components: [{ label: "Current displayed estimate", valueLabel: revenueMetric?.detail || "No revenue exposure stored yet" }] },

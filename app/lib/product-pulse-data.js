@@ -2789,14 +2789,14 @@ function buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList }
       value: formatDashboardMoney(totals.revenueAtRisk),
       icon: "cash-dollar",
       tone: totals.revenueAtRisk > 0 ? "purple" : "blue",
-      detail: "Refund value plus projected revenue pressure from stored signals.",
+      detail: "Projected revenue exposure from returns, refunds, reviews and basket context.",
     },
     {
       label: "Margin at risk",
       value: formatDashboardMoney(totals.marginAtRisk),
       icon: "chart-line",
       tone: totals.marginAtRisk > 0 ? "green" : "blue",
-      detail: "Estimated margin exposure from products currently needing attention.",
+      detail: "Estimated margin and operating-cost exposure from products needing attention.",
     },
     {
       label: "Potential returns",
@@ -2823,21 +2823,47 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
     const projectedReturnUnits = Number(metrics.returnUnits || 0) * (windowDays / Math.max(productWindow, 1));
     const revenueAtRisk = getDashboardMetric(product, "revenueAtRisk");
     const marginAtRisk = getDashboardMetric(product, "marginAtRisk");
-    const refundAmount = Number(metrics.refundAmount || impact.refunds || impact.refundValueAtRisk || 0);
-    const projectedLostRevenue = Number(impact.projectedLostRevenue || 0);
-    const reviewConversionRevenueDrag = Number(impact.reviewConversionRevenueDrag || 0);
-    const projectedLostMargin = Number(impact.projectedLostMargin || impact.projectedReturnLoss || 0);
-    const refundMarginLoss = Number(impact.refundMarginLoss || (refundAmount * Number(impact.marginRate || metrics.marginRate || 0.45)) || 0);
-    const operationalExposure = Number(impact.returnProcessingCost || impact.reviewConversionMarginDrag || 0);
+    const avgUnitRevenue = firstFiniteBusinessImpactNumber(
+      impact.avgUnitRevenue,
+      metrics.avgUnitRevenue,
+      Number(metrics.soldUnits || 0) > 0 ? Number(metrics.salesAmount || 0) / Number(metrics.soldUnits || 1) : 0,
+    );
+    const confirmedRefundAmount = firstFiniteBusinessImpactNumber(impact.refunds, impact.relationshipExposure?.confirmedRefundAmount, metrics.refundAmount);
+    const relationshipAdjustedRefundAmount = firstFiniteBusinessImpactNumber(impact.refundValueAtRisk, impact.relationshipExposure?.relationshipAdjustedRefundAmount, confirmedRefundAmount);
+    const projectedLostRevenue = firstFiniteBusinessImpactNumber(impact.projectedLostRevenue);
+    const returnRevenueExposure = firstFiniteBusinessImpactNumber(impact.returnRevenueExposure, Number(metrics.returnUnits || 0) * avgUnitRevenue);
+    const reviewConversionRevenueDrag = firstFiniteBusinessImpactNumber(impact.reviewConversionRevenueDrag);
+    const purchaseContextRevenueExposure = firstFiniteBusinessImpactNumber(impact.purchaseContextExposure?.bulkRevenueExposure);
+    const projectedLostMargin = firstFiniteBusinessImpactNumber(impact.projectedLostMargin, impact.projectedReturnLoss);
+    const refundMarginLoss = firstFiniteBusinessImpactNumber(impact.refundMarginLoss, confirmedRefundAmount * firstFiniteBusinessImpactNumber(impact.marginRate, metrics.marginRate, 0.45));
+    const returnProcessingCost = firstFiniteBusinessImpactNumber(impact.returnProcessingCost);
+    const reviewConversionMarginDrag = firstFiniteBusinessImpactNumber(impact.reviewConversionMarginDrag, impact.reviewConversionDrag);
+    const purchaseContextMarginExposure = firstFiniteBusinessImpactNumber(impact.purchaseContextExposure?.bulkQuantityExposure);
+    const revenueComponentTotal = projectedLostRevenue
+      + returnRevenueExposure
+      + reviewConversionRevenueDrag
+      + relationshipAdjustedRefundAmount
+      + purchaseContextRevenueExposure;
+    const marginComponentTotal = projectedLostMargin
+      + refundMarginLoss
+      + returnProcessingCost
+      + reviewConversionMarginDrag
+      + purchaseContextMarginExposure;
 
     summary.projectedReturnUnits += projectedReturnUnits;
-    summary.observedRefundValue += refundAmount;
+    summary.confirmedRefundAmount += confirmedRefundAmount;
+    summary.relationshipAdjustedRefundAmount += relationshipAdjustedRefundAmount;
     summary.projectedReturnExposure += projectedLostRevenue;
+    summary.returnRevenueExposure += returnRevenueExposure;
     summary.reviewConversionDrag += reviewConversionRevenueDrag;
+    summary.purchaseContextRevenueExposure += purchaseContextRevenueExposure;
     summary.projectedReturnMarginLoss += projectedLostMargin;
     summary.refundMarginLoss += refundMarginLoss;
-    summary.estimatedOperationalExposure += operationalExposure;
-    summary.productRiskExposure += Math.max(0, marginAtRisk - projectedLostMargin - refundMarginLoss - operationalExposure);
+    summary.returnProcessingCost += returnProcessingCost;
+    summary.reviewConversionMarginDrag += reviewConversionMarginDrag;
+    summary.purchaseContextMarginExposure += purchaseContextMarginExposure;
+    summary.storedRevenueExposure += Math.max(0, revenueAtRisk - revenueComponentTotal);
+    summary.storedMarginExposure += Math.max(0, marginAtRisk - marginComponentTotal);
     const trendValues = Array.isArray(metrics.riskTrend) && metrics.riskTrend.length
       ? metrics.riskTrend
       : Array.isArray(metrics.signalTrend) && metrics.signalTrend.length
@@ -2853,20 +2879,26 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
       confidence: Number(product.confidence || metrics.confidence || 0),
       revenueAtRisk,
       marginAtRisk,
-      refundAmount,
+      refundAmount: confirmedRefundAmount,
       returnUnits: Number(metrics.returnUnits || 0),
       sourceCoverage: Array.isArray(product.sourceCoverage) ? product.sourceCoverage.length : 0,
       calculatedAt: product.lastAnalysis || metrics.lastSignalAt || product.analysisCompletedAt || "",
     });
     return summary;
   }, {
-    observedRefundValue: 0,
+    confirmedRefundAmount: 0,
+    relationshipAdjustedRefundAmount: 0,
     projectedReturnExposure: 0,
+    returnRevenueExposure: 0,
     reviewConversionDrag: 0,
+    purchaseContextRevenueExposure: 0,
     projectedReturnMarginLoss: 0,
     refundMarginLoss: 0,
-    estimatedOperationalExposure: 0,
-    productRiskExposure: 0,
+    returnProcessingCost: 0,
+    reviewConversionMarginDrag: 0,
+    purchaseContextMarginExposure: 0,
+    storedRevenueExposure: 0,
+    storedMarginExposure: 0,
     projectedReturnUnits: 0,
     productsWithTrend: 0,
     productsWithMargin: 0,
@@ -2899,11 +2931,11 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
   ));
 
   return {
-    windowLabel: `Last ${windowDays} days`,
+    windowLabel: `Next ${windowDays} days`,
     formulas: [
-      { label: "Revenue at risk", expression: "observed refund value + projected return exposure + review conversion drag" },
-      { label: "Margin at risk", expression: "projected return margin loss + refund margin loss + estimated operational exposure" },
-      { label: "Potential returns", expression: "projected units exposed x estimated return probability" },
+      { label: "Revenue at risk", expression: "max(projected lost revenue + return revenue exposure + review conversion revenue drag + relationship-adjusted refund exposure + basket/bulk revenue exposure, stored revenueAtRisk)" },
+      { label: "Margin at risk", expression: "max(projected lost margin + refund margin loss + return processing cost + review conversion margin drag + basket/bulk margin exposure, stored marginAtRisk)" },
+      { label: "Potential returns", expression: "return units x analytics projection window / product source window" },
       { label: "Recommended actions", expression: "open actions + applied actions + reviewed actions + dismissed actions" },
     ],
     currentBreakdown: [
@@ -2912,9 +2944,12 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
         value: totals.revenueAtRisk,
         valueLabel: formatDashboardMoney(totals.revenueAtRisk),
         components: [
-          { label: "Observed refund value", value: impactTotals.observedRefundValue, valueLabel: formatDashboardMoney(impactTotals.observedRefundValue) },
-          { label: "Projected return exposure", value: impactTotals.projectedReturnExposure, valueLabel: formatDashboardMoney(impactTotals.projectedReturnExposure) },
-          { label: "Review conversion drag", value: impactTotals.reviewConversionDrag, valueLabel: formatDashboardMoney(impactTotals.reviewConversionDrag) },
+          { label: "Projected lost revenue", value: impactTotals.projectedReturnExposure, valueLabel: formatDashboardMoney(impactTotals.projectedReturnExposure) },
+          { label: "Return revenue exposure", value: impactTotals.returnRevenueExposure, valueLabel: formatDashboardMoney(impactTotals.returnRevenueExposure) },
+          { label: "Review conversion revenue drag", value: impactTotals.reviewConversionDrag, valueLabel: formatDashboardMoney(impactTotals.reviewConversionDrag) },
+          { label: "Relationship-adjusted refund exposure", value: impactTotals.relationshipAdjustedRefundAmount, valueLabel: formatDashboardMoney(impactTotals.relationshipAdjustedRefundAmount) },
+          { label: "Basket/bulk revenue exposure", value: impactTotals.purchaseContextRevenueExposure, valueLabel: formatDashboardMoney(impactTotals.purchaseContextRevenueExposure) },
+          { label: "Stored/fallback revenue exposure", value: impactTotals.storedRevenueExposure, valueLabel: formatDashboardMoney(impactTotals.storedRevenueExposure) },
         ],
       },
       {
@@ -2924,8 +2959,10 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
         components: [
           { label: "Projected return margin loss", value: impactTotals.projectedReturnMarginLoss, valueLabel: formatDashboardMoney(impactTotals.projectedReturnMarginLoss) },
           { label: "Refund margin loss", value: impactTotals.refundMarginLoss, valueLabel: formatDashboardMoney(impactTotals.refundMarginLoss) },
-          { label: "Product risk exposure", value: impactTotals.productRiskExposure, valueLabel: formatDashboardMoney(impactTotals.productRiskExposure) },
-          { label: "Estimated operational exposure", value: impactTotals.estimatedOperationalExposure, valueLabel: formatDashboardMoney(impactTotals.estimatedOperationalExposure) },
+          { label: "Return processing cost", value: impactTotals.returnProcessingCost, valueLabel: formatDashboardMoney(impactTotals.returnProcessingCost) },
+          { label: "Review conversion margin drag", value: impactTotals.reviewConversionMarginDrag, valueLabel: formatDashboardMoney(impactTotals.reviewConversionMarginDrag) },
+          { label: "Basket/bulk margin exposure", value: impactTotals.purchaseContextMarginExposure, valueLabel: formatDashboardMoney(impactTotals.purchaseContextMarginExposure) },
+          { label: "Stored/fallback margin exposure", value: impactTotals.storedMarginExposure, valueLabel: formatDashboardMoney(impactTotals.storedMarginExposure) },
         ],
       },
       {
@@ -3005,6 +3042,15 @@ function buildAnalyticsImpactInput(label, status, detail) {
     detail,
     tone: status === "Available" ? "green" : status === "Estimated" ? "orange" : status === "Not used" ? "slate" : "red",
   };
+}
+
+function firstFiniteBusinessImpactNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
 }
 
 function sumAnalyticsTrends(trends) {

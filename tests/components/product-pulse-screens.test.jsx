@@ -4879,7 +4879,12 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: /Learn how ProductPulse AI improves these outcomes/ }));
     expect(screen.getByRole("heading", { name: "How ProductPulse calculates business impact" })).toBeInTheDocument();
     expect(screen.getByText("Calculation model")).toBeInTheDocument();
+    expect(screen.getAllByText(/relationship-adjusted refund exposure/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/basket\/bulk margin exposure/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/return units x analytics projection window/)).toBeInTheDocument();
     expect(screen.getByText("Current breakdown")).toBeInTheDocument();
+    expect(screen.getByText("Return revenue exposure")).toBeInTheDocument();
+    expect(screen.getByText("Review conversion margin drag")).toBeInTheDocument();
     expect(screen.getByText("Inputs used")).toBeInTheDocument();
     expect(screen.getByText(/designed for prioritization/)).toBeInTheDocument();
   });
