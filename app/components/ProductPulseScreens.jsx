@@ -27198,8 +27198,8 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
         {labelIndexes.map((index) => (
           <text className="ppChartAxisText" key={`${labels[index]}-${index}`} x={getAnalyticsChartX(index, labels.length, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}>{labels[index]}</text>
         ))}
+        <AnalyticsSvgPopover point={hoveredPoint} layout={layout} offsetY={8} />
       </svg>
-      <AnalyticsSvgPopover point={hoveredPoint} layout={layout} />
     </div>
   );
 }
@@ -27448,24 +27448,27 @@ function AnalyticsActionImpactTrendChart({ chart }) {
         {labelIndexes.map((index) => (
           <text className="ppChartAxisText" key={`${safeLabels[index]}-${index}`} x={getAnalyticsChartX(index, pointCount, layout)} y={layout.labelY} textAnchor={index === 0 ? "start" : index === pointCount - 1 ? "end" : "middle"}>{safeLabels[index]}</text>
         ))}
+        <AnalyticsSvgPopover point={hoveredPoint} layout={layout} offsetY={14} />
       </svg>
-      <AnalyticsSvgPopover point={hoveredPoint} layout={layout} />
       {chart?.summary?.detail && <p>{chart.summary.detail}</p>}
     </div>
   );
 }
 
-function AnalyticsSvgPopover({ point, layout }) {
+function AnalyticsSvgPopover({ point, layout, offsetY = 8 }) {
   if (!point) return null;
+  const box = getAnalyticsSvgPopoverBox(point, layout, offsetY);
   return (
-    <div className="ppAnalyticsSvgPopover" style={getAnalyticsSvgPopoverStyle(point, layout)} role="tooltip">
-      <span>{point.dateLabel}</span>
-      <strong>{point.title}</strong>
-      <em>{point.valueLabel}</em>
-      {point.sourceLabel && <small>{point.sourceLabel}</small>}
-      {point.basisLabel && <p>{point.basisLabel}</p>}
-      {point.detailLabel && <p>{point.detailLabel}</p>}
-    </div>
+    <foreignObject className="ppAnalyticsSvgPopoverObject" x={box.x} y={box.y} width={box.width} height={box.height}>
+      <div xmlns="http://www.w3.org/1999/xhtml" className="ppAnalyticsSvgPopover" style={{ "--pp-popover-arrow-left": `${box.arrowLeft}px` }} role="tooltip">
+        <span>{point.dateLabel}</span>
+        <strong>{point.title}</strong>
+        <em>{point.valueLabel}</em>
+        {point.sourceLabel && <small>{point.sourceLabel}</small>}
+        {point.basisLabel && <p>{point.basisLabel}</p>}
+        {point.detailLabel && <p>{point.detailLabel}</p>}
+      </div>
+    </foreignObject>
   );
 }
 
@@ -27493,12 +27496,21 @@ function buildAnalyticsActionImpactTooltip(series, pointDetails, labels, index, 
   };
 }
 
-function getAnalyticsSvgPopoverStyle(point, layout) {
-  const left = clampNumber((Number(point.x || 0) / Math.max(Number(layout.viewBoxWidth || 1), 1)) * 100, 8, 92);
-  const top = clampNumber((Number(point.y || 0) / Math.max(Number(layout.viewBoxHeight || 1), 1)) * 100, 18, 88);
+function getAnalyticsSvgPopoverBox(point, layout, offsetY = 8) {
+  const width = 224;
+  const height = point?.detailLabel ? 116 : 102;
+  const viewBoxWidth = Math.max(Number(layout?.viewBoxWidth || 1), width + 8);
+  const viewBoxHeight = Math.max(Number(layout?.viewBoxHeight || 1), height + 8);
+  const pointX = Number(point?.x || 0);
+  const pointY = Number(point?.y || 0);
+  const x = clampNumber(pointX - width / 2, 4, viewBoxWidth - width - 4);
+  const y = clampNumber(pointY - height - offsetY, 4, viewBoxHeight - height - 4);
   return {
-    "--pp-popover-left": `${left}%`,
-    "--pp-popover-top": `${top}%`,
+    x: Math.round(x * 10) / 10,
+    y: Math.round(y * 10) / 10,
+    width,
+    height,
+    arrowLeft: Math.round(clampNumber(pointX - x, 14, width - 14) * 10) / 10,
   };
 }
 
