@@ -5159,9 +5159,17 @@ s-page[inline-size="large-500"] {
   gap: 12px;
 }
 
+.ppMetricTimelinesHeaderRow {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
 .ppMetricTimelinesTitleBlock {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .ppMetricTimelinesTitleBlock > span {
@@ -5191,6 +5199,58 @@ s-page[inline-size="large-500"] {
   font-weight: 650;
 }
 
+.ppMetricTimelinesHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.ppMetricTimelinesHeaderActions button,
+.ppMetricTimelinesToolbar > span {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-800);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppMetricTimelinesHeaderActions button:last-child {
+  width: 42px;
+  padding: 0;
+}
+
+.ppMetricTimelinesToolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppMetricTimelinesToolbar small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .ppMetricTimelineStack {
   display: grid;
   gap: 10px;
@@ -5199,9 +5259,12 @@ s-page[inline-size="large-500"] {
 
 .ppMetricTimelineChart {
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(250px, 285px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
   min-width: 0;
-  padding: 8px 8px 4px;
+  min-height: 132px;
+  padding: 12px 12px 10px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 8px;
   background: var(--pp-cloud-white);
@@ -5209,81 +5272,133 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.05);
 }
 
-.ppMetricTimelineChartTitle {
-  display: inline-flex;
+.ppMetricTimelineSummary {
+  display: grid;
+  grid-template-columns: 16px 46px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   min-width: 0;
-  height: 18px;
-  color: currentColor;
 }
 
-.ppMetricTimelineChartTitle span {
-  width: 18px;
-  height: 18px;
+.ppMetricTimelineDragHandle {
+  display: grid;
+  grid-template-columns: repeat(2, 3px);
+  gap: 4px;
+  width: 12px;
+  justify-content: center;
+}
+
+.ppMetricTimelineDragHandle i {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--pp-slate-400);
+}
+
+.ppMetricTimelineIcon {
+  width: 44px;
+  height: 44px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 12%, var(--pp-cloud-white));
+  color: currentColor;
+  background: color-mix(in srgb, currentColor 14%, var(--pp-cloud-white));
 }
 
-.ppMetricTimelineChartTitle s-icon {
-  transform: scale(0.76);
+.ppMetricTimelineIcon svg {
+  width: 24px;
+  height: 24px;
 }
 
-.ppMetricTimelineChartTitle h2 {
+.ppMetricTimelineSummaryText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ppMetricTimelineSummaryText h2 {
   margin: 0;
   overflow: hidden;
   color: var(--pp-slate-900);
-  font-size: 11px;
-  font-weight: 900;
+  font-size: 13px;
+  font-weight: 950;
   letter-spacing: 0;
-  line-height: 1;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ppMetricTimelineChartSvg {
-  display: block;
-  width: 100%;
-  height: 194px;
-  overflow: visible;
+.ppMetricTimelineSummaryText p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ppMetricTimelineGridLine line {
-  stroke: rgba(var(--pp-slate-500-rgb), 0.14);
-  stroke-dasharray: 5 7;
+.ppMetricTimelineSummaryText strong {
+  margin-top: 12px;
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.05;
 }
 
-.ppMetricTimelineGridLine text,
-.ppMetricTimelineXTick text {
-  fill: var(--pp-slate-500);
+.ppMetricTimelineSummaryText small {
+  color: var(--pp-slate-500);
   font-size: 11px;
   font-weight: 850;
 }
 
-.ppMetricTimelineAxis {
-  stroke: rgba(var(--pp-slate-500-rgb), 0.22);
+.ppMetricTimelineDelta-positive {
+  color: var(--pp-success-green) !important;
 }
 
-.ppMetricTimelineXTick line {
-  stroke: rgba(var(--pp-slate-500-rgb), 0.22);
+.ppMetricTimelineDelta-negative {
+  color: var(--pp-risk-red) !important;
 }
 
-.ppMetricTimelineArea {
-  color: inherit;
+.ppMetricTimelineChartPlot {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 112px;
+  min-width: 0;
+  overflow: visible;
 }
 
-.ppMetricTimelineLine {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.ppMetricTimelineChartPlot .recharts-wrapper,
+.ppMetricTimelineChartPlot .recharts-surface {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: visible;
+}
+
+.ppMetricTimelineChartPlot .recharts-tooltip-wrapper {
+  outline: none;
+  pointer-events: none;
+}
+
+.ppMetricTimelineActiveDot {
+  stroke: var(--pp-cloud-white);
   stroke-width: 3;
+  filter: drop-shadow(0 5px 12px rgba(var(--pp-shadow-rgb), 0.2));
+}
+
+.ppMetricTimelineTooltip {
+  position: static;
+  transform: none;
 }
 
 .ppMetricTimelineNoData {
-  fill: var(--pp-slate-500);
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--pp-slate-500);
   font-size: 12px;
   font-weight: 800;
 }
@@ -13169,6 +13284,10 @@ s-page[inline-size="large-500"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ppMetricTimelineChart {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  }
+
   .ppProductRelationshipTimelineStage {
     gap: 34px;
   }
@@ -13196,6 +13315,28 @@ s-page[inline-size="large-500"] {
 
   .ppProductRetentionMeta small {
     text-align: left;
+  }
+
+  .ppMetricTimelinesHeaderRow,
+  .ppMetricTimelinesToolbar {
+    display: grid;
+  }
+
+  .ppMetricTimelinesHeaderActions,
+  .ppMetricTimelinesToolbar small {
+    margin-left: 0;
+  }
+
+  .ppMetricTimelineChart {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ppMetricTimelineSummary {
+    grid-template-columns: 14px 42px minmax(0, 1fr);
+  }
+
+  .ppMetricTimelineChartPlot {
+    height: 170px;
   }
 
   .ppRetentionBreakdownHeader,

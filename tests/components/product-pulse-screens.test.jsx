@@ -1472,13 +1472,15 @@ describe("ProductPulse screens", () => {
 
     const charts = Array.from(container.querySelectorAll(".ppMetricTimelineChart"));
     expect(charts).toHaveLength(12);
-    const viewBoxes = new Set(Array.from(container.querySelectorAll(".ppMetricTimelineChartSvg")).map((svg) => svg.getAttribute("viewBox")));
-    expect(viewBoxes).toEqual(new Set(["0 0 1200 216"]));
-    expect(container.querySelectorAll(".ppMetricTimelineChartSvg[preserveAspectRatio='none']")).toHaveLength(12);
+    expect(container.querySelectorAll(".ppMetricTimelineChartSvg")).toHaveLength(0);
+    expect(container.querySelectorAll(".ppMetricTimelineSummary")).toHaveLength(12);
+    expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(12);
     expect(container.querySelectorAll(".ppMetricTimelinePoint")).toHaveLength(0);
-    const tickLabelsByChart = charts.map((chart) => Array.from(chart.querySelectorAll(".ppMetricTimelineXTick text")).map((node) => node.textContent));
-    expect(new Set(tickLabelsByChart.map((labels) => labels.join("|"))).size).toBe(1);
-    expect(tickLabelsByChart[0]).toEqual(["Feb", "Mar", "Apr", "May", "May 29"]);
+    expect(within(charts[0]).getByText("Risk score history")).toBeInTheDocument();
+    expect(within(charts[0]).getByText("70 / 100")).toBeInTheDocument();
+    expect(within(charts[0]).getByText("+9 vs Apr 1")).toBeInTheDocument();
+    const chartTextLabels = Array.from(charts[0].querySelectorAll("text")).map((node) => node.textContent);
+    expect(chartTextLabels).toEqual(expect.arrayContaining(["Feb", "Mar", "Apr", "May", "May 29"]));
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
