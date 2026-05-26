@@ -11251,6 +11251,14 @@ s-page[inline-size="large-500"] {
   min-width: 0;
 }
 
+.ppProductRetentionSideRail .ppRetentionMetricGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ppProductRetentionSideRail .ppRetentionMetricCard {
+  min-height: 58px;
+}
+
 .ppProductRetentionSideRail .ppRetentionActionCardGrid {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -11797,6 +11805,29 @@ s-page[inline-size="large-500"] {
   overflow: visible;
 }
 
+.ppRetentionLtvBreakdownChart .recharts-wrapper,
+.ppRetentionLtvBreakdownChart .recharts-surface {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: visible;
+}
+
+.ppRetentionLtvBreakdownChart .recharts-tooltip-wrapper {
+  pointer-events: none;
+}
+
+.ppRetentionLtvActiveDot {
+  fill: var(--pp-insight-violet);
+  stroke: var(--pp-cloud-white);
+  stroke-width: 3;
+  filter: drop-shadow(0 5px 12px rgba(var(--pp-shadow-rgb), 0.22));
+}
+
+.ppRetentionRechartsTooltip {
+  position: static;
+  transform: none;
+}
+
 .ppRetentionLtvPointObject {
   overflow: visible;
 }
@@ -12183,6 +12214,19 @@ s-page[inline-size="large-500"] {
   border-radius: 999px;
 }
 
+.ppRetentionLtvDonutChart {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.ppRetentionLtvDonutChart .recharts-wrapper,
+.ppRetentionLtvDonutChart .recharts-surface {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: visible;
+}
+
 .ppRetentionLtvDonut::after {
   content: "";
   position: absolute;
@@ -12192,9 +12236,9 @@ s-page[inline-size="large-500"] {
   box-shadow: inset 0 0 0 1px rgba(var(--pp-slate-500-rgb), 0.08);
 }
 
-.ppRetentionLtvDonut > div {
+.ppRetentionLtvDonutCenter {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: grid;
   gap: 3px;
   place-items: center;
@@ -12202,13 +12246,13 @@ s-page[inline-size="large-500"] {
   text-align: center;
 }
 
-.ppRetentionLtvDonut strong {
+.ppRetentionLtvDonutCenter strong {
   font-size: 20px;
   font-weight: 950;
   line-height: 1;
 }
 
-.ppRetentionLtvDonut span {
+.ppRetentionLtvDonutCenter span {
   color: var(--pp-slate-600);
   font-size: 11px;
   font-weight: 800;

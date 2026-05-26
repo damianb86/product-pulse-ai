@@ -2,6 +2,17 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Form, Link, useFetcher, useLocation, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   buildConnectViewData,
   chatMeConnectionLinks,
   CSV_REVIEW_IMPORT_DISPLAY_NAME,
@@ -15005,6 +15016,9 @@ function ProductRetentionMetricsPanel({ detail }) {
         <>
           <div className="ppProductRetentionBody">
             <div className="ppProductRetentionMain">
+              <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
+            </div>
+            <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
               <div className="ppRetentionMetricGrid">
                 <ProductRetentionMetricCard
                   icon="shopify-orders"
@@ -15042,9 +15056,6 @@ function ProductRetentionMetricsPanel({ detail }) {
                   tone={summary.hasEnoughData ? "blue" : "amber"}
                 />
               </div>
-              <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
-            </div>
-            <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
               <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
               {ltvChart.hasData && (
                 <>
@@ -15316,87 +15327,116 @@ function ProductRetentionLtvStackedChart({ chart, productTitle }) {
   const gradientIdBase = `ppRetentionLtvBreakdownGradient-${useId().replace(/:/g, "")}`;
   return (
     <div className="ppRetentionLtvBreakdownChart" role="group" aria-label={`LTV breakdown for ${productTitle}`}>
-      <svg className="ppRetentionLtvBreakdownSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} focusable="false">
-        <defs>
-          <linearGradient id={`${gradientIdBase}-same`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="var(--pp-insight-violet)" stopOpacity="0.92" />
-            <stop offset="100%" stopColor="var(--pp-insight-violet)" stopOpacity="0.46" />
-          </linearGradient>
-          <linearGradient id={`${gradientIdBase}-other`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="var(--pp-pulse-blue)" stopOpacity="0.88" />
-            <stop offset="100%" stopColor="var(--pp-pulse-blue)" stopOpacity="0.40" />
-          </linearGradient>
-          <linearGradient id={`${gradientIdBase}-initial`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="var(--pp-signal-teal)" stopOpacity="0.86" />
-            <stop offset="100%" stopColor="var(--pp-signal-teal)" stopOpacity="0.36" />
-          </linearGradient>
-        </defs>
-        {chart.yTicks.map((tick) => (
-          <g className="ppRetentionGridLine" key={`ltv-grid-${tick.label}`}>
-            <line x1={chart.plot.left} x2={chart.plot.right} y1={tick.y} y2={tick.y} />
-            <text x={chart.plot.left - 14} y={tick.y + 5} textAnchor="end">{tick.label}</text>
-          </g>
-        ))}
-        <line className="ppRetentionLineAxis" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
-        <line className="ppRetentionLineAxis" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
-        {chart.xTicks.map((tick) => (
-          <g className="ppRetentionLineXTick" key={`ltv-tick-${tick.label}-${tick.x}`}>
-            <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
-            <text x={tick.x} y={chart.plot.bottom + chart.xLabelOffset} textAnchor={tick.anchor}>{tick.label}</text>
-          </g>
-        ))}
-        <path className="ppRetentionLtvArea ppRetentionLtvAreaInitial" d={chart.areaPaths.initial} style={{ fill: `url(#${gradientIdBase}-initial)` }} />
-        <path className="ppRetentionLtvArea ppRetentionLtvAreaOther" d={chart.areaPaths.other} style={{ fill: `url(#${gradientIdBase}-other)` }} />
-        <path className="ppRetentionLtvArea ppRetentionLtvAreaSame" d={chart.areaPaths.same} style={{ fill: `url(#${gradientIdBase}-same)` }} />
-        <path className="ppRetentionLtvLine ppRetentionLtvLineInitial" d={chart.paths.initial} />
-        <path className="ppRetentionLtvLine ppRetentionLtvLineOther" d={chart.paths.other} />
-        <path className="ppRetentionLtvLine ppRetentionLtvLineSame" d={chart.paths.same} />
-        {chart.points.map((point) => (
-          <foreignObject
-            className="ppRetentionLtvPointObject"
-            key={`${point.ageDay}-${point.x}-${point.y}`}
-            x={point.x - 16}
-            y={point.y - 16}
-            width="32"
-            height="32"
-          >
-            <ProductRetentionLtvBreakdownPointButton point={point} chart={chart} embedded />
-          </foreignObject>
-        ))}
-      </svg>
+      <AreaChart
+        width={chart.width}
+        height={chart.height}
+        data={chart.data}
+        margin={{ top: 24, right: 24, left: 18, bottom: 34 }}
+        syncId="product-retention-ltv-breakdown"
+      >
+          <defs>
+            <linearGradient id={`${gradientIdBase}-same`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="var(--pp-insight-violet)" stopOpacity="0.88" />
+              <stop offset="100%" stopColor="var(--pp-insight-violet)" stopOpacity="0.18" />
+            </linearGradient>
+            <linearGradient id={`${gradientIdBase}-other`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="var(--pp-pulse-blue)" stopOpacity="0.78" />
+              <stop offset="100%" stopColor="var(--pp-pulse-blue)" stopOpacity="0.16" />
+            </linearGradient>
+            <linearGradient id={`${gradientIdBase}-initial`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="var(--pp-signal-teal)" stopOpacity="0.72" />
+              <stop offset="100%" stopColor="var(--pp-signal-teal)" stopOpacity="0.14" />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
+          <XAxis
+            dataKey="ageDay"
+            type="number"
+            domain={[0, chart.xMax]}
+            ticks={chart.xTicks.map((tick) => tick.value)}
+            tickFormatter={(value) => formatInteger(value)}
+            axisLine={{ stroke: "rgba(100, 116, 139, 0.28)" }}
+            tickLine={{ stroke: "rgba(100, 116, 139, 0.28)" }}
+            tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+            allowDecimals={false}
+          />
+          <YAxis
+            domain={[0, chart.yMax]}
+            ticks={chart.yTicks.map((tick) => tick.value)}
+            tickFormatter={chart.yFormatter}
+            axisLine={{ stroke: "rgba(100, 116, 139, 0.28)" }}
+            tickLine={false}
+            tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+            width={58}
+          />
+          <RechartsTooltip
+            content={<ProductRetentionLtvTooltipContent chart={chart} />}
+            cursor={{ stroke: "rgba(124, 92, 255, 0.36)", strokeWidth: 1.5, strokeDasharray: "5 5" }}
+            wrapperStyle={{ outline: "none", zIndex: 8 }}
+          />
+          <Area
+            type="monotone"
+            dataKey="initialValue"
+            stackId="ltv"
+            name="Initial product"
+            stroke="var(--pp-signal-teal)"
+            strokeWidth={2.4}
+            fill={`url(#${gradientIdBase}-initial)`}
+            dot={false}
+            activeDot={false}
+            isAnimationActive={false}
+          />
+          <Area
+            type="monotone"
+            dataKey="otherValue"
+            stackId="ltv"
+            name="Cross-sell"
+            stroke="var(--pp-pulse-blue)"
+            strokeWidth={2.4}
+            fill={`url(#${gradientIdBase}-other)`}
+            dot={false}
+            activeDot={false}
+            isAnimationActive={false}
+          />
+          <Area
+            type="monotone"
+            dataKey="sameValue"
+            stackId="ltv"
+            name="Same product"
+            stroke="var(--pp-insight-violet)"
+            strokeWidth={2.8}
+            fill={`url(#${gradientIdBase}-same)`}
+            dot={false}
+            activeDot={<ProductRetentionLtvActiveDot />}
+            isAnimationActive={false}
+          />
+      </AreaChart>
       <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-y">{chart.yAxisLabel}</span>
       <span className="ppRetentionLineAxisTitle ppRetentionLineAxisTitle-x">Days since first purchase</span>
     </div>
   );
 }
 
-function ProductRetentionLtvBreakdownPointButton({ point, chart, embedded = false }) {
-  const triggerRef = useRef(null);
-  const [open, setOpen] = useState(false);
-  if (!point) return null;
+function ProductRetentionLtvActiveDot(props = {}) {
+  const cx = Number(props.cx);
+  const cy = Number(props.cy);
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+  return <circle className="ppRetentionLtvActiveDot" cx={cx} cy={cy} r="6" />;
+}
+
+function ProductRetentionLtvTooltipContent({ active, payload, chart }) {
+  const row = Array.isArray(payload) && payload.length ? payload[0]?.payload : null;
+  if (!active || !row) return null;
   return (
-    <button
-      type="button"
-      className={`ppRetentionLtvPoint${embedded ? " isSvgEmbedded" : ""}${open ? " isActive" : ""}`}
-      ref={triggerRef}
-      style={embedded ? undefined : { left: `${(point.x / chart.width) * 100}%`, top: `${(point.y / chart.height) * 100}%` }}
-      aria-label={`LTV Breakdown, ${point.xLabel}: ${chart.moneyFormatter(point.totalCents)}`}
-      onBlur={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
-      <span aria-hidden="true" />
-      <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppRetentionLinePopover ppRetentionLtvPopover" width={286} estimatedHeight={184} placement="top-center">
-        <strong>{point.xLabel}</strong>
-        <span className="ppRetentionLinePopoverRows">
-          <span><b>Initial product</b><small>{chart.valueFormatter(point.initialValue, point.initialProductCents)}</small></span>
-          <span><b>Cross-sell</b><small>{chart.valueFormatter(point.otherValue, point.otherProductCents)}</small></span>
-          <span><b>Same product</b><small>{chart.valueFormatter(point.sameValue, point.sameProductRepeatCents)}</small></span>
-          <span><b>Total</b><small>{chart.valueFormatter(point.totalValue, point.totalCents)}</small></span>
-        </span>
-      </FloatingTablePopover>
-    </button>
+    <div className="ppRetentionLinePopover ppRetentionLtvPopover ppRetentionRechartsTooltip" role="tooltip">
+      <strong>{row.xLabel}</strong>
+      <span className="ppRetentionLinePopoverRows">
+        <span><b>Initial product</b><small>{chart.valueFormatter(row.initialValue, row.initialProductCents)}</small></span>
+        <span><b>Cross-sell</b><small>{chart.valueFormatter(row.otherValue, row.otherProductCents)}</small></span>
+        <span><b>Same product</b><small>{chart.valueFormatter(row.sameValue, row.sameProductRepeatCents)}</small></span>
+        <span><b>Total</b><small>{chart.valueFormatter(row.totalValue, row.totalCents)}</small></span>
+      </span>
+    </div>
   );
 }
 
@@ -15415,23 +15455,42 @@ function ProductRetentionLtvContributionDonut({ contribution }) {
   const sameShare = total ? (contribution.sameProductRepeatCents / total) * 100 : 0;
   const otherShare = total ? (contribution.otherProductCents / total) * 100 : 0;
   const initialShare = Math.max(0, 100 - sameShare - otherShare);
-  const sameEnd = sameShare;
-  const otherEnd = sameShare + otherShare;
-  const background = total
-    ? `conic-gradient(var(--pp-insight-violet) 0 ${sameEnd}%, var(--pp-pulse-blue) ${sameEnd}% ${otherEnd}%, var(--pp-signal-teal) ${otherEnd}% 100%)`
-    : "conic-gradient(var(--pp-slate-200) 0 100%)";
   const rows = [
-    { key: "same", label: "Same product", value: contribution.sameProductRepeatCents, share: sameShare, className: "ppRetentionLegendLtvSame" },
-    { key: "other", label: "Other products", value: contribution.otherProductCents, share: otherShare, className: "ppRetentionLegendLtvOther" },
-    { key: "initial", label: "Initial product", value: contribution.initialProductCents, share: initialShare, className: "ppRetentionLegendLtvInitial" },
+    { key: "same", label: "Same product", value: contribution.sameProductRepeatCents, share: sameShare, className: "ppRetentionLegendLtvSame", color: "var(--pp-insight-violet)" },
+    { key: "other", label: "Other products", value: contribution.otherProductCents, share: otherShare, className: "ppRetentionLegendLtvOther", color: "var(--pp-pulse-blue)" },
+    { key: "initial", label: "Initial product", value: contribution.initialProductCents, share: initialShare, className: "ppRetentionLegendLtvInitial", color: "var(--pp-signal-teal)" },
   ];
+  const pieRows = total ? rows.filter((row) => row.value > 0) : [{ key: "empty", label: "No LTV", value: 1, share: 100, color: "var(--pp-slate-200)" }];
 
   return (
     <section className="ppRetentionLtvDetailCard">
       <h4>LTV contribution ({formatInteger(contribution.ageDay)} days)</h4>
       <div className="ppRetentionLtvDonutWrap">
-        <div className="ppRetentionLtvDonut" style={{ background }} aria-hidden="true">
-          <div>
+        <div className="ppRetentionLtvDonut" aria-label={`LTV contribution total ${formatRetentionMoneyCents(total)}`}>
+          <div className="ppRetentionLtvDonutChart" aria-hidden="true">
+            <PieChart width={210} height={210}>
+              <Pie
+                data={pieRows}
+                dataKey="value"
+                nameKey="label"
+                innerRadius="68%"
+                outerRadius="96%"
+                startAngle={90}
+                endAngle={-270}
+                paddingAngle={total ? 2 : 0}
+                stroke="var(--pp-cloud-white)"
+                strokeWidth={3}
+                isAnimationActive={false}
+              >
+                {pieRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+              </Pie>
+              <RechartsTooltip
+                content={<ProductRetentionLtvDonutTooltip />}
+                wrapperStyle={{ outline: "none", zIndex: 8 }}
+              />
+            </PieChart>
+          </div>
+          <div className="ppRetentionLtvDonutCenter">
             <strong>{formatRetentionMoneyCents(total)}</strong>
             <span>LTV total</span>
           </div>
@@ -15447,6 +15506,20 @@ function ProductRetentionLtvContributionDonut({ contribution }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function ProductRetentionLtvDonutTooltip({ active, payload }) {
+  const row = Array.isArray(payload) && payload.length ? payload[0]?.payload : null;
+  if (!active || !row) return null;
+  return (
+    <div className="ppRetentionLinePopover ppRetentionLtvPopover ppRetentionRechartsTooltip" role="tooltip">
+      <strong>{row.label}</strong>
+      <span className="ppRetentionLinePopoverRows">
+        <span><b>Contribution</b><small>{formatRetentionMoneyCents(row.value)}</small></span>
+        <span><b>Share</b><small>{formatPercent(row.share)}</small></span>
+      </span>
+    </div>
   );
 }
 
@@ -15860,14 +15933,23 @@ function getProductRetentionLtvBreakdownView(chart, mode = "cumulative") {
     plot,
     xLabelOffset,
     mode,
+    xMax,
+    yMax,
     yAxisLabel: isShareMode ? "LTV contribution share" : mode === "perCustomer" ? "LTV per customer (USD)" : "Cumulative LTV (USD)",
     moneyFormatter: formatRetentionMoneyCents,
     valueFormatter,
+    yFormatter,
+    data: chartRows.map((row) => ({
+      ...row,
+      xLabel: `${formatInteger(row.ageDay)} days`,
+    })),
     yTicks: yTickValues.map((value) => ({
+      value,
       y: getY(value),
       label: yFormatter(value),
     })),
     xTicks: PRODUCT_RETENTION_LTV_BREAKDOWN_TICKS.filter((tick) => tick <= xMax).map((tick, index, ticks) => ({
+      value: tick,
       x: Math.round(getX(tick) * 10) / 10,
       label: String(tick),
       anchor: index === 0 ? "start" : index === ticks.length - 1 ? "end" : "middle",

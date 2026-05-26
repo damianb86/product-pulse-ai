@@ -2135,11 +2135,12 @@ describe("ProductPulse screens", () => {
     expect(within(panel).queryByText("Retention segments")).not.toBeInTheDocument();
     expect(within(panel).queryByText("New to store")).not.toBeInTheDocument();
     const retentionMain = panel.querySelector(".ppProductRetentionMain");
+    const retentionSideRail = panel.querySelector(".ppProductRetentionSideRail");
     const retentionMetricGrid = panel.querySelector(".ppRetentionMetricGrid");
-    expect(retentionMain).toContainElement(retentionMetricGrid);
-    expect(panel.querySelector(".ppProductRetentionSideRail")).not.toContainElement(retentionMetricGrid);
+    expect(retentionSideRail).toContainElement(retentionMetricGrid);
+    expect(retentionMain).not.toContainElement(retentionMetricGrid);
     const ltvCard = within(panel).getByText("LTV Breakdown").closest(".ppRetentionChartCard");
-    expect(Array.from(retentionMain.children).indexOf(retentionMetricGrid)).toBeLessThan(Array.from(retentionMain.children).indexOf(ltvCard));
+    expect(retentionMain).toContainElement(ltvCard);
     expect(ltvCard).toHaveClass("ppRetentionLtvBreakdownCard");
     expect(within(ltvCard).getByText("Metric: LTV contribution")).toBeInTheDocument();
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as cumulative dollars" })).toHaveClass("isActive");
@@ -2157,15 +2158,8 @@ describe("ProductPulse screens", () => {
     expect(within(retentionInsightCard).getByText("72 / 100")).toBeInTheDocument();
     expect(retentionInsightCard.querySelector(".ppProductInsightAreaLine")).toBeInTheDocument();
 
-    const totalLtvPoint = within(ltvCard).getByRole("button", { name: "LTV Breakdown, 90 days: $86" });
-    fireEvent.mouseEnter(totalLtvPoint);
-    expect(totalLtvPoint).toHaveClass("isActive");
-    const ltvTooltip = screen.getAllByRole("tooltip").find((tooltip) => tooltip.classList.contains("ppRetentionLinePopover"));
-    expect(ltvTooltip).toHaveTextContent("90 days");
-    expect(ltvTooltip).toHaveTextContent("Total$86");
-    expect(ltvTooltip).toHaveTextContent("Cross-sell");
-    fireEvent.mouseLeave(totalLtvPoint);
-    expect(ltvTooltip).toHaveClass("ppRetentionLinePopover");
+    expect(ltvCard.querySelector(".recharts-wrapper")).toBeInTheDocument();
+    expect(within(ltvCard).queryByRole("button", { name: /LTV Breakdown, .* days:/ })).not.toBeInTheDocument();
 
     fireEvent.click(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" }));
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" })).toHaveClass("isActive");
