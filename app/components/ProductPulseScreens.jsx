@@ -3619,8 +3619,22 @@ export function BackgroundProcessesScreen({ data = {} }) {
     : processes.filter((process) => isBackgroundProcessActive(process.status));
   const logs = Array.isArray(backgroundProcesses.logs) ? backgroundProcesses.logs : [];
   const stats = backgroundProcesses.stats || {};
+  const pagination = backgroundProcesses.pagination || {
+    page: 1,
+    pageSize: 10,
+    total: processes.length,
+    totalPages: 1,
+    from: processes.length ? 1 : 0,
+    to: processes.length,
+    hasPrevious: false,
+    hasNext: false,
+  };
   const latestEvents = logs.slice(0, 8);
   const kindEntries = Object.entries(stats.kindCounts || {});
+  const hasProcessPages = Number(pagination.totalPages || 1) > 1;
+  const processRangeLabel = pagination.total
+    ? `Showing ${formatInteger(pagination.from)}-${formatInteger(pagination.to)} of ${formatInteger(pagination.total)} processes`
+    : "0 processes";
 
   return (
     <FullWidthPage heading="Background processes">
@@ -3655,7 +3669,7 @@ export function BackgroundProcessesScreen({ data = {} }) {
           <section className="ppWatchlistPanel ppBackgroundProcessListPanel">
             <div className="ppWatchlistPanelHeader">
               <h2>All processes</h2>
-              <span>{formatInteger(processes.length)} process{processes.length === 1 ? "" : "es"}</span>
+              <span>{processRangeLabel}</span>
             </div>
             {processes.length ? (
               <div className="ppBackgroundProcessList">
@@ -3669,6 +3683,42 @@ export function BackgroundProcessesScreen({ data = {} }) {
                 <span>No background processes have been recorded yet.</span>
               </div>
             )}
+            {hasProcessPages ? (
+              <div className="ppProductsPagination ppBackgroundProcessesPagination">
+                <span className="ppRowsSelect">
+                  Page {formatInteger(pagination.page)} of {formatInteger(pagination.totalPages)}
+                </span>
+                <div className="ppPageControls" aria-label="Background processes pagination">
+                  {pagination.hasPrevious ? (
+                    <Link to={buildBackgroundProcessesPageHref(pagination.page - 1)} aria-label="Previous page">
+                      <s-icon type="chevron-left" size="small"></s-icon>
+                    </Link>
+                  ) : (
+                    <button type="button" aria-label="Previous page" disabled>
+                      <s-icon type="chevron-left" size="small"></s-icon>
+                    </button>
+                  )}
+                  {getVisiblePages(pagination.page, pagination.totalPages).map((pageNumber) => (
+                    <Link
+                      className={pageNumber === pagination.page ? "isActive" : ""}
+                      to={buildBackgroundProcessesPageHref(pageNumber)}
+                      key={pageNumber}
+                    >
+                      {pageNumber}
+                    </Link>
+                  ))}
+                  {pagination.hasNext ? (
+                    <Link to={buildBackgroundProcessesPageHref(pagination.page + 1)} aria-label="Next page">
+                      <s-icon type="chevron-right" size="small"></s-icon>
+                    </Link>
+                  ) : (
+                    <button type="button" aria-label="Next page" disabled>
+                      <s-icon type="chevron-right" size="small"></s-icon>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <aside className="ppWatchlistPanel ppBackgroundProcessSidePanel">
@@ -5541,6 +5591,11 @@ function buildProductFilterHref(current = {}, overrides = {}, table = "main") {
   const params = new URLSearchParams(buildProductFilterFormData(current, overrides, table));
   const query = params.toString();
   return query ? `/app/products?${query}` : "/app/products";
+}
+
+function buildBackgroundProcessesPageHref(page) {
+  const pageNumber = Math.max(1, Number(page) || 1);
+  return pageNumber > 1 ? `/app/background-processes?page=${pageNumber}` : "/app/background-processes";
 }
 
 function getVisiblePages(currentPage, totalPages) {

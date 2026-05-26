@@ -161,7 +161,7 @@ describe("ProductPulseJobMonitor", () => {
     expect(document.querySelectorAll(".ppGlobalTopbarJobSection.isHistory .ppGlobalTopbarJobItem")).toHaveLength(25);
   });
 
-  it("shows recent failed jobs as user-visible alerts", () => {
+  it("does not replay already failed jobs as user-visible alerts on page load", () => {
     const initialMonitor = {
       activeJobs: [],
       recentJobs: [
@@ -181,12 +181,6 @@ describe("ProductPulseJobMonitor", () => {
     };
 
     renderMonitor(initialMonitor);
-
-    expect(screen.getByRole("alert")).toHaveTextContent("Linen Shirt finished with an error");
-    expect(screen.getByText("The background job could not be completed. Please try again later.")).toBeVisible();
-    expect(screen.getByText("Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.")).toBeVisible();
-
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss failed job message" }));
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

@@ -13,10 +13,11 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const [activePopover, setActivePopover] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedJobId, setSelectedJobId] = useState(null);
-  const [dismissedFailedJobIds, setDismissedFailedJobIds] = useState(() => new Set());
   const [completedJobNotice, setCompletedJobNotice] = useState(null);
+  const [failedJobNotice, setFailedJobNotice] = useState(null);
   const [now, setNow] = useState(null);
   const observedJobsRef = useRef(new Map());
+  const announcedFailedJobIdsRef = useRef(new Set());
   const fetcherStateRef = useRef(fetcher.state);
   const searchFetcherLoadRef = useRef(searchFetcher.load);
   const lastSearchQueryRef = useRef("");
@@ -27,18 +28,10 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const recentJobs = useMemo(() => monitor.recentJobs || [], [monitor.recentJobs]);
   const logs = useMemo(() => monitor.logs || [], [monitor.logs]);
   const hasActiveJobs = activeJobs.length > 0;
-  const failedJob = useMemo(
-    () => recentJobs.find((job) => isUserVisibleFailedJob(job, now) && !dismissedFailedJobIds.has(job.id)) || null,
-    [dismissedFailedJobIds, now, recentJobs],
-  );
-  const failureNotice = failedJob ? (
+  const failureNotice = failedJobNotice ? (
     <JobFailureNotice
-      job={failedJob}
-      onDismiss={() => setDismissedFailedJobIds((current) => {
-        const next = new Set(current);
-        next.add(failedJob.id);
-        return next;
-      })}
+      job={failedJobNotice}
+      onDismiss={() => setFailedJobNotice(null)}
     />
   ) : null;
   const completionNotice = completedJobNotice ? (
@@ -102,7 +95,14 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       const completedProductDiagnosis = finishedJobs.find((job) => (
         job.kind === "product-diagnosis" && job.status === "Completed"
       ));
+      const failedJob = finishedJobs.find((job) => (
+        job.status === "Failed" && !announcedFailedJobIdsRef.current.has(job.id)
+      ));
       if (completedProductDiagnosis) setCompletedJobNotice(completedProductDiagnosis);
+      if (failedJob) {
+        announcedFailedJobIdsRef.current.add(failedJob.id);
+        setFailedJobNotice(failedJob);
+      }
       revalidator.revalidate();
     }
   }, [activeJobs, recentJobs, revalidator]);
@@ -726,14 +726,6 @@ function truncateText(value, limit) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (text.length <= limit) return text;
   return `${text.slice(0, limit - 1)}…`;
-}
-
-function isUserVisibleFailedJob(job, now) {
-  if (job.status !== "Failed") return false;
-  if (now === null) return true;
-  const finished = new Date(job.finishedAtIso || job.updatedAtIso || Date.now()).getTime();
-  if (Number.isNaN(finished)) return true;
-  return now - finished <= 10 * 60 * 1000;
 }
 
 function formatTimestamp(value) {

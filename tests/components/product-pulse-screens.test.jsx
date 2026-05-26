@@ -781,7 +781,23 @@ describe("ProductPulse screens", () => {
   });
 
   it("renders the full background process history with active jobs, payload details, and logs", () => {
-    renderWithRouter(<BackgroundProcessesScreen
+    const extraProcesses = Array.from({ length: 8 }, (_, index) => ({
+      id: `job-extra-${index + 1}`,
+      name: "AI Product Diagnosis",
+      displayTitle: `Completed Product ${index + 1}`,
+      displaySubtitle: "AI product diagnostics completed",
+      status: "Completed",
+      progress: 100,
+      updatedAtIso: `2026-05-24T13:${String(49 - index).padStart(2, "0")}:00.000Z`,
+      startedAtIso: `2026-05-24T13:${String(40 - index).padStart(2, "0")}:00.000Z`,
+      executionStartedAtIso: `2026-05-24T13:${String(40 - index).padStart(2, "0")}:00.000Z`,
+      finishedAtIso: `2026-05-24T13:${String(49 - index).padStart(2, "0")}:00.000Z`,
+      elapsedMs: 540_000,
+      logCount: 0,
+      logs: [],
+    }));
+
+    const { container } = renderWithRouter(<BackgroundProcessesScreen
       data={{
         developmentMode: true,
         backgroundProcesses: {
@@ -837,17 +853,28 @@ describe("ProductPulse screens", () => {
               logCount: 0,
               logs: [],
             },
+            ...extraProcesses,
           ],
           logs: [{ id: "log-1", jobId: "job-running", level: "info", event: "product_diagnosis.started", message: "Diagnosis started.", createdAtIso: "2026-05-24T14:59:10.000Z" }],
           stats: {
-            total: 2,
+            total: 12,
             active: 1,
             running: 1,
             queued: 0,
-            completed: 1,
+            completed: 11,
             failed: 0,
             logs: 1,
-            kindCounts: { "AI Product Diagnosis": 1, "Shopify mock dataset": 1 },
+            kindCounts: { "AI Product Diagnosis": 11, "Shopify mock dataset": 1 },
+          },
+          pagination: {
+            page: 1,
+            pageSize: 10,
+            total: 12,
+            totalPages: 2,
+            from: 1,
+            to: 10,
+            hasPrevious: false,
+            hasNext: true,
           },
         },
       }}
@@ -860,6 +887,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("product_diagnosis.started").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Shopify mock dataset").length).toBeGreaterThan(0);
     expect(screen.getByText("Current queue")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1-10 of 12 processes")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Next page" })).toHaveAttribute("href", "/app/background-processes?page=2");
+    expect(container.querySelectorAll(".ppBackgroundProcessList .ppBackgroundProcessCard")).toHaveLength(10);
   });
 
   it("hides background process log UI outside development mode", () => {

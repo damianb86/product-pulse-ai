@@ -49,6 +49,8 @@ const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
+const BACKGROUND_PROCESS_PAGE_SIZE = 10;
+const BACKGROUND_PROCESS_ACTIVE_LIMIT = 10;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
@@ -518,27 +520,57 @@ export async function getJobMonitorForShop(shop) {
   };
 }
 
-export async function getBackgroundProcessesForShop(shop) {
+export async function getBackgroundProcessesForShop(shop, options = {}) {
   await failStaleFastProductScans(shop);
-  const [jobs, logs] = await Promise.all([
-    prisma.catalogSignalJob.findMany({
+  const requestedPage = normalizeBackgroundProcessPage(options.page);
+  const [total, statusGroups, kindGroups, logs] = await Promise.all([
+    prisma.catalogSignalJob.count({ where: { shop } }),
+    prisma.catalogSignalJob.groupBy({
+      by: ["status"],
       where: { shop },
-      orderBy: [{ updatedAt: "desc" }],
+      _count: { _all: true },
+    }),
+    prisma.catalogSignalJob.groupBy({
+      by: ["kind"],
+      where: { shop },
+      _count: { _all: true },
     }),
     getJobLogsForShop(shop, BACKGROUND_PROCESS_LOG_LIMIT),
   ]);
+  const page = clampBackgroundProcessPage(requestedPage, total);
+  const [jobs, activeJobs] = await Promise.all([
+    prisma.catalogSignalJob.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }],
+      skip: (page - 1) * BACKGROUND_PROCESS_PAGE_SIZE,
+      take: BACKGROUND_PROCESS_PAGE_SIZE,
+    }),
+    prisma.catalogSignalJob.findMany({
+      where: { shop, status: { in: ["Queued", "Running"] } },
+      orderBy: [{ updatedAt: "desc" }],
+      take: BACKGROUND_PROCESS_ACTIVE_LIMIT,
+    }),
+  ]);
 
-  ensureWorkersForJobs(shop, jobs);
+  ensureWorkersForJobs(shop, activeJobs);
 
   const formattedLogs = logs.map(formatJobLog);
   const logsByJob = groupJobLogsByJobId(formattedLogs);
   const processes = jobs.map((job) => formatBackgroundProcess(job, logsByJob.get(job.id) || []));
+  const activeProcesses = activeJobs.map((job) => formatBackgroundProcess(job, logsByJob.get(job.id) || []));
+  const statusCounts = mapBackgroundProcessStatusCounts(statusGroups);
+  const kindCounts = mapBackgroundProcessKindCounts(kindGroups);
 
   return {
     processes,
-    activeProcesses: processes.filter((process) => isActiveStatus(process.status)),
+    activeProcesses,
     logs: formattedLogs,
-    stats: buildBackgroundProcessStats(jobs, formattedLogs),
+    stats: buildBackgroundProcessStats(jobs, formattedLogs, {
+      total,
+      statusCounts,
+      kindCounts,
+    }),
+    pagination: buildBackgroundProcessPagination(page, total),
     logsLimited: formattedLogs.length >= BACKGROUND_PROCESS_LOG_LIMIT,
     logLimit: BACKGROUND_PROCESS_LOG_LIMIT,
     updatedAt: new Date().toISOString(),
@@ -4397,21 +4429,22 @@ function groupJobLogsByJobId(logs = []) {
   }, new Map());
 }
 
-function buildBackgroundProcessStats(jobs = [], logs = []) {
-  const statusCounts = jobs.reduce((counts, job) => {
+function buildBackgroundProcessStats(jobs = [], logs = [], overrides = {}) {
+  const statusCounts = overrides.statusCounts || jobs.reduce((counts, job) => {
     const status = job.status || "Unknown";
     counts[status] = (counts[status] || 0) + 1;
     return counts;
   }, {});
-  const kindCounts = jobs.reduce((counts, job) => {
+  const kindCounts = overrides.kindCounts || jobs.reduce((counts, job) => {
     const kind = getJobDisplayName(job.kind);
     counts[kind] = (counts[kind] || 0) + 1;
     return counts;
   }, {});
+  const total = Number(overrides.total ?? jobs.length) || 0;
 
   return {
-    total: jobs.length,
-    active: jobs.filter((job) => isActiveStatus(job.status)).length,
+    total,
+    active: (statusCounts.Running || 0) + (statusCounts.Queued || 0),
     running: statusCounts.Running || 0,
     queued: statusCounts.Queued || 0,
     completed: statusCounts.Completed || 0,
@@ -4421,6 +4454,55 @@ function buildBackgroundProcessStats(jobs = [], logs = []) {
     kindCounts,
     latestUpdatedAtIso: toIso(jobs[0]?.updatedAt),
   };
+}
+
+function normalizeBackgroundProcessPage(value) {
+  const parsed = Number.parseInt(String(value || "1"), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function clampBackgroundProcessPage(page, total) {
+  const totalPages = Math.max(1, Math.ceil((Number(total) || 0) / BACKGROUND_PROCESS_PAGE_SIZE));
+  return Math.min(Math.max(1, page), totalPages);
+}
+
+function buildBackgroundProcessPagination(page, total) {
+  const normalizedTotal = Math.max(0, Number(total) || 0);
+  const totalPages = Math.max(1, Math.ceil(normalizedTotal / BACKGROUND_PROCESS_PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const from = normalizedTotal ? (safePage - 1) * BACKGROUND_PROCESS_PAGE_SIZE + 1 : 0;
+  const to = normalizedTotal ? Math.min(normalizedTotal, safePage * BACKGROUND_PROCESS_PAGE_SIZE) : 0;
+
+  return {
+    page: safePage,
+    pageSize: BACKGROUND_PROCESS_PAGE_SIZE,
+    total: normalizedTotal,
+    totalPages,
+    from,
+    to,
+    hasPrevious: safePage > 1,
+    hasNext: safePage < totalPages,
+  };
+}
+
+function mapBackgroundProcessStatusCounts(groups = []) {
+  return groups.reduce((counts, group) => {
+    const status = group.status || "Unknown";
+    counts[status] = getBackgroundProcessGroupCount(group);
+    return counts;
+  }, {});
+}
+
+function mapBackgroundProcessKindCounts(groups = []) {
+  return groups.reduce((counts, group) => {
+    const kind = getJobDisplayName(group.kind);
+    counts[kind] = (counts[kind] || 0) + getBackgroundProcessGroupCount(group);
+    return counts;
+  }, {});
+}
+
+function getBackgroundProcessGroupCount(group) {
+  return Number(group?._count?._all ?? group?._count ?? 0) || 0;
 }
 
 function formatBackgroundProcessPayloadItems(payload) {
