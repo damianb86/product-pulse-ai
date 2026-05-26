@@ -2460,6 +2460,56 @@ describe("ProductPulse screens", () => {
     expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).toBeInTheDocument();
   });
 
+  it("renders a small AI interpretation fallback when chart text is missing", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        chartInterpretations: null,
+        diagnosisReport: null,
+        monthlyOrderActivity: {
+          windowDays: 90,
+          months: [
+            {
+              key: "2026-05",
+              label: "May 2026",
+              shortLabel: "May",
+              orders: 3,
+              orderUnits: 4,
+              revenue: 420,
+              returnedOrders: 1,
+              returnedUnits: 1,
+              refundedOrders: 0,
+              refundedUnits: 0,
+              refundAmount: 0,
+              returnRate: 25,
+              refundRate: 0,
+            },
+          ],
+          summary: {
+            totalOrders: 3,
+            totalOrderUnits: 4,
+            totalRevenue: 420,
+            totalReturnedOrders: 1,
+            totalReturnedUnits: 1,
+            totalRefundedOrders: 0,
+            totalRefundedUnits: 0,
+            totalRefundAmount: 0,
+            returnRate: 25,
+            refundRate: 0,
+          },
+        },
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const orderPanel = container.querySelector(".ppProductOrderActivityPanel");
+
+    expect(orderPanel).toBeInTheDocument();
+    expect(within(orderPanel).getByText("AI interpretation")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("No AI interpretation generated for this chart yet.")).toBeInTheDocument();
+    expect(orderPanel.querySelector(".ppProductChartAiInterpretation-empty")).toBeInTheDocument();
+  });
+
   it("renders relationship-aware top cards and return/refund resolution panel", () => {
     const product = {
       ...defaultView.startHere,

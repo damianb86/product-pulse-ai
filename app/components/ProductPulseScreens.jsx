@@ -15237,16 +15237,18 @@ const ORDER_ACTIVITY_LEGEND_ITEMS = Object.freeze([
   { key: "unresolved", label: "Unresolved returns", ariaLabel: "unresolved returns line", className: "ppOrderActivityLegendUnresolved", requiresUnresolvedSeries: true },
 ]);
 
+const PRODUCT_CHART_AI_INTERPRETATION_FALLBACK = "No AI interpretation generated for this chart yet.";
+
 function ProductChartAiInterpretation({ detail, chartKey }) {
   const text = getProductChartInterpretation(detail, chartKey);
-  if (!text) return null;
+  const hasText = Boolean(text);
   return (
-    <aside className="ppProductChartAiInterpretation">
+    <aside className={`ppProductChartAiInterpretation${hasText ? "" : " ppProductChartAiInterpretation-empty"}`}>
       <span>
         <ProductPulseGlyph type="ai-evidence-synthesis" />
         <strong>AI interpretation</strong>
       </span>
-      <p>{text}</p>
+      <p>{hasText ? text : PRODUCT_CHART_AI_INTERPRETATION_FALLBACK}</p>
     </aside>
   );
 }
