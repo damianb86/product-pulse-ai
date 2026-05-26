@@ -13,7 +13,7 @@ Main workflows:
 - Inspect product detail for evidence, metrics, recommendations, action history, and score history.
 - Track important products in Watchlist.
 - Use Analytics to understand aggregate risk, impact, sources, and trends.
-- Tune thresholds and operational limits in Settings.
+- Tune thresholds, evidence windows, and generated HTML style in Settings.
 
 Main app-owned entities:
 

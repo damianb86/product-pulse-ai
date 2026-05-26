@@ -18,6 +18,7 @@ import { buildProductRelationshipSummary } from "./product-pulse-product-relatio
 import {
   attachProductRetentionPayloadToDiagnosis,
   calculateProductRetentionMetrics,
+  calculateProductRetentionPreview,
 } from "./product-pulse-retention.server";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
@@ -113,7 +114,15 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const momentumCatalogBaseline = await fetchProductMomentumCatalogBaseline({ shop, currentProductGid: snapshot.productGid });
-  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, windowDays, momentumCatalogBaseline });
+  const baseDeterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, windowDays, momentumCatalogBaseline });
+  const retentionPreview = await calculateProductRetentionPreviewForDiagnosis({
+    shop,
+    jobId,
+    admin,
+    snapshot,
+    windowDays,
+  });
+  const deterministic = attachProductRetentionPreviewToDeterministic(baseDeterministic, retentionPreview?.payload);
   const recommendationCandidates = buildRuleRecommendationCandidates(deterministic);
   const aiInput = {
     product: buildAiProductInput(shopifyData.product, snapshot),
@@ -211,6 +220,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     snapshot,
     diagnosis,
     windowDays,
+    retentionPreview,
   });
 
   await recordJobLog({
@@ -3079,11 +3089,16 @@ async function calculateAndAttachProductRetentionForDiagnosis({
   snapshot,
   diagnosis,
   windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  retentionPreview = null,
 }) {
   if (!diagnosis?.id || !snapshot?.productGid) return null;
   try {
     const lookbackDays = Math.max(PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS, Number(windowDays || 0));
     const includeTestOrders = shouldIncludeTestOrdersForProductRetention(snapshot);
+    const canReusePreviewOrders = retentionPreview
+      && Array.isArray(retentionPreview.orders)
+      && retentionPreview.fetchStats?.truncated !== true
+      && retentionPreview.status !== "failed";
     const result = await calculateProductRetentionMetrics({
       shopId: shop,
       productGid: snapshot.productGid,
@@ -3094,6 +3109,11 @@ async function calculateAndAttachProductRetentionForDiagnosis({
       lookbackDays,
       maxCohortAgeDays: PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS,
       includeTestOrders,
+      orders: canReusePreviewOrders ? retentionPreview.orders : null,
+      timezone: canReusePreviewOrders ? retentionPreview.timezone : "",
+      currency: canReusePreviewOrders ? retentionPreview.currency : "",
+      windowStartDate: canReusePreviewOrders ? retentionPreview.windowStartDate : null,
+      windowEndDate: canReusePreviewOrders ? retentionPreview.windowEndDate : null,
     });
     await attachProductRetentionPayloadToDiagnosis({
       shopId: shop,
@@ -3113,6 +3133,40 @@ async function calculateAndAttachProductRetentionForDiagnosis({
     });
     return null;
   }
+}
+
+async function calculateProductRetentionPreviewForDiagnosis({
+  shop,
+  jobId,
+  admin,
+  snapshot,
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+}) {
+  if (!snapshot?.productGid) return null;
+  const lookbackDays = Math.max(PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS, Number(windowDays || 0));
+  const includeTestOrders = shouldIncludeTestOrdersForProductRetention(snapshot);
+  return calculateProductRetentionPreview({
+    shopId: shop,
+    productGid: snapshot.productGid,
+    admin,
+    jobId,
+    asOfDate: new Date(),
+    lookbackDays,
+    maxCohortAgeDays: PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS,
+    includeTestOrders,
+  });
+}
+
+function attachProductRetentionPreviewToDeterministic(deterministic = {}, payload = null) {
+  if (!payload?.summary) return deterministic;
+  return {
+    ...deterministic,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      productRetention: payload,
+      productRetentionSummary: payload.summary || null,
+    },
+  };
 }
 
 function shouldIncludeTestOrdersForProductRetention(snapshot) {
@@ -3702,10 +3756,65 @@ function buildAiDeterministicInput(deterministic) {
       affectedVariants: deterministic.metrics.affectedVariants,
       variantInsights: deterministic.metrics.variantInsights,
       orderGeography: deterministic.metrics.orderGeography,
+      productRetention: buildAiProductRetentionInput(deterministic.metrics.productRetention),
       windowDays: deterministic.metrics.windowDays,
       orderAccessDenied: deterministic.metrics.orderAccessDenied,
       incrementalDiagnosis: sanitizeIncrementalDiagnosisForAi(deterministic.metrics.incrementalDiagnosis),
     },
+  };
+}
+
+function buildAiProductRetentionInput(retention = null) {
+  const summary = retention?.summary || null;
+  if (!summary) return null;
+  const healthScore = numberOrNull(summary.retentionHealthScore);
+  const repeat90 = numberOrNull(summary.repeatPurchaseRate90d);
+  const same90 = numberOrNull(summary.sameProductRepurchaseRate90d);
+  const crossSell90 = numberOrNull(summary.crossSellRetentionRate90d);
+  const ltv90Cents = numberOrNull(summary.productLtv90Cents);
+  const ltvDeltaCents = numberOrNull(summary.ltv90DeltaCents);
+  const customers = Number(summary.totalCustomersAnalyzed || 0);
+  const hasEnoughData = Boolean(summary.hasEnoughData);
+  const opportunitySignals = [];
+  if (hasEnoughData && healthScore != null && healthScore >= 75) opportunitySignals.push("strong_retention_health");
+  if (hasEnoughData && healthScore != null && healthScore <= 45) opportunitySignals.push("weak_retention_health");
+  if (hasEnoughData && repeat90 != null && repeat90 >= 0.30) opportunitySignals.push("high_repeat_purchase");
+  if (hasEnoughData && repeat90 != null && repeat90 <= 0.05) opportunitySignals.push("low_repeat_purchase");
+  if (hasEnoughData && same90 != null && same90 >= 0.18) opportunitySignals.push("same_product_repurchase");
+  if (hasEnoughData && crossSell90 != null && crossSell90 >= 0.20) opportunitySignals.push("cross_sell_retention");
+  if (hasEnoughData && ltvDeltaCents != null && Math.abs(ltvDeltaCents) >= Math.max(500, Math.abs(Number(ltv90Cents || 0)) * 0.08)) {
+    opportunitySignals.push(ltvDeltaCents > 0 ? "ltv_improving" : "ltv_declining");
+  }
+
+  return {
+    available: customers > 0 || Boolean(retention.run),
+    hasEnoughData,
+    lowSampleWarning: Boolean(summary.lowSampleWarning),
+    shouldMention: opportunitySignals.length > 0,
+    opportunitySignals,
+    rateScale: "fraction_0_to_1",
+    repeatPurchaseRate90d: repeat90,
+    repeatPurchaseRate180d: numberOrNull(summary.repeatPurchaseRate180d),
+    sameProductRepurchaseRate90d: same90,
+    crossSellRetentionRate90d: crossSell90,
+    returningRevenueShare: numberOrNull(summary.returningRevenueShare),
+    medianDaysToSecondPurchase: numberOrNull(summary.medianDaysToSecondPurchase),
+    productLtv90Cents: ltv90Cents,
+    productLtv180Cents: numberOrNull(summary.productLtv180Cents),
+    retentionHealthScore: healthScore,
+    repeatPurchaseRate90dDelta: numberOrNull(summary.repeatPurchaseRate90dDelta),
+    sameProductRepurchaseRate90dDelta: numberOrNull(summary.sameProductRepurchaseRate90dDelta),
+    ltv90DeltaCents: ltvDeltaCents,
+    totalProductCohortCustomers: customers,
+    totalProductOrdersAnalyzed: Number(summary.totalProductOrdersAnalyzed || 0),
+    trend: (Array.isArray(retention.retentionHealthTrend) ? retention.retentionHealthTrend : [])
+      .slice(-8)
+      .map((point) => ({
+        date: point.date || null,
+        retentionHealthScore: numberOrNull(point.retentionHealthScore),
+        repeatPurchaseRate90d: numberOrNull(point.repeatPurchaseRate90d),
+        productLtv90Cents: numberOrNull(point.productLtv90Cents),
+      })),
   };
 }
 
@@ -4213,6 +4322,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (issue === "color_expectation" && hasActionableMainIssue) candidates.push({ id: "draft-color-expectation-note", type: "PDP copy", reason: "Customers mention color expectation mismatch." });
   if (issue === "safety_concern" && hasActionableMainIssue) candidates.push({ id: "draft-safety-expectation-note", type: "PDP copy", reason: "Customer return text expresses fear, safety concern, or discomfort." });
   if (issue === "subjective_negative_reaction" && hasActionableMainIssue) candidates.push({ id: "draft-subjective-expectation-note", type: "PDP copy", reason: "Repeated subjective negative customer language is present." });
+  if (issue === "setup_expectation" && hasActionableMainIssue) candidates.push({ id: "improve-setup-guidance", type: "PDP copy", reason: "Setup or expectation mismatch signals were detected." });
   if ((issue === "quality_defect" || issue === "durability") && hasActionableMainIssue) candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
   if (deterministic.metrics.affectedVariants.length && (deterministic.metrics.returnUnits + deterministic.metrics.refundUnits) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
   if (deterministic.metrics.topReturnReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
@@ -4224,6 +4334,8 @@ function buildRuleRecommendationCandidates(deterministic) {
       candidates.push({ id: "rewrite-product-description", type: "PDP copy", reason: "Product content analysis found missing, short or incoherent product copy." });
     } else if (getDescriptionReplacementsFromContentIssues(contentIssues).length) {
       candidates.push({ id: "correct-product-description", type: "PDP copy", reason: "Product content analysis found a specific contradiction that can be corrected without rewriting the full description." });
+    } else if (buildTargetedDescriptionEnhancementPlan({ currentDescription, contentIssues, product: deterministic.product }).shouldRecommend) {
+      candidates.push({ id: "correct-product-description", type: "PDP copy", reason: "Product content analysis found a partial copy gap that can be handled with a targeted description edit." });
     } else {
       candidates.push({ id: "add-product-description-guidance", type: "PDP copy", reason: "Product content analysis found a specific shopper guidance gap that can be added without rewriting the full description." });
     }
@@ -4256,6 +4368,10 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.relationshipBundle.shouldRecommend) candidates.push({ id: "test-product-bundle", type: "Bundle opportunity", reason: recipeSignals.relationshipBundle.reason });
   if (recipeSignals.relationshipCrossSell.shouldRecommend) candidates.push({ id: "create-post-purchase-cross-sell", type: "Cross-sell", reason: recipeSignals.relationshipCrossSell.reason });
   if (recipeSignals.relationshipJourney.shouldRecommend) candidates.push({ id: "position-as-upgrade-path", type: "Journey insight", reason: recipeSignals.relationshipJourney.reason });
+  if (recipeSignals.retentionRepurchaseCampaign.shouldRecommend) candidates.push({ id: "create-repurchase-campaign", type: "Retention campaign", reason: recipeSignals.retentionRepurchaseCampaign.reason });
+  if (recipeSignals.retentionCrossSellCampaign.shouldRecommend) candidates.push({ id: "create-retention-cross-sell-campaign", type: "Lifecycle campaign", reason: recipeSignals.retentionCrossSellCampaign.reason });
+  if (recipeSignals.retentionBundleOffer.shouldRecommend) candidates.push({ id: "test-retention-bundle-offer", type: "Bundle campaign", reason: recipeSignals.retentionBundleOffer.reason });
+  if (recipeSignals.retentionDropReview.shouldRecommend) candidates.push({ id: "review-retention-drop", type: "Retention review", reason: recipeSignals.retentionDropReview.reason });
   if (!lowRiskMonitoringOnly && (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0)) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
 }
@@ -4476,6 +4592,13 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const shouldCorrectDescription = !shouldRewriteDescription
     && descriptionReplacements.length > 0
     && isMeaningfullyDifferentDescription(currentDescriptionText, correctedDescriptionDraft);
+  const targetedDescriptionEnhancement = !shouldRewriteDescription && !shouldCorrectDescription
+    ? buildTargetedDescriptionEnhancementPlan({
+      currentDescription: currentDescriptionText,
+      contentIssues,
+      product: deterministic.product,
+    })
+    : buildEmptyDescriptionEnhancementPlan("A rewrite or correction already covers the content issue.");
   const reviewSections = [];
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
   const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
@@ -4500,7 +4623,13 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     && hasActionableMainIssue
     && mainIssue !== "product_content"
     && shouldRecommendSubjectiveAction
-    && primaryPdpDescriptionPlan.shouldRecommend);
+    && primaryPdpDescriptionPlan.shouldRecommend
+    && !shouldSuppressCoveredPdpDescriptionAction({
+      mainIssue,
+      proposedText: pdpCopy,
+      currentDescriptionText,
+      deterministic,
+    }));
   const shopperGuidanceForDescription = primaryPdpDescriptionAction ? primaryPdpDescriptionPlan.draftText : "";
   const descriptionDraftForRewrite = shouldRewriteDescription ? buildEnhancedDescriptionDraft({
     title: snapshot.productTitle,
@@ -4604,6 +4733,33 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           operation: "replace",
           preserveHtml: true,
           causeKey: getRecommendationCauseKey({ issue: "product_content", text: correctedDescriptionDraft, deterministic }),
+          relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
+          relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
+        },
+      });
+    } else if (targetedDescriptionEnhancement.shouldRecommend) {
+      recommendations.push({
+        id: "correct-product-description",
+        label: "Update product description details",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: targetedDescriptionEnhancement.draftText,
+          issue: "product_content",
+          currentDescriptionText,
+          contentIssues: contentIssues.map((issue) => ({
+            label: issue.label,
+            evidence: issue.evidence,
+            severity: issue.severity,
+            code: issue.code,
+          })),
+          descriptionReplacements: targetedDescriptionEnhancement.descriptionReplacements,
+          changeStrategy: "targeted-enhancement",
+          operation: "replace",
+          preserveHtml: true,
+          contentCoverage: targetedDescriptionEnhancement.coverage,
+          causeKey: getRecommendationCauseKey({ issue: "product_content", text: targetedDescriptionEnhancement.draftText, deterministic }),
           relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
           relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
         },
@@ -5243,6 +5399,66 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  if (recipeSignals.retentionRepurchaseCampaign.shouldRecommend) {
+    recommendations.push({
+      id: "create-repurchase-campaign",
+      label: "Create repurchase campaign",
+      type: "Retention campaign",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionRepurchaseCampaign, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionRepurchaseCampaign.reason,
+        recommendationKind: "repurchase_campaign",
+      }),
+    });
+  }
+
+  if (recipeSignals.retentionCrossSellCampaign.shouldRecommend) {
+    recommendations.push({
+      id: "create-retention-cross-sell-campaign",
+      label: "Create lifecycle cross-sell campaign",
+      type: "Lifecycle campaign",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionCrossSellCampaign, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionCrossSellCampaign.reason,
+        recommendationKind: "retention_cross_sell_campaign",
+      }),
+    });
+  }
+
+  if (recipeSignals.retentionBundleOffer.shouldRecommend) {
+    recommendations.push({
+      id: "test-retention-bundle-offer",
+      label: "Test retention bundle offer",
+      type: "Bundle campaign",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionBundleOffer, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionBundleOffer.reason,
+        recommendationKind: "retention_bundle_offer",
+      }),
+    });
+  }
+
+  if (recipeSignals.retentionDropReview.shouldRecommend) {
+    recommendations.push({
+      id: "review-retention-drop",
+      label: "Review retention drop",
+      type: "Retention review",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionDropReview, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionDropReview.reason,
+        recommendationKind: "retention_drop_review",
+      }),
+    });
+  }
+
   if (recipeSignals.qa.shouldRecommend) {
     recommendations.push({
       id: "recommend-qa-review",
@@ -5510,6 +5726,7 @@ function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode
   if (/supplier|qa/.test(normalized)) score += 50;
   if (/compatibility review|pairing/.test(normalized)) score += 48;
   if (/bundle|cross-sell|journey|upgrade|product relationship/.test(normalized)) score += 28;
+  if (/retention|lifecycle|repurchase|campaign/.test(normalized)) score += 26;
   if (/seo|meta|handle|media|image|alt text/.test(normalized)) score += 30;
   if (/tag|collection|workflow|internal|evidence/.test(normalized)) score -= 10;
   if (normalizedMainIssue === "color_expectation") {
@@ -5611,6 +5828,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, sourceMismatchSignals);
   const purchaseContextSignals = getPurchaseContextRecommendationSignals(deterministic);
   const productRelationshipSignals = getProductRelationshipRecommendationSignals(deterministic);
+  const productRetentionSignals = getProductRetentionRecommendationSignals(deterministic, { productRelationshipSignals });
   const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, productRelationshipSignals);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
   const focusedRemediationMode = isFocusedRemediationDiagnosis(deterministic, {
@@ -5782,14 +6000,22 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     },
     relationshipBundle: merchandisingRelationshipSuppressionReason
       ? suppressRecommendationSignal(productRelationshipSignals.bundleOpportunity, merchandisingRelationshipSuppressionReason)
+      : productRetentionSignals.bundleOffer.shouldRecommend
+        ? suppressRecommendationSignal(productRelationshipSignals.bundleOpportunity, "Covered by the retention bundle campaign action.")
       : productRelationshipSignals.bundleOpportunity,
     relationshipCrossSell: merchandisingRelationshipSuppressionReason
       ? suppressRecommendationSignal(productRelationshipSignals.crossSellOpportunity, merchandisingRelationshipSuppressionReason)
+      : productRetentionSignals.crossSellCampaign.shouldRecommend
+        ? suppressRecommendationSignal(productRelationshipSignals.crossSellOpportunity, "Covered by the retention lifecycle campaign action.")
       : productRelationshipSignals.crossSellOpportunity,
     relationshipCompatibility: productRelationshipSignals.compatibilityWarning,
     relationshipJourney: merchandisingRelationshipSuppressionReason
       ? suppressRecommendationSignal(productRelationshipSignals.journeyInsight, merchandisingRelationshipSuppressionReason)
       : productRelationshipSignals.journeyInsight,
+    retentionRepurchaseCampaign: productRetentionSignals.repurchaseCampaign,
+    retentionCrossSellCampaign: productRetentionSignals.crossSellCampaign,
+    retentionBundleOffer: productRetentionSignals.bundleOffer,
+    retentionDropReview: productRetentionSignals.dropReview,
   };
 }
 
@@ -5993,6 +6219,198 @@ function isRelationshipExpectationMismatchDiagnosis(deterministic = {}, productR
   return expectationLanguage || (!hasStopSaleOperationalRisk(deterministic) && ["compatibility", "product_content", "product_quality", "quality_defect"].includes(mainIssue));
 }
 
+function getProductRetentionRecommendationSignals(deterministic = {}, { productRelationshipSignals = null } = {}) {
+  const metrics = deterministic.metrics || {};
+  const retention = metrics.productRetention || {};
+  const summary = retention.summary || {};
+  const relationshipSignals = productRelationshipSignals || getProductRelationshipRecommendationSignals(deterministic);
+  const cohortCustomers = Number(summary.totalCustomersAnalyzed || 0);
+  const productOrders = Number(summary.totalProductOrdersAnalyzed || 0);
+  const hasEnoughData = Boolean(summary.hasEnoughData) && cohortCustomers >= 10 && productOrders >= 10;
+  const healthScore = numberOrNull(summary.retentionHealthScore);
+  const repeat90 = numberOrNull(summary.repeatPurchaseRate90d);
+  const same90 = numberOrNull(summary.sameProductRepurchaseRate90d);
+  const crossSell90 = numberOrNull(summary.crossSellRetentionRate90d);
+  const ltv90Cents = numberOrNull(summary.productLtv90Cents) || 0;
+  const ltvDeltaCents = numberOrNull(summary.ltv90DeltaCents);
+  const riskScore = Number(deterministic.riskScore || metrics.productRiskScore || 0);
+  const returnRate = Number(metrics.returnRate || 0);
+  const refundRate = Number(metrics.refundRate || 0);
+  const hasHardProductRisk = riskScore >= 75 || returnRate >= 25 || refundRate >= 20 || hasStopSaleOperationalRisk(deterministic);
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, relationshipSignals);
+  const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic);
+  const hasRetentionDropConcern = Boolean(
+    (healthScore != null && healthScore <= 45)
+      || (repeat90 != null && repeat90 <= 0.05 && cohortCustomers >= 20)
+      || (ltvDeltaCents != null && ltvDeltaCents <= -Math.max(500, Math.abs(ltv90Cents) * 0.08)),
+  );
+  const canRecommendCommercialRetention = hasEnoughData
+    && !hasHardProductRisk
+    && !hasRetentionDropConcern
+    && !relationshipExpectationMode
+    && !sourceIntegrityMode;
+  const metricsPayload = {
+    healthScore,
+    repeatPurchaseRate90d: repeat90,
+    sameProductRepurchaseRate90d: same90,
+    crossSellRetentionRate90d: crossSell90,
+    productLtv90Cents: ltv90Cents,
+    productLtv180Cents: numberOrNull(summary.productLtv180Cents) || 0,
+    ltv90DeltaCents: ltvDeltaCents,
+    medianDaysToSecondPurchase: numberOrNull(summary.medianDaysToSecondPurchase),
+    totalProductCohortCustomers: cohortCustomers,
+    totalProductOrdersAnalyzed: productOrders,
+  };
+
+  const repurchase = {
+    kind: "repurchase_campaign",
+    score: Number(same90 || 0) * 100 + Number(healthScore || 0) / 2,
+    summary: metricsPayload,
+    shouldRecommend: Boolean(canRecommendCommercialRetention && healthScore >= 65 && same90 >= 0.18),
+    reason: `Same-product repurchase is ${formatRetentionPercent(same90)} across ${cohortCustomers} product cohort customers; test a conservative replenishment or repurchase reminder.`,
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "repurchase_campaign",
+      summary: metricsPayload,
+    }),
+  };
+  const crossSellRelationship = getRetentionRelationshipSignal(relationshipSignals.crossSellOpportunity);
+  const crossSell = {
+    kind: "retention_cross_sell_campaign",
+    score: Number(crossSell90 || 0) * 100 + Number(crossSellRelationship.sampleSize || 0) * 3 + Number(crossSellRelationship.lift || 0) * 4,
+    summary: metricsPayload,
+    relationship: crossSellRelationship.relationship,
+    shouldRecommend: Boolean(canRecommendCommercialRetention && crossSell90 >= 0.20 && crossSellRelationship.hasActionableRelationship),
+    reason: `${formatRetentionPercent(crossSell90)} of product cohort customers buy another product within 90 days, and ${crossSellRelationship.title} appears as a reliable follow-on purchase.`,
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "retention_cross_sell_campaign",
+      summary: metricsPayload,
+      relatedProductTitle: crossSellRelationship.title,
+    }),
+  };
+  const bundleRelationship = getRetentionRelationshipSignal(relationshipSignals.bundleOpportunity);
+  const bundle = {
+    kind: "retention_bundle_offer",
+    score: Number(crossSell90 || 0) * 100 + Number(bundleRelationship.sampleSize || 0) * 3 + Number(bundleRelationship.lift || 0) * 5,
+    summary: metricsPayload,
+    relationship: bundleRelationship.relationship,
+    shouldRecommend: Boolean(canRecommendCommercialRetention && crossSell90 >= 0.15 && bundleRelationship.hasActionableRelationship),
+    reason: `${bundleRelationship.title} is a stable bought-together product, and retention LTV includes meaningful cross-sell contribution.`,
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "retention_bundle_offer",
+      summary: metricsPayload,
+      relatedProductTitle: bundleRelationship.title,
+    }),
+  };
+  const drop = {
+    kind: "retention_drop_review",
+    score: 100 - Number(healthScore || 100),
+    summary: metricsPayload,
+    shouldRecommend: Boolean(hasEnoughData && !sourceIntegrityMode && hasRetentionDropConcern),
+    reason: buildRetentionDropReason({ healthScore, repeat90, ltvDeltaCents, ltv90Cents, cohortCustomers }),
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "retention_drop_review",
+      summary: metricsPayload,
+    }),
+  };
+
+  const opportunitySignals = [repurchase, crossSell, bundle].filter((signal) => signal.shouldRecommend);
+  const winner = opportunitySignals.sort((first, second) => second.score - first.score)[0] || null;
+  const keepOnlyWinner = (signal) => ({
+    ...signal,
+    shouldRecommend: Boolean(winner && signal.kind === winner.kind),
+    suppressionReason: winner && signal.kind !== winner.kind
+      ? `Suppressed because ${winner.kind} is the strongest retention action for this diagnosis.`
+      : signal.suppressionReason,
+  });
+
+  return {
+    repurchaseCampaign: keepOnlyWinner(repurchase),
+    crossSellCampaign: keepOnlyWinner(crossSell),
+    bundleOffer: keepOnlyWinner(bundle),
+    dropReview: drop,
+  };
+}
+
+function getRetentionRelationshipSignal(signal = {}) {
+  const relationship = signal?.relationship && typeof signal.relationship === "object" ? signal.relationship : null;
+  const title = relationship?.relatedProductTitle || relationship?.related_product_title || signal.title || "a related product";
+  const sampleSize = Number(signal.sampleSize || relationship?.sampleSize || relationship?.sample_size || 0);
+  const confidence = normalizePercentLike(signal.confidence || relationship?.confidence || 0);
+  const lift = Number(signal.lift ?? relationship?.lift ?? 0);
+  return {
+    relationship: relationship || {},
+    title,
+    sampleSize,
+    confidence,
+    lift,
+    hasActionableRelationship: Boolean(relationship && sampleSize >= 3 && confidence >= 55),
+  };
+}
+
+function buildRetentionDropReason({ healthScore, repeat90, ltvDeltaCents, ltv90Cents, cohortCustomers }) {
+  if (healthScore != null && healthScore <= 45) {
+    return `Retention health is ${Math.round(healthScore)}/100 across ${cohortCustomers} product cohort customers; review onboarding, expectation fit, and lifecycle follow-up before adding growth campaigns.`;
+  }
+  if (repeat90 != null && repeat90 <= 0.05) {
+    return `90-day repeat purchase is only ${formatRetentionPercent(repeat90)} across ${cohortCustomers} product cohort customers; review whether buyers have a clear reason to return.`;
+  }
+  const deltaText = ltvDeltaCents == null ? "down" : `${formatMoney(ltvDeltaCents / 100)} ${ltvDeltaCents < 0 ? "down" : "changed"}`;
+  return `90-day product LTV is ${deltaText} against the previous period from a ${formatMoney(ltv90Cents / 100)} baseline; review whether retention quality is weakening.`;
+}
+
+function buildRetentionCampaignPlan({ kind, summary = {}, relatedProductTitle = "" } = {}) {
+  const timing = summary.medianDaysToSecondPurchase == null
+    ? "Use the normal replenishment or post-purchase timing for this category."
+    : `Start around ${Math.max(7, Math.round(summary.medianDaysToSecondPurchase * 0.75))} days after purchase, before the median ${Math.round(summary.medianDaysToSecondPurchase)}-day second-purchase point.`;
+  if (kind === "repurchase_campaign") {
+    return {
+      objective: "Increase repeat purchases from customers who already showed same-product repurchase behavior.",
+      audience: "Customers who bought this product and have not purchased it again within the expected repeat window.",
+      timing,
+      messageAngle: "Remind customers why they bought it, when replacement or replenishment makes sense, and what to check before reordering.",
+      offerIdea: "Start with a light reminder or small loyalty incentive; avoid deep discounting until the campaign proves incremental.",
+      successMetric: "Same-product repurchase rate, repeat revenue per cohort customer, unsubscribe/complaint rate.",
+      guardrail: "Do not run this if recent returns, refunds, or reviews indicate unresolved product quality risk.",
+    };
+  }
+  if (kind === "retention_cross_sell_campaign") {
+    return {
+      objective: `Turn the observed follow-on purchase pattern into a measured lifecycle cross-sell for ${relatedProductTitle || "the related product"}.`,
+      audience: "Customers who bought this product but have not yet bought the related follow-on product.",
+      timing,
+      messageAngle: `Explain why ${relatedProductTitle || "the related product"} is the next useful step and how it complements the original purchase.`,
+      offerIdea: "Test product education first, then a modest cross-sell incentive only if the education email is healthy.",
+      successMetric: "Cross-sell conversion, incremental LTV, return/refund rate on cross-sell orders.",
+      guardrail: "Keep the campaign paused if the related-product pair has elevated return/refund pressure or unclear compatibility expectations.",
+    };
+  }
+  if (kind === "retention_bundle_offer") {
+    return {
+      objective: `Test whether a bundle with ${relatedProductTitle || "the related product"} increases LTV without adding post-purchase friction.`,
+      audience: "New shoppers considering this product, plus returning customers who bought only one item.",
+      timing: "Use PDP merchandising, cart recommendation, or a small audience test before making the bundle permanent.",
+      messageAngle: "Make the bundle purpose explicit: what each item does, what is included, and when the pair is useful.",
+      offerIdea: "Start as a frequently-bought-together module or limited bundle offer rather than a mandatory kit.",
+      successMetric: "Attach rate, bundle conversion, return/refund delta versus source-only orders.",
+      guardrail: "Do not promote the bundle if pairing evidence shows expectation mismatch or higher returns.",
+    };
+  }
+  return {
+    objective: "Understand why product cohorts are not returning before launching retention campaigns.",
+    audience: "Recent product buyers segmented by variant, first-order quantity, discount use, and acquisition channel.",
+    timing: "Review cohorts before sending new growth messaging; use the next diagnosis run to check whether retention recovers.",
+    messageAngle: "If messaging is needed, focus on education, setup, care, replenishment timing, or expectation reset rather than discounting.",
+    offerIdea: "No offer by default; first verify whether the drop is product fit, timing, channel quality, or missing lifecycle follow-up.",
+    successMetric: "Retention health, 90-day repeat rate, LTV delta, and post-purchase complaint rate.",
+    guardrail: "Do not create a growth campaign from weak retention until product-quality and expectation evidence is reviewed.",
+  };
+}
+
+function formatRetentionPercent(value) {
+  if (value == null) return "unavailable";
+  return `${roundRate(Number(value) * 100, 1)}%`;
+}
+
 function hasStopSaleOperationalRisk(deterministic = {}) {
   const metrics = deterministic.metrics || {};
   const mainIssue = normalizeIssueCode(deterministic.mainIssue);
@@ -6028,6 +6446,51 @@ function buildProductRelationshipRecommendationPayload(signal = {}, extra = {}) 
     source: "product_relationship_intelligence",
     readOnly: true,
   };
+}
+
+function buildProductRetentionRecommendationPayload(signal = {}, extra = {}) {
+  const summary = signal.summary || {};
+  const relationship = signal.relationship || {};
+  const campaignPlan = signal.campaignPlan || buildRetentionCampaignPlan({ kind: signal.kind, summary });
+  return {
+    ...extra,
+    source: "product_retention",
+    retentionActionKind: signal.kind || extra.recommendationKind || "",
+    retentionMetrics: {
+      healthScore: summary.healthScore ?? null,
+      repeatPurchaseRate90d: summary.repeatPurchaseRate90d ?? null,
+      sameProductRepurchaseRate90d: summary.sameProductRepurchaseRate90d ?? null,
+      crossSellRetentionRate90d: summary.crossSellRetentionRate90d ?? null,
+      productLtv90Cents: summary.productLtv90Cents || 0,
+      productLtv180Cents: summary.productLtv180Cents || 0,
+      ltv90DeltaCents: summary.ltv90DeltaCents ?? null,
+      medianDaysToSecondPurchase: summary.medianDaysToSecondPurchase ?? null,
+      totalProductCohortCustomers: summary.totalProductCohortCustomers || 0,
+      totalProductOrdersAnalyzed: summary.totalProductOrdersAnalyzed || 0,
+    },
+    campaignPlan,
+    campaignBrief: formatRetentionCampaignBrief(campaignPlan),
+    relatedProductId: relationship.relatedProductId || relationship.related_product_id || null,
+    relatedProductTitle: relationship.relatedProductTitle || relationship.related_product_title || "",
+    relationshipType: relationship.relationshipType || relationship.relationship_type || "",
+    relationshipDirection: relationship.direction || relationship.relationshipDirection || relationship.relationship_direction || "",
+    timeWindow: relationship.timeWindow || relationship.time_window || "",
+    lift: relationship.lift ?? null,
+    sampleSize: signal.sampleSize || relationship.sampleSize || relationship.sample_size || 0,
+    readOnly: true,
+  };
+}
+
+function formatRetentionCampaignBrief(plan = {}) {
+  return [
+    plan.objective ? `Objective: ${plan.objective}` : "",
+    plan.audience ? `Audience: ${plan.audience}` : "",
+    plan.timing ? `Timing: ${plan.timing}` : "",
+    plan.messageAngle ? `Message: ${plan.messageAngle}` : "",
+    plan.offerIdea ? `Offer: ${plan.offerIdea}` : "",
+    plan.successMetric ? `Success metric: ${plan.successMetric}` : "",
+    plan.guardrail ? `Guardrail: ${plan.guardrail}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function normalizePercentLike(value) {
@@ -6276,6 +6739,12 @@ function getRecommendationEvidenceStrengthLabel(deterministic = {}, action = {})
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("mismatch") || normalized.includes("conflict")) return "Conflicting";
   const metrics = deterministic.metrics || {};
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(normalized)) {
+    const cohortCustomers = Number(metrics.productRetention?.summary?.totalCustomersAnalyzed || 0);
+    if (cohortCustomers >= 50) return "Strong";
+    if (cohortCustomers >= 10) return "Moderate";
+    return "Weak";
+  }
   const sourceCount = Array.isArray(deterministic.sourceCoverage) ? deterministic.sourceCoverage.length : Array.isArray(metrics.sourceCoverage) ? metrics.sourceCoverage.length : 0;
   const signalCount = Number(metrics.customerSignalCount || metrics.signalCount || 0);
   if (signalCount >= 10 && sourceCount >= 3) return "Strong";
@@ -6285,6 +6754,7 @@ function getRecommendationEvidenceStrengthLabel(deterministic = {}, action = {})
 
 function getRecommendationVisibility(action = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.shopifyField || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(value)) return "Customer-facing";
   if (/\b(pairing|compatibility review|bundle expectations)\b/.test(value)) return "Customer-facing";
   if (/\b(description|pdp|faq|title|seo|meta|handle|media|image|alt text|specs|details)\b/.test(value)) return "Customer-facing";
   if (/\b(status|price|compare-at|inventory|variant|supplier|qa|fulfillment|safety)\b/.test(value)) return "Operational";
@@ -6301,12 +6771,14 @@ function getRecommendationReversibility(action = {}) {
 function getRecommendationApprovalLevel(action = {}, recipe = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${recipe.applicationRisk || ""} ${recipe.approval || ""}`.toLowerCase();
   if (/\b(high|status|archive|draft|inventory|price|compare-at|strong|manual approval)\b/.test(value)) return "Strong confirmation required";
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(value)) return "Review required";
   if (/\b(tag|metafield|watchlist|baseline|internal note|copy-support|connect-missing-source|monitoring)\b/.test(value)) return "Auto-safe";
   return "Review required";
 }
 
 function getRecommendationReasonCategory(action = {}, mainIssue = "") {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""} ${mainIssue || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(value)) return "Retention";
   if (/\b(bundle|cross-sell|pairing|journey|upgrade|product relationship)\b/.test(value)) return "Product relationship";
   if (/\b(momentum|watchlist|baseline)\b/.test(value)) return "Momentum";
   if (/\b(seo|meta|handle)\b/.test(value)) return "SEO";
@@ -6321,6 +6793,7 @@ function getRecommendationReasonCategory(action = {}, mainIssue = "") {
 
 function getRecommendationExpectedBenefit(action = {}, recipe = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${recipe.expectedImpact || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(value)) return "Improve retention";
   if (/\b(bundle|cross-sell|journey|upgrade)\b/.test(value)) return "Improve merchandising";
   if (/\b(pairing|compatibility review)\b/.test(value)) return "Reduce returns";
   if (/\b(seo|meta|handle)\b/.test(value)) return "Improve SEO";
@@ -6495,6 +6968,58 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       priorityGroup: relationshipExpectationMode ? "Merchandising insight" : "Medium-impact catalog fix",
       impactLevel: relationshipExpectationMode ? "Optional" : "Medium impact",
       actionTier: relationshipExpectationMode ? 3 : 2,
+    };
+  }
+  if (id === "create-repurchase-campaign") {
+    return {
+      ...common,
+      proposedChange: "Plan a measured repurchase reminder for customers whose cohort behavior shows same-product repeat purchase potential.",
+      shopifyField: "Lifecycle marketing workflow",
+      expectedImpact: "Increase same-product repurchase and repeat revenue without changing Product Risk.",
+      applicationRisk: "Low",
+      approval: "Manual setup required",
+      priorityGroup: "Retention opportunity",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "create-retention-cross-sell-campaign") {
+    return {
+      ...common,
+      proposedChange: `Plan a lifecycle cross-sell that suggests ${payload.relatedProductTitle || "the related product"} after this product.`,
+      shopifyField: "Lifecycle marketing workflow",
+      expectedImpact: "Increase follow-on product revenue from an observed retention path while monitoring post-purchase friction.",
+      applicationRisk: "Low",
+      approval: "Manual setup required",
+      priorityGroup: "Retention opportunity",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "test-retention-bundle-offer") {
+    return {
+      ...common,
+      proposedChange: `Test a bundle or frequently-bought-together offer with ${payload.relatedProductTitle || "the related product"}.`,
+      shopifyField: "Merchandising / lifecycle workflow",
+      expectedImpact: "Increase attach rate and LTV from a retention-supported pairing without forcing a permanent bundle.",
+      applicationRisk: "Medium",
+      approval: "Manual setup required",
+      priorityGroup: "Retention opportunity",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "review-retention-drop") {
+    return {
+      ...common,
+      proposedChange: "Review retention cohorts, repeat timing, LTV delta, and buyer segments before launching growth campaigns.",
+      shopifyField: "ProductPulse retention workflow",
+      expectedImpact: "Avoid amplifying weak retention until the cause is understood.",
+      applicationRisk: "Low",
+      approval: "Manual verification required",
+      priorityGroup: "Suggested action",
+      impactLevel: "Optional",
+      actionTier: 3,
     };
   }
   if (id === "correct-variant-options") {
@@ -7394,6 +7919,14 @@ function buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy = "", faqNeed = {} 
     );
   }
 
+  if (mainIssue === "setup_expectation" || topics.includes("Setup guidance")) {
+    add(
+      `What setup details should shoppers confirm before buying ${title}?`,
+      pdpCopy || "Review the setup checklist, included items, mounting or installation requirements, and any use limits before checkout.",
+      "Setup or expectation mismatch appeared in product evidence.",
+    );
+  }
+
   if (mainIssue === "color_expectation" || topics.includes("Color expectations")) {
     add(
       `Will the color look exactly like the product photos?`,
@@ -7491,9 +8024,21 @@ function isFaqItemCoveredByCurrentContent(item = {}, currentDescriptionText = ""
   const answer = String(item.answer || "").trim();
   if (question && existingQuestions.some((existingQuestion) => faqQuestionsOverlap(existingQuestion, question))) return true;
   if (question && normalizeText(current).includes(normalizeFaqQuestionKey(question))) return true;
+  if (isExpectationFaqCoveredByCurrentContent({ question, answer }, current)) return true;
   if (answer && isTextCoveredByCurrentContent(answer, current, { minTokenCoverage: 0.76 })) return true;
   const combined = [question, answer].filter(Boolean).join(" ");
   return Boolean(combined && isTextCoveredByCurrentContent(combined, current, { minTokenCoverage: 0.72 }));
+}
+
+function isExpectationFaqCoveredByCurrentContent(item = {}, currentDescriptionText = "") {
+  const currentTopics = getExpectationGuidanceTopics(currentDescriptionText);
+  if (!currentTopics.size) return false;
+  const combined = `${item.question || ""} ${item.answer || ""}`;
+  const proposedTopics = getExpectationGuidanceTopics(combined);
+  if (proposedTopics.size) return [...proposedTopics].every((topic) => currentTopics.has(topic));
+  const questionKey = normalizeFaqQuestionKey(item.question || "");
+  const setupQuestion = /\b(setup|install|mount|mounting|surface|adapter|cable|camera|webcam|glare|reflection|included)\b/.test(questionKey);
+  return setupQuestion && currentTopics.size >= 2;
 }
 
 function faqQuestionsOverlap(firstQuestion = "", secondQuestion = "") {
@@ -7503,7 +8048,7 @@ function faqQuestionsOverlap(firstQuestion = "", secondQuestion = "") {
   if (first === second || first.includes(second) || second.includes(first)) return true;
   const overlap = Math.max(tokenCoverage(second, first), tokenCoverage(first, second));
   if (overlap >= 0.72) return true;
-  const anchorTokens = new Set(["fit", "size", "sizing", "color", "colour", "variant", "wash", "washing", "material", "fabric", "compatible", "compatibility"]);
+  const anchorTokens = new Set(["fit", "size", "sizing", "color", "colour", "variant", "wash", "washing", "material", "fabric", "compatible", "compatibility", "setup", "mount", "mounting", "surface", "adapter", "cable", "camera", "webcam"]);
   const firstTokens = new Set(meaningfulTokens(first));
   const secondTokens = new Set(meaningfulTokens(second));
   const sharedAnchors = [...anchorTokens].filter((token) => firstTokens.has(token) && secondTokens.has(token));
@@ -7523,6 +8068,7 @@ function getFaqActionLabel(mainIssue, coverage = {}) {
   const prefix = coverage.existingFaqDetected ? "Add missing" : "Create";
   if (mainIssue === "fit_sizing") return `${prefix} fit FAQ`;
   if (mainIssue === "compatibility") return `${prefix} compatibility FAQ`;
+  if (mainIssue === "setup_expectation") return `${prefix} setup FAQ`;
   if (mainIssue === "color_expectation") return `${prefix} color expectations FAQ`;
   return `${prefix} product FAQ`;
 }
@@ -7800,7 +8346,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   aiRepeatedLanguage.slice(0, 4).forEach((item, index) => {
     const term = String(item.term || "").trim();
     if (!term) return;
-    const issueCode = normalizeIssueCode(item.issue_category || term) || "repeated_language";
+    const issueCode = getRepeatedLanguageIssueCode(item, deterministic);
     const trend = getIssueTrend(deterministic, issueCode);
     issues.push({
       issue: `Repeated customer language: "${term}"`,
@@ -7841,6 +8387,31 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   });
 
   return uniqueBy(issues.filter((issue) => issue.issue), (issue) => `${issue.issueCode}-${issue.issue}`);
+}
+
+function getRepeatedLanguageIssueCode(item = {}, deterministic = {}, fallbackIssue = "") {
+  const term = String(item.term || item.label || item.phrase || "").trim();
+  const text = [
+    term,
+    item.explanation,
+    item.example,
+    item.issue_category,
+    item.issueCode,
+    item.issueCategory,
+  ].filter(Boolean).join(" ");
+  const mainIssue = normalizeIssueCode(fallbackIssue || deterministic.mainIssue);
+  if (shouldTreatRepeatedLanguageAsSetupExpectation(text, mainIssue)) return "setup_expectation";
+  return normalizeIssueCode(item.issue_category || item.issueCode || item.issueCategory || term) || "repeated_language";
+}
+
+function shouldTreatRepeatedLanguageAsSetupExpectation(value = "", mainIssue = "") {
+  const text = normalizeText(value);
+  if (!text) return false;
+  const setupTerm = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|cure|oiled|textured|porous|sealed|shelf|cable|routing|left|right|adapter|wall brick|usb c|usb-c|webcam|camera|banding|flicker|glossy|reflection|glare|monitor)\b/.test(text);
+  if (!setupTerm) return false;
+  if (mainIssue === "setup_expectation") return true;
+  return isSetupExpectationMismatchText(text)
+    || /\b(expectation|mismatch|confusing|confusion|unclear|not obvious|missed|listing|description|pdp|before checkout|before buying)\b/.test(text);
 }
 
 function getFilteredAiRepeatedLanguage(ai) {
@@ -8745,17 +9316,18 @@ function getRefundNoteText(item = {}) {
 }
 
 function getRefundReasonText(item = {}) {
+  const noteText = getRefundNoteText(item);
   const primaryReasons = [
     ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
     item.reasonLabel,
     item.reason,
   ]
     .map((value) => String(value || "").replace(/\s+/g, " ").trim())
-    .filter((value) => value && !isDefaultCustomerLanguageTerm(value));
+    .filter((value) => value && !isDefaultCustomerLanguageTerm(value) && !isLowInformationRefundReason(value, { hasNote: Boolean(noteText) }));
   const restockReason = normalizeRefundReasonLabel(item.restockType);
   const reasons = primaryReasons.length
     ? primaryReasons
-    : [restockReason].filter((value) => value && !isDefaultCustomerLanguageTerm(value));
+    : [restockReason].filter((value) => value && !isDefaultCustomerLanguageTerm(value) && !isLowInformationRefundReason(value, { hasNote: Boolean(noteText) }));
 
   const uniqueReasons = uniqueBy(reasons, (value) => normalizeText(value));
   const compactReasons = uniqueReasons.filter((reason, index) => {
@@ -8768,6 +9340,14 @@ function getRefundReasonText(item = {}) {
   });
 
   return compactReasons.join(" - ");
+}
+
+function isLowInformationRefundReason(value, { hasNote = false } = {}) {
+  const normalized = normalizeText(value);
+  if (!normalized) return true;
+  if (normalized === "refund discrepancy") return true;
+  if (hasNote && ["no restock", "no_restock", "restock discrepancy", "order level refund"].includes(normalized)) return true;
+  return false;
 }
 
 function normalizeRefundReasonLabel(value) {
@@ -8879,11 +9459,12 @@ function getReturnCustomerLanguageText(item) {
 }
 
 function getRefundOperationalText(item) {
+  const noteText = getRefundNoteText(item);
   const reasonText = getRefundReasonText(item);
   const restockText = normalizeRefundReasonLabel(item?.restockType);
-  const includeRestock = restockText && !normalizeText(reasonText).includes(normalizeText(restockText));
+  const includeRestock = !noteText && restockText && !normalizeText(reasonText).includes(normalizeText(restockText));
   return [
-    getRefundNoteText(item),
+    noteText,
     reasonText,
     includeRestock ? restockText : "",
   ].filter(Boolean).join(" - ");
@@ -10195,12 +10776,13 @@ function normalizeCachedAnalysisItems(items = []) {
       const emotion = sentiment === "positive" && getEmotionPolarity(rawEmotion) === "negative"
         ? classifyCustomerEmotion(analysisText || text, Math.max(rating, 5))
         : rawEmotion;
+      const issueCode = normalizeCachedAnalysisIssueCode(item, analysisText || text, { sentiment, rating });
       return {
         ...item,
         key: String(item.key),
         text,
         analysisText,
-        issueCode: normalizeIssueCode(item.issueCode) || classifyIssueText(analysisText || text, { sentiment, rating }),
+        issueCode,
         sentiment,
         emotion: normalizeEmotionCode(emotion) || "none",
         subjectiveNegative: sentiment === "positive" ? false : Boolean(item.subjectiveNegative),
@@ -10208,6 +10790,16 @@ function normalizeCachedAnalysisItems(items = []) {
         updatedAt: toIso(item.updatedAt || item.createdAt),
       };
     });
+}
+
+function normalizeCachedAnalysisIssueCode(item = {}, text = "", context = {}) {
+  const storedIssue = normalizeIssueCode(item.issueCode);
+  const detectedIssue = classifyIssueText(text, context);
+  if (!storedIssue) return detectedIssue;
+  if (detectedIssue === "compatibility" && ["fit_sizing", "product_quality", "refund_impact"].includes(storedIssue)) {
+    return detectedIssue;
+  }
+  return storedIssue;
 }
 
 function trimAnalysisItemsForCache(items = []) {
@@ -10786,7 +11378,7 @@ function extractRepeatedLanguage(items) {
         term,
         count: 0,
         sources: new Set(),
-        issueCode: classifyIssueText(term),
+        issueCode: classifyIssueText(`${term} ${analysisText}`),
         sentiments: { positive: 0, neutral: 0, negative: 0 },
         example: "",
       };
@@ -11138,6 +11730,7 @@ function getEvidencePreferredMainIssue(deterministic = {}, proposedIssue = "") {
   const proposed = normalizeIssueCode(proposedIssue) || normalizeIssueCode(deterministic.mainIssue) || "product_quality";
   const counts = deterministic.issueSignalCounts || {};
   const current = counts[proposed] ? proposed : normalizeIssueCode(deterministic.mainIssue) || proposed;
+  if (Number(counts.setup_expectation || 0) > 0 && hasSetupExpectationTextSignals(deterministic)) return "setup_expectation";
   if (["quality_defect", "durability", "safety_concern", "refund_impact"].includes(current)) return current;
   if (!hasProductFailureTextSignals(deterministic)) return current;
   if (Number(deterministic.riskScore || 0) < 70 || !hasMaterialCustomerProblemEvidence(deterministic)) return current;
@@ -11154,18 +11747,34 @@ function classifyIssueText(text, context = {}) {
   const positiveContext = sentiment === "positive" || rating >= 4;
   const explicitIssue = containsIssueLanguage(normalized) || isObjectiveSafetyText(normalized) || isSubjectiveNegativeText(normalized);
   if (positiveContext && !explicitIssue) return "product_quality";
+  if (/(not compatible|incompatible|compatibility issue|compatibility mismatch|compatibility gap|compatibility boundary|outside supported compatibility|doesn t work with|doesnt work with|won t work with|wont work with|does not work with|fit with)/.test(normalized)) return "compatibility";
+  if (!positiveContext && /(compatibility|compatible)/.test(normalized) && /(case|setup|boundary|unsupported|supported|mismatch|gap|outside|discovering|confusion)/.test(normalized)) return "compatibility";
+  if (isSetupExpectationMismatchText(normalized, { positiveContext })) return "setup_expectation";
   if (/(too small|too large|doesn t fit|doesnt fit|does not fit|didn t fit|didnt fit|not fit|wrong size|runs small|runs large|fit issue|fit problem|sizing issue|tight|loose|waist|chest|shoulder|sleeve|length)/.test(normalized)
-    || (!positiveContext && /(fit|size|sizing|small|large)/.test(normalized) && explicitIssue)) return "fit_sizing";
+    || (!positiveContext && /\b(fit|size|sizing|small|large)\b/.test(normalized) && explicitIssue)) return "fit_sizing";
   if (isObjectiveSafetyText(normalized)) return "safety_concern";
   if (isSubjectiveNegativeText(normalized)) return "subjective_negative_reaction";
   if (/(wrong color|different color|not as pictured|not pictured|picture|pictured|photo|image|shade|looks different|looked different|color mismatch|colour mismatch)/.test(normalized)
     || (!positiveContext && /(color|colour)/.test(normalized) && explicitIssue)) return "color_expectation";
   if (/(break|broken|defect|defective|damage|damaged|poor quality|cheap|durability|leak|leaking|spill|spilled|crack|cracked|chip|chipped|tear|ripped|malfunction|failed|failure|rough|scratchy|stiff|thin material|bad material|bad fabric)/.test(normalized)
     || (!positiveContext && /(quality|soft|softness|material|fabric|texture|build)/.test(normalized) && explicitIssue)) return "quality_defect";
-  if (/(not compatible|incompatible|compatibility issue|doesn t work with|doesnt work with|won t work with|wont work with|does not work with|fit with)/.test(normalized)) return "compatibility";
   if (/(late|delayed|lost package|lost shipment|shipping problem|delivery problem|arrived damaged|damaged in transit)/.test(normalized)
     || (!positiveContext && /(shipping|delivery|arrived)/.test(normalized) && explicitIssue)) return "shipping_delivery";
   return "product_quality";
+}
+
+function isSetupExpectationMismatchText(normalizedText = "", { positiveContext = false } = {}) {
+  if (positiveContext) return false;
+  const setupTerms = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|clamps|cure|oiled|textured|porous|sealed|warm underside|shelf|cable|routing|left side|right side|flip|flipping|adapter|wall brick|wall adapter|usb c|usb-c|webcam|camera|banding|bands|flicker|glossy|reflection|glare)\b/.test(normalizedText);
+  if (!setupTerms) return false;
+  const expectationTerms = /\b(expectation|mismatch|confusing|unclear|buried|missed|not obvious|did not understand|didn t understand|page|listing|description|pdp|checklist|rule|guidance|before checkout|before buying|support pointed|technically explains|probably present|not broken|conditional)\b/.test(normalizedText);
+  const supportedSetupTerms = /\b(use clamps|clamp feet|smooth sealed|surface checklist|camera warning|no wall adapter|cable exits|flip option|control button|not a video|not video|not included)\b/.test(normalizedText);
+  return expectationTerms || supportedSetupTerms;
+}
+
+function hasSetupExpectationTextSignals(deterministic = {}) {
+  return getOperationalSignalTextValues(deterministic)
+    .some((value) => isSetupExpectationMismatchText(normalizeText(value)));
 }
 
 function analyzeProductContentDeterministically(product) {
@@ -12030,9 +12639,21 @@ function buildEvidenceSummary(deterministic) {
   } else if (Number(metrics.contentIssueCount || 0) > 0) {
     pieces.push(`${metrics.contentIssueCount} product content issue${Number(metrics.contentIssueCount) === 1 ? "" : "s"}`);
   }
+  const retentionSummary = buildRetentionEvidenceSummary(metrics.productRetention);
+  if (retentionSummary) pieces.push(retentionSummary);
   if (affectedVariants.length) pieces.push(`affected variants: ${affectedVariants.join(", ")}`);
   if (!pieces.length) return "The diagnosis has product metadata but no strong product-specific customer signal yet.";
   return pieces.join("; ");
+}
+
+function buildRetentionEvidenceSummary(retention = null) {
+  const aiRetention = buildAiProductRetentionInput(retention);
+  if (!aiRetention?.shouldMention) return "";
+  const pieces = [];
+  if (aiRetention.retentionHealthScore != null) pieces.push(`retention health ${Math.round(aiRetention.retentionHealthScore)}/100`);
+  if (aiRetention.repeatPurchaseRate90d != null) pieces.push(`${Math.round(aiRetention.repeatPurchaseRate90d * 1000) / 10}% 90-day repeat`);
+  if (aiRetention.productLtv90Cents != null && aiRetention.productLtv90Cents > 0) pieces.push(`${formatMoney(aiRetention.productLtv90Cents / 100)} 90-day LTV`);
+  return pieces.length ? `retention context: ${pieces.join(", ")}` : "";
 }
 
 function buildFallbackClusters(deterministic, mainIssue) {
@@ -13298,6 +13919,12 @@ function preferFreshNumber(fresh, fallback) {
   return Number(fallback || 0);
 }
 
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function sumBy(items, field) {
   return items.reduce((total, item) => total + Number(item[field] || 0), 0);
 }
@@ -13360,8 +13987,9 @@ function normalizeIssueCode(value) {
   if (normalized.includes("safety") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("hazard") || normalized.includes("peligro")) return "safety_concern";
   if (normalized.includes("subjective") || normalized.includes("preference") || normalized.includes("dislike") || normalized.includes("fear") || normalized.includes("scare") || normalized.includes("creepy") || normalized.includes("miedo") || normalized.includes("asusta") || normalized.includes("terror")) return "subjective_negative_reaction";
   if (normalized.includes("durability")) return "durability";
-  if (normalized.includes("defect") || normalized.includes("quality") || normalized.includes("soft") || normalized.includes("rough") || normalized.includes("scratchy") || normalized.includes("stiff") || normalized.includes("material") || normalized.includes("fabric") || normalized.includes("texture")) return "quality_defect";
   if (normalized.includes("compat")) return "compatibility";
+  if (normalized.includes("setup") || normalized.includes("expectation") || normalized.includes("install") || normalized.includes("mount") || normalized.includes("adhesive") || normalized.includes("surface") || normalized.includes("adapter") || normalized.includes("cable") || normalized.includes("webcam") || normalized.includes("camera") || normalized.includes("banding") || normalized.includes("glare")) return "setup_expectation";
+  if (normalized.includes("defect") || normalized.includes("quality") || normalized.includes("soft") || normalized.includes("rough") || normalized.includes("scratchy") || normalized.includes("stiff") || normalized.includes("material") || normalized.includes("fabric") || normalized.includes("texture")) return "quality_defect";
   if (normalized.includes("shipping")) return "shipping_delivery";
   if (normalized.includes("refund")) return "refund_impact";
   if (normalized.includes("content") || normalized.includes("description") || normalized.includes("metadata")) return "product_content";
@@ -13376,6 +14004,7 @@ function getHumanIssueLabel(issue) {
     durability: "Durability",
     quality_defect: "Product quality",
     compatibility: "Compatibility",
+    setup_expectation: "Setup expectations",
     shipping_delivery: "Shipping or delivery",
     product_content: "Product content",
     product_quality: "Product quality",
@@ -13397,6 +14026,7 @@ function getPdpActionId(issue) {
   if (issue === "safety_concern") return "draft-safety-expectation-note";
   if (issue === "subjective_negative_reaction") return "draft-subjective-expectation-note";
   if (issue === "compatibility") return "draft-compatibility-faq";
+  if (issue === "setup_expectation") return "improve-setup-guidance";
   if (issue === "product_content") return "rewrite-product-description";
   if (issue === "quality_defect" || issue === "durability") return "draft-quality-note";
   return "draft-pdp-copy";
@@ -13408,13 +14038,14 @@ function getPdpActionLabel(issue) {
   if (issue === "safety_concern") return "Draft safety expectation note";
   if (issue === "subjective_negative_reaction") return "Draft expectation-setting note";
   if (issue === "compatibility") return "Draft compatibility FAQ";
+  if (issue === "setup_expectation") return "Improve setup guidance";
   if (issue === "durability") return "Draft durability expectation note";
   if (issue === "product_content") return "Rewrite product description";
   return "Draft product quality note";
 }
 
 function getPdpCopyPlacement(issue) {
-  if (issue === "compatibility") return "append";
+  if (issue === "compatibility" || issue === "setup_expectation") return "append";
   return "prepend";
 }
 
@@ -13422,6 +14053,7 @@ function getIssueTag(issue) {
   if (issue === "fit_sizing") return "fit_issue";
   if (issue === "color_expectation") return "color_expectation_issue";
   if (issue === "durability") return "durability_issue";
+  if (issue === "setup_expectation") return "setup_expectation_issue";
   if (issue === "quality_defect") return "quality_issue";
   if (issue === "safety_concern") return "safety_concern";
   if (issue === "subjective_negative_reaction") return "";
@@ -13486,6 +14118,94 @@ function buildCorrectedDescriptionDraft({ currentDescription = "", replacements 
   return applyTextReplacements(normalizeDraftParagraph(currentDescription), replacements);
 }
 
+function buildEmptyDescriptionEnhancementPlan(reason = "") {
+  return {
+    shouldRecommend: false,
+    draftText: "",
+    descriptionReplacements: [],
+    coverage: {
+      skipped: true,
+      reason,
+    },
+  };
+}
+
+function buildTargetedDescriptionEnhancementPlan({ currentDescription = "", contentIssues = [], product = {} } = {}) {
+  const current = normalizeDraftParagraph(currentDescription);
+  if (!current) return buildEmptyDescriptionEnhancementPlan("Current product copy is empty; use a rewrite instead.");
+  const additions = buildTargetedDescriptionEnhancementSentences({ contentIssues, product, currentDescription: current });
+  const missingAdditions = additions.filter((sentence) => !isTextCoveredByCurrentContent(sentence, current, { minTokenCoverage: 0.66 }));
+  if (!missingAdditions.length) return buildEmptyDescriptionEnhancementPlan("Current product copy already covers the targeted enhancement.");
+  const anchor = findDescriptionEnhancementAnchor(current, missingAdditions.join(" "), contentIssues);
+  if (!anchor) return buildEmptyDescriptionEnhancementPlan("No stable sentence anchor was found for a targeted description edit.");
+  const additionText = missingAdditions.join(" ");
+  const replacement = {
+    from: anchor,
+    to: `${anchor} ${additionText}`.replace(/\s+/g, " ").trim(),
+    reason: "Targeted ProductPulse description enhancement based on detected content gaps.",
+  };
+  const draftText = buildCorrectedDescriptionDraft({ currentDescription: current, replacements: [replacement] });
+  if (!isMeaningfullyDifferentDescription(current, draftText)) return buildEmptyDescriptionEnhancementPlan("Targeted enhancement did not change the description.");
+  return {
+    shouldRecommend: true,
+    draftText,
+    descriptionReplacements: [replacement],
+    coverage: {
+      currentCoverage: "partial",
+      extractedMissingOnly: true,
+      changeStrategy: "targeted-enhancement",
+      missingSentenceCount: missingAdditions.length,
+    },
+  };
+}
+
+function buildTargetedDescriptionEnhancementSentences({ contentIssues = [], product = {}, currentDescription = "" } = {}) {
+  const issues = Array.isArray(contentIssues) ? contentIssues : [];
+  const text = normalizeText([
+    product.title,
+    product.productType,
+    currentDescription,
+    ...issues.flatMap((issue) => [issue.code, issue.label, issue.evidence, issue.suggestedAction]),
+  ].filter(Boolean).join(" "));
+  const sentences = [];
+
+  if (/\b(color temperature|brightness|lumen|lumens|cri|beam angle|optical|five brightness|three color temperatures)\b/.test(text)) {
+    sentences.push("If exact lighting measurements matter, verify color-temperature values, brightness or lumen range, CRI, and beam-angle details against the selected variant before purchase.");
+  }
+  if (/\b(width|height|dimension|dimensions|coverage|diffuser|rail|length)\b/.test(text)) {
+    const railLike = /\b(rail|diffuser|light bar|bar light|strip light|lumispan)\b/.test(text);
+    sentences.push(railLike
+      ? "For tight desks or shelves, verify rail width and height, diffuser dimensions, and coverage for the selected length before purchase."
+      : "Verify product dimensions, coverage footprint, and variant-specific measurements before purchase when space or fit is important.");
+  }
+  if (/\b(clean|cleaning|care|solvent|abrasive|maintenance)\b/.test(text)) {
+    sentences.push("Clean the rail and diffuser only with a soft dry or lightly damp cloth, and avoid solvents, abrasives, or soaking unless the listed materials confirm otherwise.");
+  }
+  if (/\b(variant|variants|both|same across|differs|differences|cable length|brightness levels)\b/.test(text)) {
+    sentences.push("Check whether brightness levels, color temperatures, cable length, and cable-exit behavior are identical across variants if those details matter for your setup.");
+  }
+
+  return uniqueBy(sentences, normalizeText).slice(0, 3);
+}
+
+function findDescriptionEnhancementAnchor(currentDescription = "", additionText = "", contentIssues = []) {
+  const sentences = splitDescriptionCoverageSentences(currentDescription);
+  if (!sentences.length) return "";
+  const issueTokens = new Set(meaningfulTokens([
+    additionText,
+    ...(Array.isArray(contentIssues) ? contentIssues : []).flatMap((issue) => [issue.label, issue.evidence, issue.suggestedAction]),
+  ].filter(Boolean).join(" ")));
+  const scored = sentences
+    .map((sentence, index) => {
+      const tokens = meaningfulTokens(sentence);
+      const shared = tokens.filter((token) => issueTokens.has(token)).length;
+      const setupBonus = /\b(spec|detail|variant|option|included|brightness|temperature|dimension|length|rail|diffuser|power|care|clean)\b/i.test(sentence) ? 2 : 0;
+      return { sentence, index, score: shared + setupBonus };
+    })
+    .sort((first, second) => second.score - first.score || first.index - second.index);
+  return scored[0]?.sentence || sentences[0] || "";
+}
+
 function applyTextReplacements(value, replacements = []) {
   return (Array.isArray(replacements) ? replacements : []).reduce((text, replacement) => {
     if (!replacement?.from || !replacement?.to) return text;
@@ -13494,9 +14214,11 @@ function applyTextReplacements(value, replacements = []) {
 }
 
 function replaceTextCaseInsensitive(value, from, to) {
-  const escaped = escapeRegExp(String(from || "").trim());
+  const source = String(from || "").trim();
+  const escaped = escapeRegExp(source);
   if (!escaped) return value;
-  return String(value || "").replace(new RegExp(`\\b${escaped}\\b`, "gi"), to);
+  const pattern = /[^\w\s]/.test(source) ? escaped : `\\b${escaped}\\b`;
+  return String(value || "").replace(new RegExp(pattern, "gi"), to);
 }
 
 function isMeaningfullyDifferentDescription(currentDescription = "", nextDescription = "") {
@@ -13511,19 +14233,24 @@ function buildDescriptionGuidanceAddendum({ title, contentIssues = [], suggested
   const suggested = normalizeDraftParagraph(suggestedDescription);
   if (suggested && !looksLikeFullDescriptionRewrite(suggested, title) && !isInstructionalDescriptionDraft(suggested)) return suggested;
 
-  return buildCustomerFacingDescriptionAddendum({ contentIssues }) || buildDefaultCustomerFacingDescriptionAddendum(title);
+  return buildCustomerFacingDescriptionAddendum({ contentIssues, title }) || buildDefaultCustomerFacingDescriptionAddendum(title);
 }
 
-function buildCustomerFacingDescriptionAddendum({ contentIssues = [] } = {}) {
+function buildCustomerFacingDescriptionAddendum({ contentIssues = [], title = "" } = {}) {
   const issueText = normalizeText((Array.isArray(contentIssues) ? contentIssues : [])
     .map((issue) => `${issue.label || ""} ${issue.evidence || ""} ${issue.code || ""}`)
     .join(" "));
+  const categoryText = normalizeText(title);
+  const categories = detectProductCategoryGroups(categoryText);
+  const apparelLike = categories.has("apparel") || /\b(chest|shoulder|sleeve|inseam|waist|garment|apparel|shirt|trouser|pants|shoe|fit|sizing)\b/.test(issueText);
   const sentences = [];
   if (/\b(material|fiber|fabric|linen|cotton|composition|blend)\b/.test(issueText)) {
     sentences.push("Before ordering, confirm the fabric composition for the selected variant if exact material percentages are important to you.");
   }
   if (/\b(size chart|measurement|measurements|chest|shoulder|sleeve|inseam|waist|length|fit|sizing)\b/.test(issueText)) {
-    sentences.push("Compare the selected size against the garment measurements, especially the fit points that matter most for how you want the item to sit.");
+    sentences.push(apparelLike
+      ? "Compare the selected size against the garment measurements, especially the fit points that matter most for how you want the item to sit."
+      : "Add confirmed product dimensions, coverage guidance, and variant-specific measurements where shoppers compare options.");
   }
   if (/\b(included|package|box|bundle|accessor|accessories|comes with|what.*include)\b/.test(issueText)) {
     sentences.push("Check the product details for what is included with the item before checkout.");
@@ -13540,6 +14267,31 @@ function buildCustomerFacingDescriptionAddendum({ contentIssues = [] } = {}) {
 function buildDefaultCustomerFacingDescriptionAddendum(title = "") {
   const label = String(title || "this product").trim();
   return `Before ordering ${label}, review the selected variant, product details and any available measurements so the item matches your expectations.`;
+}
+
+function shouldSuppressCoveredPdpDescriptionAction({
+  mainIssue = "",
+  proposedText = "",
+  currentDescriptionText = "",
+  deterministic = {},
+} = {}) {
+  const issue = normalizeIssueCode(mainIssue);
+  if (!["setup_expectation", "compatibility"].includes(issue)) return false;
+  const proposed = normalizeDraftParagraph(proposedText);
+  const current = normalizeDraftParagraph(currentDescriptionText);
+  if (!proposed || !current) return false;
+  if (isTextCoveredByCurrentContent(proposed, current)) return true;
+
+  const proposedTopics = getExpectationGuidanceTopics(proposed);
+  const currentTopics = getExpectationGuidanceTopics(current);
+  if (proposedTopics.size > 0) {
+    return [...proposedTopics].every((topic) => currentTopics.has(topic));
+  }
+
+  const genericGuidance = /\b(productpulse detected|detected|signals|guidance|before purchase|before checkout|shopper-facing|expectation|expectations|setup)\b/.test(normalizeText(proposed));
+  if (!genericGuidance) return false;
+  if (issue === "setup_expectation") return currentTopics.size >= 2 && hasSetupExpectationTextSignals(deterministic);
+  return currentTopics.size >= 1;
 }
 
 function isInstructionalDescriptionDraft(value = "") {
@@ -13721,9 +14473,42 @@ function isTextCoveredByCurrentContent(proposedText = "", currentText = "", { mi
   if (!normalizedProposed || !normalizedCurrent) return false;
   if (hasSpecificNewVariantOrOptionDetail(proposed, current)) return false;
   if (normalizedCurrent.includes(normalizedProposed)) return true;
+  if (isExpectationGuidanceCoveredByCurrentContent(proposed, current)) return true;
   if (isCoveredFitOrCareGuidance(normalizedProposed, normalizedCurrent) && tokenCoverage(proposed, current) >= 0.45) return true;
   if (hasSubstantialOverlap(current, proposed)) return true;
   return tokenCoverage(proposed, current) >= minTokenCoverage;
+}
+
+function isExpectationGuidanceCoveredByCurrentContent(proposedText = "", currentText = "") {
+  const proposedTopics = getExpectationGuidanceTopics(proposedText);
+  if (!proposedTopics.size) return false;
+  const currentTopics = getExpectationGuidanceTopics(currentText);
+  return [...proposedTopics].every((topic) => currentTopics.has(topic));
+}
+
+function getExpectationGuidanceTopics(value = "") {
+  const text = normalizeText(value);
+  const topics = new Set();
+  if (!text) return topics;
+  if (/\b(adhesive|mount|mounting|surface|surfaces|clamp|clamps|oiled|textured|porous|sealed|cure|warm underside|shelf underside)\b/.test(text)) {
+    topics.add("mounting_surface");
+  }
+  if (/\b(cable|left side|right side|left|right|routing|route|flip|flipping|control button|hub|outlet|usb c|usb-c)\b/.test(text)) {
+    topics.add("cable_routing");
+  }
+  if (/\b(camera|webcam|video call|video calls|banding|bands|flicker|pulse|shutter|key light|studio light)\b/.test(text)) {
+    topics.add("camera_flicker");
+  }
+  if (/\b(adapter|wall adapter|wall brick|power adapter|not included|box includes|included in the box|usb c cable|usb-c cable)\b/.test(text)) {
+    topics.add("included_power_adapter");
+  }
+  if (/\b(glossy|reflection|reflect|glare|glass|monitor)\b/.test(text)) {
+    topics.add("glare_reflection");
+  }
+  if (/\b(indoor|outdoor|waterproof|damp|wet|humidity)\b/.test(text)) {
+    topics.add("environment_limits");
+  }
+  return topics;
 }
 
 function tokenCoverage(needleText = "", haystackText = "") {

@@ -1576,6 +1576,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const shopifyProductSearchFetcher = useFetcher();
   const [shopifyProductSearchOpen, setShopifyProductSearchOpen] = useState(false);
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
+  const [watchlistActionConfirmation, setWatchlistActionConfirmation] = useState(null);
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const watchlist = data.watchlist || {};
   const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
@@ -1589,6 +1590,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const slotsAvailable = Math.max(0, Number(watchlist.slotsAvailable ?? maxProducts - watchedCount));
   const watchedProductIds = useMemo(() => new Set(rows.map((row) => row.productGid).filter(Boolean)), [rows]);
   const pendingAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-watched-product";
+  const pendingWatchlistRowAction = navigation.state === "submitting" && ["pause-watched-product", "resume-watched-product", "remove-watched-product"].includes(String(navigation.formData?.get("_action") || ""));
   const normalizedShopifyProductSearchQuery = shopifyProductSearchQuery.trim();
   const shopifyProductSearchData = shopifyProductSearchFetcher.data || {};
   const shopifyProductSearchResponseQuery = String(shopifyProductSearchData.query || "");
@@ -1637,6 +1639,9 @@ export function WatchlistScreen({ data = {}, actionData }) {
       setShopifyProductSearchOpen(false);
       setShopifyProductSearchQuery("");
     }
+    if (actionData?.status === "success" && ["pause-watched-product", "resume-watched-product", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
+      setWatchlistActionConfirmation(null);
+    }
   }, [actionData]);
 
   const handleAddWatchedProduct = (product) => {
@@ -1661,7 +1666,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
           </div>
           <div className="ppWatchlistHeaderActions">
             <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={atCapacity || pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
-              <s-icon type="plus" size="small"></s-icon>
+              <ProductPulseGlyph type="binoculars" />
               {pendingAdd ? "Adding..." : "Add watched product"}
             </button>
           </div>
@@ -1681,7 +1686,6 @@ export function WatchlistScreen({ data = {}, actionData }) {
         <div className="ppWatchlistInfoBanner">
           <s-icon type="info" size="small"></s-icon>
           <span>Automatic rescans run on your selected cadence. We&apos;ll email you when new issues are detected.</span>
-          <a href="/app/help">Learn more <s-icon type="external" size="small"></s-icon></a>
         </div>
 
         <s-section padding="none">
@@ -1708,7 +1712,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
                           <p>Add up to 50 Shopify products to monitor on the watch cadence.</p>
                         </div>
                         <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
-                          <s-icon type="plus" size="small"></s-icon>
+                          <ProductPulseGlyph type="binoculars" />
                           Add watched product
                         </button>
                       </div>
@@ -1716,7 +1720,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
                   </tr>
                 )}
                 {rows.map((product) => (
-                  <WatchlistProductRow product={product} key={product.productGid || product.id} />
+                  <WatchlistProductRow product={product} key={product.productGid || product.id} onRequestAction={setWatchlistActionConfirmation} pending={pendingWatchlistRowAction} />
                 ))}
               </tbody>
             </table>
@@ -1729,7 +1733,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
         <div className="ppWatchlistBottomGrid">
           <WatchlistTrendPanel trend={trend} />
           <WatchlistActivityPanel activities={activities} />
-          <WatchlistSettingsPanel settings={settings} watchedCount={watchedCount} activeWatchedCount={activeWatchedCount} actionData={actionData} />
+          <WatchlistSettingsPanel settings={settings} watchedCount={watchedCount} activeWatchedCount={activeWatchedCount} pausedWatchedCount={Math.max(0, watchedCount - activeWatchedCount)} actionData={actionData} />
         </div>
       </ScreenShell>
 
@@ -1746,9 +1750,16 @@ export function WatchlistScreen({ data = {}, actionData }) {
           eyebrow="Watchlist"
           description="Search the live Shopify catalog and add one product to automatic monitoring. You can watch up to 50 products."
           actionLabel="Add to watchlist"
-          actionIcon="plus"
+          actionIcon="binoculars"
           addedProductIds={watchedProductIds}
           addedActionLabel="Watching"
+        />
+      )}
+      {watchlistActionConfirmation && (
+        <WatchlistRowActionConfirmModal
+          confirmation={watchlistActionConfirmation}
+          pending={pendingWatchlistRowAction}
+          onCancel={() => setWatchlistActionConfirmation(null)}
         />
       )}
     </FullWidthPage>
@@ -1768,12 +1779,13 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
   );
 }
 
-function WatchlistProductRow({ product }) {
+function WatchlistProductRow({ product, onRequestAction, pending = false }) {
   const latestTone = product.latestChangeTone || "slate";
   const hasScore = Number.isFinite(Number(product.riskScore));
   const paused = product.status === "Paused";
   const diagnosisState = getProductDiagnosisState(product);
   const watchlistProductHref = getWatchlistProductPageHref(product);
+  const issueDisplay = getWatchlistIssueCellDisplay(product);
 
   return (
     <tr className={diagnosisState ? "isDiagnosing" : ""}>
@@ -1815,8 +1827,8 @@ function WatchlistProductRow({ product }) {
         <div className="ppWatchIssueCell">
           <span className={`ppWatchIssueDot ppWatchIssueDot-${latestTone}`} aria-hidden="true" />
           <span>
-            <strong>{product.latestChange || "Awaiting first scan"}</strong>
-            <small>{product.latestChangeDetail || "This product will be checked on the next watch run."}</small>
+            <strong>{issueDisplay.title}</strong>
+            {issueDisplay.detail ? <small>{issueDisplay.detail}</small> : null}
           </span>
         </div>
       </td>
@@ -1835,31 +1847,67 @@ function WatchlistProductRow({ product }) {
           >
             <s-icon type="chart-line" size="small"></s-icon>
           </Link>
-          <Link className="ppWatchActionsButton" to={product.href || "/app/products"} aria-label={`View ${product.title}`}>
-            <s-icon type="view" size="small"></s-icon>
-          </Link>
-          <Form method="post">
-            <input type="hidden" name="_action" value={paused ? "resume-watched-product" : "pause-watched-product"} />
-            <input type="hidden" name="productGid" value={product.productGid || ""} />
-            <button className="ppWatchActionsButton" type="submit" aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}>
-              {paused ? (
-                <s-icon type="play" size="small"></s-icon>
-              ) : (
-                <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
-              )}
-            </button>
-          </Form>
-          <Form method="post">
-            <input type="hidden" name="_action" value="remove-watched-product" />
-            <input type="hidden" name="productGid" value={product.productGid || ""} />
-            <button className="ppWatchActionsButton ppWatchActionsButton-danger" type="submit" aria-label={`Remove ${product.title} from watchlist`}>
-              <s-icon type="x" size="small"></s-icon>
-            </button>
-          </Form>
+          <button
+            className={`ppWatchActionsButton ppWatchActionsButton-toggle ${paused ? "ppWatchActionsButton-resume" : "ppWatchActionsButton-pause"}`}
+            type="button"
+            aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}
+            disabled={pending || !product.productGid}
+            onClick={() => onRequestAction?.({ kind: paused ? "resume" : "pause", product })}
+          >
+            {paused ? (
+              <s-icon type="play" size="small"></s-icon>
+            ) : (
+              <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
+            )}
+          </button>
+          <button
+            className="ppWatchActionsButton ppWatchActionsButton-danger"
+            type="button"
+            aria-label={`Remove ${product.title} from watchlist`}
+            disabled={pending || !product.productGid}
+            onClick={() => onRequestAction?.({ kind: "remove", product })}
+          >
+            <s-icon type="x" size="small"></s-icon>
+          </button>
         </div>
       </td>
     </tr>
   );
+}
+
+function getWatchlistIssueCellDisplay(product = {}) {
+  const title = String(product.latestChange || "").trim();
+  const detail = String(product.latestChangeDetail || "").trim();
+  const normalizedTitle = title.toLowerCase();
+  const normalizedDetail = detail.toLowerCase();
+  const fallbackDetail = getWatchlistIssueFallbackDetail(product);
+  if (normalizedTitle === "watch signal captured" || normalizedTitle === "watchlist signal captured") {
+    return {
+      title: detail && !normalizedDetail.includes("next watch run") ? detail : "New issue",
+      detail: fallbackDetail,
+    };
+  }
+  if (normalizedDetail.includes("next watch run") || normalizedDetail === "waiting for automatic watch cadence") {
+    return {
+      title: title || "Awaiting first scan",
+      detail: fallbackDetail,
+    };
+  }
+  return {
+    title: title || "Awaiting first scan",
+    detail: detail || fallbackDetail,
+  };
+}
+
+function getWatchlistIssueFallbackDetail(product = {}) {
+  const status = String(product.status || "").trim();
+  if (status === "Paused") return "Paused · automatic scans disabled";
+  if (product.riskScore != null && product.riskLabel) return `Risk ${product.riskScore} · ${product.riskLabel}`;
+  if (product.addedAt) return `Added ${product.addedAt}${status ? ` · ${status}` : ""}`;
+  if (product.sku) return `SKU ${product.sku}${status ? ` · ${status}` : ""}`;
+  if (product.handle) return `/${product.handle}${status ? ` · ${status}` : ""}`;
+  if (status) return `Status: ${status}`;
+  return "";
 }
 
 export function WatchlistProductScreen({ product }) {
@@ -3911,7 +3959,7 @@ function formatBackgroundProcessLogData(data) {
   }
 }
 
-function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatchedCount = watchedCount, actionData }) {
+function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatchedCount = watchedCount, pausedWatchedCount = 0, actionData }) {
   const navigation = useNavigation();
   const [editing, setEditing] = useState(false);
   const pendingAction = navigation.state === "submitting" ? String(navigation.formData?.get("_action") || "") : "";
@@ -4022,6 +4070,13 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
           </div>
           <div className="ppWatchSettingsActions">
             <Form method="post">
+              <input type="hidden" name="_action" value="resume-all-watches" />
+              <button className="ppSecondaryButton ppWatchResumeAllButton" type="submit" disabled={!pausedWatchedCount || pendingAction === "resume-all-watches"}>
+                <s-icon type="play" size="small"></s-icon>
+                {pendingAction === "resume-all-watches" ? "Resuming..." : "Resume all watches"}
+              </button>
+            </Form>
+            <Form method="post">
               <input type="hidden" name="_action" value="pause-all-watches" />
               <button className="ppSecondaryButton" type="submit" disabled={!activeWatchedCount || pendingAction === "pause-all-watches"}>
                 <span className="ppPauseGlyph ppPauseGlyph-inline" aria-hidden="true"><span /><span /></span>
@@ -4031,7 +4086,7 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
             <Form method="post">
               <input type="hidden" name="_action" value="run-watch-scan" />
               <button className="ppSecondaryButton ppWatchRunNowButton" type="submit" disabled={!activeWatchedCount || pendingAction === "run-watch-scan"}>
-                <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
+                <s-icon type="refresh" size="small"></s-icon>
                 {pendingAction === "run-watch-scan" ? "Queueing..." : "Run scan now"}
               </button>
             </Form>
@@ -4049,13 +4104,12 @@ export function SettingsScreen({ data = {}, actionData }) {
   const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
   const normalizedSettingsRisk = useMemo(() => normalizeClientRiskThresholds(settings.risk), [settings.risk]);
   const normalizedMomentumThreshold = normalizeClientMomentumThreshold(settings.momentum?.minimumScore);
-  const normalizedQueueLimit = normalizeClientQueueLimit(settings.diagnosis?.maxQueuedPerSubmission);
   const normalizedLookbackDays = normalizeClientLookbackDays(settings.analysis?.lookbackDays);
   const normalizedHtmlStyle = useMemo(() => normalizeProductPulseHtmlStyle(settings.htmlStyle), [settings.htmlStyle]);
   const mockDataset = actionData?.mockDataset || data.mockDataset || null;
+  const developmentMode = Boolean(data.developmentMode);
   const [riskThresholds, setRiskThresholds] = useState(normalizedSettingsRisk);
   const [momentumThreshold, setMomentumThreshold] = useState(normalizedMomentumThreshold);
-  const [queueLimit, setQueueLimit] = useState(normalizedQueueLimit);
   const [lookbackDays, setLookbackDays] = useState(normalizedLookbackDays);
   const [htmlStylePreset, setHtmlStylePreset] = useState(normalizedHtmlStyle.preset);
   const [htmlStyleCustomTemplate, setHtmlStyleCustomTemplate] = useState(normalizedHtmlStyle.customTemplate);
@@ -4069,7 +4123,6 @@ export function SettingsScreen({ data = {}, actionData }) {
     || riskThresholds.mediumThreshold !== normalizedSettingsRisk.mediumThreshold
     || riskThresholds.highThreshold !== normalizedSettingsRisk.highThreshold
     || Number(momentumThreshold) !== Number(normalizedMomentumThreshold)
-    || Number(queueLimit) !== Number(normalizedQueueLimit)
     || Number(lookbackDays) !== Number(normalizedLookbackDays)
     || htmlStylePreset !== normalizedHtmlStyle.preset
     || htmlStyleCustomTemplate !== normalizedHtmlStyle.customTemplate;
@@ -4081,11 +4134,10 @@ export function SettingsScreen({ data = {}, actionData }) {
   useEffect(() => {
     setRiskThresholds(normalizedSettingsRisk);
     setMomentumThreshold(normalizedMomentumThreshold);
-    setQueueLimit(normalizedQueueLimit);
     setLookbackDays(normalizedLookbackDays);
     setHtmlStylePreset(normalizedHtmlStyle.preset);
     setHtmlStyleCustomTemplate(normalizedHtmlStyle.customTemplate);
-  }, [normalizedSettingsRisk, normalizedMomentumThreshold, normalizedQueueLimit, normalizedLookbackDays, normalizedHtmlStyle]);
+  }, [normalizedSettingsRisk, normalizedMomentumThreshold, normalizedLookbackDays, normalizedHtmlStyle]);
 
   useEffect(() => {
     const saveBar = getShopifySaveBarApi();
@@ -4111,7 +4163,6 @@ export function SettingsScreen({ data = {}, actionData }) {
     formData.set("mediumThreshold", String(riskThresholds.mediumThreshold));
     formData.set("highThreshold", String(riskThresholds.highThreshold));
     formData.set("momentumMinimumScore", String(momentumThreshold));
-    formData.set("maxQueuedPerSubmission", String(queueLimit));
     formData.set("analysisLookbackDays", String(lookbackDays));
     formData.set("htmlStylePreset", htmlStylePreset);
     formData.set("htmlStyleCustomTemplate", htmlStyleCustomTemplate);
@@ -4121,7 +4172,6 @@ export function SettingsScreen({ data = {}, actionData }) {
   const handleDiscardSettings = () => {
     setRiskThresholds(normalizedSettingsRisk);
     setMomentumThreshold(normalizedMomentumThreshold);
-    setQueueLimit(normalizedQueueLimit);
     setLookbackDays(normalizedLookbackDays);
     setHtmlStylePreset(normalizedHtmlStyle.preset);
     setHtmlStyleCustomTemplate(normalizedHtmlStyle.customTemplate);
@@ -4172,54 +4222,24 @@ export function SettingsScreen({ data = {}, actionData }) {
               </div>
             </div>
 
-            <div className="ppSettingsRiskPreview">
-              <span style={{ width: `${riskThresholds.minimumScore}%` }}>Ignored</span>
-              <span style={{ width: `${Math.max(8, riskThresholds.mediumThreshold - riskThresholds.minimumScore)}%` }}>Low</span>
-              <span style={{ width: `${Math.max(8, riskThresholds.highThreshold - riskThresholds.mediumThreshold)}%` }}>Medium</span>
-              <span style={{ width: `${Math.max(8, 100 - riskThresholds.highThreshold)}%` }}>High</span>
-            </div>
-
             <RiskThresholdSlider thresholds={riskThresholds} onChange={setRiskThresholds} />
 
             <MomentumInclusionSlider value={momentumThreshold} onChange={setMomentumThreshold} />
           </section>
 
-          <section className="ppSettingsGrid ppSettingsGridSingle">
-            <div className="ppSettingsCard" aria-labelledby="settings-queue-title">
-              <div className="ppSettingsCardHeader">
-                <DashboardIcon type="wand" tone="purple" />
-                <div>
-                  <span>AI diagnosis</span>
-                  <h2 id="settings-queue-title">Queue limits</h2>
-                  <p>Protect credits and make bulk diagnosis submissions deliberate.</p>
-                </div>
+          <section className="ppSettingsCard ppSettingsWindowCard" aria-labelledby="settings-window-title">
+            <div className="ppSettingsCardHeader">
+              <DashboardIcon type="clock" tone="cyan" />
+              <div>
+                <span>Analysis window</span>
+                <h2 id="settings-window-title">Evidence lookback</h2>
+                <p>
+                  Choose how far back ProductPulse reads orders, returns, refunds and connected reviews during QuickScan and full product diagnostics.
+                </p>
               </div>
-
-              <SettingsNumberField
-                name="maxQueuedPerSubmission"
-                label="Max diagnoses queued at once"
-                detail="Bulk analysis submissions above this limit are rejected before jobs are created. Use a finite cap to prevent accidental credit-heavy batches."
-                value={queueLimit}
-                onChange={(event) => setQueueLimit(clampClientInteger(event.target.value, 1, 500, normalizedQueueLimit))}
-                min="1"
-                max="500"
-              />
             </div>
 
-            <section className="ppSettingsCard ppSettingsWindowCard" aria-labelledby="settings-window-title">
-              <div className="ppSettingsCardHeader">
-                <DashboardIcon type="clock" tone="cyan" />
-                <div>
-                  <span>Analysis window</span>
-                  <h2 id="settings-window-title">Evidence lookback</h2>
-                  <p>
-                    Choose how far back ProductPulse reads orders, returns, refunds and connected reviews during QuickScan and full product diagnostics.
-                  </p>
-                </div>
-              </div>
-
-              <AnalysisLookbackSlider value={lookbackDays} onChange={setLookbackDays} />
-            </section>
+            <AnalysisLookbackSlider value={lookbackDays} onChange={setLookbackDays} />
           </section>
 
           <section className="ppSettingsCard ppSettingsHtmlStyleCard" aria-labelledby="settings-html-style-title">
@@ -4245,39 +4265,40 @@ export function SettingsScreen({ data = {}, actionData }) {
           </section>
         </Form>
 
-        <div className="ppSettingsForm">
-          <section className="ppSettingsCard ppSettingsMockDatasetCard" aria-labelledby="settings-mock-dataset-title">
-            <div className="ppSettingsCardHeader">
-              <DashboardIcon type="product" tone="purple" />
-              <div>
-                <span>Testing dataset</span>
-                <h2 id="settings-mock-dataset-title">Create Shopify mock dataset</h2>
-                <p>
-                  Generate controlled <strong>GEN</strong> and <strong>RELTEST</strong> products, mock customers, historical Shopify orders, returns, refunds and a normalized CSV review source for end-to-end diagnostic testing.
-                </p>
+        {developmentMode ? (
+          <div className="ppSettingsForm">
+            <section className="ppSettingsCard ppSettingsMockDatasetCard" aria-labelledby="settings-mock-dataset-title">
+              <div className="ppSettingsCardHeader">
+                <DashboardIcon type="product" tone="purple" />
+                <div>
+                  <span>Testing dataset</span>
+                  <h2 id="settings-mock-dataset-title">Create Shopify mock dataset</h2>
+                  <p>
+                    Generate controlled <strong>GEN</strong> and <strong>RELTEST</strong> products, mock customers, historical Shopify orders, returns, refunds and a normalized CSV review source for end-to-end diagnostic testing.
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <div className="ppSettingsMockDatasetGrid">
-              <div>
-                <strong>What ProductPulse creates</strong>
-                <p>
-                  Product stories are intentional: some listings are healthy, others include title, content, variant, refund, return and sentiment problems that should be detected by the app.
-                </p>
+              <div className="ppSettingsMockDatasetGrid">
+                <div>
+                  <strong>What ProductPulse creates</strong>
+                  <p>
+                    Product stories are intentional: some listings are healthy, others include title, content, variant, refund, return and sentiment problems that should be detected by the app.
+                  </p>
+                </div>
+                <ul>
+                  <li>Shopify products with HTML descriptions, SEO, tags and variants.</li>
+                  <li>Historical test orders distributed across roughly 300 days, plus deterministic RELTEST relationship orders tied to fake RELTEST customers.</li>
+                  <li>Selected full or partial returns and refunds, including Other notes.</li>
+                  <li>Hundreds of normalized CSV reviews linked to the generated products.</li>
+                </ul>
               </div>
-              <ul>
-                <li>Shopify products with HTML descriptions, SEO, tags and variants.</li>
-                <li>Historical test orders distributed across roughly 300 days, plus deterministic RELTEST relationship orders tied to fake RELTEST customers.</li>
-                <li>Selected full or partial returns and refunds, including Other notes.</li>
-                <li>Hundreds of normalized CSV reviews linked to the generated products.</li>
-              </ul>
-            </div>
 
-            <div className="ppSettingsMockDatasetMeta">
-              <span>
-                <strong>{mockDataset?.config?.productCount || 0}</strong>
-                Last generated products
-              </span>
+              <div className="ppSettingsMockDatasetMeta">
+                <span>
+                  <strong>{mockDataset?.config?.productCount || 0}</strong>
+                  Last generated products
+                </span>
                 <span>
                   <strong>{mockDataset?.config?.orderCount || 0}</strong>
                   Last generated orders
@@ -4286,76 +4307,77 @@ export function SettingsScreen({ data = {}, actionData }) {
                   <strong>{mockDataset?.config?.customerCount || 0}</strong>
                   RELTEST customers
                 </span>
-              <span>
-                <strong>{mockDataset?.config?.reviewCount || 0}</strong>
-                Last CSV reviews
-              </span>
-              <span>
-                <strong>{mockDataset?.config?.generatedAt ? formatWatchReportTimestamp(mockDataset.config.generatedAt) : "Never"}</strong>
-                Last run
-              </span>
-              <span>
-                <strong>{mockDataset?.config?.evolutionOrderCount || 0}</strong>
-                Recent evolution orders
-              </span>
-            </div>
-
-            <div className="ppSettingsMockDatasetActions">
-              <p>
-                Shopify can throttle long test-data jobs. Run each stage separately; every stage reuses existing generated products or generated orders so you can resume after a failure.
-              </p>
-            </div>
-
-            <div className="ppSettingsMockStageGrid" aria-label="Mock dataset generation stages">
-              {MOCK_DATASET_STAGE_ACTIONS.map((stageAction) => {
-                const stageState = mockDataset?.config?.stages?.[stageAction.stage] || {};
-                const completed = stageState.status === "completed";
-                const running = pendingMockDatasetStage === stageAction.stage;
-                return (
-                  <Form method="post" className="ppSettingsMockStageCard" key={stageAction.stage}>
-                    <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
-                    <input type="hidden" name="stage" value={stageAction.stage} />
-                    <DashboardIcon type={stageAction.icon} tone={completed ? "green" : "purple"} size="small" />
-                    <div>
-                      <strong>{stageAction.label}</strong>
-                      <p>{stageAction.detail}</p>
-                      <small>
-                        {completed
-                          ? `Completed ${formatWatchReportTimestamp(stageState.completedAt)}`
-                          : stageState.status === "running"
-                            ? "Running"
-                            : "Not completed yet"}
-                      </small>
-                    </div>
-                    <button className="ppSecondaryButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
-                      {running ? "Starting..." : completed ? "Resume / verify" : "Run stage"}
-                    </button>
-                  </Form>
-                );
-              })}
-            </div>
-
-            <Form method="post" className="ppSettingsMockEvolutionCard">
-              <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
-              <input type="hidden" name="stage" value="evolution" />
-              <DashboardIcon type="chart-line" tone={mockDataset?.config?.stages?.evolution?.status === "completed" ? "green" : "purple"} size="small" />
-              <div>
-                <strong>Create recent evolution batch</strong>
-                <p>
-                  Adds a small, recent two-week set of GEN orders, returns, refunds and CSV reviews so Watchlist change reports can detect what changed since the previous diagnosis.
-                </p>
-                <small>
-                  {mockDataset?.config?.stages?.evolution?.status === "completed"
-                    ? `Completed ${formatWatchReportTimestamp(mockDataset.config.stages.evolution.completedAt)}`
-                    : "Creates or reuses 41 recent evolution orders and rewrites the CSV with new reviews."}
-                </small>
+                <span>
+                  <strong>{mockDataset?.config?.reviewCount || 0}</strong>
+                  Last CSV reviews
+                </span>
+                <span>
+                  <strong>{mockDataset?.config?.generatedAt ? formatWatchReportTimestamp(mockDataset.config.generatedAt) : "Never"}</strong>
+                  Last run
+                </span>
+                <span>
+                  <strong>{mockDataset?.config?.evolutionOrderCount || 0}</strong>
+                  Recent evolution orders
+                </span>
               </div>
-              <button className="ppPrimaryButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
-                {pendingMockDatasetStage === "evolution" ? "Starting..." : "Run evolution batch"}
-              </button>
-            </Form>
-          </section>
-        </div>
+
+              <div className="ppSettingsMockDatasetActions">
+                <p>
+                  Shopify can throttle long test-data jobs. Run each stage separately; every stage reuses existing generated products or generated orders so you can resume after a failure.
+                </p>
+              </div>
+
+              <div className="ppSettingsMockStageGrid" aria-label="Mock dataset generation stages">
+                {MOCK_DATASET_STAGE_ACTIONS.map((stageAction) => {
+                  const stageState = mockDataset?.config?.stages?.[stageAction.stage] || {};
+                  const completed = stageState.status === "completed";
+                  const running = pendingMockDatasetStage === stageAction.stage;
+                  return (
+                    <Form method="post" className="ppSettingsMockStageCard" key={stageAction.stage}>
+                      <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
+                      <input type="hidden" name="stage" value={stageAction.stage} />
+                      <DashboardIcon type={stageAction.icon} tone={completed ? "green" : "purple"} size="small" />
+                      <div>
+                        <strong>{stageAction.label}</strong>
+                        <p>{stageAction.detail}</p>
+                        <small>
+                          {completed
+                            ? `Completed ${formatWatchReportTimestamp(stageState.completedAt)}`
+                            : stageState.status === "running"
+                              ? "Running"
+                              : "Not completed yet"}
+                        </small>
+                      </div>
+                      <button className="ppSecondaryButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
+                        {running ? "Starting..." : completed ? "Resume / verify" : "Run stage"}
+                      </button>
+                    </Form>
+                  );
+                })}
+              </div>
+
+              <Form method="post" className="ppSettingsMockEvolutionCard">
+                <input type="hidden" name="_action" value="start-shopify-mock-dataset" />
+                <input type="hidden" name="stage" value="evolution" />
+                <DashboardIcon type="chart-line" tone={mockDataset?.config?.stages?.evolution?.status === "completed" ? "green" : "purple"} size="small" />
+                <div>
+                  <strong>Create recent evolution batch</strong>
+                  <p>
+                    Adds a small, recent two-week set of GEN orders, returns, refunds and CSV reviews so Watchlist change reports can detect what changed since the previous diagnosis.
+                  </p>
+                  <small>
+                    {mockDataset?.config?.stages?.evolution?.status === "completed"
+                      ? `Completed ${formatWatchReportTimestamp(mockDataset.config.stages.evolution.completedAt)}`
+                      : "Creates or reuses 41 recent evolution orders and rewrites the CSV with new reviews."}
+                  </small>
+                </div>
+                <button className="ppPrimaryButton" type="submit" disabled={isStartingMockDataset ? true : undefined}>
+                  {pendingMockDatasetStage === "evolution" ? "Starting..." : "Run evolution batch"}
+                </button>
+              </Form>
+            </section>
+          </div>
+        ) : null}
       </ScreenShell>
     </FullWidthPage>
   );
@@ -4506,12 +4528,6 @@ function RiskThresholdSlider({ thresholds, onChange }) {
         />
       </div>
 
-      <div className="ppSettingsRiskHandleLabels" aria-live="polite">
-        <span><strong>Minimum</strong> {thresholds.minimumScore}</span>
-        <span><strong>Medium starts</strong> {thresholds.mediumThreshold}</span>
-        <span><strong>High starts</strong> {thresholds.highThreshold}</span>
-      </div>
-
       <div className="ppSettingsRiskLegend" aria-label="Product risk intervals">
         {legend.map((item) => (
           <span key={item.label}>
@@ -4569,25 +4585,6 @@ function MomentumInclusionSlider({ value, onChange }) {
         <span>Hot</span>
       </div>
     </div>
-  );
-}
-
-function SettingsNumberField({ name, label, detail, defaultValue, value, onChange, min, max }) {
-  const controlledProps = value == null ? { defaultValue } : { value, onChange };
-  return (
-    <label className="ppSettingsNumberField">
-      <span>{label}</span>
-      <input
-        type="number"
-        name={name}
-        aria-label={label}
-        {...controlledProps}
-        min={min}
-        max={max}
-        step="1"
-      />
-      <small>{detail}</small>
-    </label>
   );
 }
 
@@ -4653,18 +4650,11 @@ function getDefaultProductPulseClientSettings() {
     momentum: {
       minimumScore: DEFAULT_MOMENTUM_INCLUSION_THRESHOLD,
     },
-    diagnosis: {
-      maxQueuedPerSubmission: 25,
-    },
     analysis: {
       lookbackDays: 60,
     },
     htmlStyle: normalizeProductPulseHtmlStyle(),
   };
-}
-
-function normalizeClientQueueLimit(value) {
-  return clampClientInteger(value, 1, 500, 25);
 }
 
 function normalizeClientLookbackDays(value) {
@@ -4984,6 +4974,63 @@ function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
           <button className={removing ? "ppSecondaryButton ppWatchlistRemoveConfirmButton" : "ppPrimaryButton"} type="submit" disabled={pending || !product.productGid}>
             {removing ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
+            {submitLabel}
+          </button>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
+function WatchlistRowActionConfirmModal({ confirmation, pending, onCancel }) {
+  const product = confirmation.product || {};
+  const kind = confirmation.kind || "";
+  const actionId = kind === "remove"
+    ? "remove-watched-product"
+    : kind === "resume"
+      ? "resume-watched-product"
+      : "pause-watched-product";
+  const destructive = kind === "remove";
+  const titleId = `watchlist-row-${kind || "pause"}-confirm-title`;
+  const title = destructive ? "Remove watched product" : kind === "resume" ? "Resume watch" : "Pause watch";
+  const submitLabel = destructive
+    ? pending ? "Removing..." : "Remove from Watchlist"
+    : kind === "resume"
+      ? pending ? "Resuming..." : "Resume watch"
+      : pending ? "Pausing..." : "Pause watch";
+  const detail = destructive
+    ? "ProductPulse will stop monitoring this product on the Watchlist cadence. Existing product diagnostics and Watchlist history will stay available."
+    : kind === "resume"
+      ? "ProductPulse will include this product again in automatic Watchlist scans and manual Watchlist runs."
+      : "ProductPulse will stop automatic Watchlist scans for this product until you resume it.";
+
+  return (
+    <div className="ppAnalysisConfirmOverlay" role="presentation">
+      <section className={`ppAnalysisConfirmModal ppWatchlistConfirmModal ppWatchlistRowConfirmModal${destructive ? " ppWatchlistRowConfirmModal-danger" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="ppAnalysisConfirmHeader">
+          <span className={`ppAnalysisConfirmIcon ${destructive ? "ppWatchlistConfirmIcon-remove" : "ppWatchlistConfirmIcon-add"}`} aria-hidden="true">
+            {destructive ? <s-icon type="x" size="small"></s-icon> : kind === "resume" ? <s-icon type="play" size="small"></s-icon> : <span className="ppPauseGlyph"><span /><span /></span>}
+          </span>
+          <div>
+            <span>Watchlist</span>
+            <h2 id={titleId}>{title}</h2>
+            <p>{detail}</p>
+          </div>
+        </div>
+
+        <div className="ppAnalysisConfirmProducts">
+          <span>Product</span>
+          <ul>
+            <li>{product.title || "Watched product"}</li>
+          </ul>
+        </div>
+
+        <Form method="post" className="ppAnalysisConfirmFooter">
+          <input type="hidden" name="_action" value={actionId} />
+          <input type="hidden" name="productGid" value={product.productGid || ""} />
+          <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className={destructive ? "ppSecondaryButton ppWatchlistRemoveConfirmButton" : "ppPrimaryButton"} type="submit" disabled={pending || !product.productGid}>
+            {destructive ? <s-icon type="x" size="small"></s-icon> : kind === "resume" ? <s-icon type="play" size="small"></s-icon> : <span className="ppPauseGlyph ppPauseGlyph-inline" aria-hidden="true"><span /><span /></span>}
             {submitLabel}
           </button>
         </Form>
@@ -5338,7 +5385,7 @@ function ShopifyProductResultActionButton({
         onMouseLeave={() => setOpen(false)}
         onClick={onClick}
       >
-        <s-icon type={icon} size="small"></s-icon>
+        {icon === "binoculars" ? <ProductPulseGlyph type="binoculars" /> : <s-icon type={icon} size="small"></s-icon>}
         {!iconOnly && <span>{label}</span>}
       </button>
       <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppProductPulseSearchStatusPopover" width={236} placement="top-center">
@@ -6931,6 +6978,7 @@ function normalizeProductRetention(retention = null) {
     cohortHeatmap: normalizeRetentionCohortCells(record.cohortHeatmap),
     timeToRepeatPurchase: normalizeRetentionRepeatCurveRows(record.timeToRepeatPurchase),
     ltvCurve: normalizeRetentionLtvCurveRows(record.ltvCurve),
+    retentionHealthTrend: normalizeRetentionHealthTrendRows(record.retentionHealthTrend),
     segments: normalizeRetentionSegments(record.segments),
     dailyActivity: Array.isArray(record.dailyActivity) ? record.dailyActivity : [],
     segmentDaily: Array.isArray(record.segmentDaily) ? record.segmentDaily : [],
@@ -7000,6 +7048,22 @@ function normalizeRetentionLtvCurveRows(rows = []) {
     .sort((left, right) => left.ageDay - right.ageDay);
 }
 
+function normalizeRetentionHealthTrendRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row, index) => ({
+      date: firstNonEmptyString(row?.date, row?.asOfDate, row?.cohortDate) || `Point ${index + 1}`,
+      retentionHealthScore: toNullableFiniteNumber(row?.retentionHealthScore),
+      repeatPurchaseRate90d: normalizeRetentionRate(row?.repeatPurchaseRate90d),
+      sameProductRepurchaseRate90d: normalizeRetentionRate(row?.sameProductRepurchaseRate90d),
+      crossSellRetentionRate90d: normalizeRetentionRate(row?.crossSellRetentionRate90d),
+      productLtv90Cents: normalizeRetentionCents(row?.productLtv90Cents),
+      totalCustomersAnalyzed: normalizeRetentionCount(row?.totalCustomersAnalyzed),
+      source: firstNonEmptyString(row?.source),
+    }))
+    .filter((row) => row.date && row.retentionHealthScore != null)
+    .sort((left, right) => String(left.date).localeCompare(String(right.date)));
+}
+
 function normalizeRetentionSegments(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .map((row) => ({
@@ -7050,6 +7114,7 @@ function hasProductRetentionData(retention = null) {
       || (Array.isArray(retention?.cohortHeatmap) && retention.cohortHeatmap.length)
       || (Array.isArray(retention?.timeToRepeatPurchase) && retention.timeToRepeatPurchase.length)
       || (Array.isArray(retention?.ltvCurve) && retention.ltvCurve.length)
+      || (Array.isArray(retention?.retentionHealthTrend) && retention.retentionHealthTrend.length)
       || (Array.isArray(retention?.segments) && retention.segments.length)
   );
 }
@@ -7059,7 +7124,7 @@ function withProductRetentionEvidenceSource(sources = [], retention = null, hasR
   if (!hasRetentionData || normalizedSources.some((source) => isRetentionEvidenceSource(source?.title))) return normalizedSources;
   const summary = retention?.summary || {};
   const points = [
-    `${formatInteger(summary.totalCustomersAnalyzed)} customers analyzed`,
+    `${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`,
     `${formatRetentionRate(summary.repeatPurchaseRate90d)} 90-day repeat purchase rate`,
     `${formatRetentionRate(summary.sameProductRepurchaseRate90d)} same-product repurchase rate`,
     `${formatRetentionMoneyCents(summary.productLtv90Cents)} 90-day product LTV`,
@@ -7626,6 +7691,7 @@ function getProductDetailInsightCards(detail = {}) {
   const customerSignalCount = getCustomerSignalCount(detail);
   const momentumScore = detail.productMomentum ? Number(detail.productMomentum.score || 0) : 0;
   const averageRatingCard = getAverageRatingCardData(detail);
+  const retentionHealthCard = getRetentionHealthInsightCardData(detail);
 
   return [
     {
@@ -7665,6 +7731,7 @@ function getProductDetailInsightCards(detail = {}) {
       chartStyle: "area",
       chartTone: returnPressureCard.chartTone,
     },
+    ...(retentionHealthCard ? [retentionHealthCard] : []),
     {
       title: "Product Momentum",
       meta: detail.productMomentum?.inputs?.weeklyUnitsLast8Weeks?.length
@@ -7769,6 +7836,58 @@ function getProductDetailInsightCards(detail = {}) {
       chartTone: "slate",
     },
   ];
+}
+
+function getRetentionHealthInsightCardData(detail = {}) {
+  const retention = detail.productRetention || normalizeProductRetention(null);
+  if (!hasProductRetentionData(retention)) return null;
+  const summary = retention.summary || {};
+  const healthScore = toNullableFiniteNumber(summary.retentionHealthScore);
+  const hasScore = healthScore != null;
+  const trendValues = getRetentionHealthInsightSeries(retention, healthScore);
+  const repeatText = summary.repeatPurchaseRate90d == null
+    ? "Repeat rate unavailable"
+    : `${formatRetentionRate(summary.repeatPurchaseRate90d)} 90d repeat`;
+  const ltvText = summary.productLtv90Cents
+    ? `${formatRetentionMoneyCents(summary.productLtv90Cents)} LTV`
+    : "LTV unavailable";
+  return {
+    title: "Retention health",
+    meta: "Customer retention trend",
+    value: hasScore ? `${formatInteger(healthScore)} / 100` : "Low sample",
+    detail: summary.hasEnoughData
+      ? `${formatInteger(summary.totalCustomersAnalyzed)} cohort customers`
+      : `${formatInteger(summary.totalProductOrdersAnalyzed)} product orders`,
+    footnote: `${repeatText} · ${ltvText}`,
+    tone: getRetentionHealthInsightTone(healthScore, summary),
+    sparkline: trendValues,
+    icon: "product-momentum",
+    chartStyle: "area",
+    chartTone: "teal",
+    help: {
+      what: "Shows repeat-purchase and LTV health for customers whose first purchase of this product starts a retention cohort.",
+      why: "It highlights clear retention opportunity or strength without changing Product Risk, which remains focused on product friction.",
+      graph: "Read it left to right. A rising line means retention health is improving across stored diagnosis runs or mature product cohorts.",
+    },
+  };
+}
+
+function getRetentionHealthInsightTone(score = null, summary = {}) {
+  if (score == null || summary.hasEnoughData === false) return "neutral";
+  if (score >= 70) return "green";
+  if (score >= 45) return "blue";
+  return "orange";
+}
+
+function getRetentionHealthInsightSeries(retention = {}, fallbackScore = null) {
+  const values = (Array.isArray(retention.retentionHealthTrend) ? retention.retentionHealthTrend : [])
+    .map((point) => Number(point.retentionHealthScore))
+    .filter((value) => Number.isFinite(value));
+  if (values.length >= 2) return values;
+  const fallback = Number(fallbackScore);
+  const safeFallback = Number.isFinite(fallback) ? fallback : 0;
+  if (values.length === 1) return [values[0], values[0]];
+  return [safeFallback, safeFallback];
 }
 
 function getProductRiskInsightHelp(detail = {}) {
@@ -8740,6 +8859,7 @@ function getRecommendedActionDisplayScore(action = {}, product = {}) {
   const relationshipCompatibilityAction = /review-product-pairing-expectations|compatibility_warning|pairing expectations|compatibility review/.test(normalized);
   const relationshipDescriptionAction = /product-description-changes|description|pdp copy|quality note|expectation/.test(normalized) && !/\bfaq\b/.test(normalized);
   const merchandisingRelationshipAction = /\b(cross-sell|post-purchase|upgrade|next step|journey insight)\b/.test(normalized);
+  const retentionCampaignAction = /\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(normalized);
   const stopSaleAction = /\b(status|draft|archive|inventory|pause product|stop selling|reduce availability)\b/.test(normalized);
   const catalogHygieneAction = /\b(alt text|media|structured metafield|template|collection|internal risk tags|workflow tags|product tag)\b/.test(normalized);
 
@@ -8757,11 +8877,13 @@ function getRecommendedActionDisplayScore(action = {}, product = {}) {
   if (lowEffortHighImpact) score += 12;
   if (affectsReturnsOrReviews && impact === "high") score += 10;
   if (/expectation|fit note|quality note|faq|spec|details|correct-product-description|description/.test(normalized)) score += 8;
+  if (retentionCampaignAction) score += 14;
   if (sourceIntegrityAction) score += 150;
   if (relationshipExpectationRisk && relationshipDescriptionAction) score += 190;
   if (relationshipExpectationRisk && relationshipCompatibilityAction) score += 48;
   if (relationshipExpectationRisk && stopSaleAction && !hasDisplayedStopSaleEvidence(product)) score -= 140;
   if (relationshipExpectationRisk && merchandisingRelationshipAction) score -= 52;
+  if (relationshipExpectationRisk && retentionCampaignAction) score -= 60;
   if (relationshipExpectationRisk && catalogHygieneAction && !relationshipCompatibilityAction) score -= 36;
   if (productSourceIntegrity && !sourceIntegrityAction && /description|pdp|expectation|faq|fit|variant|option|price|pricing|compare-at/.test(normalized)) score -= 120;
   if (refundOperationalAction) score += 116;
@@ -9794,6 +9916,7 @@ function getRecommendedActionDetail(action) {
   const payload = action.payload || {};
   if (payload.draftTitle) return payload.draftTitle;
   if (Array.isArray(payload.faqItems) && payload.faqItems.length) return formatFaqItemsForDisplay(payload.faqItems);
+  if (payload.campaignBrief) return payload.campaignBrief;
   if (payload.draftText) return payload.draftText;
   if (payload.note) return payload.note;
   if (payload.mediaGuidance) return payload.mediaGuidance;
@@ -10054,6 +10177,10 @@ function buildGroupedDescriptionValue(currentDescription = "", selectedChanges =
 function getRecommendedActionApplication(action, product = null, options = {}) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+
+  if (isRetentionRecommendedAction(action)) {
+    return getRetentionRecommendedActionApplication(action, product);
+  }
 
   if (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length) {
     return getGroupedDescriptionActionApplication(action, product, options);
@@ -10328,6 +10455,63 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     value: getRecommendedActionDetail(action),
     }),
   };
+}
+
+function isRetentionRecommendedAction(action = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payload.recommendationKind || ""} ${payload.retentionActionKind || ""} ${payload.source || ""}`.toLowerCase();
+  return normalized.includes("product_retention")
+    || normalized.includes("retention")
+    || normalized.includes("repurchase")
+    || normalized.includes("lifecycle")
+    || normalized.includes("campaign");
+}
+
+function getRetentionRecommendedActionApplication(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const plan = payload.campaignPlan || {};
+  const isDropReview = String(payload.recommendationKind || payload.retentionActionKind || action.id || "").toLowerCase().includes("drop");
+  const target = isDropReview ? "Retention investigation" : "Lifecycle marketing workflow";
+  return withRecipeApplicationFields(action, {
+    kind: "marketing_workflow",
+    editable: false,
+    target,
+    operation: isDropReview ? "Review retention drop" : "Plan retention campaign",
+    intro: getRetentionActionIntro(action),
+    applyLabel: isDropReview ? "Review retention" : "Review campaign",
+    valueLabel: isDropReview ? "Retention review brief" : "Campaign brief",
+    value: payload.campaignBrief || formatRetentionCampaignPlan(plan),
+    confirmationTitle: isDropReview ? "Review retention action" : "Review retention campaign",
+    confirmationDetail: "ProductPulse does not change Shopify or marketing tools for this action. Use the brief to create or review the campaign manually.",
+    hidePreview: false,
+    campaignPlan: plan,
+  });
+}
+
+function getRetentionActionIntro(action = {}) {
+  const payload = action.payload || {};
+  const plan = payload.campaignPlan || {};
+  const metrics = payload.retentionMetrics || {};
+  const metricText = [
+    metrics.healthScore == null ? "" : `retention health ${formatInteger(metrics.healthScore)}/100`,
+    metrics.sameProductRepurchaseRate90d == null ? "" : `${formatRetentionRate(metrics.sameProductRepurchaseRate90d)} same-product repurchase`,
+    metrics.crossSellRetentionRate90d == null ? "" : `${formatRetentionRate(metrics.crossSellRetentionRate90d)} cross-sell retention`,
+    metrics.totalProductCohortCustomers ? `${formatInteger(metrics.totalProductCohortCustomers)} cohort customers` : "",
+  ].filter(Boolean).join(" · ");
+  const objective = plan.objective || "Review retention behavior before deciding whether a campaign is useful.";
+  return `${objective}${metricText ? ` ProductPulse based this on ${metricText}.` : ""}`;
+}
+
+function formatRetentionCampaignPlan(plan = {}) {
+  return [
+    plan.objective ? `Objective: ${plan.objective}` : "",
+    plan.audience ? `Audience: ${plan.audience}` : "",
+    plan.timing ? `Timing: ${plan.timing}` : "",
+    plan.messageAngle ? `Message: ${plan.messageAngle}` : "",
+    plan.offerIdea ? `Offer: ${plan.offerIdea}` : "",
+    plan.successMetric ? `Success metric: ${plan.successMetric}` : "",
+    plan.guardrail ? `Guardrail: ${plan.guardrail}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function isVariantOptionsRecommendedAction(action = {}) {
@@ -10807,6 +10991,13 @@ function getRecommendedActionEvidence(action, product) {
     if (Number(payload.faqNeed?.signals || 0) > 0) evidence.push(`${formatInteger(payload.faqNeed.signals)} FAQ signal${Number(payload.faqNeed.signals) === 1 ? "" : "s"}`);
     if (Array.isArray(payload.faqNeed?.topics) && payload.faqNeed.topics[0]) evidence.push(payload.faqNeed.topics[0]);
   }
+  if (payload.retentionMetrics) {
+    const retention = payload.retentionMetrics;
+    if (retention.healthScore != null) evidence.push(`${formatInteger(retention.healthScore)}/100 retention health`);
+    if (retention.sameProductRepurchaseRate90d != null) evidence.push(`${formatRetentionRate(retention.sameProductRepurchaseRate90d)} same-product repeat`);
+    if (retention.crossSellRetentionRate90d != null) evidence.push(`${formatRetentionRate(retention.crossSellRetentionRate90d)} cross-sell retention`);
+    if (retention.totalProductCohortCustomers) evidence.push(`${formatInteger(retention.totalProductCohortCustomers)} cohort customers`);
+  }
   if (payload.draftTitle) evidence.push("Title clarity");
   if (Array.isArray(payload.tags) && payload.tags.length) evidence.push(`${payload.tags.length} tags`);
   if (payload.mediaWithoutAltCount) evidence.push(`${payload.mediaWithoutAltCount} media without alt text`);
@@ -11030,6 +11221,7 @@ function getRecommendedActionMode(action, index) {
   );
   if (normalizedId.includes("run-ai-diagnosis") || normalizedId.includes("run-full-diagnosis")) return "diagnose";
   if (normalizedId.includes("add-to-watchlist")) return "apply-product";
+  if (isRetentionRecommendedAction(action)) return "review";
   if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) return "apply-product";
   if (hasDirectVariantOptionUpdates(payload)) return "apply-product";
   if (payload.draftTitle || payload.productStatus || payload.draftHandle || payload.templateSuffix || payload.field === "classification" || payload.field === "seo.title" || payload.field === "seo.description" || (Array.isArray(payload.metafields) && payload.metafields.length)) return "apply-product";
@@ -11048,6 +11240,7 @@ function getRecommendedActionButtonLabel(action, index) {
   const mode = getRecommendedActionMode(action, index);
   if (mode === "apply-product") return getRecommendedActionApplication(action).applyLabel;
   if (mode === "copy") return "Copy note";
+  if (isRetentionRecommendedAction(action)) return String(action.id || "").includes("drop") ? "Review retention" : "Review campaign";
   if (mode === "review") return "Review evidence";
   if (mode === "diagnose") return "Run";
   if (String(action.type || "").toLowerCase().includes("tag")) return "Apply tag";
@@ -11056,6 +11249,7 @@ function getRecommendedActionButtonLabel(action, index) {
 
 function getActionIcon(type) {
   const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("retention") || normalized.includes("repurchase") || normalized.includes("lifecycle") || normalized.includes("campaign")) return "chart-line";
   if (normalized.includes("seo") || normalized.includes("url handle")) return "search";
   if (normalized.includes("template")) return "product";
   if (normalized.includes("metafield")) return "file";
@@ -11085,6 +11279,7 @@ function getActionIcon(type) {
 
 function getActionIconSymbol(type) {
   const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("retention") || normalized.includes("repurchase") || normalized.includes("lifecycle") || normalized.includes("campaign")) return "RTN";
   if (normalized.includes("seo")) return "SEO";
   if (normalized.includes("url handle")) return "URL";
   if (normalized.includes("template")) return "TPL";
@@ -14341,6 +14536,7 @@ function ProductRetentionMetricsPanel({ detail }) {
   const summary = retention.summary || {};
   const hasData = detail.hasProductRetention || hasProductRetentionData(retention);
   const ltvChart = useMemo(() => getProductRetentionLtvBreakdownChart(retention.ltvCurve), [retention.ltvCurve]);
+  const retentionActions = useMemo(() => getRetentionPanelActionCards(detail), [detail]);
   const rangeLabel = getProductRetentionRangeLabel(retention.run, summary);
   const warningLabel = getProductRetentionWarningLabel(summary, retention.run);
   const emptyMessage = getProductRetentionEmptyMessage(summary, retention.run);
@@ -14369,7 +14565,7 @@ function ProductRetentionMetricsPanel({ detail }) {
               icon="shopify-orders"
               label="180-day customer retention"
               value={formatRetentionRate(summary.repeatPurchaseRate180d)}
-              detail={`${formatInteger(summary.totalCustomersAnalyzed)} customers analyzed`}
+              detail={`${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`}
               tone="blue"
             />
             <ProductRetentionMetricCard
@@ -14399,15 +14595,78 @@ function ProductRetentionMetricsPanel({ detail }) {
               value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
               detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
               tone={summary.hasEnoughData ? "blue" : "amber"}
-            />
-          </div>
+              />
+            </div>
 
-          <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} summary={summary} />
-          <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />
-        </>
+            <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
+            <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} summary={summary} />
+            <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />
+          </>
+        )}
+    </section>
+  );
+}
+
+function ProductRetentionActionReadout({ actions = [], summary = {} }) {
+  const hasActions = actions.length > 0;
+  return (
+    <section className={`ppRetentionActionReadout${hasActions ? "" : " ppRetentionActionReadout-empty"}`}>
+      <div className="ppRetentionActionReadoutHeader">
+        <div>
+          <h3>Retention action readout</h3>
+          <p>{hasActions ? "Campaign or workflow ideas ProductPulse is willing to surface from retention evidence." : "No retention campaign action was triggered from the current cohort evidence."}</p>
+        </div>
+        {summary.retentionHealthScore != null && <span>{formatInteger(summary.retentionHealthScore)}/100 health</span>}
+      </div>
+      {hasActions ? (
+        <div className="ppRetentionActionCardGrid">
+          {actions.map((action) => (
+            <article className="ppRetentionActionCard" key={action.id}>
+              <span>{action.badge}</span>
+              <strong>{action.title}</strong>
+              <p>{action.detail}</p>
+              <small>{action.metrics}</small>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="ppRetentionActionReadoutEmptyText">Retention stays informational unless the cohort size is usable and the signal clearly points to a repurchase, cross-sell, bundle, or retention-drop review.</p>
       )}
     </section>
   );
+}
+
+function getRetentionPanelActionCards(detail = {}) {
+  return (Array.isArray(detail.recommendedActions) ? detail.recommendedActions : [])
+    .filter(isRetentionRecommendedAction)
+    .slice(0, 3)
+    .map((action) => {
+      const payload = action.payload || {};
+      const metrics = payload.retentionMetrics || {};
+      const plan = payload.campaignPlan || {};
+      const metricParts = [
+        metrics.healthScore == null ? "" : `${formatInteger(metrics.healthScore)}/100 health`,
+        metrics.sameProductRepurchaseRate90d == null ? "" : `${formatRetentionRate(metrics.sameProductRepurchaseRate90d)} same-product repeat`,
+        metrics.crossSellRetentionRate90d == null ? "" : `${formatRetentionRate(metrics.crossSellRetentionRate90d)} cross-sell`,
+        metrics.totalProductCohortCustomers ? `${formatInteger(metrics.totalProductCohortCustomers)} customers` : "",
+      ].filter(Boolean);
+      return {
+        id: action.id || action.label || action.title,
+        title: action.label || action.title || "Retention action",
+        badge: getRetentionActionBadge(action),
+        detail: plan.objective || payload.proposedChange || payload.expectedImpact || action.reason || "Review the retention evidence before acting.",
+        metrics: metricParts.join(" · "),
+      };
+    });
+}
+
+function getRetentionActionBadge(action = {}) {
+  const normalized = `${action.id || ""} ${action.payload?.recommendationKind || ""} ${action.payload?.retentionActionKind || ""}`.toLowerCase();
+  if (normalized.includes("drop")) return "Investigate";
+  if (normalized.includes("bundle")) return "Bundle test";
+  if (normalized.includes("cross")) return "Cross-sell";
+  if (normalized.includes("repurchase")) return "Repurchase";
+  return "Retention";
 }
 
 function ProductRetentionMetricCard({ icon, label, value, detail, tone = "blue" }) {
@@ -19947,7 +20206,7 @@ function RetentionEvidencePanel({ source, product }) {
             <EvidenceSourceStatCard icon="product-momentum" label="90-day repeat" value={formatRetentionRate(summary.repeatPurchaseRate90d)} detail="Any follow-on purchase" tone="teal" />
             <EvidenceSourceStatCard icon="shopify-product" label="Same product" value={formatRetentionRate(summary.sameProductRepurchaseRate90d)} detail="90-day repurchase" tone="blue" />
             <EvidenceSourceStatCard icon="duplicate" label="Cross-sell" value={formatRetentionRate(summary.crossSellRetentionRate90d)} detail="Other products after entry" tone="violet" />
-            <EvidenceSourceStatCard icon="profile" label="Customers" value={formatInteger(summary.totalCustomersAnalyzed)} detail="Analyzed in retention run" tone="blue" />
+            <EvidenceSourceStatCard icon="profile" label="Cohort customers" value={formatInteger(summary.totalCustomersAnalyzed)} detail="First bought this product in the window" tone="blue" />
           </div>
 
           <div className="ppEvidenceTwoColumnGrid">
@@ -24604,6 +24863,7 @@ function getCompactRecommendedActionDescription(action = {}) {
   const value = candidates.map((item) => String(item || "").replace(/\s+/g, " ").trim()).find(Boolean);
   if (value) return truncateCompactActionDescription(value);
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (normalized.includes("retention") || normalized.includes("repurchase") || normalized.includes("lifecycle") || normalized.includes("campaign")) return "Use retention cohorts to plan a measured lifecycle or merchandising test.";
   if (normalized.includes("faq")) return "Add a focused FAQ to answer shopper questions before checkout.";
   if (normalized.includes("qa") || normalized.includes("supplier")) return "Review quality or fulfillment signals with the responsible team.";
   if (normalized.includes("description") || normalized.includes("pdp") || normalized.includes("copy")) return "Improve PDP copy so shoppers understand the product before buying.";
@@ -24672,6 +24932,7 @@ function getCompactShopifyField(value = "") {
 
 function inferActionVisibility(action = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(normalized)) return "Customer-facing";
   if (/\b(description|pdp|faq|title|seo|meta|handle|media|image|alt text|specs|details)\b/.test(normalized)) return "Customer-facing";
   if (/\b(status|price|inventory|variant|supplier|qa|fulfillment|safety)\b/.test(normalized)) return "Operational";
   return "Internal";
@@ -24680,6 +24941,11 @@ function inferActionVisibility(action = {}) {
 function inferActionEvidenceStrength(action = {}) {
   const evidenceCount = Array.isArray(action.evidence) ? action.evidence.length : 0;
   const normalized = `${action.id || ""} ${action.label || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(normalized)) {
+    const customers = Number(action.payload?.retentionMetrics?.totalProductCohortCustomers || 0);
+    if (customers >= 50) return "Strong";
+    if (customers >= 10) return "Moderate";
+  }
   if (normalized.includes("mismatch")) return "Conflicting";
   if (evidenceCount >= 3) return "Strong";
   if (evidenceCount >= 2) return "Moderate";
@@ -24702,6 +24968,7 @@ function inferActionApproval(action = {}) {
 
 function inferActionReasonCategory(action = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(normalized)) return "Retention";
   if (/\b(momentum|watchlist|baseline)\b/.test(normalized)) return "Momentum";
   if (/\b(seo|meta|handle)\b/.test(normalized)) return "SEO";
   if (/\b(variant|sku|option)\b/.test(normalized)) return "Variant issue";
@@ -24714,6 +24981,7 @@ function inferActionReasonCategory(action = {}) {
 
 function inferActionExpectedBenefit(action = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.expectedImpact || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(normalized)) return "Improve retention";
   if (/\b(seo|meta|handle)\b/.test(normalized)) return "Improve SEO";
   if (/\b(tag|collection|metafield|workflow|support|note|coverage|watchlist|baseline)\b/.test(normalized)) return "Improve workflow";
   if (/\b(status|inventory|draft|archive|safety|qa|supplier)\b/.test(normalized)) return "Prevent bad purchases";
@@ -24972,6 +25240,12 @@ function RecommendedActionInvestigationBody({ action, application, product }) {
         </RecommendedActionReviewSection>
       )}
 
+      {isRetentionRecommendedAction(action) && (
+        <RecommendedActionReviewSection icon="chart-line" title={isRetentionDropAction(action) ? "Retention review plan" : "Campaign plan"}>
+          <RetentionCampaignPlanDetails action={action} />
+        </RecommendedActionReviewSection>
+      )}
+
       <RecommendedActionReviewSection icon="check-circle" title="What to verify">
         <ul className="ppInvestigationChecklist">
           {getInvestigationChecklistItems(action, product).map((item) => (
@@ -25032,6 +25306,31 @@ function RecommendedActionVariantSuggestions({ suggestions = [] }) {
   );
 }
 
+function RetentionCampaignPlanDetails({ action = {} }) {
+  const payload = action.payload || {};
+  const plan = payload.campaignPlan || {};
+  const rows = [
+    ["Objective", plan.objective],
+    ["Audience", plan.audience],
+    ["Timing", plan.timing],
+    ["Message", plan.messageAngle],
+    ["Offer", plan.offerIdea],
+    ["Success metric", plan.successMetric],
+    ["Guardrail", plan.guardrail],
+  ].filter(([, value]) => String(value || "").trim());
+
+  return (
+    <div className="ppRetentionCampaignPlan">
+      {rows.map(([label, value]) => (
+        <span key={label}>
+          <small>{label}</small>
+          <strong>{value}</strong>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function formatVariantOptionValueSummary(optionValues = []) {
   return optionValues
     .map((option) => `${option.optionName}: ${option.suggestedValue}`)
@@ -25041,6 +25340,12 @@ function formatVariantOptionValueSummary(optionValues = []) {
 
 function getInvestigationFollowupText(action = {}, application = {}, product = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (isRetentionRecommendedAction(action)) {
+    if (isRetentionDropAction(action)) {
+      return "Use this as a retention investigation before launching more growth messaging: compare cohorts, repeat timing, LTV movement, and any product-quality or expectation evidence.";
+    }
+    return "Use this as a campaign brief, not an automatic Shopify change: confirm the cohort signal, create the flow in your email/SMS or merchandising tool, and measure whether it improves repeat revenue without increasing returns.";
+  }
   if (isPairingExpectationInvestigation(action)) {
     const relatedTitle = action.payload?.relatedProductTitle || "the related product";
     return `Use this as the evidence review behind the customer-facing fix: confirm whether buying this product with ${relatedTitle} is creating expectation mismatch, then apply the product-description or FAQ action that explains what is included, what the companion item changes, and how returns/exchanges should be interpreted.`;
@@ -25067,6 +25372,26 @@ function getInvestigationChecklistItems(action = {}, product = {}) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
   const items = [];
+
+  if (isRetentionRecommendedAction(action)) {
+    const payload = action.payload || {};
+    const metrics = payload.retentionMetrics || {};
+    const relatedTitle = payload.relatedProductTitle || "the related product";
+    if (isRetentionDropAction(action)) {
+      return [
+        "Confirm the cohort has enough customers and is not a low-sample artifact.",
+        "Compare repeat purchase rate, LTV delta, variants, discounts, and acquisition channel before changing campaigns.",
+        "Check returns, refunds, and negative reviews to avoid sending growth messaging into an unresolved product issue.",
+        "Decide whether the next step is lifecycle education, onboarding, expectation copy, or no campaign.",
+      ];
+    }
+    return [
+      `Confirm the retention signal is material: ${metrics.totalProductCohortCustomers ? `${formatInteger(metrics.totalProductCohortCustomers)} cohort customers` : "enough cohort customers"} and ${metrics.healthScore == null ? "stored retention health" : `${formatInteger(metrics.healthScore)}/100 retention health`}.`,
+      payload.relatedProductTitle ? `Verify ${relatedTitle} does not add return/refund pressure before promoting it.` : "Confirm the campaign is based on repeat behavior, not one isolated order.",
+      "Build the first version as a measured test with a holdout or clear before/after window.",
+      "Track repeat purchase, LTV, return/refund rate, unsubscribe rate, and complaint language after launch.",
+    ];
+  }
 
   if (isPairingExpectationInvestigation(action)) {
     const relatedTitle = payload.relatedProductTitle || "the related product";
@@ -25104,6 +25429,22 @@ function getInvestigationChecklistItems(action = {}, product = {}) {
 
 function getInvestigationNextSteps(action = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (isRetentionRecommendedAction(action)) {
+    if (isRetentionDropAction(action)) {
+      return [
+        "Open the retention evidence and inspect the cohort trend",
+        "Compare returns, refunds, reviews, variants, and acquisition context",
+        "Mark reviewed after deciding whether a campaign should wait",
+        "Dismiss if the retention change is low-sample or not actionable",
+      ];
+    }
+    return [
+      "Review the campaign brief and retention evidence",
+      "Create a small email/SMS or merchandising test outside ProductPulse",
+      "Monitor repeat rate, LTV, and post-purchase friction",
+      "Mark reviewed after the test plan is accepted",
+    ];
+  }
   if (isPairingExpectationInvestigation(action)) {
     return [
       "Apply or edit the product-description action with pairing expectations",
@@ -25161,6 +25502,7 @@ function RecommendedActionInvestigationDetails({ action, application }) {
 }
 
 function getInvestigationOptionalShopifyAction(action = {}) {
+  if (isRetentionRecommendedAction(action)) return "None";
   if (isPairingExpectationInvestigation(action)) return "Update product description / FAQ";
   if (action.payload?.tag || (Array.isArray(action.payload?.tags) && action.payload.tags.length)) return "Add internal tag";
   if (getInvestigationTagForAction(action)) return "Add QA review tag";
@@ -25178,7 +25520,14 @@ function getInvestigationTagForAction(action = {}) {
 
 function getInvestigationPrimaryActionLabel(action = {}, mode = "") {
   if (mode === "copy") return "Copy note";
+  if (isRetentionRecommendedAction(action)) return isRetentionDropAction(action) ? "Review retention" : "Review campaign";
   return "Review evidence";
+}
+
+function isRetentionDropAction(action = {}) {
+  const payload = action.payload || {};
+  const normalized = `${action.id || ""} ${payload.recommendationKind || ""} ${payload.retentionActionKind || ""}`.toLowerCase();
+  return normalized.includes("drop");
 }
 
 function isPairingExpectationInvestigation(action = {}) {
@@ -25365,7 +25714,10 @@ function RecommendedActionProposedChange({
   );
 }
 
+const ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH = 460;
+
 function RecommendedActionPreview({ application, editedText }) {
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   const preview = getRecommendedActionPreviewParts(application, editedText);
   const beforeHighlights = Array.isArray(preview.beforeHighlights) ? preview.beforeHighlights : [];
   const afterHighlights = [
@@ -25374,47 +25726,119 @@ function RecommendedActionPreview({ application, editedText }) {
   ];
   const leadingAfterHighlights = afterHighlights.filter((highlight) => highlight.position !== "after");
   const trailingAfterHighlights = afterHighlights.filter((highlight) => highlight.position === "after");
+  const expandable = preview.isDescription && (
+    isActionDescriptionPreviewExpandable(preview.beforeText, beforeHighlights)
+    || isActionDescriptionPreviewExpandable(preview.afterText, afterHighlights, preview.afterDiffSegments)
+  );
 
   return (
     <div className="ppActionPreviewGrid">
-      <div className="ppActionPreviewColumn">
-        <strong>{preview.beforeLabel}</strong>
-        <div className="ppActionPreviewBox">
-          {beforeHighlights.map((highlight, index) => (
-            <ActionPreviewHighlightBlock highlight={highlight} key={`before-highlight-${index}`} />
-          ))}
-          <p>{renderAnalysisText(preview.beforeText)}</p>
-        </div>
-      </div>
+      <RecommendedActionPreviewColumn
+        label={preview.beforeLabel}
+        text={preview.beforeText}
+        highlights={beforeHighlights}
+        isDescription={preview.isDescription}
+        expanded={previewExpanded}
+      />
       <span className="ppActionPreviewArrow" aria-hidden="true">
         <s-icon type="chevron-right" size="small"></s-icon>
       </span>
-      <div className="ppActionPreviewColumn">
-        <strong>{preview.afterLabel}</strong>
-        <div className="ppActionPreviewBox ppActionPreviewBox-after">
-          {leadingAfterHighlights.map((highlight, index) => (
-            <ActionPreviewHighlightBlock highlight={highlight} key={`after-highlight-leading-${index}`} />
-          ))}
-          {preview.afterText && <p>{renderAnalysisText(preview.afterText)}</p>}
-          {trailingAfterHighlights.map((highlight, index) => (
-            <ActionPreviewHighlightBlock highlight={highlight} key={`after-highlight-trailing-${index}`} />
-          ))}
-        </div>
+      <RecommendedActionPreviewColumn
+        label={preview.afterLabel}
+        text={preview.afterText}
+        diffSegments={preview.afterDiffSegments}
+        leadingHighlights={leadingAfterHighlights}
+        trailingHighlights={trailingAfterHighlights}
+        isDescription={preview.isDescription}
+        expanded={previewExpanded}
+        boxClassName="ppActionPreviewBox-after"
+      />
+      {expandable && (
+        <button
+          className="ppActionPreviewToggle ppActionPreviewToggle-combined"
+          type="button"
+          onClick={() => setPreviewExpanded((expanded) => !expanded)}
+          aria-label={`${previewExpanded ? "Show less" : "Show more"} description previews`}
+        >
+          {previewExpanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RecommendedActionPreviewColumn({
+  label,
+  text = "",
+  diffSegments = [],
+  highlights = [],
+  leadingHighlights = highlights,
+  trailingHighlights = [],
+  isDescription = false,
+  expanded = false,
+  boxClassName = "",
+}) {
+  const hasDiffSegments = isDescription && Array.isArray(diffSegments) && diffSegments.length > 0;
+  const displayText = getActionPreviewDisplayText(text, { isDescription, expanded });
+  const displayDiffSegments = hasDiffSegments ? getActionPreviewDisplayDiffSegments(diffSegments, { expanded }) : [];
+  const expandedClass = expanded ? " isExpanded" : "";
+
+  return (
+    <div className={`ppActionPreviewColumn${expandedClass}`}>
+      <strong>{label}</strong>
+      <div className={`ppActionPreviewBox ${boxClassName}${expandedClass}`.trim()}>
+        {leadingHighlights.map((highlight, index) => (
+          <ActionPreviewHighlightBlock
+            highlight={highlight}
+            isDescription={isDescription}
+            expanded={expanded}
+            key={`highlight-leading-${index}`}
+          />
+        ))}
+        {hasDiffSegments ? (
+          <ActionPreviewDiffText segments={displayDiffSegments} />
+        ) : (
+          displayText && <p>{renderAnalysisText(displayText)}</p>
+        )}
+        {trailingHighlights.map((highlight, index) => (
+          <ActionPreviewHighlightBlock
+            highlight={highlight}
+            isDescription={isDescription}
+            expanded={expanded}
+            key={`highlight-trailing-${index}`}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function ActionPreviewHighlightBlock({ highlight }) {
+function ActionPreviewDiffText({ segments = [] }) {
+  if (!segments.length) return null;
+  return (
+    <p className="ppActionPreviewDiffText">
+      {segments.map((segment, index) => segment.changed ? (
+        <span className="ppActionPreviewDiffBlock" key={`diff-${index}`}>
+          {renderAnalysisText(segment.text)}
+        </span>
+      ) : (
+        <span key={`diff-${index}`}>{renderAnalysisText(segment.text)}</span>
+      ))}
+    </p>
+  );
+}
+
+function ActionPreviewHighlightBlock({ highlight, isDescription = false, expanded = false }) {
   const text = typeof highlight === "string" ? highlight : highlight?.text;
   const label = typeof highlight === "string" ? "" : highlight?.label;
-  if (!text) return null;
+  const displayText = getActionPreviewDisplayText(text, { isDescription, expanded });
+  if (!displayText) return null;
   return (
     <div className="ppActionPreviewInsertedText">
       <s-icon type="wand" size="small"></s-icon>
       <div>
         {label && <strong>{label}</strong>}
-        <p>{renderAnalysisText(text)}</p>
+        <p>{renderAnalysisText(displayText)}</p>
       </div>
     </div>
   );
@@ -25426,69 +25850,226 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
   const target = String(application.target || "").toLowerCase();
   const isDescription = target.includes("description");
   const beforeLabel = application.currentValueLabel
-    ? `${application.currentValueLabel}${isDescription ? " (excerpt)" : ""}`
+    ? application.currentValueLabel
     : "Current Shopify value";
   const afterLabel = isDescription ? "Updated description preview" : `${application.target || "Updated value"} preview`;
   const emptyCurrent = isDescription ? "No current Shopify description was loaded for this product." : "No current Shopify value was loaded.";
+  const previewText = (value) => isDescription ? normalizeActionText(value) : toActionPreviewExcerpt(value);
 
   if (isDescription && Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
     const selectedChanges = getSelectedDescriptionChanges(application);
-    const replacement = selectedChanges.find((change) => change.operation === "replace");
-    const prependChanges = selectedChanges.filter((change) => change.operation === "prepend");
-    const appendChanges = selectedChanges.filter((change) => change.operation === "append");
-    const baseText = replacement ? "" : toActionPreviewExcerpt(current || emptyCurrent);
+    const updatedDescription = buildGroupedDescriptionValue(current, selectedChanges);
     return {
+      isDescription,
       beforeLabel,
       afterLabel,
-      beforeText: toActionPreviewExcerpt(current || emptyCurrent),
-      afterText: baseText,
-      afterHighlights: [
-        ...prependChanges.map((change) => buildActionPreviewChangeHighlight(change, "before")),
-        ...(replacement ? [buildActionPreviewChangeHighlight(replacement, "before")] : []),
-        ...appendChanges.map((change) => buildActionPreviewChangeHighlight(change, "after")),
-      ],
+      beforeText: previewText(current || emptyCurrent),
+      afterText: updatedDescription,
+      afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
     };
   }
 
   if (application.insertionPosition === "prepend" && current) {
+    const updatedDescription = normalizeActionText([proposed, current].filter(Boolean).join("\n\n"));
     return {
+      isDescription,
       beforeLabel,
       afterLabel,
-      beforeText: toActionPreviewExcerpt(current || emptyCurrent),
-      highlightText: toActionPreviewExcerpt(proposed),
-      afterText: toActionPreviewExcerpt(current),
+      beforeText: previewText(current || emptyCurrent),
+      afterText: updatedDescription,
+      afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
     };
   }
 
   if (application.insertionPosition === "append" && current) {
+    const updatedDescription = normalizeActionText([current, proposed].filter(Boolean).join("\n\n"));
     return {
+      isDescription,
       beforeLabel,
       afterLabel,
-      beforeText: toActionPreviewExcerpt(current || emptyCurrent),
-      highlightText: toActionPreviewExcerpt(proposed),
-      highlightPosition: "after",
-      afterText: toActionPreviewExcerpt(current),
+      beforeText: previewText(current || emptyCurrent),
+      afterText: updatedDescription,
+      afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
+    };
+  }
+
+  if (isDescription) {
+    const updatedDescription = previewText(proposed || "No proposed value supplied.");
+    return {
+      isDescription,
+      beforeLabel,
+      afterLabel,
+      beforeText: previewText(current || emptyCurrent),
+      afterText: updatedDescription,
+      afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
     };
   }
 
   return {
+    isDescription,
     beforeLabel,
     afterLabel,
-    beforeText: toActionPreviewExcerpt(current || emptyCurrent),
+    beforeText: previewText(current || emptyCurrent),
     highlightText: isDescription ? "" : "",
-    afterText: toActionPreviewExcerpt(proposed || "No proposed value supplied."),
+    afterText: previewText(proposed || "No proposed value supplied."),
   };
 }
 
-function buildActionPreviewChangeHighlight(change = {}, position = "before") {
-  return {
-    label: change.operationLabel || change.title || "ProductPulse change",
-    text: toActionPreviewExcerpt(change.text || ""),
-    position,
-  };
+function isActionDescriptionPreviewExpandable(text = "", highlights = [], diffSegments = []) {
+  const textLength = normalizeActionText(text).length;
+  const highlightLengths = highlights.map((highlight) => normalizeActionText(typeof highlight === "string" ? highlight : highlight?.text).length);
+  const diffLength = Array.isArray(diffSegments) && diffSegments.length
+    ? diffSegments.reduce((sum, segment) => sum + normalizeActionText(segment.text).length, 0)
+    : 0;
+  const totalLength = (diffLength || textLength) + highlightLengths.reduce((sum, length) => sum + length, 0);
+  return totalLength > ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH || highlightLengths.some((length) => length > ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH);
 }
 
-function toActionPreviewExcerpt(value = "", maxLength = 460) {
+function getActionPreviewDisplayDiffSegments(segments = [], { expanded = false } = {}) {
+  const normalizedSegments = (Array.isArray(segments) ? segments : [])
+    .map((segment) => ({ text: String(segment?.text || ""), changed: Boolean(segment?.changed) }))
+    .filter((segment) => segment.text);
+  if (expanded) return normalizedSegments;
+
+  const firstChangedIndex = normalizedSegments.findIndex((segment) => segment.changed);
+  const firstChangedOffset = firstChangedIndex > 0
+    ? normalizedSegments.slice(0, firstChangedIndex).reduce((sum, segment) => sum + segment.text.length, 0)
+    : 0;
+  if (firstChangedIndex > 0 && firstChangedOffset >= ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH) {
+    const beforeText = normalizedSegments.slice(0, firstChangedIndex).map((segment) => segment.text).join("");
+    const context = getActionPreviewLeadingContext(beforeText);
+    const focusedSegments = [{ text: context ? `...${context}` : "...", changed: false }];
+    let remaining = ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH - focusedSegments[0].text.length;
+    for (const segment of normalizedSegments.slice(firstChangedIndex)) {
+      if (remaining <= 0) break;
+      if (segment.text.length <= remaining) {
+        focusedSegments.push(segment);
+        remaining -= segment.text.length;
+        continue;
+      }
+      focusedSegments.push({
+        ...segment,
+        text: `${segment.text.slice(0, remaining).trim()}...`,
+      });
+      remaining = 0;
+    }
+    return focusedSegments;
+  }
+
+  let remaining = ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH;
+  const displaySegments = [];
+  for (const segment of normalizedSegments) {
+    if (remaining <= 0) break;
+    if (segment.text.length <= remaining) {
+      displaySegments.push(segment);
+      remaining -= segment.text.length;
+      continue;
+    }
+    displaySegments.push({
+      ...segment,
+      text: `${segment.text.slice(0, remaining).trim()}...`,
+    });
+    remaining = 0;
+  }
+  return displaySegments;
+}
+
+function getActionPreviewLeadingContext(value = "", maxLength = 120) {
+  const text = String(value || "");
+  if (text.length <= maxLength) return text;
+  return text.slice(-maxLength).replace(/^\S+\s+/, "");
+}
+
+function getActionPreviewDisplayText(value = "", { isDescription = false, expanded = false } = {}) {
+  if (!isDescription || expanded) return normalizeActionText(value);
+  return toActionPreviewExcerpt(value, ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH);
+}
+
+function buildActionDescriptionDiffSegments(currentValue = "", updatedValue = "") {
+  const current = normalizeActionText(currentValue);
+  const updated = normalizeActionText(updatedValue);
+  if (!updated) return [];
+  if (!current) return [{ text: updated, changed: true }];
+  if (current === updated) return [{ text: updated, changed: false }];
+
+  const currentBlocks = splitActionDescriptionDiffBlocks(current);
+  const updatedBlocks = splitActionDescriptionDiffBlocks(updated);
+  const currentMeaningfulBlocks = currentBlocks.filter((block) => block.key);
+  const updatedMeaningfulBlocks = updatedBlocks
+    .map((block, index) => ({ ...block, originalIndex: index }))
+    .filter((block) => block.key);
+  if (!currentMeaningfulBlocks.length || !updatedMeaningfulBlocks.length) {
+    return [{ text: updated, changed: current !== updated }];
+  }
+
+  const matchedUpdatedIndexes = getActionDescriptionMatchedUpdatedIndexes(currentMeaningfulBlocks, updatedMeaningfulBlocks);
+  return mergeActionDescriptionDiffBlocks(updatedBlocks.map((block, index) => ({
+    text: block.text,
+    changed: Boolean(block.key) && !matchedUpdatedIndexes.has(index),
+  })));
+}
+
+function splitActionDescriptionDiffBlocks(value = "") {
+  const text = normalizeActionText(value);
+  if (!text) return [];
+  const blocks = text.match(/\n{2,}|\n|[^.!?\n]+[.!?]+(?:\s+|$)|[^.!?\n]+(?:[ \t]+|$)/g) || [text];
+  return blocks
+    .map((block) => ({
+      text: block,
+      key: normalizeActionDescriptionDiffKey(block),
+    }))
+    .filter((block) => block.text);
+}
+
+function normalizeActionDescriptionDiffKey(value = "") {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function getActionDescriptionMatchedUpdatedIndexes(currentBlocks = [], updatedBlocks = []) {
+  const rows = currentBlocks.length;
+  const columns = updatedBlocks.length;
+  const matrix = Array.from({ length: rows + 1 }, () => Array(columns + 1).fill(0));
+
+  for (let row = rows - 1; row >= 0; row -= 1) {
+    for (let column = columns - 1; column >= 0; column -= 1) {
+      matrix[row][column] = currentBlocks[row].key === updatedBlocks[column].key
+        ? matrix[row + 1][column + 1] + 1
+        : Math.max(matrix[row + 1][column], matrix[row][column + 1]);
+    }
+  }
+
+  const matched = new Set();
+  let row = 0;
+  let column = 0;
+  while (row < rows && column < columns) {
+    if (currentBlocks[row].key === updatedBlocks[column].key) {
+      matched.add(updatedBlocks[column].originalIndex);
+      row += 1;
+      column += 1;
+    } else if (matrix[row + 1][column] >= matrix[row][column + 1]) {
+      row += 1;
+    } else {
+      column += 1;
+    }
+  }
+  return matched;
+}
+
+function mergeActionDescriptionDiffBlocks(blocks = []) {
+  const segments = [];
+  blocks.forEach((block) => {
+    if (!block.text) return;
+    const last = segments[segments.length - 1];
+    if (last && last.changed === block.changed) {
+      last.text += block.text;
+    } else {
+      segments.push({ text: block.text, changed: block.changed });
+    }
+  });
+  return segments;
+}
+
+function toActionPreviewExcerpt(value = "", maxLength = ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH) {
   const text = normalizeActionText(value);
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength).trim()}...`;
@@ -25756,6 +26337,7 @@ function getRecommendedActionHeaderPills(action = {}, application = {}, actionKi
 function getRecommendedActionModalKicker(actionKind = "applyable", action = {}) {
   if (actionKind !== "investigation") return "Recommended action";
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (isRetentionRecommendedAction(action)) return isRetentionDropAction(action) ? "Retention review" : "Retention opportunity";
   if (normalized.includes("source") || normalized.includes("integrity") || normalized.includes("mismatch")) return "Verification needed";
   if (normalized.includes("qa") || normalized.includes("supplier")) return "Manual follow-up";
   return "Investigation recommended";
@@ -25763,6 +26345,9 @@ function getRecommendedActionModalKicker(actionKind = "applyable", action = {}) 
 
 function getRecommendedActionModalSubtitle(application = {}, actionKind = "applyable") {
   if (actionKind === "investigation") {
+    if (String(application.target || "").toLowerCase().includes("retention") || String(application.kind || "").toLowerCase().includes("marketing")) {
+      return "Review the retention signal and campaign brief before creating any external marketing or merchandising workflow.";
+    }
     return "Review the checklist and evidence before deciding whether this needs a Shopify change or an internal follow-up.";
   }
 
@@ -26149,6 +26734,7 @@ function CurrentDescriptionInsertionPreview({ application, asPre = false }) {
 
   if (isDescription) {
     const preview = getRecommendedActionPreviewParts(application, application.value || "");
+    const afterDiffSegments = Array.isArray(preview.afterDiffSegments) ? preview.afterDiffSegments : [];
     const afterHighlights = [
       ...(Array.isArray(preview.afterHighlights) ? preview.afterHighlights : []),
       ...(preview.highlightText ? [{ text: preview.highlightText, position: preview.highlightPosition || "before" }] : []),
@@ -26159,15 +26745,21 @@ function CurrentDescriptionInsertionPreview({ application, asPre = false }) {
     if (leadingAfterHighlights.length || trailingAfterHighlights.length || preview.afterText) {
       return (
         <div className={`ppDescriptionInsertionPreview ppDescriptionInsertionPreview-composed${asPre ? " isPre" : ""}`.trim()}>
-          {leadingAfterHighlights.map((highlight, index) => (
-            <ActionPreviewHighlightBlock highlight={highlight} key={`current-highlight-leading-${index}`} />
-          ))}
-          {preview.afterText && (asPre
-            ? <pre>{renderAnalysisText(preview.afterText)}</pre>
-            : <p>{renderAnalysisText(preview.afterText)}</p>)}
-          {trailingAfterHighlights.map((highlight, index) => (
-            <ActionPreviewHighlightBlock highlight={highlight} key={`current-highlight-trailing-${index}`} />
-          ))}
+          {afterDiffSegments.length ? (
+            <ActionPreviewDiffText segments={afterDiffSegments} />
+          ) : (
+            <>
+              {leadingAfterHighlights.map((highlight, index) => (
+                <ActionPreviewHighlightBlock highlight={highlight} key={`current-highlight-leading-${index}`} />
+              ))}
+              {preview.afterText && (asPre
+                ? <pre>{renderAnalysisText(preview.afterText)}</pre>
+                : <p>{renderAnalysisText(preview.afterText)}</p>)}
+              {trailingAfterHighlights.map((highlight, index) => (
+                <ActionPreviewHighlightBlock highlight={highlight} key={`current-highlight-trailing-${index}`} />
+              ))}
+            </>
+          )}
         </div>
       );
     }

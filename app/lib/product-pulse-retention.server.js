@@ -62,34 +62,18 @@ export async function calculateProductRetentionMetrics({
       metadata: { startedAt: new Date(startedAt).toISOString(), includeTestOrders: shouldIncludeTestOrders },
     });
 
-    let effectiveTimezone = timezone || "";
-    let effectiveCurrency = currency || "";
-    let retentionOrders = Array.isArray(orders) ? orders : null;
-    let fetchStats = {
-      source: Array.isArray(orders) ? "provided_orders" : "shopify_admin_api",
-      ordersScanned: Array.isArray(orders) ? orders.length : 0,
-      truncated: false,
-    };
-
-    if (!retentionOrders && admin?.graphql) {
-      const shopInfo = await fetchShopifyRetentionShopInfo(admin).catch(() => null);
-      effectiveTimezone = effectiveTimezone || shopInfo?.timezone || "UTC";
-      effectiveCurrency = effectiveCurrency || shopInfo?.currency || "";
-      const fetched = await fetchShopifyProductRetentionOrders({
-        admin,
-        windowStartDate: startDate,
-        windowEndDate: endDate,
-      });
-      retentionOrders = fetched.orders;
-      fetchStats = {
-        source: "shopify_admin_api",
-        ordersScanned: fetched.orders.length,
-        pagesScanned: fetched.pagesScanned,
-        truncated: fetched.truncated,
-      };
-    }
-
-    effectiveTimezone = effectiveTimezone || "UTC";
+    const preparedInput = await prepareProductRetentionCalculationInput({
+      admin,
+      orders,
+      timezone,
+      currency,
+      windowStartDate: startDate,
+      windowEndDate: endDate,
+    });
+    const effectiveTimezone = preparedInput.timezone;
+    const effectiveCurrency = preparedInput.currency;
+    const retentionOrders = preparedInput.orders;
+    const fetchStats = preparedInput.fetchStats;
     const rows = calculateProductRetentionMetricRows({
       shopId: normalizedShopId,
       productGid: normalizedProductGid,
@@ -215,6 +199,133 @@ export async function calculateProductRetentionMetrics({
   }
 }
 
+export async function calculateProductRetentionPreview({
+  shopId,
+  shop,
+  productGid,
+  admin = null,
+  jobId = null,
+  asOfDate = new Date(),
+  timezone = "",
+  windowStartDate = null,
+  windowEndDate = null,
+  lookbackDays = PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS,
+  maxCohortAgeDays = PRODUCT_RETENTION_DEFAULT_MAX_COHORT_AGE_DAYS,
+  currency = "",
+  orders = null,
+  includeTestOrders = false,
+} = {}) {
+  const normalizedShopId = String(shopId || shop || "").trim();
+  const normalizedProductGid = String(productGid || "").trim();
+  if (!normalizedShopId || !normalizedProductGid) {
+    return {
+      status: "failed",
+      payload: buildEmptyProductRetentionPayload({
+        errorMessage: "Product retention preview requires shopId and productGid.",
+      }),
+      rows: null,
+      dataQuality: null,
+      fetchStats: null,
+      orders: [],
+    };
+  }
+
+  const startedAt = Date.now();
+  const asOf = parseDate(asOfDate) || new Date();
+  const normalizedLookbackDays = normalizePositiveInteger(lookbackDays, PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS);
+  const normalizedMaxCohortAgeDays = normalizePositiveInteger(maxCohortAgeDays, PRODUCT_RETENTION_DEFAULT_MAX_COHORT_AGE_DAYS);
+  const endDate = parseDate(windowEndDate) || asOf;
+  const startDate = parseDate(windowStartDate) || addDaysUtc(endDate, -normalizedLookbackDays);
+  const shouldIncludeTestOrders = Boolean(includeTestOrders);
+
+  try {
+    const preparedInput = await prepareProductRetentionCalculationInput({
+      admin,
+      orders,
+      timezone,
+      currency,
+      windowStartDate: startDate,
+      windowEndDate: endDate,
+    });
+    const rows = calculateProductRetentionMetricRows({
+      shopId: normalizedShopId,
+      productGid: normalizedProductGid,
+      diagnosisId: "preview",
+      retentionRunId: "preview",
+      asOfDate: asOf,
+      timezone: preparedInput.timezone,
+      windowStartDate: startDate,
+      windowEndDate: endDate,
+      lookbackDays: normalizedLookbackDays,
+      maxCohortAgeDays: normalizedMaxCohortAgeDays,
+      currency: preparedInput.currency,
+      orders: preparedInput.orders,
+      includeTestOrders: shouldIncludeTestOrders,
+    });
+    const status = getRetentionRunStatus(rows, preparedInput.fetchStats);
+    const payload = buildProductRetentionPayload(rows);
+
+    await safeRecordJobLog({
+      shop: normalizedShopId,
+      jobId,
+      event: "product_retention.preview_calculated",
+      message: "Product retention metrics were calculated before AI report generation.",
+      data: {
+        productGid: normalizedProductGid,
+        status,
+        ordersScanned: preparedInput.fetchStats.ordersScanned,
+        productCohortCustomers: rows.summary?.totalCustomersAnalyzed || 0,
+        totalProductOrdersAnalyzed: rows.summary?.totalProductOrdersAnalyzed || 0,
+        includeTestOrders: shouldIncludeTestOrders,
+        durationMs: Date.now() - startedAt,
+      },
+    });
+
+    return {
+      status,
+      payload,
+      rows,
+      dataQuality: rows.dataQuality,
+      fetchStats: preparedInput.fetchStats,
+      orders: preparedInput.orders,
+      timezone: preparedInput.timezone,
+      currency: rows.currency || preparedInput.currency || "",
+      windowStartDate: startDate,
+      windowEndDate: endDate,
+      lookbackDays: normalizedLookbackDays,
+      maxCohortAgeDays: normalizedMaxCohortAgeDays,
+    };
+  } catch (error) {
+    const safeError = serializeError(error);
+    await safeRecordJobLog({
+      shop: normalizedShopId,
+      jobId,
+      level: "warn",
+      event: "product_retention.preview_failed",
+      message: "Product retention metrics could not be calculated before AI; diagnosis will continue without retention overview context.",
+      data: { productGid: normalizedProductGid, error: safeError },
+    });
+    return {
+      status: "failed",
+      payload: buildEmptyProductRetentionPayload({
+        hasEnoughData: false,
+        lowSampleWarning: true,
+        errorMessage: safeError.message || "Product retention preview could not be calculated.",
+      }),
+      rows: null,
+      dataQuality: { error: safeError },
+      fetchStats: null,
+      orders: [],
+      timezone: timezone || "UTC",
+      currency: currency || "",
+      windowStartDate: startDate,
+      windowEndDate: endDate,
+      lookbackDays: normalizedLookbackDays,
+      maxCohortAgeDays: normalizedMaxCohortAgeDays,
+    };
+  }
+}
+
 export function calculateProductRetentionMetricRows({
   shopId,
   productGid,
@@ -312,7 +423,8 @@ export function calculateProductRetentionMetricRows({
     dataQuality: {
       totalOrdersAnalyzed: validWindowOrders.length,
       totalValidOrdersLoaded: validOrders.length,
-      totalCustomersAnalyzed: new Set(validOrders.map((order) => order.customerKey)).size,
+      totalCustomersAnalyzed: new Set(cohortFacts.map((fact) => fact.customerKey).filter(Boolean)).size,
+      totalStoreCustomersAnalyzed: new Set(validWindowOrders.map((order) => order.customerKey).filter(Boolean)).size,
       productBuyerCount: customerRecords.length,
       cohortCustomerCount: cohortFacts.length,
       totalProductOrdersAnalyzed: new Set(validWindowOrders.filter((order) => orderHasProduct(order, normalizedProductGid)).map((order) => order.id)).size,
@@ -350,12 +462,20 @@ export async function getProductRetentionPayloadForDiagnosis({
     productGid: normalizedProductGid,
     diagnosisId: run.diagnosisId,
   };
-  const [summary, dailyCohorts, cohortCells, dailyActivity, segmentDaily] = await Promise.all([
+  const [summary, dailyCohorts, cohortCells, dailyActivity, segmentDaily, summaryHistory] = await Promise.all([
     db.productRetentionSummary.findFirst({ where }),
     db.productRetentionDailyCohort.findMany({ where, orderBy: { cohortDate: "asc" } }),
     db.productRetentionCohortCell.findMany({ where, orderBy: [{ ageDay: "asc" }, { cohortDate: "asc" }] }),
     db.productRetentionDailyActivity.findMany({ where, orderBy: { metricDate: "asc" } }),
     db.productRetentionSegmentDaily.findMany({ where, orderBy: [{ segmentType: "asc" }, { segmentValue: "asc" }, { cohortDate: "asc" }] }),
+    db.productRetentionSummary.findMany({
+      where: {
+        shopId: normalizedShopId,
+        productGid: normalizedProductGid,
+      },
+      orderBy: [{ asOfDate: "desc" }, { updatedAt: "desc" }],
+      take: 36,
+    }),
   ]);
 
   return buildProductRetentionPayload({
@@ -365,6 +485,7 @@ export async function getProductRetentionPayloadForDiagnosis({
     cohortCells: cohortCells.map(normalizeStoredCohortCell),
     dailyActivity: dailyActivity.map(normalizeStoredDailyActivity),
     segmentDaily: segmentDaily.map(normalizeStoredSegmentDaily),
+    summaryHistory: summaryHistory.slice().reverse().map(normalizeStoredSummary),
   });
 }
 
@@ -579,6 +700,49 @@ function getRetentionRunStatus(rows, fetchStats = {}) {
   if (fetchStats.truncated) return "partial";
   if (!rows?.dataQuality?.cohortCustomerCount) return "partial";
   return "completed";
+}
+
+async function prepareProductRetentionCalculationInput({
+  admin = null,
+  orders = null,
+  timezone = "",
+  currency = "",
+  windowStartDate,
+  windowEndDate,
+} = {}) {
+  let effectiveTimezone = timezone || "";
+  let effectiveCurrency = currency || "";
+  let retentionOrders = Array.isArray(orders) ? orders : null;
+  let fetchStats = {
+    source: Array.isArray(orders) ? "provided_orders" : "shopify_admin_api",
+    ordersScanned: Array.isArray(orders) ? orders.length : 0,
+    truncated: false,
+  };
+
+  if (!retentionOrders && admin?.graphql) {
+    const shopInfo = await fetchShopifyRetentionShopInfo(admin).catch(() => null);
+    effectiveTimezone = effectiveTimezone || shopInfo?.timezone || "UTC";
+    effectiveCurrency = effectiveCurrency || shopInfo?.currency || "";
+    const fetched = await fetchShopifyProductRetentionOrders({
+      admin,
+      windowStartDate,
+      windowEndDate,
+    });
+    retentionOrders = fetched.orders;
+    fetchStats = {
+      source: "shopify_admin_api",
+      ordersScanned: fetched.orders.length,
+      pagesScanned: fetched.pagesScanned,
+      truncated: fetched.truncated,
+    };
+  }
+
+  return {
+    orders: retentionOrders || [],
+    timezone: effectiveTimezone || "UTC",
+    currency: effectiveCurrency || currency || "",
+    fetchStats,
+  };
 }
 
 function buildDailyCohortRows({ shopId, productGid, diagnosisId, retentionRunId, facts }) {
@@ -981,7 +1145,7 @@ function buildRetentionSummaryRow({
     ltv90DeltaCents: periodComparison.ltv90PreviousCents == null ? null : productLtv90Cents - periodComparison.ltv90PreviousCents,
     returningRevenueSharePrevious: periodComparison.returningRevenueSharePrevious,
     returningRevenueShareDelta: subtractNullable(returningRevenueShare, periodComparison.returningRevenueSharePrevious),
-    totalCustomersAnalyzed: new Set(validOrders.map((order) => order.customerKey)).size,
+    totalCustomersAnalyzed: new Set(facts.map((fact) => fact.customerKey).filter(Boolean)).size,
     totalOrdersAnalyzed: validWindowOrders.length,
     totalProductOrdersAnalyzed: new Set(validWindowOrders.filter((order) => orderHasProduct(order, productGid)).map((order) => order.id)).size,
     earliestOrderDate: validOrders[0]?.orderDate || null,
@@ -1601,6 +1765,7 @@ export function buildProductRetentionPayload(rows = {}) {
       sameProductLtvCents: row.sameProductLtvCents,
       otherProductLtvCents: row.otherProductLtvCents,
     })),
+    retentionHealthTrend: buildRetentionHealthTrendPayload(rows),
     segments: aggregateSegmentsForPayload(segmentDaily),
     dailyActivity,
     segmentDaily,
@@ -1628,10 +1793,81 @@ function buildEmptyProductRetentionPayload({ hasEnoughData = false, lowSampleWar
     cohortHeatmap: [],
     timeToRepeatPurchase: [],
     ltvCurve: [],
+    retentionHealthTrend: [],
     segments: [],
     dailyActivity: [],
     segmentDaily: [],
   };
+}
+
+function buildRetentionHealthTrendPayload(rows = {}) {
+  const summaryHistory = (Array.isArray(rows.summaryHistory) ? rows.summaryHistory : [])
+    .map((summary, index) => ({
+      date: toIso(summary.asOfDate || summary.latestOrderDate || summary.earliestOrderDate) || `run-${index + 1}`,
+      retentionHealthScore: summary.retentionHealthScore == null ? null : Number(summary.retentionHealthScore),
+      repeatPurchaseRate90d: numberOrNull(summary.repeatPurchaseRate90d),
+      sameProductRepurchaseRate90d: numberOrNull(summary.sameProductRepurchaseRate90d),
+      crossSellRetentionRate90d: numberOrNull(summary.crossSellRetentionRate90d),
+      productLtv90Cents: Number(summary.productLtv90Cents || 0),
+      totalCustomersAnalyzed: Number(summary.totalCustomersAnalyzed || 0),
+      source: "diagnosis_run",
+    }))
+    .filter((point) => point.date && point.retentionHealthScore != null);
+  if (summaryHistory.length) return dedupeRetentionHealthTrend(summaryHistory);
+
+  const cohortRows = (Array.isArray(rows.dailyCohorts) ? rows.dailyCohorts : [])
+    .map((cohort) => buildCohortRetentionHealthPoint(cohort))
+    .filter(Boolean);
+  if (cohortRows.length) return cohortRows;
+
+  const summary = rows.summary || null;
+  if (!summary || summary.retentionHealthScore == null) return [];
+  return [{
+    date: toIso(summary.asOfDate) || "current",
+    retentionHealthScore: Number(summary.retentionHealthScore),
+    repeatPurchaseRate90d: numberOrNull(summary.repeatPurchaseRate90d),
+    sameProductRepurchaseRate90d: numberOrNull(summary.sameProductRepurchaseRate90d),
+    crossSellRetentionRate90d: numberOrNull(summary.crossSellRetentionRate90d),
+    productLtv90Cents: Number(summary.productLtv90Cents || 0),
+    totalCustomersAnalyzed: Number(summary.totalCustomersAnalyzed || 0),
+    source: "current_summary",
+  }];
+}
+
+function buildCohortRetentionHealthPoint(cohort = {}) {
+  const cohortSize = Number(cohort.cohortSize || 0);
+  if (!cohort.isMature90d || cohortSize <= 0) return null;
+  const repeatPurchaseRate90d = ratio(cohort.anyRepeatWithin90dCount, cohortSize);
+  const sameProductRepurchaseRate90d = ratio(cohort.sameProductRepeatWithin90dCount, cohortSize);
+  const crossSellRetentionRate90d = ratio(cohort.boughtOtherProductWithin90dCount, cohortSize);
+  const firstOrderAverageCents = divideCents(Number(cohort.firstOrderNetRevenueCents || 0), cohortSize);
+  const retentionHealthScore = calculateRetentionHealthScore({
+    hasEnoughData: cohortSize >= PRODUCT_RETENTION_MIN_HEALTH_SCORE_SAMPLE,
+    repeatPurchaseRate90d,
+    sameProductRepurchaseRate90d,
+    crossSellRetentionRate90d,
+    productLtv90Cents: Number(cohort.ltv90Cents || 0),
+    firstOrderAverageCents,
+    medianDaysToSecondPurchase: cohort.medianDaysToNextPurchase,
+    refundRate: 0,
+  });
+  if (retentionHealthScore == null) return null;
+  return {
+    date: cohort.cohortDate,
+    retentionHealthScore,
+    repeatPurchaseRate90d,
+    sameProductRepurchaseRate90d,
+    crossSellRetentionRate90d,
+    productLtv90Cents: Number(cohort.ltv90Cents || 0),
+    totalCustomersAnalyzed: cohortSize,
+    source: "cohort",
+  };
+}
+
+function dedupeRetentionHealthTrend(points = []) {
+  const byDate = new Map();
+  points.forEach((point) => byDate.set(point.date, point));
+  return Array.from(byDate.values()).sort((left, right) => String(left.date).localeCompare(String(right.date)));
 }
 
 function aggregateCohortCellsByAge(cells) {
@@ -1710,6 +1946,7 @@ function aggregateSegmentsForPayload(segmentRows) {
 
 function serializeSummaryPayload(summary) {
   return {
+    asOfDate: toIso(summary.asOfDate),
     repeatPurchaseRate90d: numberOrNull(summary.repeatPurchaseRate90d),
     repeatPurchaseRate180d: numberOrNull(summary.repeatPurchaseRate180d),
     sameProductRepurchaseRate90d: numberOrNull(summary.sameProductRepurchaseRate90d),
@@ -2316,6 +2553,7 @@ function truncateText(value, maxLength) {
 
 export const __productPulseRetentionTestHooks = {
   calculateProductRetentionMetricRows,
+  calculateProductRetentionPreview,
   buildProductRetentionPayload,
   normalizeRetentionOrders,
   normalizeRetentionOrder,

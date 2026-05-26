@@ -1,6 +1,6 @@
 import prisma from "../db.server";
 import { generateWatchChangeReportNarrative } from "./product-pulse-ai.server";
-import { getProductScoreHistoryForProductsForShop } from "./product-pulse-history.server";
+import { getProductScoreHistoryForProductsForShop, recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 
 export const WATCHLIST_MAX_PRODUCTS = 50;
@@ -35,6 +35,8 @@ const DEFAULT_WATCH_SETTINGS = {
 const WATCH_TREND_COLORS = ["#3A6BFF", "#7C3AED", "#14B8A6", "#F59E0B", "#EF4444"];
 const WATCH_CHANGE_REPORT_EVENT = "watch_change_report";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
+const WATCHLIST_BASELINE_SOURCE = "watchlist-baseline";
+const FULL_DIAGNOSIS_SOURCE = "full-diagnosis";
 
 export async function getWatchlistForShop(shop) {
   const items = await prisma.productWatchlistItem.findMany({
@@ -218,10 +220,12 @@ export async function addWatchedProductForShop(shop, product = {}) {
     where: { shop_productGid: { shop, productGid } },
   });
   if (existing) {
+    const baseline = await captureInitialWatchlistSnapshotForItems(shop, [existing]);
     return {
       status: "success",
       message: `${existing.productTitle} is already on the watchlist.`,
       action: { id: "add-watched-product" },
+      baseline,
       suppressBanner: true,
     };
   }
@@ -255,11 +259,13 @@ export async function addWatchedProductForShop(shop, product = {}) {
     watchlistItemId: item.id,
     metadata: { handle: item.handle, sku: item.sku },
   });
+  const baseline = await captureInitialWatchlistSnapshotForItems(shop, [item]);
 
   return {
     status: "success",
     message: `${item.productTitle} added to the watchlist.`,
     action: { id: "add-watched-product", productGid: item.productGid },
+    baseline,
     watchedCount: watchedCount + 1,
   };
 }
@@ -339,6 +345,7 @@ export async function addWatchedProductsForShop(shop, products = []) {
         metadata: { handle: item.handle, sku: item.sku, bulk: true },
       })),
     });
+    await captureInitialWatchlistSnapshotForItems(shop, createdItems);
   }
 
   const messageParts = [];
@@ -448,6 +455,29 @@ export async function pauseAllWatchesForShop(shop) {
   return { status: "success", message: `${activeItems.length} watched product${activeItems.length === 1 ? "" : "s"} paused.`, action: { id: "pause-all-watches" }, suppressBanner: true };
 }
 
+export async function resumeAllWatchesForShop(shop) {
+  const pausedItems = await prisma.productWatchlistItem.findMany({
+    where: { shop, status: "Paused" },
+    select: { id: true, productGid: true, productTitle: true },
+  });
+  if (!pausedItems.length) {
+    return { status: "success", message: "All watched products are already active.", action: { id: "resume-all-watches" }, suppressBanner: true };
+  }
+
+  await prisma.productWatchlistItem.updateMany({
+    where: { shop, status: "Paused" },
+    data: { status: "Watching" },
+  });
+  await recordWatchActivityForShop(shop, {
+    eventType: "all_watches_resumed",
+    title: "All watches resumed",
+    detail: `${pausedItems.length} paused product${pausedItems.length === 1 ? "" : "s"} resumed`,
+    metadata: { resumedProductGids: pausedItems.map((item) => item.productGid), count: pausedItems.length },
+  });
+
+  return { status: "success", message: `${pausedItems.length} watched product${pausedItems.length === 1 ? "" : "s"} resumed.`, action: { id: "resume-all-watches" }, suppressBanner: true };
+}
+
 export async function getActiveWatchedProductsForShop(shop) {
   if (!shop) return [];
   return prisma.productWatchlistItem.findMany({
@@ -492,15 +522,62 @@ export async function recordWatchActivityForShop(shop, activity = {}) {
   });
 }
 
-export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan", noChangesReused = false, jobId = null } = {}) {
+export async function captureInitialWatchlistSnapshotForItems(shop, items = [], { createdAt = new Date() } = {}) {
+  const normalizedItems = Array.isArray(items) ? items.filter((item) => item?.productGid) : [];
+  const productGids = [...new Set(normalizedItems.map((item) => item.productGid).filter(Boolean))];
+  if (!shop || !productGids.length) return { count: 0, reportCount: 0, historyCount: 0, skipped: productGids.length };
+
+  const existingReports = await prisma.productWatchActivity.findMany({
+    where: {
+      shop,
+      productGid: { in: productGids },
+      eventType: WATCH_CHANGE_REPORT_EVENT,
+    },
+    select: { productGid: true },
+  });
+  const productsWithReports = new Set(existingReports.map((activity) => activity.productGid).filter(Boolean));
+  const productsNeedingBaseline = productGids.filter((productGid) => !productsWithReports.has(productGid));
+  if (!productsNeedingBaseline.length) {
+    return { count: 0, reportCount: 0, historyCount: 0, skipped: productGids.length };
+  }
+
+  const snapshots = await prisma.productRiskSnapshot.findMany({
+    where: { shop, productGid: { in: productsNeedingBaseline } },
+  });
+  if (!snapshots.length) {
+    return { count: 0, reportCount: 0, historyCount: 0, skipped: productsNeedingBaseline.length, missingSnapshotCount: productsNeedingBaseline.length };
+  }
+
+  const [activityResult, historyResult] = await Promise.all([
+    recordWatchlistScanActivities(shop, snapshots, {
+      source: WATCHLIST_BASELINE_SOURCE,
+      createdAt,
+    }),
+    recordProductScoreHistoryBatch(shop, snapshots, {
+      source: WATCHLIST_BASELINE_SOURCE,
+      recordedAt: createdAt,
+    }),
+  ]);
+
+  return {
+    count: Number(activityResult?.count || 0),
+    reportCount: snapshots.length,
+    historyCount: Number(historyResult?.count || 0),
+    skipped: Math.max(0, productGids.length - snapshots.length),
+    productGids: snapshots.map((snapshot) => snapshot.productGid),
+  };
+}
+
+export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan", noChangesReused = false, jobId = null, createdAt = new Date() } = {}) {
   const productGids = Array.from(new Set(snapshots.map((snapshot) => snapshot?.productGid).filter(Boolean)));
   if (!shop || !productGids.length) return { count: 0 };
+  const shouldCreateChangeReport = isWatchChangeReportSource(source);
   const [watchedItems, productPulseSettings, previousReports] = await Promise.all([
     prisma.productWatchlistItem.findMany({
       where: { shop, productGid: { in: productGids }, status: { not: "Paused" } },
     }),
     getProductPulseSettings(shop),
-    source === "full-diagnosis"
+    shouldCreateChangeReport
       ? prisma.productWatchActivity.findMany({
         where: { shop, productGid: { in: productGids }, eventType: WATCH_CHANGE_REPORT_EVENT },
         orderBy: { createdAt: "desc" },
@@ -515,9 +592,9 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
       previousReportByProductGid.set(activity.productGid, activity);
     }
   });
-  const now = new Date();
+  const now = createdAt;
   const reportRows = [];
-  if (source === "full-diagnosis") {
+  if (shouldCreateChangeReport) {
     for (const snapshot of snapshots.filter((item) => itemByProductGid.has(item.productGid))) {
       const item = itemByProductGid.get(snapshot.productGid);
       const previousActivity = previousReportByProductGid.get(snapshot.productGid);
@@ -566,17 +643,18 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
       const item = itemByProductGid.get(snapshot.productGid);
       const riskScore = Number(snapshot.riskScore || 0);
       const riskLabel = getRiskLabelForScore(riskScore, productPulseSettings);
+      const eventSpec = getWatchScanActivityEventSpec(source, noChangesReused);
       return {
         shop,
         productGid: snapshot.productGid,
         productTitle: snapshot.productTitle || item.productTitle,
         watchlistItemId: item.id,
-        eventType: source === "full-diagnosis" ? "diagnosis_completed" : "watch_scan_completed",
-        title: source === "full-diagnosis"
-          ? noChangesReused ? "Product diagnosis reused" : "Product diagnosis completed"
-          : "Watch scan updated product risk",
+        eventType: eventSpec.eventType,
+        title: eventSpec.title,
         detail: noChangesReused
           ? `No source changes detected · ${riskLabel} risk (${riskScore}/100)`
+          : source === WATCHLIST_BASELINE_SOURCE
+          ? `Baseline captured · ${riskLabel} risk (${riskScore}/100) · ${snapshot.primaryIssue || "No primary issue"}`
           : `${riskLabel} risk (${riskScore}/100) · ${snapshot.primaryIssue || "No primary issue"}`,
         metadata: {
           source,
@@ -592,6 +670,29 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
   const activityRows = [...reportRows, ...rows];
   if (!activityRows.length) return { count: 0 };
   return prisma.productWatchActivity.createMany({ data: activityRows });
+}
+
+function isWatchChangeReportSource(source) {
+  return source === FULL_DIAGNOSIS_SOURCE || source === WATCHLIST_BASELINE_SOURCE;
+}
+
+function getWatchScanActivityEventSpec(source, noChangesReused = false) {
+  if (source === WATCHLIST_BASELINE_SOURCE) {
+    return {
+      eventType: "watch_baseline_captured",
+      title: "Watchlist baseline captured",
+    };
+  }
+  if (source === FULL_DIAGNOSIS_SOURCE) {
+    return {
+      eventType: "diagnosis_completed",
+      title: noChangesReused ? "Product diagnosis reused" : "Product diagnosis completed",
+    };
+  }
+  return {
+    eventType: "watch_scan_completed",
+    title: "Watch scan updated product risk",
+  };
 }
 
 async function findWatchedProduct(shop, productGid) {
@@ -626,8 +727,8 @@ function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, la
     riskScore,
     riskLabel,
     riskTone,
-    latestChange: hasSnapshot ? "Watch signal captured" : "Awaiting first scan",
-    latestChangeDetail: hasSnapshot ? snapshot.primaryIssue || "Product quality signal detected" : "This product will be scanned on the next watch run.",
+    latestChange: hasSnapshot ? snapshot.primaryIssue || "New issue" : "Awaiting first scan",
+    latestChangeDetail: hasSnapshot ? "" : `Added ${formatWatchDate(item.addedAt)} · ${status}`,
     latestChangeTone: hasSnapshot ? (riskTone === "critical" ? "red" : riskTone === "warning" ? "orange" : "green") : "slate",
     lastIssue: hasSnapshot ? `Updated ${formatWatchDate(updatedAt)}` : "Not scanned yet",
     lastIssueDetail: hasSnapshot ? formatWatchTimestamp(updatedAt) : "Waiting for automatic watch cadence",
@@ -1093,14 +1194,23 @@ function buildWatchSourceChangeCards(previous, current) {
   ].filter(Boolean);
 }
 
+function hasWatchSourceBaseline(previous = {}, previousSource = {}, itemFields = ["items"]) {
+  if (previous?.sourceFingerprint) return true;
+  return itemFields.some((field) => {
+    const items = Array.isArray(previousSource?.[field]) ? previousSource[field] : [];
+    return items.some((item) => item?.key);
+  });
+}
+
 function buildWatchOrderSourceChange(previous, current, previousOrders = {}, currentOrders = {}) {
   const newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
   const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
   const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
-  const newOrderCount = countWatchUniqueOrders(newItems) || Math.max(0, Math.round(orderDelta));
-  const newUnits = sumWatchItemNumbers(newItems, "quantity") || Math.max(0, Math.round(unitDelta));
-  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || Math.max(0, revenueDelta));
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousOrders, ["items"]);
+  const newOrderCount = countWatchUniqueOrders(newItems) || (allowAggregateFallback ? Math.max(0, Math.round(orderDelta)) : 0);
+  const newUnits = sumWatchItemNumbers(newItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || (allowAggregateFallback ? Math.max(0, revenueDelta) : 0));
   if (!newOrderCount && !newUnits && newRevenue < 1) return null;
   return {
     id: "new-orders",
@@ -1123,8 +1233,9 @@ function buildWatchReturnSourceChange(previous, current, previousReturns = {}, c
   const newSourceItems = getNewWatchEvidenceItems(previousReturns.sourceItems, currentReturns.sourceItems, { sinceAt: previous?.capturedAt });
   const newTextItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items, { sinceAt: previous?.capturedAt });
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.returnUnits, previousReturns.totalUnits), findWatchNumber(current?.returnUnits, currentReturns.totalUnits));
-  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || Math.max(0, Math.round(unitDelta));
-  const newCount = newSourceItems.length || newTextItems.length || (newUnits ? 1 : 0);
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReturns, ["sourceItems", "items"]);
+  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newCount = newSourceItems.length || newTextItems.length || (allowAggregateFallback && newUnits ? 1 : 0);
   if (!newCount && !newUnits) return null;
   const sentiment = summarizeWatchEvidenceItems(newTextItems);
   const reasons = countWatchTerms([
@@ -1154,15 +1265,13 @@ function buildWatchRefundSourceChange(previous, current, previousRefunds = {}, c
   const newTextItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items, { sinceAt: previous?.capturedAt });
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.refundUnits, previousRefunds.totalUnits), findWatchNumber(current?.refundUnits, currentRefunds.totalUnits));
   const amountDelta = watchNumberDelta(findWatchNumber(previousRefunds.amount), findWatchNumber(currentRefunds.amount));
-  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || Math.max(0, Math.round(unitDelta));
-  const newAmount = roundMoney(sumWatchItemNumbers(newSourceItems, "amount") || Math.max(0, amountDelta));
-  const newCount = newSourceItems.length || newTextItems.length || (newUnits ? 1 : 0);
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousRefunds, ["sourceItems", "items"]);
+  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newAmount = roundMoney(sumWatchItemNumbers(newSourceItems, "amount") || (allowAggregateFallback ? Math.max(0, amountDelta) : 0));
+  const newCount = newSourceItems.length || newTextItems.length || (allowAggregateFallback && newUnits ? 1 : 0);
   if (!newCount && !newUnits && newAmount < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newTextItems);
-  const reasons = countWatchTerms([
-    ...newSourceItems.flatMap((item) => [item.reasonText, item.reason, item.restockType]),
-    ...newTextItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]),
-  ].filter(Boolean));
+  const reasons = countWatchTerms(getWatchRefundReasonTerms({ textItems: newTextItems, sourceItems: newSourceItems }));
   return {
     id: "new-refunds",
     source: "refunds",
@@ -1186,25 +1295,28 @@ function buildWatchReviewSourceChange(previous, current, previousReviews = {}, c
   const reviewDelta = watchNumberDelta(findWatchNumber(previous?.reviewCount, previousReviews.total), findWatchNumber(current?.reviewCount, currentReviews.total));
   const negativeDelta = watchNumberDelta(findWatchNumber(previous?.negativeReviewCount, previousReviews.negative), findWatchNumber(current?.negativeReviewCount, currentReviews.negative));
   const ratingDelta = watchNumberDelta(findWatchNumber(previousReviews.averageRating), findWatchNumber(currentReviews.averageRating));
-  const newCount = newItems.length || Math.max(0, Math.round(reviewDelta));
-  if (!newCount && Math.abs(ratingDelta) < 0.1 && !negativeDelta) return null;
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReviews, ["items"]);
+  const safeNegativeDelta = allowAggregateFallback || newItems.length ? negativeDelta : 0;
+  const safeRatingDelta = allowAggregateFallback || newItems.length ? ratingDelta : 0;
+  const newCount = newItems.length || (allowAggregateFallback ? Math.max(0, Math.round(reviewDelta)) : 0);
+  if (!newCount && Math.abs(safeRatingDelta) < 0.1 && !safeNegativeDelta) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems);
   const repeated = extractWatchRepeatedLanguage(newItems);
-  const ratingDirection = ratingDelta > 0 ? "up" : ratingDelta < 0 ? "down" : "neutral";
+  const ratingDirection = safeRatingDelta > 0 ? "up" : safeRatingDelta < 0 ? "down" : "neutral";
   return {
     id: "new-reviews",
     source: "reviews",
     label: newCount ? "New reviews" : "Review rating changed",
     value: newCount ? `${formatNumberWithSuffix(newCount)} review${newCount === 1 ? "" : "s"}` : `${formatNumberWithSuffix(previousReviews.averageRating || 0)} to ${formatNumberWithSuffix(currentReviews.averageRating || 0)}`,
-    delta: Math.abs(ratingDelta) >= 0.1
-      ? `${ratingDelta > 0 ? "+" : ""}${formatNumberWithSuffix(ratingDelta)} rating`
-      : `${negativeDelta > 0 ? "+" : ""}${formatNumberWithSuffix(negativeDelta)} negative`,
-    direction: ratingDirection === "neutral" ? (negativeDelta > 0 ? "up" : negativeDelta < 0 ? "down" : "neutral") : ratingDirection,
-    tone: negativeDelta > 0 || sentiment.negative > sentiment.positive || ratingDelta < -0.1 ? "orange" : "blue",
+    delta: Math.abs(safeRatingDelta) >= 0.1
+      ? `${safeRatingDelta > 0 ? "+" : ""}${formatNumberWithSuffix(safeRatingDelta)} rating`
+      : `${safeNegativeDelta > 0 ? "+" : ""}${formatNumberWithSuffix(safeNegativeDelta)} negative`,
+    direction: ratingDirection === "neutral" ? (safeNegativeDelta > 0 ? "up" : safeNegativeDelta < 0 ? "down" : "neutral") : ratingDirection,
+    tone: safeNegativeDelta > 0 || sentiment.negative > sentiment.positive || safeRatingDelta < -0.1 ? "orange" : "blue",
     icon: "star",
     detail: [
       sentiment.total ? `New review sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
-      Math.abs(ratingDelta) >= 0.1 ? `Average rating moved from ${formatNumberWithSuffix(previousReviews.averageRating || 0)} to ${formatNumberWithSuffix(currentReviews.averageRating || 0)}.` : "",
+      Math.abs(safeRatingDelta) >= 0.1 ? `Average rating moved from ${formatNumberWithSuffix(previousReviews.averageRating || 0)} to ${formatNumberWithSuffix(currentReviews.averageRating || 0)}.` : "",
       repeated.length ? `Repeated new review language: ${formatWatchCountList(repeated, 4)}.` : "",
       newItems[0]?.text ? `Latest review: "${truncateWatchText(newItems[0].text, 110)}"` : "",
     ].filter(Boolean).join(" "),
@@ -1257,9 +1369,10 @@ function buildWatchOrderInsight(previous, current, previousOrders = {}, currentO
   const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
   const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
-  const newOrderCount = countWatchUniqueOrders(newItems) || Math.max(0, Math.round(orderDelta));
-  const newUnits = sumWatchItemNumbers(newItems, "quantity") || Math.max(0, Math.round(unitDelta));
-  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || Math.max(0, revenueDelta));
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousOrders, ["items"]);
+  const newOrderCount = countWatchUniqueOrders(newItems) || (allowAggregateFallback ? Math.max(0, Math.round(orderDelta)) : 0);
+  const newUnits = sumWatchItemNumbers(newItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || (allowAggregateFallback ? Math.max(0, revenueDelta) : 0));
   if (!newOrderCount && !newUnits && newRevenue < 1) return null;
   return {
     id: "order-evidence",
@@ -1280,7 +1393,10 @@ function buildWatchReturnInsight(previous, current, previousReturns = {}, curren
   const newSourceItems = getNewWatchEvidenceItems(previousReturns.sourceItems, currentReturns.sourceItems, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.returnUnits || currentReturns.totalUnits || 0) - Number(previous?.returnUnits || previousReturns.totalUnits || 0);
   const rateDelta = Number(current?.returnRatePercent || currentReturns.rate || 0) - Number(previous?.returnRatePercent || previousReturns.rate || 0);
-  if (!newItems.length && !newSourceItems.length && Math.abs(unitDelta) < 1 && Math.abs(rateDelta) < 0.2) return null;
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReturns, ["sourceItems", "items"]);
+  const safeUnitDelta = allowAggregateFallback || newItems.length || newSourceItems.length ? unitDelta : 0;
+  const safeRateDelta = allowAggregateFallback || newItems.length || newSourceItems.length ? rateDelta : 0;
+  if (!newItems.length && !newSourceItems.length && Math.abs(safeUnitDelta) < 1 && Math.abs(safeRateDelta) < 0.2) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReturns.items);
   const sentimentLabel = newItems.length ? "New return sentiment" : "Current return sentiment";
   const reasons = countWatchTerms([
@@ -1291,8 +1407,8 @@ function buildWatchReturnInsight(previous, current, previousReturns = {}, curren
   return {
     id: "return-evidence",
     title: "Return evidence changed",
-    tone: unitDelta > 0 || rateDelta > 0 ? "orange" : "green",
-    metric: unitDelta > 0 ? `+${formatNumberWithSuffix(unitDelta)} returned unit${unitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentReturns.totalUnits || current?.returnUnits || 0)} returned units`,
+    tone: safeUnitDelta > 0 || safeRateDelta > 0 ? "orange" : "green",
+    metric: safeUnitDelta > 0 ? `+${formatNumberWithSuffix(safeUnitDelta)} returned unit${safeUnitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentReturns.totalUnits || current?.returnUnits || 0)} returned units`,
     summary: newItems.length
       ? `${newItems.length} new return text signal${newItems.length === 1 ? "" : "s"} were captured since the previous Watchlist report.`
       : `Return pressure moved from ${formatNumberWithSuffix(previous?.returnRatePercent || previousReturns.rate || 0, "%")} to ${formatNumberWithSuffix(current?.returnRatePercent || currentReturns.rate || 0, "%")}.`,
@@ -1309,7 +1425,10 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
   const newItems = getNewWatchEvidenceItems(previousReviews.items, currentReviews.items, { sinceAt: previous?.capturedAt });
   const negativeDelta = Number(current?.negativeReviewCount || currentReviews.negative || 0) - Number(previous?.negativeReviewCount || previousReviews.negative || 0);
   const reviewDelta = Number(current?.reviewCount || currentReviews.total || 0) - Number(previous?.reviewCount || previousReviews.total || 0);
-  if (!newItems.length && Math.abs(negativeDelta) < 1 && Math.abs(reviewDelta) < 1) return null;
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReviews, ["items"]);
+  const safeNegativeDelta = allowAggregateFallback || newItems.length ? negativeDelta : 0;
+  const safeReviewDelta = allowAggregateFallback || newItems.length ? reviewDelta : 0;
+  if (!newItems.length && Math.abs(safeNegativeDelta) < 1 && Math.abs(safeReviewDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReviews.items);
   const sentimentLabel = newItems.length ? "New review sentiment" : "Current review sentiment";
   const repeated = extractWatchRepeatedLanguage(newItems);
@@ -1317,8 +1436,8 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
   return {
     id: "review-evidence",
     title: "Review evidence changed",
-    tone: negativeDelta > 0 || sentiment.negative > sentiment.positive ? "orange" : "blue",
-    metric: newItems.length ? `${newItems.length} new review${newItems.length === 1 ? "" : "s"}` : `${negativeDelta > 0 ? "+" : ""}${negativeDelta} negative reviews`,
+    tone: safeNegativeDelta > 0 || sentiment.negative > sentiment.positive ? "orange" : "blue",
+    metric: newItems.length ? `${newItems.length} new review${newItems.length === 1 ? "" : "s"}` : `${safeNegativeDelta > 0 ? "+" : ""}${safeNegativeDelta} negative reviews`,
     summary: newItems.length
       ? `${newItems.length} new review text signal${newItems.length === 1 ? "" : "s"} were added to the watched product evidence.`
       : `Stored review volume changed from ${previous?.reviewCount || previousReviews.total || 0} to ${current?.reviewCount || currentReviews.total || 0}.`,
@@ -1335,19 +1454,18 @@ function buildWatchRefundInsight(previous, current, previousRefunds = {}, curren
   const newItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items, { sinceAt: previous?.capturedAt });
   const newSourceItems = getNewWatchEvidenceItems(previousRefunds.sourceItems, currentRefunds.sourceItems, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.refundUnits || currentRefunds.totalUnits || 0) - Number(previous?.refundUnits || previousRefunds.totalUnits || 0);
-  if (!newItems.length && !newSourceItems.length && Math.abs(unitDelta) < 1) return null;
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousRefunds, ["sourceItems", "items"]);
+  const safeUnitDelta = allowAggregateFallback || newItems.length || newSourceItems.length ? unitDelta : 0;
+  if (!newItems.length && !newSourceItems.length && Math.abs(safeUnitDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentRefunds.items);
   const sentimentLabel = newItems.length ? "New refund-note sentiment" : "Current refund-note sentiment";
-  const reasons = countWatchTerms([
-    ...newItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]),
-    ...newSourceItems.flatMap((item) => [item.reasonText, item.reason, item.restockType]),
-  ].filter(Boolean));
+  const reasons = countWatchTerms(getWatchRefundReasonTerms({ textItems: newItems, sourceItems: newSourceItems }));
   const repeated = extractWatchRepeatedLanguage(newItems);
   return {
     id: "refund-evidence",
     title: "Refund evidence changed",
-    tone: unitDelta > 0 ? "orange" : "green",
-    metric: unitDelta > 0 ? `+${formatNumberWithSuffix(unitDelta)} refunded unit${unitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentRefunds.totalUnits || current?.refundUnits || 0)} refunded units`,
+    tone: safeUnitDelta > 0 ? "orange" : "green",
+    metric: safeUnitDelta > 0 ? `+${formatNumberWithSuffix(safeUnitDelta)} refunded unit${safeUnitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentRefunds.totalUnits || current?.refundUnits || 0)} refunded units`,
     summary: newItems.length
       ? `${newItems.length} new refund note signal${newItems.length === 1 ? "" : "s"} were captured.`
       : `Refunded units changed from ${previous?.refundUnits || previousRefunds.totalUnits || 0} to ${current?.refundUnits || currentRefunds.totalUnits || 0}.`,
@@ -1583,6 +1701,65 @@ function textWatchChange({ id, label, previous, current, detail }) {
   };
 }
 
+function getWatchRefundReasonTerms({ textItems = [], sourceItems = [] } = {}) {
+  const terms = [];
+  (Array.isArray(textItems) ? textItems : []).forEach((item) => {
+    [item.reasonText, item.reason].forEach((value) => {
+      if (isMeaningfulWatchRefundTerm(value)) terms.push(value);
+    });
+    const issueCode = normalizeWatchRefundIssueCode(item.issueCode, item);
+    if (issueCode) terms.push(issueCode);
+    if (!issueCode && isMeaningfulWatchRefundTerm(item.restockType)) terms.push(item.restockType);
+  });
+  (Array.isArray(sourceItems) ? sourceItems : []).forEach((item) => {
+    [item.reasonText, item.reason].forEach((value) => {
+      if (isMeaningfulWatchRefundTerm(value)) terms.push(value);
+    });
+    if (!terms.length && isMeaningfulWatchRefundTerm(item.restockType)) terms.push(item.restockType);
+  });
+  return terms;
+}
+
+function normalizeWatchRefundIssueCode(issueCode, item = {}) {
+  const normalized = String(issueCode || "").trim().toLowerCase();
+  if (!normalized || ["product_quality", "refund_impact", "shipping_delivery"].includes(normalized)) return "";
+  if (normalized === "fit_sizing" && hasWatchCompatibilityContext(item)) return "compatibility";
+  return normalized;
+}
+
+function hasWatchCompatibilityContext(item = {}) {
+  const text = normalizeWatchTermForComparison([
+    item.text,
+    item.analysisText,
+    item.noteText,
+    item.reasonText,
+  ].filter(Boolean).join(" "));
+  return /\b(compatibility|compatible|case|ring|wallet|pop grip|popgrip|casefit)\b/.test(text)
+    && /\b(boundary|outside|unsupported|supported|mismatch|gap|does not work|doesnt work|won t work|wont work)\b/.test(text);
+}
+
+function isMeaningfulWatchRefundTerm(value) {
+  const normalized = normalizeWatchTermForComparison(value);
+  if (!normalized) return false;
+  return ![
+    "refund discrepancy",
+    "no restock",
+    "no_restock",
+    "refund impact",
+    "product quality",
+    "shipping delivery",
+    "order level refund",
+  ].includes(normalized);
+}
+
+function normalizeWatchTermForComparison(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function getWatchReportHeadline(changes = [], sourceChanges = []) {
   const preferredSource = sourceChanges.find((change) => ["new-returns", "new-refunds", "new-reviews", "new-orders"].includes(change.id))
     || sourceChanges[0];
@@ -1731,6 +1908,7 @@ function getActivityIcon(eventType) {
   if (eventType === "all_watches_paused") return "pause";
   if (eventType === "diagnosis_completed") return "wand";
   if (eventType === WATCH_CHANGE_REPORT_EVENT) return "chart-line";
+  if (eventType === "watch_baseline_captured") return "flag";
   if (eventType === "watch_scan_completed") return "refresh";
   if (eventType === "watch_scan_queued") return "play";
   if (eventType === "settings_changed") return "settings";
@@ -1745,6 +1923,7 @@ function getActivityTone(eventType, metadata = {}) {
   if (eventType === "all_watches_paused") return "purple";
   if (eventType === "product_added") return "blue";
   if (eventType === "diagnosis_completed") return "purple";
+  if (eventType === "watch_baseline_captured") return "blue";
   if (eventType === WATCH_CHANGE_REPORT_EVENT) {
     const status = metadata.report?.status || "";
     if (status === "unchanged") return "green";
@@ -2211,5 +2390,6 @@ export const __productPulseWatchlistTestHooks = {
   buildWatchChangeReport,
   buildWatchlistTrend,
   formatWatchlistRow,
+  getWatchScanActivityEventSpec,
   getNewWatchEvidenceItems,
 };

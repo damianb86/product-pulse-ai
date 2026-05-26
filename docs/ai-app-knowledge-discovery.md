@@ -54,7 +54,7 @@ Deep diagnosis is a queued background job for one or more stored products. It us
 
 Limits:
 
-- Bulk diagnosis queue count is capped by Settings `diagnosis.maxQueuedPerSubmission`, default 25, max 500.
+- Bulk diagnosis submissions are not capped by ProductPulse settings.
 - Deep diagnosis requires an existing ProductPulse snapshot; dashboard action returns “Run QuickScan before starting a product diagnosis” if none exists.
 
 ### Candidates
@@ -298,11 +298,11 @@ Data flow: `app/routes/app.analytics.jsx` calls `getAnalyticsDataForShop`, which
 
 ### Settings
 
-Purpose: tune ProductPulse thresholds and operational limits.
+Purpose: tune ProductPulse thresholds, evidence windows, and generated HTML style.
 
 Data flow: `app/routes/app.settings.jsx` reads and writes `ProductPulseSettings` through `product-pulse-settings.server.js`.
 
-User actions: save risk thresholds, momentum threshold, diagnosis queue limit, evidence lookback window, and development/mock dataset controls.
+User actions: save risk thresholds, momentum threshold, evidence lookback window, HTML injection style, and development-only mock dataset controls.
 
 ### AI Costs / AI Debug
 
@@ -314,7 +314,6 @@ Purpose: internal/developer observability screens for AI turns, token usage, est
 - `risk.mediumThreshold`: default 55, must be above minimum and <= 95. Starts medium risk label.
 - `risk.highThreshold`: default 75, must be above medium and <= 100. Starts high risk label.
 - `momentum.minimumScore`: default 70, allowed 0-100. QuickScan keeps products with momentum at or above this even if risk is below minimum.
-- `diagnosis.maxQueuedPerSubmission`: default 25, allowed 1-500. Caps bulk diagnosis queue submissions.
 - `analysis.lookbackDays`: default 60, allowed 10-365. Controls how far back QuickScan and full diagnostics read orders, returns, refunds, and connected reviews.
 - Watchlist `scanCadenceDays`: default 3, options 1, 2, 3, 7, 14.
 - Watchlist `triggerRule`: default `new_or_rising_risk`; options include new issue only, risk score increase, medium/high risk, any change.

@@ -8,6 +8,7 @@ import {
   pauseWatchedProductForShop,
   recordWatchActivityForShop,
   removeWatchedProductForShop,
+  resumeAllWatchesForShop,
   resumeWatchedProductForShop,
   toggleWatchAlertsForShop,
   updateWatchSettingsForShop,
@@ -69,6 +70,10 @@ export const action = async ({ request }) => {
 
   if (actionType === "pause-all-watches") {
     return pauseAllWatchesForShop(session.shop);
+  }
+
+  if (actionType === "resume-all-watches") {
+    return resumeAllWatchesForShop(session.shop);
   }
 
   if (actionType === "run-watch-scan") {

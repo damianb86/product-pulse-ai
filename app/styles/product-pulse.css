@@ -2322,7 +2322,6 @@ s-page[inline-size="large-500"] {
 
 .ppCoverageSummaryStatus {
   min-height: 116px;
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
   gap: 10px 14px;
@@ -2341,6 +2340,10 @@ s-page[inline-size="large-500"] {
   grid-template-columns: repeat(2, minmax(220px, 1fr));
   gap: 12px;
   align-items: stretch;
+}
+
+.ppCoverageSummaryPanel {
+  width: min(100%, calc((100% - 12px) / 2));
 }
 
 .ppCoverageStatusIcon {
@@ -11100,6 +11103,126 @@ s-page[inline-size="large-500"] {
   min-width: 0;
 }
 
+.ppRetentionActionReadout {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+}
+
+.ppRetentionActionReadoutHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ppRetentionActionReadoutHeader h3 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.ppRetentionActionReadoutHeader p,
+.ppRetentionActionReadoutEmptyText {
+  margin: 3px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppRetentionActionReadoutHeader > span {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(var(--pp-signal-teal-rgb), 0.1);
+  color: var(--pp-signal-teal);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.ppRetentionActionCardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppRetentionActionCard {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--pp-subcard-bg), var(--pp-cloud-white));
+}
+
+.ppRetentionActionCard > span {
+  width: max-content;
+  max-width: 100%;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.1);
+  color: var(--pp-pulse-blue);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.ppRetentionActionCard strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppRetentionActionCard p,
+.ppRetentionActionCard small {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppRetentionActionCard small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppRetentionCampaignPlan {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ppRetentionCampaignPlan span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-subcard-bg);
+}
+
+.ppRetentionCampaignPlan small {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ppRetentionCampaignPlan strong {
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
 .ppRetentionMetricCard span:not(.ppRetentionMetricIcon) {
   overflow: hidden;
   color: var(--pp-slate-500);
@@ -12742,6 +12865,7 @@ s-page[inline-size="large-500"] {
   .ppOrderActivitySummary,
   .ppReturnPredictionStats,
   .ppRetentionMetricGrid,
+  .ppRetentionActionCardGrid,
   .ppProductMomentumBreakdown {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -12848,7 +12972,9 @@ s-page[inline-size="large-500"] {
     max-width: 190px;
   }
 
-  .ppRetentionMetricGrid {
+  .ppRetentionMetricGrid,
+  .ppRetentionActionCardGrid,
+  .ppRetentionCampaignPlan {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -18709,10 +18835,31 @@ s-page[inline-size="large-500"] {
   background: var(--pp-mist-gray);
 }
 
+.ppActionPreviewBox.isExpanded {
+  max-height: none;
+  overflow: visible;
+}
+
 .ppActionPreviewBox p {
   color: var(--pp-slate-700);
   font-size: 11px;
   line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ppActionPreviewDiffText {
+  margin: 0;
+}
+
+.ppActionPreviewDiffBlock {
+  display: inline;
+  padding: 2px 4px;
+  border-radius: 5px;
+  background: rgba(var(--pp-success-green-rgb), 0.16);
+  color: color-mix(in srgb, var(--pp-success-green) 70%, var(--pp-midnight-ink));
+  font-weight: 820;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .ppActionPreviewBox-after {
@@ -18737,6 +18884,36 @@ s-page[inline-size="large-500"] {
 .ppActionPreviewInsertedText p {
   color: var(--pp-insight-violet);
   font-weight: 800;
+  white-space: pre-wrap;
+}
+
+.ppActionPreviewToggle {
+  justify-self: start;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 7px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.ppActionPreviewToggle-combined {
+  grid-column: 1 / -1;
+  justify-self: center;
+}
+
+.ppActionPreviewToggle:hover,
+.ppActionPreviewToggle:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.35);
+  background: var(--pp-blue-soft);
+  outline: none;
 }
 
 .ppActionPreviewArrow {
@@ -19686,6 +19863,7 @@ s-page[inline-size="large-500"] {
 
 .ppRecommendedActionModal .ppActionPreviewGrid {
   grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 7px;
   min-height: 0;
@@ -19703,6 +19881,10 @@ s-page[inline-size="large-500"] {
   min-height: 0;
 }
 
+.ppRecommendedActionModal .ppActionPreviewColumn.isExpanded {
+  grid-template-rows: auto auto;
+}
+
 .ppRecommendedActionModal .ppActionPreviewColumn > strong {
   font-size: 12px;
 }
@@ -19716,6 +19898,11 @@ s-page[inline-size="large-500"] {
   background: rgba(var(--pp-slate-100-rgb), 0.56);
 }
 
+.ppRecommendedActionModal .ppActionPreviewBox.isExpanded {
+  height: auto;
+  overflow: visible;
+}
+
 .ppRecommendedActionModal .ppActionPreviewBox-after {
   background:
     linear-gradient(180deg, rgba(var(--pp-insight-violet-rgb), 0.045), rgba(255, 255, 255, 0)),
@@ -19725,6 +19912,11 @@ s-page[inline-size="large-500"] {
 .ppRecommendedActionModal .ppActionPreviewBox p {
   font-size: 12px;
   line-height: 1.45;
+}
+
+.ppRecommendedActionModal .ppActionPreviewDiffBlock {
+  padding: 2px 4px;
+  border-radius: 5px;
 }
 
 .ppRecommendedActionModal .ppActionPreviewInsertedText {
@@ -19739,6 +19931,12 @@ s-page[inline-size="large-500"] {
   color: var(--pp-insight-violet);
   font-size: 12px;
   line-height: 1.3;
+}
+
+.ppRecommendedActionModal .ppActionPreviewToggle {
+  min-height: 26px;
+  padding-inline: 9px;
+  font-size: 11px;
 }
 
 .ppRecommendedActionModal .ppActionPreviewArrow {
@@ -24954,6 +25152,11 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 10px 22px rgba(var(--pp-pulse-blue-rgb), 0.22);
 }
 
+.ppWatchlistAddButton .ppProductPulseSvgIcon {
+  width: 18px;
+  height: 18px;
+}
+
 .ppWatchlistAddButton:disabled {
   background: var(--pp-slate-200);
   color: var(--pp-slate-500);
@@ -25044,7 +25247,7 @@ s-page[inline-size="large-500"] {
 .ppWatchlistInfoBanner {
   min-height: 38px;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   padding: 10px 14px;
@@ -25268,6 +25471,7 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-700);
   cursor: pointer;
   text-decoration: none;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
 }
 
 .ppWatchActionsButton s-icon,
@@ -25311,31 +25515,62 @@ s-page[inline-size="large-500"] {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.35);
   background: var(--pp-blue-soft);
   color: var(--pp-pulse-blue);
+  transform: translateY(-1px);
 }
 
 .ppWatchActionsButton:hover:disabled {
   border-color: var(--pp-slate-200);
   background: var(--pp-slate-100);
   color: var(--pp-slate-400);
+  transform: none;
 }
 
 .ppWatchActionsButton-danger {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.34);
+  background: rgba(var(--pp-risk-red-rgb), 0.1);
   color: var(--pp-risk-red);
 }
 
 .ppWatchActionsButton-danger:hover {
-  border-color: rgba(var(--pp-risk-red-rgb), 0.35);
-  background: var(--pp-red-soft);
+  border-color: rgba(var(--pp-risk-red-rgb), 0.58);
+  background: rgba(var(--pp-risk-red-rgb), 0.16);
   color: var(--pp-risk-red);
 }
 
 .ppWatchActionsButton-report {
-  color: var(--pp-pulse-blue);
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.36);
+  background: rgba(var(--pp-insight-violet-rgb), 0.1);
+  color: var(--pp-insight-violet);
 }
 
 .ppWatchActionsButton-report:hover {
-  border-color: rgba(var(--pp-pulse-blue-rgb), 0.38);
-  background: rgba(var(--pp-pulse-blue-rgb), 0.09);
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.58);
+  background: rgba(var(--pp-insight-violet-rgb), 0.16);
+  color: var(--pp-insight-violet);
+}
+
+.ppWatchActionsButton-toggle {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.42);
+  background: rgba(var(--pp-warning-amber-rgb), 0.13);
+  color: color-mix(in srgb, var(--pp-warning-amber) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchActionsButton-toggle:hover {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.62);
+  background: rgba(var(--pp-warning-amber-rgb), 0.19);
+  color: color-mix(in srgb, var(--pp-warning-amber) 70%, var(--pp-midnight-ink));
+}
+
+.ppWatchActionsButton-resume {
+  border-color: rgba(var(--pp-success-green-rgb), 0.4);
+  background: rgba(var(--pp-success-green-rgb), 0.13);
+  color: color-mix(in srgb, var(--pp-success-green) 70%, var(--pp-midnight-ink));
+}
+
+.ppWatchActionsButton-resume:hover {
+  border-color: rgba(var(--pp-success-green-rgb), 0.62);
+  background: rgba(var(--pp-success-green-rgb), 0.18);
+  color: color-mix(in srgb, var(--pp-success-green) 70%, var(--pp-midnight-ink));
 }
 
 .ppWatchlistProductPage {
@@ -27738,43 +27973,52 @@ s-page[inline-size="large-500"] {
 
 .ppWatchSettingsActions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
 }
 
 .ppWatchSettingsActions form {
+  min-width: 0;
   margin: 0;
 }
 
 .ppWatchSettingsActions button {
   width: 100%;
+  min-width: 0;
+  padding-inline: 10px;
+  white-space: nowrap;
 }
 
 .ppSecondaryButton.ppWatchRunNowButton {
-  border-color: rgba(var(--pp-info-cyan-rgb), 0.28);
-  background:
-    linear-gradient(135deg, rgba(var(--pp-info-cyan-rgb), 0.16), rgba(var(--pp-pulse-blue-rgb), 0.1)),
-    var(--pp-cloud-white);
-  color: color-mix(in srgb, var(--pp-info-cyan) 78%, var(--pp-pulse-blue));
+  border-color: var(--pp-midnight-ink);
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
   font-weight: 850;
-  box-shadow: 0 5px 16px rgba(var(--pp-info-cyan-rgb), 0.14), 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.18), 0 1px 2px rgba(var(--pp-shadow-rgb), 0.1);
+}
+
+.ppSecondaryButton.ppWatchRunNowButton s-icon {
+  color: var(--pp-cloud-white);
 }
 
 .ppSecondaryButton.ppWatchRunNowButton:hover:not(:disabled) {
-  border-color: rgba(var(--pp-info-cyan-rgb), 0.58);
-  background:
-    linear-gradient(135deg, rgba(var(--pp-info-cyan-rgb), 0.22), rgba(var(--pp-pulse-blue-rgb), 0.16)),
-    var(--pp-cloud-white);
-  color: var(--pp-pulse-blue);
-  box-shadow: 0 10px 24px rgba(var(--pp-info-cyan-rgb), 0.2), 0 2px 4px rgba(var(--pp-shadow-rgb), 0.08);
+  border-color: var(--pp-midnight-ink);
+  background: color-mix(in srgb, var(--pp-midnight-ink) 88%, var(--pp-pulse-blue));
+  color: var(--pp-cloud-white);
+  box-shadow: 0 12px 26px rgba(var(--pp-shadow-rgb), 0.24), 0 2px 4px rgba(var(--pp-shadow-rgb), 0.1);
   transform: translateY(-2px);
 }
 
-.ppSecondaryButton.ppWatchRunNowButton:disabled .ppQuickScanBolt {
-  background: var(--pp-slate-300);
+.ppSecondaryButton.ppWatchRunNowButton:disabled {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-200);
   color: var(--pp-slate-500);
   box-shadow: none;
+}
+
+.ppSecondaryButton.ppWatchRunNowButton:disabled s-icon {
+  color: var(--pp-slate-500);
 }
 
 .ppWatchSettingsForm {
@@ -27946,10 +28190,6 @@ s-page[inline-size="large-500"] {
   align-items: start;
 }
 
-.ppSettingsGridSingle {
-  grid-template-columns: minmax(260px, 0.36fr) minmax(420px, 0.64fr);
-}
-
 .ppSettingsWindowCard {
   min-width: 0;
 }
@@ -27993,47 +28233,6 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
 }
 
-.ppSettingsRiskPreview {
-  min-height: 34px;
-  display: flex;
-  overflow: hidden;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 999px;
-  background: var(--pp-slate-100);
-}
-
-.ppSettingsRiskPreview span {
-  min-width: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 10px;
-  color: var(--pp-slate-700);
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.ppSettingsRiskPreview span:nth-child(1) {
-  background: var(--pp-slate-100);
-  color: var(--pp-slate-500);
-}
-
-.ppSettingsRiskPreview span:nth-child(2) {
-  background: var(--pp-green-soft);
-  color: var(--pp-low-risk-text);
-}
-
-.ppSettingsRiskPreview span:nth-child(3) {
-  background: var(--pp-amber-soft);
-  color: var(--pp-medium-risk-text);
-}
-
-.ppSettingsRiskPreview span:nth-child(4) {
-  background: var(--pp-red-soft);
-  color: var(--pp-high-risk-text);
-}
-
 .ppSettingsRiskSlider {
   display: grid;
   gap: 10px;
@@ -28046,7 +28245,6 @@ s-page[inline-size="large-500"] {
 }
 
 .ppSettingsRiskScale,
-.ppSettingsRiskHandleLabels,
 .ppSettingsRiskLegend {
   display: grid;
   align-items: center;
@@ -28175,31 +28373,6 @@ s-page[inline-size="large-500"] {
 
 .ppSettingsRiskRange-high::-moz-range-thumb {
   background: var(--pp-risk-red);
-}
-
-.ppSettingsRiskHandleLabels {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.ppSettingsRiskHandleLabels span {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 999px;
-  background: var(--pp-mist-gray);
-  color: var(--pp-slate-700);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.ppSettingsRiskHandleLabels strong {
-  color: var(--pp-slate-900);
 }
 
 .ppSettingsRiskLegend {
@@ -31784,6 +31957,10 @@ s-page[inline-size="large-500"] {
   .ppEvidenceReportIssue dl,
   .ppCheckedGrid {
     grid-template-columns: 1fr;
+  }
+
+  .ppCoverageSummaryPanel {
+    width: 100%;
   }
 
   .ppProductNoDiagnosisButton {

@@ -27,7 +27,7 @@ How it runs:
 Requirements and limits:
 
 - Diagnosis requires an existing ProductPulse product snapshot.
-- Bulk queue size is capped by `diagnosis.maxQueuedPerSubmission`; default 25, maximum 500.
+- Bulk diagnosis submissions are not capped by ProductPulse settings.
 - Diagnosis may consume app diagnosis credits depending on the configured workflow.
 
 Limitations:

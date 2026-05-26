@@ -446,14 +446,6 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
   if (!uniqueProductIds.length) {
     return { status: "validation_error", message: "Select at least one product to analyze." };
   }
-  const settings = options.settings || await getProductPulseSettings(shop);
-  const maxQueued = Number(settings.diagnosis?.maxQueuedPerSubmission || 25);
-  if (uniqueProductIds.length > maxQueued) {
-    return {
-      status: "validation_error",
-      message: `You can queue up to ${maxQueued} product diagnosis job${maxQueued === 1 ? "" : "s"} at once. Update this limit in Settings if needed.`,
-    };
-  }
 
   const jobs = [];
   for (const productId of uniqueProductIds) {
@@ -600,11 +592,14 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 80 }),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
-  const productRetention = snapshot.metrics?.productRetention || await getProductRetentionPayloadForDiagnosis({
+  const storedProductRetention = await getProductRetentionPayloadForDiagnosis({
     shopId: shop,
     productGid: snapshot.productGid,
     diagnosisId: latestDiagnosis?.id || snapshot.metrics?.latestDiagnosisId || "",
   });
+  const productRetention = hasStoredProductRetentionPayload(storedProductRetention)
+    ? storedProductRetention
+    : snapshot.metrics?.productRetention || null;
   const snapshotWithRetention = productRetention
     ? {
       ...snapshot,
@@ -623,6 +618,18 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const productWithUrls = withShopifyAdminUrl(product, shop);
   const productWithRelationshipImages = await attachProductRelationshipImagesToDiagnosis(productWithUrls, admin);
   return attachProductImageToDiagnosis(productWithRelationshipImages, admin);
+}
+
+function hasStoredProductRetentionPayload(retention = null) {
+  const summary = retention?.summary || {};
+  return Boolean(
+    retention?.run
+      || Number(summary.totalCustomersAnalyzed || 0) > 0
+      || Number(summary.totalProductOrdersAnalyzed || 0) > 0
+      || (Array.isArray(retention?.dailyRetentionTrend) && retention.dailyRetentionTrend.length)
+      || (Array.isArray(retention?.retentionHealthTrend) && retention.retentionHealthTrend.length)
+      || (Array.isArray(retention?.ltvCurve) && retention.ltvCurve.length)
+  );
 }
 
 export async function getProductDetailForShop(shop, productId, admin) {

@@ -9,6 +9,7 @@ vi.mock("../../app/lib/product-pulse-job-logs.server", () => ({
 
 const {
   calculateProductRetentionMetricRows,
+  calculateProductRetentionPreview,
   buildProductRetentionPayload,
   __productPulseRetentionTestHooks,
 } = await import("../../app/lib/product-pulse-retention.server.js");
@@ -267,6 +268,20 @@ describe("Product retention deterministic engine", () => {
     });
   });
 
+  it("counts product cohort customers separately from unrelated store customers", () => {
+    const unrelatedStoreCustomer = order({
+      id: "unrelated-b-only",
+      customerId: "99",
+      createdAt: "2024-03-01T10:00:00.000Z",
+      lineItems: [{ productGid: PRODUCT_B, netRevenueCents: 4000 }],
+    });
+    const rows = calculateRows({ orders: [...buildFixtureOrders(), unrelatedStoreCustomer] });
+
+    expect(rows.summary.totalCustomersAnalyzed).toBe(10);
+    expect(rows.dataQuality.totalCustomersAnalyzed).toBe(10);
+    expect(rows.dataQuality.totalStoreCustomersAnalyzed).toBe(11);
+  });
+
   it("excludes Shopify test orders by default and only includes them when explicitly allowed", () => {
     const testOrder = order({
       id: "c13-generated-test-first-a",
@@ -384,11 +399,37 @@ describe("Product retention deterministic engine", () => {
     expect(first.ltvCurve.find((point) => point.ageDay === 30)).toMatchObject({
       cumulativeLtvCents: 8000,
     });
+    expect(first.retentionHealthTrend).toContainEqual(expect.objectContaining({
+      date: "2024-01-01",
+      source: "cohort",
+    }));
+    expect(first.retentionHealthTrend[0].retentionHealthScore).toBeGreaterThan(0);
     expect(first.segments).toEqual(expect.arrayContaining([
       expect.objectContaining({
         segmentType: "customer_type_at_first_product_purchase",
         segmentValue: "new_to_store",
       }),
     ]));
+  });
+
+  it("calculates a non-persisted retention preview for AI report context", async () => {
+    const preview = await calculateProductRetentionPreview({
+      shopId: "fixture-shop.myshopify.com",
+      productGid: PRODUCT_A,
+      asOfDate: "2024-07-01T00:00:00.000Z",
+      timezone: "UTC",
+      windowStartDate: "2024-01-01T00:00:00.000Z",
+      windowEndDate: "2024-06-30T23:59:59.000Z",
+      maxCohortAgeDays: 180,
+      orders: buildFixtureOrders(),
+    });
+
+    expect(preview.status).toBe("completed");
+    expect(preview.payload.summary).toMatchObject({
+      totalCustomersAnalyzed: 10,
+      repeatPurchaseRate90d: 0.777778,
+    });
+    expect(preview.orders).toHaveLength(buildFixtureOrders().length);
+    expect(preview.payload.retentionHealthTrend.length).toBeGreaterThan(0);
   });
 });

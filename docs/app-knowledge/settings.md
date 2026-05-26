@@ -42,16 +42,6 @@ Allowed range: 0 to 100.
 
 Effect: QuickScan keeps products with Product Momentum at or above this value even when risk is below the minimum risk threshold.
 
-## Max queued diagnoses per submission
-
-Key: `diagnosis.maxQueuedPerSubmission`
-
-Default: 25.
-
-Allowed range: 1 to 500.
-
-Effect: Caps how many deep diagnosis jobs can be queued in one bulk submission.
-
 ## Analysis lookback days
 
 Key: `analysis.lookbackDays`

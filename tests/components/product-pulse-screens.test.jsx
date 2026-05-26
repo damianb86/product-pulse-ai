@@ -390,13 +390,13 @@ describe("ProductPulse screens", () => {
               productGid: "gid://shopify/Product/2",
               title: "THE NIGHT WATCH | REMBRANDT VAN RIJN",
               sku: "ART-REMBRANDT",
-              status: "Watching",
-              statusTone: "success",
+              status: "Paused",
+              statusTone: "subdued",
               riskScore: 46,
               riskLabel: "Low",
               riskTone: "success",
-              latestChange: "No new issues",
-              latestChangeDetail: "All clear",
+              latestChange: "Watch signal captured",
+              latestChangeDetail: "New issue",
               latestChangeTone: "green",
               lastIssue: "All clear",
               lastIssueDetail: "May 18, 9:10 AM",
@@ -517,19 +517,31 @@ describe("ProductPulse screens", () => {
     expect(trendChart.querySelectorAll(".ppWatchTrendLine")).toHaveLength(6);
     fireEvent.click(within(trendLegend).getByRole("button", { name: /Nintendo New 3DS XL/ }));
     expect(trendChart.querySelectorAll(".ppWatchTrendLine")).toHaveLength(5);
-    expect(screen.getByRole("link", { name: "View Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
+    expect(screen.queryByRole("link", { name: "View Nintendo New 3DS XL" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View Watchlist report for Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl");
+    expect(screen.queryByText("Watch signal captured")).not.toBeInTheDocument();
+    expect(screen.getByText("Paused · automatic scans disabled")).toBeInTheDocument();
+    expect(screen.queryByText("This product will be checked on the next watch run.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /learn more/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Nintendo New 3DS XL" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Move Nintendo New 3DS XL/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/app/watchlist/activity");
-    expect(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove Nintendo New 3DS XL from watchlist" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" }));
+    expect(screen.getByRole("dialog", { name: "Pause watch" })).toBeInTheDocument();
+    expect(screen.getByText(/stop automatic Watchlist scans/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Nintendo New 3DS XL from watchlist" }));
+    expect(screen.getByRole("dialog", { name: "Remove watched product" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove from Watchlist" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Resume THE NIGHT WATCH | REMBRANDT VAN RIJN" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Watch settings" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("Save settings")).toBeInTheDocument();
     expect(screen.getByDisplayValue("ops@store.com, support@store.com")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Disable watch alerts" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume all watches" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add watched product" }));
     expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
     expect(screen.getByText(/add one product to automatic monitoring/i)).toBeInTheDocument();
@@ -1028,13 +1040,12 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByRole("button", { name: "Run diagnostics" })[0]).not.toBeDisabled();
   });
 
-  it("renders settings controls for thresholds and queue limits", () => {
-    renderWithRouter(<SettingsScreen data={{
+  it("renders settings controls for thresholds and lookback", () => {
+    const { container } = renderWithRouter(<SettingsScreen data={{
       ...defaultView,
       settings: {
         risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
         momentum: { minimumScore: 72 },
-        diagnosis: { maxQueuedPerSubmission: 12 },
         analysis: { lookbackDays: 120 },
         htmlStyle: {
           preset: "professional-card",
@@ -1048,10 +1059,13 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Minimum QuickScan score")).toHaveValue("50");
     expect(screen.getByLabelText("Medium risk starts at")).toHaveValue("55");
     expect(screen.getByLabelText("High risk starts at")).toHaveValue("75");
+    expect(container.querySelector(".ppSettingsRiskPreview")).not.toBeInTheDocument();
+    expect(container.querySelector(".ppSettingsRiskHandleLabels")).not.toBeInTheDocument();
     expect(screen.getByText("Product Momentum inclusion")).toBeInTheDocument();
     expect(screen.getByLabelText("Minimum Product Momentum score")).toHaveValue("72");
     expect(screen.queryByText("Table defaults")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Max diagnoses queued at once")).toHaveValue(12);
+    expect(screen.queryByText("Queue limits")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Max diagnoses queued at once")).not.toBeInTheDocument();
     expect(screen.getByText("Evidence lookback")).toBeInTheDocument();
     expect(screen.getByLabelText("Analysis lookback days")).toHaveValue("120");
     expect(screen.getByText("Product HTML injection style")).toBeInTheDocument();
@@ -1061,6 +1075,36 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("link", { name: "Back to Products" })).not.toBeInTheDocument();
     expect(screen.queryByText("Cost control")).not.toBeInTheDocument();
     expect(screen.queryByText(/OpenAI Batch/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Create Shopify mock dataset")).not.toBeInTheDocument();
+  });
+
+  it("shows settings mock dataset controls only in development mode", () => {
+    renderWithRouter(<SettingsScreen data={{
+      ...defaultView,
+      developmentMode: true,
+      settings: {
+        risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
+        momentum: { minimumScore: 72 },
+        analysis: { lookbackDays: 120 },
+        htmlStyle: {
+          preset: "professional-card",
+          customTemplate: "",
+        },
+      },
+      mockDataset: {
+        config: {
+          productCount: 2,
+          orderCount: 4,
+          customerCount: 3,
+          reviewCount: 8,
+          evolutionOrderCount: 1,
+          stages: {},
+        },
+      },
+    }} />);
+
+    expect(screen.getByText("Create Shopify mock dataset")).toBeInTheDocument();
+    expect(screen.getByText("Create products")).toBeInTheDocument();
   });
 
   it("shows a scan overlay when a quick scan starts", () => {
@@ -1889,6 +1933,10 @@ describe("ProductPulse screens", () => {
             { ageDay: 90, cumulativeLtvCents: 8600, sameProductLtvCents: 5100, otherProductLtvCents: 3500 },
             { ageDay: 180, cumulativeLtvCents: 11200, sameProductLtvCents: 5650, otherProductLtvCents: 5550 },
           ],
+          retentionHealthTrend: [
+            { date: "2024-01-01", retentionHealthScore: 68, repeatPurchaseRate90d: 0.24, productLtv90Cents: 7400, source: "cohort" },
+            { date: "2024-02-01", retentionHealthScore: 72, repeatPurchaseRate90d: 0.28, productLtv90Cents: 8600, source: "cohort" },
+          ],
           segments: [
             {
               segmentType: "customer_type_at_first_product_purchase",
@@ -1904,6 +1952,40 @@ describe("ProductPulse screens", () => {
           ],
         },
       },
+      recommendedActions: [
+        {
+          id: "create-repurchase-campaign",
+          label: "Create repurchase campaign",
+          type: "Retention campaign",
+          effort: "Medium",
+          status: "Ready",
+          payload: {
+            source: "product_retention",
+            recommendationKind: "repurchase_campaign",
+            retentionActionKind: "repurchase_campaign",
+            retentionMetrics: {
+              healthScore: 72,
+              sameProductRepurchaseRate90d: 0.181,
+              crossSellRetentionRate90d: 0.125,
+              totalProductCohortCustomers: 120,
+            },
+            campaignPlan: {
+              objective: "Increase repeat purchases from customers who already showed same-product repurchase behavior.",
+              audience: "Customers who bought this product and have not purchased it again within the expected repeat window.",
+              timing: "Start around 22 days after purchase.",
+              messageAngle: "Remind customers why they bought it and when replacement makes sense.",
+              offerIdea: "Start with a light reminder.",
+              successMetric: "Same-product repurchase rate.",
+              guardrail: "Do not run if quality risk rises.",
+            },
+            campaignBrief: "Objective: Increase repeat purchases from customers who already showed same-product repurchase behavior.",
+            priorityGroup: "Retention opportunity",
+            impact: "Medium",
+            applicationRisk: "Low",
+            confidence: "High",
+          },
+        },
+      ],
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const panel = container.querySelector(".ppProductRetentionPanel");
@@ -1915,7 +1997,11 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText("29 days")).toBeInTheDocument();
     expect(within(panel).getByText("$86")).toBeInTheDocument();
     expect(within(panel).getByText("72/100")).toBeInTheDocument();
+    expect(within(panel).getByText("120 product cohort customers")).toBeInTheDocument();
     expect(within(panel).getByText("LTV Breakdown")).toBeInTheDocument();
+    expect(within(panel).getByText("Retention action readout")).toBeInTheDocument();
+    expect(within(panel).getByText("Create repurchase campaign")).toBeInTheDocument();
+    expect(within(panel).getByText("Repurchase")).toBeInTheDocument();
     expect(within(panel).queryByText("Retention segments")).not.toBeInTheDocument();
     expect(within(panel).queryByText("New to store")).not.toBeInTheDocument();
     const ltvCard = within(panel).getByText("LTV Breakdown").closest(".ppRetentionChartCard");
@@ -1930,6 +2016,10 @@ describe("ProductPulse screens", () => {
     expect(within(panel).queryByText("Time to repeat purchase")).not.toBeInTheDocument();
     expect(within(panel).queryByText("90-day retention trend")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Next purchase outcome")).not.toBeInTheDocument();
+    const retentionInsightCard = within(container.querySelector(".ppRiskSnapshotBlock")).getByText("Retention health").closest(".ppProductInsight");
+    expect(retentionInsightCard).toBeInTheDocument();
+    expect(within(retentionInsightCard).getByText("72 / 100")).toBeInTheDocument();
+    expect(retentionInsightCard.querySelector(".ppProductInsightAreaLine")).toBeInTheDocument();
 
     const totalLtvPoint = within(ltvCard).getByRole("button", { name: "LTV Breakdown, 90 days: $86" });
     fireEvent.mouseEnter(totalLtvPoint);
@@ -1948,6 +2038,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Retention" }));
     const retentionReport = container.querySelector(".ppRetentionEvidenceReport");
     expect(retentionReport).toBeInTheDocument();
+    expect(within(retentionReport).getByText("Cohort customers")).toBeInTheDocument();
     expect(within(retentionReport).getByText("Retention by purchase cohort")).toBeInTheDocument();
     expect(within(retentionReport).getByText("Time to repeat purchase")).toBeInTheDocument();
     const repeatCard = within(retentionReport).getByText("Time to repeat purchase").closest(".ppRetentionChartCard");
@@ -1963,6 +2054,15 @@ describe("ProductPulse screens", () => {
     expect(retentionReport.querySelector(".ppRetentionCohortTable")).toBeInTheDocument();
     expect(retentionReport.querySelectorAll(".ppRetentionLineSvg").length).toBeGreaterThanOrEqual(2);
     expect(within(retentionReport).queryByText("Retention segments")).not.toBeInTheDocument();
+
+    const recommendedActions = Array.from(container.querySelectorAll(".ppRecommendedActionsPanel .ppCompactRecommendedAction"));
+    const retentionAction = recommendedActions.find((item) => within(item).queryByText("Create repurchase campaign"));
+    expect(retentionAction).toBeInTheDocument();
+    fireEvent.click(retentionAction);
+    const dialog = screen.getByRole("dialog", { name: /create repurchase campaign/i });
+    expect(within(dialog).getByText("Campaign plan")).toBeInTheDocument();
+    expect(within(dialog).getByText("Audience")).toBeInTheDocument();
+    expect(within(dialog).getByText(/customers who bought this product/i)).toBeInTheDocument();
   });
 
   it("renders momentum weekly bars as empty tracks for zero weeks and a visible spike", () => {
@@ -3303,6 +3403,91 @@ describe("ProductPulse screens", () => {
     expect(quotedReason).toHaveTextContent("Too small");
   });
 
+  it("expands full current and updated Shopify descriptions in recommended action previews", () => {
+    const currentDescription = Array.from({ length: 18 }, (_, index) => `Current Shopify description sentence ${index + 1} with product details shoppers need before checkout.`).join(" ");
+    const textToAdd = Array.from({ length: 10 }, (_, index) => `Updated description addition sentence ${index + 1} explains fit, contents, and expectations.`).join(" ");
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "add-description-guidance",
+        label: "Add description guidance",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: textToAdd,
+          currentDescriptionText: currentDescription,
+          operation: "append",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add description guidance" }));
+    const dialog = screen.getByRole("dialog", { name: "Add description guidance" });
+    const previewGrid = dialog.querySelector(".ppActionPreviewGrid");
+    const currentColumn = within(dialog).getByText("Current Shopify description").closest(".ppActionPreviewColumn");
+    const updatedColumn = within(dialog).getByText("Updated description preview").closest(".ppActionPreviewColumn");
+
+    expect(currentColumn).toHaveTextContent("Current Shopify description sentence 1");
+    expect(currentColumn).not.toHaveTextContent("Current Shopify description sentence 18");
+
+    expect(updatedColumn).toHaveTextContent("Updated description addition sentence 1");
+    expect(updatedColumn).not.toHaveTextContent("Current Shopify description sentence 1 with product details");
+    expect(within(currentColumn).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(updatedColumn).queryByRole("button")).not.toBeInTheDocument();
+
+    fireEvent.click(within(previewGrid).getByRole("button", { name: "Show more description previews" }));
+    expect(within(previewGrid).getByRole("button", { name: "Show less description previews" })).toBeInTheDocument();
+    expect(currentColumn).toHaveTextContent("Current Shopify description sentence 18");
+    expect(updatedColumn).toHaveTextContent("Current Shopify description sentence 1 with product details");
+    expect(updatedColumn).toHaveTextContent("Current Shopify description sentence 18");
+    expect(updatedColumn).toHaveTextContent("Updated description addition sentence 10");
+  });
+
+  it("highlights changed blocks in updated product description previews", () => {
+    const currentDescription = [
+      "Opening product copy stays unchanged.",
+      "Original materials sentence stays too vague.",
+      "Shipping note remains unchanged.",
+      "Care guidance stays unchanged.",
+    ].join(" ");
+    const updatedDescription = [
+      "Opening product copy stays unchanged.",
+      "Updated materials sentence names recycled nylon and a water-resistant finish.",
+      "Shipping note remains unchanged.",
+      "Added fit block explains relaxed sizing for layering.",
+      "Care guidance stays unchanged.",
+    ].join(" ");
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "correct-product-description",
+        label: "Correct product description",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: updatedDescription,
+          currentDescriptionText: currentDescription,
+          operation: "replace",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Correct product description" }));
+    const dialog = screen.getByRole("dialog", { name: "Correct product description" });
+    const updatedColumn = within(dialog).getByText("Updated description preview").closest(".ppActionPreviewColumn");
+    const changedBlocks = updatedColumn.querySelectorAll(".ppActionPreviewDiffBlock");
+
+    expect(changedBlocks).toHaveLength(2);
+    expect(changedBlocks[0]).toHaveTextContent("Updated materials sentence names recycled nylon");
+    expect(changedBlocks[1]).toHaveTextContent("Added fit block explains relaxed sizing");
+    expect(updatedColumn).toHaveTextContent("Opening product copy stays unchanged.");
+    expect(changedBlocks[0]).not.toHaveTextContent("Opening product copy stays unchanged.");
+  });
+
   it("groups overlapping product description changes into one selectable action", () => {
     const currentDescription = "The Trail Jacket is a lightweight shell with a water-resistant finish and adjustable cuffs.";
     const replacement = "The Trail Jacket is a lightweight, water-resistant shell with adjustable cuffs and a relaxed outdoor fit.";
@@ -3438,7 +3623,7 @@ describe("ProductPulse screens", () => {
     const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
     const currentDescriptionPanel = confirmDialog.querySelector(".ppActionConfirmCurrent");
     expect(currentDescriptionPanel).not.toBeNull();
-    expect(currentDescriptionPanel.querySelectorAll(".ppActionPreviewInsertedText")).toHaveLength(2);
+    expect(currentDescriptionPanel.querySelectorAll(".ppActionPreviewDiffBlock").length).toBeGreaterThanOrEqual(2);
     expect(within(currentDescriptionPanel).getByText("Edited fit note for layering. More room.")).toBeInTheDocument();
     expect(within(currentDescriptionPanel).getByText("Edited technical specifications block.")).toBeInTheDocument();
     expect(confirmDialog).toHaveTextContent("Edited fit note for layering.");

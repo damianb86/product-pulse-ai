@@ -6,7 +6,6 @@ import {
 } from "./product-pulse-html-style-presets";
 
 export const PRODUCT_PULSE_SETTINGS_SOURCE_KEY = "__productpulse_settings";
-export const PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES = 500;
 export const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 export const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 
@@ -18,9 +17,6 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   },
   momentum: {
     minimumScore: 70,
-  },
-  diagnosis: {
-    maxQueuedPerSubmission: 25,
   },
   analysis: {
     lookbackDays: 60,
@@ -96,7 +92,6 @@ export function normalizeProductPulseSettings(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   const risk = source.risk && typeof source.risk === "object" ? source.risk : {};
   const momentum = source.momentum && typeof source.momentum === "object" ? source.momentum : {};
-  const diagnosis = source.diagnosis && typeof source.diagnosis === "object" ? source.diagnosis : {};
   const analysis = source.analysis && typeof source.analysis === "object" ? source.analysis : {};
   const htmlStyle = source.htmlStyle && typeof source.htmlStyle === "object" ? source.htmlStyle : {};
 
@@ -123,14 +118,6 @@ export function normalizeProductPulseSettings(input = {}) {
     momentum: {
       minimumScore: clampInteger(momentum.minimumScore, 0, 100, DEFAULT_PRODUCT_PULSE_SETTINGS.momentum.minimumScore),
     },
-    diagnosis: {
-      maxQueuedPerSubmission: clampInteger(
-        diagnosis.maxQueuedPerSubmission,
-        1,
-        PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES,
-        DEFAULT_PRODUCT_PULSE_SETTINGS.diagnosis.maxQueuedPerSubmission,
-      ),
-    },
     analysis: {
       lookbackDays: clampInteger(
         analysis.lookbackDays,
@@ -153,9 +140,6 @@ export function parseSettingsFormData(formData) {
     momentum: {
       minimumScore: formDataNumber(formData, "momentumMinimumScore"),
     },
-    diagnosis: {
-      maxQueuedPerSubmission: formDataNumber(formData, "maxQueuedPerSubmission"),
-    },
     analysis: {
       lookbackDays: formDataNumber(formData, "analysisLookbackDays"),
     },
@@ -169,14 +153,12 @@ export function parseSettingsFormData(formData) {
 export function validateProductPulseSettings(input = {}) {
   const risk = input.risk || {};
   const momentum = input.momentum || {};
-  const diagnosis = input.diagnosis || {};
   const analysis = input.analysis || {};
   const htmlStyle = input.htmlStyle || {};
   const minimumScore = Number(risk.minimumScore);
   const mediumThreshold = Number(risk.mediumThreshold);
   const highThreshold = Number(risk.highThreshold);
   const momentumMinimumScore = Number(momentum.minimumScore ?? DEFAULT_PRODUCT_PULSE_SETTINGS.momentum.minimumScore);
-  const maxQueuedPerSubmission = Number(diagnosis.maxQueuedPerSubmission);
   const lookbackDays = Number(analysis.lookbackDays ?? DEFAULT_PRODUCT_PULSE_SETTINGS.analysis.lookbackDays);
 
   if (![minimumScore, mediumThreshold, highThreshold].every(Number.isFinite)) {
@@ -196,9 +178,6 @@ export function validateProductPulseSettings(input = {}) {
   }
   if (!Number.isFinite(momentumMinimumScore) || momentumMinimumScore < 0 || momentumMinimumScore > 100) {
     return "Momentum inclusion threshold must be between 0 and 100.";
-  }
-  if (!Number.isFinite(maxQueuedPerSubmission) || maxQueuedPerSubmission < 1 || maxQueuedPerSubmission > PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES) {
-    return `Max queued diagnoses must be between 1 and ${PRODUCT_PULSE_MAX_QUEUED_DIAGNOSES}.`;
   }
   if (!Number.isFinite(lookbackDays) || lookbackDays < PRODUCT_PULSE_MIN_LOOKBACK_DAYS || lookbackDays > PRODUCT_PULSE_MAX_LOOKBACK_DAYS) {
     return `Analysis lookback must be between ${PRODUCT_PULSE_MIN_LOOKBACK_DAYS} and ${PRODUCT_PULSE_MAX_LOOKBACK_DAYS} days.`;

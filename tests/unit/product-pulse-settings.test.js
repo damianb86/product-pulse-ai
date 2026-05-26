@@ -20,7 +20,7 @@ describe("ProductPulse settings", () => {
       highThreshold: 75,
     });
     expect(settings.momentum).toEqual({ minimumScore: 70 });
-    expect(settings.diagnosis.maxQueuedPerSubmission).toBe(25);
+    expect(settings.diagnosis).toBeUndefined();
     expect(settings.analysis.lookbackDays).toBe(60);
     expect(settings.htmlStyle).toEqual({ preset: "productpulse-current", customTemplate: "" });
   });
@@ -53,9 +53,6 @@ describe("ProductPulse settings", () => {
         mediumThreshold: 65,
         highThreshold: 90,
       },
-      diagnosis: {
-        maxQueuedPerSubmission: 10,
-      },
     })).toMatch(/Medium risk/);
 
     expect(validateProductPulseSettings({
@@ -63,9 +60,6 @@ describe("ProductPulse settings", () => {
         minimumScore: 40,
         mediumThreshold: 70,
         highThreshold: 65,
-      },
-      diagnosis: {
-        maxQueuedPerSubmission: 10,
       },
     })).toMatch(/High risk/);
   });
@@ -79,9 +73,6 @@ describe("ProductPulse settings", () => {
       },
       momentum: {
         minimumScore: 101,
-      },
-      diagnosis: {
-        maxQueuedPerSubmission: 10,
       },
     })).toMatch(/Momentum inclusion/);
   });
@@ -97,9 +88,6 @@ describe("ProductPulse settings", () => {
         minimumScore: 40,
         mediumThreshold: 60,
         highThreshold: 80,
-      },
-      diagnosis: {
-        maxQueuedPerSubmission: 10,
       },
       analysis: {
         lookbackDays: 4,
@@ -121,7 +109,6 @@ describe("ProductPulse settings", () => {
     });
     expect(validateProductPulseSettings({
       risk: { minimumScore: 40, mediumThreshold: 60, highThreshold: 80 },
-      diagnosis: { maxQueuedPerSubmission: 10 },
       htmlStyle: {
         preset: PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
         customTemplate: "<section>No replacement marker</section>",

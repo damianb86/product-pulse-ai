@@ -297,7 +297,26 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(text).toContain("arrived broken");
     expect(text).toContain("Damage");
-    expect(text).toContain("No restock");
+    expect(text).not.toContain("No restock");
+  });
+
+  it("suppresses low-information Shopify refund defaults when refund notes explain the issue", () => {
+    const text = __productPulseDiagnosisTestHooks.getRefundOperationalText({
+      note: "Goodwill refund after discovering the ring case is outside supported compatibility.",
+      restockType: "NO_RESTOCK",
+      adjustmentReasons: ["Refund Discrepancy"],
+    });
+
+    expect(text).toBe("Goodwill refund after discovering the ring case is outside supported compatibility.");
+    expect(__productPulseDiagnosisTestHooks.getRefundReasonText({
+      note: "Goodwill refund after discovering the ring case is outside supported compatibility.",
+      restockType: "NO_RESTOCK",
+      adjustmentReasons: ["Refund Discrepancy"],
+    })).toBe("");
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(text)).toBe("compatibility");
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(
+      "Customer used a pop-grip case, then learned that accessory sits outside the CaseFit compatibility boundary.",
+    )).toBe("compatibility");
   });
 
   it("can omit variant product data for the lowest-cost return query fallback", () => {
@@ -3687,6 +3706,202 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(lowConfidence.map((item) => item.id)).not.toContain("review-product-pairing-expectations");
   });
 
+  it("creates conservative retention recommendations from strong cohort signals", () => {
+    const baseDeterministic = {
+      mainIssue: "product_quality",
+      riskScore: 38,
+      confidence: 82,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "Retention Product",
+        description: "Retention product.",
+        variants: [],
+      },
+      metrics: {
+        customerSignalCount: 0,
+        signalCount: 0,
+        returnUnits: 0,
+        refundUnits: 0,
+        returnRate: 0,
+        refundRate: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        topReturnReasons: [],
+        productRetention: {
+          summary: {
+            hasEnoughData: true,
+            totalCustomersAnalyzed: 72,
+            totalProductOrdersAnalyzed: 96,
+            retentionHealthScore: 78,
+            repeatPurchaseRate90d: 0.31,
+            sameProductRepurchaseRate90d: 0.22,
+            crossSellRetentionRate90d: 0.1,
+            productLtv90Cents: 9200,
+            medianDaysToSecondPurchase: 34,
+          },
+        },
+      },
+    };
+
+    const repurchaseRecommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/retention",
+        productTitle: "Retention Product",
+      },
+      deterministic: baseDeterministic,
+      mainIssue: baseDeterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const repurchase = repurchaseRecommendations.find((item) => item.id === "create-repurchase-campaign");
+    expect(repurchase).toBeTruthy();
+    expect(repurchase.payload).toMatchObject({
+      source: "product_retention",
+      recommendationKind: "repurchase_campaign",
+      retentionMetrics: {
+        totalProductCohortCustomers: 72,
+        sameProductRepurchaseRate90d: 0.22,
+      },
+      campaignPlan: {
+        audience: expect.stringContaining("Customers who bought this product"),
+      },
+    });
+    expect(repurchaseRecommendations.map((item) => item.id)).not.toContain("review-retention-drop");
+
+    const lowSampleRecommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/retention",
+        productTitle: "Retention Product",
+      },
+      deterministic: {
+        ...baseDeterministic,
+        metrics: {
+          ...baseDeterministic.metrics,
+          productRetention: {
+            summary: {
+              ...baseDeterministic.metrics.productRetention.summary,
+              totalCustomersAnalyzed: 4,
+              totalProductOrdersAnalyzed: 4,
+              hasEnoughData: false,
+            },
+          },
+        },
+      },
+      mainIssue: baseDeterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    expect(lowSampleRecommendations.map((item) => item.id)).not.toContain("create-repurchase-campaign");
+  });
+
+  it("creates retention cross-sell or drop review actions only when the signal is specific", () => {
+    const deterministic = {
+      mainIssue: "product_quality",
+      riskScore: 42,
+      confidence: 80,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "Lifecycle Product",
+        description: "Lifecycle product.",
+        variants: [],
+      },
+      metrics: {
+        customerSignalCount: 0,
+        signalCount: 0,
+        returnUnits: 0,
+        refundUnits: 0,
+        returnRate: 0,
+        refundRate: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        topReturnReasons: [],
+        productRetention: {
+          summary: {
+            hasEnoughData: true,
+            totalCustomersAnalyzed: 80,
+            totalProductOrdersAnalyzed: 105,
+            retentionHealthScore: 74,
+            repeatPurchaseRate90d: 0.29,
+            sameProductRepurchaseRate90d: 0.08,
+            crossSellRetentionRate90d: 0.32,
+            productLtv90Cents: 11800,
+            medianDaysToSecondPurchase: 28,
+          },
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 24 },
+          confidence: { score: 84, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/refill",
+              relatedProductTitle: "Refill Kit",
+              relationshipType: "next_purchase",
+              direction: "after",
+              lift: 2.2,
+              confidence: 84,
+              sampleSize: 7,
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/lifecycle",
+        productTitle: "Lifecycle Product",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    expect(recommendations.map((item) => item.id)).toContain("create-retention-cross-sell-campaign");
+    expect(recommendations.map((item) => item.id)).not.toContain("create-post-purchase-cross-sell");
+    expect(recommendations.find((item) => item.id === "create-retention-cross-sell-campaign")?.payload.relatedProductTitle).toBe("Refill Kit");
+
+    const dropRecommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/lifecycle",
+        productTitle: "Lifecycle Product",
+      },
+      deterministic: {
+        ...deterministic,
+        metrics: {
+          ...deterministic.metrics,
+          productRelationshipFactors: { recommendedActionSignals: {} },
+          productRetention: {
+            summary: {
+              hasEnoughData: true,
+              totalCustomersAnalyzed: 64,
+              totalProductOrdersAnalyzed: 84,
+              retentionHealthScore: 38,
+              repeatPurchaseRate90d: 0.04,
+              sameProductRepurchaseRate90d: 0.01,
+              crossSellRetentionRate90d: 0.02,
+              productLtv90Cents: 5100,
+              ltv90DeltaCents: -900,
+            },
+          },
+        },
+      },
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    expect(dropRecommendations.map((item) => item.id)).toContain("review-retention-drop");
+    expect(dropRecommendations.map((item) => item.id)).not.toContain("create-retention-cross-sell-campaign");
+  });
+
   it("keeps relationship expectation fixes ahead of catalog hygiene and stop-sale actions", () => {
     const deterministic = {
       mainIssue: "quality_defect",
@@ -4107,6 +4322,203 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(byId.get("improve-product-media")?.payload.shopifyField).toBe("Product media alt text");
     expect(byId.get("apply-risk-tags")?.payload.tags).toEqual(expect.arrayContaining(["risk-high", "sentiment-negative", "variant-issue"]));
     expect(recommendations.every((item) => item.payload.recipe === true)).toBe(true);
+  });
+
+  it("treats covered setup guidance as description coverage and uses targeted description edits for remaining gaps", () => {
+    const currentDescription = [
+      "GEN LumaSpan Modular Desk Rail Light mounts under a shelf or monitor riser with adhesive pads or optional clamp feet.",
+      "Use adhesive only on smooth sealed surfaces, not oiled, porous, dusty, textured, or warm undersides; let the adhesive cure before routing the cable.",
+      "The USB-C cable exits on the right side by default, and the rail can be flipped only if the control button and cable route still remain reachable.",
+      "A USB-C cable is included in the box, but a wall adapter or wall brick is not included.",
+      "For webcam or camera use, test shutter settings first because some cameras can show flicker or banding. Glossy desks, glass, and monitors can reflect glare.",
+      "Choose the short or long length based on your desk width and preferred light spread.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "missing_specs", label: "Missing lighting specification values", severity: "medium", evidence: "The copy says color temperatures and brightness levels exist, but does not list color-temperature values, lumens, CRI, or beam angle." },
+      { code: "missing_dimensions", label: "Missing rail dimensions", severity: "medium", evidence: "The description does not give rail width, height, diffuser dimensions, or coverage by length." },
+      { code: "missing_care", label: "Missing cleaning guidance", severity: "medium", evidence: "The description does not explain how to clean the diffuser or what cleaners to avoid." },
+    ];
+    const deterministic = {
+      mainIssue: "setup_expectation",
+      riskScore: 86,
+      issueSignalCounts: { setup_expectation: 5, quality_defect: 2 },
+      evidenceSnippets: [
+        { text: "The page technically explains adhesive surfaces and the no-adapter box contents, but I missed the checklist before checkout." },
+      ],
+      product: {
+        title: "GEN LumaSpan Modular Desk Rail Light",
+        description: currentDescription,
+        descriptionHtml: `<p>${currentDescription}</p>`,
+        status: "ACTIVE",
+        vendor: "GEN",
+        productType: "Desk Lighting",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        customerSignalCount: 8,
+        signalCount: 11,
+        contentIssueCount: contentIssues.length,
+        contentIssues,
+        contentAnalysis: { issues: contentIssues, advisories: [] },
+        faqNeed: {
+          shouldRecommend: true,
+          score: 8,
+          topics: ["Setup guidance"],
+          reasons: ["Setup questions repeat across returns and reviews."],
+        },
+        returnUnits: 3,
+        refundUnits: 2,
+        negativeReviewCount: 4,
+        reviewCount: 13,
+        topReturnReasons: ["Setup checklist missed"],
+        topReturnReasonDetails: [{ label: "Setup checklist missed", count: 3 }],
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        variants: [],
+        refundInsights: { shouldSurface: false },
+        textInsights: {
+          sentiment: { total: 8, negative: 6, negativeRatio: 0.75 },
+          repeatedLanguage: [{ term: "setup checklist missed", count: 4 }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/8786190729304",
+        productTitle: "GEN LumaSpan Modular Desk Rail Light",
+      },
+      deterministic,
+      mainIssue: "setup_expectation",
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Before checkout, confirm the mounting surface is sealed, the USB-C cable route works on the right side or flipped setup, no wall adapter is included, and webcam use may show camera banding.",
+            faq_items: [{
+              question: "What setup details should shoppers confirm before buying GEN LumaSpan Modular Desk Rail Light?",
+              answer: "Confirm the mounting surface, cable route, included USB-C cable, missing wall adapter, and camera flicker limits before checkout.",
+              reason: "Setup uncertainty repeated.",
+            }],
+          },
+        },
+      },
+    });
+
+    const byId = new Map(recommendations.map((item) => [item.id, item]));
+    expect(byId.has("draft-quality-note")).toBe(false);
+    expect(byId.has("improve-setup-guidance")).toBe(false);
+    expect(byId.has("add-product-description-guidance")).toBe(false);
+    expect(byId.has("create-product-faq")).toBe(false);
+
+    const descriptionUpdate = byId.get("correct-product-description");
+    expect(descriptionUpdate).toBeTruthy();
+    expect(descriptionUpdate.label).toBe("Update product description details");
+    expect(descriptionUpdate.payload).toMatchObject({
+      changeStrategy: "targeted-enhancement",
+      operation: "replace",
+      preserveHtml: true,
+    });
+    expect(descriptionUpdate.payload.descriptionReplacements.length).toBeGreaterThan(0);
+    expect(descriptionUpdate.payload.draftText).toContain("color-temperature values");
+    expect(descriptionUpdate.payload.draftText).toContain("rail width and height");
+  });
+
+  it("classifies setup expectation language separately from product quality", () => {
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(
+      "The page technically explains the flip option, but I missed the control-button tradeoff until install; not broken, just an expectation mismatch.",
+    )).toBe("setup_expectation");
+  });
+
+  it("keeps repeated setup language out of product-quality issue buckets", () => {
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 84,
+        confidence: 86,
+        issueSignalCounts: { setup_expectation: 5 },
+        metrics: {
+          signalCount: 5,
+          contentAnalysis: { issues: [] },
+          textInsights: { sentiment: { negative: 0, total: 0, negativeRatio: 0 } },
+        },
+      },
+      ai: {
+        classification: {
+          clusters: [],
+          repeated_language: [{
+            term: "cable",
+            count: 5,
+            severity: "medium",
+            issue_category: "quality_defect",
+            explanation: "Customers describe a cable routing mismatch after setup and say the listing made the side exit easy to miss.",
+            source_types: ["returns", "reviews"],
+            dominantSentiment: "negative",
+            sentiments: { negative: 5 },
+          }],
+        },
+      },
+      mainIssue: "setup_expectation",
+      recommendations: [],
+    });
+
+    expect(issues.some((issue) => issue.issueCode === "setup_expectation")).toBe(true);
+    expect(issues.some((issue) => issue.issueCode === "quality_defect")).toBe(false);
+  });
+
+  it("does not generate apparel measurement guidance for non-apparel dimension gaps", () => {
+    const currentDescription = "GEN Arc Desk Lamp is a compact adjustable task lamp for work tables, reading corners, and shelving. It includes a weighted base, tilting head, warm and cool light modes, touch controls, and a braided USB-C cable for desk routing.";
+    const contentIssues = [{
+      code: "missing_dimensions",
+      label: "Missing product measurements",
+      severity: "medium",
+      evidence: "The description does not list width, height, depth, or footprint measurements for shoppers comparing desk space.",
+    }];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/2",
+        productTitle: "GEN Arc Desk Lamp",
+      },
+      deterministic: {
+        mainIssue: "product_content",
+        riskScore: 72,
+        issueSignalCounts: { product_content: 1 },
+        product: {
+          title: "GEN Arc Desk Lamp",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Desk Lighting",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 2,
+          signalCount: 3,
+          contentIssueCount: 1,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 2,
+          refundUnits: 0,
+          negativeReviewCount: 0,
+          reviewCount: 2,
+          topReturnReasons: [],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 2, negative: 1, negativeRatio: 0.5 } },
+        },
+      },
+      mainIssue: "product_content",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const serialized = JSON.stringify(recommendations);
+    expect(serialized).not.toContain("garment measurements");
+    expect(serialized).toContain("product dimensions");
   });
 
   it("calculates Product Momentum from recent sales velocity, growth and catalog baseline", () => {

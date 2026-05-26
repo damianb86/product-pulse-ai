@@ -36,6 +36,26 @@ describe("ProductPulse watchlist helpers", () => {
     expect(row.riskScore).toBe(63);
     expect(row.riskLabel).toBe("Low");
     expect(row.riskTone).toBe("success");
+    expect(row.latestChange).toBe("Stored signal");
+    expect(row.latestChangeDetail).toBe("");
+  });
+
+  it("uses product-specific row detail before the first Watchlist scan", () => {
+    const row = __productPulseWatchlistTestHooks.formatWatchlistRow(
+      {
+        id: "watch-2",
+        productGid: "gid://shopify/Product/2",
+        productTitle: "Awaiting product",
+        handle: "awaiting-product",
+        status: "Watching",
+        addedAt: new Date("2026-05-01T12:00:00.000Z"),
+        updatedAt: new Date("2026-05-02T12:00:00.000Z"),
+      },
+      null,
+    );
+
+    expect(row.latestChange).toBe("Awaiting first scan");
+    expect(row.latestChangeDetail).toBe("Added May 1 · Watching");
   });
 
   it("labels watchlist trend average with configured ProductPulse thresholds", () => {
@@ -88,6 +108,15 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.headline).toBe("No previous Watchlist data");
     expect(report.sections).toHaveLength(0);
     expect(report.sourceInsights).toHaveLength(0);
+  });
+
+  it("uses a dedicated Watchlist baseline activity event for initial snapshots", () => {
+    const event = __productPulseWatchlistTestHooks.getWatchScanActivityEventSpec("watchlist-baseline");
+
+    expect(event).toEqual({
+      eventType: "watch_baseline_captured",
+      title: "Watchlist baseline captured",
+    });
   });
 
   it("reports only meaningful watchlist changes against the previous run", () => {
@@ -207,6 +236,71 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.sourceInsights.map((insight) => insight.id)).toEqual(expect.arrayContaining(["return-evidence", "review-evidence"]));
     expect(report.sourceInsights.find((insight) => insight.id === "return-evidence").bullets.join(" ")).toContain("New return sentiment");
     expect(report.sourceInsights.find((insight) => insight.id === "review-evidence").bullets.join(" ")).toContain("Representative review");
+  });
+
+  it("does not surface low-information Shopify refund defaults as reason language", () => {
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary: {
+        capturedAt: "2026-05-17T10:00:00.000Z",
+        riskScore: 70,
+        refundUnits: 0,
+        evidenceDetails: {
+          refunds: {
+            totalUnits: 0,
+            sourceItems: [],
+            items: [],
+          },
+        },
+      },
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 75,
+        metrics: {
+          refundUnits: 1,
+          refundAmount: 39,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                refunds: [{
+                  key: "refund-source-new",
+                  quantity: 1,
+                  amount: 39,
+                  reason: "Refund Discrepancy",
+                  reasonText: "Refund Discrepancy",
+                  restockType: "NO_RESTOCK",
+                  createdAt: "2026-05-17T11:00:00.000Z",
+                }],
+              },
+              refunds: {
+                items: [{
+                  key: "refund-new",
+                  text: "Customer used a pop-grip case, then learned the accessory sits outside the CaseFit compatibility boundary.",
+                  issueCode: "fit_sizing",
+                  sentiment: "negative",
+                  quantity: 1,
+                  amount: 39,
+                  reasonText: "Refund Discrepancy",
+                  restockType: "NO_RESTOCK",
+                  createdAt: "2026-05-17T11:00:00.000Z",
+                }],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-17T12:00:00.000Z"),
+    });
+
+    const refundChange = report.sourceChanges.find((change) => change.id === "new-refunds");
+    const refundInsight = report.sourceInsights.find((insight) => insight.id === "refund-evidence");
+
+    expect(refundChange.detail).toContain("Compatibility");
+    expect(refundChange.detail).not.toContain("Fit Sizing");
+    expect(refundChange.detail).not.toContain("Refund Discrepancy");
+    expect(refundChange.detail).not.toContain("NO RESTOCK");
+    expect(refundInsight.bullets.join(" ")).toContain("Compatibility");
+    expect(refundInsight.bullets.join(" ")).not.toContain("Fit Sizing");
+    expect(refundInsight.bullets.join(" ")).not.toContain("Refund Discrepancy");
   });
 
   it("does not treat historical reviews as new when the previous report lacks item-level review cache", () => {
@@ -652,6 +746,84 @@ describe("ProductPulse watchlist helpers", () => {
     const reviewInsight = report.sourceInsights.find((insight) => insight.id === "review-evidence");
     expect(reviewInsight?.metric).toBe("1 new review");
     expect(reviewInsight?.bullets.join(" ")).toContain("New review sentiment: 1 negative, 0 neutral, 0 positive");
+  });
+
+  it("does not convert historical source backfill into new Watchlist source changes when the previous baseline had no source items", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-20T10:00:00.000Z",
+      riskScore: 64,
+      confidence: 70,
+      primaryIssue: "Setup expectations",
+      orderCount: 0,
+      soldUnits: 0,
+      salesAmount: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+      reviewCount: 0,
+      negativeReviewCount: 0,
+      signalCount: 0,
+      evidenceDetails: {
+        orders: { items: [] },
+        returns: { sourceItems: [], items: [] },
+        refunds: { sourceItems: [], items: [] },
+        reviews: { items: [] },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/8786190729304",
+        riskScore: 86,
+        confidence: 88,
+        primaryIssue: "Setup expectations",
+        metrics: {
+          orderCount: 8,
+          soldUnits: 11,
+          salesAmount: 612,
+          returnUnits: 3,
+          refundUnits: 3,
+          refundAmount: 186,
+          reviewCount: 13,
+          negativeReviewCount: 7,
+          signalCount: 16,
+          incrementalDiagnosis: {
+            cache: {
+              sourceFingerprint: "full-source-cache-v1",
+              sourceEvents: {
+                sales: [
+                  { id: "sale-1", orderId: "order-1", quantity: 2, amount: 118, createdAt: "2026-05-18T09:00:00.000Z" },
+                  { id: "sale-2", orderId: "order-2", quantity: 1, amount: 59, createdAt: "2026-05-19T09:00:00.000Z" },
+                ],
+                returns: [
+                  { id: "return-1", returnId: "return-1", orderId: "order-1", quantity: 1, reason: "Setup mismatch", createdAt: "2026-05-19T12:00:00.000Z" },
+                ],
+                refunds: [
+                  { id: "refund-1", refundId: "refund-1", orderId: "order-1", quantity: 1, amount: 59, reason: "Setup mismatch", createdAt: "2026-05-19T12:30:00.000Z" },
+                ],
+              },
+              customerText: {
+                reviewItems: [
+                  { key: "review-1", text: "Camera banding warning was there, but I missed it.", sentiment: "negative", rating: 2, createdAt: "2026-05-19T15:00:00.000Z" },
+                ],
+              },
+              refunds: {
+                items: [
+                  { key: "refund-note-1", text: "Refund was for a missed setup condition.", sentiment: "negative", quantity: 1, amount: 59, createdAt: "2026-05-19T12:30:00.000Z" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-21T10:00:00.000Z"),
+    });
+
+    expect(report.status).toBe("changed");
+    expect(report.sourceChangeCount).toBe(0);
+    expect(report.sourceChanges).toEqual([]);
+    expect(report.sourceInsights).toEqual([]);
+    expect(report.changes.some((change) => change.id === "risk-score")).toBe(true);
   });
 
   it("does not report tiny financial-exposure drift as a meaningful Watchlist change", () => {
