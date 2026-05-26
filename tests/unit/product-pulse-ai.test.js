@@ -462,6 +462,122 @@ describe("ProductPulse AI provider fallback", () => {
     });
   });
 
+  it("generates all chart business interpretations in one intermediate-cost diagnosis call", async () => {
+    process.env.PRODUCT_PULSE_AI_LEVEL = "3";
+    const requests = [];
+    const responses = [
+      {
+        classified_signals: [],
+        clusters: [],
+        granular_findings: [],
+        repeated_language: [],
+        sentiment_summary: {},
+        main_issue: "product_quality",
+        issue_summary: "Deterministic issue signals were used.",
+        source_agreement: "single_source",
+      },
+      { emergent_sentiments: [], discarded_suggestions: [], summary: "No emergent sentiment." },
+      { missing: [], present: [], notes: "No content gaps." },
+      {
+        main_finding_title: "Order activity needs review",
+        main_finding_detail: "Order and return activity changed recently.",
+        evidence_summary: "The chart data shows a recent change.",
+        basket_context_interpretation: "",
+        recommendation_copy: {},
+      },
+      { action_rationales: [] },
+      {
+        chart_interpretations: {
+          monthly_order_activity: "Orders rose in May while returns and refunds also appeared, so the product has demand but operational outcomes should be watched closely.",
+          return_rate_prediction: "The forecast stays elevated after recent returns, which suggests the next cohorts may continue to carry return pressure.",
+          product_retention_metrics: "Retention is limited, so repeat demand is not yet offsetting the cost of post-purchase issues.",
+          product_risk_over_time: "Risk moved upward across the saved history, making the recent order activity more important to review.",
+          product_momentum: "Momentum is concentrated in the latest week, which points to fresh activity rather than a long stable sales pattern.",
+        },
+      },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+      const body = JSON.parse(options.body);
+      requests.push(body);
+      const responseText = JSON.stringify(responses[requests.length - 1] || {});
+      return new Response(JSON.stringify({ output_text: responseText }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+
+    const result = await runProductDiagnosisAiAnalysis({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-chart-interpretations",
+      input: {
+        product: { title: "Yoga Mat", handle: "yoga-mat" },
+        deterministic: {
+          riskScore: 72,
+          confidence: 81,
+          mainIssue: "product_quality",
+          mainIssueLabel: "Product quality",
+          metrics: {
+            monthlyOrderActivity: {
+              windowDays: 365,
+              months: [
+                { key: "2026-04", label: "Apr 2026", orders: 1, orderUnits: 1, returnedUnits: 0, refundedUnits: 0, revenue: 48, refundAmount: 0 },
+                { key: "2026-05", label: "May 2026", orders: 3, orderUnits: 4, returnedUnits: 2, refundedUnits: 1, revenue: 192, refundAmount: 42 },
+              ],
+              summary: { totalOrders: 4, totalOrderUnits: 5, totalReturnedUnits: 2, totalRefundedUnits: 1, totalRevenue: 240, totalRefundAmount: 42, returnRate: 40, refundRate: 20 },
+            },
+            returnRatePrediction: {
+              observedPoints: [
+                { key: "2026-W18", label: "W18", orders: 1, orderUnits: 1, returnedUnits: 0, smoothedReturnRate: 4 },
+                { key: "2026-W19", label: "W19", orders: 3, orderUnits: 4, returnedUnits: 2, smoothedReturnRate: 28 },
+              ],
+              forecastPoints: [
+                { key: "2026-W20", label: "W20", predictedReturnRate: 31, basePredictedReturnRate: 35, baselineReturnRate: 30, seasonalReturnRate: 32 },
+              ],
+              summary: { totalOrderUnits: 5, totalReturnedUnits: 2, totalReturnRate: 40, last30DayReturnRate: 40, last60DayReturnRate: 40, forecastNext90ReturnRate: 31, confidence: "Medium" },
+              actionAdjustment: { adjustmentPoints: -4, uncertaintyLift: 1.1, applied: 1, reviewed: 1, dismissed: 0, pending: 2, total: 4 },
+            },
+            productRetention: {
+              summary: { totalCustomersAnalyzed: 6, repeatPurchaseRate90d: 16.7, productLtv90Cents: 4800, retentionHealthScore: 42, hasEnoughData: true, earliestOrderDate: "2026-01-01", latestOrderDate: "2026-05-01" },
+              retentionHealthTrend: [{ date: "2026-05-01", retentionHealthScore: 42, repeatPurchaseRate90d: 16.7, productLtv90Cents: 4800 }],
+              ltvCurve: [{ ageDay: 90, cumulativeLtvCents: 4800, sameProductLtvCents: 4800, otherProductLtvCents: 0 }],
+            },
+            riskHistory: [
+              { label: "Apr 2026", riskScore: 48, confidence: 70, returnRate: 0, refundRate: 0 },
+              { label: "May 2026", riskScore: 72, confidence: 81, returnRate: 40, refundRate: 20 },
+            ],
+            productMomentum: {
+              score: 85,
+              tier: "Hot",
+              direction: "rising",
+              confidence: 74,
+              confidenceLabel: "Medium",
+              components: { currentVelocityScore: 91, growthScore: 100, catalogShareScore: 78, trendConsistencyScore: 58, recencyScore: 100 },
+              inputs: { unitsLast7Days: 4, unitsLast30Days: 4, unitsPrevious30Days: 0, revenueLast30Days: 192, weeklyUnitsLast4Weeks: [0, 0, 0, 4], lastSaleAt: "2026-05-20T12:00:00.000Z" },
+              display: { trendLabel: "New activity", growthLabel: "+100%", growthPercent: 100, catalogPositionLabel: "Top 20%" },
+            },
+          },
+        },
+        evidenceSnippets: [],
+        recommendationCandidates: [],
+      },
+    });
+
+    expect(requests).toHaveLength(6);
+    const chartRequests = requests.filter((request) => String(request.input).includes("chart_interpretations"));
+    expect(chartRequests).toHaveLength(1);
+    expect(chartRequests[0].model).toBe("gpt-5.4-mini");
+    expect(chartRequests[0].input).toContain("Interpret the actual business story");
+    expect(chartRequests[0].input).toContain("monthly_order_activity");
+    expect(chartRequests[0].input).toContain("return_rate_prediction");
+    expect(result.modelsUsed.chartInterpretations).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      task: "chart_interpretations",
+    });
+    expect(result.chartInterpretations.interpretations.monthlyOrderActivity.text).toContain("Orders rose in May");
+    expect(result.chartInterpretations.interpretations.productMomentum.text).toContain("latest week");
+  });
+
   it("builds sanitized compact relationship insight input without raw customer or order payloads", () => {
     const compact = buildCompactProductRelationshipAiInput({
       product: { title: "Main product", handle: "main-product" },

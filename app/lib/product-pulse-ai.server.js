@@ -52,6 +52,12 @@ const AI_TASKS = {
     maxOutputTokens: 1100,
     temperature: 0.15,
   },
+  chart_interpretations: {
+    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-mini",
+    maxOutputTokens: 1500,
+    temperature: 0.15,
+  },
   final_report: {
     modelEnv: ["OPENAI_PREMIUM_MODEL", "OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL"],
     fallbackModel: "gpt-5.4",
@@ -239,6 +245,38 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
   const actionRationales = parseAiJson(actionRationaleResponse.text, {
     action_rationales: [],
   });
+  const compactChartInput = buildCompactProductChartInterpretationInput(input);
+  let chartInterpretationsResponse = null;
+  let chartInterpretations = normalizeProductChartInterpretations(null, compactChartInput);
+  if (compactChartInput.available) {
+    try {
+      chartInterpretationsResponse = await generateAiText({
+        shop,
+        jobId,
+        task: "chart_interpretations",
+        prompt: buildProductChartInterpretationsPrompt(compactChartInput),
+        usageTracker,
+      });
+      chartInterpretations = normalizeProductChartInterpretations(
+        parseAiJson(chartInterpretationsResponse.text, { chart_interpretations: {} }),
+        compactChartInput,
+        pickAiModelSummary(chartInterpretationsResponse),
+      );
+    } catch (error) {
+      chartInterpretations = normalizeProductChartInterpretations({
+        status: "ai_unavailable",
+        chart_interpretations: {},
+      }, compactChartInput);
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.chart_interpretations_failed",
+        message: "AI chart interpretations were skipped after the intermediate chart interpretation model failed.",
+        data: { error: serializeError(error) },
+      }).catch(() => {});
+    }
+  }
   const compactRelationshipInput = buildCompactProductRelationshipAiInput(input);
   let relationshipInsightsResponse = null;
   let relationshipInsights = normalizeProductRelationshipAiInsights(null, compactRelationshipInput);
@@ -289,6 +327,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       contentGap: pickAiModelSummary(gapResponse),
       contentCoverageValidation: contentCoverageValidationResponse ? pickAiModelSummary(contentCoverageValidationResponse) : null,
       actionRationale: pickAiModelSummary(actionRationaleResponse),
+      chartInterpretations: chartInterpretationsResponse ? pickAiModelSummary(chartInterpretationsResponse) : null,
       relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
       finalReport: pickAiModelSummary(reportResponse),
     },
@@ -297,6 +336,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     contentGaps,
     contentCoverageValidation,
     actionRationales,
+    chartInterpretations,
     relationshipInsights,
     report,
     raw: {
@@ -305,6 +345,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       contentGaps: gapResponse.text,
       contentCoverageValidation: contentCoverageValidationResponse?.text || "",
       actionRationales: actionRationaleResponse.text,
+      chartInterpretations: chartInterpretationsResponse?.text || "",
       relationshipInsights: relationshipInsightsResponse?.text || "",
       report: reportResponse.text,
     },
@@ -910,6 +951,365 @@ function buildActionRationalePrompt(input, classification, contentGaps, emergent
     "Final report draft:",
     JSON.stringify(report || {}, null, 2),
   ].join("\n\n");
+}
+
+const PRODUCT_CHART_INTERPRETATION_DEFINITIONS = [
+  { responseKey: "monthly_order_activity", outputKey: "monthlyOrderActivity", label: "Monthly Order Activity" },
+  { responseKey: "return_rate_prediction", outputKey: "returnRatePrediction", label: "Return Rate Prediction" },
+  { responseKey: "product_retention_metrics", outputKey: "productRetentionMetrics", label: "Product Retention Metrics" },
+  { responseKey: "product_risk_over_time", outputKey: "productRiskOverTime", label: "Product Risk Over Time" },
+  { responseKey: "product_momentum", outputKey: "productMomentum", label: "Product Momentum" },
+];
+
+export function buildCompactProductChartInterpretationInput(input = {}) {
+  const metrics = input?.deterministic?.metrics || {};
+  const product = input?.product || {};
+  const charts = {
+    monthly_order_activity: compactMonthlyOrderActivityForAi(metrics.monthlyOrderActivity),
+    return_rate_prediction: compactReturnRatePredictionForAi(metrics.returnRatePrediction),
+    product_retention_metrics: compactProductRetentionForAi(metrics.productRetention),
+    product_risk_over_time: compactProductRiskHistoryForAi(metrics, input?.deterministic),
+    product_momentum: compactProductMomentumForAi(metrics.productMomentum),
+  };
+
+  return {
+    available: Object.values(charts).some((chart) => chart.available),
+    product: {
+      title: cleanRelationshipText(product.title || product.productTitle || "Shopify product", 160),
+      handle: cleanRelationshipText(product.handle || "", 120),
+    },
+    instruction: "Interpret the actual business story in each chart, not generic metric definitions.",
+    charts,
+  };
+}
+
+function buildProductChartInterpretationsPrompt(compactInput) {
+  return [
+    "You are ProductPulse AI writing short business interpretations for Shopify product-detail charts.",
+    "The merchant already sees the chart labels. Do not explain what each metric generally means.",
+    "Instead, interpret what the supplied values, dates, direction, volatility, forecast and gaps say about this specific product as a business signal.",
+    "Write for a store owner or operator: what can they conclude, what tension is visible, and what deserves attention.",
+    "Use only supplied data. Do not invent facts, causes, exact values, dates, trends, products, customers, or recommendations not supported by the data.",
+    "Keep each chart answer to one short paragraph, ideally 35 to 75 words and never more than 90 words.",
+    "If a chart has unavailable or too-thin data, return an empty string for that chart.",
+    "Return valid JSON only. No markdown.",
+    "Schema:",
+    JSON.stringify({
+      chart_interpretations: {
+        monthly_order_activity: "One concise business interpretation paragraph, or empty string.",
+        return_rate_prediction: "One concise business interpretation paragraph, or empty string.",
+        product_retention_metrics: "One concise business interpretation paragraph, or empty string.",
+        product_risk_over_time: "One concise business interpretation paragraph, or empty string.",
+        product_momentum: "One concise business interpretation paragraph, or empty string.",
+      },
+    }, null, 2),
+    "Compact chart data:",
+    JSON.stringify(compactInput, null, 2),
+  ].join("\n\n");
+}
+
+export function normalizeProductChartInterpretations(raw = null, compactInput = {}, modelSummary = null) {
+  const rawMap = raw?.chart_interpretations || raw?.chartInterpretations || raw?.interpretations || raw || {};
+  const charts = compactInput?.charts || {};
+  const interpretations = {};
+
+  PRODUCT_CHART_INTERPRETATION_DEFINITIONS.forEach((definition) => {
+    const chartInput = charts[definition.responseKey] || charts[definition.outputKey] || {};
+    const rawValue = rawMap[definition.responseKey] || rawMap[definition.outputKey] || "";
+    const text = sanitizeChartInterpretationText(typeof rawValue === "string" ? rawValue : rawValue?.text || rawValue?.summary || rawValue?.interpretation || "");
+    interpretations[definition.outputKey] = {
+      chartId: definition.outputKey,
+      label: definition.label,
+      available: Boolean(chartInput.available),
+      text: chartInput.available ? text : "",
+    };
+  });
+
+  const hasText = Object.values(interpretations).some((item) => item.text);
+  return {
+    available: Boolean(compactInput.available),
+    status: raw?.status || (compactInput.available ? (hasText ? "available" : "no_ai_interpretation") : "not_available"),
+    insightVersion: "product_chart_interpretations_v1",
+    generatedAt: hasText ? new Date().toISOString() : null,
+    model: modelSummary?.model || null,
+    interpretations,
+    deterministicInputs: {
+      availableChartCount: Object.values(charts).filter((chart) => chart.available).length,
+    },
+  };
+}
+
+function compactMonthlyOrderActivityForAi(activity = null) {
+  const months = (Array.isArray(activity?.months) ? activity.months : [])
+    .slice(-14)
+    .map((month) => ({
+      key: cleanRelationshipText(month.key || month.label || "", 32),
+      label: cleanRelationshipText(month.label || month.key || "", 40),
+      startAt: month.startAt || null,
+      orders: toAiNumber(month.orders),
+      orderUnits: toAiNumber(month.orderUnits),
+      returnedOrders: toAiNumber(month.returnedOrders),
+      returnedUnits: toAiNumber(month.returnedUnits),
+      refundedOrders: toAiNumber(month.refundedOrders),
+      refundedUnits: toAiNumber(month.refundedUnits),
+      revenue: toAiNumber(month.revenue),
+      refundAmount: toAiNumber(month.refundAmount),
+      returnRate: toAiNumber(month.returnRate),
+      refundRate: toAiNumber(month.refundRate),
+      resolvedReturnUnits: toAiOptionalNumber(month.resolvedReturnUnits ?? month.returnResolvedUnits ?? month.resolvedReturns),
+      unresolvedReturnUnits: toAiOptionalNumber(month.unresolvedReturnUnits ?? month.openReturnUnits ?? month.pendingReturnUnits ?? month.unresolvedReturns),
+    }));
+  const unresolvedSeries = buildAiUnresolvedReturnSeries(months);
+  const summary = activity?.summary || {};
+  const hasActivity = months.some((month) => month.orders || month.orderUnits || month.returnedUnits || month.refundedUnits || month.revenue || month.refundAmount);
+
+  return {
+    available: hasActivity,
+    source: cleanRelationshipText(activity?.source || "", 80),
+    windowDays: toAiNumber(activity?.windowDays),
+    generatedAt: activity?.generatedAt || null,
+    summary: {
+      totalOrders: toAiNumber(summary.totalOrders),
+      totalOrderUnits: toAiNumber(summary.totalOrderUnits),
+      totalRevenue: toAiNumber(summary.totalRevenue),
+      totalReturnedUnits: toAiNumber(summary.totalReturnedUnits),
+      totalRefundedUnits: toAiNumber(summary.totalRefundedUnits),
+      totalRefundAmount: toAiNumber(summary.totalRefundAmount),
+      returnRate: toAiNumber(summary.returnRate),
+      refundRate: toAiNumber(summary.refundRate),
+    },
+    months,
+    unresolvedReturnBalance: unresolvedSeries,
+  };
+}
+
+function compactReturnRatePredictionForAi(prediction = null) {
+  const observedPoints = (Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [])
+    .slice(-16)
+    .map((point) => ({
+      key: cleanRelationshipText(point.key || point.label || "", 32),
+      label: cleanRelationshipText(point.label || point.key || "", 40),
+      startAt: point.startAt || null,
+      orders: toAiNumber(point.orders),
+      orderUnits: toAiNumber(point.orderUnits),
+      returnedOrders: toAiNumber(point.returnedOrders),
+      returnedUnits: toAiNumber(point.returnedUnits),
+      rawReturnRate: toAiOptionalNumber(point.rawReturnRate),
+      smoothedReturnRate: toAiNumber(point.smoothedReturnRate ?? point.rawReturnRate),
+    }));
+  const forecastPoints = (Array.isArray(prediction?.forecastPoints) ? prediction.forecastPoints : [])
+    .slice(0, 14)
+    .map((point) => ({
+      key: cleanRelationshipText(point.key || point.label || "", 32),
+      label: cleanRelationshipText(point.label || point.key || "", 40),
+      startAt: point.startAt || null,
+      predictedReturnRate: toAiNumber(point.predictedReturnRate),
+      basePredictedReturnRate: toAiOptionalNumber(point.basePredictedReturnRate),
+      baselineReturnRate: toAiOptionalNumber(point.baselineReturnRate),
+      seasonalReturnRate: toAiOptionalNumber(point.seasonalReturnRate),
+    }));
+  const summary = prediction?.summary || {};
+  const actionAdjustment = prediction?.actionAdjustment || {};
+  const hasPrediction = observedPoints.some((point) => point.orders || point.orderUnits || point.returnedUnits || point.smoothedReturnRate)
+    || forecastPoints.some((point) => point.predictedReturnRate);
+
+  return {
+    available: hasPrediction,
+    source: cleanRelationshipText(prediction?.source || "", 80),
+    granularity: cleanRelationshipText(prediction?.granularity || "weekly", 32),
+    windowDays: toAiNumber(prediction?.windowDays),
+    generatedAt: prediction?.generatedAt || null,
+    summary: {
+      totalOrderUnits: toAiNumber(summary.totalOrderUnits),
+      totalReturnedUnits: toAiNumber(summary.totalReturnedUnits),
+      totalReturnRate: toAiNumber(summary.totalReturnRate),
+      last30DayReturnRate: toAiNumber(summary.last30DayReturnRate),
+      last60DayReturnRate: toAiNumber(summary.last60DayReturnRate),
+      forecastNext90ReturnRate: toAiNumber(summary.forecastNext90ReturnRate),
+      confidence: cleanRelationshipText(summary.confidence || "", 40),
+    },
+    actionAdjustment: {
+      adjustmentPoints: toAiOptionalNumber(actionAdjustment.adjustmentPoints),
+      uncertaintyLift: toAiOptionalNumber(actionAdjustment.uncertaintyLift),
+      applied: toAiNumber(actionAdjustment.applied),
+      reviewed: toAiNumber(actionAdjustment.reviewed),
+      dismissed: toAiNumber(actionAdjustment.dismissed),
+      pending: toAiNumber(actionAdjustment.pending),
+      total: toAiNumber(actionAdjustment.total),
+    },
+    observedPoints,
+    forecastPoints,
+  };
+}
+
+function compactProductRetentionForAi(retention = null) {
+  const summary = retention?.summary || {};
+  const healthTrend = (Array.isArray(retention?.retentionHealthTrend) ? retention.retentionHealthTrend : [])
+    .slice(-12)
+    .map((point) => ({
+      date: cleanRelationshipText(point.date || point.asOfDate || point.cohortDate || "", 32),
+      retentionHealthScore: toAiOptionalNumber(point.retentionHealthScore),
+      repeatPurchaseRate90d: toAiOptionalNumber(point.repeatPurchaseRate90d),
+      productLtv90Cents: toAiOptionalNumber(point.productLtv90Cents),
+    }));
+  const ltvCurve = (Array.isArray(retention?.ltvCurve) ? retention.ltvCurve : [])
+    .slice(0, 12)
+    .map((point) => ({
+      ageDay: toAiNumber(point.ageDay),
+      cumulativeLtvCents: toAiNumber(point.cumulativeLtvCents),
+      sameProductLtvCents: toAiNumber(point.sameProductLtvCents),
+      otherProductLtvCents: toAiNumber(point.otherProductLtvCents),
+    }));
+  const hasRetention = Object.keys(summary).length > 0
+    && (toAiNumber(summary.totalCustomersAnalyzed) > 0 || toAiOptionalNumber(summary.retentionHealthScore) !== null || healthTrend.length > 0 || ltvCurve.length > 0);
+
+  return {
+    available: hasRetention,
+    run: retention?.run || null,
+    summary: {
+      totalCustomersAnalyzed: toAiNumber(summary.totalCustomersAnalyzed),
+      totalOrdersAnalyzed: toAiNumber(summary.totalOrdersAnalyzed),
+      repeatPurchaseRate90d: toAiOptionalNumber(summary.repeatPurchaseRate90d),
+      repeatPurchaseRate180d: toAiOptionalNumber(summary.repeatPurchaseRate180d),
+      sameProductRepurchaseRate90d: toAiOptionalNumber(summary.sameProductRepurchaseRate90d),
+      crossSellRetentionRate90d: toAiOptionalNumber(summary.crossSellRetentionRate90d),
+      returningRevenueShare: toAiOptionalNumber(summary.returningRevenueShare),
+      medianDaysToSecondPurchase: toAiOptionalNumber(summary.medianDaysToSecondPurchase),
+      productLtv90Cents: toAiOptionalNumber(summary.productLtv90Cents),
+      productLtv180Cents: toAiOptionalNumber(summary.productLtv180Cents),
+      retentionHealthScore: toAiOptionalNumber(summary.retentionHealthScore),
+      hasEnoughData: Boolean(summary.hasEnoughData),
+      earliestOrderDate: summary.earliestOrderDate || null,
+      latestOrderDate: summary.latestOrderDate || null,
+    },
+    retentionHealthTrend: healthTrend,
+    ltvCurve,
+  };
+}
+
+function compactProductRiskHistoryForAi(metrics = {}, deterministic = {}) {
+  const history = Array.isArray(metrics.reconstructedRiskHistory)
+    ? metrics.reconstructedRiskHistory
+    : Array.isArray(metrics.riskHistory)
+      ? metrics.riskHistory
+      : [];
+  const points = history.slice(-16).map((point, index) => ({
+    label: cleanRelationshipText(point.label || point.recordedAt || point.calculatedAt || `Point ${index + 1}`, 48),
+    recordedAt: point.recordedAt || point.calculatedAt || point.completedAt || null,
+    riskScore: toAiNumber(point.riskScore),
+    confidence: toAiOptionalNumber(point.confidence),
+    returnRate: toAiOptionalNumber(point.returnRate),
+    refundRate: toAiOptionalNumber(point.refundRate),
+    returnUnits: toAiOptionalNumber(point.returnUnits),
+    refundUnits: toAiOptionalNumber(point.refundUnits),
+    negativeReviewCount: toAiOptionalNumber(point.negativeReviewCount),
+    reviewCount: toAiOptionalNumber(point.reviewCount),
+    avgRating: toAiOptionalNumber(point.avgRating ?? point.averageRating),
+    refundAmount: toAiOptionalNumber(point.refundAmount),
+    productMomentumScore: toAiOptionalNumber(point.productMomentumScore),
+  }));
+  const currentRiskScore = toAiOptionalNumber(deterministic?.riskScore ?? metrics.riskScore ?? metrics.riskComponents?.riskScore);
+  const hasRisk = points.length > 0 || currentRiskScore !== null;
+
+  return {
+    available: hasRisk,
+    current: {
+      riskScore: currentRiskScore,
+      confidence: toAiOptionalNumber(deterministic?.confidence ?? metrics.confidence),
+      riskLabel: cleanRelationshipText(deterministic?.riskLabel || metrics.riskLabel || "", 40),
+      riskTrend: cleanRelationshipText(typeof metrics.riskTrend === "string" ? metrics.riskTrend : metrics.riskTrendLabel || "", 80),
+    },
+    points,
+  };
+}
+
+function compactProductMomentumForAi(momentum = null) {
+  const components = momentum?.components || {};
+  const inputs = momentum?.inputs || {};
+  const display = momentum?.display || {};
+  const weeklyUnits = Array.isArray(inputs.weeklyUnitsLast4Weeks)
+    ? inputs.weeklyUnitsLast4Weeks.slice(-4).map(toAiNumber)
+    : [];
+  const hasMomentum = momentum && (
+    toAiOptionalNumber(momentum.score) !== null
+    || weeklyUnits.some((value) => value > 0)
+    || toAiNumber(inputs.unitsLast30Days) > 0
+    || toAiNumber(inputs.revenueLast30Days) > 0
+  );
+
+  return {
+    available: Boolean(hasMomentum),
+    score: toAiOptionalNumber(momentum?.score),
+    tier: cleanRelationshipText(momentum?.tier || "", 40),
+    direction: cleanRelationshipText(momentum?.direction || "", 40),
+    confidence: toAiOptionalNumber(momentum?.confidence),
+    confidenceLabel: cleanRelationshipText(momentum?.confidenceLabel || "", 40),
+    display: {
+      trendLabel: cleanRelationshipText(display.trendLabel || "", 140),
+      growthLabel: cleanRelationshipText(display.growthLabel || "", 80),
+      growthPercent: toAiOptionalNumber(display.growthPercent),
+      catalogPositionLabel: cleanRelationshipText(display.catalogPositionLabel || "", 120),
+    },
+    components: {
+      currentVelocityScore: toAiOptionalNumber(components.currentVelocityScore),
+      growthScore: toAiOptionalNumber(components.growthScore),
+      catalogShareScore: toAiOptionalNumber(components.catalogShareScore),
+      trendConsistencyScore: toAiOptionalNumber(components.trendConsistencyScore),
+      recencyScore: toAiOptionalNumber(components.recencyScore),
+    },
+    inputs: {
+      unitsLast7Days: toAiNumber(inputs.unitsLast7Days),
+      unitsLast30Days: toAiNumber(inputs.unitsLast30Days),
+      unitsPrevious30Days: toAiNumber(inputs.unitsPrevious30Days),
+      revenueLast30Days: toAiNumber(inputs.revenueLast30Days),
+      weeklyUnitsLast4Weeks: weeklyUnits,
+      lastSaleAt: inputs.lastSaleAt || null,
+    },
+  };
+}
+
+function buildAiUnresolvedReturnSeries(months = []) {
+  let runningUnresolved = 0;
+  return months.map((month) => {
+    const opened = Math.max(0, toAiNumber(month.returnedUnits || month.returnedOrders));
+    const explicitResolved = toAiOptionalNumber(month.resolvedReturnUnits);
+    const explicitUnresolved = toAiOptionalNumber(month.unresolvedReturnUnits);
+    const resolved = explicitResolved === null
+      ? Math.min(Math.max(0, toAiNumber(month.refundedUnits || month.refundedOrders)), runningUnresolved + opened)
+      : Math.max(0, explicitResolved);
+    const value = explicitUnresolved === null
+      ? Math.max(0, runningUnresolved + opened - resolved)
+      : Math.max(0, explicitUnresolved);
+    runningUnresolved = value;
+    return {
+      key: month.key,
+      label: month.label,
+      openedReturns: opened,
+      resolvedReturns: resolved,
+      unresolvedReturnBalance: value,
+    };
+  });
+}
+
+function sanitizeChartInterpretationText(value = "") {
+  return cleanAiParagraph(value)
+    .replace(/\b(?:causes?|caused|causing|causally|because it causes)\b/gi, "is associated with")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 620);
+}
+
+function toAiNumber(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return roundAiNumber(numeric, 2);
+}
+
+function toAiOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return roundAiNumber(numeric, 2);
 }
 
 export function buildCompactProductRelationshipAiInput(input = {}) {

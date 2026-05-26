@@ -2969,6 +2969,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
     productPurchaseContextSummary,
     incrementalDiagnosis,
     aiUsage: ai.aiUsage,
+    chartInterpretations: ai.chartInterpretations || null,
     productRelationshipAiInsights: ai.relationshipInsights || null,
     diagnosisReport: {
       mainFinding: adjustedMainFinding,
@@ -2977,6 +2978,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
       aiUsage: ai.aiUsage,
+      chartInterpretations: ai.chartInterpretations || null,
       relationshipInsights: ai.relationshipInsights || null,
       knownEmotions,
       emergentSentiments,

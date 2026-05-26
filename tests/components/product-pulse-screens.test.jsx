@@ -2118,6 +2118,13 @@ describe("ProductPulse screens", () => {
             maxOrders: 8,
           },
         },
+        chartInterpretations: {
+          interpretations: {
+            monthlyOrderActivity: {
+              text: "Orders are concentrated in April and May while returns appear in both months, so the merchant should read demand and post-purchase friction together.",
+            },
+          },
+        },
         returnRefundRelationshipSummary: relationshipSummaryFixture({
           sold_units: 15,
           sold_orders: 12,
@@ -2150,6 +2157,8 @@ describe("ProductPulse screens", () => {
     expect(within(orderPanel).getByText("Apr")).toBeInTheDocument();
     expect(within(orderPanel).getByText("May")).toBeInTheDocument();
     expect(within(orderPanel).getByText("Revenue")).toBeInTheDocument();
+    expect(within(orderPanel).getByText("AI interpretation")).toBeInTheDocument();
+    expect(within(orderPanel).getByText(/Orders are concentrated in April and May/)).toBeInTheDocument();
     expect(within(orderPanel.querySelector(".ppOrderActivityYAxisRight")).getByText("$1,200")).toBeInTheDocument();
     expect(orderPanel.querySelector(".ppOrderActivityLineRevenue")).toBeInTheDocument();
     expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).toBeInTheDocument();
@@ -2815,6 +2824,13 @@ describe("ProductPulse screens", () => {
             direction: "improving",
           },
         },
+        chartInterpretations: {
+          interpretations: {
+            returnRatePrediction: {
+              text: "The forecast remains close to the recent observed rate, so the product still carries near-term return pressure after current actions.",
+            },
+          },
+        },
       },
     };
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
@@ -2828,6 +2844,8 @@ describe("ProductPulse screens", () => {
     expect(within(predictionPanel).getByText("Next 3 months")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Medium confidence")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Forecast range")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText("AI interpretation")).toBeInTheDocument();
+    expect(within(predictionPanel).getByText(/forecast remains close/)).toBeInTheDocument();
     expect(predictionPanel.querySelector(".ppReturnPredictionForecastRange")).toBeInTheDocument();
     expect(predictionPanel.querySelector(".ppReturnPredictionForecastRange")?.getAttribute("d")).toContain("Z");
     expect(predictionPanel.querySelector(".ppReturnPredictionImpactBadge")).toBeInTheDocument();

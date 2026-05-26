@@ -5756,6 +5756,9 @@ function getProductDetailModel(product) {
   const returnRatePrediction = normalizeProductReturnRatePrediction(metrics.returnRatePrediction);
   const productRetention = normalizeProductRetention(metrics.productRetention);
   const productMomentum = normalizeProductMomentum(metrics.productMomentum);
+  const chartInterpretations = normalizeProductChartInterpretations(
+    metrics.chartInterpretations || metrics.diagnosisReport?.chartInterpretations,
+  );
   const returnRefundRelationshipFactors = asPlainObject(metrics.returnRefundRelationshipFactors);
   const returnRefundRelationship = normalizeProductReturnRefundRelationship(
     metrics.returnRefundRelationshipSummary,
@@ -5914,6 +5917,7 @@ function getProductDetailModel(product) {
     productRetention,
     hasProductRetention,
     productMomentum,
+    chartInterpretations,
     issueBadge: issueCategory,
     showIssueBadge: Boolean(issueText),
     issueCategory,
@@ -6818,6 +6822,51 @@ function normalizeProductReturnRatePrediction(prediction = null) {
     actionAdjustment: prediction?.actionAdjustment || null,
     model: prediction?.model || null,
   };
+}
+
+const PRODUCT_CHART_INTERPRETATION_KEYS = {
+  monthlyOrderActivity: ["monthlyOrderActivity", "monthly_order_activity"],
+  returnRatePrediction: ["returnRatePrediction", "return_rate_prediction"],
+  productRetentionMetrics: ["productRetentionMetrics", "product_retention_metrics"],
+  productRiskOverTime: ["productRiskOverTime", "product_risk_over_time"],
+  productMomentum: ["productMomentum", "product_momentum"],
+};
+
+function normalizeProductChartInterpretations(value = null) {
+  const record = asPlainObject(value);
+  const source = asPlainObject(record.interpretations || record.chart_interpretations || record.chartInterpretations || record);
+  return Object.entries(PRODUCT_CHART_INTERPRETATION_KEYS).reduce((normalized, [key, aliases]) => {
+    const raw = aliases.map((alias) => source[alias]).find((candidate) => candidate !== undefined && candidate !== null);
+    normalized[key] = normalizeProductChartInterpretation(raw, key);
+    return normalized;
+  }, {
+    status: firstNonEmptyString(record.status),
+    generatedAt: firstNonEmptyString(record.generatedAt),
+    model: firstNonEmptyString(asPlainObject(record.model).model, typeof record.model === "string" ? record.model : ""),
+  });
+}
+
+function normalizeProductChartInterpretation(value, chartKey) {
+  const record = asPlainObject(value);
+  const text = typeof value === "string"
+    ? value
+    : firstNonEmptyString(record.text, record.summary, record.interpretation);
+  return {
+    chartKey,
+    text: sanitizeProductChartInterpretationText(text),
+  };
+}
+
+function sanitizeProductChartInterpretationText(value = "") {
+  return String(value || "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 620);
+}
+
+function getProductChartInterpretation(detail = {}, chartKey = "") {
+  return sanitizeProductChartInterpretationText(detail.chartInterpretations?.[chartKey]?.text);
 }
 
 function hasProductMonthlyOrderActivity(activity = null) {
@@ -14106,6 +14155,20 @@ const ORDER_ACTIVITY_LEGEND_ITEMS = Object.freeze([
   { key: "unresolved", label: "Unresolved returns", ariaLabel: "unresolved returns line", className: "ppOrderActivityLegendUnresolved", requiresUnresolvedSeries: true },
 ]);
 
+function ProductChartAiInterpretation({ detail, chartKey }) {
+  const text = getProductChartInterpretation(detail, chartKey);
+  if (!text) return null;
+  return (
+    <aside className="ppProductChartAiInterpretation">
+      <span>
+        <ProductPulseGlyph type="ai-evidence-synthesis" />
+        <strong>AI interpretation</strong>
+      </span>
+      <p>{text}</p>
+    </aside>
+  );
+}
+
 function ProductOrderActivityPanel({ detail }) {
   const [visibleOrderActivitySeries, setVisibleOrderActivitySeries] = useState(() => ({ ...ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES }));
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
@@ -14188,6 +14251,7 @@ function ProductOrderActivityPanel({ detail }) {
       ) : (
         <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
       )}
+      <ProductChartAiInterpretation detail={detail} chartKey="monthlyOrderActivity" />
     </section>
   );
 }
@@ -14267,6 +14331,7 @@ function ProductReturnRatePredictionPanel({ detail }) {
       ) : (
         <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
       )}
+      <ProductChartAiInterpretation detail={detail} chartKey="returnRatePrediction" />
     </section>
   );
 }
@@ -14338,6 +14403,7 @@ function ProductRetentionMetricsPanel({ detail }) {
           </div>
 
           <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} summary={summary} />
+          <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />
         </>
       )}
     </section>
@@ -15496,6 +15562,7 @@ function ProductMomentumPanel({ detail }) {
         <span><b>{momentum.confidenceLabel}</b> · {formatInteger(momentum.confidence)}/100</span>
         <span>{formatInteger(momentum.inputs.unitsLast30Days)} units · {formatMoney(momentum.inputs.revenueLast30Days)} revenue in the last 30 days</span>
       </div>
+      <ProductChartAiInterpretation detail={detail} chartKey="productMomentum" />
     </section>
   );
 }
@@ -16505,6 +16572,7 @@ function ProductRiskHistoryPanel({ detail }) {
           <ProductRiskHistoryMetaCard card={card} key={card.id} />
         ))}
       </div>
+      <ProductChartAiInterpretation detail={detail} chartKey="productRiskOverTime" />
     </section>
   );
 }
