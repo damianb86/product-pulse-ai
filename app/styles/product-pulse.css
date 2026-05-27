@@ -6175,6 +6175,12 @@ s-page[inline-size="large-500"] {
   transform: translateX(-10%);
 }
 
+.ppProductRiskHistoryMilestone:hover,
+.ppProductRiskHistoryMilestoneRule:hover + .ppProductRiskHistoryMilestone {
+  z-index: 8;
+  box-shadow: 0 14px 34px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
 .ppProductRiskHistoryMilestone-right {
   transform: translateX(-90%);
 }
@@ -6184,7 +6190,7 @@ s-page[inline-size="large-500"] {
   z-index: 1;
   width: 1px;
   border-left: 1px dashed rgba(var(--pp-risk-red-rgb), 0.38);
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .ppProductRiskHistoryMilestoneRule::before,
