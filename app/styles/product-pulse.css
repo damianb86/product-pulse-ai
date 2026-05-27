@@ -5710,6 +5710,36 @@ s-page[inline-size="large-500"] {
   filter: drop-shadow(0 5px 12px rgba(var(--pp-shadow-rgb), 0.2));
 }
 
+.ppMetricTimelineEventMarker {
+  color: var(--pp-metric-timeline-event-color, var(--pp-slate-700));
+  cursor: pointer;
+}
+
+.ppMetricTimelineEventMarkerHalo {
+  fill: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.ppMetricTimelineEventMarkerCircle {
+  fill: currentColor;
+  stroke: var(--pp-cloud-white);
+  stroke-width: 2.4;
+  filter: drop-shadow(0 6px 12px rgba(var(--pp-shadow-rgb), 0.18));
+}
+
+.ppMetricTimelineEventMarkerIcon {
+  fill: none;
+  stroke: var(--pp-cloud-white);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.55;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppMetricTimelineEventMarkerIconFill {
+  fill: var(--pp-cloud-white);
+  stroke: none;
+}
+
 .ppMetricTimelineTooltip {
   position: static;
   transform: none;
@@ -5755,6 +5785,72 @@ s-page[inline-size="large-500"] {
   min-width: 0;
   text-align: right;
   white-space: nowrap;
+}
+
+.ppMetricTimelineEventTooltip {
+  gap: 7px;
+  width: min(280px, 72vw);
+  padding: 9px;
+}
+
+.ppMetricTimelineEventTooltipHeader {
+  display: grid !important;
+  grid-template-columns: 24px minmax(0, 1fr) !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.ppMetricTimelineEventTooltipHeader strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+}
+
+.ppMetricTimelineEventTooltipIcon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, var(--pp-cloud-white));
+  color: currentColor;
+}
+
+.ppMetricTimelineEventTooltipIcon svg,
+.ppMetricTimelineEventTooltipIcon s-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.ppMetricTimelineEventTooltip p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ppMetricTimelineEventTooltip-red {
+  color: var(--pp-risk-red);
+}
+
+.ppMetricTimelineEventTooltip-orange {
+  color: var(--pp-warning-amber);
+}
+
+.ppMetricTimelineEventTooltip-green {
+  color: var(--pp-success-green);
+}
+
+.ppMetricTimelineEventTooltip-blue {
+  color: var(--pp-pulse-blue);
+}
+
+.ppMetricTimelineEventTooltip-slate {
+  color: var(--pp-slate-700);
 }
 
 .ppMetricTimelineNoData {

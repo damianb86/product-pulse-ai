@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { createMemoryRouter, RouterProvider, useActionData } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AnalyticsScreen,
   BackgroundProcessesScreen,
@@ -18,6 +18,10 @@ import {
   __productPulseScreensTestHooks,
 } from "../../app/components/ProductPulseScreens";
 import { defaultView } from "../fixtures/product-pulse-fixtures";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function renderWithRouter(element) {
   const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
@@ -1585,6 +1589,7 @@ describe("ProductPulse screens", () => {
   });
 
   it("renders aligned product metric timeline charts", () => {
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-05-27T01:00:00.000Z").getTime());
     window.localStorage.removeItem(__productPulseScreensTestHooks.productMetricTimelineOrderStorageKey);
     const product = makeMetricTimelineProduct();
     const { container } = renderWithRouter(<ProductMetricTimelinesScreen product={product} />);
@@ -1596,6 +1601,7 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Filters")).not.toBeInTheDocument();
     expect(screen.queryByText(/All charts share the same timeline/)).not.toBeInTheDocument();
     [
+      "Product events",
       "Product risk",
       "Monthly order activity",
       "Return rate",
@@ -1614,32 +1620,37 @@ describe("ProductPulse screens", () => {
     });
 
     const charts = Array.from(container.querySelectorAll(".ppMetricTimelineChart"));
-    expect(charts).toHaveLength(13);
+    expect(charts).toHaveLength(14);
     expect(container.querySelectorAll(".ppMetricTimelineChartSvg")).toHaveLength(0);
-    expect(container.querySelectorAll(".ppMetricTimelineSummary")).toHaveLength(13);
-    expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(13);
+    expect(container.querySelectorAll(".ppMetricTimelineSummary")).toHaveLength(14);
+    expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(14);
     expect(container.querySelectorAll(".ppMetricTimelinePoint")).toHaveLength(0);
     expect(container.querySelectorAll(".ppMetricTimelineDragHandle")).toHaveLength(0);
-    expect(within(charts[0]).getByText("Risk score history")).toBeInTheDocument();
-    expect(within(charts[0]).getByText("70 / 100")).toBeInTheDocument();
-    expect(within(charts[0]).getByText("+9 vs Apr 1")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("Orders, returns, refunds, revenue")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("28 orders")).toBeInTheDocument();
-    expect(charts[1].querySelectorAll(".recharts-bar")).toHaveLength(0);
-    expect(within(charts[1]).getByText("Orders")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("Returns")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("Refunds")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("Revenue")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Return rate and product friction")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("36%")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Return pressure")).toBeInTheDocument();
-    expect(within(charts[3]).getByText("Refunds vs revenue")).toBeInTheDocument();
+    expect(within(charts[0]).getByText("Operational timeline markers")).toBeInTheDocument();
+    expect(within(charts[0]).getByText("3 events")).toBeInTheDocument();
+    expect(within(charts[0]).getByText("3 groups · Jun to May 29")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Risk score history")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("70 / 100")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("+9 vs Apr 1")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Orders, returns, refunds, revenue")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("28 orders")).toBeInTheDocument();
+    expect(charts[2].querySelectorAll(".recharts-bar")).toHaveLength(0);
+    expect(within(charts[2]).getByText("Orders")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Returns")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Refunds")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Revenue")).toBeInTheDocument();
+    expect(within(charts[3]).getByText("Return rate and product friction")).toBeInTheDocument();
+    expect(within(charts[3]).getByText("36%")).toBeInTheDocument();
+    expect(within(charts[3]).getByText("Return pressure")).toBeInTheDocument();
+    expect(within(charts[4]).getByText("Refunds vs revenue")).toBeInTheDocument();
     const chartTextLabels = Array.from(charts[0].querySelectorAll("text")).map((node) => node.textContent);
-    expect(chartTextLabels).toEqual(expect.arrayContaining(["Feb", "Mar", "Apr", "May", "May 29"]));
+    expect(chartTextLabels).toEqual(expect.arrayContaining(["Jun", "May 29"]));
+    expect(charts[0].querySelectorAll(".ppMetricTimelineEventMarker")).toHaveLength(3);
 
     const detail = __productPulseScreensTestHooks.getProductDetailModel(product);
     const model = __productPulseScreensTestHooks.getProductMetricTimelineModel(detail);
     expect(model.charts.map((chart) => chart.key)).toEqual([
+      "product-events",
       "product-risk",
       "monthly-order-activity",
       "return-rate",
@@ -1654,10 +1665,19 @@ describe("ProductPulse screens", () => {
       "negative-review-pressure",
       "main-issue",
     ]);
-    expect(model.rangeLabel).toBe("Feb to May 29");
+    expect(model.rangeLabel).toBe("Jun to May 29");
+    const eventChart = model.charts.find((chart) => chart.key === "product-events");
+    expect(eventChart.kind).toBe("events");
+    expect(eventChart.pinned).toBe(true);
+    expect(eventChart.points.map((point) => point.title)).toEqual([
+      "QuickScan completed",
+      "Product risk increased",
+      "Recommended action applied",
+    ]);
+    expect(new Set(eventChart.points.filter((point) => point.dayKey === "2026-05-29").map((point) => point.lane)).size).toBe(2);
     const orderActivityChart = model.charts.find((chart) => chart.key === "monthly-order-activity");
     expect(orderActivityChart.legendItems.map((item) => item.label)).toEqual(["Orders", "Returns", "Refunds", "Revenue", "Unresolved returns"]);
-    expect(model.charts.every((chart) => chart.points.every((point) => point.time >= new Date("2026-02-01T00:00:00.000Z").getTime()))).toBe(true);
+    expect(model.charts.every((chart) => chart.points.every((point) => point.time >= new Date("2025-06-01T00:00:00.000Z").getTime()))).toBe(true);
     expect(model.charts.find((chart) => chart.key === "product-risk").points.map((point) => point.label)).toEqual([
       "Feb 15, 2026",
       "Mar 1, 2026",
@@ -1683,17 +1703,19 @@ describe("ProductPulse screens", () => {
     const chartKeys = (container) => Array.from(container.querySelectorAll(".ppMetricTimelineChart"))
       .map((chart) => chart.getAttribute("data-metric-key"));
 
-    expect(chartKeys(firstRender.container).slice(0, 3)).toEqual(["product-risk", "monthly-order-activity", "return-rate"]);
+    expect(chartKeys(firstRender.container).slice(0, 4)).toEqual(["product-events", "product-risk", "monthly-order-activity", "return-rate"]);
+    expect(screen.getByRole("button", { name: "Move Product events up" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Move Product events down" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Product risk up" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Move Monthly order activity up" }));
 
-    await waitFor(() => expect(chartKeys(firstRender.container).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]));
+    await waitFor(() => expect(chartKeys(firstRender.container).slice(0, 4)).toEqual(["product-events", "monthly-order-activity", "product-risk", "return-rate"]));
     expect(JSON.parse(window.localStorage.getItem(storageKey)).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]);
 
     firstRender.unmount();
     const secondRender = renderWithRouter(<ProductMetricTimelinesScreen product={product} />);
-    await waitFor(() => expect(chartKeys(secondRender.container).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]));
+    await waitFor(() => expect(chartKeys(secondRender.container).slice(0, 4)).toEqual(["product-events", "monthly-order-activity", "product-risk", "return-rate"]));
     window.localStorage.removeItem(storageKey);
   });
 

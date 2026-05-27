@@ -10,6 +10,7 @@ import {
   Line,
   Pie,
   PieChart,
+  Scatter,
   Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
@@ -48,6 +49,8 @@ const PRODUCT_RISK_HISTORY_REFUND_AMOUNT_ONLY_MILESTONE_MIN = 50;
 const PRODUCT_METRIC_TIMELINE_DAY_MS = 86_400_000;
 const PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS = 365;
 const PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY = "productPulse.metricTimelines.chartOrder.v1";
+const PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES = 5;
+const PRODUCT_METRIC_TIMELINE_EVENT_MIN_SPACING_DAYS = 7;
 const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
   width: 1200,
   height: 216,
@@ -12507,6 +12510,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 }
 
 export function ProductMetricTimelinesScreen({ product }) {
+  const [savedChartOrder, setSavedChartOrder] = useState([]);
+
+  useEffect(() => {
+    setSavedChartOrder(readProductMetricTimelineChartOrder());
+  }, []);
+
   if (!product) {
     return (
       <FullWidthPage heading="Product not found">
@@ -12521,13 +12530,11 @@ export function ProductMetricTimelinesScreen({ product }) {
 
   const detail = getProductDetailModel(product);
   const timelineModel = getProductMetricTimelineModel(detail);
-  const [savedChartOrder, setSavedChartOrder] = useState([]);
-  const visibleCharts = getProductMetricTimelineOrderedCharts(timelineModel.charts, savedChartOrder);
-  const availableChartKeys = timelineModel.charts.map((chart) => chart.key);
-
-  useEffect(() => {
-    setSavedChartOrder(readProductMetricTimelineChartOrder());
-  }, []);
+  const pinnedCharts = timelineModel.charts.filter((chart) => chart.pinned);
+  const orderableCharts = timelineModel.charts.filter((chart) => !chart.pinned);
+  const orderedCharts = getProductMetricTimelineOrderedCharts(orderableCharts, savedChartOrder);
+  const visibleCharts = [...pinnedCharts, ...orderedCharts];
+  const availableChartKeys = orderableCharts.map((chart) => chart.key);
 
   const handleMoveChart = (chartKey, direction) => {
     setSavedChartOrder((currentOrder) => {
@@ -12558,15 +12565,18 @@ export function ProductMetricTimelinesScreen({ product }) {
         </div>
 
         <div className="ppMetricTimelineStack" aria-label="Metric timelines">
-          {visibleCharts.map((chart, index) => (
-            <ProductMetricTimelineChart
-              canMoveDown={index < visibleCharts.length - 1}
-              canMoveUp={index > 0}
-              chart={chart}
-              key={chart.key}
-              onMove={handleMoveChart}
-            />
-          ))}
+          {visibleCharts.map((chart) => {
+            const orderableIndex = orderedCharts.findIndex((item) => item.key === chart.key);
+            return (
+              <ProductMetricTimelineChart
+                canMoveDown={!chart.pinned && orderableIndex >= 0 && orderableIndex < orderedCharts.length - 1}
+                canMoveUp={!chart.pinned && orderableIndex > 0}
+                chart={chart}
+                key={chart.key}
+                onMove={handleMoveChart}
+              />
+            );
+          })}
         </div>
 
         {!timelineModel.hasData && (
@@ -12621,6 +12631,8 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
           {chart.points.length ? (
             chart.kind === "orderActivity" ? (
               <ProductMetricTimelineOrderActivityChart chart={chart} />
+            ) : chart.kind === "events" ? (
+              <ProductMetricTimelineEventsChart chart={chart} />
             ) : (
               <AreaChart
                 responsive
@@ -12752,6 +12764,123 @@ function ProductMetricTimelineOrderActivityChart({ chart }) {
   );
 }
 
+function ProductMetricTimelineEventsChart({ chart }) {
+  return (
+    <ComposedChart
+      responsive
+      style={{ width: "100%", height: "100%" }}
+      data={chart.data}
+      margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
+      syncId="product-metric-timelines"
+      syncMethod={getProductMetricTimelineNearestSyncIndex}
+    >
+      <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
+      <XAxis
+        dataKey="time"
+        type="number"
+        domain={[chart.xDomain.min, chart.xDomain.max]}
+        ticks={chart.xTicks.map((tick) => tick.value)}
+        tickFormatter={(value) => chart.xTickLabels[String(value)] || ""}
+        axisLine={false}
+        tickLine={false}
+        tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+      />
+      <YAxis
+        dataKey="value"
+        domain={[chart.yDomain.min, chart.yDomain.max]}
+        ticks={chart.yTicks.map((tick) => tick.value)}
+        tickFormatter={() => ""}
+        axisLine={false}
+        tickLine={false}
+        tick={{ fill: "transparent", fontSize: 11, fontWeight: 850 }}
+        width={46}
+      />
+      <RechartsTooltip
+        content={<ProductMetricTimelineTooltip chart={chart} />}
+        cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+        wrapperStyle={{ outline: "none", zIndex: 8 }}
+      />
+      <Scatter
+        data={chart.data}
+        dataKey="value"
+        fill={chart.color}
+        shape={<ProductMetricTimelineEventMarker />}
+        isAnimationActive={false}
+      />
+    </ComposedChart>
+  );
+}
+
+function ProductMetricTimelineEventMarker(props = {}) {
+  const cx = Number(props.cx);
+  const cy = Number(props.cy);
+  const event = props.payload || {};
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+  const color = event.color || getProductMetricTimelineEventColor(event);
+  return (
+    <g
+      className={`ppMetricTimelineEventMarker ppMetricTimelineEventMarker-${event.tone || "slate"}`}
+      transform={`translate(${cx} ${cy})`}
+      style={{ "--pp-metric-timeline-event-color": color }}
+    >
+      <circle className="ppMetricTimelineEventMarkerHalo" r="12" />
+      <circle className="ppMetricTimelineEventMarkerCircle" r="8" />
+      {renderProductMetricTimelineEventMarkerIcon(event)}
+    </g>
+  );
+}
+
+function renderProductMetricTimelineEventMarkerIcon(event = {}) {
+  const normalized = `${event.category || ""} ${event.eventType || ""}`.toLowerCase();
+  if (normalized.includes("action") || normalized.includes("applied") || normalized.includes("resolved")) {
+    return <path className="ppMetricTimelineEventMarkerIcon" d="M-3.7 -0.1L-1.1 2.5L4.2 -3.2" />;
+  }
+  if (normalized.includes("review")) {
+    return <path className="ppMetricTimelineEventMarkerIcon" d="M0 -4.8L1.4 -1.6L4.8 -1.3L2.2 0.9L3 4.2L0 2.4L-3 4.2L-2.2 0.9L-4.8 -1.3L-1.4 -1.6Z" />;
+  }
+  if (normalized.includes("return") || normalized.includes("refund")) {
+    return (
+      <>
+        <path className="ppMetricTimelineEventMarkerIcon" d="M3.6 -2.8H-2.5C-4 -2.8 -5 -1.8 -5 -0.3C-5 1.2 -4 2.2 -2.5 2.2H3.2" />
+        <path className="ppMetricTimelineEventMarkerIcon" d="M-2.5 -5L-5 -2.8L-2.5 -0.5" />
+      </>
+    );
+  }
+  if (normalized.includes("catalog") || normalized.includes("content") || normalized.includes("product")) {
+    return (
+      <>
+        <path className="ppMetricTimelineEventMarkerIcon" d="M0 -4.8L4.1 -2.4V2.4L0 4.8L-4.1 2.4V-2.4Z" />
+        <path className="ppMetricTimelineEventMarkerIcon" d="M-4 -2.2L0 0.1L4 -2.2" />
+      </>
+    );
+  }
+  if (normalized.includes("watch")) {
+    return (
+      <>
+        <path className="ppMetricTimelineEventMarkerIcon" d="M-5 0C-3.8 -2.4 -2.2 -3.6 0 -3.6C2.2 -3.6 3.8 -2.4 5 0C3.8 2.4 2.2 3.6 0 3.6C-2.2 3.6 -3.8 2.4 -5 0Z" />
+        <circle className="ppMetricTimelineEventMarkerIcon ppMetricTimelineEventMarkerIconFill" cx="0" cy="0" r="1.2" />
+      </>
+    );
+  }
+  if (normalized.includes("scan") || normalized.includes("diagnosis")) {
+    return (
+      <>
+        <circle className="ppMetricTimelineEventMarkerIcon" cx="-0.9" cy="-0.9" r="3" />
+        <path className="ppMetricTimelineEventMarkerIcon" d="M1.6 1.6L4.5 4.5" />
+      </>
+    );
+  }
+  if (normalized.includes("risk") || normalized.includes("issue")) {
+    return (
+      <>
+        <path className="ppMetricTimelineEventMarkerIcon" d="M0 -4.2V0.8" />
+        <path className="ppMetricTimelineEventMarkerIcon" d="M0 4.1H0.05" />
+      </>
+    );
+  }
+  return <circle className="ppMetricTimelineEventMarkerIcon ppMetricTimelineEventMarkerIconFill" cx="0" cy="0" r="2.3" />;
+}
+
 function ProductMetricTimelineActiveDot(props = {}) {
   const cx = Number(props.cx);
   const cy = Number(props.cy);
@@ -12781,6 +12910,7 @@ function ProductMetricTimelineLegend({ chart }) {
 function ProductMetricTimelineTooltip({ active, payload, chart }) {
   const point = Array.isArray(payload) && payload.length ? payload[0]?.payload : null;
   if (!active || !point) return null;
+  if (chart.kind === "events") return <ProductMetricTimelineEventTooltip event={point} />;
   return (
     <div className="ppRetentionLinePopover ppMetricTimelineTooltip" role="tooltip">
       <strong>{point.label}</strong>
@@ -12792,6 +12922,26 @@ function ProductMetricTimelineTooltip({ active, payload, chart }) {
             <span key={`${chart.key}-${line.dataKey}`}><b>{line.label}</b><small>{formatProductMetricTimelineValue(value, line.axis || chart.axis)}</small></span>
           ) : null;
         })}
+      </span>
+    </div>
+  );
+}
+
+function ProductMetricTimelineEventTooltip({ event = {} }) {
+  return (
+    <div className={`ppRetentionLinePopover ppMetricTimelineTooltip ppMetricTimelineEventTooltip ppMetricTimelineEventTooltip-${event.tone || "slate"}`} role="tooltip">
+      <span className="ppMetricTimelineEventTooltipHeader">
+        <span className="ppMetricTimelineEventTooltipIcon" aria-hidden="true">
+          <ProductPulseGlyph type={event.icon || getProductTimelineIcon(event.category, event.eventType)} />
+        </span>
+        <strong>{event.title}</strong>
+      </span>
+      {event.summary ? <p>{event.summary}</p> : null}
+      <span className="ppRetentionLinePopoverRows">
+        <span><b>Date</b><small>{event.label}</small></span>
+        <span><b>Source</b><small>{event.source || "ProductPulse"}</small></span>
+        <span><b>Group</b><small>{event.categoryLabel || getProductTimelineCategoryLabel(event.category)}</small></span>
+        <span><b>Importance</b><small>{event.importanceLabel || getProductTimelineImportanceLabel(event.importance)}</small></span>
       </span>
     </div>
   );
@@ -12920,6 +13070,20 @@ function getProductMetricTimelineModel(detail = {}) {
 
 function getProductMetricTimelineDefinitions() {
   return [
+    {
+      key: "product-events",
+      kind: "events",
+      title: "Product events",
+      subtitle: "Operational timeline markers",
+      icon: "chart-line",
+      glyph: "chart-line",
+      tone: "slate",
+      color: "var(--pp-slate-900)",
+      axis: "events",
+      positiveDirection: "neutral",
+      pinned: true,
+      points: getProductMetricTimelineEventPoints,
+    },
     {
       key: "product-risk",
       title: "Product risk",
@@ -13124,6 +13288,63 @@ function getProductMetricTimelineDefinitions() {
       value: (point) => optionalFiniteMetricNumber(point.mainIssueIntensity, point.riskScore),
     },
   ];
+}
+
+function getProductMetricTimelineEventPoints(detail = {}) {
+  const events = Array.isArray(detail.timeline?.events) ? detail.timeline.events : [];
+  const parsedEvents = events
+    .map((event) => {
+      const date = parseProductMetricTimelineDate(event.occurredAt || event.createdAt);
+      if (!date) return null;
+      const timeLabel = event.timeLabel || formatTimelineClock(date);
+      const dateLabel = event.dateLabel || formatProductMetricTimelinePointLabel(date);
+      return {
+        ...event,
+        time: date.getTime(),
+        label: timeLabel ? `${dateLabel} · ${timeLabel}` : dateLabel,
+        dateLabel,
+        timeLabel,
+        value: 1,
+        color: getProductMetricTimelineEventColor(event),
+        valueLabel: event.categoryLabel || getProductTimelineCategoryLabel(event.category),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+
+  return assignProductMetricTimelineEventLanes(parsedEvents);
+}
+
+function assignProductMetricTimelineEventLanes(events = []) {
+  const laneTimes = [];
+  const minSpacing = PRODUCT_METRIC_TIMELINE_EVENT_MIN_SPACING_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS;
+  return events.map((event) => {
+    let laneIndex = laneTimes.findIndex((lastTime) => !Number.isFinite(lastTime) || event.time - lastTime >= minSpacing);
+    if (laneIndex < 0 && laneTimes.length < PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES) {
+      laneIndex = laneTimes.length;
+    }
+    if (laneIndex < 0) {
+      laneIndex = laneTimes.reduce((oldestIndex, lastTime, index) => (
+        lastTime < laneTimes[oldestIndex] ? index : oldestIndex
+      ), 0);
+    }
+    laneTimes[laneIndex] = event.time;
+    return {
+      ...event,
+      lane: laneIndex + 1,
+      value: laneIndex + 1,
+    };
+  });
+}
+
+function getProductMetricTimelineEventColor(event = {}) {
+  const tone = String(event.tone || mapProductTimelineTone(event.severityTone) || "").toLowerCase();
+  if (tone === "red") return "var(--pp-risk-red)";
+  if (tone === "orange") return "var(--pp-warning-amber)";
+  if (tone === "green") return "var(--pp-success-green)";
+  if (tone === "blue") return "var(--pp-pulse-blue)";
+  if (tone === "violet") return "var(--pp-insight-violet)";
+  return "var(--pp-slate-700)";
 }
 
 function getProductMetricTimelineOrderActivityPoints(detail = {}) {
@@ -13348,6 +13569,9 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
   if (series.kind === "orderActivity") {
     return buildProductMetricTimelineOrderActivityChart(series, domain, xTicks);
   }
+  if (series.kind === "events") {
+    return buildProductMetricTimelineEventsChart(series, domain, xTicks);
+  }
   const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
   const yDomain = getProductMetricTimelineYDomain(series);
   const timeRange = Math.max(1, domain.maxTime - domain.minTime);
@@ -13387,6 +13611,51 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
     deltaLabel: getProductMetricTimelineDeltaLabel(delta, series.axis, comparisonPoint),
     deltaTone,
     legendItems: getProductMetricTimelineLegendItems(series),
+    yDomain,
+    yTicks,
+    xDomain: { min: domain.minTime, max: domain.maxTime },
+    xTicks: mappedXTicks,
+    xTickLabels: Object.fromEntries(mappedXTicks.map((tick) => [String(tick.value), tick.label])),
+    ariaLabel: `${series.title} from ${getProductMetricTimelineRangeLabel(domain)}`,
+  };
+}
+
+function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
+  const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
+  const laneCount = Math.max(1, ...series.points.map((point) => Number(point.lane || point.value || 0)).filter(Number.isFinite));
+  const yDomain = { min: 0, max: laneCount + 1 };
+  const yTicks = Array.from({ length: laneCount }, (_, index) => ({
+    value: index + 1,
+    label: "",
+    y: 0,
+  }));
+  const mappedXTicks = getProductMetricTimelineMappedXTicks(xTicks, domain, plot);
+  const categoryMap = new Map();
+  series.points.forEach((point) => {
+    const key = point.category || "timeline";
+    if (!categoryMap.has(key)) {
+      categoryMap.set(key, {
+        label: point.categoryLabel || getProductTimelineCategoryLabel(key),
+        color: point.color || getProductMetricTimelineEventColor(point),
+        dashed: false,
+      });
+    }
+  });
+  const categoryCount = categoryMap.size;
+  return {
+    ...series,
+    width,
+    height,
+    plot,
+    points: series.points,
+    data: series.points,
+    color: series.color || "var(--pp-slate-900)",
+    currentLabel: `${formatInteger(series.points.length)} ${series.points.length === 1 ? "event" : "events"}`,
+    deltaLabel: series.points.length
+      ? `${formatInteger(categoryCount)} ${categoryCount === 1 ? "group" : "groups"} · ${getProductMetricTimelineRangeLabel(domain)}`
+      : "Timeline will build from new activity",
+    deltaTone: "neutral",
+    legendItems: Array.from(categoryMap.values()),
     yDomain,
     yTicks,
     xDomain: { min: domain.minTime, max: domain.maxTime },
@@ -13543,15 +13812,9 @@ function getProductMetricTimelineYTicks(domain, axis, plot) {
 
 function getProductMetricTimelineDomain(series = []) {
   const times = series.flatMap((item) => item.points.map((point) => point.time)).filter(Number.isFinite);
-  if (!times.length) {
-    const maxTime = Date.now();
-    const minTime = getProductMetricTimelineFirstFullMonthTick(maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS));
-    return { minTime, maxTime: Math.max(maxTime, minTime + PRODUCT_METRIC_TIMELINE_DAY_MS) };
-  }
-  const maxTime = Math.max(...times);
-  const rawMinTime = Math.min(...times);
-  const visibleSeedTime = Math.max(rawMinTime, maxTime - (PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS));
-  const minTime = getProductMetricTimelineVisibleStartTime(visibleSeedTime);
+  const maxDataTime = times.length ? Math.max(...times) : null;
+  const maxTime = Math.max(Date.now(), Number.isFinite(maxDataTime) ? maxDataTime : 0);
+  const minTime = getProductMetricTimelineVisibleStartTime(maxTime - (PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS));
   return {
     minTime,
     maxTime: Math.max(maxTime, minTime + PRODUCT_METRIC_TIMELINE_DAY_MS),
