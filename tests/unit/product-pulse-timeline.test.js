@@ -74,6 +74,144 @@ describe("ProductPulse timeline event helpers", () => {
     expect(events.map((event) => event.eventType)).toEqual(["quickscan_completed"]);
   });
 
+  it("creates rating events only for half-point average rating movement", () => {
+    const base = {
+      shop: "peak-outfitters.myshopify.com",
+      product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow" },
+      previous: {
+        id: "history-1",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 50,
+        metrics: { avgRating: 3.9 },
+        recordedAt: "2026-05-01T10:00:00.000Z",
+      },
+    };
+
+    const smallDeltaEvents = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
+      ...base,
+      current: {
+        id: "history-2",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 50,
+        metrics: { avgRating: 4.3 },
+        recordedAt: "2026-05-02T10:00:00.000Z",
+      },
+    });
+    expect(smallDeltaEvents.map((event) => event.eventType)).toEqual(["quickscan_completed"]);
+
+    const largeDeltaEvents = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
+      ...base,
+      current: {
+        id: "history-3",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 50,
+        metrics: { avgRating: 4.5 },
+        recordedAt: "2026-05-03T10:00:00.000Z",
+      },
+    });
+    expect(largeDeltaEvents.find((event) => event.eventType === "average_rating_improved")).toMatchObject({
+      title: "Average rating improved",
+      summary: "Average rating moved from 3.9 to 4.5.",
+    });
+  });
+
+  it("uses business impact only as a fallback with before and after values", () => {
+    const events = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
+      shop: "peak-outfitters.myshopify.com",
+      product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow" },
+      previous: {
+        id: "history-1",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 50,
+        metrics: { financialExposure: 200 },
+        recordedAt: "2026-05-01T10:00:00.000Z",
+      },
+      current: {
+        id: "history-2",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 50,
+        metrics: { financialExposure: 380 },
+        recordedAt: "2026-05-02T10:00:00.000Z",
+      },
+    });
+
+    expect(events.map((event) => event.title)).not.toContain("Business impact increased");
+    expect(events.find((event) => event.eventType === "business_impact_increased")).toMatchObject({
+      title: "Estimated exposure changed",
+      summary: "Business impact estimate moved from $200 to $380 (+$180).",
+      beforeValue: { financialExposure: 200 },
+      afterValue: { financialExposure: 380 },
+    });
+  });
+
+  it("does not add business impact when a clearer signal exists", () => {
+    const events = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
+      shop: "peak-outfitters.myshopify.com",
+      product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow" },
+      previous: {
+        id: "history-1",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 48,
+        metrics: { financialExposure: 200 },
+        recordedAt: "2026-05-01T10:00:00.000Z",
+      },
+      current: {
+        id: "history-2",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 60,
+        metrics: { financialExposure: 380 },
+        recordedAt: "2026-05-02T10:00:00.000Z",
+      },
+    });
+
+    expect(events.map((event) => event.eventType)).toContain("risk_score_increased");
+    expect(events.map((event) => event.eventType)).not.toContain("business_impact_increased");
+  });
+
+  it("creates a Product updated event for product content changes", () => {
+    const events = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
+      shop: "peak-outfitters.myshopify.com",
+      product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow" },
+      previous: {
+        id: "history-1",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 50,
+        metrics: { productContentSignature: "old", productUpdatedAt: "2026-05-01T10:00:00.000Z" },
+        recordedAt: "2026-05-01T10:00:00.000Z",
+      },
+      current: {
+        id: "history-2",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "quickscan",
+        riskScore: 50,
+        metrics: { productContentSignature: "new", productUpdatedAt: "2026-05-02T10:00:00.000Z" },
+        recordedAt: "2026-05-02T10:00:00.000Z",
+      },
+    });
+
+    expect(events.find((event) => event.eventType === "product_content_changed")).toMatchObject({
+      title: "Product updated",
+      category: "catalog",
+    });
+  });
+
   it("does not create generic product score recorded events", () => {
     const events = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
       shop: "peak-outfitters.myshopify.com",
@@ -190,6 +328,31 @@ describe("ProductPulse timeline event helpers", () => {
       metadata: { issueCount: 2 },
     });
   });
+
+  it("groups applied recommended actions in seven-day windows", () => {
+    const events = __productPulseTimelineTestHooks.buildTimelineEventsForProductActions({
+      shop: "peak-outfitters.myshopify.com",
+      product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow", handle: "cooling-pillow" },
+      actionRecords: [
+        actionRow("action-1", "Rewrite PDP copy", "applied", "2026-05-01T10:00:00.000Z"),
+        actionRow("action-2", "Add sizing FAQ", "completed", "2026-05-05T10:00:00.000Z"),
+        actionRow("action-3", "Review variant photos", "applied", "2026-05-11T10:00:00.000Z"),
+      ],
+    });
+
+    const appliedGroups = events.filter((event) => event.eventType.includes("recommended_action"));
+    expect(appliedGroups).toHaveLength(2);
+    expect(appliedGroups[0]).toMatchObject({
+      eventType: "recommended_actions_applied",
+      title: "Recommended actions applied",
+      metadata: { actionCount: 2, grouped: true },
+    });
+    expect(appliedGroups[0].summary).toContain("Rewrite PDP copy, Add sizing FAQ");
+    expect(appliedGroups[1]).toMatchObject({
+      eventType: "recommended_action_applied",
+      metadata: { actionCount: 1, grouped: false },
+    });
+  });
 });
 
 function diagnosisRow(id, completedAt, issueLabels = []) {
@@ -212,5 +375,18 @@ function diagnosisRow(id, completedAt, issueLabels = []) {
     ],
     completedAt,
     createdAt: completedAt,
+  };
+}
+
+function actionRow(id, label, status, appliedAt) {
+  return {
+    id,
+    productGid: "gid://shopify/Product/1",
+    actionType: label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    label,
+    status,
+    payload: {},
+    appliedAt,
+    createdAt: appliedAt,
   };
 }

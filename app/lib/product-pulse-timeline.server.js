@@ -43,9 +43,12 @@ const RETURN_UNITS_DELTA_THRESHOLD = 2;
 const REFUND_UNITS_DELTA_THRESHOLD = 1;
 const REFUND_AMOUNT_DELTA_THRESHOLD = 50;
 const NEGATIVE_REVIEW_DELTA_THRESHOLD = 2;
-const REVIEW_RATING_DELTA_THRESHOLD = 0.2;
+const REVIEW_RATING_DELTA_THRESHOLD = 0.5;
 const FINANCIAL_DELTA_AMOUNT_THRESHOLD = 100;
 const FINANCIAL_DELTA_PERCENT_THRESHOLD = 20;
+const ACTION_APPLIED_GROUP_WINDOW_DAYS = 7;
+const ACTION_APPLIED_GROUP_WINDOW_MS = ACTION_APPLIED_GROUP_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const SCORE_COMPLETION_EVENT_TYPES = new Set(["quickscan_completed", "watchlist_baseline_captured"]);
 
 export async function getProductTimelineForShop(shop, productRef, options = {}) {
   const db = options.db || prisma;
@@ -134,7 +137,7 @@ export async function ensureProductTimelineSeededForProduct({ shop, product, db 
   const eventGroups = [
     buildTimelineEventsForScoreHistoryRows(scoreHistory, { shop, product }),
     buildTimelineEventsForDiagnosisRows(diagnoses, { shop, product }),
-    actions.flatMap((action) => buildTimelineEventsForProductAction({ shop, product, actionRecord: action })),
+    buildTimelineEventsForProductActions({ shop, product, actionRecords: actions }),
     watchActivities.flatMap((activity) => buildTimelineEventsForWatchActivity({ shop, product, activity })),
   ];
   return createProductTimelineEvents(eventGroups.flat(), { db });
@@ -240,6 +243,13 @@ export async function recordTimelineForWatchActivities(shop, activities = [], op
 
 export async function recordTimelineForProductAction({ shop, snapshot, actionRecord, action = null, db = prisma } = {}) {
   if (!shop || !snapshot?.productGid || !actionRecord || !db.productTimelineEvent) return { count: 0 };
+  if (isGroupedAppliedActionStatus(getActionRecordStatus(actionRecord))) {
+    const lookupWindow = getActionAppliedLookupWindow(actionRecord.appliedAt || actionRecord.createdAt);
+    const groupActions = await getAppliedActionGroupRecords({ shop, productGid: snapshot.productGid, actionRecord, groupWindow: lookupWindow, db });
+    const groupEvents = buildTimelineEventsForProductActions({ shop, product: snapshot, actionRecords: groupActions, action });
+    const event = groupEvents.find((item) => (item.metadata?.actionIds || []).includes(actionRecord.id)) || groupEvents[groupEvents.length - 1];
+    return upsertProductTimelineEvent(event, { db });
+  }
   return createProductTimelineEvents(buildTimelineEventsForProductAction({
     shop,
     product: snapshot,
@@ -289,6 +299,22 @@ async function createProductTimelineEvents(events = [], { db = prisma } = {}) {
     .filter(Boolean);
   if (!rows.length) return { count: 0 };
   return db.productTimelineEvent.createMany({ data: rows, skipDuplicates: true });
+}
+
+async function upsertProductTimelineEvent(event = {}, { db = prisma } = {}) {
+  if (!db.productTimelineEvent) return { count: 0, skipped: true, reason: "timeline_model_unavailable" };
+  const row = normalizeTimelineEventForCreate(event);
+  if (!row) return { count: 0 };
+  if (typeof db.productTimelineEvent.upsert !== "function") {
+    return createProductTimelineEvents([row], { db });
+  }
+  const { shop, productGid, dedupeKey, ...update } = row;
+  await db.productTimelineEvent.upsert({
+    where: { shop_productGid_dedupeKey: { shop, productGid, dedupeKey } },
+    create: row,
+    update,
+  });
+  return { count: 1 };
 }
 
 function buildTimelineEventsForScoreHistoryRows(rows = [], context = {}) {
@@ -411,7 +437,6 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
     });
   }
 
-  addFinancialExposureEvent(events, { base, eventPrefix, previousPoint, currentPoint });
   addReturnPressureEvent(events, { base, eventPrefix, previousPoint, currentPoint });
   addRefundExposureEvent(events, { base, eventPrefix, previousPoint, currentPoint });
   addReviewSignalEvents(events, { base, eventPrefix, previousPoint, currentPoint });
@@ -456,18 +481,22 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
       eventType: "product_content_changed",
       category: "catalog",
       source: "Shopify product data",
-      title: "Product content changed",
-      summary: currentPoint.productContentReason || "Product title, description, SEO, media, tag, collection or variant content changed.",
+      title: "Product updated",
+      summary: getProductContentChangeSummary(previousPoint, currentPoint),
       severityTone: "info",
       importance: 58,
-      beforeValue: { signature: previousPoint.productContentSignature || null },
-      afterValue: { signature: currentPoint.productContentSignature || null },
+      beforeValue: { signature: previousPoint.productContentSignature || null, productUpdatedAt: previousPoint.productUpdatedAt || null },
+      afterValue: { signature: currentPoint.productContentSignature || null, productUpdatedAt: currentPoint.productUpdatedAt || null },
       metadata: {
         productUpdatedAt: currentPoint.productUpdatedAt || null,
         reason: currentPoint.productContentReason || null,
       },
       dedupeKey: `${eventPrefix}:product-content-change`,
     });
+  }
+
+  if (!hasMeaningfulScoreChangeEvents(events)) {
+    addFinancialExposureEvent(events, { base, eventPrefix, previousPoint, currentPoint });
   }
 
   return events;
@@ -519,6 +548,23 @@ function buildTimelineEventsForDiagnosis({ shop, product, diagnosis, previous = 
   const priorIssueKeys = issueHistory.priorIssueKeys instanceof Set ? issueHistory.priorIssueKeys : new Set();
   const alreadyResolvedIssueKeys = issueHistory.resolvedIssueKeys instanceof Set ? issueHistory.resolvedIssueKeys : new Set();
   const currentIssues = getDiagnosisIssueRows(diagnosis);
+  const previousPrimaryIssue = getDiagnosisPrimaryIssue(previous);
+  const currentPrimaryIssue = getDiagnosisPrimaryIssue(diagnosis);
+  if (previous && previousPrimaryIssue && currentPrimaryIssue && normalizeText(previousPrimaryIssue) !== normalizeText(currentPrimaryIssue)) {
+    events.push({
+      ...base,
+      eventType: "main_issue_changed",
+      category: "risk",
+      title: "Main issue changed",
+      summary: `Main issue changed from ${previousPrimaryIssue} to ${currentPrimaryIssue}.`,
+      severityTone: getRiskToneForScore(diagnosis.riskScore),
+      importance: 68,
+      beforeValue: { primaryIssue: previousPrimaryIssue },
+      afterValue: { primaryIssue: currentPrimaryIssue },
+      metadata: { previousPrimaryIssue, currentPrimaryIssue },
+      dedupeKey: `diagnosis:${diagnosis.id}:main-issue-change`,
+    });
+  }
   const newIssues = uniqueDiagnosisIssues(currentIssues.filter((issue) => !priorIssueKeys.has(issue.key))).slice(0, 6);
   if (newIssues.length) {
     events.push({
@@ -567,11 +613,102 @@ function buildTimelineEventsForDiagnosis({ shop, product, diagnosis, previous = 
   return events;
 }
 
+function buildTimelineEventsForProductActions({ shop, product, actionRecords = [], action = null } = {}) {
+  const records = [...(Array.isArray(actionRecords) ? actionRecords : [])].filter((record) => record?.productGid);
+  if (!records.length) return [];
+  const appliedRecords = [];
+  const events = [];
+
+  records.forEach((record) => {
+    if (isGroupedAppliedActionStatus(getActionRecordStatus(record))) {
+      appliedRecords.push(record);
+      return;
+    }
+    events.push(...buildTimelineEventsForProductAction({ shop, product, actionRecord: record, action }));
+  });
+
+  groupAppliedActionRecords(appliedRecords).forEach((groupRecords) => {
+    const event = buildTimelineEventForAppliedActionGroup({ shop, product, actionRecords: groupRecords, action });
+    if (event) events.push(event);
+  });
+
+  return events.sort((first, second) => getTime(first.occurredAt) - getTime(second.occurredAt));
+}
+
+function groupAppliedActionRecords(actionRecords = []) {
+  const sorted = [...(Array.isArray(actionRecords) ? actionRecords : [])]
+    .filter((record) => record?.productGid)
+    .sort((first, second) => getTime(first.appliedAt || first.createdAt) - getTime(second.appliedAt || second.createdAt));
+  const groups = [];
+  sorted.forEach((record) => {
+    const recordTime = getTime(record.appliedAt || record.createdAt);
+    const current = groups[groups.length - 1];
+    const groupStart = current?.length ? getTime(current[0].appliedAt || current[0].createdAt) : 0;
+    if (!current || (recordTime && groupStart && recordTime - groupStart >= ACTION_APPLIED_GROUP_WINDOW_MS)) {
+      groups.push([record]);
+      return;
+    }
+    current.push(record);
+  });
+  return groups;
+}
+
+function buildTimelineEventForAppliedActionGroup({ shop, product, actionRecords = [], action = null } = {}) {
+  const records = [...(Array.isArray(actionRecords) ? actionRecords : [])]
+    .filter((record) => record?.productGid)
+    .sort((first, second) => getTime(first.appliedAt || first.createdAt) - getTime(second.appliedAt || second.createdAt));
+  if (!shop || !records.length) return null;
+  const firstRecord = records[0];
+  const lastRecord = records[records.length - 1];
+  const occurredAt = parseDate(lastRecord.appliedAt || lastRecord.createdAt) || new Date();
+  const labels = records.map((record) => getActionRecordLabel(record, action)).filter(Boolean);
+  const visibleLabels = Array.from(new Set(labels)).slice(0, 4);
+  const overflow = Math.max(0, labels.length - visibleLabels.length);
+  const count = records.length;
+  const hasShopifyChange = records.some((record) => Boolean((record.payload || {}).appliedChange));
+  const groupWindow = getActionAppliedGroupWindow(firstRecord.appliedAt || firstRecord.createdAt);
+  const dateRange = getDateRangeSummary(records.map((record) => record.appliedAt || record.createdAt));
+  const status = getActionRecordStatus(lastRecord);
+  return {
+    shop,
+    productGid: firstRecord.productGid,
+    productTitle: product?.productTitle || product?.title || firstRecord.payload?.productTitle || "Shopify product",
+    handle: optionalString(product?.handle || firstRecord.payload?.handle),
+    eventType: count > 1 ? "recommended_actions_applied" : "recommended_action_applied",
+    category: "action",
+    source: hasShopifyChange ? "Shopify actions" : "ProductPulse actions",
+    title: count > 1 ? "Recommended actions applied" : "Recommended action applied",
+    summary: `${formatInteger(count)} recommended action${count === 1 ? "" : "s"} applied${dateRange ? ` ${dateRange}` : ""}: ${visibleLabels.join(", ")}${overflow ? ` and ${overflow} more` : ""}.`,
+    occurredAt,
+    severityTone: getActionTimelineTone(status),
+    importance: count > 1 ? 74 : getActionTimelineImportance(status, firstRecord.payload || {}),
+    beforeValue: null,
+    afterValue: {
+      status,
+      appliedActionCount: count,
+      appliedChanges: records.map((record) => (record.payload || {}).appliedChange).filter(Boolean),
+    },
+    metadata: {
+      actionCount: count,
+      labels,
+      actionIds: records.map((record) => record.id).filter(Boolean),
+      actionTypes: records.map((record) => record.actionType).filter(Boolean),
+      groupWindowDays: ACTION_APPLIED_GROUP_WINDOW_DAYS,
+      groupWindowStart: groupWindow.start.toISOString(),
+      groupWindowEnd: groupWindow.end.toISOString(),
+      grouped: count > 1,
+    },
+    dedupeKey: `action:applied-group:${getActionAppliedGroupKey(firstRecord.appliedAt || firstRecord.createdAt)}`,
+    actionId: count === 1 ? firstRecord.id || null : null,
+    diagnosisId: count === 1 ? firstRecord.diagnosisId || firstRecord.payload?.diagnosisId || null : null,
+  };
+}
+
 function buildTimelineEventsForProductAction({ shop, product, actionRecord, action = null } = {}) {
   if (!shop || !actionRecord?.productGid) return [];
   const payload = actionRecord.payload || {};
-  const status = String(actionRecord.status || payload.status || "draft").toLowerCase();
-  const label = actionRecord.label || action?.label || action?.title || "Recommended action";
+  const status = getActionRecordStatus(actionRecord);
+  const label = getActionRecordLabel(actionRecord, action);
   const occurredAt = parseDate(actionRecord.appliedAt || actionRecord.createdAt) || new Date();
   const eventType = getActionTimelineEventType(status);
   return [{
@@ -752,8 +889,8 @@ function addFinancialExposureEvent(events, { base, eventPrefix, previousPoint, c
     ...base,
     eventType: delta >= 0 ? "business_impact_increased" : "business_impact_decreased",
     category: "impact",
-    title: delta >= 0 ? "Business impact increased" : "Business impact decreased",
-    summary: `Estimated exposure moved from ${formatMoney(previousValue)} to ${formatMoney(currentValue)} (${delta > 0 ? "+" : ""}${formatMoney(delta)}).`,
+    title: "Estimated exposure changed",
+    summary: `Business impact estimate moved from ${formatMoney(previousValue)} to ${formatMoney(currentValue)} (${delta > 0 ? "+" : ""}${formatMoney(delta)}).`,
     severityTone: delta >= 0 ? "warning" : "success",
     importance: Math.min(82, 58 + Math.round(Math.abs(percent) / 5)),
     beforeValue: { financialExposure: previousValue },
@@ -1231,6 +1368,64 @@ function getTimelineEventIcon(event = {}) {
   return CATEGORY_ICONS[event.category] || "chart-line";
 }
 
+function getActionRecordStatus(actionRecord = {}) {
+  const payload = actionRecord.payload || {};
+  return String(actionRecord.status || payload.status || "draft").toLowerCase();
+}
+
+function getActionRecordLabel(actionRecord = {}, action = null) {
+  return actionRecord.label || action?.label || action?.title || "Recommended action";
+}
+
+function isGroupedAppliedActionStatus(status = "") {
+  const normalized = String(status || "").toLowerCase();
+  return normalized === "applied" || normalized === "completed";
+}
+
+async function getAppliedActionGroupRecords({ shop, productGid, actionRecord, groupWindow, db = prisma } = {}) {
+  const fallback = actionRecord ? [actionRecord] : [];
+  if (!shop || !productGid || !groupWindow?.start || !groupWindow?.end || typeof db.productAction?.findMany !== "function") return fallback;
+  const rows = await db.productAction.findMany({
+    where: {
+      shop,
+      productGid,
+      status: { in: ["applied", "completed"] },
+      OR: [
+        { appliedAt: { gte: groupWindow.start, lt: groupWindow.end } },
+        { appliedAt: null, createdAt: { gte: groupWindow.start, lt: groupWindow.end } },
+      ],
+    },
+    orderBy: [{ appliedAt: "asc" }, { createdAt: "asc" }],
+    take: 80,
+  });
+  const byId = new Map((rows || []).map((row) => [row.id || `${row.actionType}:${row.createdAt}`, row]));
+  if (actionRecord) byId.set(actionRecord.id || `${actionRecord.actionType}:${actionRecord.createdAt}`, actionRecord);
+  return Array.from(byId.values());
+}
+
+function getActionAppliedGroupKey(value) {
+  const time = getTime(value) || Date.now();
+  return Math.floor(time / ACTION_APPLIED_GROUP_WINDOW_MS);
+}
+
+function getActionAppliedGroupWindow(value) {
+  const key = getActionAppliedGroupKey(value);
+  const start = new Date(key * ACTION_APPLIED_GROUP_WINDOW_MS);
+  return {
+    key,
+    start,
+    end: new Date(start.getTime() + ACTION_APPLIED_GROUP_WINDOW_MS),
+  };
+}
+
+function getActionAppliedLookupWindow(value) {
+  const center = parseDate(value) || new Date();
+  return {
+    start: new Date(center.getTime() - ACTION_APPLIED_GROUP_WINDOW_MS + 1),
+    end: new Date(center.getTime() + ACTION_APPLIED_GROUP_WINDOW_MS),
+  };
+}
+
 function getActionTimelineEventType(status) {
   if (status === "applied" || status === "completed") return "recommended_action_applied";
   if (status === "dismissed") return "recommended_action_dismissed";
@@ -1273,6 +1468,11 @@ function getActionTimelineImportance(status, payload = {}) {
   if (status === "reviewed") return 62;
   if (status === "dismissed" || status === "ignored") return 54;
   return 46;
+}
+
+function getDiagnosisPrimaryIssue(diagnosis = null) {
+  if (!diagnosis) return "";
+  return optionalString(diagnosis.primaryIssue || diagnosis.likelyCause || diagnosis.mainFinding || getDiagnosisIssueRows(diagnosis)[0]?.label) || "";
 }
 
 function getDiagnosisIssueRows(diagnosis = {}) {
@@ -1351,8 +1551,25 @@ function hasProductContentChanged(previousPoint = {}, currentPoint = {}) {
   const previousSignature = String(previousPoint.productContentSignature || "").trim();
   const currentSignature = String(currentPoint.productContentSignature || "").trim();
   if (previousSignature && currentSignature && previousSignature !== currentSignature) return true;
+  const previousUpdatedAt = getTime(previousPoint.productUpdatedAt);
+  const currentUpdatedAt = getTime(currentPoint.productUpdatedAt);
+  if (previousUpdatedAt && currentUpdatedAt && previousUpdatedAt !== currentUpdatedAt) return true;
   const reason = String(currentPoint.productContentReason || "").toLowerCase();
   return reason.includes("signature_changed") || reason.includes("content_changed");
+}
+
+function getProductContentChangeSummary(previousPoint = {}, currentPoint = {}) {
+  const previousUpdatedAt = parseDate(previousPoint.productUpdatedAt);
+  const currentUpdatedAt = parseDate(currentPoint.productUpdatedAt);
+  if (previousUpdatedAt && currentUpdatedAt && previousUpdatedAt.getTime() !== currentUpdatedAt.getTime()) {
+    return `Shopify product data was updated from ${formatTimelineDate(previousUpdatedAt)} to ${formatTimelineDate(currentUpdatedAt)}. This can include title, description, SEO, media, tags, collections or variants.`;
+  }
+  if (currentPoint.productContentReason) return humanize(currentPoint.productContentReason);
+  return "Shopify product title, description, SEO, media, tags, collections or variants changed.";
+}
+
+function hasMeaningfulScoreChangeEvents(events = []) {
+  return (Array.isArray(events) ? events : []).some((event) => event?.eventType && !SCORE_COMPLETION_EVENT_TYPES.has(event.eventType));
 }
 
 function getTopReasonLabel(value = []) {
@@ -1390,6 +1607,15 @@ function formatTimelineDate(date) {
 
 function formatTimelineTime(date) {
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function getDateRangeSummary(values = []) {
+  const dates = values.map(parseDate).filter(Boolean).sort((first, second) => first.getTime() - second.getTime());
+  if (!dates.length) return "";
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  if (first.toISOString().slice(0, 10) === last.toISOString().slice(0, 10)) return `on ${formatTimelineDate(last)}`;
+  return `from ${formatTimelineDate(first)} to ${formatTimelineDate(last)}`;
 }
 
 function normalizeList(value) {
@@ -1522,6 +1748,7 @@ function jsonCompatible(value) {
 
 export const __productPulseTimelineTestHooks = {
   buildTimelineEventsForDiagnosisRows,
+  buildTimelineEventsForProductActions,
   buildTimelineEventsForScoreHistoryPair,
   buildTimelineEventsForWatchActivity,
   normalizeTimelineEvent,
