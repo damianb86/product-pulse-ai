@@ -1565,33 +1565,13 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: "Metric timelines" })).toHaveAttribute("href", "/app/products/timeline-jacket/metric-timelines");
   });
 
-  it("renders product timeline events with filters, details and low-importance toggle", () => {
+  it("does not render the product timeline panel on product detail", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct()} />);
-    const panel = container.querySelector(".ppProductTimelinePanel");
 
-    expect(within(panel).getByRole("heading", { name: "Product Timeline" })).toBeInTheDocument();
-    expect(within(panel).getByText("Risk increased and one recommendation was applied after the latest Watchlist run.")).toBeInTheDocument();
-    expect(within(panel).getByText("Product risk increased")).toBeInTheDocument();
-    expect(within(panel).getByText("Recommended action applied")).toBeInTheDocument();
-    expect(within(panel).queryByText("QuickScan completed")).not.toBeInTheDocument();
-
-    fireEvent.click(within(panel).getByRole("button", { name: /Details/ }));
-    expect(within(panel).getByText("Before")).toBeInTheDocument();
-    expect(within(panel).getByText(/Risk Score: 58/)).toBeInTheDocument();
-
-    fireEvent.change(within(panel).getByLabelText("Event group"), { target: { value: "action" } });
-    expect(within(panel).getByText("Recommended action applied")).toBeInTheDocument();
-    expect(within(panel).queryByText("Product risk increased")).not.toBeInTheDocument();
-
-    fireEvent.change(within(panel).getByLabelText("Event group"), { target: { value: "all" } });
-    fireEvent.click(within(panel).getByLabelText("Show all events"));
-    expect(within(panel).getByText("QuickScan completed")).toBeInTheDocument();
-  });
-
-  it("renders product timeline empty state", () => {
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct({ timeline: { events: [], groupedEvents: [], filters: { categories: [] } } })} />);
-
-    expect(screen.getByText("No timeline events yet. ProductPulse will start building this timeline as scans, watchlist runs, Shopify updates and recommendations occur.")).toBeInTheDocument();
+    expect(container.querySelector(".ppProductTimelinePanel")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Product Timeline" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Risk increased and one recommendation was applied after the latest Watchlist run.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No timeline events yet. ProductPulse will start building this timeline as scans, watchlist runs, Shopify updates and recommendations occur.")).not.toBeInTheDocument();
   });
 
   it("renders aligned product metric timeline charts", () => {

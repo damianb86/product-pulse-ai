@@ -11507,9 +11507,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [recommendedActionSort, setRecommendedActionSort] = useState("priority");
   const [recommendedActionsExpanded, setRecommendedActionsExpanded] = useState(false);
   const [insightCardsExpanded, setInsightCardsExpanded] = useState(false);
-  const [timelineCategoryFilter, setTimelineCategoryFilter] = useState("all");
-  const [timelineShowAll, setTimelineShowAll] = useState(false);
-  const [expandedTimelineEvents, setExpandedTimelineEvents] = useState(() => new Set());
   const [draftText, setDraftText] = useState("");
   const productRef = useRef(product);
   const minimizedActionStatesRef = useRef(minimizedActionStates);
@@ -11550,9 +11547,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setRecommendedActionSort("priority");
     setRecommendedActionsExpanded(false);
     setInsightCardsExpanded(false);
-    setTimelineCategoryFilter("all");
-    setTimelineShowAll(false);
-    setExpandedTimelineEvents(new Set());
   }, [productIdentityKey, productResolvedAt]);
 
   useEffect(() => {
@@ -11770,55 +11764,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     if (!handleReviewEvidence(action)) return;
     setSelectedRecommendedAction(action);
     setRecommendedActionModalMinimized(true);
-  };
-
-  const handleOpenTimelineAction = (event) => {
-    const references = [
-      event?.related?.actionId,
-      event?.related?.recommendationId,
-      event?.metadata?.recommendationId,
-      event?.metadata?.sourceActionId,
-      event?.metadata?.label,
-    ].filter(Boolean);
-    const action = references
-      .map((reference) => findRecommendedActionByReference(detail.recommendedActions, reference))
-      .find(Boolean);
-    if (!action) {
-      showToast("That action is not visible in the current recommendation list.", "validation_error");
-      return false;
-    }
-    setRecommendedActionsCollapsed(false);
-    setRecommendedActionsExpanded(true);
-    setEditingAction(null);
-    setActionConfirmation(null);
-    setRecommendedActionModalMinimized(false);
-    setSelectedRecommendedAction(action);
-    window.requestAnimationFrame(() => {
-      document.querySelector(".ppRecommendedActionsPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    return true;
-  };
-
-  const handleTimelineCta = (event) => {
-    const ctaType = event?.cta?.type;
-    if (ctaType === "action") return handleOpenTimelineAction(event);
-    if (ctaType === "evidence" || ctaType === "product_change") {
-      return handleReviewEvidence({
-        payload: {
-          focusSources: getTimelineEvidenceFocusSources(event),
-        },
-      });
-    }
-    return false;
-  };
-
-  const handleToggleTimelineEvent = (eventId) => {
-    setExpandedTimelineEvents((current) => {
-      const next = new Set(current);
-      if (next.has(eventId)) next.delete(eventId);
-      else next.add(eventId);
-      return next;
-    });
   };
 
   const handleToggleRecommendedActions = () => {
@@ -12281,19 +12226,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 onSelectEvidence={setSelectedEvidenceIndex}
               />
             </div>
-            <ProductTimelinePanel
-              detail={detail}
-              categoryFilter={timelineCategoryFilter}
-              showAll={timelineShowAll}
-              expandedEvents={expandedTimelineEvents}
-              onCategoryChange={(value) => {
-                setTimelineCategoryFilter(value);
-                setExpandedTimelineEvents(new Set());
-              }}
-              onShowAllChange={setTimelineShowAll}
-              onToggleEvent={handleToggleTimelineEvent}
-              onTimelineCta={handleTimelineCta}
-            />
           </>
         ) : (
           <>
@@ -12421,20 +12353,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <ProductEvidenceSummaryPanel detail={detail} onSelectEvidence={handleReviewEvidence} />
               </aside>
             </div>
-
-            <ProductTimelinePanel
-              detail={detail}
-              categoryFilter={timelineCategoryFilter}
-              showAll={timelineShowAll}
-              expandedEvents={expandedTimelineEvents}
-              onCategoryChange={(value) => {
-                setTimelineCategoryFilter(value);
-                setExpandedTimelineEvents(new Set());
-              }}
-              onShowAllChange={setTimelineShowAll}
-              onToggleEvent={handleToggleTimelineEvent}
-              onTimelineCta={handleTimelineCta}
-            />
 
             {detail.hasFullDiagnosis && <ProductRetentionMetricsPanel detail={detail} />}
 
@@ -16144,212 +16062,6 @@ function ProductNoDiagnosisPanel({ detail, pending = false, onRunDiagnosis }) {
       </button>
     </section>
   );
-}
-
-function ProductTimelinePanel({
-  detail,
-  categoryFilter = "all",
-  showAll = false,
-  expandedEvents = new Set(),
-  onCategoryChange,
-  onShowAllChange,
-  onToggleEvent,
-  onTimelineCta,
-}) {
-  const timeline = detail.timeline || normalizeProductTimeline(null);
-  const meaningfulImportance = Number(timeline.filters?.meaningfulImportance || 40);
-  const categories = Array.isArray(timeline.filters?.categories) ? timeline.filters.categories : [];
-  const visibleEvents = timeline.events.filter((event) => {
-    if (!showAll && Number(event.importance || 0) < meaningfulImportance) return false;
-    if (categoryFilter !== "all" && event.category !== categoryFilter) return false;
-    return true;
-  });
-  const groupedEvents = groupProductTimelineEventsByDay(visibleEvents);
-  const lowImportanceCount = timeline.events.filter((event) => Number(event.importance || 0) < meaningfulImportance).length;
-  const hiddenByFilterCount = Math.max(0, timeline.events.length - visibleEvents.length);
-
-  return (
-    <section className="ppProductTimelinePanel" aria-label="Product Timeline">
-      <div className="ppProductTimelineHeader">
-        <div>
-          <span className="ppProductTimelineEyebrow">Operational history</span>
-          <h2>Product Timeline</h2>
-          <p>{timeline.summary || "Important ProductPulse, Watchlist, recommendation and product-signal changes for this product."}</p>
-        </div>
-        <div className="ppProductTimelineControls">
-          <label className="ppProductTimelineFilter">
-            <span>Event group</span>
-            <select value={categoryFilter} onChange={(event) => onCategoryChange?.(event.target.value)}>
-              <option value="all">All groups</option>
-              {categories.map((category) => (
-                <option value={category.value} key={category.value}>
-                  {category.label}{category.count ? ` (${category.count})` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="ppProductTimelineToggle">
-            <input
-              type="checkbox"
-              checked={showAll}
-              onChange={(event) => onShowAllChange?.(event.target.checked)}
-            />
-            <span>Show all events</span>
-          </label>
-        </div>
-      </div>
-
-      {!timeline.events.length ? (
-        <EmptyProductDetailState message="No timeline events yet. ProductPulse will start building this timeline as scans, watchlist runs, Shopify updates and recommendations occur." />
-      ) : !visibleEvents.length ? (
-        <EmptyProductDetailState
-          message={hiddenByFilterCount
-            ? "No events match the current timeline filters."
-            : "No meaningful timeline events match the current view."}
-        />
-      ) : (
-        <div className="ppProductTimelineStream">
-          {groupedEvents.map((group) => (
-            <section className="ppProductTimelineDay" key={group.key}>
-              <h3>{group.label}</h3>
-              <div className="ppProductTimelineRows">
-                {group.events.map((event) => {
-                  const expanded = expandedEvents.has(event.id);
-                  return (
-                    <article className={`ppProductTimelineEvent ppProductTimelineEvent-${event.tone || "slate"}`} key={event.id}>
-                      <span className="ppProductTimelineMarker" aria-hidden="true">
-                        <ProductPulseGlyph type={event.icon} />
-                      </span>
-                      <div className="ppProductTimelineEventBody">
-                        <div className="ppProductTimelineEventTopline">
-                          <span>{event.timeLabel}</span>
-                          <span>{event.source}</span>
-                          <span className={`ppProductTimelineBadge ppProductTimelineBadge-${event.tone || "slate"}`}>{event.importanceLabel}</span>
-                          <span className="ppProductTimelineCategory">{event.categoryLabel}</span>
-                        </div>
-                        <h4>{event.title}</h4>
-                        {event.summary ? <p>{event.summary}</p> : null}
-                        <div className="ppProductTimelineEventActions">
-                          {event.cta ? <ProductTimelineCta event={event} onTimelineCta={onTimelineCta} /> : null}
-                          {hasProductTimelineDetails(event) && (
-                            <button type="button" className="ppProductTimelineDetailsButton" aria-expanded={expanded} onClick={() => onToggleEvent?.(event.id)}>
-                              {expanded ? "Hide details" : "Details"}
-                              <s-icon type={expanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
-                            </button>
-                          )}
-                        </div>
-                        {expanded && <ProductTimelineEventDetails event={event} />}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-
-      {timeline.events.length > 0 && (
-        <div className="ppProductTimelineFooter">
-          <span>{formatInteger(visibleEvents.length)} shown</span>
-          <span>{formatInteger(timeline.events.length)} stored</span>
-          {lowImportanceCount > 0 && !showAll ? <span>{formatInteger(lowImportanceCount)} low-importance hidden</span> : null}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ProductTimelineCta({ event, onTimelineCta }) {
-  if (event.cta?.type === "link" && event.cta.href) {
-    return (
-      <Link className="ppProductTimelineCta" to={event.cta.href}>
-        {event.cta.label || "Open"}
-        <s-icon type="external" size="small"></s-icon>
-      </Link>
-    );
-  }
-  return (
-    <button className="ppProductTimelineCta" type="button" onClick={() => onTimelineCta?.(event)}>
-      {event.cta?.label || "Open"}
-      <s-icon type="arrow-right" size="small"></s-icon>
-    </button>
-  );
-}
-
-function ProductTimelineEventDetails({ event }) {
-  const rows = getProductTimelineDetailRows(event);
-  if (!rows.length) return null;
-  return (
-    <dl className="ppProductTimelineDetails">
-      {rows.map((row) => (
-        <div key={`${event.id}-${row.label}`}>
-          <dt>{row.label}</dt>
-          <dd>{row.value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function hasProductTimelineDetails(event = {}) {
-  return getProductTimelineDetailRows(event).length > 0;
-}
-
-function getProductTimelineDetailRows(event = {}) {
-  return [
-    event.confidence != null ? { label: "Confidence", value: `${formatInteger(event.confidence)}%` } : null,
-    event.beforeValue ? { label: "Before", value: formatTimelineDetailValue(event.beforeValue) } : null,
-    event.afterValue ? { label: "After", value: formatTimelineDetailValue(event.afterValue) } : null,
-    event.related?.diagnosisId ? { label: "Diagnosis", value: event.related.diagnosisId } : null,
-    event.related?.watchActivityId ? { label: "Watchlist run", value: event.related.watchActivityId } : null,
-    event.related?.actionId ? { label: "Action", value: event.related.actionId } : null,
-    ...getProductTimelineMetadataRows(event.metadata),
-  ].filter(Boolean).slice(0, 8);
-}
-
-function getProductTimelineMetadataRows(metadata = {}) {
-  const allowed = [
-    "delta",
-    "percentDelta",
-    "riskLabel",
-    "previousPrimaryIssue",
-    "currentPrimaryIssue",
-    "status",
-    "changeCount",
-    "sourceChangeCount",
-    "reason",
-    "actionType",
-    "priority",
-    "effort",
-  ];
-  return allowed
-    .filter((key) => metadata?.[key] !== undefined && metadata?.[key] !== null && metadata?.[key] !== "")
-    .map((key) => ({ label: humanizeCompactLabel(key), value: formatTimelineDetailValue(metadata[key]) }));
-}
-
-function formatTimelineDetailValue(value) {
-  if (value === null || value === undefined || value === "") return "Unavailable";
-  if (typeof value === "number") return Number.isInteger(value) ? formatInteger(value) : formatDecimal(value, 1);
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "string") return value.length > 140 ? `${value.slice(0, 137)}...` : value;
-  if (Array.isArray(value)) return value.map(formatTimelineDetailValue).join(", ");
-  const entries = Object.entries(value)
-    .filter(([, entryValue]) => entryValue !== null && entryValue !== undefined && entryValue !== "")
-    .slice(0, 4)
-    .map(([key, entryValue]) => `${humanizeCompactLabel(key)}: ${formatTimelineDetailValue(entryValue)}`);
-  return entries.join(" · ") || "Stored";
-}
-
-function getTimelineEvidenceFocusSources(event = {}) {
-  const category = String(event.category || "").toLowerCase();
-  const source = String(event.source || "").toLowerCase();
-  if (category === "reviews" || source.includes("review") || source.includes("customer language")) return ["Reviews", "Customer language"];
-  if (category === "returns" || source.includes("return")) return ["Returns"];
-  if (category === "refunds" || source.includes("refund")) return ["Refunds"];
-  if (category === "catalog" || source.includes("shopify product")) return ["Shopify product"];
-  if (category === "evidence") return ["Evidence"];
-  return [event.source, event.categoryLabel].filter(Boolean);
 }
 
 const ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES = Object.freeze({
