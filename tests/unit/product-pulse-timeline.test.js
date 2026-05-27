@@ -74,6 +74,26 @@ describe("ProductPulse timeline event helpers", () => {
     expect(events.map((event) => event.eventType)).toEqual(["quickscan_completed"]);
   });
 
+  it("does not create generic product score recorded events", () => {
+    const events = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
+      shop: "peak-outfitters.myshopify.com",
+      product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow" },
+      current: {
+        id: "history-1",
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Cooling Pillow",
+        source: "diagnosis",
+        riskScore: 52,
+        metrics: { productMomentumScore: 44, refundAmount: 125 },
+        recordedAt: "2026-05-01T10:00:00.000Z",
+      },
+    });
+
+    expect(events.map((event) => event.eventType)).not.toContain("product_score_recorded");
+    expect(events.map((event) => event.title)).not.toContain("Product score recorded");
+    expect(events).toEqual([]);
+  });
+
   it("creates watchlist source-change events from change reports", () => {
     const events = __productPulseTimelineTestHooks.buildTimelineEventsForWatchActivity({
       shop: "peak-outfitters.myshopify.com",

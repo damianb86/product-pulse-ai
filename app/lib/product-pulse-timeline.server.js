@@ -46,6 +46,11 @@ const NEGATIVE_REVIEW_DELTA_THRESHOLD = 2;
 const REVIEW_RATING_DELTA_THRESHOLD = 0.2;
 const FINANCIAL_DELTA_AMOUNT_THRESHOLD = 100;
 const FINANCIAL_DELTA_PERCENT_THRESHOLD = 20;
+const PRODUCT_SCORE_RECORDED_EVENT_TITLES = [
+  "Product score recorded",
+  "Product Score recorded",
+  "Product Score Recorded",
+];
 
 export async function getProductTimelineForShop(shop, productRef, options = {}) {
   const db = options.db || prisma;
@@ -104,7 +109,7 @@ export async function ensureProductTimelineSeededForProduct({ shop, product, db 
   const existingCount = force
     ? 0
     : await db.productTimelineEvent.count({
-      where: { shop, productGid: product.productGid },
+      where: buildTimelineWhere(shop, product.productGid),
     });
   if (existingCount > 0 && !force) return { count: 0, skipped: true, reason: "timeline_already_seeded" };
 
@@ -286,7 +291,8 @@ async function createProductTimelineEvents(events = [], { db = prisma } = {}) {
   if (!db.productTimelineEvent) return { count: 0, skipped: true, reason: "timeline_model_unavailable" };
   const rows = (Array.isArray(events) ? events : [])
     .map(normalizeTimelineEventForCreate)
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((event) => !isProductScoreRecordedTimelineEvent(event));
   if (!rows.length) return { count: 0 };
   return db.productTimelineEvent.createMany({ data: rows, skipDuplicates: true });
 }
@@ -319,15 +325,12 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
     diagnosisId: optionalString(currentPoint.diagnosisId),
   };
   const eventPrefix = currentPoint.id ? `score:${currentPoint.id}` : `score:${currentPoint.source}:${currentPoint.productGid}:${currentPoint.recordedAt}`;
-  const events = [{
+  const shouldRecordCompletionEvent = currentPoint.source === "quickscan" || currentPoint.source === "watchlist-baseline";
+  const events = shouldRecordCompletionEvent ? [{
     ...base,
-    eventType: currentPoint.source === "quickscan" ? "quickscan_completed" : currentPoint.source === "watchlist-baseline" ? "watchlist_baseline_captured" : "product_score_recorded",
+    eventType: currentPoint.source === "quickscan" ? "quickscan_completed" : "watchlist_baseline_captured",
     category: currentPoint.source === "watchlist-baseline" ? "watchlist" : "scan",
-    title: currentPoint.source === "quickscan"
-      ? "QuickScan completed"
-      : currentPoint.source === "watchlist-baseline"
-        ? "Watchlist baseline captured"
-        : "Product score recorded",
+    title: currentPoint.source === "quickscan" ? "QuickScan completed" : "Watchlist baseline captured",
     summary: `${source} stored ${currentPoint.riskScore}/100 risk${currentPoint.primaryIssue ? ` for ${currentPoint.primaryIssue}` : ""}.`,
     severityTone: getRiskToneForScore(currentPoint.riskScore),
     importance: currentPoint.source === "quickscan" ? 42 : 34,
@@ -338,7 +341,7 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
       riskLabel: getRiskLabelForScore(currentPoint.riskScore),
     },
     dedupeKey: `${eventPrefix}:recorded`,
-  }];
+  }] : [];
 
   if (!previousPoint) return events;
 
@@ -946,7 +949,14 @@ function getWatchCalculatedChangeSpec(change = {}) {
 }
 
 function buildTimelineWhere(shop, productGid, options = {}) {
-  const where = { shop, productGid };
+  const where = {
+    shop,
+    productGid,
+    NOT: [
+      { eventType: "product_score_recorded" },
+      { title: { in: PRODUCT_SCORE_RECORDED_EVENT_TITLES } },
+    ],
+  };
   const categories = normalizeList(options.category || options.categories);
   if (categories.length) where.category = { in: categories };
   const minImportance = nullableInteger(options.minImportance);
@@ -958,6 +968,11 @@ function buildTimelineWhere(shop, productGid, options = {}) {
   if (to) dateRange.lte = to;
   if (Object.keys(dateRange).length) where.occurredAt = dateRange;
   return where;
+}
+
+function isProductScoreRecordedTimelineEvent(event = {}) {
+  return normalizeText(event.eventType) === "product-score-recorded"
+    || normalizeText(event.title) === "product-score-recorded";
 }
 
 async function resolveTimelineProduct(shop, productRef, db) {
