@@ -6896,32 +6896,39 @@ function calculateClientUnitRatePercent(numeratorUnits, denominatorUnits, fallba
   return clampPercentValue(rawRate);
 }
 
+function normalizeProductOrderActivityBucket(bucket = {}) {
+  return {
+    key: String(bucket.key || bucket.label || ""),
+    label: String(bucket.label || bucket.key || ""),
+    shortLabel: String(bucket.shortLabel || bucket.label || bucket.key || ""),
+    startAt: bucket.startAt || null,
+    orders: Number(bucket.orders || 0),
+    orderUnits: Number(bucket.orderUnits || 0),
+    revenue: Number(bucket.revenue || 0),
+    returnedOrders: Number(bucket.returnedOrders || 0),
+    returnedUnits: Number(bucket.returnedUnits || 0),
+    refundedOrders: Number(bucket.refundedOrders || 0),
+    refundedUnits: Number(bucket.refundedUnits || 0),
+    refundAmount: Number(bucket.refundAmount || 0),
+    unitsPerOrder: optionalFiniteMetricNumber(bucket.unitsPerOrder, bucket.avgUnitsPerOrder, bucket.avg_product_quantity_per_order, bucket.avgProductQuantityPerOrder),
+    avgTotalUnitsPerOrder: optionalFiniteMetricNumber(bucket.avgTotalUnitsPerOrder, bucket.avg_total_units_per_order),
+    totalBasketUnits: optionalFiniteMetricNumber(bucket.totalBasketUnits, bucket.total_order_units_in_baskets, bucket.totalOrderUnitsInBaskets),
+    otherProductUnits: optionalFiniteMetricNumber(bucket.otherProductUnits, bucket.other_product_units),
+    productBasketSharePercent: optionalFiniteMetricNumber(bucket.productBasketSharePercent, bucket.product_basket_share, bucket.productBasketShare, bucket.product_unit_share, bucket.productUnitShare),
+    resolvedReturnUnits: optionalFiniteMetricNumber(bucket.resolvedReturnUnits, bucket.returnResolvedUnits, bucket.resolvedReturns),
+    unresolvedReturnUnits: optionalFiniteMetricNumber(bucket.unresolvedReturnUnits, bucket.openReturnUnits, bucket.pendingReturnUnits, bucket.unresolvedReturns),
+    returnRate: calculateClientUnitRatePercent(bucket.returnedUnits, bucket.orderUnits, bucket.returnRate ?? 0),
+    refundRate: calculateClientUnitRatePercent(bucket.refundedUnits, bucket.orderUnits, bucket.refundRate ?? 0),
+  };
+}
+
 function normalizeProductMonthlyOrderActivity(activity = null) {
   const months = (Array.isArray(activity?.months) ? activity.months : [])
-    .map((month) => ({
-      key: String(month.key || month.label || ""),
-      label: String(month.label || month.key || ""),
-      shortLabel: String(month.shortLabel || month.label || month.key || ""),
-      startAt: month.startAt || null,
-      orders: Number(month.orders || 0),
-      orderUnits: Number(month.orderUnits || 0),
-      revenue: Number(month.revenue || 0),
-      returnedOrders: Number(month.returnedOrders || 0),
-      returnedUnits: Number(month.returnedUnits || 0),
-      refundedOrders: Number(month.refundedOrders || 0),
-      refundedUnits: Number(month.refundedUnits || 0),
-      refundAmount: Number(month.refundAmount || 0),
-      unitsPerOrder: optionalFiniteMetricNumber(month.unitsPerOrder, month.avgUnitsPerOrder, month.avg_product_quantity_per_order, month.avgProductQuantityPerOrder),
-      avgTotalUnitsPerOrder: optionalFiniteMetricNumber(month.avgTotalUnitsPerOrder, month.avg_total_units_per_order),
-      totalBasketUnits: optionalFiniteMetricNumber(month.totalBasketUnits, month.total_order_units_in_baskets, month.totalOrderUnitsInBaskets),
-      otherProductUnits: optionalFiniteMetricNumber(month.otherProductUnits, month.other_product_units),
-      productBasketSharePercent: optionalFiniteMetricNumber(month.productBasketSharePercent, month.product_basket_share, month.productBasketShare, month.product_unit_share, month.productUnitShare),
-      resolvedReturnUnits: optionalFiniteMetricNumber(month.resolvedReturnUnits, month.returnResolvedUnits, month.resolvedReturns),
-      unresolvedReturnUnits: optionalFiniteMetricNumber(month.unresolvedReturnUnits, month.openReturnUnits, month.pendingReturnUnits, month.unresolvedReturns),
-      returnRate: calculateClientUnitRatePercent(month.returnedUnits, month.orderUnits, month.returnRate ?? 0),
-      refundRate: calculateClientUnitRatePercent(month.refundedUnits, month.orderUnits, month.refundRate ?? 0),
-    }))
+    .map(normalizeProductOrderActivityBucket)
     .filter((month) => month.key || month.label);
+  const weeks = (Array.isArray(activity?.weeks) ? activity.weeks : [])
+    .map(normalizeProductOrderActivityBucket)
+    .filter((week) => week.key || week.label);
 
   const summary = activity?.summary || {};
   const computed = months.reduce((totals, month) => ({
@@ -6958,6 +6965,7 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
     windowDays: Number(activity?.windowDays || 0),
     generatedAt: activity?.generatedAt || null,
     months,
+    weeks,
     summary: {
       ...computed,
       ...summary,
@@ -13101,8 +13109,8 @@ function getProductMetricTimelineDefinitions() {
     {
       key: "monthly-order-activity",
       kind: "orderActivity",
-      title: "Monthly order activity",
-      subtitle: "Orders, returns, refunds, revenue",
+      title: "Weekly order activity",
+      subtitle: "Orders, returns, refunds, revenue by week",
       icon: "shopify-orders",
       glyph: "shopify-orders",
       tone: "blue",
@@ -13349,25 +13357,63 @@ function getProductMetricTimelineEventColor(event = {}) {
 
 function getProductMetricTimelineOrderActivityPoints(detail = {}) {
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
-  const months = Array.isArray(activity.months) ? activity.months : [];
-  const unresolvedSeries = getOrderActivityUnresolvedReturnSeries(months);
-  return months
-    .map((month, index) => {
-      const date = parseProductMetricTimelineMonthDate(month);
+  const buckets = getProductMetricTimelineOrderActivityBuckets(detail, activity);
+  const unresolvedSeries = getOrderActivityUnresolvedReturnSeries(buckets);
+  return buckets
+    .map((bucket, index) => {
+      const date = parseProductMetricTimelineDate(bucket.startAt || bucket.key) || parseProductMetricTimelineMonthDate(bucket);
       if (!date) return null;
       return {
         time: date.getTime(),
-        label: month.label || formatProductMetricTimelinePointLabel(date),
-        value: getOrderActivityStackTotal(month),
-        orders: Number(month.orders || 0),
-        orderUnits: Number(month.orderUnits || 0),
-        returnedOrders: Number(month.returnedOrders || 0),
-        returnedUnits: Number(month.returnedUnits || 0),
-        refundedOrders: Number(month.refundedOrders || 0),
-        refundedUnits: Number(month.refundedUnits || 0),
-        revenue: Number(month.revenue || 0),
-        refundAmount: Number(month.refundAmount || 0),
+        label: bucket.label || formatProductMetricTimelinePointLabel(date),
+        value: getOrderActivityStackTotal(bucket),
+        orders: Number(bucket.orders || 0),
+        orderUnits: Number(bucket.orderUnits || 0),
+        returnedOrders: Number(bucket.returnedOrders || 0),
+        returnedUnits: Number(bucket.returnedUnits || 0),
+        refundedOrders: Number(bucket.refundedOrders || 0),
+        refundedUnits: Number(bucket.refundedUnits || 0),
+        revenue: Number(bucket.revenue || 0),
+        refundAmount: Number(bucket.refundAmount || 0),
         unresolvedReturns: Number(unresolvedSeries[index]?.value || 0),
+      };
+    })
+    .filter(Boolean);
+}
+
+function getProductMetricTimelineOrderActivityBuckets(detail = {}, activity = {}) {
+  const weeks = Array.isArray(activity.weeks) ? activity.weeks : [];
+  if (weeks.length) return weeks;
+  const predictionWeeks = getProductMetricTimelineOrderActivityBucketsFromPrediction(detail);
+  if (predictionWeeks.length) return predictionWeeks;
+  return Array.isArray(activity.months) ? activity.months : [];
+}
+
+function getProductMetricTimelineOrderActivityBucketsFromPrediction(detail = {}) {
+  const prediction = detail.returnRatePrediction || normalizeProductReturnRatePrediction(null);
+  return (Array.isArray(prediction.observedPoints) ? prediction.observedPoints : [])
+    .map((point) => {
+      const date = parseProductMetricTimelineDate(point.startAt || point.key || point.label);
+      if (!date) return null;
+      const orders = Number(point.orders || 0);
+      const orderUnits = Number(point.orderUnits || 0);
+      const returnedOrders = Number(point.returnedOrders || 0);
+      const returnedUnits = Number(point.returnedUnits || 0);
+      return {
+        key: point.key || formatProductMetricTimelinePointLabel(date),
+        label: point.label || formatProductMetricTimelinePointLabel(date),
+        shortLabel: point.shortLabel || point.label || "",
+        startAt: date.toISOString(),
+        orders,
+        orderUnits,
+        returnedOrders,
+        returnedUnits,
+        refundedOrders: 0,
+        refundedUnits: 0,
+        revenue: 0,
+        refundAmount: 0,
+        returnRate: calculateClientUnitRatePercent(returnedUnits, orderUnits, point.rawReturnRate ?? point.smoothedReturnRate ?? 0),
+        refundRate: 0,
       };
     })
     .filter(Boolean);

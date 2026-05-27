@@ -184,6 +184,12 @@ function makeMetricTimelineProduct(overrides = {}) {
           { key: "2026-04", label: "Apr 2026", shortLabel: "Apr", startAt: "2026-04-01T00:00:00.000Z", orders: 8, orderUnits: 11, revenue: 760, returnedOrders: 3, returnedUnits: 3, refundedOrders: 2, refundedUnits: 2, refundAmount: 140, returnRate: 27.3, refundRate: 18.2 },
           { key: "2026-05", label: "May 2026", shortLabel: "May", startAt: "2026-05-01T00:00:00.000Z", orders: 10, orderUnits: 14, revenue: 960, returnedOrders: 4, returnedUnits: 5, refundedOrders: 3, refundedUnits: 3, refundAmount: 210, returnRate: 35.7, refundRate: 21.4 },
         ],
+        weeks: [
+          { key: "2026-02-09", label: "Feb 9", shortLabel: "Feb 9", startAt: "2026-02-09T00:00:00.000Z", orders: 4, orderUnits: 5, revenue: 320, returnedOrders: 1, returnedUnits: 1, refundedOrders: 0, refundedUnits: 0, refundAmount: 0, returnRate: 20, refundRate: 0 },
+          { key: "2026-03-02", label: "Mar 2", shortLabel: "Mar 2", startAt: "2026-03-02T00:00:00.000Z", orders: 6, orderUnits: 8, revenue: 540, returnedOrders: 2, returnedUnits: 2, refundedOrders: 1, refundedUnits: 1, refundAmount: 80, returnRate: 25, refundRate: 12.5 },
+          { key: "2026-04-06", label: "Apr 6", shortLabel: "Apr 6", startAt: "2026-04-06T00:00:00.000Z", orders: 8, orderUnits: 11, revenue: 760, returnedOrders: 3, returnedUnits: 3, refundedOrders: 2, refundedUnits: 2, refundAmount: 140, returnRate: 27.3, refundRate: 18.2 },
+          { key: "2026-05-25", label: "May 25", shortLabel: "May 25", startAt: "2026-05-25T00:00:00.000Z", orders: 10, orderUnits: 14, revenue: 960, returnedOrders: 4, returnedUnits: 5, refundedOrders: 3, refundedUnits: 3, refundAmount: 210, returnRate: 35.7, refundRate: 21.4 },
+        ],
         summary: {
           totalOrders: 28,
           totalOrderUnits: 38,
@@ -1603,7 +1609,7 @@ describe("ProductPulse screens", () => {
     [
       "Product events",
       "Product risk",
-      "Monthly order activity",
+      "Weekly order activity",
       "Return rate",
       "Refund leakage",
       "Financial exposure",
@@ -1632,7 +1638,7 @@ describe("ProductPulse screens", () => {
     expect(within(charts[1]).getByText("Risk score history")).toBeInTheDocument();
     expect(within(charts[1]).getByText("70 / 100")).toBeInTheDocument();
     expect(within(charts[1]).getByText("+9 vs Apr 1")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Orders, returns, refunds, revenue")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Orders, returns, refunds, revenue by week")).toBeInTheDocument();
     expect(within(charts[2]).getByText("28 orders")).toBeInTheDocument();
     expect(charts[2].querySelectorAll(".recharts-bar")).toHaveLength(0);
     expect(within(charts[2]).getByText("Orders")).toBeInTheDocument();
@@ -1676,6 +1682,7 @@ describe("ProductPulse screens", () => {
     ]);
     expect(new Set(eventChart.points.filter((point) => point.dayKey === "2026-05-29").map((point) => point.lane)).size).toBe(2);
     const orderActivityChart = model.charts.find((chart) => chart.key === "monthly-order-activity");
+    expect(orderActivityChart.points.map((point) => point.label)).toEqual(["Feb 9", "Mar 2", "Apr 6", "May 25"]);
     expect(orderActivityChart.legendItems.map((item) => item.label)).toEqual(["Orders", "Returns", "Refunds", "Revenue", "Unresolved returns"]);
     expect(model.charts.every((chart) => chart.points.every((point) => point.time >= new Date("2025-06-01T00:00:00.000Z").getTime()))).toBe(true);
     expect(model.charts.find((chart) => chart.key === "product-risk").points.map((point) => point.label)).toEqual([
@@ -1708,7 +1715,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Move Product events down" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Product risk up" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Move Monthly order activity up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move Weekly order activity up" }));
 
     await waitFor(() => expect(chartKeys(firstRender.container).slice(0, 4)).toEqual(["product-events", "monthly-order-activity", "product-risk", "return-rate"]));
     expect(JSON.parse(window.localStorage.getItem(storageKey)).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]);

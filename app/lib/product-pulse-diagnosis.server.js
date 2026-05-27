@@ -13415,41 +13415,45 @@ function buildMonthlyOrderActivity({
   const monthStarts = getMonthStartsBetween(startOfUtcMonth(sinceDate), startOfUtcMonth(currentDate))
     .slice(-MONTHLY_ORDER_ACTIVITY_MAX_MONTHS);
   const buckets = new Map(monthStarts.map((date) => [formatUtcMonthKey(date), createMonthlyOrderActivityBucket(date)]));
+  const weekStarts = getWeekStartsBetween(startOfUtcWeek(sinceDate), startOfUtcWeek(currentDate))
+    .slice(-RETURN_RATE_PREDICTION_MAX_WEEKS);
+  const weekBuckets = new Map(weekStarts.map((date) => [formatUtcDateKey(date), createWeeklyOrderActivityBucket(date)]));
   const orderMonthById = new Map();
+  const orderWeekById = new Map();
 
   sales.forEach((event, index) => {
-    const monthKey = getEventMonthKey(getOrderCohortDate(event, { includeEventDate: true }));
-    if (!buckets.has(monthKey)) return;
-    if (event.orderId) orderMonthById.set(event.orderId, monthKey);
-    const bucket = buckets.get(monthKey);
-    const orderKey = event.orderId || event.id || `sale:${index}:${monthKey}`;
-    bucket.orderIds.add(orderKey);
-    bucket.orderUnits += Number(event.quantity || 0);
-    bucket.revenue += Number(event.amount || 0);
+    const cohortDate = getOrderCohortDate(event, { includeEventDate: true });
+    const monthKey = getEventMonthKey(cohortDate);
+    const weekKey = getEventWeekKey(cohortDate);
+    const orderKey = event.orderId || event.id || `sale:${index}:${monthKey || weekKey}`;
+    if (buckets.has(monthKey)) {
+      if (event.orderId) orderMonthById.set(event.orderId, monthKey);
+      addSaleToOrderActivityBucket(buckets.get(monthKey), orderKey, event);
+    }
+    if (weekBuckets.has(weekKey)) {
+      if (event.orderId) orderWeekById.set(event.orderId, weekKey);
+      addSaleToOrderActivityBucket(weekBuckets.get(weekKey), orderKey, event);
+    }
   });
 
   returns.forEach((event, index) => {
     const monthKey = getOperationalEventMonthKey(event, orderMonthById);
-    const bucket = buckets.get(monthKey);
-    if (!bucket) return;
-    const orderKey = event.orderId || event.id || `return:${index}:${monthKey}`;
-    bucket.orderIds.add(orderKey);
-    bucket.returnOrderIds.add(orderKey);
-    bucket.returnedUnits += getOperationalEventQuantity(event);
+    const weekKey = getOperationalEventWeekKey(event, orderWeekById);
+    const orderKey = event.orderId || event.id || `return:${index}:${monthKey || weekKey}`;
+    if (buckets.has(monthKey)) addReturnToOrderActivityBucket(buckets.get(monthKey), orderKey, event);
+    if (weekBuckets.has(weekKey)) addReturnToOrderActivityBucket(weekBuckets.get(weekKey), orderKey, event);
   });
 
   refunds.forEach((event, index) => {
     const monthKey = getOperationalEventMonthKey(event, orderMonthById);
-    const bucket = buckets.get(monthKey);
-    if (!bucket) return;
-    const orderKey = event.orderId || event.id || `refund:${index}:${monthKey}`;
-    bucket.orderIds.add(orderKey);
-    bucket.refundOrderIds.add(orderKey);
-    bucket.refundedUnits += getOperationalEventQuantity(event);
-    bucket.refundAmount += Number(event.amount || event.totalRefundedAmount || 0);
+    const weekKey = getOperationalEventWeekKey(event, orderWeekById);
+    const orderKey = event.orderId || event.id || `refund:${index}:${monthKey || weekKey}`;
+    if (buckets.has(monthKey)) addRefundToOrderActivityBucket(buckets.get(monthKey), orderKey, event);
+    if (weekBuckets.has(weekKey)) addRefundToOrderActivityBucket(weekBuckets.get(weekKey), orderKey, event);
   });
 
   const months = [...buckets.values()].map(normalizeMonthlyOrderActivityBucket);
+  const weeks = [...weekBuckets.values()].map(normalizeMonthlyOrderActivityBucket);
   const summary = months.reduce((totals, month) => ({
     totalOrders: totals.totalOrders + month.orders,
     totalOrderUnits: totals.totalOrderUnits + month.orderUnits,
@@ -13477,6 +13481,7 @@ function buildMonthlyOrderActivity({
     windowDays: safeWindowDays,
     generatedAt: toIso(currentDate),
     months,
+    weeks,
     summary: {
       ...summary,
       totalRevenue: roundCurrency(summary.totalRevenue),
@@ -14234,6 +14239,45 @@ function createMonthlyOrderActivityBucket(date) {
     refundedUnits: 0,
     refundAmount: 0,
   };
+}
+
+function createWeeklyOrderActivityBucket(date) {
+  return {
+    key: formatUtcDateKey(date),
+    label: formatWeekLabel(date),
+    shortLabel: formatWeekLabel(date),
+    startAt: toIso(date),
+    orderIds: new Set(),
+    returnOrderIds: new Set(),
+    refundOrderIds: new Set(),
+    orderUnits: 0,
+    revenue: 0,
+    returnedUnits: 0,
+    refundedUnits: 0,
+    refundAmount: 0,
+  };
+}
+
+function addSaleToOrderActivityBucket(bucket, orderKey, event = {}) {
+  if (!bucket || !orderKey) return;
+  bucket.orderIds.add(orderKey);
+  bucket.orderUnits += Number(event.quantity || 0);
+  bucket.revenue += Number(event.amount || 0);
+}
+
+function addReturnToOrderActivityBucket(bucket, orderKey, event = {}) {
+  if (!bucket || !orderKey) return;
+  bucket.orderIds.add(orderKey);
+  bucket.returnOrderIds.add(orderKey);
+  bucket.returnedUnits += getOperationalEventQuantity(event);
+}
+
+function addRefundToOrderActivityBucket(bucket, orderKey, event = {}) {
+  if (!bucket || !orderKey) return;
+  bucket.orderIds.add(orderKey);
+  bucket.refundOrderIds.add(orderKey);
+  bucket.refundedUnits += getOperationalEventQuantity(event);
+  bucket.refundAmount += Number(event.amount || event.totalRefundedAmount || 0);
 }
 
 function normalizeMonthlyOrderActivityBucket(bucket) {
