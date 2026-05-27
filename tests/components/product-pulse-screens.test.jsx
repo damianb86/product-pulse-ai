@@ -493,6 +493,8 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByTestId("products-table")).not.toBeInTheDocument();
     expect(within(candidatesTable).queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
     expect(within(candidatesTable).getByText("No candidates yet")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Find Shopify product" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Analyze selected (0)" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("tab", { name: /Resolved/ }));
     const resolvedTable = screen.getByTestId("products-resolved-table");
@@ -1847,7 +1849,7 @@ describe("ProductPulse screens", () => {
     expect(within(fullEvidenceRefundReport).getAllByText(repeatedRefundNote)).toHaveLength(1);
   });
 
-  it("puts Shopify Admin in the product header and storefront in product actions", () => {
+  it("puts storefront and Shopify Admin in product actions", () => {
     const product = {
       ...defaultView.startHere,
       shopifyAdminUrl: "https://admin.shopify.com/store/qorve/products/123",
@@ -1855,12 +1857,12 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    expect(screen.getByRole("link", { name: "Open in Shopify Admin" })).toHaveAttribute("href", product.shopifyAdminUrl);
+    expect(screen.queryByRole("link", { name: "Open in Shopify Admin" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "View in Store" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
     expect(screen.getByRole("menuitem", { name: "View in Store" })).toHaveAttribute("href", product.shopifyStorefrontUrl);
-    expect(screen.queryByRole("menuitem", { name: "Open in Shopify admin" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "View in Shopify admin" })).toHaveAttribute("href", product.shopifyAdminUrl);
   });
 
   it("marks a product resolved from the detail actions menu", async () => {

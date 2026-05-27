@@ -1458,7 +1458,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const renderActiveProductsFilters = () => {
     if (activeProductsTab === "candidates") {
-      return renderProductFilters({ table: "candidates", tableFilters: candidateFilters, tableFilterOptions: candidateFilterOptions });
+      return renderProductFilters({ table: "candidates", tableFilters: candidateFilters, tableFilterOptions: candidateFilterOptions, includeActions: true });
     }
     if (activeProductsTab === "resolved") {
       return renderProductFilters({ table: "resolved", tableFilters: resolvedFilters, tableFilterOptions: resolvedFilterOptions });
@@ -1492,7 +1492,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const renderActiveProductsTable = () => {
     if (activeProductsTab === "candidates") {
-      return renderProductTable({ table: "candidates", title: "Candidates", description: "Products captured by QuickScan or added manually, without a completed deep diagnosis yet.", rows: candidateRows, count: candidateCount, totalAll: candidateTotalAllProducts, currentPage: candidatePage, pageSize: candidateRowsPerPage, pages: candidateTotalPages, tableSortConfig: candidateSortConfig, tableTestId: "products-candidates-table", searchState: { open: candidateSearchOpen, value: candidateSearchValue, inputRef: candidateTableSearchInputRef, setOpen: setCandidateSearchOpen, setValue: setCandidateSearchValue }, emptyTitle: "No candidates yet", emptyDescription: "Run QuickScan or add a Shopify product as a candidate without starting a diagnosis." });
+      return renderProductTable({ table: "candidates", title: "Candidates", description: "Products captured by QuickScan or added manually, without a completed deep diagnosis yet.", rows: candidateRows, count: candidateCount, totalAll: candidateTotalAllProducts, currentPage: candidatePage, pageSize: candidateRowsPerPage, pages: candidateTotalPages, tableSortConfig: candidateSortConfig, tableTestId: "products-candidates-table", showFindProduct: true, searchState: { open: candidateSearchOpen, value: candidateSearchValue, inputRef: candidateTableSearchInputRef, setOpen: setCandidateSearchOpen, setValue: setCandidateSearchValue }, emptyTitle: "No candidates yet", emptyDescription: "Run QuickScan or add a Shopify product as a candidate without starting a diagnosis." });
     }
     if (activeProductsTab === "resolved") {
       return renderProductTable({ table: "resolved", title: "Resolved", description: "Products marked resolved after review or remediation.", rows: resolvedRows, count: resolvedCount, totalAll: resolvedTotalAllProducts, currentPage: resolvedPage, pageSize: resolvedRowsPerPage, pages: resolvedTotalPages, tableSortConfig: resolvedSortConfig, tableTestId: "products-resolved-table", searchState: { open: resolvedSearchOpen, value: resolvedSearchValue, inputRef: resolvedTableSearchInputRef, setOpen: setResolvedSearchOpen, setValue: setResolvedSearchValue }, emptyTitle: "No resolved products yet", emptyDescription: "Resolved products will appear here after you mark a diagnosis as resolved." });
@@ -11722,7 +11722,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const productStatusLabel = resolved ? "Resolved" : detail.productStatusLabel;
   const productStatusTone = resolved ? "success" : detail.productStatusTone;
   const hasNoStoredDiagnosis = detail.analysisDepth === "catalog" || !detail.hasRiskSnapshot;
-  const shopifyAdminUrl = detail.shopifyAdminUrl || "";
   const metricTimelinesHref = getProductMetricTimelinesHref(detail);
   const productMetaItems = [
     ["Handle", detail.handle || "Unavailable"],
@@ -12170,23 +12169,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 <s-icon type="refresh" size="small"></s-icon>
                 {diagnosisButtonText}
               </button>
-            )}
-            {shopifyAdminUrl ? (
-              <a
-                className="ppProductStoreButton"
-                href={shopifyAdminUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Open in Shopify Admin"
-              >
-                <span>Open in Shopify Admin</span>
-                <s-icon type="external" size="small"></s-icon>
-              </a>
-            ) : (
-              <span className="ppProductStoreButton isDisabled" aria-disabled="true">
-                <span>Open in Shopify Admin</span>
-                <s-icon type="external" size="small"></s-icon>
-              </span>
             )}
             <Link className="ppSecondaryButton ppProductMetricTimelineButton" to={metricTimelinesHref}>
               <img className="ppProductMetricTimelineIcon" src="/assets/metric-timelines-icon.png" alt="" aria-hidden="true" />
@@ -20934,6 +20916,7 @@ function ProductDetailActionsMenu({
   const productId = detail.productGid || product?.productGid || detail.slug || detail.handle || product?.slug || product?.handle || "";
   const handle = detail.handle || product?.handle || productId;
   const storefrontUrl = detail.shopifyStorefrontUrl || getStorefrontUrlFromAdminUrl(detail.shopifyAdminUrl, detail.handle);
+  const shopifyAdminUrl = detail.shopifyAdminUrl || product?.shopifyAdminUrl || "";
 
   useEffect(() => {
     if (!open || typeof document === "undefined") return undefined;
@@ -20990,7 +20973,7 @@ function ProductDetailActionsMenu({
         <s-icon type="menu-horizontal" size="small"></s-icon>
       </button>
       {open && (
-        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu ppProductDetailActionMenu" width={236} estimatedHeight={264} placement="bottom-end" role="menu">
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu ppProductDetailActionMenu" width={236} estimatedHeight={304} placement="bottom-end" role="menu">
           <span className="ppProductDetailActionMenuHeader">Product actions</span>
           <button
             role="menuitem"
@@ -21028,6 +21011,12 @@ function ProductDetailActionsMenu({
             <a role="menuitem" href={storefrontUrl} target="_blank" rel="noreferrer" onClick={onClose}>
               <s-icon type="external" size="small"></s-icon>
               View in Store
+            </a>
+          )}
+          {shopifyAdminUrl && (
+            <a role="menuitem" href={shopifyAdminUrl} target="_blank" rel="noreferrer" onClick={onClose}>
+              <s-icon type="external" size="small"></s-icon>
+              View in Shopify admin
             </a>
           )}
           {canDeleteAnalysis && (
