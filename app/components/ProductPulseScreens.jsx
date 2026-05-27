@@ -12538,10 +12538,11 @@ export function ProductMetricTimelinesScreen({ product }) {
 
   const detail = getProductDetailModel(product);
   const timelineModel = getProductMetricTimelineModel(detail);
-  const pinnedCharts = timelineModel.charts.filter((chart) => chart.pinned);
-  const orderableCharts = timelineModel.charts.filter((chart) => !chart.pinned);
+  const topPinnedCharts = timelineModel.charts.filter((chart) => isProductMetricTimelineTopPinnedChart(chart));
+  const bottomPinnedCharts = timelineModel.charts.filter((chart) => isProductMetricTimelineBottomPinnedChart(chart));
+  const orderableCharts = timelineModel.charts.filter((chart) => !isProductMetricTimelinePinnedChart(chart));
   const orderedCharts = getProductMetricTimelineOrderedCharts(orderableCharts, savedChartOrder);
-  const visibleCharts = [...pinnedCharts, ...orderedCharts];
+  const visibleCharts = [...topPinnedCharts, ...orderedCharts, ...bottomPinnedCharts];
   const availableChartKeys = orderableCharts.map((chart) => chart.key);
 
   const handleMoveChart = (chartKey, direction) => {
@@ -12577,8 +12578,8 @@ export function ProductMetricTimelinesScreen({ product }) {
             const orderableIndex = orderedCharts.findIndex((item) => item.key === chart.key);
             return (
               <ProductMetricTimelineChart
-                canMoveDown={!chart.pinned && orderableIndex >= 0 && orderableIndex < orderedCharts.length - 1}
-                canMoveUp={!chart.pinned && orderableIndex > 0}
+                canMoveDown={!isProductMetricTimelinePinnedChart(chart) && orderableIndex >= 0 && orderableIndex < orderedCharts.length - 1}
+                canMoveUp={!isProductMetricTimelinePinnedChart(chart) && orderableIndex > 0}
                 chart={chart}
                 key={chart.key}
                 onMove={handleMoveChart}
@@ -12950,35 +12951,12 @@ function ProductMetricTimelineEventTooltip({ event = {} }) {
   const groups = Array.isArray(event.dayEventGroups) && event.dayEventGroups.length
     ? event.dayEventGroups
     : getProductMetricTimelineEventTooltipGroups(dayEvents);
-  const summaries = Array.isArray(event.dayEventCategorySummaries) && event.dayEventCategorySummaries.length
-    ? event.dayEventCategorySummaries
-    : groups.map((group) => ({
-      key: group.key,
-      label: group.label,
-      count: group.events.length,
-      icon: group.icon,
-      color: group.color,
-      tone: group.tone,
-    }));
   const eventCount = dayEvents.length;
   return (
     <div className={`ppRetentionLinePopover ppMetricTimelineTooltip ppMetricTimelineEventTooltip ppMetricTimelineEventTooltip-${event.tone || "slate"}`} role="tooltip">
       <span className="ppMetricTimelineEventTooltipHeader">
         <strong>{event.dayLabel || event.dateLabel || event.label}</strong>
         <span>{formatInteger(eventCount)} {eventCount === 1 ? "event" : "events"}</span>
-      </span>
-      <span className="ppMetricTimelineEventTooltipSummary">
-        {summaries.map((summary) => (
-          <span
-            className="ppMetricTimelineEventTooltipSummaryCard"
-            key={`${event.dayKey || event.id}-${summary.key}`}
-            style={{ "--pp-metric-timeline-event-tooltip-color": summary.color }}
-          >
-            <span aria-hidden="true"><ProductPulseGlyph type={summary.icon || "chart-line"} /></span>
-            <b>{formatInteger(summary.count)}</b>
-            <small>{summary.label}</small>
-          </span>
-        ))}
       </span>
       <span className="ppMetricTimelineEventTooltipGroups">
         {groups.map((group) => {
@@ -13032,14 +13010,6 @@ function getProductMetricTimelineEventsWithDayGroups(points = []) {
     dayPayloads.set(key, {
       dayEvents: sortedEvents,
       dayEventGroups: groups,
-      dayEventCategorySummaries: groups.map((group) => ({
-        key: group.key,
-        label: group.label,
-        count: group.events.length,
-        icon: group.icon,
-        color: group.color,
-        tone: group.tone,
-      })),
       dayEventCount: sortedEvents.length,
       dayLabel: getProductMetricTimelineEventDayLabel(sortedEvents[0]),
     });
@@ -13184,6 +13154,18 @@ function moveProductMetricTimelineChartOrder(availableKeys = [], order = [], cha
   return next;
 }
 
+function isProductMetricTimelineTopPinnedChart(chart = {}) {
+  return chart.pinned === true || chart.pinPosition === "top";
+}
+
+function isProductMetricTimelineBottomPinnedChart(chart = {}) {
+  return chart.pinPosition === "bottom";
+}
+
+function isProductMetricTimelinePinnedChart(chart = {}) {
+  return isProductMetricTimelineTopPinnedChart(chart) || isProductMetricTimelineBottomPinnedChart(chart);
+}
+
 export const __productPulseScreensTestHooks = {
   getProductMetricTimelineNearestSyncIndex,
   getProductMetricTimelineOrderedCharts,
@@ -13213,20 +13195,6 @@ function getProductMetricTimelineModel(detail = {}) {
 
 function getProductMetricTimelineDefinitions() {
   return [
-    {
-      key: "product-events",
-      kind: "events",
-      title: "Product events",
-      subtitle: "Operational timeline markers",
-      icon: "chart-line",
-      glyph: "chart-line",
-      tone: "slate",
-      color: "var(--pp-slate-900)",
-      axis: "events",
-      positiveDirection: "neutral",
-      pinned: true,
-      points: getProductMetricTimelineEventPoints,
-    },
     {
       key: "product-risk",
       title: "Product risk",
@@ -13429,6 +13397,20 @@ function getProductMetricTimelineDefinitions() {
       yMax: 100,
       positiveDirection: "down",
       value: (point) => optionalFiniteMetricNumber(point.mainIssueIntensity, point.riskScore),
+    },
+    {
+      key: "product-events",
+      kind: "events",
+      title: "Product events",
+      subtitle: "Operational timeline markers",
+      icon: "chart-line",
+      glyph: "chart-line",
+      tone: "slate",
+      color: "var(--pp-slate-900)",
+      axis: "events",
+      positiveDirection: "neutral",
+      pinPosition: "bottom",
+      points: getProductMetricTimelineEventPoints,
     },
   ];
 }

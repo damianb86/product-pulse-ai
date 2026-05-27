@@ -1632,33 +1632,33 @@ describe("ProductPulse screens", () => {
     expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(14);
     expect(container.querySelectorAll(".ppMetricTimelinePoint")).toHaveLength(0);
     expect(container.querySelectorAll(".ppMetricTimelineDragHandle")).toHaveLength(0);
-    expect(within(charts[0]).getByText("Operational timeline markers")).toBeInTheDocument();
-    expect(within(charts[0]).getByText("3 events")).toBeInTheDocument();
-    expect(within(charts[0]).getByText("3 groups · Jun to May 29")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("Risk score history")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("70 / 100")).toBeInTheDocument();
-    expect(within(charts[1]).getByText("+9 vs Apr 1")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Orders, returns, refunds, revenue by week")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("28 orders")).toBeInTheDocument();
-    expect(charts[2].querySelectorAll(".recharts-bar")).toHaveLength(0);
-    expect(within(charts[2]).getByText("Orders")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Returns")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Refunds")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Revenue")).toBeInTheDocument();
-    expect(within(charts[3]).getByText("Return rate and product friction")).toBeInTheDocument();
-    expect(within(charts[3]).getByText("36%")).toBeInTheDocument();
-    expect(within(charts[3]).getByText("Return pressure")).toBeInTheDocument();
-    expect(within(charts[4]).getByText("Refunds vs revenue")).toBeInTheDocument();
-    const chartTextLabels = Array.from(charts[0].querySelectorAll("text")).map((node) => node.textContent);
+    expect(within(charts[0]).getByText("Risk score history")).toBeInTheDocument();
+    expect(within(charts[0]).getByText("70 / 100")).toBeInTheDocument();
+    expect(within(charts[0]).getByText("+9 vs Apr 1")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Orders, returns, refunds, revenue by week")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("28 orders")).toBeInTheDocument();
+    expect(charts[1].querySelectorAll(".recharts-bar")).toHaveLength(0);
+    expect(within(charts[1]).getByText("Orders")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Returns")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Refunds")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Revenue")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Return rate and product friction")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("36%")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Return pressure")).toBeInTheDocument();
+    expect(within(charts[3]).getByText("Refunds vs revenue")).toBeInTheDocument();
+    const eventChartElement = charts[charts.length - 1];
+    expect(within(eventChartElement).getByText("Operational timeline markers")).toBeInTheDocument();
+    expect(within(eventChartElement).getByText("3 events")).toBeInTheDocument();
+    expect(within(eventChartElement).getByText("3 groups · Jun to May 29")).toBeInTheDocument();
+    const chartTextLabels = Array.from(eventChartElement.querySelectorAll("text")).map((node) => node.textContent);
     expect(chartTextLabels).toEqual(expect.arrayContaining(["Jun", "May 29"]));
-    expect(charts[0].querySelectorAll(".ppMetricTimelineEventMarker")).toHaveLength(3);
-    expect(charts[0].querySelectorAll(".ppMetricTimelineLegendIcon")).toHaveLength(3);
-    expect(charts[0].querySelector(".ppMetricTimelineLegendLine")).not.toBeInTheDocument();
+    expect(eventChartElement.querySelectorAll(".ppMetricTimelineEventMarker")).toHaveLength(3);
+    expect(eventChartElement.querySelectorAll(".ppMetricTimelineLegendIcon")).toHaveLength(3);
+    expect(eventChartElement.querySelector(".ppMetricTimelineLegendLine")).not.toBeInTheDocument();
 
     const detail = __productPulseScreensTestHooks.getProductDetailModel(product);
     const model = __productPulseScreensTestHooks.getProductMetricTimelineModel(detail);
     expect(model.charts.map((chart) => chart.key)).toEqual([
-      "product-events",
       "product-risk",
       "monthly-order-activity",
       "return-rate",
@@ -1672,11 +1672,12 @@ describe("ProductPulse screens", () => {
       "average-rating",
       "negative-review-pressure",
       "main-issue",
+      "product-events",
     ]);
     expect(model.rangeLabel).toBe("Jun to May 29");
     const eventChart = model.charts.find((chart) => chart.key === "product-events");
     expect(eventChart.kind).toBe("events");
-    expect(eventChart.pinned).toBe(true);
+    expect(eventChart.pinPosition).toBe("bottom");
     expect(eventChart.points.map((point) => point.title)).toEqual([
       "QuickScan completed",
       "Product risk increased",
@@ -1686,7 +1687,7 @@ describe("ProductPulse screens", () => {
     const groupedEvent = eventChart.points.find((point) => point.id === "timeline-risk");
     expect(groupedEvent.dayEventCount).toBe(2);
     expect(groupedEvent.dayEventGroups.map((group) => `${group.label}:${group.events.length}`)).toEqual(["Risk:1", "Actions:1"]);
-    expect(groupedEvent.dayEventCategorySummaries.map((summary) => summary.icon)).toEqual(["alert-triangle", "check-circle"]);
+    expect(groupedEvent.dayEventCategorySummaries).toBeUndefined();
     const orderActivityChart = model.charts.find((chart) => chart.key === "monthly-order-activity");
     expect(orderActivityChart.points.map((point) => point.label)).toEqual(["Feb 9", "Mar 2", "Apr 6", "May 25"]);
     expect(orderActivityChart.legendItems.map((item) => item.label)).toEqual(["Orders", "Returns", "Refunds", "Revenue", "Unresolved returns"]);
@@ -1716,19 +1717,22 @@ describe("ProductPulse screens", () => {
     const chartKeys = (container) => Array.from(container.querySelectorAll(".ppMetricTimelineChart"))
       .map((chart) => chart.getAttribute("data-metric-key"));
 
-    expect(chartKeys(firstRender.container).slice(0, 4)).toEqual(["product-events", "product-risk", "monthly-order-activity", "return-rate"]);
+    expect(chartKeys(firstRender.container).slice(0, 3)).toEqual(["product-risk", "monthly-order-activity", "return-rate"]);
+    expect(chartKeys(firstRender.container).at(-1)).toBe("product-events");
     expect(screen.getByRole("button", { name: "Move Product events up" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Product events down" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Product risk up" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Move Weekly order activity up" }));
 
-    await waitFor(() => expect(chartKeys(firstRender.container).slice(0, 4)).toEqual(["product-events", "monthly-order-activity", "product-risk", "return-rate"]));
+    await waitFor(() => expect(chartKeys(firstRender.container).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]));
+    expect(chartKeys(firstRender.container).at(-1)).toBe("product-events");
     expect(JSON.parse(window.localStorage.getItem(storageKey)).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]);
 
     firstRender.unmount();
     const secondRender = renderWithRouter(<ProductMetricTimelinesScreen product={product} />);
-    await waitFor(() => expect(chartKeys(secondRender.container).slice(0, 4)).toEqual(["product-events", "monthly-order-activity", "product-risk", "return-rate"]));
+    await waitFor(() => expect(chartKeys(secondRender.container).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]));
+    expect(chartKeys(secondRender.container).at(-1)).toBe("product-events");
     window.localStorage.removeItem(storageKey);
   });
 
