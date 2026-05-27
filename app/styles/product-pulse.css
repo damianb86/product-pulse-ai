@@ -3705,6 +3705,13 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
 }
 
+.ppProductMetricTimelineIcon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  object-fit: contain;
+}
+
 .ppProductOverflowButton {
   width: 42px;
   padding: 0;

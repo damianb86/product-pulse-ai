@@ -12189,7 +12189,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               </span>
             )}
             <Link className="ppSecondaryButton ppProductMetricTimelineButton" to={metricTimelinesHref}>
-              <s-icon type="chart-line" size="small"></s-icon>
+              <img className="ppProductMetricTimelineIcon" src="/assets/metric-timelines-icon.png" alt="" aria-hidden="true" />
               Metric timelines
             </Link>
             <ProductDetailActionsMenu

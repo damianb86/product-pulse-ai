@@ -1560,9 +1560,11 @@ describe("ProductPulse screens", () => {
   });
 
   it("links product detail to product metric timelines", () => {
-    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct()} />);
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct()} />);
+    const link = screen.getByRole("link", { name: "Metric timelines" });
 
-    expect(screen.getByRole("link", { name: "Metric timelines" })).toHaveAttribute("href", "/app/products/timeline-jacket/metric-timelines");
+    expect(link).toHaveAttribute("href", "/app/products/timeline-jacket/metric-timelines");
+    expect(container.querySelector(".ppProductMetricTimelineIcon")).toHaveAttribute("src", "/assets/metric-timelines-icon.png");
   });
 
   it("does not render the product timeline panel on product detail", () => {
