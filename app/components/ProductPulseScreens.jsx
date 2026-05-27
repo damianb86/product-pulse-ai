@@ -12475,7 +12475,7 @@ export function ProductMetricTimelinesScreen({ product }) {
     <FullWidthPage label={`${detail.title} metric timelines`} className="ppMetricTimelinesPage">
       <ScreenShell className="ppDashboard ppMetricTimelinesScreen">
         <div className="ppMetricTimelinesHeader">
-          <Link className="ppProductBackButton" to={getProductDetailHref(detail)}>
+          <Link className="ppProductBackButton ppProductBackButtonStandalone" to={getProductDetailHref(detail)}>
             <s-icon type="arrow-left" size="small"></s-icon>
             Back to product
           </Link>

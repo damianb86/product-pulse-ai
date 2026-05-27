@@ -1583,6 +1583,7 @@ describe("ProductPulse screens", () => {
     const { container } = renderWithRouter(<ProductMetricTimelinesScreen product={product} />);
 
     expect(screen.getByRole("heading", { name: "Metric timelines" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to product" })).toHaveClass("ppProductBackButtonStandalone");
     expect(screen.getByText(/Timeline Jacket/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add to dashboard" })).not.toBeInTheDocument();
     expect(screen.queryByText("Compare: previous signal")).not.toBeInTheDocument();
