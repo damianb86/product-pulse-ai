@@ -46,11 +46,6 @@ const NEGATIVE_REVIEW_DELTA_THRESHOLD = 2;
 const REVIEW_RATING_DELTA_THRESHOLD = 0.2;
 const FINANCIAL_DELTA_AMOUNT_THRESHOLD = 100;
 const FINANCIAL_DELTA_PERCENT_THRESHOLD = 20;
-const PRODUCT_SCORE_RECORDED_EVENT_TITLES = [
-  "Product score recorded",
-  "Product Score recorded",
-  "Product Score Recorded",
-];
 
 export async function getProductTimelineForShop(shop, productRef, options = {}) {
   const db = options.db || prisma;
@@ -109,7 +104,7 @@ export async function ensureProductTimelineSeededForProduct({ shop, product, db 
   const existingCount = force
     ? 0
     : await db.productTimelineEvent.count({
-      where: buildTimelineWhere(shop, product.productGid),
+      where: { shop, productGid: product.productGid },
     });
   if (existingCount > 0 && !force) return { count: 0, skipped: true, reason: "timeline_already_seeded" };
 
@@ -291,8 +286,7 @@ async function createProductTimelineEvents(events = [], { db = prisma } = {}) {
   if (!db.productTimelineEvent) return { count: 0, skipped: true, reason: "timeline_model_unavailable" };
   const rows = (Array.isArray(events) ? events : [])
     .map(normalizeTimelineEventForCreate)
-    .filter(Boolean)
-    .filter((event) => !isProductScoreRecordedTimelineEvent(event));
+    .filter(Boolean);
   if (!rows.length) return { count: 0 };
   return db.productTimelineEvent.createMany({ data: rows, skipDuplicates: true });
 }
@@ -949,14 +943,7 @@ function getWatchCalculatedChangeSpec(change = {}) {
 }
 
 function buildTimelineWhere(shop, productGid, options = {}) {
-  const where = {
-    shop,
-    productGid,
-    NOT: [
-      { eventType: "product_score_recorded" },
-      { title: { in: PRODUCT_SCORE_RECORDED_EVENT_TITLES } },
-    ],
-  };
+  const where = { shop, productGid };
   const categories = normalizeList(options.category || options.categories);
   if (categories.length) where.category = { in: categories };
   const minImportance = nullableInteger(options.minImportance);
@@ -968,11 +955,6 @@ function buildTimelineWhere(shop, productGid, options = {}) {
   if (to) dateRange.lte = to;
   if (Object.keys(dateRange).length) where.occurredAt = dateRange;
   return where;
-}
-
-function isProductScoreRecordedTimelineEvent(event = {}) {
-  return normalizeText(event.eventType) === "product-score-recorded"
-    || normalizeText(event.title) === "product-score-recorded";
 }
 
 async function resolveTimelineProduct(shop, productRef, db) {
