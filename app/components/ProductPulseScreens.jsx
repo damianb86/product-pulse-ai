@@ -12898,16 +12898,26 @@ function ProductMetricTimelineActiveDot(props = {}) {
 
 function ProductMetricTimelineLegend({ chart }) {
   const items = Array.isArray(chart.legendItems) ? chart.legendItems : [];
-  if (items.length < 2) return null;
+  if (!items.length || (items.length < 2 && chart.kind !== "events")) return null;
   return (
-    <div className="ppMetricTimelineLegend" aria-label={`${chart.title} line legend`}>
+    <div className={`ppMetricTimelineLegend${chart.kind === "events" ? " ppMetricTimelineLegend-events" : ""}`} aria-label={`${chart.title} ${chart.kind === "events" ? "event" : "line"} legend`}>
       {items.map((item) => (
         <span className="ppMetricTimelineLegendItem" key={`${chart.key}-${item.label}`}>
-          <i
-            className={`ppMetricTimelineLegendLine${item.dashed ? " isDashed" : ""}`}
-            style={{ "--pp-metric-timeline-legend-color": item.color }}
-            aria-hidden="true"
-          />
+          {chart.kind === "events" ? (
+            <span
+              className="ppMetricTimelineLegendIcon"
+              style={{ "--pp-metric-timeline-legend-color": item.color }}
+              aria-hidden="true"
+            >
+              <ProductPulseGlyph type={item.icon || "chart-line"} />
+            </span>
+          ) : (
+            <i
+              className={`ppMetricTimelineLegendLine${item.dashed ? " isDashed" : ""}`}
+              style={{ "--pp-metric-timeline-legend-color": item.color }}
+              aria-hidden="true"
+            />
+          )}
           {item.label}
         </span>
       ))}
@@ -12936,23 +12946,148 @@ function ProductMetricTimelineTooltip({ active, payload, chart }) {
 }
 
 function ProductMetricTimelineEventTooltip({ event = {} }) {
+  const dayEvents = Array.isArray(event.dayEvents) && event.dayEvents.length ? event.dayEvents : [event];
+  const groups = Array.isArray(event.dayEventGroups) && event.dayEventGroups.length
+    ? event.dayEventGroups
+    : getProductMetricTimelineEventTooltipGroups(dayEvents);
+  const summaries = Array.isArray(event.dayEventCategorySummaries) && event.dayEventCategorySummaries.length
+    ? event.dayEventCategorySummaries
+    : groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      count: group.events.length,
+      icon: group.icon,
+      color: group.color,
+      tone: group.tone,
+    }));
+  const eventCount = dayEvents.length;
   return (
     <div className={`ppRetentionLinePopover ppMetricTimelineTooltip ppMetricTimelineEventTooltip ppMetricTimelineEventTooltip-${event.tone || "slate"}`} role="tooltip">
       <span className="ppMetricTimelineEventTooltipHeader">
-        <span className="ppMetricTimelineEventTooltipIcon" aria-hidden="true">
-          <ProductPulseGlyph type={event.icon || getProductTimelineIcon(event.category, event.eventType)} />
-        </span>
-        <strong>{event.title}</strong>
+        <strong>{event.dayLabel || event.dateLabel || event.label}</strong>
+        <span>{formatInteger(eventCount)} {eventCount === 1 ? "event" : "events"}</span>
       </span>
-      {event.summary ? <p>{event.summary}</p> : null}
-      <span className="ppRetentionLinePopoverRows">
-        <span><b>Date</b><small>{event.label}</small></span>
-        <span><b>Source</b><small>{event.source || "ProductPulse"}</small></span>
-        <span><b>Group</b><small>{event.categoryLabel || getProductTimelineCategoryLabel(event.category)}</small></span>
-        <span><b>Importance</b><small>{event.importanceLabel || getProductTimelineImportanceLabel(event.importance)}</small></span>
+      <span className="ppMetricTimelineEventTooltipSummary">
+        {summaries.map((summary) => (
+          <span
+            className="ppMetricTimelineEventTooltipSummaryCard"
+            key={`${event.dayKey || event.id}-${summary.key}`}
+            style={{ "--pp-metric-timeline-event-tooltip-color": summary.color }}
+          >
+            <span aria-hidden="true"><ProductPulseGlyph type={summary.icon || "chart-line"} /></span>
+            <b>{formatInteger(summary.count)}</b>
+            <small>{summary.label}</small>
+          </span>
+        ))}
+      </span>
+      <span className="ppMetricTimelineEventTooltipGroups">
+        {groups.map((group) => {
+          const visibleEvents = group.events.slice(0, 3);
+          const hiddenCount = Math.max(0, group.events.length - visibleEvents.length);
+          return (
+            <span
+              className="ppMetricTimelineEventTooltipGroup"
+              key={`${event.dayKey || event.id}-${group.key}`}
+              style={{ "--pp-metric-timeline-event-tooltip-color": group.color }}
+            >
+              <span className="ppMetricTimelineEventTooltipGroupTitle">
+                <i aria-hidden="true" />
+                <b>{group.label} ({formatInteger(group.events.length)})</b>
+              </span>
+              {visibleEvents.map((item) => (
+                <span className="ppMetricTimelineEventTooltipRow" key={item.id || `${item.eventType}-${item.time}`}>
+                  <time>{item.timeLabel || formatProductMetricTimelinePointTime(item.time)}</time>
+                  <span className="ppMetricTimelineEventTooltipRowIcon" aria-hidden="true">
+                    <ProductPulseGlyph type={item.icon || getProductTimelineIcon(item.category, item.eventType)} />
+                  </span>
+                  <span className="ppMetricTimelineEventTooltipRowCopy">
+                    <strong>{item.title}</strong>
+                    <small>{item.summary || item.source || "ProductPulse timeline event"}</small>
+                  </span>
+                </span>
+              ))}
+              {hiddenCount > 0 && <em>+{formatInteger(hiddenCount)} more {group.label.toLowerCase()}</em>}
+            </span>
+          );
+        })}
       </span>
     </div>
   );
+}
+
+function getProductMetricTimelineEventsWithDayGroups(points = []) {
+  const dayMap = new Map();
+  points.forEach((point) => {
+    const key = getProductMetricTimelineEventDayKey(point);
+    if (!key) return;
+    const events = dayMap.get(key) || [];
+    events.push(point);
+    dayMap.set(key, events);
+  });
+
+  const dayPayloads = new Map();
+  dayMap.forEach((events, key) => {
+    const sortedEvents = [...events].sort((left, right) => left.time - right.time);
+    const groups = getProductMetricTimelineEventTooltipGroups(sortedEvents);
+    dayPayloads.set(key, {
+      dayEvents: sortedEvents,
+      dayEventGroups: groups,
+      dayEventCategorySummaries: groups.map((group) => ({
+        key: group.key,
+        label: group.label,
+        count: group.events.length,
+        icon: group.icon,
+        color: group.color,
+        tone: group.tone,
+      })),
+      dayEventCount: sortedEvents.length,
+      dayLabel: getProductMetricTimelineEventDayLabel(sortedEvents[0]),
+    });
+  });
+
+  return points.map((point) => ({
+    ...point,
+    ...(dayPayloads.get(getProductMetricTimelineEventDayKey(point)) || {}),
+  }));
+}
+
+function getProductMetricTimelineEventTooltipGroups(events = []) {
+  const groupMap = new Map();
+  events.forEach((event) => {
+    const key = event.category || "timeline";
+    const existing = groupMap.get(key) || {
+      key,
+      label: event.categoryLabel || getProductTimelineCategoryLabel(key),
+      icon: event.icon || getProductTimelineIcon(key, event.eventType),
+      color: event.color || getProductMetricTimelineEventColor(event),
+      tone: event.tone || "slate",
+      events: [],
+      firstTime: event.time,
+    };
+    existing.events.push(event);
+    existing.firstTime = Math.min(existing.firstTime, event.time);
+    groupMap.set(key, existing);
+  });
+  return Array.from(groupMap.values())
+    .map((group) => ({ ...group, events: [...group.events].sort((left, right) => left.time - right.time) }))
+    .sort((left, right) => right.events.length - left.events.length || left.firstTime - right.firstTime || left.label.localeCompare(right.label));
+}
+
+function getProductMetricTimelineEventDayKey(event = {}) {
+  if (event.dayKey) return String(event.dayKey);
+  const date = parseProductMetricTimelineDate(event.time || event.occurredAt);
+  return date ? date.toISOString().slice(0, 10) : "";
+}
+
+function getProductMetricTimelineEventDayLabel(event = {}) {
+  if (event.dateLabel) return event.dateLabel;
+  const date = parseProductMetricTimelineDate(event.time || event.occurredAt);
+  return date ? formatProductMetricTimelinePointLabel(date) : "Timeline events";
+}
+
+function formatProductMetricTimelinePointTime(time) {
+  const date = parseProductMetricTimelineDate(time);
+  return date ? formatTimelineClock(date) : "";
 }
 
 function ProductMetricTimelineOrderActivityTooltip({ active, payload }) {
@@ -13310,6 +13445,7 @@ function getProductMetricTimelineEventPoints(detail = {}) {
         ...event,
         time: date.getTime(),
         label: timeLabel ? `${dateLabel} · ${timeLabel}` : dateLabel,
+        dayKey: event.dayKey || date.toISOString().slice(0, 10),
         dateLabel,
         timeLabel,
         value: 1,
@@ -13668,7 +13804,8 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
 
 function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
   const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
-  const laneCount = Math.max(1, ...series.points.map((point) => Number(point.lane || point.value || 0)).filter(Number.isFinite));
+  const points = getProductMetricTimelineEventsWithDayGroups(series.points);
+  const laneCount = Math.max(1, ...points.map((point) => Number(point.lane || point.value || 0)).filter(Number.isFinite));
   const yDomain = { min: 0, max: laneCount + 1 };
   const yTicks = Array.from({ length: laneCount }, (_, index) => ({
     value: index + 1,
@@ -13677,12 +13814,15 @@ function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
   }));
   const mappedXTicks = getProductMetricTimelineMappedXTicks(xTicks, domain, plot);
   const categoryMap = new Map();
-  series.points.forEach((point) => {
+  points.forEach((point) => {
     const key = point.category || "timeline";
     if (!categoryMap.has(key)) {
       categoryMap.set(key, {
+        key,
         label: point.categoryLabel || getProductTimelineCategoryLabel(key),
         color: point.color || getProductMetricTimelineEventColor(point),
+        icon: point.icon || getProductTimelineIcon(key, point.eventType),
+        tone: point.tone || "slate",
         dashed: false,
       });
     }
@@ -13693,11 +13833,11 @@ function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
     width,
     height,
     plot,
-    points: series.points,
-    data: series.points,
+    points,
+    data: points,
     color: series.color || "var(--pp-slate-900)",
-    currentLabel: `${formatInteger(series.points.length)} ${series.points.length === 1 ? "event" : "events"}`,
-    deltaLabel: series.points.length
+    currentLabel: `${formatInteger(points.length)} ${points.length === 1 ? "event" : "events"}`,
+    deltaLabel: points.length
       ? `${formatInteger(categoryCount)} ${categoryCount === 1 ? "group" : "groups"} · ${getProductMetricTimelineRangeLabel(domain)}`
       : "Timeline will build from new activity",
     deltaTone: "neutral",

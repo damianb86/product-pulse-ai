@@ -1652,6 +1652,8 @@ describe("ProductPulse screens", () => {
     const chartTextLabels = Array.from(charts[0].querySelectorAll("text")).map((node) => node.textContent);
     expect(chartTextLabels).toEqual(expect.arrayContaining(["Jun", "May 29"]));
     expect(charts[0].querySelectorAll(".ppMetricTimelineEventMarker")).toHaveLength(3);
+    expect(charts[0].querySelectorAll(".ppMetricTimelineLegendIcon")).toHaveLength(3);
+    expect(charts[0].querySelector(".ppMetricTimelineLegendLine")).not.toBeInTheDocument();
 
     const detail = __productPulseScreensTestHooks.getProductDetailModel(product);
     const model = __productPulseScreensTestHooks.getProductMetricTimelineModel(detail);
@@ -1681,6 +1683,10 @@ describe("ProductPulse screens", () => {
       "Recommended action applied",
     ]);
     expect(new Set(eventChart.points.filter((point) => point.dayKey === "2026-05-29").map((point) => point.lane)).size).toBe(2);
+    const groupedEvent = eventChart.points.find((point) => point.id === "timeline-risk");
+    expect(groupedEvent.dayEventCount).toBe(2);
+    expect(groupedEvent.dayEventGroups.map((group) => `${group.label}:${group.events.length}`)).toEqual(["Risk:1", "Actions:1"]);
+    expect(groupedEvent.dayEventCategorySummaries.map((summary) => summary.icon)).toEqual(["alert-triangle", "check-circle"]);
     const orderActivityChart = model.charts.find((chart) => chart.key === "monthly-order-activity");
     expect(orderActivityChart.points.map((point) => point.label)).toEqual(["Feb 9", "Mar 2", "Apr 6", "May 25"]);
     expect(orderActivityChart.legendItems.map((item) => item.label)).toEqual(["Orders", "Returns", "Refunds", "Revenue", "Unresolved returns"]);

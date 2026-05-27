@@ -5788,49 +5788,195 @@ s-page[inline-size="large-500"] {
 }
 
 .ppMetricTimelineEventTooltip {
-  gap: 7px;
-  width: min(280px, 72vw);
-  padding: 9px;
+  gap: 12px;
+  width: min(560px, 86vw);
+  max-height: min(560px, 76vh);
+  overflow: auto;
+  padding: 13px;
+  border: 1px solid var(--pp-slate-200);
 }
 
 .ppMetricTimelineEventTooltipHeader {
-  display: grid !important;
-  grid-template-columns: 24px minmax(0, 1fr) !important;
+  display: flex !important;
   align-items: center;
-  gap: 8px !important;
+  justify-content: space-between;
+  gap: 14px !important;
 }
 
 .ppMetricTimelineEventTooltipHeader strong {
   overflow: hidden;
   color: var(--pp-slate-900);
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 950;
   line-height: 1.15;
   text-overflow: ellipsis;
 }
 
-.ppMetricTimelineEventTooltipIcon {
-  width: 24px;
-  height: 24px;
-  display: inline-grid;
+.ppMetricTimelineEventTooltipHeader > span {
+  display: inline-flex !important;
+  align-items: center;
+  min-width: max-content;
+  padding: 4px 9px;
+  border: 1px solid var(--pp-slate-200);
   place-items: center;
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 12%, var(--pp-cloud-white));
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ppMetricTimelineEventTooltipSummary {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.ppMetricTimelineEventTooltipSummaryCard {
+  display: grid !important;
+  grid-template-columns: 22px max-content;
+  grid-template-rows: auto auto;
+  align-items: center !important;
+  gap: 2px 7px !important;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-metric-timeline-event-tooltip-color, var(--pp-slate-700));
+}
+
+.ppMetricTimelineEventTooltipSummaryCard > span {
+  grid-row: 1 / span 2;
+  width: 22px;
+  height: 22px;
+  display: inline-grid !important;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 13%, var(--pp-cloud-white));
   color: currentColor;
 }
 
-.ppMetricTimelineEventTooltipIcon svg,
-.ppMetricTimelineEventTooltipIcon s-icon {
-  width: 15px;
-  height: 15px;
+.ppMetricTimelineEventTooltipSummaryCard svg,
+.ppMetricTimelineEventTooltipSummaryCard s-icon {
+  width: 14px;
+  height: 14px;
 }
 
-.ppMetricTimelineEventTooltip p {
-  margin: 0;
+.ppMetricTimelineEventTooltipSummaryCard b {
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppMetricTimelineEventTooltipSummaryCard small {
+  color: var(--pp-slate-600);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: left;
+}
+
+.ppMetricTimelineEventTooltipGroups {
+  display: grid !important;
+  gap: 10px !important;
+}
+
+.ppMetricTimelineEventTooltipGroup {
+  display: grid !important;
+  gap: 7px !important;
+  color: var(--pp-metric-timeline-event-tooltip-color, var(--pp-slate-700));
+}
+
+.ppMetricTimelineEventTooltipGroupTitle {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  color: currentColor;
+}
+
+.ppMetricTimelineEventTooltipGroupTitle i {
+  width: 3px;
+  height: 18px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.ppMetricTimelineEventTooltipGroupTitle b {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppMetricTimelineEventTooltipRow {
+  display: grid !important;
+  grid-template-columns: 54px 28px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 10px !important;
+  color: var(--pp-slate-700);
+}
+
+.ppMetricTimelineEventTooltipRow time {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppMetricTimelineEventTooltipRowIcon {
+  width: 28px;
+  height: 28px;
+  display: inline-grid !important;
+  place-items: center;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, var(--pp-cloud-white));
+  color: var(--pp-metric-timeline-event-tooltip-color, currentColor);
+  box-shadow: 0 4px 10px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppMetricTimelineEventTooltipRowIcon svg,
+.ppMetricTimelineEventTooltipRowIcon s-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.ppMetricTimelineEventTooltipRowCopy {
+  display: grid !important;
+  gap: 2px !important;
+  min-width: 0;
+}
+
+.ppMetricTimelineEventTooltipRowCopy strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+}
+
+.ppMetricTimelineEventTooltipRowCopy small {
+  overflow: hidden;
   color: var(--pp-slate-600);
   font-size: 10px;
   font-weight: 650;
-  line-height: 1.35;
+  line-height: 1.2;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppMetricTimelineEventTooltipGroup em {
+  margin-left: 92px;
+  color: currentColor;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
 }
 
 .ppMetricTimelineEventTooltip-red {
@@ -5890,6 +6036,26 @@ s-page[inline-size="large-500"] {
 
 .ppMetricTimelineLegendLine.isDashed {
   border-top-style: dashed;
+}
+
+.ppMetricTimelineLegend-events {
+  gap: 5px 12px;
+}
+
+.ppMetricTimelineLegendIcon {
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pp-metric-timeline-legend-color, currentColor) 13%, var(--pp-cloud-white));
+  color: var(--pp-metric-timeline-legend-color, currentColor);
+}
+
+.ppMetricTimelineLegendIcon svg,
+.ppMetricTimelineLegendIcon s-icon {
+  width: 11px;
+  height: 11px;
 }
 
 .ppMetricTimelineChart-violet {
