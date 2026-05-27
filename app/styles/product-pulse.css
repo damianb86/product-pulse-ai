@@ -33102,3 +33102,69 @@ s-page[inline-size="large-500"] {
     grid-column: 1;
   }
 }
+
+/* Product detail panel header typography is intentionally shared. */
+.ppProductDetailOverviewFinding > div:first-child > span,
+.ppOrderActivityHeader > div:first-child > span,
+.ppReturnPredictionHeader > div:first-child > span,
+.ppProductRetentionHeader > div:first-child > span,
+.ppProductMomentumHeader > div:first-child > span,
+.ppProductRiskHistoryTitleBlock > div > span,
+.ppPurchaseContextEyebrow,
+.ppBasketContextHeader > div:first-child > span,
+.ppProductRelationshipsEyebrow,
+.ppProductRelationshipTimelineHeader > div:first-child > span,
+.ppEvidenceObservabilityHeader > div:first-child > span,
+.ppReturnRefundResolutionHeader > div:first-child > span,
+.ppProductChartAiInterpretation > span {
+  color: var(--pp-insight-violet);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+:is(
+  .ppProductDetailOverviewFinding,
+  .ppOrderActivityHeader,
+  .ppReturnPredictionHeader,
+  .ppProductRetentionHeader,
+  .ppProductMomentumHeader,
+  .ppProductRiskHistoryHeader,
+  .ppPurchaseContextHeader,
+  .ppBasketContextHeader,
+  .ppProductRelationshipsHeader,
+  .ppProductRelationshipTimelineHeader,
+  .ppEvidenceObservabilityHeader,
+  .ppReturnRefundResolutionHeader,
+  .ppMetricTimelineSummaryText
+) h2 {
+  color: var(--pp-slate-900);
+  font-size: 15px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+:is(
+  .ppProductDetailOverviewFinding,
+  .ppOrderActivityHeader,
+  .ppReturnPredictionHeader,
+  .ppProductRetentionHeader,
+  .ppProductMomentumHeader,
+  .ppProductRiskHistoryHeader,
+  .ppPurchaseContextHeader,
+  .ppBasketContextHeader,
+  .ppProductRelationshipsHeader,
+  .ppProductRelationshipTimelineHeader,
+  .ppEvidenceObservabilityHeader,
+  .ppReturnRefundResolutionHeader,
+  .ppMetricTimelineSummaryText,
+  .ppProductChartAiInterpretation
+) p {
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+}
