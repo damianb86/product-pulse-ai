@@ -16,14 +16,14 @@ describe("ProductPulse actions", () => {
     });
   });
 
-  it("starts diagnosis and consumes one credit", () => {
+  it("starts diagnosis and consumes one point", () => {
     expect(startProductDiagnosis("core-linen-trouser", 3)).toMatchObject({
       status: "success",
       creditsRemaining: 2,
     });
   });
 
-  it("blocks diagnosis without credits", () => {
+  it("blocks diagnosis without points", () => {
     expect(startProductDiagnosis("core-linen-trouser", 0)).toMatchObject({
       status: "validation_error",
     });

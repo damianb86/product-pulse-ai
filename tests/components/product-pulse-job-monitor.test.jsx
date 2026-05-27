@@ -1,17 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProductPulseJobMonitor } from "../../app/components/ProductPulseJobMonitor";
 
 function renderMonitor(initialMonitor, options = {}) {
+  const getMonitor = typeof initialMonitor === "function" ? initialMonitor : () => initialMonitor;
   const router = createMemoryRouter([
     {
       path: "/",
-      element: <ProductPulseJobMonitor initialMonitor={initialMonitor} developmentMode />,
+      element: <ProductPulseJobMonitor initialMonitor={getMonitor()} developmentMode />,
     },
     {
       path: "/app/job-status",
-      loader: () => ({ jobMonitor: initialMonitor }),
+      loader: () => ({ jobMonitor: getMonitor() }),
     },
     {
       path: "/app/product-search",
@@ -45,6 +46,7 @@ function renderMonitor(initialMonitor, options = {}) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   window.localStorage.clear();
 });
 
@@ -52,9 +54,90 @@ describe("ProductPulseJobMonitor", () => {
   it("keeps a global top bar visible and searches stored products from a dropdown", async () => {
     const productSearchQueries = [];
     renderMonitor(
-      { activeJobs: [], recentJobs: [], logs: [] },
+      {
+        activeJobs: [],
+        recentJobs: [],
+        logs: [],
+        pointBalance: { available: 95, label: "95.0" },
+        pointSummary: {
+          balance: { available: 95, label: "95.0" },
+          plan: {
+            name: "Free plan",
+            renewalLabel: "Does not renew",
+            allowance: 100,
+            allowanceLabel: "100",
+          },
+          usage: {
+            used: 5,
+            total: 100,
+            usedLabel: "5",
+            totalLabel: "100",
+            percent: 5,
+            percentLabel: "5% used",
+            progressPercent: 5,
+          },
+          activity: [
+            {
+              id: "deep-diagnosis-1",
+              icon: "wand",
+              title: "Deep diagnosis",
+              detail: "GEN Aura Ceramic Dinner Set",
+              amount: -1,
+              amountLabel: "-1 credit",
+              timeLabel: "2m ago",
+            },
+            {
+              id: "quick-scan-1",
+              icon: "search",
+              title: "QuickScan",
+              detail: "60-day scan window",
+              amount: -1,
+              amountLabel: "-1 credit",
+              timeLabel: "28m ago",
+            },
+            {
+              id: "initial-balance",
+              icon: "product",
+              title: "Free plan credits",
+              detail: "Initial balance",
+              amount: 100,
+              amountLabel: "+100 credits",
+              timeLabel: "1h ago",
+            },
+          ],
+        },
+      },
       { onProductSearch: (query) => productSearchQueries.push(query) },
     );
+
+    const creditsButton = screen.getByRole("button", { name: "95.0 ProductPulse credits available" });
+    expect(creditsButton).toBeVisible();
+
+    fireEvent.click(creditsButton);
+    const creditsDialog = screen.getByRole("dialog", { name: "Credit details" });
+    expect(within(creditsDialog).getByText("Total remaining")).toBeVisible();
+    expect(within(creditsDialog).getByText("95")).toBeVisible();
+    expect(within(creditsDialog).getAllByText("credits")[0]).toBeVisible();
+    expect(within(creditsDialog).getByText("Current plan")).toBeVisible();
+    expect(within(creditsDialog).getByText("Free plan")).toBeVisible();
+    expect(within(creditsDialog).getByText("Does not renew")).toBeVisible();
+    expect(within(creditsDialog).getByText("Usage this period")).toBeVisible();
+    expect(creditsDialog).toHaveTextContent("5 / 100 credits used");
+    expect(within(creditsDialog).getByText("5% used")).toBeVisible();
+    expect(within(creditsDialog).getByText("Recent credit activity")).toBeVisible();
+    expect(within(creditsDialog).getByText("Deep diagnosis")).toBeVisible();
+    expect(within(creditsDialog).getByText("GEN Aura Ceramic Dinner Set")).toBeVisible();
+    expect(within(creditsDialog).getAllByText("-1 credit")).toHaveLength(2);
+    expect(within(creditsDialog).getByText("2m ago")).toBeVisible();
+    expect(within(creditsDialog).getByText("QuickScan")).toBeVisible();
+    expect(within(creditsDialog).getByText("60-day scan window")).toBeVisible();
+    expect(within(creditsDialog).getByText("28m ago")).toBeVisible();
+    expect(within(creditsDialog).getByText("Free plan credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("Initial balance")).toBeVisible();
+    expect(within(creditsDialog).getByText("+100 credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("1h ago")).toBeVisible();
+    expect(within(creditsDialog).getByRole("button", { name: "Buy more credits" })).toBeVisible();
+    expect(within(creditsDialog).getByRole("link", { name: /View billing/ })).toHaveAttribute("href", "/app/settings");
 
     fireEvent.click(screen.getByRole("button", { name: /search products/i }));
     fireEvent.change(screen.getByPlaceholderText("Product title, handle, issue..."), {
@@ -131,9 +214,9 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getByText("Trail Run Vest")).toBeVisible();
     expect(screen.getByText(/Started /)).toBeVisible();
     expect(screen.getByText(/Completed /)).toBeVisible();
-    expect(screen.getAllByText("1 credit").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1.0 point").length).toBeGreaterThan(0);
     expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobElapsed")).not.toBeInTheDocument();
-    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1 credit.*s/);
+    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1\.0 point.*s/);
     expect(screen.getByRole("link", { name: /View all background processes/i })).toHaveAttribute("href", "/app/background-processes");
     expect(document.querySelector(".ppGlobalTopbarJobProgress")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");
@@ -183,6 +266,51 @@ describe("ProductPulseJobMonitor", () => {
     renderMonitor(initialMonitor);
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the product analysis completion toast after a running diagnosis finishes", async () => {
+    const runningJob = {
+      id: "job-finished-toast",
+      kind: "product-diagnosis",
+      name: "AI Product Diagnosis",
+      displayTitle: "GEN QuietDesk Mini Fan",
+      status: "Running",
+      productHref: "/app/products/gen-quietdesk-mini-fan",
+      imageUrl: "https://cdn.example.com/gen-quietdesk-mini-fan.jpg",
+      imageAlt: "GEN QuietDesk Mini Fan product photo",
+      startedAtIso: new Date(Date.now() - 5000).toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    let monitor = {
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    };
+
+    renderMonitor(() => monitor);
+    expect(screen.queryByText("Deep analysis finished")).not.toBeInTheDocument();
+
+    monitor = {
+      activeJobs: [],
+      recentJobs: [
+        {
+          ...runningJob,
+          status: "Completed",
+          finishedAtIso: new Date().toISOString(),
+        },
+      ],
+      logs: [],
+    };
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: runningJob } }));
+    });
+
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent("Deep analysis finished");
+    expect(notice).toHaveTextContent("GEN QuietDesk Mini Fan is ready to review.");
+    expect(screen.getByAltText("GEN QuietDesk Mini Fan product photo")).toHaveAttribute("src", "https://cdn.example.com/gen-quietdesk-mini-fan.jpg");
+    expect(screen.getByRole("link", { name: /Open product/ })).toHaveAttribute("href", "/app/products/gen-quietdesk-mini-fan");
   });
 
   it("always starts minimized in development mode and filters logs by recent job", () => {

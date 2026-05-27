@@ -1801,19 +1801,11 @@ function buildEmptyProductRetentionPayload({ hasEnoughData = false, lowSampleWar
 }
 
 function buildRetentionHealthTrendPayload(rows = {}) {
-  const summaryHistory = (Array.isArray(rows.summaryHistory) ? rows.summaryHistory : [])
-    .map((summary, index) => ({
-      date: toIso(summary.asOfDate || summary.latestOrderDate || summary.earliestOrderDate) || `run-${index + 1}`,
-      retentionHealthScore: summary.retentionHealthScore == null ? null : Number(summary.retentionHealthScore),
-      repeatPurchaseRate90d: numberOrNull(summary.repeatPurchaseRate90d),
-      sameProductRepurchaseRate90d: numberOrNull(summary.sameProductRepurchaseRate90d),
-      crossSellRetentionRate90d: numberOrNull(summary.crossSellRetentionRate90d),
-      productLtv90Cents: Number(summary.productLtv90Cents || 0),
-      totalCustomersAnalyzed: Number(summary.totalCustomersAnalyzed || 0),
-      source: "diagnosis_run",
-    }))
-    .filter((point) => point.date && point.retentionHealthScore != null);
-  if (summaryHistory.length) return dedupeRetentionHealthTrend(summaryHistory);
+  const reconstructedHistory = buildReconstructedRetentionHealthTrend(rows);
+  const summaryHistory = buildSummaryRetentionHealthTrend(rows);
+  if (reconstructedHistory.length || summaryHistory.length) {
+    return dedupeRetentionHealthTrend([...reconstructedHistory, ...summaryHistory]);
+  }
 
   const cohortRows = (Array.isArray(rows.dailyCohorts) ? rows.dailyCohorts : [])
     .map((cohort) => buildCohortRetentionHealthPoint(cohort))
@@ -1832,6 +1824,121 @@ function buildRetentionHealthTrendPayload(rows = {}) {
     totalCustomersAnalyzed: Number(summary.totalCustomersAnalyzed || 0),
     source: "current_summary",
   }];
+}
+
+function buildSummaryRetentionHealthTrend(rows = {}) {
+  return (Array.isArray(rows.summaryHistory) ? rows.summaryHistory : [])
+    .map((summary, index) => ({
+      date: toIso(summary.asOfDate || summary.latestOrderDate || summary.earliestOrderDate) || `run-${index + 1}`,
+      retentionHealthScore: summary.retentionHealthScore == null ? null : Number(summary.retentionHealthScore),
+      repeatPurchaseRate90d: numberOrNull(summary.repeatPurchaseRate90d),
+      sameProductRepurchaseRate90d: numberOrNull(summary.sameProductRepurchaseRate90d),
+      crossSellRetentionRate90d: numberOrNull(summary.crossSellRetentionRate90d),
+      productLtv90Cents: Number(summary.productLtv90Cents || 0),
+      totalCustomersAnalyzed: Number(summary.totalCustomersAnalyzed || 0),
+      source: "diagnosis_run",
+    }))
+    .filter((point) => point.date && point.retentionHealthScore != null);
+}
+
+function buildReconstructedRetentionHealthTrend(rows = {}) {
+  const cohorts = (Array.isArray(rows.dailyCohorts) ? rows.dailyCohorts : [])
+    .filter((cohort) => cohort?.cohortDate && Number(cohort.cohortSize || 0) > 0)
+    .sort((left, right) => String(left.cohortDate).localeCompare(String(right.cohortDate)));
+  if (!cohorts.length) return [];
+
+  const run = rows.run || {};
+  const latestDateKey = toDateKey(rows.windowEndDate || run.windowEndDate || rows.asOfDate || run.asOfDate || rows.summary?.asOfDate || rows.summary?.latestOrderDate)
+    || cohorts[cohorts.length - 1]?.cohortDate;
+  if (!latestDateKey) return [];
+
+  const firstEligibleAsOfKey = addDaysToDateKey(cohorts[0].cohortDate, 90);
+  const firstMonthKey = getMonthStartDateKey(firstEligibleAsOfKey);
+  const latestMonthKey = getMonthStartDateKey(latestDateKey);
+  const monthKeys = monthRangeKeys(firstMonthKey, latestMonthKey);
+  const firstCohortKey = cohorts[0].cohortDate;
+  const dailyActivity = Array.isArray(rows.dailyActivity) ? rows.dailyActivity : [];
+
+  return monthKeys
+    .map((monthKey) => {
+      const naturalMonthEndKey = getMonthEndDateKey(monthKey);
+      const asOfKey = naturalMonthEndKey > latestDateKey ? latestDateKey : naturalMonthEndKey;
+      const cohortEndKey = addDaysToDateKey(asOfKey, -90);
+      const cohortStartKey = firstCohortKey;
+      const includedCohorts = cohorts.filter((cohort) => (
+        cohort.cohortDate >= cohortStartKey
+        && cohort.cohortDate <= cohortEndKey
+      ));
+      if (!includedCohorts.length) return null;
+      const activityRows = dailyActivity.filter((row) => (
+        row.metricDate >= cohortStartKey
+        && row.metricDate <= asOfKey
+      ));
+      return buildAggregatedRetentionHealthPoint({
+        date: monthKey,
+        cohorts: includedCohorts,
+        activityRows,
+        source: "historical_recalculation",
+        asOfDate: asOfKey,
+        cohortWindowStartDate: cohortStartKey,
+        cohortWindowEndDate: cohortEndKey,
+        calculationMode: "cumulative_monthly_recalculation",
+      });
+    })
+    .filter(Boolean);
+}
+
+function buildAggregatedRetentionHealthPoint({
+  date,
+  cohorts = [],
+  activityRows = [],
+  source = "historical_recalculation",
+  asOfDate = "",
+  cohortWindowStartDate = "",
+  cohortWindowEndDate = "",
+  calculationMode = "cumulative_monthly_recalculation",
+} = {}) {
+  const cohortSize = cohorts.reduce((total, cohort) => total + Number(cohort.cohortSize || 0), 0);
+  if (cohortSize < PRODUCT_RETENTION_MIN_HEALTH_SCORE_SAMPLE) return null;
+
+  const anyRepeatWithin90dCount = sum(cohorts, "anyRepeatWithin90dCount");
+  const sameProductRepeatWithin90dCount = sum(cohorts, "sameProductRepeatWithin90dCount");
+  const boughtOtherProductWithin90dCount = sum(cohorts, "boughtOtherProductWithin90dCount");
+  const totalNetRevenueWithin90dCents = sum(cohorts, "totalNetRevenueWithin90dCents");
+  const firstOrderNetRevenueCents = sum(cohorts, "firstOrderNetRevenueCents");
+  const repeatPurchaseRate90d = ratio(anyRepeatWithin90dCount, cohortSize);
+  const sameProductRepurchaseRate90d = ratio(sameProductRepeatWithin90dCount, cohortSize);
+  const crossSellRetentionRate90d = ratio(boughtOtherProductWithin90dCount, cohortSize);
+  const productLtv90Cents = divideCents(totalNetRevenueWithin90dCents, cohortSize);
+  const firstOrderAverageCents = divideCents(firstOrderNetRevenueCents, cohortSize);
+  const medianDaysToSecondPurchase = weightedAverageCohortMetric(cohorts, "medianDaysToNextPurchase");
+  const refundRate = aggregateDailyRefundRate(activityRows);
+  const retentionHealthScore = calculateRetentionHealthScore({
+    hasEnoughData: true,
+    repeatPurchaseRate90d,
+    sameProductRepurchaseRate90d,
+    crossSellRetentionRate90d,
+    productLtv90Cents,
+    firstOrderAverageCents,
+    medianDaysToSecondPurchase,
+    refundRate,
+  });
+
+  if (retentionHealthScore == null) return null;
+  return {
+    date,
+    retentionHealthScore,
+    repeatPurchaseRate90d,
+    sameProductRepurchaseRate90d,
+    crossSellRetentionRate90d,
+    productLtv90Cents,
+    totalCustomersAnalyzed: cohortSize,
+    source,
+    asOfDate,
+    cohortWindowStartDate,
+    cohortWindowEndDate,
+    calculationMode,
+  };
 }
 
 function buildCohortRetentionHealthPoint(cohort = {}) {
@@ -1866,7 +1973,7 @@ function buildCohortRetentionHealthPoint(cohort = {}) {
 
 function dedupeRetentionHealthTrend(points = []) {
   const byDate = new Map();
-  points.forEach((point) => byDate.set(point.date, point));
+  points.forEach((point) => byDate.set(getRetentionTrendDateKey(point.date), point));
   return Array.from(byDate.values()).sort((left, right) => String(left.date).localeCompare(String(right.date)));
 }
 
@@ -2255,6 +2362,20 @@ function average(values) {
   return roundDecimal(numbers.reduce((total, value) => total + value, 0) / numbers.length, 4);
 }
 
+function weightedAverageCohortMetric(rows, key) {
+  let weightedTotal = 0;
+  let totalWeight = 0;
+  rows.forEach((row) => {
+    const value = numberOrNull(row?.[key]);
+    const weight = Number(row?.cohortSize || 0);
+    if (value == null || weight <= 0) return;
+    weightedTotal += value * weight;
+    totalWeight += weight;
+  });
+  if (!totalWeight) return null;
+  return roundDecimal(weightedTotal / totalWeight, 4);
+}
+
 function median(values) {
   const numbers = values.filter(isFiniteNumber).sort((left, right) => left - right);
   if (!numbers.length) return null;
@@ -2346,6 +2467,46 @@ function toDateKey(value) {
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getMonthStartDateKey(value) {
+  const dateKey = toDateKey(value) || String(value || "").slice(0, 10);
+  const [year, month] = dateKey.split("-").map(Number);
+  if (!year || !month) return "";
+  return `${year}-${String(month).padStart(2, "0")}-01`;
+}
+
+function getMonthEndDateKey(value) {
+  const monthStartKey = getMonthStartDateKey(value);
+  const [year, month] = monthStartKey.split("-").map(Number);
+  if (!year || !month) return "";
+  return toDateKey(new Date(Date.UTC(year, month, 0)));
+}
+
+function addMonthsToMonthKey(monthKey, months) {
+  const [year, month] = String(monthKey || "").split("-").map(Number);
+  if (!year || !month) return "";
+  const date = new Date(Date.UTC(year, month - 1, 1));
+  date.setUTCMonth(date.getUTCMonth() + Number(months || 0));
+  return getMonthStartDateKey(date);
+}
+
+function monthRangeKeys(startMonthKey, endMonthKey) {
+  const start = getMonthStartDateKey(startMonthKey);
+  const end = getMonthStartDateKey(endMonthKey);
+  if (!start || !end || start > end) return [];
+  const keys = [];
+  let current = start;
+  while (current && current <= end) {
+    keys.push(current);
+    current = addMonthsToMonthKey(current, 1);
+  }
+  return keys;
+}
+
+function getRetentionTrendDateKey(value) {
+  const dateKey = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? dateKey : String(value || "");
 }
 
 function isLocalDateKeyWithinRange(dateKey, startDate, endDate, timezone) {

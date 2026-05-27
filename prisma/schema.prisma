@@ -728,9 +728,10 @@ model CreditLedgerEntry {
   id           String   @id @default(cuid())
   shop         String
   direction    String
-  amount       Int
+  amount       Float
   reason       String
-  balanceAfter Int
+  balanceAfter Float
+  metadata     Json?
   createdAt    DateTime @default(now())
 
   @@index([shop, createdAt])

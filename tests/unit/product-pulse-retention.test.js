@@ -400,8 +400,8 @@ describe("Product retention deterministic engine", () => {
       cumulativeLtvCents: 8000,
     });
     expect(first.retentionHealthTrend).toContainEqual(expect.objectContaining({
-      date: "2024-01-01",
-      source: "cohort",
+      date: "2024-03-01",
+      source: "historical_recalculation",
     }));
     expect(first.retentionHealthTrend[0].retentionHealthScore).toBeGreaterThan(0);
     expect(first.segments).toEqual(expect.arrayContaining([
@@ -410,6 +410,96 @@ describe("Product retention deterministic engine", () => {
         segmentValue: "new_to_store",
       }),
     ]));
+  });
+
+  it("keeps reconstructed retention health history when stored summary history only has the latest run", () => {
+    const rows = calculateRows();
+    const payload = buildProductRetentionPayload({
+      ...rows,
+      summaryHistory: [{
+        ...rows.summary,
+        asOfDate: "2024-07-01T00:00:00.000Z",
+      }],
+    });
+
+    expect(payload.retentionHealthTrend).toContainEqual(expect.objectContaining({
+      date: "2024-03-01",
+      source: "historical_recalculation",
+    }));
+    expect(payload.retentionHealthTrend).toContainEqual(expect.objectContaining({
+      date: "2024-07-01T00:00:00.000Z",
+      source: "diagnosis_run",
+    }));
+    expect(payload.retentionHealthTrend.filter((point) => point.source === "historical_recalculation").length).toBeGreaterThan(1);
+  });
+
+  it("recalculates retention health cumulatively for each historical month", () => {
+    const cohort = (overrides = {}) => ({
+      cohortDate: "2024-01-01",
+      cohortSize: 5,
+      anyRepeatWithin90dCount: 5,
+      sameProductRepeatWithin90dCount: 5,
+      boughtOtherProductWithin90dCount: 0,
+      firstOrderNetRevenueCents: 10000,
+      totalNetRevenueWithin90dCents: 20000,
+      medianDaysToNextPurchase: 12,
+      nextPurchaseSameProductCount: 5,
+      nextPurchaseOtherProductCount: 0,
+      didNotReturnCount: 0,
+      isMature90d: true,
+      ...overrides,
+    });
+    const payload = buildProductRetentionPayload({
+      shopId: "fixture-shop.myshopify.com",
+      productGid: PRODUCT_A,
+      diagnosisId: "diagnosis-1",
+      retentionRunId: "run-1",
+      asOfDate: "2025-05-31T00:00:00.000Z",
+      windowStartDate: "2024-01-01T00:00:00.000Z",
+      windowEndDate: "2025-05-31T23:59:59.000Z",
+      lookbackDays: 365,
+      maxCohortAgeDays: 180,
+      summary: {
+        asOfDate: "2025-05-31T00:00:00.000Z",
+        retentionHealthScore: 50,
+        productLtv90Cents: 1250,
+        totalCustomersAnalyzed: 10,
+        hasEnoughData: true,
+      },
+      dailyCohorts: [
+        cohort(),
+        cohort({
+          cohortDate: "2025-01-01",
+          anyRepeatWithin90dCount: 0,
+          sameProductRepeatWithin90dCount: 0,
+          totalNetRevenueWithin90dCents: 5000,
+          medianDaysToNextPurchase: 90,
+          nextPurchaseSameProductCount: 0,
+          didNotReturnCount: 5,
+        }),
+      ],
+      cohortCells: [],
+      dailyActivity: [],
+      segmentDaily: [],
+    });
+
+    const earlyPoint = payload.retentionHealthTrend.find((point) => point.date === "2024-03-01");
+    const laterPoint = payload.retentionHealthTrend.find((point) => point.date === "2025-04-01");
+
+    expect(earlyPoint).toMatchObject({
+      source: "historical_recalculation",
+      totalCustomersAnalyzed: 5,
+      cohortWindowStartDate: "2024-01-01",
+      calculationMode: "cumulative_monthly_recalculation",
+    });
+    expect(laterPoint).toMatchObject({
+      source: "historical_recalculation",
+      totalCustomersAnalyzed: 10,
+      cohortWindowStartDate: "2024-01-01",
+      cohortWindowEndDate: "2025-01-30",
+      calculationMode: "cumulative_monthly_recalculation",
+    });
+    expect(laterPoint.retentionHealthScore).not.toBe(earlyPoint.retentionHealthScore);
   });
 
   it("calculates a non-persisted retention preview for AI report context", async () => {

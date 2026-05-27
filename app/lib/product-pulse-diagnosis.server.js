@@ -3562,7 +3562,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     shop,
     jobId,
     event: "product_diagnosis.no_changes_reused",
-    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse reused the previous deep diagnosis without AI calls or credit consumption.",
+    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse reused the previous deep diagnosis without AI calls or point consumption.",
     data: {
       productGid: snapshot.productGid,
       previousDiagnosisId: reusableDiagnosis.id,
@@ -3590,7 +3590,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     status: "skipped",
     skipped: true,
     skipReason: "no_changes_since_previous_diagnosis",
-    message: "No product, order, return, refund, review, or source changes were detected. The previous deep diagnosis was reused and no diagnostic credit was consumed.",
+    message: "No product, order, return, refund, review, or source changes were detected. The previous deep diagnosis was reused and no diagnostic point was consumed.",
     diagnosisId: reusableDiagnosis.id,
     riskScore: snapshot.riskScore,
     confidence: snapshot.confidence,

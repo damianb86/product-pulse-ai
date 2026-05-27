@@ -27,6 +27,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const activeJobs = useMemo(() => monitor.activeJobs || [], [monitor.activeJobs]);
   const recentJobs = useMemo(() => monitor.recentJobs || [], [monitor.recentJobs]);
   const logs = useMemo(() => monitor.logs || [], [monitor.logs]);
+  const pointSummary = monitor.pointSummary || initialMonitor?.pointSummary || null;
+  const pointBalance = pointSummary?.balance || monitor.pointBalance || initialMonitor?.pointBalance || null;
   const hasActiveJobs = activeJobs.length > 0;
   const failureNotice = failedJobNotice ? (
     <JobFailureNotice
@@ -92,13 +94,11 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     observedJobsRef.current = currentJobs;
 
     if (finishedJobs.length || activeJobDisappeared) {
-      const completedProductDiagnosis = finishedJobs.find((job) => (
-        job.kind === "product-diagnosis" && job.status === "Completed"
-      ));
+      const completedAnalysisJob = finishedJobs.find((job) => isCompletionNoticeJob(job));
       const failedJob = finishedJobs.find((job) => (
         job.status === "Failed" && !announcedFailedJobIdsRef.current.has(job.id)
       ));
-      if (completedProductDiagnosis) setCompletedJobNotice(completedProductDiagnosis);
+      if (completedAnalysisJob) setCompletedJobNotice(completedAnalysisJob);
       if (failedJob) {
         announcedFailedJobIdsRef.current.add(failedJob.id);
         setFailedJobNotice(failedJob);
@@ -211,6 +211,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       activeJobs={activeJobs}
       recentJobs={recentJobs}
       hasActiveJobs={hasActiveJobs}
+      pointBalance={pointBalance}
+      pointSummary={pointSummary}
       now={now}
     />
   );
@@ -329,11 +331,15 @@ function ProductPulseGlobalTopbar({
   activeJobs,
   recentJobs,
   hasActiveJobs,
+  pointBalance,
+  pointSummary,
   now,
 }) {
   const activeCount = activeJobs.length;
   const isSearchOpen = activePopover === "search";
   const isJobsOpen = activePopover === "jobs";
+  const isCreditsOpen = activePopover === "credits";
+  const pointLabel = formatPointBalanceLabel(pointBalance);
 
   return (
     <div className="ppGlobalTopbar" ref={refProp}>
@@ -385,9 +391,157 @@ function ProductPulseGlobalTopbar({
             />
           ) : null}
         </div>
+
+        <div className="ppGlobalTopbarAction">
+          <button
+            className={`ppGlobalTopbarPoints${isCreditsOpen ? " isActive" : ""}`}
+            type="button"
+            aria-label={`${pointLabel} ProductPulse credits available`}
+            aria-expanded={isCreditsOpen}
+            aria-controls="pp-global-credits"
+            title={`${pointLabel} ProductPulse credits available`}
+            onClick={() => setActivePopover(isCreditsOpen ? null : "credits")}
+          >
+            <span className="ppGlobalTopbarWalletIcon" aria-hidden="true">
+              <span />
+            </span>
+            <strong>{pointLabel}</strong>
+          </button>
+          {isCreditsOpen ? (
+            <CreditsPopover id="pp-global-credits" pointBalance={pointBalance} pointSummary={pointSummary} />
+          ) : null}
+        </div>
       </div>
     </div>
   );
+}
+
+function CreditsPopover({ id, pointSummary, pointBalance }) {
+  const summary = normalizeCreditPopoverSummary(pointSummary, pointBalance);
+  const activity = summary.activity;
+
+  return (
+    <div className="ppGlobalTopbarPopover ppGlobalTopbarCreditsPopover" id={id} role="dialog" aria-label="Credit details">
+      <section className="ppCreditsSummaryPanel" aria-label="Credit summary">
+        <div className="ppCreditsSummaryMetric">
+          <span>Total remaining</span>
+          <strong>{summary.remainingLabel}</strong>
+          <small>credits</small>
+        </div>
+        <div className="ppCreditsSummaryMetric">
+          <span>Current plan</span>
+          <strong>{summary.plan.name}</strong>
+          <small>{summary.plan.renewalLabel}</small>
+        </div>
+        <div className="ppCreditsSummaryMetric ppCreditsUsageMetric">
+          <span>Usage this period</span>
+          <strong><b>{summary.usage.usedLabel}</b> / {summary.usage.totalLabel} credits used</strong>
+          <div className="ppCreditsProgress" aria-hidden="true">
+            <span style={{ width: `${summary.usage.progressPercent}%` }} />
+          </div>
+          <small>{summary.usage.percentLabel}</small>
+        </div>
+      </section>
+
+      <section className="ppCreditsActivity" aria-label="Recent credit activity">
+        <h2>Recent credit activity</h2>
+        {activity.length ? (
+          <ul>
+            {activity.map((item) => (
+              <li key={item.id}>
+                <span className="ppCreditsActivityIcon" aria-hidden="true">
+                  <s-icon type={getCreditActivityIcon(item)} size="small"></s-icon>
+                </span>
+                <span className="ppCreditsActivityCopy">
+                  <strong>{item.title}</strong>
+                  <small>{item.detail}</small>
+                </span>
+                <span className="ppCreditsActivityAmount">
+                  <strong>{item.amountLabel}</strong>
+                  <small>{item.timeLabel}</small>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="ppCreditsActivityEmpty">No recent credit activity.</p>
+        )}
+      </section>
+
+      <footer className="ppCreditsFooter">
+        <button type="button">Buy more credits</button>
+        <Link to="/app/settings">
+          View billing
+          <s-icon type="chevron-right" size="small"></s-icon>
+        </Link>
+      </footer>
+    </div>
+  );
+}
+
+function normalizeCreditPopoverSummary(pointSummary, pointBalance) {
+  const balance = pointSummary?.balance || pointBalance || {};
+  const remaining = normalizeCreditValue(balance.available ?? balance.balance);
+  const planAllowance = normalizeCreditValue(pointSummary?.plan?.allowance ?? pointSummary?.usage?.total, 100);
+  const used = normalizeCreditValue(pointSummary?.usage?.used, Math.max(0, planAllowance - remaining));
+  const percent = planAllowance > 0 ? Math.round((used / planAllowance) * 100) : 0;
+  const progressPercent = normalizeCreditValue(
+    pointSummary?.usage?.progressPercent,
+    Math.max(0, Math.min(100, percent)),
+  );
+
+  return {
+    remainingLabel: formatCompactCreditValue(remaining),
+    plan: {
+      name: pointSummary?.plan?.name || "Free plan",
+      renewalLabel: pointSummary?.plan?.renewalLabel || "Does not renew",
+    },
+    usage: {
+      usedLabel: pointSummary?.usage?.usedLabel || formatCompactCreditValue(used),
+      totalLabel: pointSummary?.usage?.totalLabel || formatCompactCreditValue(planAllowance),
+      percentLabel: pointSummary?.usage?.percentLabel || `${Math.max(0, percent)}% used`,
+      progressPercent: Math.max(0, Math.min(100, progressPercent)),
+    },
+    activity: normalizeCreditActivity(pointSummary?.activity),
+  };
+}
+
+function normalizeCreditActivity(activity) {
+  if (!Array.isArray(activity)) return [];
+  return activity.map((item, index) => ({
+    id: item.id || `${item.title || "credit-activity"}-${index}`,
+    icon: item.icon || "product",
+    title: item.title || "Credit activity",
+    detail: item.detail || "ProductPulse credits",
+    amountLabel: item.amountLabel || formatSignedCreditValue(item.amount),
+    timeLabel: item.timeLabel || item.time || "",
+  }));
+}
+
+function getCreditActivityIcon(item) {
+  if (["search", "product", "wand", "clock"].includes(item?.icon)) return item.icon;
+  return "product";
+}
+
+function normalizeCreditValue(value, fallback = 0) {
+  const number = Number(value);
+  const normalized = Number.isFinite(number) ? number : Number(fallback);
+  return Math.round(Math.max(0, Number.isFinite(normalized) ? normalized : 0) * 10) / 10;
+}
+
+function formatCompactCreditValue(value) {
+  const rounded = normalizeCreditValue(value);
+  return rounded.toLocaleString("en-US", {
+    minimumFractionDigits: Number.isInteger(rounded) ? 0 : 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+function formatSignedCreditValue(value) {
+  const number = Number(value);
+  const amount = normalizeCreditValue(Math.abs(Number.isFinite(number) ? number : 0));
+  const sign = number < 0 ? "-" : "+";
+  return `${sign}${formatCompactCreditValue(amount)} ${amount === 1 ? "credit" : "credits"}`;
 }
 
 function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, searchInputRef, onClose }) {
@@ -543,7 +697,7 @@ function JobPopoverItem({ job, now, current = false, onClose }) {
         <div className="ppGlobalTopbarJobMeta">
           {metaItems.map((item) => (
             <span key={`${job.id}-${item.label}`} className={`ppGlobalTopbarJobMetaItem ppGlobalTopbarJobMetaItem-${item.icon}`}>
-              <s-icon type={item.icon === "credits" ? "product" : item.icon} size="small"></s-icon>
+              <s-icon type={item.icon === "points" ? "product" : item.icon} size="small"></s-icon>
               {item.label}
             </span>
           ))}
@@ -573,7 +727,7 @@ function getJobMetaItems(job, now, current) {
   const showElapsed = current || job.status !== "Queued";
   return [
     { icon: "clock", label: getJobTimeMetaLabel(job) },
-    { icon: "credits", label: getJobCreditLabel(job) },
+    { icon: "points", label: getJobCreditLabel(job) },
     showElapsed ? { icon: "clock", label: formatElapsed(job, now) } : null,
   ].filter((item) => item?.label);
 }
@@ -588,9 +742,21 @@ function getJobTimeMetaLabel(job) {
 }
 
 function getJobCreditLabel(job) {
-  const credits = Number(job.creditsConsumed ?? job.credits ?? job.creditCost ?? (job.kind === "product-diagnosis" ? 1 : 0));
-  if (!Number.isFinite(credits) || credits <= 0) return "";
-  return `${credits} credit${credits === 1 ? "" : "s"}`;
+  const points = Number(job.pointsConsumed ?? job.creditsConsumed ?? job.credits ?? job.creditCost ?? (job.kind === "product-diagnosis" ? 1 : 0));
+  if (!Number.isFinite(points) || points <= 0) return "";
+  return `${formatPointBalanceLabel({ available: points })} point${points === 1 ? "" : "s"}`;
+}
+
+function formatPointBalanceLabel(pointBalance) {
+  const rawValue = typeof pointBalance === "number"
+    ? pointBalance
+    : pointBalance?.available ?? pointBalance?.balance ?? 0;
+  const value = Number(rawValue);
+  const normalized = Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+  return normalized.toLocaleString("en-US", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
 }
 
 function getJobRefreshSnapshot(job) {
@@ -601,6 +767,8 @@ function getJobRefreshSnapshot(job) {
     productTitle: job.productTitle || job.displayTitle || "",
     productHandle: job.productHandle || "",
     productHref: job.productHref || "",
+    imageUrl: job.imageUrl || job.productImageUrl || "",
+    imageAlt: job.imageAlt || job.productImageAlt || job.productTitle || job.displayTitle || "",
     updatedAtIso: job.updatedAtIso || "",
     finishedAtIso: job.finishedAtIso || "",
   };
@@ -614,26 +782,21 @@ function isTerminalJobStatus(status) {
   return status === "Completed" || status === "Failed";
 }
 
-function JobCompletionNotice({ job, onDismiss }) {
-  const href = job.productHref || (job.productHandle ? `/app/products/${job.productHandle}` : "/app/products");
+function isCompletionNoticeJob(job) {
+  return job?.status === "Completed" && ["product-diagnosis", "fast-product-scan"].includes(job.kind);
+}
 
+function JobCompletionNotice({ job, onDismiss }) {
   return (
-    <aside className="ppJobCompletionNotice" role="status" aria-live="polite">
-      <span aria-hidden="true">
-        <s-icon type="wand" size="small"></s-icon>
-      </span>
-      <div>
-        <strong>Deep analysis finished</strong>
-        <p>{getJobTitle(job)} is ready to review.</p>
-        <Link to={href} onClick={onDismiss}>
-          Open product
-          <s-icon type="chevron-right" size="small"></s-icon>
-        </Link>
-      </div>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss completed job message">
-        <s-icon type="x" size="small"></s-icon>
-      </button>
-    </aside>
+    <JobNotice
+      job={job}
+      tone="success"
+      title={getJobCompletionNoticeTitle(job)}
+      message={getJobCompletionNoticeMessage(job)}
+      role="status"
+      ariaLive="polite"
+      onDismiss={onDismiss}
+    />
   );
 }
 
@@ -641,20 +804,98 @@ function JobFailureNotice({ job, onDismiss }) {
   const detail = getJobFailureDetail(job);
 
   return (
-    <aside className="ppJobFailureNotice" role="alert" aria-live="assertive">
-      <span aria-hidden="true">
-        <s-icon type="alert-circle" size="small"></s-icon>
+    <JobNotice
+      job={job}
+      tone="critical"
+      title={getJobFailureNoticeTitle(job)}
+      message={getJobFailureNoticeMessage(job)}
+      detail={detail}
+      role="alert"
+      ariaLive="assertive"
+      onDismiss={onDismiss}
+    />
+  );
+}
+
+function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismiss }) {
+  const action = getJobNoticeAction(job);
+  const isSuccess = tone === "success";
+
+  return (
+    <aside
+      className={`ppJobNotice ppJobNotice-${tone} ${isSuccess ? "ppJobCompletionNotice" : "ppJobFailureNotice"}`}
+      role={role}
+      aria-live={ariaLive}
+    >
+      <JobNoticeMedia job={job} tone={tone} />
+      <span className="ppJobNoticeStatusIcon" aria-hidden="true">
+        <s-icon type={isSuccess ? "check" : "alert-circle"} size="base"></s-icon>
       </span>
-      <div>
-        <strong>{getJobTitle(job)} finished with an error</strong>
-        <p>The background job could not be completed. Please try again later.</p>
-        {detail && <p className="ppJobFailureDetail">{detail}</p>}
+      <div className="ppJobNoticeCopy">
+        <strong>{title}</strong>
+        <p>{message}</p>
+        {detail && <p className="ppJobNoticeDetail">{detail}</p>}
       </div>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss failed job message">
-        <s-icon type="x" size="small"></s-icon>
+      <Link className="ppJobNoticeAction" to={action.href} onClick={onDismiss}>
+        {action.label}
+        <s-icon type="chevron-right" size="base"></s-icon>
+      </Link>
+      <button className="ppJobNoticeDismiss" type="button" onClick={onDismiss} aria-label={isSuccess ? "Dismiss completed job message" : "Dismiss failed job message"}>
+        <s-icon type="x" size="base"></s-icon>
       </button>
     </aside>
   );
+}
+
+function JobNoticeMedia({ job, tone }) {
+  const imageUrl = typeof job?.imageUrl === "string" ? job.imageUrl.trim() : "";
+  const imageAlt = typeof job?.imageAlt === "string" && job.imageAlt.trim()
+    ? job.imageAlt.trim()
+    : getJobTitle(job);
+
+  if (imageUrl) {
+    return (
+      <span className="ppJobNoticeMedia">
+        <img src={imageUrl} alt={imageAlt} />
+      </span>
+    );
+  }
+
+  return (
+    <span className={`ppJobNoticeMedia ppJobNoticeMediaFallback ppJobNoticeMediaFallback-${tone}`} aria-hidden="true">
+      <s-icon type={job?.kind === "fast-product-scan" ? "search" : "product"} size="base"></s-icon>
+    </span>
+  );
+}
+
+function getJobNoticeAction(job) {
+  if (job?.kind === "fast-product-scan") {
+    return { href: "/app/products", label: "Open products" };
+  }
+  const href = job?.productHref || (job?.productHandle ? `/app/products/${job.productHandle}` : "/app/background-processes");
+  return { href, label: href === "/app/background-processes" ? "View job" : "Open product" };
+}
+
+function getJobCompletionNoticeTitle(job) {
+  if (job?.kind === "fast-product-scan") return "QuickScan finished";
+  return "Deep analysis finished";
+}
+
+function getJobCompletionNoticeMessage(job) {
+  if (job?.kind === "fast-product-scan") return "Your product scan is ready to review.";
+  return `${getJobTitle(job)} is ready to review.`;
+}
+
+function getJobFailureNoticeTitle(job) {
+  if (job?.kind === "fast-product-scan") return "QuickScan failed";
+  if (job?.kind === "product-diagnosis") return "Deep analysis failed";
+  return `${getJobTitle(job)} finished with an error`;
+}
+
+function getJobFailureNoticeMessage(job) {
+  if (job?.kind === "fast-product-scan") return "ProductPulse could not finish the quick product scan.";
+  if (job?.kind === "product-diagnosis") return `${getJobTitle(job)} could not be analyzed.`;
+  return "The background job could not be completed. Please try again later.";
 }
 
 function JobCard({ job, logs, now }) {

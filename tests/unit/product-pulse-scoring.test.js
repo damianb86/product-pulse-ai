@@ -701,7 +701,7 @@ describe("ProductPulse scoring", () => {
     expect(model.productRelationshipExplanations.join(" ")).toContain("commercial opportunity rather than Product Risk");
   });
 
-  it("blocks diagnosis when credits are insufficient", () => {
+  it("blocks diagnosis when points are insufficient", () => {
     expect(validateCreditBalance(0, 1)).toMatchObject({ valid: false });
     expect(validateCreditBalance(2, 1)).toMatchObject({ valid: true });
   });

@@ -238,11 +238,11 @@ export function validateCreditBalance(availableCredits, requestedProducts = 1) {
   if (availableCredits < requestedProducts) {
     return {
       valid: false,
-      message: `Diagnosis needs ${requestedProducts} credit${requestedProducts === 1 ? "" : "s"}, but only ${availableCredits} are available.`,
+      message: `Diagnosis needs ${requestedProducts.toFixed ? requestedProducts.toFixed(1) : requestedProducts} point${requestedProducts === 1 ? "" : "s"}, but only ${Number(availableCredits || 0).toFixed(1)} are available.`,
     };
   }
 
-  return { valid: true, message: "Credits available." };
+  return { valid: true, message: "Points available." };
 }
 
 function clamp(value, min, max) {

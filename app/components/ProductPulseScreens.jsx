@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Form, Link, useFetcher, useLocation, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
@@ -33,6 +33,8 @@ import {
 
 const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 4_000;
 const RISK_THRESHOLD_HANDLE_GAP = 5;
+const PRODUCT_PULSE_MIN_RISK_THRESHOLD = 10;
+const PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD = 50;
 const PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID = "product-pulse-settings-save-bar";
 const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
@@ -51,6 +53,7 @@ const PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS = 365;
 const PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY = "productPulse.metricTimelines.chartOrder.v1";
 const PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES = 5;
 const PRODUCT_METRIC_TIMELINE_EVENT_MIN_SPACING_DAYS = 7;
+const PRODUCT_METRIC_TIMELINE_EVENT_MIN_VISUAL_SPACING_DAYS = 4;
 const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
   width: 1200,
   height: 216,
@@ -1153,16 +1156,26 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
         </div>
         {includeActions && (
           <div className="ppProductsSecondaryActions">
-            <button className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary ppProductsAnalyzeSelectedButton" type="button" disabled={selectedCount === 0 || pendingBulkAnalyze} onClick={handleAnalyzeSelected}>
+            <button
+              className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary ppProductsToolbarIconButton ppProductsAnalyzeSelectedButton"
+              type="button"
+              aria-label={`Analyze selected (${selectedCount})`}
+              title="Analyze Selected"
+              disabled={selectedCount === 0 || pendingBulkAnalyze}
+              onClick={handleAnalyzeSelected}
+            >
               <s-icon type="wand" size="small"></s-icon>
-              {pendingBulkAnalyze ? "Analyzing..." : `Analyze selected (${selectedCount})`}
             </button>
-            {selectedCount > 0 && (
-              <button className="ppSecondaryActionButton ppProductsWatchlistBulkButton" type="button" disabled={pendingBulkWatchlistAdd} onClick={handleAddSelectedToWatchlist}>
-                <s-icon type="binoculars" size="small"></s-icon>
-                {pendingBulkWatchlistAdd ? "Adding..." : "Add to Watchlist"}
-              </button>
-            )}
+            <button
+              className="ppSecondaryActionButton ppProductsToolbarIconButton ppProductsWatchlistBulkButton"
+              type="button"
+              aria-label={`Add selected products to Watchlist (${selectedCount})`}
+              title="Add to Watchlist"
+              disabled={selectedCount === 0 || pendingBulkWatchlistAdd}
+              onClick={handleAddSelectedToWatchlist}
+            >
+              <ProductPulseGlyph type="binoculars" />
+            </button>
             {hasActiveProductTableFilters(tableFilters) && (
               <Link className="ppSecondaryActionButton" to="/app/products">
                 <s-icon type="x" size="small"></s-icon>
@@ -4502,6 +4515,7 @@ function RiskThresholdSlider({ thresholds, onChange }) {
 
   return (
     <div className="ppSettingsRiskSlider" style={{
+      "--pp-risk-floor": `${PRODUCT_PULSE_MIN_RISK_THRESHOLD}%`,
       "--pp-risk-min": `${thresholds.minimumScore}%`,
       "--pp-risk-medium": `${thresholds.mediumThreshold}%`,
       "--pp-risk-high": `${thresholds.highThreshold}%`,
@@ -4571,7 +4585,13 @@ function MomentumInclusionSlider({ value, onChange }) {
   };
 
   return (
-    <div className="ppSettingsMomentumControl" style={{ "--pp-momentum-threshold": `${normalizedValue}%` }}>
+    <div
+      className="ppSettingsMomentumControl"
+      style={{
+        "--pp-momentum-floor": `${PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD}%`,
+        "--pp-momentum-threshold": `${normalizedValue}%`,
+      }}
+    >
       <input type="hidden" name="momentumMinimumScore" value={normalizedValue} />
       <div className="ppSettingsMomentumHeader">
         <div>
@@ -4595,7 +4615,7 @@ function MomentumInclusionSlider({ value, onChange }) {
         <input
           type="number"
           aria-label="Minimum Product Momentum exact value"
-          min="0"
+          min={PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD}
           max="100"
           step="1"
           value={normalizedValue}
@@ -4686,11 +4706,11 @@ function normalizeClientLookbackDays(value) {
 }
 
 function normalizeClientMomentumThreshold(value) {
-  return clampClientInteger(value, 0, 100, DEFAULT_MOMENTUM_INCLUSION_THRESHOLD);
+  return clampClientInteger(value, PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD, 100, DEFAULT_MOMENTUM_INCLUSION_THRESHOLD);
 }
 
 function normalizeClientRiskThresholds(risk = {}) {
-  const minimumScore = clampClientInteger(risk.minimumScore, 0, 90, 18);
+  const minimumScore = clampClientInteger(risk.minimumScore, PRODUCT_PULSE_MIN_RISK_THRESHOLD, 90, 18);
   const mediumThreshold = clampClientInteger(
     risk.mediumThreshold,
     minimumScore + RISK_THRESHOLD_HANDLE_GAP,
@@ -4713,7 +4733,10 @@ function getNextClientRiskThresholds(current, key, value) {
   if (key === "minimumScore") {
     return {
       ...current,
-      minimumScore: Math.min(Math.min(90, current.mediumThreshold - RISK_THRESHOLD_HANDLE_GAP), Math.max(0, number)),
+      minimumScore: Math.min(
+        Math.min(90, current.mediumThreshold - RISK_THRESHOLD_HANDLE_GAP),
+        Math.max(PRODUCT_PULSE_MIN_RISK_THRESHOLD, number),
+      ),
     };
   }
 
@@ -4812,9 +4835,9 @@ function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
             </span>
             <div>
               <span>Estimated cost</span>
-              <strong>1 credit</strong>
+              <strong>1.0 point</strong>
             </div>
-            <small>QuickScan costs 1 credit and runs as a background job.</small>
+            <small>QuickScan costs 1.0 point and runs as a background job.</small>
           </div>
 
           <div className="ppCostConfirmInfoGrid">
@@ -4885,9 +4908,9 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
             </span>
             <div>
               <span>Estimated cost</span>
-              <strong>{confirmation.credits} credit{confirmation.credits === 1 ? "" : "s"}</strong>
+              <strong>{formatPointValue(confirmation.credits)} point{confirmation.credits === 1 ? "" : "s"}</strong>
             </div>
-            <small>Product Diagnosis costs 1 credit per product and runs as a background job.</small>
+            <small>Product Diagnosis costs 1.0 point per product and runs as a background job.</small>
           </div>
 
           <div className="ppCostConfirmInfoGrid">
@@ -12419,9 +12442,23 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
 export function ProductMetricTimelinesScreen({ product }) {
   const [savedChartOrder, setSavedChartOrder] = useState([]);
+  const [lockedHoverTime, setLockedHoverTime] = useState(null);
+  const productMetricTimelineIdentity = product?.id || product?.productGid || product?.handle || product?.title || "";
 
   useEffect(() => {
     setSavedChartOrder(readProductMetricTimelineChartOrder());
+  }, []);
+
+  useEffect(() => {
+    setLockedHoverTime(null);
+  }, [productMetricTimelineIdentity]);
+
+  const handleTimelineHoverLockToggle = useCallback((chart, active) => {
+    const nextTime = getProductMetricTimelineClickTime(chart, active);
+    if (!Number.isFinite(nextTime)) return;
+    setLockedHoverTime((currentTime) => (
+      Number.isFinite(currentTime) && Math.abs(currentTime - nextTime) < 1 ? null : nextTime
+    ));
   }, []);
 
   if (!product) {
@@ -12482,6 +12519,8 @@ export function ProductMetricTimelinesScreen({ product }) {
                 canMoveUp={!isProductMetricTimelinePinnedChart(chart) && orderableIndex > 0}
                 chart={chart}
                 key={chart.key}
+                lockedHoverTime={lockedHoverTime}
+                onHoverLockToggle={handleTimelineHoverLockToggle}
                 onMove={handleMoveChart}
               />
             );
@@ -12498,8 +12537,11 @@ export function ProductMetricTimelinesScreen({ product }) {
   );
 }
 
-function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, chart, onMove }) {
+function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, chart, lockedHoverTime = null, onHoverLockToggle, onMove }) {
   const gradientId = `ppMetricTimelineGradient-${chart.key}-${useId().replace(/:/g, "")}`;
+  const lockedTooltipIndex = getProductMetricTimelineLockedTooltipIndex(chart, lockedHoverTime);
+  const tooltipLockProps = getProductMetricTimelineTooltipLockProps(lockedTooltipIndex);
+  const handleHoverLockToggle = (active) => onHoverLockToggle?.(chart, active);
   return (
     <article className={`ppMetricTimelineChart ppMetricTimelineChart-${chart.tone}`} aria-label={`${chart.title} timeline`} data-metric-key={chart.key}>
       <div className="ppMetricTimelineSummary">
@@ -12523,9 +12565,12 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
             <s-icon type="arrow-down" size="small"></s-icon>
           </button>
         </div>
-        <span className="ppMetricTimelineIcon" aria-hidden="true">
-          <ProductPulseGlyph type={chart.glyph || chart.icon} />
-        </span>
+        <ProductPulseIconBadge
+          className="ppMetricTimelineIcon"
+          icon={chart.glyph || chart.icon}
+          size="metric"
+          tone={chart.tone || "blue"}
+        />
         <div className="ppMetricTimelineSummaryText">
           <h2>{chart.title}</h2>
           <p>{chart.subtitle}</p>
@@ -12539,15 +12584,24 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
         <div className="ppMetricTimelineChartPlot">
           {chart.points.length ? (
             chart.kind === "orderActivity" ? (
-              <ProductMetricTimelineOrderActivityChart chart={chart} />
+              <ProductMetricTimelineOrderActivityChart
+                chart={chart}
+                lockedTooltipIndex={lockedTooltipIndex}
+                onHoverLockToggle={handleHoverLockToggle}
+              />
             ) : chart.kind === "events" ? (
-              <ProductMetricTimelineEventsChart chart={chart} />
+              <ProductMetricTimelineEventsChart
+                chart={chart}
+                lockedTooltipIndex={lockedTooltipIndex}
+                onHoverLockToggle={handleHoverLockToggle}
+              />
             ) : (
               <AreaChart
                 responsive
                 style={{ width: "100%", height: "100%" }}
                 data={chart.data}
                 margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
+                onClick={handleHoverLockToggle}
                 syncId="product-metric-timelines"
                 syncMethod={getProductMetricTimelineNearestSyncIndex}
               >
@@ -12578,6 +12632,7 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
                   width={46}
                 />
                 <RechartsTooltip
+                  {...tooltipLockProps}
                   content={<ProductMetricTimelineTooltip chart={chart} />}
                   cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
                   wrapperStyle={{ outline: "none", zIndex: 8 }}
@@ -12617,13 +12672,15 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
   );
 }
 
-function ProductMetricTimelineOrderActivityChart({ chart }) {
+function ProductMetricTimelineOrderActivityChart({ chart, lockedTooltipIndex = undefined, onHoverLockToggle }) {
+  const tooltipLockProps = getProductMetricTimelineTooltipLockProps(lockedTooltipIndex);
   return (
     <ComposedChart
       responsive
       style={{ width: "100%", height: "100%" }}
       data={chart.data}
       margin={{ top: 18, right: 12, bottom: 20, left: 0 }}
+      onClick={(active) => onHoverLockToggle?.(active)}
       syncId="product-metric-timelines"
       syncMethod={getProductMetricTimelineNearestSyncIndex}
     >
@@ -12660,6 +12717,7 @@ function ProductMetricTimelineOrderActivityChart({ chart }) {
         width={54}
       />
       <RechartsTooltip
+        {...tooltipLockProps}
         content={<ProductMetricTimelineOrderActivityTooltip />}
         cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
         wrapperStyle={{ outline: "none", zIndex: 8 }}
@@ -12673,19 +12731,21 @@ function ProductMetricTimelineOrderActivityChart({ chart }) {
   );
 }
 
-function ProductMetricTimelineEventsChart({ chart }) {
+function ProductMetricTimelineEventsChart({ chart, lockedTooltipIndex = undefined, onHoverLockToggle }) {
+  const tooltipLockProps = getProductMetricTimelineTooltipLockProps(lockedTooltipIndex);
   return (
     <ComposedChart
       responsive
       style={{ width: "100%", height: "100%" }}
       data={chart.data}
       margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
+      onClick={(active) => onHoverLockToggle?.(active)}
       syncId="product-metric-timelines"
       syncMethod={getProductMetricTimelineNearestSyncIndex}
     >
       <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
       <XAxis
-        dataKey="time"
+        dataKey="plotTime"
         type="number"
         domain={[chart.xDomain.min, chart.xDomain.max]}
         ticks={chart.xTicks.map((tick) => tick.value)}
@@ -12705,8 +12765,12 @@ function ProductMetricTimelineEventsChart({ chart }) {
         width={46}
       />
       <RechartsTooltip
+        {...tooltipLockProps}
+        animationDuration={0}
         content={<ProductMetricTimelineTooltip chart={chart} />}
         cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+        isAnimationActive={false}
+        wrapperClassName="ppMetricTimelineEventTooltipWrapper"
         wrapperStyle={{ outline: "none", zIndex: 8 }}
       />
       <Scatter
@@ -12805,13 +12869,13 @@ function ProductMetricTimelineLegend({ chart }) {
       {items.map((item) => (
         <span className="ppMetricTimelineLegendItem" key={`${chart.key}-${item.label}`}>
           {chart.kind === "events" ? (
-            <span
+            <ProductPulseIconBadge
               className="ppMetricTimelineLegendIcon"
-              style={{ "--pp-metric-timeline-legend-color": item.color }}
-              aria-hidden="true"
-            >
-              <ProductPulseGlyph type={item.icon || "chart-line"} />
-            </span>
+              color={item.color}
+              icon={item.icon || "chart-line"}
+              size="legend"
+              tone={item.tone || "slate"}
+            />
           ) : (
             <i
               className={`ppMetricTimelineLegendLine${item.dashed ? " isDashed" : ""}`}
@@ -12875,9 +12939,13 @@ function ProductMetricTimelineEventTooltip({ event = {} }) {
               {visibleEvents.map((item) => (
                 <span className="ppMetricTimelineEventTooltipRow" key={item.id || `${item.eventType}-${item.time}`}>
                   <time>{item.timeLabel || formatProductMetricTimelinePointTime(item.time)}</time>
-                  <span className="ppMetricTimelineEventTooltipRowIcon" aria-hidden="true">
-                    <ProductPulseGlyph type={item.icon || getProductTimelineIcon(item.category, item.eventType)} />
-                  </span>
+                  <ProductPulseIconBadge
+                    className="ppMetricTimelineEventTooltipRowIcon"
+                    color={group.color}
+                    icon={item.icon || getProductTimelineIcon(item.category, item.eventType)}
+                    size="tooltip"
+                    tone={group.tone || item.tone || "slate"}
+                  />
                   <span className="ppMetricTimelineEventTooltipRowCopy">
                     <strong>{item.title}</strong>
                     <small>{item.summary || item.source || "ProductPulse timeline event"}</small>
@@ -12975,6 +13043,53 @@ function ProductMetricTimelineOrderActivityTooltip({ active, payload }) {
   );
 }
 
+function getProductMetricTimelineClickTime(chart = {}, active = {}) {
+  if (chart.kind === "events") {
+    const activeIndex = getProductMetricTimelineActiveIndex(active);
+    const eventPoint = Number.isFinite(activeIndex) ? getProductMetricTimelineTooltipData(chart)[activeIndex] : null;
+    const eventTime = getProductMetricTimelineSyncTime(eventPoint?.time);
+    if (Number.isFinite(eventTime)) return eventTime;
+  }
+
+  const labelTime = getProductMetricTimelineSyncTime(active?.activeLabel);
+  if (Number.isFinite(labelTime)) return labelTime;
+
+  const activeIndex = getProductMetricTimelineActiveIndex(active);
+  if (!Number.isFinite(activeIndex)) return null;
+  const data = getProductMetricTimelineTooltipData(chart);
+  const point = data[activeIndex];
+  const pointTime = getProductMetricTimelineSyncTime(point?.time);
+  return Number.isFinite(pointTime) ? pointTime : null;
+}
+
+function getProductMetricTimelineActiveIndex(active = {}) {
+  const index = Number(active?.activeTooltipIndex ?? active?.activeIndex);
+  return Number.isFinite(index) ? Math.round(index) : null;
+}
+
+function getProductMetricTimelineLockedTooltipIndex(chart = {}, lockedTime) {
+  const targetTime = getProductMetricTimelineSyncTime(lockedTime);
+  if (!Number.isFinite(targetTime)) return undefined;
+  const data = getProductMetricTimelineTooltipData(chart);
+  if (!data.length) return undefined;
+  const ticks = data.map((point) => ({ value: point?.time }));
+  return getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: targetTime });
+}
+
+function getProductMetricTimelineTooltipData(chart = {}) {
+  if (Array.isArray(chart.data) && chart.data.length) return chart.data;
+  return Array.isArray(chart.points) ? chart.points : [];
+}
+
+function getProductMetricTimelineTooltipLockProps(lockedTooltipIndex) {
+  if (!Number.isFinite(lockedTooltipIndex)) return {};
+  return {
+    active: true,
+    defaultIndex: lockedTooltipIndex,
+    trigger: "click",
+  };
+}
+
 function getProductMetricTimelineNearestSyncIndex(ticks = [], active = {}) {
   if (!Array.isArray(ticks) || !ticks.length) return 0;
   const target = getProductMetricTimelineSyncTime(active?.activeLabel);
@@ -13067,7 +13182,11 @@ function isProductMetricTimelinePinnedChart(chart = {}) {
 }
 
 export const __productPulseScreensTestHooks = {
+  assignProductMetricTimelineEventPlotTimes,
+  getProductMetricTimelineClickTime,
+  getProductMetricTimelineLockedTooltipIndex,
   getProductMetricTimelineNearestSyncIndex,
+  getProductMetricTimelineTooltipLockProps,
   getProductMetricTimelineOrderedCharts,
   getProductDetailModel,
   getProductMetricTimelineModel,
@@ -13686,7 +13805,10 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
 
 function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
   const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
-  const points = getProductMetricTimelineEventsWithDayGroups(series.points);
+  const points = assignProductMetricTimelineEventPlotTimes(
+    getProductMetricTimelineEventsWithDayGroups(series.points),
+    domain,
+  );
   const laneCount = Math.max(1, ...points.map((point) => Number(point.lane || point.value || 0)).filter(Number.isFinite));
   const yDomain = { min: 0, max: laneCount + 1 };
   const yTicks = Array.from({ length: laneCount }, (_, index) => ({
@@ -13731,6 +13853,49 @@ function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
     xTickLabels: Object.fromEntries(mappedXTicks.map((tick) => [String(tick.value), tick.label])),
     ariaLabel: `${series.title} from ${getProductMetricTimelineRangeLabel(domain)}`,
   };
+}
+
+function assignProductMetricTimelineEventPlotTimes(points = [], domain = {}) {
+  const sortedPoints = [...points].sort((left, right) => left.time - right.time);
+  const minSpacing = PRODUCT_METRIC_TIMELINE_EVENT_MIN_VISUAL_SPACING_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS;
+  if (!sortedPoints.length || !Number.isFinite(minSpacing) || minSpacing <= 0) {
+    return sortedPoints.map((point) => ({ ...point, plotTime: point.time }));
+  }
+
+  const minTime = Number.isFinite(domain.minTime) ? domain.minTime : sortedPoints[0].time;
+  const maxTime = Number.isFinite(domain.maxTime) ? domain.maxTime : sortedPoints[sortedPoints.length - 1].time;
+  const plottedTimes = sortedPoints.map((point) => clampNumber(point.time, minTime, maxTime));
+
+  for (let index = 1; index < plottedTimes.length; index += 1) {
+    if (plottedTimes[index] - plottedTimes[index - 1] < minSpacing) {
+      plottedTimes[index] = plottedTimes[index - 1] + minSpacing;
+    }
+  }
+
+  const overflow = plottedTimes[plottedTimes.length - 1] - maxTime;
+  if (overflow > 0) {
+    for (let index = 0; index < plottedTimes.length; index += 1) {
+      plottedTimes[index] -= overflow;
+    }
+  }
+
+  const underflow = minTime - plottedTimes[0];
+  if (underflow > 0) {
+    for (let index = 0; index < plottedTimes.length; index += 1) {
+      plottedTimes[index] += underflow;
+    }
+  }
+
+  for (let index = 1; index < plottedTimes.length; index += 1) {
+    if (plottedTimes[index] - plottedTimes[index - 1] < minSpacing) {
+      plottedTimes[index] = plottedTimes[index - 1] + minSpacing;
+    }
+  }
+
+  return sortedPoints.map((point, index) => ({
+    ...point,
+    plotTime: clampNumber(plottedTimes[index], minTime, maxTime),
+  }));
 }
 
 function getProductMetricTimelineMappedXTicks(xTicks, domain, plot) {
@@ -19645,7 +19810,79 @@ function DashboardKpiCard({ kpi }) {
   );
 }
 
+function ProductPulseIconBadge({
+  background = "",
+  className = "",
+  color = "",
+  icon,
+  size = "base",
+  tone = "blue",
+}) {
+  const style = {
+    ...(color ? { "--pp-icon-badge-color": color } : {}),
+    ...(background ? { "--pp-icon-badge-bg": background } : {}),
+  };
+  const normalizedIcon = getProductPulseIconBadgeGlyph(icon);
+  return (
+    <span
+      className={`ppProductPulseIconBadge ppProductPulseIconBadge-${tone} ppProductPulseIconBadge-${size}${className ? ` ${className}` : ""}`}
+      style={style}
+      aria-hidden="true"
+    >
+      <span className="ppProductPulseIconBadgeGlyph">
+        <ProductPulseGlyph type={normalizedIcon} />
+      </span>
+    </span>
+  );
+}
+
+function getProductPulseIconBadgeGlyph(icon) {
+  const normalized = String(icon || "info").trim().toLowerCase();
+  const aliases = {
+    "alert-triangle": "product-risk",
+    "cash-dollar": "shopify-refunds",
+    "chart-line": "product-momentum",
+    "check-circle": "check-circle",
+    "content": "shopify-product",
+    "catalog": "shopify-product",
+    "product": "shopify-product",
+    "refund": "shopify-refunds",
+    "refunds": "shopify-refunds",
+    "return": "shopify-returns",
+    "returns": "shopify-returns",
+    "review": "star",
+    "reviews": "star",
+    "wand": "wand",
+  };
+  return aliases[normalized] || normalized;
+}
+
 function ProductPulseGlyph({ type }) {
+  if (type === "star") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-star" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M12 4.25L14.3 8.95L19.5 9.7L15.75 13.35L16.65 18.5L12 16.05L7.35 18.5L8.25 13.35L4.5 9.7L9.7 8.95L12 4.25Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "check-circle") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-checkCircle" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7.4" stroke="currentColor" strokeWidth="1.85" />
+        <path d="M8.6 12.1L10.9 14.35L15.7 9.55" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "wand") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-wand" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M8.3 15.7L15.7 8.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M14.1 6.7L17.3 9.9" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+        <path d="M6.2 5.2L6.65 6.45L7.9 6.9L6.65 7.35L6.2 8.6L5.75 7.35L4.5 6.9L5.75 6.45L6.2 5.2Z" stroke="currentColor" strokeWidth="1.45" strokeLinejoin="round" />
+        <path d="M17.9 14.1L18.35 15.35L19.6 15.8L18.35 16.25L17.9 17.5L17.45 16.25L16.2 15.8L17.45 15.35L17.9 14.1Z" stroke="currentColor" strokeWidth="1.45" strokeLinejoin="round" />
+      </svg>
+    );
+  }
   if (type === "product-risk") {
     return (
       <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-productRisk" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
@@ -19850,9 +20087,12 @@ function ProductPulseGlyph({ type }) {
 
 function DashboardIcon({ type, tone = "blue", size = "base" }) {
   return (
-    <span className={`ppDashboardIcon ppDashboardIcon-${tone} ppDashboardIcon-${size}`} aria-hidden="true">
-      <ProductPulseGlyph type={type} />
-    </span>
+    <ProductPulseIconBadge
+      className={`ppDashboardIcon ppDashboardIcon-${tone} ppDashboardIcon-${size}`}
+      icon={type}
+      size={size === "small" ? "dashboardSmall" : "dashboard"}
+      tone={tone}
+    />
   );
 }
 
@@ -30960,6 +31200,13 @@ function formatInteger(value) {
 
 function formatDecimal(value, maximumFractionDigits = 1) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(Number(value || 0));
+}
+
+function formatPointValue(value) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(Number(value || 0));
 }
 
 function clampNumber(value, min, max) {

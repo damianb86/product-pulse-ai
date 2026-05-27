@@ -46,7 +46,33 @@ describe("ProductPulse settings", () => {
     expect(getStatusLabelForScore(82, false, settings)).toBe("Needs attention");
   });
 
+  it("clamps saved thresholds to the configured minimums", () => {
+    const settings = normalizeProductPulseSettings({
+      risk: {
+        minimumScore: 0,
+        mediumThreshold: 20,
+        highThreshold: 80,
+      },
+      momentum: {
+        minimumScore: 12,
+      },
+    });
+
+    expect(settings.risk.minimumScore).toBe(10);
+    expect(settings.momentum.minimumScore).toBe(50);
+    expect(getQuickScanMinimumRiskScore(settings)).toBe(10);
+    expect(getQuickScanMinimumMomentumScore(settings)).toBe(50);
+  });
+
   it("rejects invalid risk threshold ordering", () => {
+    expect(validateProductPulseSettings({
+      risk: {
+        minimumScore: 9,
+        mediumThreshold: 60,
+        highThreshold: 90,
+      },
+    })).toMatch(/between 10 and 90/);
+
     expect(validateProductPulseSettings({
       risk: {
         minimumScore: 70,
@@ -65,6 +91,17 @@ describe("ProductPulse settings", () => {
   });
 
   it("rejects invalid momentum inclusion thresholds", () => {
+    expect(validateProductPulseSettings({
+      risk: {
+        minimumScore: 40,
+        mediumThreshold: 60,
+        highThreshold: 80,
+      },
+      momentum: {
+        minimumScore: 49,
+      },
+    })).toMatch(/between 50 and 100/);
+
     expect(validateProductPulseSettings({
       risk: {
         minimumScore: 40,

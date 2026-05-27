@@ -1266,13 +1266,25 @@ describe("ProductPulse screens", () => {
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Product risk thresholds")).toBeInTheDocument();
-    expect(screen.getByLabelText("Minimum QuickScan score")).toHaveValue("50");
+    const minimumQuickScanScore = screen.getByLabelText("Minimum QuickScan score");
+    expect(minimumQuickScanScore).toHaveValue("50");
+    expect(minimumQuickScanScore).toHaveAttribute("min", "0");
     expect(screen.getByLabelText("Medium risk starts at")).toHaveValue("55");
     expect(screen.getByLabelText("High risk starts at")).toHaveValue("75");
     expect(container.querySelector(".ppSettingsRiskPreview")).not.toBeInTheDocument();
     expect(container.querySelector(".ppSettingsRiskHandleLabels")).not.toBeInTheDocument();
     expect(screen.getByText("Product Momentum inclusion")).toBeInTheDocument();
-    expect(screen.getByLabelText("Minimum Product Momentum score")).toHaveValue("72");
+    const minimumMomentumScore = screen.getByLabelText("Minimum Product Momentum score");
+    const minimumMomentumExactValue = screen.getByLabelText("Minimum Product Momentum exact value");
+    expect(minimumMomentumScore).toHaveValue("72");
+    expect(minimumMomentumScore).toHaveAttribute("min", "0");
+    expect(minimumMomentumExactValue).toHaveAttribute("min", "50");
+    fireEvent.change(minimumQuickScanScore, { target: { value: "3" } });
+    expect(minimumQuickScanScore).toHaveValue("10");
+    fireEvent.change(minimumMomentumScore, { target: { value: "20" } });
+    expect(minimumMomentumScore).toHaveValue("50");
+    fireEvent.change(minimumMomentumExactValue, { target: { value: "20" } });
+    expect(minimumMomentumExactValue).toHaveValue(50);
     expect(screen.queryByText("Table defaults")).not.toBeInTheDocument();
     expect(screen.queryByText("Queue limits")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max diagnoses queued at once")).not.toBeInTheDocument();
@@ -1321,7 +1333,7 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
     fireEvent.click(screen.getAllByRole("button", { name: /Run quick scan/ })[0]);
     expect(screen.getByRole("heading", { name: "Confirm quick product scan" })).toBeInTheDocument();
-    expect(screen.getByText("QuickScan costs 1 credit and runs as a background job.")).toBeInTheDocument();
+    expect(screen.getByText("QuickScan costs 1.0 point and runs as a background job.")).toBeInTheDocument();
     expect(screen.getByText(/Products that already have a full AI product diagnosis will be ignored/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Accept cost and run QuickScan" }));
     expect(screen.getByText("Fast product scan running")).toBeInTheDocument();
@@ -1722,8 +1734,15 @@ describe("ProductPulse screens", () => {
   });
 
   it("syncs metric timeline hover state to the nearest x-axis point", () => {
-    const { getProductMetricTimelineNearestSyncIndex } = __productPulseScreensTestHooks;
+    const {
+      assignProductMetricTimelineEventPlotTimes,
+      getProductMetricTimelineClickTime,
+      getProductMetricTimelineLockedTooltipIndex,
+      getProductMetricTimelineNearestSyncIndex,
+      getProductMetricTimelineTooltipLockProps,
+    } = __productPulseScreensTestHooks;
     const time = (value) => new Date(value).getTime();
+    const dayMs = 24 * 60 * 60 * 1000;
     const ticks = [
       { value: time("2026-02-01T00:00:00.000Z"), index: 0 },
       { value: time("2026-03-01T00:00:00.000Z"), index: 1 },
@@ -1734,6 +1753,41 @@ describe("ProductPulse screens", () => {
     expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: time("2026-04-20T00:00:00.000Z") })).toBe(2);
     expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: "2026-02-10T00:00:00.000Z" })).toBe(0);
     expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: "", activeTooltipIndex: 9 })).toBe(2);
+
+    const sparseChart = {
+      data: [
+        { time: time("2026-02-01T00:00:00.000Z"), value: 12 },
+        { time: time("2026-05-01T00:00:00.000Z"), value: 30 },
+      ],
+    };
+    expect(getProductMetricTimelineLockedTooltipIndex(sparseChart, time("2026-04-20T00:00:00.000Z"))).toBe(1);
+    expect(getProductMetricTimelineClickTime(sparseChart, { activeLabel: time("2026-05-01T00:00:00.000Z") })).toBe(time("2026-05-01T00:00:00.000Z"));
+    expect(getProductMetricTimelineClickTime(sparseChart, { activeTooltipIndex: 0 })).toBe(time("2026-02-01T00:00:00.000Z"));
+    expect(getProductMetricTimelineTooltipLockProps(1)).toMatchObject({ active: true, defaultIndex: 1, trigger: "click" });
+    expect(getProductMetricTimelineTooltipLockProps(undefined)).toEqual({});
+
+    const closeEvents = assignProductMetricTimelineEventPlotTimes(
+      [
+        { id: "first", time: time("2025-08-01T00:00:00.000Z"), value: 1 },
+        { id: "second", time: time("2025-08-02T00:00:00.000Z"), value: 1 },
+        { id: "third", time: time("2025-08-03T00:00:00.000Z"), value: 1 },
+      ],
+      {
+        minTime: time("2025-08-01T00:00:00.000Z"),
+        maxTime: time("2025-08-31T00:00:00.000Z"),
+      },
+    );
+    expect(closeEvents.map((event) => event.time)).toEqual([
+      time("2025-08-01T00:00:00.000Z"),
+      time("2025-08-02T00:00:00.000Z"),
+      time("2025-08-03T00:00:00.000Z"),
+    ]);
+    expect(closeEvents[1].plotTime - closeEvents[0].plotTime).toBeGreaterThanOrEqual(4 * dayMs);
+    expect(closeEvents[2].plotTime - closeEvents[1].plotTime).toBeGreaterThanOrEqual(4 * dayMs);
+    expect(getProductMetricTimelineClickTime(
+      { kind: "events", data: closeEvents },
+      { activeLabel: closeEvents[1].plotTime, activeTooltipIndex: 1 },
+    )).toBe(time("2025-08-02T00:00:00.000Z"));
   });
 
   it("renders product diagnosis evidence and draft actions", () => {

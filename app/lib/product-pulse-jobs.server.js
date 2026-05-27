@@ -46,6 +46,12 @@ import {
   normalizeShopifyMockDatasetStage,
   runShopifyMockDatasetJob,
 } from "./product-pulse-shopify-mock-dataset.server";
+import {
+  debitStorePointsForShop,
+  getStorePointBalanceForShop,
+  getStorePointSummaryForShop,
+  validateStorePointsForShop,
+} from "./product-pulse-points.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -93,6 +99,15 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     };
   }
 
+  const pointCheck = await validateStorePointsForShop(shop, 1);
+  if (!pointCheck.valid) {
+    return {
+      status: "validation_error",
+      message: pointCheck.message,
+      pointBalance: pointCheck.balance,
+    };
+  }
+
   const settings = await getProductPulseSettings(shop);
   const windowDays = getQuickScanWindowDays(settings, scopes);
   const job = await prisma.catalogSignalJob.create({
@@ -102,8 +117,31 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
       source: `Queued Shopify QuickScan - ${windowDays}-day order window`,
       status: "Queued",
       progress: 0,
+      payload: {
+        pointCost: 1,
+        queuedAt: new Date().toISOString(),
+      },
     },
   });
+
+  const pointDebit = await debitStorePointsForShop(shop, {
+    amount: 1,
+    reason: `QuickScan point debit quick-scan:${job.id}`,
+    idempotencyKey: `quick-scan:${job.id}`,
+    metadata: {
+      source: "quick_scan",
+      jobId: job.id,
+      windowDays,
+    },
+  });
+  if (!["success", "already_recorded"].includes(pointDebit.status)) {
+    await markJobFailed(job.id, new Error(pointDebit.message || "Insufficient ProductPulse points."), "QuickScan not queued");
+    return {
+      status: "validation_error",
+      message: pointDebit.message || "QuickScan needs 1.0 point before it can start.",
+      pointBalance: pointDebit.balance,
+    };
+  }
 
   ensureFastProductScanWorker(job, { admin, scopes });
   await recordJobLog({
@@ -114,6 +152,8 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     data: {
       windowDays,
       scopeMode: "configured_analysis_lookback",
+      pointsConsumed: 1,
+      pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
     },
   });
 
@@ -218,7 +258,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
     getLatestCompletedDiagnosisMap(shop, snapshots),
     getResolvedProductActionsMap(shop, snapshots),
   ]);
-  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
+  const filterOptions = getProductTableFilterOptions(snapshots, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
   const filteredSnapshots = sortProductSnapshots(
     filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys),
     filters,
@@ -297,15 +337,12 @@ export async function addShopifyProductCandidateForShop(shop, admin, productId) 
 
 export async function getDashboardDataForShop(shop, admin) {
   await failStaleFastProductScans(shop);
-  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs, settings, catalogProductCount, actions] = await Promise.all([
+  const [snapshots, pointBalance, activeJob, activeDiagnosisJobs, settings, catalogProductCount, actions] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
     }),
-    prisma.creditLedgerEntry.findFirst({
-      where: { shop },
-      orderBy: { createdAt: "desc" },
-    }),
+    getStorePointBalanceForShop(shop),
     getActiveFastProductScan(shop),
     getActiveProductDiagnosisJobs(shop),
     getProductPulseSettings(shop),
@@ -331,7 +368,7 @@ export async function getDashboardDataForShop(shop, admin) {
   const dashboardProductsWithJobs = attachActiveProductDiagnosisJobs(dashboardProducts, activeDiagnosisJobs);
 
   return buildDashboardViewData(dashboardProductsWithJobs, {
-    billing: latestLedgerEntry ? { creditsAvailable: latestLedgerEntry.balanceAfter } : null,
+    billing: { creditsAvailable: pointBalance.available, pointBalance },
     catalogProductCount,
     settings,
   });
@@ -451,9 +488,18 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
     return { status: "validation_error", message: "Select at least one product to analyze." };
   }
 
+  const pointCheck = await validateStorePointsForShop(shop, uniqueProductIds.length);
+  if (!pointCheck.valid) {
+    return {
+      status: "validation_error",
+      message: pointCheck.message,
+      pointBalance: pointCheck.balance,
+    };
+  }
+
   const jobs = [];
   for (const productId of uniqueProductIds) {
-    const job = await createProductDiagnosisJob(shop, productId, options);
+    const job = await createProductDiagnosisJob(shop, productId, { ...options, skipPointBalanceCheck: true });
     if (job) jobs.push(job);
   }
 
@@ -491,13 +537,14 @@ export async function getRecentJobsForShop(shop) {
 
 export async function getJobMonitorForShop(shop) {
   await failStaleFastProductScans(shop);
-  const [jobs, logs] = await Promise.all([
+  const [jobs, logs, pointSummary] = await Promise.all([
     prisma.catalogSignalJob.findMany({
       where: { shop },
       orderBy: [{ updatedAt: "desc" }],
       take: JOB_MONITOR_RECENT_JOB_LIMIT,
     }),
     getJobLogsForShop(shop, 100),
+    getStorePointSummaryForShop(shop),
   ]);
 
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
@@ -512,6 +559,8 @@ export async function getJobMonitorForShop(shop) {
     activeJobs: jobs.filter((job) => isActiveStatus(job.status)).map(formatJob),
     recentJobs: jobs.map(formatJob),
     logs: logs.map(formatJobLog),
+    pointBalance: pointSummary.balance,
+    pointSummary,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -651,6 +700,13 @@ export async function rerunProductDiagnosisForShop(shop, productId, options = {}
 export async function queueProductDiagnosisForShop(shop, productId, options = {}) {
   const job = await createProductDiagnosisJob(shop, productId, options);
   if (!job) return null;
+  if (job.pointValidationError) {
+    return {
+      status: "validation_error",
+      message: job.pointValidationError.message,
+      pointBalance: job.pointValidationError.balance,
+    };
+  }
   ensureProductDiagnosisQueueWorker(shop);
 
   return {
@@ -2268,6 +2324,12 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
   const activeJob = await getActiveProductDiagnosisJobForSnapshot(shop, snapshot);
   if (activeJob) return activeJob;
 
+  if (!options.skipPointBalanceCheck) {
+    const pointCheck = await validateStorePointsForShop(shop, 1);
+    if (!pointCheck.valid) return { pointValidationError: pointCheck };
+  }
+
+  const snapshotMetrics = snapshot.metrics || {};
   const job = await prisma.catalogSignalJob.create({
     data: {
       shop,
@@ -2280,7 +2342,10 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
         productGid: snapshot.productGid,
         handle: snapshot.handle,
         productTitle: snapshot.productTitle,
+        imageUrl: snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+        imageAlt: snapshot.productTitle,
         riskScore: snapshot.riskScore,
+        pointCost: 1,
         queuedAt: new Date().toISOString(),
       },
     },
@@ -2662,6 +2727,7 @@ async function runProductDiagnosisJob(job) {
     admin,
     snapshot,
   });
+  const pointDebit = await recordProductDiagnosisPointDebit(job, diagnosis);
 
   await updateProductDiagnosisJob(job.id, {
     progress: 92,
@@ -2676,6 +2742,13 @@ async function runProductDiagnosisJob(job) {
     source: diagnosis?.skipped
       ? `No changes detected; previous diagnosis reused - ${snapshot.productTitle}`
       : `AI Product Diagnosis completed - ${snapshot.productTitle}`,
+    payload: {
+      ...(job.payload || {}),
+      creditsConsumed: diagnosis?.creditsConsumed ?? 1,
+      pointsConsumed: diagnosis?.creditsConsumed ?? 1,
+      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+      pointDebitStatus: pointDebit?.status || "not_charged",
+    },
     finishedAt: new Date(),
   });
 
@@ -2684,7 +2757,7 @@ async function runProductDiagnosisJob(job) {
     jobId: job.id,
     event: "product_diagnosis.completed",
     message: diagnosis?.skipped
-      ? "Product diagnosis finished from cache because no source changes were detected. No credit was consumed."
+      ? "Product diagnosis finished from cache because no source changes were detected. No point was consumed."
       : "Product diagnosis completed.",
     data: {
       durationMs: Date.now() - startedAt,
@@ -2692,6 +2765,10 @@ async function runProductDiagnosisJob(job) {
       skipped: Boolean(diagnosis?.skipped),
       skipReason: diagnosis?.skipReason,
       creditsConsumed: diagnosis?.creditsConsumed ?? 1,
+      pointsConsumed: diagnosis?.creditsConsumed ?? 1,
+      pointDebitStatus: pointDebit?.status || "not_charged",
+      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+      pointBalance: pointDebit?.balance || null,
       riskScore: diagnosis?.riskScore,
       confidence: diagnosis?.confidence,
       estimatedImpact: diagnosis?.estimatedImpact,
@@ -2701,6 +2778,49 @@ async function runProductDiagnosisJob(job) {
       aiUsage: diagnosis?.aiUsage,
     },
   });
+}
+
+async function recordProductDiagnosisPointDebit(job, diagnosis) {
+  const pointsConsumed = Number(diagnosis?.creditsConsumed ?? 1);
+  if (!Number.isFinite(pointsConsumed) || pointsConsumed <= 0) {
+    return {
+      status: "no_charge",
+      charged: false,
+      amount: 0,
+    };
+  }
+
+  const idempotencyKey = `product-diagnosis:${job.id}`;
+  const pointDebit = await debitStorePointsForShop(job.shop, {
+    amount: pointsConsumed,
+    reason: `Product diagnosis point debit ${idempotencyKey} - ${job.payload?.productTitle || "selected product"}`,
+    idempotencyKey,
+    metadata: {
+      source: "product_diagnosis",
+      jobId: job.id,
+      diagnosisId: diagnosis?.diagnosisId || null,
+      productGid: job.payload?.productGid || null,
+      productTitle: job.payload?.productTitle || null,
+      skipped: Boolean(diagnosis?.skipped),
+    },
+  });
+
+  if (!["success", "already_recorded"].includes(pointDebit.status)) {
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      level: "error",
+      event: "product_diagnosis.points_not_consumed",
+      message: pointDebit.message || "Product diagnosis points could not be consumed.",
+      data: {
+        pointsConsumed,
+        pointDebitStatus: pointDebit.status,
+        pointBalance: pointDebit.balance || null,
+      },
+    });
+  }
+
+  return pointDebit;
 }
 
 async function getOfflineAdmin(shop) {
@@ -2961,7 +3081,6 @@ function sortProductSnapshots(snapshots, filters = {}, resolvedActionsByProductG
 
 function getProductTableFilterOptions(
   snapshots,
-  resolvedActionsByProductGid = new Map(),
   settings = undefined,
   latestDiagnosisByProductGid = new Map(),
   activeDiagnosisProductKeys = new Set(),
@@ -2975,7 +3094,6 @@ function getProductTableFilterOptions(
 
   snapshots.forEach((snapshot) => {
     const metrics = snapshot.metrics || {};
-    const isResolved = resolvedActionsByProductGid.has(snapshot.productGid);
     const analysisDepth = getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
     if (analysisCounts[analysisDepth] !== undefined) analysisCounts[analysisDepth] += 1;
     addFilterOption(issues, snapshot.primaryIssue);
@@ -4335,9 +4453,12 @@ function getPdpCopyActionLabel(issueCategory) {
 function formatJob(job) {
   const productTitle = getJobProductTitle(job);
   const productHandle = getJobProductHandle(job);
+  const productImageUrl = getJobProductImageUrl(job);
+  const productImageAlt = getJobProductImageAlt(job, productTitle);
   const displayTitle = getJobDisplayTitle(job, productTitle);
   const displaySubtitle = getJobDisplaySubtitle(job, productTitle);
   const executionStartedAt = job.status === "Queued" ? null : job.startedAt;
+  const pointsConsumed = getJobPointCost(job);
 
   return {
     id: job.id,
@@ -4346,6 +4467,8 @@ function formatJob(job) {
     productTitle,
     productHandle,
     productHref: productHandle ? `/app/products/${productHandle}` : null,
+    imageUrl: productImageUrl,
+    imageAlt: productImageAlt,
     displayTitle,
     displaySubtitle,
     source: job.errorMessage || job.source,
@@ -4361,7 +4484,20 @@ function formatJob(job) {
     finishedAt: job.finishedAt,
     finishedAtIso: toIso(job.finishedAt),
     elapsedMs: job.status === "Queued" ? 0 : getElapsedMs(job.startedAt, job.finishedAt),
+    pointsConsumed,
+    creditsConsumed: pointsConsumed,
+    creditCost: pointsConsumed,
   };
+}
+
+function getJobPointCost(job) {
+  const payload = job.payload || {};
+  const explicit = payload.pointsConsumed ?? payload.creditsConsumed ?? payload.pointCost ?? payload.creditCost;
+  const explicitNumber = Number(explicit);
+  if (Number.isFinite(explicitNumber) && explicitNumber >= 0) return explicitNumber;
+  if (job.kind === FAST_PRODUCT_SCAN_KIND) return 1;
+  if (job.kind === PRODUCT_DIAGNOSIS_KIND) return 1;
+  return 0;
 }
 
 function getJobDisplayName(kind) {
@@ -4381,6 +4517,35 @@ function getJobProductHandle(job) {
   return typeof job.payload?.handle === "string" && job.payload.handle.trim()
     ? job.payload.handle.trim()
     : null;
+}
+
+function getJobProductImageUrl(job) {
+  const payload = job.payload || {};
+  const candidates = [
+    payload.imageUrl,
+    payload.productImageUrl,
+    payload.featuredImageUrl,
+    typeof payload.image === "string" ? payload.image : payload.image?.url,
+    payload.featuredImage?.url,
+  ];
+  return candidates.map(normalizeJobPayloadString).find(Boolean) || null;
+}
+
+function getJobProductImageAlt(job, productTitle) {
+  const payload = job.payload || {};
+  const candidates = [
+    payload.imageAlt,
+    payload.productImageAlt,
+    payload.featuredImageAlt,
+    payload.image?.altText,
+    payload.featuredImage?.altText,
+    productTitle,
+  ];
+  return candidates.map(normalizeJobPayloadString).find(Boolean) || null;
+}
+
+function normalizeJobPayloadString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function getJobDisplayTitle(job, productTitle) {

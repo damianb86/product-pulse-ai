@@ -13,7 +13,7 @@ const requestCards = [
   {
     icon: "sources",
     title: "Set up source coverage",
-    text: "Get help connecting product data, returns, refunds, reviews, CSV imports, and missing-source states so coverage reflects your real workflow.",
+    text: "Get help connecting Shopify product, order, return, refund, review, CSV, and optional support sources so coverage reflects your real workflow.",
     action: "Request setup help",
     modal: "setup",
     tone: "primary",
@@ -21,14 +21,14 @@ const requestCards = [
   {
     icon: "diagnosis",
     title: "Understand diagnosis results",
-    text: "Ask about risk score, confidence, likely cause, evidence by source, credits, and the draft actions ProductPulse recommends.",
+    text: "Ask about risk, confidence, financial exposure, product momentum, retention, evidence by source, points, and ProductPulse action records.",
     action: "Ask a question",
     modal: "support",
   },
   {
     icon: "spark",
     title: "Suggest a workflow improvement",
-    text: "Share ideas for connectors, analytics views, issue labels, action templates, or catalog review flows your team needs.",
+    text: "Share ideas for connectors, metric timelines, retention views, issue labels, action templates, or catalog review flows your team needs.",
     action: "Send suggestion",
     modal: "suggestion",
   },
@@ -48,7 +48,22 @@ const supportAreas = [
   {
     icon: "actions",
     title: "Catalog action rollout",
-    text: "Turn findings into PDP copy, fit notes, FAQs, support snippets, tags, and internal product-quality review tasks.",
+    text: "Turn findings into ProductPulse-owned PDP copy guidance, fit notes, FAQs, support snippets, tags, and internal product-quality review tasks.",
+  },
+  {
+    icon: "diagnosis",
+    title: "Retention and LTV",
+    text: "Read Shopify order cohorts, same-product repurchase, cross-sell retention, LTV contribution, monthly order activity, and retention-health signals.",
+  },
+  {
+    icon: "coverage",
+    title: "Timelines and history",
+    text: "Compare stored score history, metric timelines, product timeline events, Watchlist baselines, and change reports without re-running every analysis.",
+  },
+  {
+    icon: "spark",
+    title: "Assistant and confirmations",
+    text: "Use the AI assistant for explanations and ProductPulse-owned proposals while keeping Shopify writes behind separate, explicit workflows.",
   },
 ];
 
@@ -70,24 +85,60 @@ const workflowSteps = [
   {
     eyebrow: "03",
     title: "Diagnose one product",
-    text: "Spend one credit to run AI Product Diagnosis with likely cause, confidence, issue clusters, evidence, and recommended actions.",
+    text: "Spend 1.0 point to run AI Product Diagnosis with likely cause, confidence, issue clusters, evidence, and recommended actions.",
     href: "/app/products",
     linkText: "Review products",
   },
   {
     eyebrow: "04",
     title: "Act from evidence",
-    text: "Keep recommendations as internal draft actions until the merchant confirms a write-enabled workflow.",
+    text: "Review recommended actions, description previews, highlighted copy differences, and supporting evidence before saving ProductPulse action state.",
     href: "/app/analytics",
     linkText: "Review analytics",
   },
 ];
 
+const featureGuideItems = [
+  {
+    icon: "diagnosis",
+    title: "Dashboard and Products",
+    text: "Use Dashboard for priority products, active jobs, points, top issues, latest diagnoses, and recommended actions. Use Products to review diagnosed products, QuickScan candidates, resolved items, and Watchlist actions.",
+  },
+  {
+    icon: "evidence",
+    title: "Product detail and evidence",
+    text: "Product detail combines risk, confidence, impact, momentum, return pressure, refund leakage, customer signals, evidence tabs, action history, product timeline, relationships, and score history.",
+  },
+  {
+    icon: "coverage",
+    title: "Metric timelines",
+    text: "Metric timelines aligns product risk, financial exposure, return/refund metrics, retention health, momentum, confidence, evidence, ratings, customer signals, and main issue across the same time window.",
+  },
+  {
+    icon: "sources",
+    title: "Retention metrics",
+    text: "Retention metrics use deterministic Shopify order cohorts to show repeat purchase rates, same-product repurchase, cross-sell retention, LTV contribution, segments, and monthly order activity.",
+  },
+  {
+    icon: "actions",
+    title: "Recommended actions",
+    text: "ProductPulse actions are app-owned records. Description actions show current and proposed previews, can expand full text, and highlight changed blocks before a merchant applies anything outside ProductPulse.",
+  },
+  {
+    icon: "spark",
+    title: "AI assistant",
+    text: "The assistant can explain screens, formulas, evidence, and safe next steps; it can propose or save confirmed ProductPulse actions, but it cannot directly mutate Shopify products.",
+  },
+];
+
 const commonTopics = [
-  "Coverage score looks low because optional customer-signal sources are missing or ignored.",
-  "QuickScan jobs show scan, import, grouping, scoring, and recommendation progress before dashboard data changes.",
-  "AI Product Diagnosis uses bounded evidence and one base credit per product in the MVP.",
-  "Draft actions are stored internally first; automatic Shopify product writes are future-gated.",
+  "Coverage score looks low because optional customer-signal sources are missing, disabled, ignored, or outside the analysis window.",
+  "QuickScan is deterministic: it reads available catalog, order, return, refund, review rating, CSV, and coverage metadata without calling the AI model.",
+  "Deep Product Diagnosis uses deterministic metrics plus bounded AI synthesis to classify likely cause, evidence, and recommended actions.",
+  "Metric timelines compare different metrics on one shared time domain; missing months or sparse snapshots can change how much history is visible.",
+  "Retention and LTV views are cohort-based, so low customer volume or immature 90-day windows can make retention signals sparse.",
+  "Recommended action previews are ProductPulse records first; direct Shopify product writes are not performed by the assistant.",
+  "Watchlist reports compare new source movement, product risk, momentum, evidence, and diagnosis changes against a stored baseline.",
   "Missing Shopify scopes should show recovery guidance instead of silently producing partial analysis.",
 ];
 
@@ -95,15 +146,17 @@ const privacyStoredItems = [
   "Source connection state, coverage preferences, and health metadata.",
   "Catalog scan jobs, diagnosis jobs, job logs, and recoverable error details.",
   "Product risk snapshots, AI diagnosis summaries, issue evidence, and recommendations.",
-  "Watchlist products, watch settings, watch activity, and product score history.",
-  "Draft product actions, credit ledger entries, and contact requests from this page.",
+  "Product retention runs, cohort summaries, LTV curves, segment rows, and monthly order activity used in retention views.",
+  "Product timeline events, metric score history, Watchlist products, Watchlist settings, and Watchlist activity.",
+  "ProductPulse actions, AI conversation records, AI tool/audit logs, app-owned proposals, usage events, credit ledger entries, and contact requests from this page.",
   "Shopify session tokens required for embedded admin authentication.",
 ];
 
 const privacyMinimizedItems = [
-  "No customer account profiles, addresses, or raw support-ticket PII are required for the MVP.",
-  "CSV imports should be mapped to product-level review signals before storage.",
-  "Product writes are not automatic unless a future write-enabled flow is explicitly confirmed.",
+  "Customer-level order data is transformed into product-level metrics and cohorts for the app views.",
+  "CSV imports should be mapped to product identifiers, ratings, review text, and dates before storage.",
+  "Support connectors are optional; raw support-ticket PII is not required for the current product-quality workflow.",
+  "The AI assistant may save confirmed ProductPulse records, but it does not apply Shopify description, SEO, price, inventory, tag, variant, image, collection, or metafield changes.",
 ];
 
 const modalContent = {
@@ -113,7 +166,7 @@ const modalContent = {
     subjectPlaceholder: "Coverage, QuickScan, or source setup",
     messageLabel: "What are you trying to configure?",
     messagePlaceholder:
-      "Example: We have Shopify returns and a CSV of reviews, but coverage still looks low and QuickScan has not ranked any products yet.",
+      "Example: We have Shopify returns, refunds, Judge.me reviews, and a CSV import, but coverage still looks low and QuickScan has not ranked any products yet.",
     intro:
       "Tell us which sources you use, what the app shows today, and what a good ProductPulse workflow should unlock for your team.",
     primary: "Send setup request",
@@ -124,7 +177,7 @@ const modalContent = {
     subjectPlaceholder: "Connector, analytics, or action idea",
     messageLabel: "What should ProductPulse add or improve?",
     messagePlaceholder:
-      "Example: Add a Zendesk source and show which support themes changed the risk score for each product.",
+      "Example: Add a Zendesk source and show which support themes changed the risk score, retention health, or recommended action for each product.",
     intro:
       "Connector requests, missing issue labels, analytics gaps, confusing copy, and action-template ideas are all useful.",
     primary: "Send suggestion",
@@ -135,7 +188,7 @@ const modalContent = {
     subjectPlaceholder: "Question about ProductPulse AI",
     messageLabel: "How can we help?",
     messagePlaceholder:
-      "Example: A product has a high risk score, but the evidence tab does not show the return reason I expected.",
+      "Example: A product has a high risk score, but the evidence tab, metric timelines, or retention panel do not show the source signal I expected.",
     intro:
       "Share enough detail to reproduce or understand the behavior. Include the screen, product, source, or job state when relevant.",
     primary: "Send message",
@@ -172,16 +225,22 @@ export const action = async ({ request }) => {
         `- Job log entries: ${counts.jobLogs}`,
         `- Product risk snapshots: ${counts.riskSnapshots}`,
         `- Product diagnoses: ${counts.diagnoses}`,
-        `- Draft product actions: ${counts.actions}`,
+        `- ProductPulse actions: ${counts.actions}`,
+        `- Product retention runs: ${counts.retentionRuns}`,
+        `- Product timeline events: ${counts.timelineEvents}`,
         `- Watchlist products: ${counts.watchlistItems}`,
         `- Watchlist settings: ${counts.watchSettings}`,
         `- Watchlist activity entries: ${counts.watchActivities}`,
         `- Product score history entries: ${counts.scoreHistory}`,
+        `- AI conversations: ${counts.aiConversations}`,
+        `- AI usage events: ${counts.aiUsageEvents}`,
+        `- AI action proposals: ${counts.aiActionProposals}`,
+        `- AI app draft proposals: ${counts.aiAppDraftProposals}`,
         `- Credit ledger entries: ${counts.creditEntries}`,
         `- Contact requests: ${counts.contacts}`,
         `- Sessions: ${counts.sessions}`,
         "",
-        "ProductPulse AI stores product-level signal data and avoids customer account profiles in the MVP.",
+        "ProductPulse AI stores product-level signal data, app-owned action state, and assistant records needed for traceability. It avoids using customer account profiles as a product-quality requirement.",
       ].join("\n"),
     });
 
@@ -204,7 +263,7 @@ export const action = async ({ request }) => {
         `Shop: ${session.shop}`,
         "",
         "The merchant requested deletion of all ProductPulse AI app data.",
-        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, draft actions, watchlist products, watch settings, watch activity, product score history, credit ledger entries, contact requests, and sessions.",
+        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, product actions, retention records, product timeline events, watchlist products, watch settings, watch activity, product score history, AI conversations, AI usage events, AI proposals, credit ledger entries, contact requests, and sessions.",
       ].join("\n"),
     });
 
@@ -344,8 +403,8 @@ export default function Help() {
           <div className={styles.heroCopy}>
             <div className={styles.badges} aria-label="ProductPulse support focus">
               <span className={`${styles.softBadge} ${styles.primaryBadge}`}>App support</span>
-              <span className={styles.softBadge}>Product signals</span>
-              <span className={styles.softBadge}>Read-only MVP</span>
+              <span className={styles.softBadge}>Product timelines</span>
+              <span className={styles.softBadge}>No automatic Shopify writes</span>
             </div>
             <div>
               <p className={styles.kicker}>ProductPulse AI support</p>
@@ -353,9 +412,9 @@ export default function Help() {
                 Get clearer product decisions from every signal.
               </h1>
               <p className={styles.heroText}>
-                Use this page when source coverage, QuickScan jobs, AI diagnosis,
-                draft actions, credits, or privacy questions block your catalog
-                review workflow.
+                Use this page when source coverage, QuickScan jobs, deep diagnosis,
+                retention metrics, metric timelines, Watchlist reports, ProductPulse
+                actions, points, or privacy questions block your catalog review workflow.
               </p>
             </div>
             <div className={styles.heroActions}>
@@ -371,12 +430,12 @@ export default function Help() {
             </div>
             <div className={styles.heroStats} aria-label="Support workflow highlights">
               <div>
-                <strong>5</strong>
-                <span>Signal families</span>
+                <strong>10+</strong>
+                <span>Product views and workflows</span>
               </div>
               <div>
                 <strong>1</strong>
-                <span>Credit per diagnosis</span>
+                <span>Point per diagnosis</span>
               </div>
               <div>
                 <strong>0</strong>
@@ -434,6 +493,31 @@ export default function Help() {
                 <p>{step.text}</p>
                 <a href={step.href}>{step.linkText}</a>
               </article>
+            ))}
+          </div>
+        </section>
+
+        <section className={styles.supportPanel} aria-labelledby="feature-guide-title">
+          <div className={styles.sectionIntro}>
+            <p className={styles.kicker}>What ProductPulse covers</p>
+            <h2 id="feature-guide-title">Use the right view for the decision you are making.</h2>
+            <p>
+              ProductPulse has several product-level views. Use this guide to decide
+              whether you need portfolio prioritization, a single-product diagnosis,
+              timeline comparison, retention review, or a safe ProductPulse action.
+            </p>
+          </div>
+          <div className={styles.serviceGrid}>
+            {featureGuideItems.map((item) => (
+              <div className={styles.serviceItem} key={item.title}>
+                <span className={styles.smallIcon}>
+                  <HelpIcon type={item.icon} />
+                </span>
+                <div>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                </div>
+              </div>
             ))}
           </div>
         </section>
@@ -513,7 +597,7 @@ export default function Help() {
               <p>
                 ProductPulse keeps tokens server-side and stores only the
                 app-owned data needed for traceability, diagnosis, support, and
-                credit accounting.
+                point accounting.
               </p>
             </div>
           </div>
@@ -580,9 +664,11 @@ export default function Help() {
             </div>
             <p>
               This permanently deletes source records, jobs, job logs, risk
-              snapshots, diagnoses, draft actions, Watchlist products, Watchlist
-              settings, Watchlist activity, product score history, credit ledger
-              entries, contact requests, and Shopify sessions for this shop.
+              snapshots, diagnoses, product actions, retention records, product
+              timeline events, Watchlist products, Watchlist settings, Watchlist
+              activity, product score history, AI conversations, AI usage events,
+              AI proposals, credit ledger entries, contact requests, and Shopify
+              sessions for this shop.
             </p>
             <p className={styles.subduedText}>
               This action cannot be undone. You may be asked to log in again
@@ -685,10 +771,19 @@ async function getProductPulseDataCounts(shop) {
     riskSnapshots,
     diagnoses,
     actions,
+    retentionRuns,
+    retentionSummaries,
+    retentionCohortCells,
+    timelineEvents,
     watchlistItems,
     watchSettings,
     watchActivities,
     scoreHistory,
+    aiConversations,
+    aiConversationMessages,
+    aiUsageEvents,
+    aiActionProposals,
+    aiAppDraftProposals,
     creditEntries,
     contacts,
     sessions,
@@ -699,10 +794,19 @@ async function getProductPulseDataCounts(shop) {
     db.productRiskSnapshot.count({ where: { shop } }),
     db.productDiagnosis.count({ where: { shop } }),
     db.productAction.count({ where: { shop } }),
+    db.productRetentionRun.count({ where: { shopId: shop } }),
+    db.productRetentionSummary.count({ where: { shopId: shop } }),
+    db.productRetentionCohortCell.count({ where: { shopId: shop } }),
+    db.productTimelineEvent.count({ where: { shop } }),
     db.productWatchlistItem.count({ where: { shop } }),
     db.productWatchSettings.count({ where: { shop } }),
     db.productWatchActivity.count({ where: { shop } }),
     db.productScoreHistory.count({ where: { shop } }),
+    db.aiConversation.count({ where: { shop } }),
+    db.aiConversationMessage.count({ where: { shop } }),
+    db.aiUsageEvent.count({ where: { shop } }),
+    db.aiActionProposal.count({ where: { shop } }),
+    db.aiAppDraftProposal.count({ where: { shop } }),
     db.creditLedgerEntry.count({ where: { shop } }),
     db.contactRequest.count({ where: { shop } }),
     db.session.count({ where: { shop } }),
@@ -715,10 +819,19 @@ async function getProductPulseDataCounts(shop) {
     riskSnapshots,
     diagnoses,
     actions,
+    retentionRuns,
+    retentionSummaries,
+    retentionCohortCells,
+    timelineEvents,
     watchlistItems,
     watchSettings,
     watchActivities,
     scoreHistory,
+    aiConversations,
+    aiConversationMessages,
+    aiUsageEvents,
+    aiActionProposals,
+    aiAppDraftProposals,
     creditEntries,
     contacts,
     sessions,
@@ -727,7 +840,22 @@ async function getProductPulseDataCounts(shop) {
 
 async function deleteProductPulseData(shop) {
   await db.$transaction([
+    db.aiAppDraftAuditLog.deleteMany({ where: { shop } }),
+    db.aiAppDraftProposal.deleteMany({ where: { shop } }),
+    db.aiActionAuditLog.deleteMany({ where: { shop } }),
+    db.aiActionProposal.deleteMany({ where: { shop } }),
+    db.aiConversationToolCall.deleteMany({ where: { shop } }),
+    db.aiConversationMessage.deleteMany({ where: { shop } }),
+    db.aiConversation.deleteMany({ where: { shop } }),
+    db.aiUsageEvent.deleteMany({ where: { shop } }),
     db.productAction.deleteMany({ where: { shop } }),
+    db.productTimelineEvent.deleteMany({ where: { shop } }),
+    db.productRetentionSummary.deleteMany({ where: { shopId: shop } }),
+    db.productRetentionSegmentDaily.deleteMany({ where: { shopId: shop } }),
+    db.productRetentionDailyActivity.deleteMany({ where: { shopId: shop } }),
+    db.productRetentionCohortCell.deleteMany({ where: { shopId: shop } }),
+    db.productRetentionDailyCohort.deleteMany({ where: { shopId: shop } }),
+    db.productRetentionRun.deleteMany({ where: { shopId: shop } }),
     db.productDiagnosis.deleteMany({ where: { shop } }),
     db.productRiskSnapshot.deleteMany({ where: { shop } }),
     db.productWatchActivity.deleteMany({ where: { shop } }),
@@ -747,10 +875,14 @@ function formatProductPulseCounts(counts) {
   return [
     `${counts.riskSnapshots} risk snapshot(s)`,
     `${counts.diagnoses} diagnosis record(s)`,
-    `${counts.actions} draft action(s)`,
+    `${counts.actions} ProductPulse action(s)`,
+    `${counts.retentionRuns} retention run(s)`,
+    `${counts.timelineEvents} timeline event(s)`,
     `${counts.watchlistItems} watchlist product(s)`,
     `${counts.watchActivities} watch activity record(s)`,
     `${counts.scoreHistory} score history record(s)`,
+    `${counts.aiConversations} AI conversation(s)`,
+    `${counts.aiUsageEvents} AI usage event(s)`,
     `${counts.sources} source record(s)`,
     `${counts.contacts} contact request(s)`,
   ].join(", ");

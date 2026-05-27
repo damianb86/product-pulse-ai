@@ -53,6 +53,7 @@ import {
   executeAiSupportContactTool,
   type ExecuteAiSupportContactToolInput,
 } from "../support/supportContactTool.server";
+import { recordChatMessagePointDebitForShop } from "../../lib/product-pulse-points.server";
 
 const MAX_USER_MESSAGE_LENGTH = 3000;
 
@@ -249,6 +250,54 @@ export class AiChatOrchestrator {
         recentMessagesSent: 0,
         durationMs: Date.now() - turnStartedAt,
         errorStatus: "missing_openai_api_key",
+        now: this.now,
+      });
+      const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null, trace);
+      return buildTurnResult({
+        response: fallback,
+        conversationId: conversation.id,
+        userMessageId: userMessage.id,
+        assistantMessageId: assistantMessage.id,
+        model: this.config.defaultModel,
+        pageContext,
+        toolCallCount: 0,
+        blockedToolCallCount: 0,
+        openAiResponseId: null,
+        usage: null,
+        estimatedCost: null,
+        trace: compactAiChatTraceForMetadata(trace),
+      });
+    }
+
+    const chatPointDebit = await recordChatMessagePointDebitForShop(chatContext.shop, {
+      messageId: userMessage.id,
+      conversationId: conversation.id,
+      env: this.env,
+    });
+    if (chatPointDebit.status === "validation_error") {
+      const fallback = createFallbackAssistantResponse("There are not enough ProductPulse points available to continue this chat turn.", [
+        chatPointDebit.message || "ProductPulse points are unavailable.",
+      ]);
+      const assistantMessageId = createMessageId("ai_msg", this.now);
+      const trace = buildAiChatTrace({
+        context: chatContext,
+        conversationId: conversation.id,
+        messageId: assistantMessageId,
+        userMessageId: userMessage.id,
+        model: this.config.defaultModel,
+        openAiResponseIds: [],
+        openAiCallCount: 0,
+        usage: null,
+        estimatedCost: null,
+        toolCallCount: 0,
+        blockedToolCallCount: 0,
+        actionProposalCount: 0,
+        validation: { valid: true, retryCount: 0, fallbackUsed: true },
+        pageContext,
+        config: this.config,
+        recentMessagesSent: 0,
+        durationMs: Date.now() - turnStartedAt,
+        errorStatus: "insufficient_productpulse_points",
         now: this.now,
       });
       const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null, trace);

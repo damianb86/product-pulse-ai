@@ -115,7 +115,7 @@ export const APP_KNOWLEDGE_SNIPPETS: AppKnowledgeSnippet[] = [
     id: "dashboard-guide",
     topic: "dashboard",
     title: "Dashboard guide",
-    summary: "Dashboard is the operational home for deciding where to start: active jobs, priority products, KPIs, credits, and top issues.",
+    summary: "Dashboard is the operational home for deciding where to start: active jobs, priority products, KPIs, points, and top issues.",
     body: "Read Dashboard by checking active jobs first, reviewing top priority products, using issue summaries for repeated patterns, and opening Product Detail before taking action. Dashboard is derived ProductPulse view data, not raw source data.",
     keywords: ["dashboard", "home", "start", "priority", "kpi", "top issues"],
     aliases: ["main page", "home screen"],
