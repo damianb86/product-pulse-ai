@@ -3013,8 +3013,9 @@ describe("ProductPulse screens", () => {
     expect(within(purchasePanel).getAllByText("Orders where the customer bought more than one variant of this product.").length).toBeGreaterThan(0);
     expect(within(purchasePanel).getByText("Strongest co-purchase")).toBeInTheDocument();
     expect(within(purchasePanel).getByText("Care Kit")).toBeInTheDocument();
-    expect(within(purchasePanel).getByText("Interpretation")).toBeInTheDocument();
+    expect(within(purchasePanel).getByText("AI interpretation")).toBeInTheDocument();
     expect(within(purchasePanel).getByText(/AI basket interpretation says this item is mostly read as a standalone purchase/i)).toBeInTheDocument();
+    expect(within(purchasePanel).queryByText(/Run a deep diagnosis/i)).not.toBeInTheDocument();
     expect(within(purchasePanel).queryByText(/Across 18 product-containing orders/i)).not.toBeInTheDocument();
 
     expect(within(riskSnapshot).getByText("72.2% solo purchase attribution")).toBeInTheDocument();
@@ -3054,8 +3055,32 @@ describe("ProductPulse screens", () => {
     expect(within(purchasePanel).getAllByText("100%").length).toBeGreaterThan(0);
     expect(purchasePanel.querySelectorAll(".ppBasketContextBarRow.isZero").length).toBeGreaterThan(0);
     expect(within(purchasePanel).getByText(/AI basket interpretation says basket-led attribution/i)).toBeInTheDocument();
+    expect(within(purchasePanel).queryByText(/Run a deep diagnosis/i)).not.toBeInTheDocument();
     expect(within(purchasePanel).queryByText(/Across 6 product-containing orders/i)).not.toBeInTheDocument();
     expect(within(purchasePanel).getByText("No reliable co-purchase yet")).toBeInTheDocument();
+
+    const noInterpretationProduct = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        productPurchaseContextSummary: purchaseContextSummaryFixture({
+          total_orders_containing_product: 3,
+          solo_product_order_count: 2,
+          multi_product_order_count: 1,
+          single_unit_order_count: 3,
+          multi_unit_order_count: 0,
+          bulk_order_count: 0,
+          multi_variant_order_count: 0,
+          avg_product_quantity_per_order: 1,
+          top_co_purchased_products: [],
+        }),
+      },
+    };
+    const noInterpretationRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={noInterpretationProduct} />);
+    const noInterpretationPanel = noInterpretationRender.container.querySelector(".ppBasketContextPanel");
+    expect(within(noInterpretationPanel).queryByText("AI interpretation")).not.toBeInTheDocument();
+    expect(within(noInterpretationPanel).queryByText(/Run a deep diagnosis/i)).not.toBeInTheDocument();
+    noInterpretationRender.unmount();
 
     const missingProduct = {
       ...defaultView.startHere,
@@ -5442,7 +5467,7 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Recommended actions will appear after you run the full product diagnosis for this product.")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Issues detected" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Recommended actions" })).not.toBeInTheDocument();
-    expect(screen.getByText("Evidence by source")).toBeInTheDocument();
+    expect(screen.getByText("Evidence by Source")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Shopify product" })).toBeInTheDocument();
     expect(container.querySelector(".ppProductSummaryGrid")).not.toBeInTheDocument();
     expect(screen.queryByText(/View all detected issues/)).not.toBeInTheDocument();

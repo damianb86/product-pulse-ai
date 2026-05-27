@@ -4005,26 +4005,36 @@ s-page[inline-size="large-500"] {
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 14px;
   padding: 18px 20px;
-  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.18);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.095), rgba(var(--pp-pulse-blue-rgb), 0.055)),
+    var(--pp-card-bg);
 }
 
 .ppProductDetailOverviewFinding .ppDashboardIcon {
   width: 38px;
   height: 38px;
+  background: var(--pp-violet-soft);
+  color: var(--pp-insight-violet);
 }
 
 .ppProductDetailOverviewFinding > div > span {
-  font-size: 14px;
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .ppProductDetailOverviewFinding h2 {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.22;
 }
 
 .ppProductDetailOverviewFinding .ppMainFindingText p {
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 .ppRiskSnapshotBlock {
@@ -7383,13 +7393,12 @@ s-page[inline-size="large-500"] {
 
 .ppBasketContextHeader {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
 }
 
-.ppBasketContextHeaderIcon,
-.ppBasketContextCoPurchase > span,
-.ppBasketContextInterpretation > span {
+.ppBasketContextCoPurchase > span {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
@@ -7398,32 +7407,53 @@ s-page[inline-size="large-500"] {
   color: var(--pp-pulse-blue);
 }
 
-.ppBasketContextHeaderIcon {
-  width: 56px;
-  height: 56px;
+.ppBasketContextHeader > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
-.ppBasketContextHeaderIcon .ppProductPulseSvgIcon {
-  width: 30px;
-  height: 30px;
+.ppBasketContextHeader > div:first-child > span {
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ppBasketContextHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppBasketContextHeader p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
 .ppBasketContextHeader .ppPurchaseContextInfoLabel {
-  gap: 9px;
-  color: var(--pp-slate-950);
-  font-size: 22px;
-  font-weight: 950;
+  gap: 7px;
+  color: inherit;
+  font: inherit;
   line-height: 1.1;
 }
 
 .ppBasketContextHeader .ppPurchaseContextInfoLabel button {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   color: var(--pp-slate-500);
 }
 
 .ppBasketContextHeader .ppPurchaseContextInfoLabel button s-icon {
-  transform: scale(1.15);
+  transform: none;
 }
 
 .ppBasketContextBody {
@@ -7695,8 +7725,7 @@ s-page[inline-size="large-500"] {
   border-top: 1px dashed var(--pp-slate-200);
 }
 
-.ppBasketContextCoPurchase > span,
-.ppBasketContextInterpretation > span {
+.ppBasketContextCoPurchase > span {
   width: 48px;
   height: 48px;
 }
@@ -7735,32 +7764,38 @@ s-page[inline-size="large-500"] {
 
 .ppBasketContextInterpretation {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 14px;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.18);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.095), rgba(var(--pp-pulse-blue-rgb), 0.055)),
+    var(--pp-card-bg);
+}
+
+.ppBasketContextInterpretation > span {
+  display: inline-flex;
   align-items: center;
-  padding: 20px;
-  border-radius: 14px;
-  background: linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.035));
+  gap: 6px;
+  color: var(--pp-insight-violet);
+  font-size: 9.5px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
-.ppBasketContextInterpretation > div {
-  min-width: 0;
-}
-
-.ppBasketContextInterpretation strong {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--pp-slate-950);
-  font-size: 16px;
-  font-weight: 950;
+.ppBasketContextInterpretation > span .ppProductPulseSvgIcon {
+  width: 12px;
+  height: 12px;
 }
 
 .ppBasketContextInterpretation p {
   margin: 0;
-  color: var(--pp-slate-600);
-  font-size: 15px;
-  font-weight: 760;
-  line-height: 1.45;
+  color: var(--pp-slate-700);
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .ppProductDetailSidebar .ppBasketContextPanel {
@@ -7773,18 +7808,8 @@ s-page[inline-size="large-500"] {
   gap: 8px;
 }
 
-.ppProductDetailSidebar .ppBasketContextHeaderIcon {
-  width: 34px;
-  height: 34px;
-}
-
-.ppProductDetailSidebar .ppBasketContextHeaderIcon .ppProductPulseSvgIcon {
-  width: 18px;
-  height: 18px;
-}
-
 .ppProductDetailSidebar .ppBasketContextHeader .ppPurchaseContextInfoLabel {
-  font-size: 13px;
+  font-size: inherit;
 }
 
 .ppProductDetailSidebar .ppBasketContextHeader .ppPurchaseContextInfoLabel button {
@@ -7882,20 +7907,17 @@ s-page[inline-size="large-500"] {
   padding-top: 8px;
 }
 
-.ppProductDetailSidebar .ppBasketContextCoPurchase > span,
-.ppProductDetailSidebar .ppBasketContextInterpretation > span {
+.ppProductDetailSidebar .ppBasketContextCoPurchase > span {
   width: 30px;
   height: 30px;
 }
 
-.ppProductDetailSidebar .ppBasketContextCoPurchase .ppProductPulseSvgIcon,
-.ppProductDetailSidebar .ppBasketContextInterpretation .ppProductPulseSvgIcon {
+.ppProductDetailSidebar .ppBasketContextCoPurchase .ppProductPulseSvgIcon {
   width: 16px;
   height: 16px;
 }
 
-.ppProductDetailSidebar .ppBasketContextCoPurchase strong,
-.ppProductDetailSidebar .ppBasketContextInterpretation strong {
+.ppProductDetailSidebar .ppBasketContextCoPurchase strong {
   font-size: 10.5px;
 }
 
@@ -7905,9 +7927,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailSidebar .ppBasketContextInterpretation {
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 8px;
-  padding: 10px;
+  padding: 7px 9px;
 }
 
 .ppProductDetailSidebar .ppBasketContextInterpretation p {
@@ -8927,29 +8947,54 @@ s-page[inline-size="large-500"] {
 
 .ppProductRelationshipTimelineHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: start;
   justify-content: space-between;
-  gap: 24px;
+  gap: 18px;
+}
+
+.ppProductRelationshipTimelineHeader > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppProductRelationshipTimelineHeader > div:first-child > span {
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ppProductRelationshipTimelineHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
 }
 
 .ppProductRelationshipTimelineHeader .ppProductRelationshipInfoLabel {
-  color: var(--pp-slate-950);
-  font-size: 22px;
-  font-weight: 950;
+  gap: 7px;
+  color: inherit;
+  font: inherit;
+  line-height: 1.1;
 }
 
 .ppProductRelationshipTimelineHeader .ppProductRelationshipInfoLabel button {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   color: var(--pp-slate-600);
 }
 
 .ppProductRelationshipTimelineHeader p {
-  margin: 5px 0 0;
+  margin: 0;
+  max-width: 720px;
   color: var(--pp-slate-600);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.35;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
 .ppProductRelationshipTimelineLegend {
@@ -14641,15 +14686,37 @@ s-page[inline-size="large-500"] {
   border-bottom: 1px solid var(--pp-slate-200);
 }
 
+.ppEvidenceObservabilityHeader > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppEvidenceObservabilityHeader > div:first-child > span {
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .ppEvidenceObservabilityHeader h2 {
-  margin: 0 0 7px;
-  font-size: 17px;
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.2;
 }
 
 .ppEvidenceObservabilityHeader p {
   max-width: none;
-  color: var(--pp-slate-500);
-  font-size: 12px;
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
 .ppEvidenceTabsModern {

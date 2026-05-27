@@ -11962,9 +11962,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const overviewPanel = (
     <div className="ppMainFindingCard ppProductDetailOverviewFinding">
-      <DashboardIcon type="shield-check-mark" tone={detail.findingTone} />
+      <DashboardIcon type="ai-evidence-synthesis" tone={detail.findingTone} />
       <div>
-        <span>Overview</span>
+        <span>AI interpretation</span>
         <h2>{detail.mainFindingTitle}</h2>
         <div className="ppMainFindingText">
           {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
@@ -14153,18 +14153,21 @@ function ProductBasketContextPanel({ detail }) {
   const rows = getBasketContextRows(context);
   const strongestCoPurchase = getBasketContextStrongestCoPurchase(detail, context);
   const strongestHref = strongestCoPurchase ? getBasketContextProductHref(strongestCoPurchase) : "";
-  const interpretation = getBasketContextInterpretation(context);
+  const interpretation = firstNonEmptyString(context.interpretation);
 
   return (
     <section className={`ppProductPanel ppBasketContextPanel${hasData ? "" : " isUnavailable"}`} aria-label="Basket context">
       <header className="ppBasketContextHeader">
-        <span className="ppBasketContextHeaderIcon" aria-hidden="true">
-          <ProductPulseGlyph type="shopify-orders" />
-        </span>
-        <PurchaseContextInfoLabel
-          label="Basket context"
-          help="Compact summary of how this product appears in Shopify orders: solo purchases, baskets with other products, multi-unit orders, variant comparison behavior, and strongest co-purchase."
-        />
+        <div>
+          <span>Purchase context</span>
+          <h2>
+            <PurchaseContextInfoLabel
+              label="Basket context"
+              help="Compact summary of how this product appears in Shopify orders: solo purchases, baskets with other products, multi-unit orders, variant comparison behavior, and strongest co-purchase."
+            />
+          </h2>
+          <p>Compact summary of how this product appears in Shopify orders.</p>
+        </div>
       </header>
 
       {!hasData ? (
@@ -14207,13 +14210,15 @@ function ProductBasketContextPanel({ detail }) {
             </div>
           </div>
 
-          <div className="ppBasketContextInterpretation">
-            <span aria-hidden="true"><ProductPulseGlyph type="ai-evidence-synthesis" /></span>
-            <div>
-              <strong>Interpretation</strong>
+          {interpretation ? (
+            <div className="ppBasketContextInterpretation">
+              <span>
+                <ProductPulseGlyph type="ai-evidence-synthesis" />
+                <strong>AI interpretation</strong>
+              </span>
               <p>{renderAnalysisText(interpretation)}</p>
             </div>
-          </div>
+          ) : null}
         </>
       )}
     </section>
@@ -14408,14 +14413,6 @@ function getBasketContextProductHref(item = {}) {
   if (handle) return `/app/products/${encodeURIComponent(handle)}`;
   const productId = String(item.productId || "").trim();
   return productId ? `/app/products/${encodeURIComponent(productId)}` : "";
-}
-
-function getBasketContextInterpretation(context = {}) {
-  const storedInterpretation = firstNonEmptyString(context.interpretation);
-  if (storedInterpretation) return storedInterpretation;
-  if (!context.available) return "Run a deep diagnosis after purchase context is available to generate this basket interpretation.";
-  if (!context.hasOrderData) return "Deep diagnosis did not find enough order context to generate a basket interpretation.";
-  return "Run a deep diagnosis to generate this basket interpretation from the full product analysis.";
 }
 
 function PurchaseContextMetricTile({ icon, value, label }) {
@@ -14940,7 +14937,10 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
     <article className="ppProductRelationshipTimelineCard" id="product-relationship-timeline">
       <div className="ppProductRelationshipTimelineHeader">
         <div>
-          <ProductRelationshipInfoLabel label="Product relationship timeline" help="Shows relationship context before, in the same cart, and after the current product purchase." />
+          <span>Relationship context</span>
+          <h2>
+            <ProductRelationshipInfoLabel label="Product relationship timeline" help="Shows relationship context before, in the same cart, and after the current product purchase." />
+          </h2>
           <p>Products customers buy before, together, and after your main product.</p>
         </div>
         <div className="ppProductRelationshipTimelineLegend" aria-label="Relationship legend">
@@ -21513,7 +21513,8 @@ function EvidenceObservabilityHeader({ detail }) {
   return (
     <div className="ppEvidenceObservabilityHeader">
       <div>
-        <h2>Evidence by source</h2>
+        <span>Source evidence</span>
+        <h2>Evidence by Source</h2>
         <p>Explore and review the evidence behind each detected issue.</p>
       </div>
       <div className="ppEvidenceHeaderMeta">
