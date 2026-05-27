@@ -639,6 +639,48 @@ model ProductWatchActivity {
   @@index([shop, eventType])
 }
 
+model ProductTimelineEvent {
+  id              String   @id @default(cuid())
+  shop            String
+  productGid      String
+  productTitle    String
+  handle          String?
+  variantGid      String?
+  eventType       String
+  category        String
+  source          String
+  title           String
+  summary         String?
+  occurredAt      DateTime @default(now())
+  severityTone    String   @default("neutral")
+  importance      Int      @default(50)
+  confidence      Int?
+  beforeValue     Json?
+  afterValue      Json?
+  metadata        Json?
+  dedupeKey       String
+  scanJobId       String?
+  diagnosisId     String?
+  watchActivityId String?
+  actionId        String?
+  reviewId        String?
+  returnId        String?
+  refundId        String?
+  orderId         String?
+  shopifyEventId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([shop, productGid, dedupeKey])
+  @@index([shop, productGid, occurredAt])
+  @@index([shop, category, occurredAt])
+  @@index([shop, eventType, occurredAt])
+  @@index([shop, importance, occurredAt])
+  @@index([diagnosisId])
+  @@index([watchActivityId])
+  @@index([actionId])
+}
+
 model ProductPulseSchedulerLock {
   key        String   @id
   owner      String

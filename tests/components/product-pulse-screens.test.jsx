@@ -95,7 +95,9 @@ function makeMetricTimelineProduct(overrides = {}) {
       riskScore: 42,
       confidence: 74,
       financialExposure: 180,
+      returnRate: 20,
       returnPressureScore: 22,
+      returnPressureRate: 14,
       retentionHealthScore: 66,
       productMomentumScore: 35,
       refundLeakageScore: 18,
@@ -110,7 +112,9 @@ function makeMetricTimelineProduct(overrides = {}) {
       riskScore: 48,
       confidence: 78,
       financialExposure: 260,
+      returnRate: 25,
       returnPressureScore: 34,
+      returnPressureRate: 18,
       retentionHealthScore: 72,
       productMomentumScore: 44,
       refundLeakageScore: 24,
@@ -125,7 +129,9 @@ function makeMetricTimelineProduct(overrides = {}) {
       riskScore: 61,
       confidence: 83,
       financialExposure: 310,
+      returnRate: 27.3,
       returnPressureScore: 47,
+      returnPressureRate: 23,
       retentionHealthScore: 79,
       productMomentumScore: 86,
       refundLeakageScore: 31,
@@ -140,7 +146,9 @@ function makeMetricTimelineProduct(overrides = {}) {
       riskScore: 70,
       confidence: 88,
       financialExposure: 430,
+      returnRate: 35.7,
       returnPressureScore: 58,
+      returnPressureRate: 31,
       retentionHealthScore: 93,
       productMomentumScore: 112,
       refundLeakageScore: 42,
@@ -188,11 +196,89 @@ function makeMetricTimelineProduct(overrides = {}) {
       riskHistory,
       productRetention: {
         summary: { retentionHealthScore: 93 },
-        retentionHealthTrend: riskHistory.map((point) => ({
+        retentionHealthTrend: riskHistory.map((point, index) => ({
           date: point.recordedAt.slice(0, 10),
           retentionHealthScore: point.retentionHealthScore,
+          sameProductRepurchaseRate90d: [0.18, 0.24, 0.31, 0.42][index],
         })),
       },
+    },
+    timeline: {
+      summary: "Risk increased and one recommendation was created after the latest Watchlist run.",
+      filters: {
+        categories: [
+          { value: "risk", label: "Risk", count: 1 },
+          { value: "action", label: "Actions", count: 1 },
+          { value: "scan", label: "Scans", count: 1 },
+        ],
+        meaningfulImportance: 40,
+      },
+      events: [
+        {
+          id: "timeline-risk",
+          eventType: "risk_score_increased",
+          category: "risk",
+          categoryLabel: "Risk",
+          source: "ProductPulse score history",
+          title: "Product risk increased",
+          summary: "Risk moved from 58/100 to 70/100.",
+          occurredAt: "2026-05-29T00:00:00.000Z",
+          dayKey: "2026-05-29",
+          dateLabel: "May 29, 2026",
+          timeLabel: "12:00 AM",
+          severityTone: "warning",
+          tone: "orange",
+          importance: 72,
+          importanceLabel: "Meaningful",
+          beforeValue: { riskScore: 58 },
+          afterValue: { riskScore: 70 },
+          metadata: { delta: 12 },
+          icon: "alert-triangle",
+          related: {},
+          cta: { type: "link", label: "View metric timelines", href: "/app/products/timeline-jacket/metric-timelines" },
+        },
+        {
+          id: "timeline-action",
+          eventType: "recommended_action_created",
+          category: "action",
+          categoryLabel: "Actions",
+          source: "ProductPulse recommendations",
+          title: "Recommended action created",
+          summary: "Add expectation guidance.",
+          occurredAt: "2026-05-29T01:00:00.000Z",
+          dayKey: "2026-05-29",
+          dateLabel: "May 29, 2026",
+          timeLabel: "1:00 AM",
+          severityTone: "info",
+          tone: "blue",
+          importance: 58,
+          importanceLabel: "Meaningful",
+          metadata: { recommendationId: "fit-note" },
+          icon: "check-circle",
+          related: { recommendationId: "fit-note" },
+          cta: { type: "action", label: "Open action" },
+        },
+        {
+          id: "timeline-low",
+          eventType: "quickscan_completed",
+          category: "scan",
+          categoryLabel: "Scans",
+          source: "Shopify QuickScan",
+          title: "QuickScan completed",
+          summary: "QuickScan stored 58/100 risk.",
+          occurredAt: "2026-05-28T01:00:00.000Z",
+          dayKey: "2026-05-28",
+          dateLabel: "May 28, 2026",
+          timeLabel: "1:00 AM",
+          severityTone: "neutral",
+          tone: "slate",
+          importance: 34,
+          importanceLabel: "Low",
+          metadata: {},
+          icon: "search",
+          related: {},
+        },
+      ],
     },
     ...overrides,
   };
@@ -1469,8 +1555,39 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: "Metric timelines" })).toHaveAttribute("href", "/app/products/timeline-jacket/metric-timelines");
   });
 
+  it("renders product timeline events with filters, details and low-importance toggle", () => {
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct()} />);
+    const panel = container.querySelector(".ppProductTimelinePanel");
+
+    expect(within(panel).getByRole("heading", { name: "Product Timeline" })).toBeInTheDocument();
+    expect(within(panel).getByText("Risk increased and one recommendation was created after the latest Watchlist run.")).toBeInTheDocument();
+    expect(within(panel).getByText("Product risk increased")).toBeInTheDocument();
+    expect(within(panel).getByText("Recommended action created")).toBeInTheDocument();
+    expect(within(panel).queryByText("QuickScan completed")).not.toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: /Details/ }));
+    expect(within(panel).getByText("Before")).toBeInTheDocument();
+    expect(within(panel).getByText(/Risk Score: 58/)).toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByLabelText("Event group"), { target: { value: "action" } });
+    expect(within(panel).getByText("Recommended action created")).toBeInTheDocument();
+    expect(within(panel).queryByText("Product risk increased")).not.toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByLabelText("Event group"), { target: { value: "all" } });
+    fireEvent.click(within(panel).getByLabelText("Show all events"));
+    expect(within(panel).getByText("QuickScan completed")).toBeInTheDocument();
+  });
+
+  it("renders product timeline empty state", () => {
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct({ timeline: { events: [], groupedEvents: [], filters: { categories: [] } } })} />);
+
+    expect(screen.getByText("No timeline events yet. ProductPulse will start building this timeline as scans, watchlist runs, Shopify updates and recommendations occur.")).toBeInTheDocument();
+  });
+
   it("renders aligned product metric timeline charts", () => {
-    const { container } = renderWithRouter(<ProductMetricTimelinesScreen product={makeMetricTimelineProduct()} />);
+    window.localStorage.removeItem(__productPulseScreensTestHooks.productMetricTimelineOrderStorageKey);
+    const product = makeMetricTimelineProduct();
+    const { container } = renderWithRouter(<ProductMetricTimelinesScreen product={product} />);
 
     expect(screen.getByRole("heading", { name: "Metric timelines" })).toBeInTheDocument();
     expect(screen.getByText(/Timeline Jacket/)).toBeInTheDocument();
@@ -1482,37 +1599,102 @@ describe("ProductPulse screens", () => {
       "Product risk",
       "Monthly order activity",
       "Return rate",
+      "Refund leakage",
       "Financial exposure",
-      "Return pressure",
       "Retention health",
       "Product Momentum",
       "Diagnosis confidence",
-      "Refund leakage",
       "Evidence strength",
       "Customer signals",
       "Average rating",
       "Negative review pressure",
       "Main issue",
     ].forEach((title) => {
-      expect(screen.getByText(title)).toBeInTheDocument();
+      expect(screen.getAllByText(title).length).toBeGreaterThan(0);
     });
 
     const charts = Array.from(container.querySelectorAll(".ppMetricTimelineChart"));
-    expect(charts).toHaveLength(14);
+    expect(charts).toHaveLength(13);
     expect(container.querySelectorAll(".ppMetricTimelineChartSvg")).toHaveLength(0);
-    expect(container.querySelectorAll(".ppMetricTimelineSummary")).toHaveLength(14);
-    expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(14);
+    expect(container.querySelectorAll(".ppMetricTimelineSummary")).toHaveLength(13);
+    expect(container.querySelectorAll(".ppMetricTimelineChartPlot .recharts-wrapper")).toHaveLength(13);
     expect(container.querySelectorAll(".ppMetricTimelinePoint")).toHaveLength(0);
+    expect(container.querySelectorAll(".ppMetricTimelineDragHandle")).toHaveLength(0);
     expect(within(charts[0]).getByText("Risk score history")).toBeInTheDocument();
     expect(within(charts[0]).getByText("70 / 100")).toBeInTheDocument();
     expect(within(charts[0]).getByText("+9 vs Apr 1")).toBeInTheDocument();
     expect(within(charts[1]).getByText("Orders, returns, refunds, revenue")).toBeInTheDocument();
     expect(within(charts[1]).getByText("28 orders")).toBeInTheDocument();
-    expect(within(charts[2]).getByText("Returned units / ordered units")).toBeInTheDocument();
+    expect(charts[1].querySelectorAll(".recharts-bar")).toHaveLength(0);
+    expect(within(charts[1]).getByText("Orders")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Returns")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Refunds")).toBeInTheDocument();
+    expect(within(charts[1]).getByText("Revenue")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Return rate and product friction")).toBeInTheDocument();
     expect(within(charts[2]).getByText("36%")).toBeInTheDocument();
+    expect(within(charts[2]).getByText("Return pressure")).toBeInTheDocument();
+    expect(within(charts[3]).getByText("Refunds vs revenue")).toBeInTheDocument();
     const chartTextLabels = Array.from(charts[0].querySelectorAll("text")).map((node) => node.textContent);
-    expect(chartTextLabels).toEqual(expect.arrayContaining(["Mar", "Apr", "May", "May 29"]));
-    expect(chartTextLabels).not.toContain("Feb");
+    expect(chartTextLabels).toEqual(expect.arrayContaining(["Feb", "Mar", "Apr", "May", "May 29"]));
+
+    const detail = __productPulseScreensTestHooks.getProductDetailModel(product);
+    const model = __productPulseScreensTestHooks.getProductMetricTimelineModel(detail);
+    expect(model.charts.map((chart) => chart.key)).toEqual([
+      "product-risk",
+      "monthly-order-activity",
+      "return-rate",
+      "refund-leakage",
+      "financial-exposure",
+      "retention-health",
+      "product-momentum",
+      "diagnosis-confidence",
+      "evidence-strength",
+      "customer-signals",
+      "average-rating",
+      "negative-review-pressure",
+      "main-issue",
+    ]);
+    expect(model.rangeLabel).toBe("Feb to May 29");
+    const orderActivityChart = model.charts.find((chart) => chart.key === "monthly-order-activity");
+    expect(orderActivityChart.legendItems.map((item) => item.label)).toEqual(["Orders", "Returns", "Refunds", "Revenue", "Unresolved returns"]);
+    expect(model.charts.every((chart) => chart.points.every((point) => point.time >= new Date("2026-02-01T00:00:00.000Z").getTime()))).toBe(true);
+    expect(model.charts.find((chart) => chart.key === "product-risk").points.map((point) => point.label)).toEqual([
+      "Feb 15, 2026",
+      "Mar 1, 2026",
+      "Apr 1, 2026",
+      "May 29, 2026",
+    ]);
+    const returnRateChart = model.charts.find((chart) => chart.key === "return-rate");
+    expect(returnRateChart.secondaryLine).toMatchObject({ label: "Return pressure" });
+    expect(returnRateChart.legendItems.map((item) => item.label)).toEqual(["Return rate", "Return pressure"]);
+    expect(returnRateChart.data.map((point) => point.secondaryValue)).toEqual([14, 18, 23, 31]);
+    const retentionChart = model.charts.find((chart) => chart.key === "retention-health");
+    expect(retentionChart.secondaryLine).toMatchObject({ label: "Same-product repurchase 90d" });
+    expect(retentionChart.legendItems.map((item) => item.label)).toEqual(["Retention health", "Same-product repurchase 90d"]);
+    expect(retentionChart.data.map((point) => point.secondaryValue)).toEqual([18, 24, 31, 42]);
+  });
+
+  it("reorders product metric timeline charts and persists the shared order locally", async () => {
+    const storageKey = __productPulseScreensTestHooks.productMetricTimelineOrderStorageKey;
+    window.localStorage.removeItem(storageKey);
+
+    const product = makeMetricTimelineProduct();
+    const firstRender = renderWithRouter(<ProductMetricTimelinesScreen product={product} />);
+    const chartKeys = (container) => Array.from(container.querySelectorAll(".ppMetricTimelineChart"))
+      .map((chart) => chart.getAttribute("data-metric-key"));
+
+    expect(chartKeys(firstRender.container).slice(0, 3)).toEqual(["product-risk", "monthly-order-activity", "return-rate"]);
+    expect(screen.getByRole("button", { name: "Move Product risk up" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Move Monthly order activity up" }));
+
+    await waitFor(() => expect(chartKeys(firstRender.container).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]));
+    expect(JSON.parse(window.localStorage.getItem(storageKey)).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]);
+
+    firstRender.unmount();
+    const secondRender = renderWithRouter(<ProductMetricTimelinesScreen product={product} />);
+    await waitFor(() => expect(chartKeys(secondRender.container).slice(0, 3)).toEqual(["monthly-order-activity", "product-risk", "return-rate"]));
+    window.localStorage.removeItem(storageKey);
   });
 
   it("syncs metric timeline hover state to the nearest x-axis point", () => {
@@ -2195,7 +2377,7 @@ describe("ProductPulse screens", () => {
     expect(within(ltvCard).getByText("Metric: LTV contribution")).toBeInTheDocument();
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as cumulative dollars" })).toHaveClass("isActive");
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" })).toBeInTheDocument();
-    expect(within(ltvCard).getByText("Initial product (1st purchase)")).toBeInTheDocument();
+    expect(within(ltvCard).queryByText("Initial product (1st purchase)")).not.toBeInTheDocument();
     expect(panel.querySelector(".ppProductRetentionSideRail")).toBeInTheDocument();
     expect(within(panel).getByText("LTV contribution (180 days)")).toBeInTheDocument();
     expect(within(panel).getByText("Key insights")).toBeInTheDocument();
@@ -2214,6 +2396,7 @@ describe("ProductPulse screens", () => {
     fireEvent.click(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" }));
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" })).toHaveClass("isActive");
     expect(within(ltvCard).getByText("LTV contribution share")).toBeInTheDocument();
+    expect(within(ltvCard).getByText("Initial product (1st purchase)")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Retention" }));
     const retentionReport = container.querySelector(".ppRetentionEvidenceReport");

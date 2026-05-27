@@ -2961,6 +2961,7 @@ s-page[inline-size="large-500"] {
 .ppProductReturnPredictionPanel,
 .ppProductRetentionPanel,
 .ppProductMomentumPanel,
+.ppProductTimelinePanel,
 .ppProductRiskHistoryPanel {
   border: 1px solid var(--pp-border-color);
   border-radius: 12px;
@@ -2972,6 +2973,334 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 18px;
   padding: 18px;
+}
+
+.ppProductTimelinePanel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.ppProductTimelineHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ppProductTimelineHeader > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.ppProductTimelineEyebrow {
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppProductTimelineHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppProductTimelineHeader p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ppProductTimelineControls {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ppProductTimelineFilter {
+  display: grid;
+  gap: 5px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppProductTimelineFilter select {
+  min-width: 176px;
+  min-height: 34px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppProductTimelineToggle {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-subcard-bg);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppProductTimelineToggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--pp-pulse-blue);
+}
+
+.ppProductTimelineStream {
+  display: grid;
+  gap: 12px;
+}
+
+.ppProductTimelineDay {
+  display: grid;
+  gap: 8px;
+}
+
+.ppProductTimelineDay h3 {
+  margin: 0;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ppProductTimelineRows {
+  position: relative;
+  display: grid;
+  gap: 0;
+}
+
+.ppProductTimelineRows::before {
+  content: "";
+  position: absolute;
+  left: 17px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--pp-slate-200);
+}
+
+.ppProductTimelineEvent {
+  position: relative;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.ppProductTimelineMarker {
+  position: relative;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 5px 14px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppProductTimelineMarker s-icon,
+.ppProductTimelineMarker .ppProductPulseSvgIcon {
+  width: 17px;
+  height: 17px;
+}
+
+.ppProductTimelineEvent-red .ppProductTimelineMarker {
+  color: var(--pp-risk-red);
+  background: var(--pp-red-soft);
+}
+
+.ppProductTimelineEvent-orange .ppProductTimelineMarker {
+  color: var(--pp-warning-amber);
+  background: rgba(var(--pp-warning-amber-rgb), 0.12);
+}
+
+.ppProductTimelineEvent-green .ppProductTimelineMarker {
+  color: var(--pp-success-green);
+  background: var(--pp-green-soft);
+}
+
+.ppProductTimelineEvent-blue .ppProductTimelineMarker {
+  color: var(--pp-pulse-blue);
+  background: var(--pp-blue-soft);
+}
+
+.ppProductTimelineEventBody {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
+}
+
+.ppProductTimelineEventTopline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppProductTimelineBadge,
+.ppProductTimelineCategory {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ppProductTimelineBadge-red,
+.ppProductTimelineBadge-orange {
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppProductTimelineBadge-green {
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppProductTimelineBadge-blue {
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductTimelineEvent h4 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.ppProductTimelineEvent p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.42;
+}
+
+.ppProductTimelineEventActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
+.ppProductTimelineCta,
+.ppProductTimelineDetailsButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 7px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 850;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ppProductTimelineCta {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.26);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductTimelineCta:hover,
+.ppProductTimelineDetailsButton:hover {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.34);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
+}
+
+.ppProductTimelineDetails {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--pp-slate-200);
+}
+
+.ppProductTimelineDetails div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.ppProductTimelineDetails dt,
+.ppProductTimelineDetails dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ppProductTimelineDetails dt {
+  color: var(--pp-slate-500);
+  font-weight: 900;
+}
+
+.ppProductTimelineDetails dd {
+  color: var(--pp-slate-700);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ppProductTimelineFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppProductTimelineFooter span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
 }
 
 .ppProductChartAiInterpretation {
@@ -5234,25 +5563,48 @@ s-page[inline-size="large-500"] {
 
 .ppMetricTimelineSummary {
   display: grid;
-  grid-template-columns: 16px 46px minmax(0, 1fr);
+  grid-template-columns: 20px 46px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   min-width: 0;
 }
 
-.ppMetricTimelineDragHandle {
+.ppMetricTimelineReorderControls {
   display: grid;
-  grid-template-columns: repeat(2, 3px);
-  gap: 4px;
-  width: 12px;
-  justify-content: center;
+  align-content: center;
+  gap: 2px;
+  width: 20px;
+  justify-items: center;
 }
 
-.ppMetricTimelineDragHandle i {
-  width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--pp-slate-400);
+.ppMetricTimelineReorderButton {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pp-slate-500);
+  cursor: pointer;
+}
+
+.ppMetricTimelineReorderButton:hover:not(:disabled),
+.ppMetricTimelineReorderButton:focus-visible {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-900);
+}
+
+.ppMetricTimelineReorderButton:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ppMetricTimelineReorderButton s-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .ppMetricTimelineIcon {
@@ -5331,6 +5683,14 @@ s-page[inline-size="large-500"] {
   overflow: visible;
 }
 
+.ppMetricTimelineChartBody {
+  display: grid;
+  align-content: stretch;
+  gap: 3px;
+  min-width: 0;
+  min-height: 146px;
+}
+
 .ppMetricTimelineChartPlot .recharts-wrapper,
 .ppMetricTimelineChartPlot .recharts-surface {
   width: 100% !important;
@@ -5353,6 +5713,48 @@ s-page[inline-size="large-500"] {
 .ppMetricTimelineTooltip {
   position: static;
   transform: none;
+  gap: 4px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 7px;
+  box-shadow: 0 10px 22px rgba(var(--pp-shadow-rgb), 0.14);
+}
+
+.ppMetricTimelineTooltip > strong {
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.ppMetricTimelineTooltip > span:not(.ppRetentionLinePopoverRows),
+.ppMetricTimelineTooltip .ppRetentionLinePopoverRows {
+  display: grid;
+  gap: 4px;
+}
+
+.ppMetricTimelineTooltip > span:not(.ppRetentionLinePopoverRows),
+.ppMetricTimelineTooltip .ppRetentionLinePopoverRows span {
+  display: grid;
+  grid-template-columns: max-content minmax(52px, 1fr);
+  align-items: baseline;
+  gap: 12px;
+}
+
+.ppMetricTimelineTooltip b,
+.ppMetricTimelineTooltip small,
+.ppMetricTimelineTooltip .ppRetentionLinePopoverRows b,
+.ppMetricTimelineTooltip .ppRetentionLinePopoverRows small {
+  font-size: 10px;
+  line-height: 1.08;
+}
+
+.ppMetricTimelineTooltip b {
+  font-weight: 850;
+}
+
+.ppMetricTimelineTooltip small {
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .ppMetricTimelineNoData {
@@ -5362,6 +5764,36 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
   font-size: 12px;
   font-weight: 800;
+}
+
+.ppMetricTimelineLegend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  min-height: 10px;
+  color: var(--pp-slate-500);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ppMetricTimelineLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ppMetricTimelineLegendLine {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--pp-metric-timeline-legend-color, currentColor);
+}
+
+.ppMetricTimelineLegendLine.isDashed {
+  border-top-style: dashed;
 }
 
 .ppMetricTimelineChart-violet {
@@ -6020,6 +6452,23 @@ s-page[inline-size="large-500"] {
 }
 
 @media (max-width: 720px) {
+  .ppProductTimelineHeader,
+  .ppProductTimelineControls {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .ppProductTimelineFilter select,
+  .ppProductTimelineToggle {
+    width: 100%;
+  }
+
+  .ppProductTimelineDetails div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
   .ppProductRiskHistoryPanel {
     padding: 14px;
   }
@@ -11844,11 +12293,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRetentionLine-ltvSame {
-  color: var(--pp-pulse-blue);
+  color: var(--pp-insight-violet);
 }
 
 .ppRetentionLine-ltvOther {
-  color: var(--pp-warning-amber);
+  color: var(--pp-pulse-blue);
 }
 
 .ppRetentionLineChart-ltv {
@@ -12200,7 +12649,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRetentionLegendLtvSame {
-  background: var(--pp-pulse-blue);
+  background: var(--pp-insight-violet);
 }
 
 .ppRetentionLegendLtvOther {
@@ -12285,7 +12734,7 @@ s-page[inline-size="large-500"] {
 .ppRetentionLtvDonutChart {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 2;
 }
 
 .ppRetentionLtvDonutChart .recharts-wrapper,
@@ -12299,6 +12748,7 @@ s-page[inline-size="large-500"] {
   content: "";
   position: absolute;
   inset: 26%;
+  z-index: 0;
   border-radius: inherit;
   background: var(--pp-cloud-white);
   box-shadow: inset 0 0 0 1px rgba(var(--pp-slate-500-rgb), 0.08);
@@ -12306,7 +12756,7 @@ s-page[inline-size="large-500"] {
 
 .ppRetentionLtvDonutCenter {
   position: relative;
-  z-index: 2;
+  z-index: 1;
   display: grid;
   gap: 3px;
   place-items: center;
@@ -13279,7 +13729,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppMetricTimelineSummary {
-    grid-template-columns: 14px 42px minmax(0, 1fr);
+    grid-template-columns: 20px 42px minmax(0, 1fr);
   }
 
   .ppMetricTimelineChartPlot {

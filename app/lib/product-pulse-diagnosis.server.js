@@ -2,7 +2,11 @@ import prisma from "../db.server";
 import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
 import { summarizeAiUsage } from "./product-pulse-ai-usage.server";
 import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
-import { recordProductScoreHistory, recordReconstructedProductScoreHistory } from "./product-pulse-history.server";
+import {
+  getReconstructedProductScoreHistoryForShop,
+  recordProductScoreHistory,
+  recordReconstructedProductScoreHistory,
+} from "./product-pulse-history.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 import { getAnalysisLookbackDays, getProductPulseSettings } from "./product-pulse-settings.server";
 import {
@@ -10,6 +14,12 @@ import {
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import {
+  recordTimelineForDiagnosis,
+  recordTimelineForLatestScoreSnapshots,
+  recordTimelineForNoChangeDiagnosis,
+  recordTimelineForProductAction,
+} from "./product-pulse-timeline.server";
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummary } from "./product-pulse-return-refund-relationship.server";
@@ -33,6 +43,7 @@ const RETURN_RATE_PREDICTION_FORECAST_WEEKS = 13;
 const RECONSTRUCTED_RISK_HISTORY_MAX_WEEKLY_POINTS = 58;
 const RECONSTRUCTED_RISK_HISTORY_MAX_MONTHLY_POINTS = 24;
 const RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS = 370;
+const RECONSTRUCTED_RISK_HISTORY_MIN_LOOKBACK_DAYS = 365;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
 const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 3;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
@@ -110,11 +121,20 @@ const US_STATE_NAMES = {
 export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
   const settings = await getProductPulseSettings(shop);
   const windowDays = getAnalysisLookbackDays(settings);
+  const storedReconstructedRiskHistory = await getReconstructedProductScoreHistoryForShop(shop, snapshot.productGid);
   const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays });
   const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const momentumCatalogBaseline = await fetchProductMomentumCatalogBaseline({ shop, currentProductGid: snapshot.productGid });
-  const baseDeterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, windowDays, momentumCatalogBaseline });
+  const baseDeterministic = calculateDeterministicDiagnosis({
+    snapshot,
+    shopifyData,
+    judgeMeData,
+    csvReviewData,
+    windowDays,
+    momentumCatalogBaseline,
+    storedReconstructedRiskHistory,
+  });
   const retentionPreview = await calculateProductRetentionPreviewForDiagnosis({
     shop,
     jobId,
@@ -2057,7 +2077,15 @@ async function fetchAndMatchJudgeMeReviews({ shop, token, snapshot, shopifyProdu
   };
 }
 
-function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 }, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, momentumCatalogBaseline = null }) {
+function calculateDeterministicDiagnosis({
+  snapshot,
+  shopifyData,
+  judgeMeData,
+  csvReviewData = { connected: false, reviews: [], matchConfidence: 0 },
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  momentumCatalogBaseline = null,
+  storedReconstructedRiskHistory = [],
+}) {
   const snapshotMetrics = snapshot.metrics || {};
   const previousIncrementalCache = snapshotMetrics.incrementalDiagnosis?.cache || {};
   const previousDetailedDiagnosisAt = snapshotMetrics.lastDetailedDiagnosisAt || snapshotMetrics.latestDiagnosisAt || null;
@@ -2288,6 +2316,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     reviews,
     deterministicContent,
     windowDays,
+    storedReconstructedRiskHistory,
+    momentumCatalogBaseline,
     currentRiskScore: riskScore,
     currentConfidence: confidence,
     currentImpactFactors: estimatedImpact,
@@ -2519,12 +2549,55 @@ function buildReconstructedRiskHistory({
   reviews = [],
   deterministicContent,
   windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  storedReconstructedRiskHistory = [],
+  momentumCatalogBaseline = null,
   currentRiskScore,
   currentConfidence,
   currentImpactFactors,
   currentMainIssue,
 } = {}) {
   const now = new Date();
+  const storedHistory = normalizeStoredReconstructedRiskHistory(storedReconstructedRiskHistory);
+  if (storedHistory.length) {
+    const currentPoint = buildReconstructedRiskHistoryPoint({
+      snapshot,
+      shopifyData,
+      judgeMeData,
+      csvReviewData,
+      product,
+      sales,
+      returns,
+      refunds,
+      reviews,
+      deterministicContent,
+      periodEnd: now,
+      granularity: "current",
+      sequence: storedHistory.length + 1,
+      windowDays,
+      now,
+      momentumCatalogBaseline,
+    }) || buildCurrentRiskHistoryFallbackPoint({
+      snapshot,
+      product,
+      currentRiskScore,
+      currentConfidence,
+      currentImpactFactors,
+      currentMainIssue,
+      windowDays,
+      now,
+    });
+    return dedupeRiskHistoryPointsByRecordedAt([
+      ...storedHistory,
+      finalizeCurrentRiskHistoryPoint(currentPoint, {
+        now,
+        currentRiskScore,
+        currentConfidence,
+        currentImpactFactors,
+        currentMainIssue,
+      }),
+    ].filter(Boolean));
+  }
+
   const datedEvents = [...sales, ...returns, ...refunds, ...reviews]
     .map((event) => getRiskHistoryEventDate(event))
     .filter(Boolean)
@@ -2541,7 +2614,7 @@ function buildReconstructedRiskHistory({
       now,
     })];
   }
-  const earliest = datedEvents[0] || new Date(now.getTime() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000);
+  const earliest = getReconstructedRiskHistoryStartDate({ datedEvents, now, windowDays });
   const granularity = chooseReconstructedRiskHistoryGranularity(earliest, now);
   const periodEnds = buildReconstructedRiskHistoryPeriodEnds({ earliest, now, granularity });
   const history = periodEnds
@@ -2561,6 +2634,7 @@ function buildReconstructedRiskHistory({
       sequence: index + 1,
       windowDays,
       now,
+      momentumCatalogBaseline,
     }))
     .filter(Boolean);
 
@@ -2575,27 +2649,67 @@ function buildReconstructedRiskHistory({
     now,
   });
 
-  if (currentPoint) {
-    currentPoint.isCurrent = true;
-    currentPoint.recordedAt = toIso(now);
-    currentPoint.periodEnd = toIso(now);
-    currentPoint.riskScore = Math.round(Number(currentRiskScore ?? currentPoint.riskScore ?? 0));
-    currentPoint.confidence = Math.round(Number(currentConfidence ?? currentPoint.confidence ?? 0));
-    currentPoint.primaryIssue = getHumanIssueLabel(currentMainIssue || currentPoint.primaryIssue || "product_content");
-    currentPoint.metrics = {
-      ...(currentPoint.metrics || {}),
-      calculationState: "current_deep_diagnosis",
-      reconstructedHistory: true,
-    };
-    if (currentImpactFactors) {
-      currentPoint.impactScore = calculateHistoryImpactScore(currentImpactFactors);
-      currentPoint.metrics.marginAtRisk = currentImpactFactors.marginAtRisk || currentPoint.metrics.marginAtRisk || 0;
-      currentPoint.metrics.revenueAtRisk = currentImpactFactors.revenueAtRisk || currentPoint.metrics.revenueAtRisk || 0;
-      currentPoint.metrics.estimatedImpact = currentImpactFactors.estimatedImpact || currentPoint.metrics.estimatedImpact || 0;
-    }
-  }
+  finalizeCurrentRiskHistoryPoint(currentPoint, {
+    now,
+    currentRiskScore,
+    currentConfidence,
+    currentImpactFactors,
+    currentMainIssue,
+  });
 
   return dedupeRiskHistoryPointsByRecordedAt(history.length ? history : [currentPoint].filter(Boolean));
+}
+
+function normalizeStoredReconstructedRiskHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .map((point, index) => {
+      if (!point?.recordedAt && !point?.periodEnd) return null;
+      const recordedAt = parseValidDate(point.recordedAt || point.periodEnd);
+      if (!recordedAt) return null;
+      return {
+        ...point,
+        source: point.source || "full-diagnosis-reconstructed",
+        recordedAt: toIso(recordedAt),
+        periodEnd: point.periodEnd || toIso(recordedAt),
+        isCurrent: false,
+        sequence: Number(point.sequence || point.metrics?.sequence || index + 1),
+        metrics: {
+          ...(point.metrics || {}),
+          reconstructedHistory: true,
+          calculationState: point.metrics?.calculationState || "reconstructed_from_persisted_history",
+        },
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => new Date(first.recordedAt).getTime() - new Date(second.recordedAt).getTime());
+}
+
+function finalizeCurrentRiskHistoryPoint(currentPoint, {
+  now,
+  currentRiskScore,
+  currentConfidence,
+  currentImpactFactors,
+  currentMainIssue,
+} = {}) {
+  if (!currentPoint) return null;
+  currentPoint.isCurrent = true;
+  currentPoint.recordedAt = toIso(now);
+  currentPoint.periodEnd = toIso(now);
+  currentPoint.riskScore = Math.round(Number(currentRiskScore ?? currentPoint.riskScore ?? 0));
+  currentPoint.confidence = Math.round(Number(currentConfidence ?? currentPoint.confidence ?? 0));
+  currentPoint.primaryIssue = getHumanIssueLabel(currentMainIssue || currentPoint.primaryIssue || "product_content");
+  currentPoint.metrics = {
+    ...(currentPoint.metrics || {}),
+    calculationState: "current_deep_diagnosis",
+    reconstructedHistory: true,
+  };
+  if (currentImpactFactors) {
+    currentPoint.impactScore = calculateHistoryImpactScore(currentImpactFactors);
+    currentPoint.metrics.marginAtRisk = currentImpactFactors.marginAtRisk || currentPoint.metrics.marginAtRisk || 0;
+    currentPoint.metrics.revenueAtRisk = currentImpactFactors.revenueAtRisk || currentPoint.metrics.revenueAtRisk || 0;
+    currentPoint.metrics.estimatedImpact = currentImpactFactors.estimatedImpact || currentPoint.metrics.estimatedImpact || 0;
+  }
+  return currentPoint;
 }
 
 function buildReconstructedRiskHistoryPoint({
@@ -2614,6 +2728,7 @@ function buildReconstructedRiskHistoryPoint({
   sequence,
   windowDays,
   now,
+  momentumCatalogBaseline = null,
 }) {
   const snapshotMetrics = snapshot.metrics || {};
   const soldUnits = sumBy(sales, "quantity");
@@ -2651,6 +2766,42 @@ function buildReconstructedRiskHistoryPoint({
   const signalCount = customerSignalCount + contentIssueCount;
   const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
   const recentSignalUnits = countRecentSignalEventsFrom(signalEvents, 30, periodEnd);
+  const productId = product?.id || snapshot?.productGid;
+  const pointProducts = product ? [product] : [];
+  const returnRefundRelationshipSummary = buildReturnRefundRelationshipSummary({
+    shop: snapshot?.shop,
+    productId,
+    products: pointProducts,
+    sales,
+    returns,
+    refunds,
+  });
+  const productPurchaseContextSummary = buildProductPurchaseContextSummary({
+    shop: snapshot?.shop,
+    productId,
+    products: pointProducts,
+    sales,
+    returns,
+    refunds,
+    assumeCompleteOrderEvents: false,
+  });
+  const productRelationshipIntelligenceSummary = buildProductRelationshipSummary({
+    shop: snapshot?.shop,
+    productId,
+    products: pointProducts,
+    sales,
+    returns,
+    refunds,
+    windowDays,
+    assumeCompleteOrderEvents: false,
+  });
+  const productMomentum = buildProductMomentum({
+    product,
+    sales,
+    windowDays,
+    catalogBaseline: momentumCatalogBaseline,
+    now: periodEnd,
+  });
   const scoreSentiment = getScoreSentimentInputs(textInsights, refundInsights);
   const scoreModel = calculateProductScoreModel({
     soldUnits,
@@ -2699,6 +2850,9 @@ function buildReconstructedRiskHistoryPoint({
     scoreBreakdownReconstructed: !isCurrentRiskHistoryPoint(periodEnd, now),
     calculationState: isCurrentRiskHistoryPoint(periodEnd, now) ? "current_deep_diagnosis" : "reconstructed_from_deep_diagnosis_events",
     windowDays,
+    returnRefundRelationshipSummary,
+    productPurchaseContextSummary,
+    productRelationshipIntelligenceSummary,
   }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
 
   return {
@@ -2734,6 +2888,8 @@ function buildReconstructedRiskHistoryPoint({
       customerSignalCount,
       contentIssueCount,
       recentSignalUnits,
+      priorityScore: scoreModel.priorityScore,
+      mainIssueIntensity: scoreModel.priorityScore,
       evidenceStrengthScore: scoreModel.evidenceStrengthScore,
       sourceCount: sourceCoverage.length,
       affectedVariants: affectedVariants.map((item) => item.label),
@@ -2744,6 +2900,22 @@ function buildReconstructedRiskHistoryPoint({
       estimatedImpact: scoreModel.impactFactors.estimatedImpact,
       sourceCoverage,
       sourceAgreement,
+      returnRefundRelationshipSummary,
+      productPurchaseContextSummary,
+      productRelationshipIntelligenceSummary,
+      returnRefundRelationshipFactors: scoreModel.relationshipFactors,
+      returnPressure: scoreModel.relationshipFactors.returnPressure,
+      refundLeakage: scoreModel.relationshipFactors.refundLeakage,
+      returnPressureScore: scoreModel.relationshipFactors.returnPressure?.score,
+      refundLeakageScore: scoreModel.relationshipFactors.refundLeakage?.score,
+      productPurchaseContextFactors: scoreModel.purchaseContextFactors,
+      productRelationshipFactors: scoreModel.productRelationshipFactors,
+      scoringVersion: scoreModel.scoringVersion,
+      productMomentum,
+      productMomentumScore: productMomentum.score,
+      productMomentumTier: productMomentum.tier,
+      momentumDirection: productMomentum.direction,
+      momentumConfidence: productMomentum.confidence,
       riskComponents: scoreModel.riskComponents,
       confidenceFactors: scoreModel.confidenceFactors,
     },
@@ -2802,6 +2974,13 @@ function buildCurrentRiskHistoryFallbackPoint({
 function chooseReconstructedRiskHistoryGranularity(earliest, now) {
   const spanDays = Math.max(1, Math.ceil((now.getTime() - earliest.getTime()) / (24 * 60 * 60 * 1000)));
   return spanDays > RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS ? "monthly" : "weekly";
+}
+
+function getReconstructedRiskHistoryStartDate({ datedEvents = [], now = new Date(), windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS } = {}) {
+  const lookbackDays = Math.max(RECONSTRUCTED_RISK_HISTORY_MIN_LOOKBACK_DAYS, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const lookbackStart = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  if (!Array.isArray(datedEvents) || !datedEvents.length) return lookbackStart;
+  return lookbackStart;
 }
 
 function buildReconstructedRiskHistoryPeriodEnds({ earliest, now, granularity }) {
@@ -3060,7 +3239,12 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
     recordWatchlistScanActivities(shop, [updatedSnapshot], { source: "full-diagnosis", jobId }),
   ]);
 
-  await prisma.productAction.create({
+  await Promise.all([
+    recordTimelineForDiagnosis({ shop, snapshot: updatedSnapshot, diagnosis, jobId }),
+    recordTimelineForLatestScoreSnapshots(shop, [updatedSnapshot], { source: "full-diagnosis", diagnosisId: diagnosis.id, jobId }),
+  ]);
+
+  const actionRecord = await prisma.productAction.create({
     data: {
       shop,
       diagnosisId: diagnosis.id,
@@ -3078,6 +3262,7 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       appliedAt: new Date(),
     },
   });
+  await recordTimelineForProductAction({ shop, snapshot: updatedSnapshot, actionRecord });
 
   return diagnosis;
 }
@@ -3396,7 +3581,10 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     },
   });
 
-  await recordWatchlistScanActivities(shop, [snapshot], { source: "full-diagnosis", noChangesReused: true, jobId });
+  await Promise.all([
+    recordWatchlistScanActivities(shop, [snapshot], { source: "full-diagnosis", noChangesReused: true, jobId }),
+    recordTimelineForNoChangeDiagnosis({ shop, snapshot, diagnosisId: reusableDiagnosis.id, jobId }),
+  ]);
 
   return {
     status: "skipped",

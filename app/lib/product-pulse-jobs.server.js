@@ -31,6 +31,10 @@ import {
   getProductScoreHistoryForProductsForShop,
   getProductScoreHistoryForShop,
 } from "./product-pulse-history.server";
+import {
+  getProductTimelineForShop,
+  recordTimelineForProductAction,
+} from "./product-pulse-timeline.server";
 import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
 import {
   SHOPIFY_MOCK_DATASET_KIND,
@@ -573,7 +577,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory] = await Promise.all([
+  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory, timeline] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -589,7 +593,8 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
       where: { shop_productGid: { shop, productGid: snapshot.productGid } },
       select: { status: true },
     }),
-    getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 80 }),
+    getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 180 }),
+    getProductTimelineForShop(shop, snapshot.productGid, { limit: 100 }),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const storedProductRetention = await getProductRetentionPayloadForDiagnosis({
@@ -613,6 +618,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
   const product = {
     ...formatSnapshotForDiagnosis(snapshotWithRetention, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
+    timeline,
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
   const productWithUrls = withShopifyAdminUrl(product, shop);
@@ -903,7 +909,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     }
   }
 
-  await prisma.productAction.create({
+  const actionRecord = await prisma.productAction.create({
     data: {
       shop,
       diagnosisId: latestDiagnosis?.id || null,
@@ -915,6 +921,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       appliedAt: isCompletedProductActionStatus(status) ? new Date() : null,
     },
   });
+  await recordTimelineForProductAction({ shop, snapshot, actionRecord, action });
 
   return {
     status: "success",
@@ -953,6 +960,7 @@ export async function deleteProductAnalysisForShop(shop, productId) {
     const actions = await tx.productAction.deleteMany({ where: { shop, productGid } });
     const diagnoses = await tx.productDiagnosis.deleteMany({ where: { shop, productGid } });
     const scoreHistory = await tx.productScoreHistory.deleteMany({ where: { shop, productGid } });
+    const timelineEvents = await tx.productTimelineEvent.deleteMany({ where: { shop, productGid } });
     const watchActivities = await tx.productWatchActivity.deleteMany({ where: { shop, productGid } });
     const watchlistItems = await tx.productWatchlistItem.deleteMany({ where: { shop, productGid } });
     const snapshots = await tx.productRiskSnapshot.deleteMany({ where: { shop, productGid } });
@@ -967,6 +975,7 @@ export async function deleteProductAnalysisForShop(shop, productId) {
       actions: actions.count,
       diagnoses: diagnoses.count,
       scoreHistory: scoreHistory.count,
+      timelineEvents: timelineEvents.count,
       watchActivities: watchActivities.count,
       watchlistItems: watchlistItems.count,
       snapshots: snapshots.count,
@@ -3923,9 +3932,9 @@ function formatProductRiskHistory(scoreHistory = []) {
         evidenceStrengthScore: toNullableNumber(metrics.evidenceStrengthScore),
         retentionHealthScore: toNullableNumber(metrics.retentionHealthScore),
         productMomentumScore: toNullableNumber(metrics.productMomentumScore),
-        returnPressureScore: toNullableNumber(metrics.returnPressureScore || metrics.returnRefundRelationship?.returnPressureScore),
-        refundLeakageScore: toNullableNumber(metrics.refundLeakageScore || metrics.returnRefundRelationship?.refundLeakageScore),
-        mainIssueIntensity: toNullableNumber(metrics.mainIssueIntensity || metrics.priorityScore),
+        returnPressureScore: toNullableNumber(metrics.returnPressureScore ?? metrics.returnRefundRelationship?.returnPressureScore),
+        refundLeakageScore: toNullableNumber(metrics.refundLeakageScore ?? metrics.returnRefundRelationship?.refundLeakageScore),
+        mainIssueIntensity: toNullableNumber(metrics.mainIssueIntensity ?? metrics.priorityScore),
         signalCount: toNullableNumber(metrics.signalsCount || metrics.signalCount || metrics.issueCount),
         sourceCount: getHistorySourceCount(metrics.sourceCoverage),
       };

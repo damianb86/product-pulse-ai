@@ -4,7 +4,6 @@ import { Form, Link, useFetcher, useLocation, useNavigate, useNavigation, useRev
 import {
   Area,
   AreaChart,
-  Bar,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -47,6 +46,8 @@ const PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_RATE_ONLY_MILESTONE_MIN = 8;
 const PRODUCT_RISK_HISTORY_REFUND_AMOUNT_ONLY_MILESTONE_MIN = 50;
 const PRODUCT_METRIC_TIMELINE_DAY_MS = 86_400_000;
+const PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS = 365;
+const PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY = "productPulse.metricTimelines.chartOrder.v1";
 const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
   width: 1200,
   height: 216,
@@ -6002,6 +6003,7 @@ function getProductDetailModel(product) {
       ? (firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.")
       : "Recommended actions are intentionally locked until this product has a completed deep diagnosis.",
     evidenceSources,
+    timeline: normalizeProductTimeline(product.timeline),
     detectedIssues: detectedIssueRows,
     recommendedActions,
     checkedItems,
@@ -6013,6 +6015,144 @@ function getProductDetailModel(product) {
     canDiagnose: product.canDiagnose !== false && Boolean(hasRiskSnapshot || product.productGid || product.id) && !activeDiagnosisJob,
     canResolve: product.canResolve !== false && hasRiskSnapshot && hasFullDiagnosis,
   };
+}
+
+function normalizeProductTimeline(timeline = {}) {
+  const source = timeline && typeof timeline === "object" ? timeline : {};
+  const events = (Array.isArray(source.events) ? source.events : [])
+    .map(normalizeProductTimelineEvent)
+    .filter(Boolean);
+  const groupedEvents = Array.isArray(source.groupedEvents) && source.groupedEvents.length
+    ? source.groupedEvents.map((group) => ({
+      key: String(group.key || ""),
+      label: String(group.label || group.key || ""),
+      events: (Array.isArray(group.events) ? group.events : []).map(normalizeProductTimelineEvent).filter(Boolean),
+    })).filter((group) => group.key && group.events.length)
+    : groupProductTimelineEventsByDay(events);
+  return {
+    events,
+    groupedEvents,
+    summary: String(source.summary || ""),
+    filters: {
+      categories: Array.isArray(source.filters?.categories) ? source.filters.categories : buildProductTimelineCategoryFilters(events),
+      meaningfulImportance: Number(source.filters?.meaningfulImportance || 40),
+    },
+    pagination: source.pagination || { hasMore: false },
+  };
+}
+
+function normalizeProductTimelineEvent(event = {}) {
+  if (!event || typeof event !== "object") return null;
+  const occurredAt = event.occurredAt || event.createdAt || "";
+  const date = occurredAt ? new Date(occurredAt) : null;
+  const validDate = date && !Number.isNaN(date.getTime());
+  const category = String(event.category || "scan");
+  return {
+    id: String(event.id || `${event.eventType || category}-${occurredAt || event.title || ""}`),
+    eventType: String(event.eventType || ""),
+    category,
+    categoryLabel: String(event.categoryLabel || getProductTimelineCategoryLabel(category)),
+    source: String(event.source || "ProductPulse"),
+    title: String(event.title || "Product timeline event"),
+    summary: String(event.summary || ""),
+    occurredAt: validDate ? date.toISOString() : "",
+    dayKey: String(event.dayKey || (validDate ? date.toISOString().slice(0, 10) : "")),
+    dateLabel: String(event.dateLabel || (validDate ? formatProductAnalysisDate(date) : "")),
+    timeLabel: String(event.timeLabel || (validDate ? formatTimelineClock(date) : "")),
+    severityTone: String(event.severityTone || "neutral"),
+    tone: String(event.tone || mapProductTimelineTone(event.severityTone)),
+    importance: Number(event.importance || 0),
+    importanceLabel: String(event.importanceLabel || getProductTimelineImportanceLabel(event.importance)),
+    confidence: event.confidence ?? null,
+    beforeValue: event.beforeValue || null,
+    afterValue: event.afterValue || null,
+    metadata: event.metadata || {},
+    icon: String(event.icon || getProductTimelineIcon(category, event.eventType)),
+    related: event.related || {},
+    cta: event.cta || null,
+  };
+}
+
+function groupProductTimelineEventsByDay(events = []) {
+  const groups = new Map();
+  events.forEach((event) => {
+    const key = event.dayKey || "unknown";
+    const group = groups.get(key) || { key, label: event.dateLabel || "Timeline", events: [] };
+    group.events.push(event);
+    groups.set(key, group);
+  });
+  return Array.from(groups.values());
+}
+
+function buildProductTimelineCategoryFilters(events = []) {
+  const counts = new Map();
+  events.forEach((event) => counts.set(event.category, (counts.get(event.category) || 0) + 1));
+  return Array.from(counts.entries()).map(([value, count]) => ({
+    value,
+    label: getProductTimelineCategoryLabel(value),
+    count,
+  }));
+}
+
+function getProductTimelineCategoryLabel(category = "") {
+  const labels = {
+    scan: "Scans",
+    diagnosis: "Diagnoses",
+    watchlist: "Watchlist",
+    risk: "Risk",
+    action: "Actions",
+    reviews: "Reviews",
+    returns: "Returns",
+    refunds: "Refunds",
+    momentum: "Momentum",
+    impact: "Business impact",
+    evidence: "Evidence",
+    catalog: "Catalog",
+  };
+  return labels[category] || humanizeCompactLabel(category || "Timeline");
+}
+
+function getProductTimelineIcon(category = "", eventType = "") {
+  const normalized = `${category} ${eventType}`.toLowerCase();
+  if (normalized.includes("review")) return "star";
+  if (normalized.includes("return")) return "return";
+  if (normalized.includes("refund") || normalized.includes("impact")) return "cash-dollar";
+  if (normalized.includes("risk")) return "alert-triangle";
+  if (normalized.includes("momentum")) return "chart-line";
+  if (normalized.includes("content") || normalized.includes("catalog")) return "shopify-product";
+  if (normalized.includes("action")) return "check-circle";
+  if (normalized.includes("watch")) return "binoculars";
+  if (normalized.includes("diagnosis")) return "wand";
+  return "chart-line";
+}
+
+function mapProductTimelineTone(tone = "") {
+  const normalized = String(tone || "").toLowerCase();
+  if (normalized === "critical") return "red";
+  if (normalized === "warning") return "orange";
+  if (normalized === "success") return "green";
+  if (normalized === "info") return "blue";
+  return "slate";
+}
+
+function getProductTimelineImportanceLabel(value = 0) {
+  const importance = Number(value || 0);
+  if (importance >= 75) return "High";
+  if (importance >= 40) return "Meaningful";
+  return "Low";
+}
+
+function formatTimelineClock(date) {
+  return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function humanizeCompactLabel(value = "") {
+  const text = String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
 }
 
 function getActiveProductDiagnosisFromProduct(product = {}) {
@@ -11356,6 +11496,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [recommendedActionSort, setRecommendedActionSort] = useState("priority");
   const [recommendedActionsExpanded, setRecommendedActionsExpanded] = useState(false);
   const [insightCardsExpanded, setInsightCardsExpanded] = useState(false);
+  const [timelineCategoryFilter, setTimelineCategoryFilter] = useState("all");
+  const [timelineShowAll, setTimelineShowAll] = useState(false);
+  const [expandedTimelineEvents, setExpandedTimelineEvents] = useState(() => new Set());
   const [draftText, setDraftText] = useState("");
   const productRef = useRef(product);
   const minimizedActionStatesRef = useRef(minimizedActionStates);
@@ -11396,6 +11539,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setRecommendedActionSort("priority");
     setRecommendedActionsExpanded(false);
     setInsightCardsExpanded(false);
+    setTimelineCategoryFilter("all");
+    setTimelineShowAll(false);
+    setExpandedTimelineEvents(new Set());
   }, [productIdentityKey, productResolvedAt]);
 
   useEffect(() => {
@@ -11613,6 +11759,55 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     if (!handleReviewEvidence(action)) return;
     setSelectedRecommendedAction(action);
     setRecommendedActionModalMinimized(true);
+  };
+
+  const handleOpenTimelineAction = (event) => {
+    const references = [
+      event?.related?.actionId,
+      event?.related?.recommendationId,
+      event?.metadata?.recommendationId,
+      event?.metadata?.sourceActionId,
+      event?.metadata?.label,
+    ].filter(Boolean);
+    const action = references
+      .map((reference) => findRecommendedActionByReference(detail.recommendedActions, reference))
+      .find(Boolean);
+    if (!action) {
+      showToast("That action is not visible in the current recommendation list.", "validation_error");
+      return false;
+    }
+    setRecommendedActionsCollapsed(false);
+    setRecommendedActionsExpanded(true);
+    setEditingAction(null);
+    setActionConfirmation(null);
+    setRecommendedActionModalMinimized(false);
+    setSelectedRecommendedAction(action);
+    window.requestAnimationFrame(() => {
+      document.querySelector(".ppRecommendedActionsPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return true;
+  };
+
+  const handleTimelineCta = (event) => {
+    const ctaType = event?.cta?.type;
+    if (ctaType === "action") return handleOpenTimelineAction(event);
+    if (ctaType === "evidence" || ctaType === "product_change") {
+      return handleReviewEvidence({
+        payload: {
+          focusSources: getTimelineEvidenceFocusSources(event),
+        },
+      });
+    }
+    return false;
+  };
+
+  const handleToggleTimelineEvent = (eventId) => {
+    setExpandedTimelineEvents((current) => {
+      const next = new Set(current);
+      if (next.has(eventId)) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
   };
 
   const handleToggleRecommendedActions = () => {
@@ -12075,6 +12270,19 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 onSelectEvidence={setSelectedEvidenceIndex}
               />
             </div>
+            <ProductTimelinePanel
+              detail={detail}
+              categoryFilter={timelineCategoryFilter}
+              showAll={timelineShowAll}
+              expandedEvents={expandedTimelineEvents}
+              onCategoryChange={(value) => {
+                setTimelineCategoryFilter(value);
+                setExpandedTimelineEvents(new Set());
+              }}
+              onShowAllChange={setTimelineShowAll}
+              onToggleEvent={handleToggleTimelineEvent}
+              onTimelineCta={handleTimelineCta}
+            />
           </>
         ) : (
           <>
@@ -12203,6 +12411,20 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               </aside>
             </div>
 
+            <ProductTimelinePanel
+              detail={detail}
+              categoryFilter={timelineCategoryFilter}
+              showAll={timelineShowAll}
+              expandedEvents={expandedTimelineEvents}
+              onCategoryChange={(value) => {
+                setTimelineCategoryFilter(value);
+                setExpandedTimelineEvents(new Set());
+              }}
+              onShowAllChange={setTimelineShowAll}
+              onToggleEvent={handleToggleTimelineEvent}
+              onTimelineCta={handleTimelineCta}
+            />
+
             {detail.hasFullDiagnosis && <ProductRetentionMetricsPanel detail={detail} />}
 
             <ProductRelationshipsPanel detail={detail} />
@@ -12299,6 +12521,21 @@ export function ProductMetricTimelinesScreen({ product }) {
 
   const detail = getProductDetailModel(product);
   const timelineModel = getProductMetricTimelineModel(detail);
+  const [savedChartOrder, setSavedChartOrder] = useState([]);
+  const visibleCharts = getProductMetricTimelineOrderedCharts(timelineModel.charts, savedChartOrder);
+  const availableChartKeys = timelineModel.charts.map((chart) => chart.key);
+
+  useEffect(() => {
+    setSavedChartOrder(readProductMetricTimelineChartOrder());
+  }, []);
+
+  const handleMoveChart = (chartKey, direction) => {
+    setSavedChartOrder((currentOrder) => {
+      const nextOrder = moveProductMetricTimelineChartOrder(availableChartKeys, currentOrder, chartKey, direction);
+      saveProductMetricTimelineChartOrder(nextOrder);
+      return nextOrder;
+    });
+  };
 
   return (
     <FullWidthPage label={`${detail.title} metric timelines`} className="ppMetricTimelinesPage">
@@ -12321,8 +12558,14 @@ export function ProductMetricTimelinesScreen({ product }) {
         </div>
 
         <div className="ppMetricTimelineStack" aria-label="Metric timelines">
-          {timelineModel.charts.map((chart) => (
-            <ProductMetricTimelineChart chart={chart} key={chart.key} />
+          {visibleCharts.map((chart, index) => (
+            <ProductMetricTimelineChart
+              canMoveDown={index < visibleCharts.length - 1}
+              canMoveUp={index > 0}
+              chart={chart}
+              key={chart.key}
+              onMove={handleMoveChart}
+            />
           ))}
         </div>
 
@@ -12336,17 +12579,31 @@ export function ProductMetricTimelinesScreen({ product }) {
   );
 }
 
-function ProductMetricTimelineChart({ chart }) {
+function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, chart, onMove }) {
   const gradientId = `ppMetricTimelineGradient-${chart.key}-${useId().replace(/:/g, "")}`;
   return (
     <article className={`ppMetricTimelineChart ppMetricTimelineChart-${chart.tone}`} aria-label={`${chart.title} timeline`} data-metric-key={chart.key}>
       <div className="ppMetricTimelineSummary">
-        <span className="ppMetricTimelineDragHandle" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
-        </span>
+        <div className="ppMetricTimelineReorderControls" aria-label={`${chart.title} reorder controls`}>
+          <button
+            aria-label={`Move ${chart.title} up`}
+            className="ppMetricTimelineReorderButton"
+            disabled={!canMoveUp}
+            onClick={() => onMove?.(chart.key, "up")}
+            type="button"
+          >
+            <s-icon type="arrow-up" size="small"></s-icon>
+          </button>
+          <button
+            aria-label={`Move ${chart.title} down`}
+            className="ppMetricTimelineReorderButton"
+            disabled={!canMoveDown}
+            onClick={() => onMove?.(chart.key, "down")}
+            type="button"
+          >
+            <s-icon type="arrow-down" size="small"></s-icon>
+          </button>
+        </div>
         <span className="ppMetricTimelineIcon" aria-hidden="true">
           <ProductPulseGlyph type={chart.glyph || chart.icon} />
         </span>
@@ -12359,65 +12616,81 @@ function ProductMetricTimelineChart({ chart }) {
           </small>
         </div>
       </div>
-      <div className="ppMetricTimelineChartPlot">
-        {chart.points.length ? (
-          chart.kind === "orderActivity" ? (
-            <ProductMetricTimelineOrderActivityChart chart={chart} />
+      <div className="ppMetricTimelineChartBody">
+        <div className="ppMetricTimelineChartPlot">
+          {chart.points.length ? (
+            chart.kind === "orderActivity" ? (
+              <ProductMetricTimelineOrderActivityChart chart={chart} />
+            ) : (
+              <AreaChart
+                responsive
+                style={{ width: "100%", height: "100%" }}
+                data={chart.data}
+                margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
+                syncId="product-metric-timelines"
+                syncMethod={getProductMetricTimelineNearestSyncIndex}
+              >
+                <defs>
+                  <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor={chart.color} stopOpacity="0.2" />
+                    <stop offset="100%" stopColor={chart.color} stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
+                <XAxis
+                  dataKey="time"
+                  type="number"
+                  domain={[chart.xDomain.min, chart.xDomain.max]}
+                  ticks={chart.xTicks.map((tick) => tick.value)}
+                  tickFormatter={(value) => chart.xTickLabels[String(value)] || ""}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+                />
+                <YAxis
+                  domain={[chart.yDomain.min, chart.yDomain.max]}
+                  ticks={chart.yTicks.map((tick) => tick.value)}
+                  tickFormatter={(value) => formatProductMetricTimelineValue(value, chart.axis)}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+                  width={46}
+                />
+                <RechartsTooltip
+                  content={<ProductMetricTimelineTooltip chart={chart} />}
+                  cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+                  wrapperStyle={{ outline: "none", zIndex: 8 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke={chart.color}
+                  strokeWidth={2.8}
+                  fill={`url(#${gradientId})`}
+                  dot={false}
+                  activeDot={<ProductMetricTimelineActiveDot color={chart.color} />}
+                  isAnimationActive={false}
+                />
+                {getProductMetricTimelineSecondaryLines(chart).map((line) => (
+                  <Line
+                    key={line.dataKey}
+                    type="monotone"
+                    dataKey={line.dataKey}
+                    stroke={line.color}
+                    strokeWidth={2.4}
+                    strokeDasharray={line.strokeDasharray || "5 5"}
+                    dot={false}
+                    activeDot={<ProductMetricTimelineActiveDot color={line.color} />}
+                    isAnimationActive={false}
+                  />
+                ))}
+              </AreaChart>
+            )
           ) : (
-            <AreaChart
-              responsive
-              style={{ width: "100%", height: "100%" }}
-              data={chart.data}
-              margin={{ top: 18, right: 16, bottom: 20, left: 0 }}
-              syncId="product-metric-timelines"
-              syncMethod={getProductMetricTimelineNearestSyncIndex}
-            >
-              <defs>
-                <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor={chart.color} stopOpacity="0.2" />
-                  <stop offset="100%" stopColor={chart.color} stopOpacity="0.02" />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
-              <XAxis
-                dataKey="time"
-                type="number"
-                domain={[chart.xDomain.min, chart.xDomain.max]}
-                ticks={chart.xTicks.map((tick) => tick.value)}
-                tickFormatter={(value) => chart.xTickLabels[String(value)] || ""}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
-              />
-              <YAxis
-                domain={[chart.yDomain.min, chart.yDomain.max]}
-                ticks={chart.yTicks.map((tick) => tick.value)}
-                tickFormatter={(value) => formatProductMetricTimelineValue(value, chart.axis)}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
-                width={46}
-              />
-              <RechartsTooltip
-                content={<ProductMetricTimelineTooltip chart={chart} />}
-                cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
-                wrapperStyle={{ outline: "none", zIndex: 8 }}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={chart.color}
-                strokeWidth={2.8}
-                fill={`url(#${gradientId})`}
-                dot={false}
-                activeDot={<ProductMetricTimelineActiveDot color={chart.color} />}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          )
-        ) : (
-          <div className="ppMetricTimelineNoData">No timeline data</div>
-        )}
+            <div className="ppMetricTimelineNoData">No timeline data</div>
+          )}
+        </div>
+        <ProductMetricTimelineLegend chart={chart} />
       </div>
     </article>
   );
@@ -12470,9 +12743,9 @@ function ProductMetricTimelineOrderActivityChart({ chart }) {
         cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
         wrapperStyle={{ outline: "none", zIndex: 8 }}
       />
-      <Bar yAxisId="volume" dataKey="orders" stackId="activity" fill="var(--pp-pulse-blue)" radius={[0, 0, 4, 4]} isAnimationActive={false} />
-      <Bar yAxisId="volume" dataKey="returnedOrders" stackId="activity" fill="var(--pp-warning-amber)" isAnimationActive={false} />
-      <Bar yAxisId="volume" dataKey="refundedOrders" stackId="activity" fill="var(--pp-risk-red)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="orders" stroke="var(--pp-pulse-blue)" strokeWidth={2.5} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-pulse-blue)" />} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="returnedOrders" stroke="var(--pp-warning-amber)" strokeWidth={2.4} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-warning-amber)" />} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="refundedOrders" stroke="var(--pp-risk-red)" strokeWidth={2.4} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-risk-red)" />} isAnimationActive={false} />
       <Line yAxisId="revenue" type="monotone" dataKey="revenue" stroke="var(--pp-success-green)" strokeWidth={2.6} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-success-green)" />} isAnimationActive={false} />
       <Line yAxisId="volume" type="monotone" dataKey="unresolvedReturns" stroke="var(--pp-insight-violet)" strokeWidth={2.4} strokeDasharray="5 5" dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-insight-violet)" />} isAnimationActive={false} />
     </ComposedChart>
@@ -12486,6 +12759,25 @@ function ProductMetricTimelineActiveDot(props = {}) {
   return <circle className="ppMetricTimelineActiveDot" cx={cx} cy={cy} r="6" style={{ fill: props.color || "currentColor" }} />;
 }
 
+function ProductMetricTimelineLegend({ chart }) {
+  const items = Array.isArray(chart.legendItems) ? chart.legendItems : [];
+  if (items.length < 2) return null;
+  return (
+    <div className="ppMetricTimelineLegend" aria-label={`${chart.title} line legend`}>
+      {items.map((item) => (
+        <span className="ppMetricTimelineLegendItem" key={`${chart.key}-${item.label}`}>
+          <i
+            className={`ppMetricTimelineLegendLine${item.dashed ? " isDashed" : ""}`}
+            style={{ "--pp-metric-timeline-legend-color": item.color }}
+            aria-hidden="true"
+          />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ProductMetricTimelineTooltip({ active, payload, chart }) {
   const point = Array.isArray(payload) && payload.length ? payload[0]?.payload : null;
   if (!active || !point) return null;
@@ -12494,6 +12786,12 @@ function ProductMetricTimelineTooltip({ active, payload, chart }) {
       <strong>{point.label}</strong>
       <span className="ppRetentionLinePopoverRows">
         <span><b>{chart.title}</b><small>{formatProductMetricTimelineValue(point.value, chart.axis)}</small></span>
+        {getProductMetricTimelineSecondaryLines(chart).map((line) => {
+          const value = point[line.dataKey];
+          return value != null ? (
+            <span key={`${chart.key}-${line.dataKey}`}><b>{line.label}</b><small>{formatProductMetricTimelineValue(value, line.axis || chart.axis)}</small></span>
+          ) : null;
+        })}
       </span>
     </div>
   );
@@ -12544,15 +12842,73 @@ function getProductMetricTimelineSyncTime(value) {
   return date ? date.getTime() : null;
 }
 
+function readProductMetricTimelineChartOrder() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY) || "[]");
+    return Array.isArray(stored) ? stored.filter((key) => typeof key === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveProductMetricTimelineChartOrder(order = []) {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY, JSON.stringify(order));
+  } catch {
+    // Browsers can reject localStorage in private or embedded contexts.
+  }
+}
+
+function normalizeProductMetricTimelineChartOrder(availableKeys = [], order = []) {
+  const available = availableKeys.filter((key) => typeof key === "string");
+  const availableSet = new Set(available);
+  const normalized = [];
+  (Array.isArray(order) ? order : []).forEach((key) => {
+    if (availableSet.has(key) && !normalized.includes(key)) normalized.push(key);
+  });
+  available.forEach((key) => {
+    if (!normalized.includes(key)) normalized.push(key);
+  });
+  return normalized;
+}
+
+function getProductMetricTimelineOrderedCharts(charts = [], order = []) {
+  const chartMap = new Map(charts.map((chart) => [chart.key, chart]));
+  return normalizeProductMetricTimelineChartOrder(charts.map((chart) => chart.key), order)
+    .map((key) => chartMap.get(key))
+    .filter(Boolean);
+}
+
+function moveProductMetricTimelineChartOrder(availableKeys = [], order = [], chartKey, direction) {
+  const normalized = normalizeProductMetricTimelineChartOrder(availableKeys, order);
+  const index = normalized.indexOf(chartKey);
+  const targetIndex = direction === "up" ? index - 1 : direction === "down" ? index + 1 : index;
+  if (index < 0 || targetIndex < 0 || targetIndex >= normalized.length || targetIndex === index) return normalized;
+  const next = [...normalized];
+  [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+  return next;
+}
+
 export const __productPulseScreensTestHooks = {
   getProductMetricTimelineNearestSyncIndex,
+  getProductMetricTimelineOrderedCharts,
+  getProductDetailModel,
+  getProductMetricTimelineModel,
+  moveProductMetricTimelineChartOrder,
+  productMetricTimelineOrderStorageKey: PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY,
 };
 
 function getProductMetricTimelineModel(detail = {}) {
   const historyPoints = getProductMetricTimelineHistoryPoints(detail);
   const definitions = getProductMetricTimelineDefinitions();
-  const series = definitions.map((definition) => getProductMetricTimelineSeries(definition, detail, historyPoints));
-  const domain = getProductMetricTimelineDomain(series);
+  const rawSeries = definitions.map((definition) => getProductMetricTimelineSeries(definition, detail, historyPoints));
+  const domain = getProductMetricTimelineDomain(rawSeries);
+  const series = rawSeries.map((item) => ({
+    ...item,
+    points: item.points.filter((point) => point.time >= domain.minTime && point.time <= domain.maxTime),
+  }));
   const xTicks = getProductMetricTimelineXTicks(domain);
   const charts = series.map((item) => buildProductMetricTimelineChart(item, domain, xTicks));
   return {
@@ -12594,7 +12950,7 @@ function getProductMetricTimelineDefinitions() {
     {
       key: "return-rate",
       title: "Return rate",
-      subtitle: "Returned units / ordered units",
+      subtitle: "Return rate and product friction",
       icon: "shopify-returns",
       glyph: "shopify-returns",
       tone: "orange",
@@ -12603,8 +12959,28 @@ function getProductMetricTimelineDefinitions() {
       yMin: 0,
       yMax: 100,
       positiveDirection: "down",
-      points: getProductMetricTimelineReturnRatePoints,
+      primaryLineLabel: "Return rate",
+      secondaryLine: {
+        label: "Return pressure",
+        color: "var(--pp-risk-red)",
+        axis: "percent",
+      },
+      points: getProductMetricTimelineReturnRatePressurePoints,
       value: (point) => optionalFiniteMetricNumber(point.returnRate),
+    },
+    {
+      key: "refund-leakage",
+      title: "Refund leakage",
+      subtitle: "Refunds vs revenue",
+      icon: "refund-leakage",
+      glyph: "refund-leakage",
+      tone: "red",
+      color: "var(--pp-risk-red)",
+      axis: "percent",
+      yMin: 0,
+      yMax: 100,
+      positiveDirection: "down",
+      value: (point) => optionalFiniteMetricNumber(point.refundLeakageScore, point.refundRate),
     },
     {
       key: "financial-exposure",
@@ -12619,20 +12995,6 @@ function getProductMetricTimelineDefinitions() {
       value: (point) => optionalFiniteMetricNumber(point.financialExposure, point.revenueAtRisk, point.marginAtRisk),
     },
     {
-      key: "return-pressure",
-      title: "Return pressure",
-      subtitle: "Product friction",
-      icon: "shopify-returns",
-      glyph: "shopify-returns",
-      tone: "orange",
-      color: "var(--pp-warning-amber)",
-      axis: "percent",
-      yMin: 0,
-      yMax: 100,
-      positiveDirection: "down",
-      value: (point) => optionalFiniteMetricNumber(point.returnPressureScore, point.returnRate),
-    },
-    {
       key: "retention-health",
       title: "Retention health",
       subtitle: "Customer retention trend",
@@ -12644,6 +13006,11 @@ function getProductMetricTimelineDefinitions() {
       yMin: 0,
       yMax: 100,
       positiveDirection: "up",
+      secondaryLine: {
+        label: "Same-product repurchase 90d",
+        color: "var(--pp-success-green)",
+        axis: "percent",
+      },
       value: (point) => optionalFiniteMetricNumber(point.retentionHealthScore),
       points: (detail, historyPoints) => {
         const retention = detail.productRetention || {};
@@ -12652,7 +13019,13 @@ function getProductMetricTimelineDefinitions() {
           .map((point) => {
             const date = parseProductMetricTimelineDate(point.date || point.recordedAt);
             const value = optionalFiniteMetricNumber(point.retentionHealthScore);
-            return date && value != null ? { time: date.getTime(), label: formatProductMetricTimelinePointLabel(date), value } : null;
+            const sameProductRate = optionalFiniteMetricNumber(point.sameProductRepurchaseRate90d);
+            return date && value != null ? {
+              time: date.getTime(),
+              label: formatProductMetricTimelinePointLabel(date),
+              value,
+              secondaryValue: sameProductRate == null ? null : normalizeProductMetricTimelinePercentValue(sameProductRate),
+            } : null;
           })
           .filter(Boolean);
         return trendPoints.length ? trendPoints : getProductMetricTimelineHistorySeriesPoints(historyPoints, (point) => optionalFiniteMetricNumber(point.retentionHealthScore));
@@ -12683,20 +13056,6 @@ function getProductMetricTimelineDefinitions() {
       yMax: 100,
       positiveDirection: "up",
       value: (point) => optionalFiniteMetricNumber(point.confidence),
-    },
-    {
-      key: "refund-leakage",
-      title: "Refund leakage",
-      subtitle: "Refunds vs revenue",
-      icon: "refund-leakage",
-      glyph: "refund-leakage",
-      tone: "red",
-      color: "var(--pp-risk-red)",
-      axis: "percent",
-      yMin: 0,
-      yMax: 100,
-      positiveDirection: "down",
-      value: (point) => optionalFiniteMetricNumber(point.refundLeakageScore, point.refundRate),
     },
     {
       key: "evidence-strength",
@@ -12825,6 +13184,71 @@ function getProductMetricTimelineReturnRatePoints(detail = {}, historyPoints = [
     : getProductMetricTimelineHistorySeriesPoints(historyPoints, (point) => optionalFiniteMetricNumber(point.returnRate));
 }
 
+function getProductMetricTimelineReturnRatePressurePoints(detail = {}, historyPoints = []) {
+  const historyRatePoints = historyPoints
+    .map((point) => {
+      const value = optionalFiniteMetricNumber(point.returnRate);
+      if (value == null) return null;
+      const pressureValue = optionalFiniteMetricNumber(point.returnPressureRate);
+      return {
+        time: point.time,
+        label: point.label,
+        value,
+        secondaryValue: pressureValue,
+      };
+    })
+    .filter(Boolean);
+  if (historyRatePoints.length) return historyRatePoints;
+
+  const returnRatePoints = getProductMetricTimelineReturnRatePoints(detail, historyPoints);
+  if (!returnRatePoints.length) return [];
+  const returnPressurePoints = historyPoints
+    .map((point) => {
+      const value = optionalFiniteMetricNumber(point.returnPressureRate);
+      return value == null ? null : {
+        time: point.time,
+        label: point.label,
+        value,
+      };
+    })
+    .filter(Boolean);
+  if (!returnPressurePoints.length) {
+    return returnRatePoints.map((point) => ({ ...point, secondaryValue: point.value }));
+  }
+  return uniqueSortedNumbers([
+    ...returnRatePoints.map((point) => point.time),
+    ...returnPressurePoints.map((point) => point.time),
+  ])
+    .map((time, index) => {
+      const returnRatePoint = getProductMetricTimelineExactOrNearestPoint(returnRatePoints, time);
+      if (!returnRatePoint || !Number.isFinite(returnRatePoint.value)) return null;
+      const returnPressurePoint = getProductMetricTimelineExactOrNearestPoint(returnPressurePoints, time);
+      const date = new Date(time);
+      return {
+        time,
+        label: returnRatePoint.time === time
+          ? returnRatePoint.label
+          : returnPressurePoint?.time === time
+            ? returnPressurePoint.label
+            : formatProductMetricTimelinePointLabel(date, index),
+        value: returnRatePoint.value,
+        secondaryValue: returnPressurePoint?.value ?? null,
+      };
+    })
+    .filter(Boolean);
+}
+
+function getProductMetricTimelineExactOrNearestPoint(points = [], time) {
+  if (!points.length || !Number.isFinite(time)) return null;
+  return points.reduce((closest, point) => {
+    if (!closest) return point;
+    const currentDistance = Math.abs(Number(point.time) - time);
+    const closestDistance = Math.abs(Number(closest.time) - time);
+    if (currentDistance === 0) return point;
+    return currentDistance < closestDistance ? point : closest;
+  }, null);
+}
+
 function getProductMetricTimelineHistoryPoints(detail = {}) {
   return (Array.isArray(detail.riskHistory) ? detail.riskHistory : [])
     .map((entry, index) => {
@@ -12844,6 +13268,7 @@ function getProductMetricTimelineHistoryPoints(detail = {}) {
         refundRate: optionalFiniteMetricNumber(entry.refundRate),
         negativeReviewRate: optionalFiniteMetricNumber(entry.negativeReviewRate),
         returnPressureScore: optionalFiniteMetricNumber(entry.returnPressureScore, relationship.returnPressureScore),
+        returnPressureRate: optionalFiniteMetricNumber(entry.returnPressureRate, relationship.returnPressureRate, relationship.returnRateUnits),
         refundLeakageScore: optionalFiniteMetricNumber(entry.refundLeakageScore, relationship.refundLeakageScore),
         retentionHealthScore: optionalFiniteMetricNumber(entry.retentionHealthScore),
         productMomentumScore: optionalFiniteMetricNumber(entry.productMomentumScore),
@@ -12883,6 +13308,40 @@ function getProductMetricTimelineHistorySeriesPoints(historyPoints, valueAccesso
       };
     })
     .filter(Boolean);
+}
+
+function getProductMetricTimelineSecondaryLines(chart = {}) {
+  const lines = Array.isArray(chart.secondaryLines)
+    ? chart.secondaryLines
+    : chart.secondaryLine
+      ? [chart.secondaryLine]
+      : [];
+  return lines
+    .map((line, index) => ({
+      ...line,
+      dataKey: line.dataKey || (index === 0 ? "secondaryValue" : `secondaryValue${index + 1}`),
+      strokeDasharray: line.strokeDasharray || "5 5",
+    }))
+    .filter((line) => line.label && line.color && line.dataKey);
+}
+
+function getProductMetricTimelineLegendItems(series = {}) {
+  const secondaryLines = getProductMetricTimelineSecondaryLines(series)
+    .filter((line) => series.points?.some((point) => Number.isFinite(point[line.dataKey])));
+  if (!secondaryLines.length) return [];
+  const primaryColor = series.color || "var(--pp-pulse-blue)";
+  return [
+    {
+      label: series.primaryLineLabel || series.title,
+      color: primaryColor,
+      dashed: false,
+    },
+    ...secondaryLines.map((line) => ({
+      label: line.label,
+      color: line.color,
+      dashed: Boolean(line.strokeDasharray),
+    })),
+  ];
 }
 
 function buildProductMetricTimelineChart(series, domain, xTicks) {
@@ -12927,6 +13386,7 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
     currentLabel: getProductMetricTimelineCurrentLabel(series, latestPoint),
     deltaLabel: getProductMetricTimelineDeltaLabel(delta, series.axis, comparisonPoint),
     deltaTone,
+    legendItems: getProductMetricTimelineLegendItems(series),
     yDomain,
     yTicks,
     xDomain: { min: domain.minTime, max: domain.maxTime },
@@ -12947,9 +13407,14 @@ function getProductMetricTimelineMappedXTicks(xTicks, domain, plot) {
 
 function buildProductMetricTimelineOrderActivityChart(series, domain, xTicks) {
   const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
-  const stackMax = Math.max(...series.points.map((point) => Number(point.value || 0)), 1);
+  const volumeMax = Math.max(...series.points.flatMap((point) => [
+    Number(point.orders || 0),
+    Number(point.returnedOrders || 0),
+    Number(point.refundedOrders || 0),
+    Number(point.unresolvedReturns || 0),
+  ]), 1);
   const revenueMax = Math.max(...series.points.map((point) => Number(point.revenue || 0)), 1);
-  const yDomain = { min: 0, max: getOrderActivityAxisMax(stackMax) };
+  const yDomain = { min: 0, max: getOrderActivityAxisMax(volumeMax) };
   const revenueDomain = { min: 0, max: getOrderActivityRevenueAxisMax(revenueMax) };
   const yTicks = getProductMetricTimelineYTicks(yDomain, "number", plot);
   const revenueTicks = getProductMetricTimelineYTicks(revenueDomain, "money", plot);
@@ -12974,6 +13439,13 @@ function buildProductMetricTimelineOrderActivityChart(series, domain, xTicks) {
     currentLabel: `${formatInteger(totalOrders)} orders`,
     deltaLabel: `${formatInteger(totalUnits)} units · ${formatMoney(totalRevenue)} revenue`,
     deltaTone: "neutral",
+    legendItems: [
+      { label: "Orders", color: "var(--pp-pulse-blue)", dashed: false },
+      { label: "Returns", color: "var(--pp-warning-amber)", dashed: false },
+      { label: "Refunds", color: "var(--pp-risk-red)", dashed: false },
+      { label: "Revenue", color: "var(--pp-success-green)", dashed: false },
+      { label: "Unresolved returns", color: "var(--pp-insight-violet)", dashed: true },
+    ],
     yDomain,
     yTicks,
     revenueDomain,
@@ -13031,7 +13503,13 @@ function getProductMetricTimelineYDomain(series) {
   if (Number.isFinite(series.yMin) && Number.isFinite(series.yMax)) {
     return { min: series.yMin, max: Math.max(series.yMax, series.yMin + 1) };
   }
-  const values = series.points.map((point) => point.value).filter(Number.isFinite);
+  const secondaryLines = getProductMetricTimelineSecondaryLines(series);
+  const values = series.points
+    .flatMap((point) => [
+      point.value,
+      ...secondaryLines.map((line) => point[line.dataKey]),
+    ])
+    .filter(Number.isFinite);
   const max = values.length ? Math.max(...values) : 1;
   return {
     min: 0,
@@ -13067,14 +13545,17 @@ function getProductMetricTimelineDomain(series = []) {
   const times = series.flatMap((item) => item.points.map((point) => point.time)).filter(Number.isFinite);
   if (!times.length) {
     const maxTime = Date.now();
-    return { minTime: maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS), maxTime };
+    const minTime = getProductMetricTimelineFirstFullMonthTick(maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS));
+    return { minTime, maxTime: Math.max(maxTime, minTime + PRODUCT_METRIC_TIMELINE_DAY_MS) };
   }
   const maxTime = Math.max(...times);
-  const minTime = Math.min(...times);
-  if (times.length === 1 || Math.min(...times) === maxTime) {
-    return { minTime: maxTime - (90 * PRODUCT_METRIC_TIMELINE_DAY_MS), maxTime };
-  }
-  return { minTime, maxTime };
+  const rawMinTime = Math.min(...times);
+  const visibleSeedTime = Math.max(rawMinTime, maxTime - (PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS));
+  const minTime = getProductMetricTimelineVisibleStartTime(visibleSeedTime);
+  return {
+    minTime,
+    maxTime: Math.max(maxTime, minTime + PRODUCT_METRIC_TIMELINE_DAY_MS),
+  };
 }
 
 function getProductMetricTimelineXTicks(domain) {
@@ -13098,6 +13579,19 @@ function getProductMetricTimelineFirstFullMonthTick(time) {
   return date.getUTCDate() === 1 && date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0
     ? monthStart
     : Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+}
+
+function getProductMetricTimelineVisibleStartTime(time) {
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return time;
+  const monthOffset = date.getUTCDate() <= 15 ? 0 : 1;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + monthOffset, 1);
+}
+
+function normalizeProductMetricTimelinePercentValue(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.abs(number) <= 1 ? number * 100 : number;
 }
 
 function parseProductMetricTimelineDate(value) {
@@ -15221,6 +15715,212 @@ function ProductNoDiagnosisPanel({ detail, pending = false, onRunDiagnosis }) {
   );
 }
 
+function ProductTimelinePanel({
+  detail,
+  categoryFilter = "all",
+  showAll = false,
+  expandedEvents = new Set(),
+  onCategoryChange,
+  onShowAllChange,
+  onToggleEvent,
+  onTimelineCta,
+}) {
+  const timeline = detail.timeline || normalizeProductTimeline(null);
+  const meaningfulImportance = Number(timeline.filters?.meaningfulImportance || 40);
+  const categories = Array.isArray(timeline.filters?.categories) ? timeline.filters.categories : [];
+  const visibleEvents = timeline.events.filter((event) => {
+    if (!showAll && Number(event.importance || 0) < meaningfulImportance) return false;
+    if (categoryFilter !== "all" && event.category !== categoryFilter) return false;
+    return true;
+  });
+  const groupedEvents = groupProductTimelineEventsByDay(visibleEvents);
+  const lowImportanceCount = timeline.events.filter((event) => Number(event.importance || 0) < meaningfulImportance).length;
+  const hiddenByFilterCount = Math.max(0, timeline.events.length - visibleEvents.length);
+
+  return (
+    <section className="ppProductTimelinePanel" aria-label="Product Timeline">
+      <div className="ppProductTimelineHeader">
+        <div>
+          <span className="ppProductTimelineEyebrow">Operational history</span>
+          <h2>Product Timeline</h2>
+          <p>{timeline.summary || "Important ProductPulse, Watchlist, recommendation and product-signal changes for this product."}</p>
+        </div>
+        <div className="ppProductTimelineControls">
+          <label className="ppProductTimelineFilter">
+            <span>Event group</span>
+            <select value={categoryFilter} onChange={(event) => onCategoryChange?.(event.target.value)}>
+              <option value="all">All groups</option>
+              {categories.map((category) => (
+                <option value={category.value} key={category.value}>
+                  {category.label}{category.count ? ` (${category.count})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="ppProductTimelineToggle">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(event) => onShowAllChange?.(event.target.checked)}
+            />
+            <span>Show all events</span>
+          </label>
+        </div>
+      </div>
+
+      {!timeline.events.length ? (
+        <EmptyProductDetailState message="No timeline events yet. ProductPulse will start building this timeline as scans, watchlist runs, Shopify updates and recommendations occur." />
+      ) : !visibleEvents.length ? (
+        <EmptyProductDetailState
+          message={hiddenByFilterCount
+            ? "No events match the current timeline filters."
+            : "No meaningful timeline events match the current view."}
+        />
+      ) : (
+        <div className="ppProductTimelineStream">
+          {groupedEvents.map((group) => (
+            <section className="ppProductTimelineDay" key={group.key}>
+              <h3>{group.label}</h3>
+              <div className="ppProductTimelineRows">
+                {group.events.map((event) => {
+                  const expanded = expandedEvents.has(event.id);
+                  return (
+                    <article className={`ppProductTimelineEvent ppProductTimelineEvent-${event.tone || "slate"}`} key={event.id}>
+                      <span className="ppProductTimelineMarker" aria-hidden="true">
+                        <ProductPulseGlyph type={event.icon} />
+                      </span>
+                      <div className="ppProductTimelineEventBody">
+                        <div className="ppProductTimelineEventTopline">
+                          <span>{event.timeLabel}</span>
+                          <span>{event.source}</span>
+                          <span className={`ppProductTimelineBadge ppProductTimelineBadge-${event.tone || "slate"}`}>{event.importanceLabel}</span>
+                          <span className="ppProductTimelineCategory">{event.categoryLabel}</span>
+                        </div>
+                        <h4>{event.title}</h4>
+                        {event.summary ? <p>{event.summary}</p> : null}
+                        <div className="ppProductTimelineEventActions">
+                          {event.cta ? <ProductTimelineCta event={event} onTimelineCta={onTimelineCta} /> : null}
+                          {hasProductTimelineDetails(event) && (
+                            <button type="button" className="ppProductTimelineDetailsButton" aria-expanded={expanded} onClick={() => onToggleEvent?.(event.id)}>
+                              {expanded ? "Hide details" : "Details"}
+                              <s-icon type={expanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                            </button>
+                          )}
+                        </div>
+                        {expanded && <ProductTimelineEventDetails event={event} />}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {timeline.events.length > 0 && (
+        <div className="ppProductTimelineFooter">
+          <span>{formatInteger(visibleEvents.length)} shown</span>
+          <span>{formatInteger(timeline.events.length)} stored</span>
+          {lowImportanceCount > 0 && !showAll ? <span>{formatInteger(lowImportanceCount)} low-importance hidden</span> : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProductTimelineCta({ event, onTimelineCta }) {
+  if (event.cta?.type === "link" && event.cta.href) {
+    return (
+      <Link className="ppProductTimelineCta" to={event.cta.href}>
+        {event.cta.label || "Open"}
+        <s-icon type="external" size="small"></s-icon>
+      </Link>
+    );
+  }
+  return (
+    <button className="ppProductTimelineCta" type="button" onClick={() => onTimelineCta?.(event)}>
+      {event.cta?.label || "Open"}
+      <s-icon type="arrow-right" size="small"></s-icon>
+    </button>
+  );
+}
+
+function ProductTimelineEventDetails({ event }) {
+  const rows = getProductTimelineDetailRows(event);
+  if (!rows.length) return null;
+  return (
+    <dl className="ppProductTimelineDetails">
+      {rows.map((row) => (
+        <div key={`${event.id}-${row.label}`}>
+          <dt>{row.label}</dt>
+          <dd>{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function hasProductTimelineDetails(event = {}) {
+  return getProductTimelineDetailRows(event).length > 0;
+}
+
+function getProductTimelineDetailRows(event = {}) {
+  return [
+    event.confidence != null ? { label: "Confidence", value: `${formatInteger(event.confidence)}%` } : null,
+    event.beforeValue ? { label: "Before", value: formatTimelineDetailValue(event.beforeValue) } : null,
+    event.afterValue ? { label: "After", value: formatTimelineDetailValue(event.afterValue) } : null,
+    event.related?.diagnosisId ? { label: "Diagnosis", value: event.related.diagnosisId } : null,
+    event.related?.watchActivityId ? { label: "Watchlist run", value: event.related.watchActivityId } : null,
+    event.related?.actionId ? { label: "Action", value: event.related.actionId } : null,
+    ...getProductTimelineMetadataRows(event.metadata),
+  ].filter(Boolean).slice(0, 8);
+}
+
+function getProductTimelineMetadataRows(metadata = {}) {
+  const allowed = [
+    "delta",
+    "percentDelta",
+    "riskLabel",
+    "previousPrimaryIssue",
+    "currentPrimaryIssue",
+    "status",
+    "changeCount",
+    "sourceChangeCount",
+    "reason",
+    "actionType",
+    "priority",
+    "effort",
+  ];
+  return allowed
+    .filter((key) => metadata?.[key] !== undefined && metadata?.[key] !== null && metadata?.[key] !== "")
+    .map((key) => ({ label: humanizeCompactLabel(key), value: formatTimelineDetailValue(metadata[key]) }));
+}
+
+function formatTimelineDetailValue(value) {
+  if (value === null || value === undefined || value === "") return "Unavailable";
+  if (typeof value === "number") return Number.isInteger(value) ? formatInteger(value) : formatDecimal(value, 1);
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string") return value.length > 140 ? `${value.slice(0, 137)}...` : value;
+  if (Array.isArray(value)) return value.map(formatTimelineDetailValue).join(", ");
+  const entries = Object.entries(value)
+    .filter(([, entryValue]) => entryValue !== null && entryValue !== undefined && entryValue !== "")
+    .slice(0, 4)
+    .map(([key, entryValue]) => `${humanizeCompactLabel(key)}: ${formatTimelineDetailValue(entryValue)}`);
+  return entries.join(" · ") || "Stored";
+}
+
+function getTimelineEvidenceFocusSources(event = {}) {
+  const category = String(event.category || "").toLowerCase();
+  const source = String(event.source || "").toLowerCase();
+  if (category === "reviews" || source.includes("review") || source.includes("customer language")) return ["Reviews", "Customer language"];
+  if (category === "returns" || source.includes("return")) return ["Returns"];
+  if (category === "refunds" || source.includes("refund")) return ["Refunds"];
+  if (category === "catalog" || source.includes("shopify product")) return ["Shopify product"];
+  if (category === "evidence") return ["Evidence"];
+  return [event.source, event.categoryLabel].filter(Boolean);
+}
+
 const ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES = Object.freeze({
   orders: true,
   returns: true,
@@ -15749,7 +16449,7 @@ function ProductRetentionLtvBreakdown({ chart, productTitle }) {
             ))}
           </div>
           <ProductRetentionLtvStackedChart chart={view} productTitle={productTitle} />
-          <ProductRetentionLtvBreakdownLegend />
+          <ProductRetentionLtvBreakdownLegend includeInitial={view.includeInitial} />
         </>
       ) : (
         <ProductRetentionEmptySlot message="No LTV breakdown is stored yet." />
@@ -15809,18 +16509,20 @@ function ProductRetentionLtvStackedChart({ chart, productTitle }) {
             cursor={{ stroke: "rgba(124, 92, 255, 0.36)", strokeWidth: 1.5, strokeDasharray: "5 5" }}
             wrapperStyle={{ outline: "none", zIndex: 8 }}
           />
-          <Area
-            type="monotone"
-            dataKey="initialValue"
-            stackId="ltv"
-            name="Initial product"
-            stroke="var(--pp-signal-teal)"
-            strokeWidth={2.4}
-            fill={`url(#${gradientIdBase}-initial)`}
-            dot={false}
-            activeDot={false}
-            isAnimationActive={false}
-          />
+          {chart.includeInitial ? (
+            <Area
+              type="monotone"
+              dataKey="initialValue"
+              stackId="ltv"
+              name="Initial product"
+              stroke="var(--pp-signal-teal)"
+              strokeWidth={2.4}
+              fill={`url(#${gradientIdBase}-initial)`}
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          ) : null}
           <Area
             type="monotone"
             dataKey="otherValue"
@@ -15866,21 +16568,23 @@ function ProductRetentionLtvTooltipContent({ active, payload, chart }) {
     <div className="ppRetentionLinePopover ppRetentionLtvPopover ppRetentionRechartsTooltip" role="tooltip">
       <strong>{row.xLabel}</strong>
       <span className="ppRetentionLinePopoverRows">
-        <span><b>Initial product</b><small>{chart.valueFormatter(row.initialValue, row.initialProductCents)}</small></span>
+        {chart.includeInitial ? (
+          <span><b>Initial product</b><small>{chart.valueFormatter(row.initialValue, row.initialProductCents)}</small></span>
+        ) : null}
         <span><b>Cross-sell</b><small>{chart.valueFormatter(row.otherValue, row.otherProductCents)}</small></span>
         <span><b>Same product</b><small>{chart.valueFormatter(row.sameValue, row.sameProductRepeatCents)}</small></span>
-        <span><b>Total</b><small>{chart.valueFormatter(row.totalValue, row.totalCents)}</small></span>
+        <span><b>{chart.totalLabel}</b><small>{chart.valueFormatter(row.totalValue, row.displayTotalCents)}</small></span>
       </span>
     </div>
   );
 }
 
-function ProductRetentionLtvBreakdownLegend() {
+function ProductRetentionLtvBreakdownLegend({ includeInitial = true }) {
   return (
     <div className="ppRetentionLtvBreakdownLegend">
       <span><i className="ppRetentionLegendLtvSame" />Same product</span>
       <span><i className="ppRetentionLegendLtvOther" />Other products (cross-sell)</span>
-      <span><i className="ppRetentionLegendLtvInitial" />Initial product (1st purchase)</span>
+      {includeInitial ? <span><i className="ppRetentionLegendLtvInitial" />Initial product (1st purchase)</span> : null}
     </div>
   );
 }
@@ -16319,7 +17023,13 @@ function getProductRetentionLtvBreakdownView(chart, mode = "cumulative") {
   const plot = { left: 76, right: 968, top: 24, bottom: 288 };
   const xLabelOffset = 24;
   const isShareMode = mode === "share";
-  const yMax = isShareMode ? 1 : getRetentionMoneyAxisMax(chart.maxTotalCents);
+  const includeInitial = isShareMode;
+  const maxDisplayedCents = includeInitial
+    ? chart.maxTotalCents
+    : Math.max(...(chart.rows || []).map((row) => (
+      Number(row.otherProductCents || 0) + Number(row.sameProductRepeatCents || 0)
+    )), 0);
+  const yMax = isShareMode ? 1 : getRetentionMoneyAxisMax(maxDisplayedCents);
   const xMin = 0;
   const xMax = Math.max(Number(chart.maxAge || 0), 1);
   const getX = (value) => plot.left + ((Number(value || 0) - xMin) / Math.max(xMax - xMin, 1)) * (plot.right - plot.left);
@@ -16329,10 +17039,13 @@ function getProductRetentionLtvBreakdownView(chart, mode = "cumulative") {
     return totalCents ? Number(cents || 0) / totalCents : 0;
   };
   const chartRows = (chart.rows || []).map((row) => {
-    const initialValue = valueForMode(row.initialProductCents, row.totalCents);
+    const displayTotalCents = includeInitial
+      ? row.totalCents
+      : Math.max(0, Number(row.otherProductCents || 0) + Number(row.sameProductRepeatCents || 0));
+    const initialValue = includeInitial ? valueForMode(row.initialProductCents, row.totalCents) : 0;
     const otherValue = valueForMode(row.otherProductCents, row.totalCents);
     const sameValue = valueForMode(row.sameProductRepeatCents, row.totalCents);
-    const totalValue = isShareMode && row.totalCents > 0 ? 1 : Number(row.totalCents || 0);
+    const totalValue = isShareMode && row.totalCents > 0 ? 1 : Number(displayTotalCents || 0);
     const initialTopValue = initialValue;
     const otherTopValue = initialValue + otherValue;
     const sameTopValue = isShareMode && row.totalCents > 0 ? 1 : initialValue + otherValue + sameValue;
@@ -16343,6 +17056,7 @@ function getProductRetentionLtvBreakdownView(chart, mode = "cumulative") {
       otherValue,
       sameValue,
       totalValue,
+      displayTotalCents,
       x,
       initialY: Math.round(getY(initialTopValue) * 10) / 10,
       otherY: Math.round(getY(otherTopValue) * 10) / 10,
@@ -16368,9 +17082,11 @@ function getProductRetentionLtvBreakdownView(chart, mode = "cumulative") {
     plot,
     xLabelOffset,
     mode,
+    includeInitial,
     xMax,
     yMax,
     yAxisLabel: isShareMode ? "LTV contribution share" : mode === "perCustomer" ? "LTV per customer (USD)" : "Cumulative LTV (USD)",
+    totalLabel: includeInitial ? "Total" : "Follow-on total",
     moneyFormatter: formatRetentionMoneyCents,
     valueFormatter,
     yFormatter,

@@ -17,6 +17,7 @@ import {
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import { recordTimelineForLatestScoreSnapshots } from "./product-pulse-timeline.server";
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummaries } from "./product-pulse-return-refund-relationship.server";
@@ -1968,8 +1969,9 @@ async function persistQuickScanCandidates(shop, candidates) {
       },
     })));
   });
+  await recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" });
   await Promise.all([
-    recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" }),
+    recordTimelineForLatestScoreSnapshots(shop, persistedSnapshots, { source: "quickscan" }),
     recordWatchlistScanActivities(shop, persistedSnapshots, { source: "quickscan" }),
   ]);
 

@@ -2,6 +2,7 @@ import prisma from "../db.server";
 import { generateWatchChangeReportNarrative } from "./product-pulse-ai.server";
 import { getProductScoreHistoryForProductsForShop, recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
+import { recordTimelineForWatchActivities } from "./product-pulse-timeline.server";
 
 export const WATCHLIST_MAX_PRODUCTS = 50;
 export const WATCH_SCAN_CADENCE_OPTIONS = [
@@ -333,18 +334,18 @@ export async function addWatchedProductsForShop(shop, products = []) {
   }
 
   if (createdItems.length) {
-    await prisma.productWatchActivity.createMany({
-      data: createdItems.map((item) => ({
-        shop,
-        productGid: item.productGid,
-        productTitle: item.productTitle,
-        watchlistItemId: item.id,
-        eventType: "product_added",
-        title: "Product added to watchlist",
-        detail: item.productTitle,
-        metadata: { handle: item.handle, sku: item.sku, bulk: true },
-      })),
-    });
+    const activityRows = createdItems.map((item) => ({
+      shop,
+      productGid: item.productGid,
+      productTitle: item.productTitle,
+      watchlistItemId: item.id,
+      eventType: "product_added",
+      title: "Product added to watchlist",
+      detail: item.productTitle,
+      metadata: { handle: item.handle, sku: item.sku, bulk: true },
+    }));
+    await prisma.productWatchActivity.createMany({ data: activityRows });
+    await recordTimelineForWatchActivities(shop, activityRows);
     await captureInitialWatchlistSnapshotForItems(shop, createdItems);
   }
 
@@ -507,7 +508,7 @@ export async function getWatchlistActivityForShop(shop, { take = 100 } = {}) {
 
 export async function recordWatchActivityForShop(shop, activity = {}) {
   if (!shop || !activity.eventType || !activity.title) return null;
-  return prisma.productWatchActivity.create({
+  const created = await prisma.productWatchActivity.create({
     data: {
       shop,
       productGid: optionalString(activity.productGid),
@@ -520,6 +521,8 @@ export async function recordWatchActivityForShop(shop, activity = {}) {
       createdAt: activity.createdAt || new Date(),
     },
   });
+  if (created.productGid) await recordTimelineForWatchActivities(shop, [created]);
+  return created;
 }
 
 export async function captureInitialWatchlistSnapshotForItems(shop, items = [], { createdAt = new Date() } = {}) {
@@ -669,7 +672,9 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
     });
   const activityRows = [...reportRows, ...rows];
   if (!activityRows.length) return { count: 0 };
-  return prisma.productWatchActivity.createMany({ data: activityRows });
+  const result = await prisma.productWatchActivity.createMany({ data: activityRows });
+  await recordTimelineForWatchActivities(shop, activityRows);
+  return result;
 }
 
 function isWatchChangeReportSource(source) {

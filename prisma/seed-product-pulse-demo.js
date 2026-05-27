@@ -523,6 +523,7 @@ async function main() {
   await prisma.productAction.deleteMany({ where: { shop, productGid: { in: productGids } } });
   await prisma.productDiagnosis.deleteMany({ where: { shop, productGid: { in: productGids } } });
   await prisma.productScoreHistory.deleteMany({ where: { shop, productGid: { in: productGids } } });
+  await prisma.productTimelineEvent.deleteMany({ where: { shop, productGid: { in: productGids } } });
   await prisma.productWatchActivity.deleteMany({ where: { shop, productGid: { in: productGids } } });
   await prisma.productWatchlistItem.deleteMany({ where: { shop, productGid: { in: productGids } } });
 
@@ -540,6 +541,7 @@ async function main() {
     shop,
     productsSeeded: seededProducts.length,
     scoreHistoryRows: seededProducts.length * HISTORY_POINTS,
+    timelineEvents: seededProducts.reduce((sum, product) => sum + Number(product.timelineEventCount || 0), 0),
     watchlistItems: Math.min(5, seededProducts.length),
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
@@ -761,12 +763,25 @@ async function seedProduct(shop, product, index) {
     })),
   });
 
-  await seedActionRecords(shop, product, diagnosis.id, recommendations, index);
+  const actionRecords = await seedActionRecords(shop, product, diagnosis.id, recommendations, index);
+  const timelineEventCount = await seedTimelineEvents({
+    shop,
+    product,
+    profile,
+    diagnosis,
+    recommendations,
+    actionRecords,
+    riskHistory,
+    metrics: metricsWithDiagnosis,
+    monthlySummary,
+    index,
+  });
 
   return {
     ...product,
     snapshotId: snapshot.id,
     diagnosisId: diagnosis.id,
+    timelineEventCount,
     profile,
     metrics: metricsWithDiagnosis,
   };
@@ -782,8 +797,9 @@ async function seedActionRecords(shop, product, diagnosisId, recommendations, in
     }))
     .filter((item) => item.status);
 
+  const createdRecords = [];
   for (const record of records) {
-    await prisma.productAction.create({
+    const created = await prisma.productAction.create({
       data: {
         shop,
         diagnosisId,
@@ -800,7 +816,255 @@ async function seedActionRecords(shop, product, diagnosisId, recommendations, in
         appliedAt: ["applied", "reviewed", "dismissed"].includes(record.status) ? daysAgo(3 + index, SEED_NOW) : null,
       },
     });
+    createdRecords.push(created);
   }
+  return createdRecords;
+}
+
+async function seedTimelineEvents({
+  shop,
+  product,
+  profile,
+  diagnosis,
+  recommendations = [],
+  actionRecords = [],
+  riskHistory = [],
+  metrics = {},
+  monthlySummary = {},
+  index = 0,
+}) {
+  const currentHistory = riskHistory[riskHistory.length - 1] || {};
+  const previousHistory = riskHistory[riskHistory.length - 3] || riskHistory[riskHistory.length - 2] || {};
+  const riskDelta = Number(currentHistory.riskScore || product.riskScore || 0) - Number(previousHistory.riskScore || product.riskScore || 0);
+  const topRecommendation = recommendations[0] || {};
+  const primaryActionRecord = actionRecords[0] || null;
+  const contentChange = metrics.productChangeLog?.[0] || {};
+  const now = new Date();
+  const rows = [
+    {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "quickscan_completed",
+      category: "scan",
+      source: "Shopify QuickScan",
+      title: "QuickScan completed",
+      summary: `QuickScan stored ${previousHistory.riskScore || product.riskScore}/100 risk with ${previousHistory.primaryIssue || profile.mainIssue}.`,
+      occurredAt: parseDate(previousHistory.recordedAt) || daysAgo(14 + index, SEED_NOW),
+      severityTone: product.riskScore >= 75 ? "critical" : product.riskScore >= 55 ? "warning" : "info",
+      importance: 42,
+      confidence: previousHistory.confidence || product.confidence,
+      afterValue: { riskScore: previousHistory.riskScore || product.riskScore, primaryIssue: previousHistory.primaryIssue || profile.mainIssue },
+      metadata: { seedSource: DEMO_SEED_SOURCE, riskLabel: getSeedRiskLabel(previousHistory.riskScore || product.riskScore) },
+      dedupeKey: `seed:${product.productGid}:quickscan`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    },
+    {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "full_diagnosis_completed",
+      category: "diagnosis",
+      source: "ProductPulse diagnosis",
+      title: "Full diagnosis completed",
+      summary: `${product.riskScore}/100 risk · ${diagnosis.likelyCause || profile.mainIssue} · ${product.confidence}% confidence.`,
+      occurredAt: diagnosis.completedAt || diagnosis.createdAt,
+      severityTone: product.riskScore >= 75 ? "critical" : product.riskScore >= 55 ? "warning" : "info",
+      importance: 62,
+      confidence: product.confidence,
+      afterValue: { riskScore: product.riskScore, confidence: product.confidence, likelyCause: diagnosis.likelyCause },
+      metadata: { seedSource: DEMO_SEED_SOURCE, issueCount: Array.isArray(diagnosis.issues) ? diagnosis.issues.length : 0, recommendationCount: recommendations.length },
+      dedupeKey: `seed:${product.productGid}:diagnosis:${diagnosis.id}`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    },
+    Math.abs(riskDelta) >= 5 ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: riskDelta >= 0 ? "risk_score_increased" : "risk_score_decreased",
+      category: "risk",
+      source: "ProductPulse score history",
+      title: riskDelta >= 0 ? "Product risk increased" : "Product risk decreased",
+      summary: `Risk moved from ${previousHistory.riskScore}/100 to ${currentHistory.riskScore || product.riskScore}/100.`,
+      occurredAt: parseDate(currentHistory.recordedAt) || diagnosis.completedAt || SEED_NOW,
+      severityTone: riskDelta >= 0 ? "warning" : "success",
+      importance: 64,
+      confidence: product.confidence,
+      beforeValue: { riskScore: previousHistory.riskScore, riskLabel: getSeedRiskLabel(previousHistory.riskScore) },
+      afterValue: { riskScore: currentHistory.riskScore || product.riskScore, riskLabel: getSeedRiskLabel(currentHistory.riskScore || product.riskScore) },
+      metadata: { seedSource: DEMO_SEED_SOURCE, delta: riskDelta },
+      dedupeKey: `seed:${product.productGid}:risk-change`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
+    {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "main_issue_changed",
+      category: "risk",
+      source: "ProductPulse diagnosis",
+      title: "Main issue changed",
+      summary: `Main issue changed from ${profile.issueTitle} to ${profile.mainIssue}.`,
+      occurredAt: daysAgo(1 + index, SEED_NOW),
+      severityTone: product.riskScore >= 55 ? "warning" : "info",
+      importance: 68,
+      confidence: product.confidence,
+      beforeValue: { primaryIssue: profile.issueTitle },
+      afterValue: { primaryIssue: profile.mainIssue },
+      metadata: { seedSource: DEMO_SEED_SOURCE, previousPrimaryIssue: profile.issueTitle, currentPrimaryIssue: profile.mainIssue },
+      dedupeKey: `seed:${product.productGid}:main-issue`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    },
+    {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "new_negative_reviews_detected",
+      category: "reviews",
+      source: "Reviews",
+      title: "New negative reviews detected",
+      summary: `${Math.max(2, Math.round(product.riskScore / 12))} negative review signals mention ${profile.repeatedLanguage[0]}.`,
+      occurredAt: daysAgo(5 + index, SEED_NOW),
+      severityTone: "warning",
+      importance: 61,
+      confidence: product.confidence,
+      afterValue: { negativeReviewCount: metrics.negativeReviewCount || null, avgRating: metrics.avgRating || null },
+      metadata: { seedSource: DEMO_SEED_SOURCE, dominantEmotion: profile.sentiment },
+      dedupeKey: `seed:${product.productGid}:negative-reviews`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    },
+    {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "return_pressure_changed",
+      category: "returns",
+      source: "Returns",
+      title: "Top return reason changed",
+      summary: `Top return reason is now ${profile.returnReasons[0]} across ${monthlySummary.totalReturnedUnits || 0} returned units.`,
+      occurredAt: daysAgo(4 + index, SEED_NOW),
+      severityTone: "warning",
+      importance: 60,
+      afterValue: { returnRate: monthlySummary.returnRate || null, returnUnits: monthlySummary.totalReturnedUnits || null, topReturnReason: profile.returnReasons[0] },
+      metadata: { seedSource: DEMO_SEED_SOURCE, reasonChanged: true },
+      dedupeKey: `seed:${product.productGid}:returns`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    },
+    metrics.refundAmount ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "refund_exposure_increased",
+      category: "refunds",
+      source: "Refunds",
+      title: "Refund exposure updated",
+      summary: `Refund exposure is ${formatMoney(metrics.refundAmount)} across current evidence.`,
+      occurredAt: daysAgo(3 + index, SEED_NOW),
+      severityTone: "warning",
+      importance: 58,
+      afterValue: { refundAmount: metrics.refundAmount, refundUnits: metrics.refundUnits || null },
+      metadata: { seedSource: DEMO_SEED_SOURCE },
+      dedupeKey: `seed:${product.productGid}:refunds`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
+    topRecommendation?.label ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "recommended_action_created",
+      category: "action",
+      source: "ProductPulse recommendations",
+      title: "Recommended action created",
+      summary: topRecommendation.label,
+      occurredAt: diagnosis.completedAt || SEED_NOW,
+      severityTone: "info",
+      importance: 58,
+      confidence: product.confidence,
+      metadata: { seedSource: DEMO_SEED_SOURCE, recommendationId: topRecommendation.id, actionType: topRecommendation.type, priority: topRecommendation.priority || null },
+      dedupeKey: `seed:${product.productGid}:recommendation:${topRecommendation.id}`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
+    primaryActionRecord ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: primaryActionRecord.status === "dismissed" ? "recommended_action_dismissed" : "recommended_action_applied",
+      category: "action",
+      source: "ProductPulse action",
+      title: primaryActionRecord.status === "dismissed" ? "Recommended action dismissed" : "Recommended action applied",
+      summary: `${primaryActionRecord.label} was ${primaryActionRecord.status}.`,
+      occurredAt: primaryActionRecord.appliedAt || primaryActionRecord.createdAt,
+      severityTone: primaryActionRecord.status === "dismissed" ? "neutral" : "success",
+      importance: primaryActionRecord.status === "dismissed" ? 54 : 70,
+      afterValue: { status: primaryActionRecord.status },
+      metadata: { seedSource: DEMO_SEED_SOURCE, actionType: primaryActionRecord.actionType, label: primaryActionRecord.label },
+      dedupeKey: `seed:${product.productGid}:action:${primaryActionRecord.id}`,
+      diagnosisId: diagnosis.id,
+      actionId: primaryActionRecord.id,
+      updatedAt: now,
+    } : null,
+    contentChange?.label || contentChange?.title ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "product_content_changed",
+      category: "catalog",
+      source: "Shopify product data",
+      title: "Product content changed",
+      summary: contentChange.detail || contentChange.title || contentChange.label,
+      occurredAt: daysAgo(8 + index, SEED_NOW),
+      severityTone: "info",
+      importance: 56,
+      afterValue: { productStatus: metrics.productStatus || "ACTIVE", variantCount: metrics.variantCount || null },
+      metadata: { seedSource: DEMO_SEED_SOURCE, reason: contentChange.label || contentChange.title },
+      dedupeKey: `seed:${product.productGid}:content`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
+    index < 5 ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "watchlist_changes_detected",
+      category: "watchlist",
+      source: "ProductPulse Watchlist",
+      title: index === 3 ? "Watch paused" : "Watchlist run completed",
+      summary: index === 3
+        ? "Automatic rescans were paused for this demo product."
+        : `Watchlist compared the latest state and found ${Math.max(1, index + 1)} meaningful product signal changes.`,
+      occurredAt: daysAgo(2 + index, SEED_NOW),
+      severityTone: index === 3 ? "neutral" : "warning",
+      importance: index === 3 ? 42 : 66,
+      afterValue: { riskScore: product.riskScore, riskLabel: getSeedRiskLabel(product.riskScore) },
+      metadata: { seedSource: DEMO_SEED_SOURCE, changeCount: Math.max(1, index + 1), sourceChangeCount: 2 },
+      dedupeKey: `seed:${product.productGid}:watchlist`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
+  ].filter(Boolean);
+
+  if (!rows.length) return 0;
+  const result = await prisma.productTimelineEvent.createMany({ data: rows, skipDuplicates: true });
+  return Number(result.count || rows.length);
 }
 
 async function seedWatchlist(shop, products) {
@@ -2305,6 +2569,14 @@ function parseDate(value) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getSeedRiskLabel(score = 0) {
+  const value = Number(score || 0);
+  if (value >= 75) return "High";
+  if (value >= 55) return "Medium";
+  if (value > 0) return "Low";
+  return "Unscored";
 }
 
 function percent(numerator, denominator) {
