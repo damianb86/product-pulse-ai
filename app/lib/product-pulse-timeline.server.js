@@ -173,7 +173,7 @@ export async function recordTimelineForLatestScoreSnapshots(shop, snapshots = []
 
 export async function recordTimelineForDiagnosis({ shop, snapshot, diagnosis, previousDiagnosis = null, jobId = null, db = prisma } = {}) {
   if (!shop || !snapshot?.productGid || !diagnosis || !db.productTimelineEvent) return { count: 0 };
-  const previous = previousDiagnosis || await db.productDiagnosis.findFirst({
+  const previousDiagnoses = await db.productDiagnosis.findMany({
     where: {
       shop,
       productGid: snapshot.productGid,
@@ -181,11 +181,15 @@ export async function recordTimelineForDiagnosis({ shop, snapshot, diagnosis, pr
       id: { not: diagnosis.id },
     },
     orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+    take: 80,
   });
+  const issueHistory = buildDiagnosisIssueHistoryContext(previousDiagnoses);
+  const previous = previousDiagnosis || issueHistory.previous || null;
   const events = buildTimelineEventsForDiagnosisRows([diagnosis], {
     shop,
     product: snapshot,
     previousDiagnosisById: new Map([[diagnosis.id, previous]]),
+    issueHistoryById: new Map([[diagnosis.id, issueHistory]]),
     scanJobId: jobId,
   });
   return createProductTimelineEvents(events, { db });
@@ -472,22 +476,36 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
   return events;
 }
 
-function buildTimelineEventsForDiagnosisRows(diagnoses = [], { shop, product, previousDiagnosisById = new Map(), scanJobId = null } = {}) {
+function buildTimelineEventsForDiagnosisRows(diagnoses = [], { shop, product, previousDiagnosisById = new Map(), issueHistoryById = new Map(), scanJobId = null } = {}) {
   const sorted = [...(Array.isArray(diagnoses) ? diagnoses : [])]
     .filter((diagnosis) => diagnosis?.id)
     .sort((first, second) => getTime(first.completedAt || first.createdAt) - getTime(second.completedAt || second.createdAt));
   const events = [];
-  sorted.forEach((diagnosis, index) => {
-    const previous = previousDiagnosisById.get(diagnosis.id) || (index > 0 ? sorted[index - 1] : null);
-    events.push(...buildTimelineEventsForDiagnosis({ shop, product, diagnosis, previous, scanJobId }));
+  let previousInSequence = null;
+  const seenIssueKeys = new Set();
+  const resolvedIssueKeys = new Set();
+  sorted.forEach((diagnosis) => {
+    const history = issueHistoryById.get(diagnosis.id) || {
+      priorIssueKeys: new Set(seenIssueKeys),
+      resolvedIssueKeys: new Set(resolvedIssueKeys),
+    };
+    const previous = previousDiagnosisById.get(diagnosis.id) || previousInSequence;
+    events.push(...buildTimelineEventsForDiagnosis({ shop, product, diagnosis, previous, issueHistory: history, scanJobId }));
+
+    const currentIssueKeys = getDiagnosisIssueKeySet(diagnosis);
+    const previousIssueKeys = getDiagnosisIssueKeySet(previousInSequence);
+    previousIssueKeys.forEach((key) => {
+      if (!currentIssueKeys.has(key)) resolvedIssueKeys.add(key);
+    });
+    currentIssueKeys.forEach((key) => seenIssueKeys.add(key));
+    previousInSequence = diagnosis;
   });
   return events;
 }
 
-function buildTimelineEventsForDiagnosis({ shop, product, diagnosis, previous = null, scanJobId = null } = {}) {
+function buildTimelineEventsForDiagnosis({ shop, product, diagnosis, previous = null, issueHistory = {}, scanJobId = null } = {}) {
   if (!shop || !diagnosis?.id) return [];
   const occurredAt = parseDate(diagnosis.completedAt || diagnosis.createdAt) || new Date();
-  const metrics = diagnosis.metrics || product?.metrics || {};
   const productTitle = diagnosis.productTitle || product?.productTitle || product?.title || "Shopify product";
   const base = {
     shop,
@@ -500,89 +518,54 @@ function buildTimelineEventsForDiagnosis({ shop, product, diagnosis, previous = 
     scanJobId: optionalString(scanJobId),
     diagnosisId: diagnosis.id,
   };
-  const events = [{
-    ...base,
-    eventType: "full_diagnosis_completed",
-    category: "diagnosis",
-    title: "Full diagnosis completed",
-    summary: `${formatInteger(diagnosis.riskScore)} / 100 risk · ${diagnosis.likelyCause || product?.primaryIssue || "No main issue"} · ${formatInteger(diagnosis.confidence)}% confidence.`,
-    severityTone: getRiskToneForScore(diagnosis.riskScore),
-    importance: 62,
-    afterValue: {
-      riskScore: nullableInteger(diagnosis.riskScore),
-      confidence: nullableInteger(diagnosis.confidence),
-      likelyCause: diagnosis.likelyCause || null,
-    },
-    metadata: {
-      issueCount: Array.isArray(diagnosis.issues) ? diagnosis.issues.length : 0,
-      recommendationCount: Array.isArray(diagnosis.recommendations) ? diagnosis.recommendations.length : 0,
-      estimatedImpact: metrics.estimatedImpact || null,
-    },
-    dedupeKey: `diagnosis:${diagnosis.id}:completed`,
-  }];
-
-  const previousIssues = getDiagnosisIssueKeySet(previous);
+  const events = [];
+  const priorIssueKeys = issueHistory.priorIssueKeys instanceof Set ? issueHistory.priorIssueKeys : new Set();
+  const alreadyResolvedIssueKeys = issueHistory.resolvedIssueKeys instanceof Set ? issueHistory.resolvedIssueKeys : new Set();
   const currentIssues = getDiagnosisIssueRows(diagnosis);
-  const newIssues = currentIssues.filter((issue) => !previousIssues.has(issue.key)).slice(0, previous ? 4 : 3);
-  newIssues.forEach((issue) => {
+  const newIssues = uniqueDiagnosisIssues(currentIssues.filter((issue) => !priorIssueKeys.has(issue.key))).slice(0, 6);
+  if (newIssues.length) {
     events.push({
       ...base,
-      eventType: previous ? "new_issue_detected" : "issue_detected",
+      eventType: previous ? "new_issues_detected" : "issues_detected",
       category: "risk",
-      title: previous ? "New issue detected" : "Issue detected",
-      summary: `${issue.label}${issue.action ? ` · Suggested action: ${issue.action}` : ""}`,
+      title: previous
+        ? `${newIssues.length === 1 ? "New issue detected" : "New issues detected"}`
+        : `${newIssues.length === 1 ? "Issue detected" : "Issues detected"}`,
+      summary: summarizeIssueList(newIssues, "detected"),
       severityTone: getRiskToneForScore(diagnosis.riskScore),
       importance: previous ? 70 : 56,
-      afterValue: { issue: issue.label },
-      metadata: { issue },
-      dedupeKey: `diagnosis:${diagnosis.id}:issue:${issue.key}`,
+      afterValue: { issues: newIssues.map((issue) => issue.label) },
+      metadata: {
+        issueCount: newIssues.length,
+        issues: newIssues,
+      },
+      dedupeKey: `diagnosis:${diagnosis.id}:issues-detected:${newIssues.map((issue) => issue.key).join(",")}`,
     });
-  });
+  }
 
   if (previous) {
     const currentIssueKeys = new Set(currentIssues.map((issue) => issue.key));
-    getDiagnosisIssueRows(previous)
-      .filter((issue) => !currentIssueKeys.has(issue.key))
-      .slice(0, 4)
-      .forEach((issue) => {
-        events.push({
-          ...base,
-          eventType: "issue_resolved",
-          category: "risk",
-          title: "Issue no longer detected",
-          summary: `${issue.label} was not present in the latest diagnosis issue list.`,
-          severityTone: "success",
-          importance: 62,
-          beforeValue: { issue: issue.label },
-          metadata: { issue },
-          dedupeKey: `diagnosis:${diagnosis.id}:issue-resolved:${issue.key}`,
-        });
-      });
-  }
-
-  (Array.isArray(diagnosis.recommendations) ? diagnosis.recommendations : [])
-    .slice(0, 8)
-    .forEach((recommendation, index) => {
-      const recommendationId = getRecommendationId(recommendation, index);
+    const resolvedIssues = uniqueDiagnosisIssues(getDiagnosisIssueRows(previous)
+      .filter((issue) => !currentIssueKeys.has(issue.key) && !alreadyResolvedIssueKeys.has(issue.key)))
+      .slice(0, 6);
+    if (resolvedIssues.length) {
       events.push({
         ...base,
-        eventType: "recommended_action_created",
-        category: "action",
-        source: "ProductPulse recommendations",
-        title: "Recommended action created",
-        summary: recommendation.title || recommendation.label || "ProductPulse created a recommended action.",
-        severityTone: getActionTone(recommendation.status || recommendation.priority),
-        importance: getRecommendationImportance(recommendation, index),
+        eventType: "issues_resolved",
+        category: "risk",
+        title: resolvedIssues.length === 1 ? "Issue no longer detected" : "Issues no longer detected",
+        summary: summarizeIssueList(resolvedIssues, "resolved"),
+        severityTone: "success",
+        importance: 62,
+        beforeValue: { issues: resolvedIssues.map((issue) => issue.label) },
         metadata: {
-          recommendationId,
-          actionType: recommendation.type || recommendation.actionType || null,
-          priority: recommendation.priority || null,
-          effort: recommendation.effort || null,
-          payload: safeSmallMetadata(recommendation.payload),
+          issueCount: resolvedIssues.length,
+          issues: resolvedIssues,
         },
-        dedupeKey: `diagnosis:${diagnosis.id}:recommendation:${recommendationId}`,
+        dedupeKey: `diagnosis:${diagnosis.id}:issues-resolved:${resolvedIssues.map((issue) => issue.key).join(",")}`,
       });
-    });
+    }
+  }
 
   return events;
 }
@@ -1054,7 +1037,7 @@ function buildTimelineSummary(events = []) {
   if (!events.length) return null;
   const latestWatch = events.find((event) => event.category === "watchlist");
   const important = meaningful
-    .filter((event) => event.eventType !== "quickscan_completed" && event.eventType !== "full_diagnosis_completed")
+    .filter((event) => event.eventType !== "quickscan_completed")
     .slice(0, 3);
   if (latestWatch && important.length) {
     return `Since the latest Watchlist activity, ${important.map((event) => event.title.toLowerCase()).join(", ")}.`;
@@ -1257,7 +1240,7 @@ function getActionTimelineEventType(status) {
   if (status === "reviewed") return "recommended_action_reviewed";
   if (status === "ignored") return "issue_ignored";
   if (status === "active") return "recommended_action_restored";
-  return "recommended_action_created";
+  return "recommended_action_saved";
 }
 
 function getActionTimelineTitle(status) {
@@ -1295,21 +1278,6 @@ function getActionTimelineImportance(status, payload = {}) {
   return 46;
 }
 
-function getRecommendationImportance(recommendation = {}, index = 0) {
-  const priority = String(recommendation.priority || "").toLowerCase();
-  if (priority.includes("high")) return 64;
-  if (priority.includes("medium")) return 56;
-  return Math.max(44, 52 - index * 2);
-}
-
-function getActionTone(value = "") {
-  const normalized = String(value || "").toLowerCase();
-  if (normalized.includes("high")) return "warning";
-  if (normalized.includes("dismiss")) return "neutral";
-  if (normalized.includes("review") || normalized.includes("appl")) return "success";
-  return "info";
-}
-
 function getDiagnosisIssueRows(diagnosis = {}) {
   return (Array.isArray(diagnosis.issues) ? diagnosis.issues : [])
     .map((issue, index) => {
@@ -1331,8 +1299,46 @@ function getDiagnosisIssueKeySet(diagnosis = null) {
   return new Set(getDiagnosisIssueRows(diagnosis || {}).map((issue) => issue.key));
 }
 
-function getRecommendationId(recommendation = {}, index = 0) {
-  return normalizeText(recommendation.id || recommendation.actionId || recommendation.label || recommendation.title || `recommendation-${index + 1}`) || `recommendation-${index + 1}`;
+function buildDiagnosisIssueHistoryContext(previousDiagnoses = []) {
+  const sorted = [...(Array.isArray(previousDiagnoses) ? previousDiagnoses : [])]
+    .filter((diagnosis) => diagnosis?.id)
+    .sort((first, second) => getTime(first.completedAt || first.createdAt) - getTime(second.completedAt || second.createdAt));
+  const priorIssueKeys = new Set();
+  const resolvedIssueKeys = new Set();
+  let previousIssueKeys = new Set();
+  let previous = null;
+
+  sorted.forEach((diagnosis) => {
+    const currentIssueKeys = getDiagnosisIssueKeySet(diagnosis);
+    previousIssueKeys.forEach((key) => {
+      if (!currentIssueKeys.has(key)) resolvedIssueKeys.add(key);
+    });
+    currentIssueKeys.forEach((key) => priorIssueKeys.add(key));
+    previousIssueKeys = currentIssueKeys;
+    previous = diagnosis;
+  });
+
+  return { previous, priorIssueKeys, resolvedIssueKeys };
+}
+
+function uniqueDiagnosisIssues(issues = []) {
+  const seen = new Set();
+  return (Array.isArray(issues) ? issues : []).filter((issue) => {
+    if (!issue?.key || seen.has(issue.key)) return false;
+    seen.add(issue.key);
+    return true;
+  });
+}
+
+function summarizeIssueList(issues = [], mode = "detected") {
+  const labels = uniqueDiagnosisIssues(issues).map((issue) => issue.label).filter(Boolean);
+  if (!labels.length) return mode === "resolved" ? "Previously detected issues are no longer present." : "New issues were detected.";
+  const prefix = mode === "resolved"
+    ? labels.length === 1 ? "No longer detected" : "No longer detected"
+    : labels.length === 1 ? "Detected" : "Detected";
+  const visibleLabels = labels.slice(0, 5);
+  const overflow = Math.max(0, labels.length - visibleLabels.length);
+  return `${prefix}: ${visibleLabels.join(", ")}${overflow ? ` and ${overflow} more` : ""}.`;
 }
 
 function getTimelineSourceLabel(source = "") {
@@ -1403,12 +1409,6 @@ function normalizeLimit(value) {
 function normalizeOffset(value) {
   const number = Number.parseInt(value, 10);
   return Number.isFinite(number) && number > 0 ? number : 0;
-}
-
-function safeSmallMetadata(value) {
-  if (!value || typeof value !== "object") return null;
-  const keys = ["field", "shopifyField", "target", "operation", "actionVariant", "source", "whyThisAction"];
-  return Object.fromEntries(keys.filter((key) => value[key] != null).map((key) => [key, value[key]]));
 }
 
 function formatMetricLabel(key = "") {
@@ -1524,6 +1524,7 @@ function jsonCompatible(value) {
 }
 
 export const __productPulseTimelineTestHooks = {
+  buildTimelineEventsForDiagnosisRows,
   buildTimelineEventsForScoreHistoryPair,
   buildTimelineEventsForWatchActivity,
   normalizeTimelineEvent,

@@ -204,7 +204,7 @@ function makeMetricTimelineProduct(overrides = {}) {
       },
     },
     timeline: {
-      summary: "Risk increased and one recommendation was created after the latest Watchlist run.",
+      summary: "Risk increased and one recommendation was applied after the latest Watchlist run.",
       filters: {
         categories: [
           { value: "risk", label: "Risk", count: 1 },
@@ -239,12 +239,12 @@ function makeMetricTimelineProduct(overrides = {}) {
         },
         {
           id: "timeline-action",
-          eventType: "recommended_action_created",
+          eventType: "recommended_action_applied",
           category: "action",
           categoryLabel: "Actions",
-          source: "ProductPulse recommendations",
-          title: "Recommended action created",
-          summary: "Add expectation guidance.",
+          source: "ProductPulse action",
+          title: "Recommended action applied",
+          summary: "Add fit note was applied.",
           occurredAt: "2026-05-29T01:00:00.000Z",
           dayKey: "2026-05-29",
           dateLabel: "May 29, 2026",
@@ -253,7 +253,7 @@ function makeMetricTimelineProduct(overrides = {}) {
           tone: "blue",
           importance: 58,
           importanceLabel: "Meaningful",
-          metadata: { recommendationId: "fit-note" },
+          metadata: { sourceActionId: "fit-note" },
           icon: "check-circle",
           related: { recommendationId: "fit-note" },
           cta: { type: "action", label: "Open action" },
@@ -1560,9 +1560,9 @@ describe("ProductPulse screens", () => {
     const panel = container.querySelector(".ppProductTimelinePanel");
 
     expect(within(panel).getByRole("heading", { name: "Product Timeline" })).toBeInTheDocument();
-    expect(within(panel).getByText("Risk increased and one recommendation was created after the latest Watchlist run.")).toBeInTheDocument();
+    expect(within(panel).getByText("Risk increased and one recommendation was applied after the latest Watchlist run.")).toBeInTheDocument();
     expect(within(panel).getByText("Product risk increased")).toBeInTheDocument();
-    expect(within(panel).getByText("Recommended action created")).toBeInTheDocument();
+    expect(within(panel).getByText("Recommended action applied")).toBeInTheDocument();
     expect(within(panel).queryByText("QuickScan completed")).not.toBeInTheDocument();
 
     fireEvent.click(within(panel).getByRole("button", { name: /Details/ }));
@@ -1570,7 +1570,7 @@ describe("ProductPulse screens", () => {
     expect(within(panel).getByText(/Risk Score: 58/)).toBeInTheDocument();
 
     fireEvent.change(within(panel).getByLabelText("Event group"), { target: { value: "action" } });
-    expect(within(panel).getByText("Recommended action created")).toBeInTheDocument();
+    expect(within(panel).getByText("Recommended action applied")).toBeInTheDocument();
     expect(within(panel).queryByText("Product risk increased")).not.toBeInTheDocument();
 
     fireEvent.change(within(panel).getByLabelText("Event group"), { target: { value: "all" } });
