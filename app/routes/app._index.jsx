@@ -22,7 +22,7 @@ export const action = async ({ request }) => {
 
   if (formData.get("_action") === "diagnose") {
     const productId = String(formData.get("productId") || "");
-    const diagnosis = await queueProductDiagnosisForShop(session.shop, productId);
+    const diagnosis = await queueProductDiagnosisForShop(session.shop, productId, { admin });
     if (diagnosis) return diagnosis;
     return { status: "validation_error", message: "Run QuickScan before starting a product diagnosis." };
   }

@@ -3080,15 +3080,83 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductChartAiInterpretation {
+  position: relative;
   display: grid;
-  gap: 3px;
-  margin-top: 2px;
+  gap: 8px;
+  margin-top: 12px;
   padding: 7px 9px;
   border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.18);
   border-radius: 10px;
   background:
     linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.095), rgba(var(--pp-pulse-blue-rgb), 0.055)),
     var(--pp-card-bg);
+}
+
+.ppProductPanelCollapseButton {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-600);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.08);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.ppProductPanelCollapseButton:hover,
+.ppProductPanelCollapseButton:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.28);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.05);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 6px 14px rgba(var(--pp-shadow-rgb), 0.10);
+  outline: none;
+}
+
+.ppProductPanelCollapseButton s-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.ppProductPanelCollapseRegion {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition:
+    max-height 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease,
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 360ms;
+}
+
+.ppProductPanelCollapseRegion.isExpanded {
+  max-height: 4200px;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    max-height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease,
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+
+.ppProductPanelCollapseRegionInner {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  overflow: hidden;
+  margin-top: 15px;
+}
+
+.ppProductPanelCollapseRegion:not(.isExpanded) .ppProductPanelCollapseRegionInner {
+  visibility: hidden;
 }
 
 .ppProductChartAiInterpretation-empty {
@@ -3098,7 +3166,13 @@ s-page[inline-size="large-500"] {
     var(--pp-card-bg);
 }
 
-.ppProductChartAiInterpretation > span {
+.ppProductChartAiInterpretationHeader {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ppProductChartAiInterpretationHeader > span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3110,9 +3184,17 @@ s-page[inline-size="large-500"] {
   text-transform: uppercase;
 }
 
-.ppProductChartAiInterpretation > span svg {
+.ppProductChartAiInterpretationHeader > span svg {
   width: 12px;
   height: 12px;
+}
+
+.ppProductChartAiInterpretationHeader h3 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.15;
 }
 
 .ppProductChartAiInterpretation p {
@@ -3123,9 +3205,29 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
 }
 
+.ppProductChartAiInterpretationHeader p {
+  max-width: 680px;
+  color: var(--pp-slate-600);
+}
+
+.ppProductChartAiInterpretationText {
+  padding-top: 1px;
+}
+
 .ppProductChartAiInterpretation-empty p {
   color: var(--pp-slate-500);
   font-weight: 700;
+}
+
+.ppOrderActivityHeader > .ppProductPanelCollapseButton,
+.ppReturnPredictionHeader > .ppProductPanelCollapseButton,
+.ppProductRetentionHeader > .ppProductPanelCollapseButton,
+.ppProductMomentumHeader > .ppProductPanelCollapseButton,
+.ppProductRiskHistoryHeader > .ppProductPanelCollapseButton,
+.ppProductRelationshipTimelineHeader > .ppProductPanelCollapseButton {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 .ppProductDeepDiagnosisPlaceholder {
@@ -5254,7 +5356,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductRiskHistoryPanel {
   display: grid;
-  gap: 16px;
+  gap: 0;
   padding: 18px;
   overflow: visible;
 }
@@ -5327,6 +5429,11 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
   color: var(--pp-pulse-blue);
   box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppMetricTimelineChart.isHoverLockSource {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.34);
+  box-shadow: 0 0 0 2px rgba(var(--pp-pulse-blue-rgb), 0.08), 0 12px 28px rgba(var(--pp-shadow-rgb), 0.08);
 }
 
 .ppMetricTimelineSummary {
@@ -5489,9 +5596,25 @@ s-page[inline-size="large-500"] {
   filter: drop-shadow(0 5px 12px rgba(var(--pp-shadow-rgb), 0.2));
 }
 
+.ppMetricTimelineLockedDot {
+  filter: drop-shadow(0 0 0 rgba(var(--pp-pulse-blue-rgb), 0.7)) drop-shadow(0 8px 16px rgba(var(--pp-shadow-rgb), 0.26));
+}
+
 .ppMetricTimelineEventMarker {
   color: var(--pp-metric-timeline-event-color, var(--pp-slate-700));
   cursor: pointer;
+}
+
+.ppMetricTimelineEventMarker.isLocked {
+  filter: drop-shadow(0 8px 16px rgba(var(--pp-shadow-rgb), 0.26));
+}
+
+.ppMetricTimelineEventMarker.isLocked .ppMetricTimelineEventMarkerHalo {
+  fill: color-mix(in srgb, currentColor 34%, transparent);
+}
+
+.ppMetricTimelineEventMarker.isLocked .ppMetricTimelineEventMarkerCircle {
+  stroke-width: 3.2;
 }
 
 .ppMetricTimelineEventMarkerHalo {
@@ -5567,11 +5690,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppMetricTimelineEventTooltip {
-  gap: 12px;
-  width: min(560px, 86vw);
+  gap: 8px;
+  width: min(390px, calc(100vw - 60px));
   max-height: min(560px, 100vh);
   overflow: auto;
-  padding: 13px;
+  padding: 10px;
   border: 1px solid var(--pp-slate-200);
   transform-origin: bottom left;
 }
@@ -5610,7 +5733,7 @@ s-page[inline-size="large-500"] {
 .ppMetricTimelineEventTooltipGroups {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) !important;
-  gap: 4px !important;
+  gap: 5px !important;
 }
 
 .ppMetricTimelineEventTooltipGroup {
@@ -5643,9 +5766,10 @@ s-page[inline-size="large-500"] {
 
 .ppMetricTimelineEventTooltipRow {
   display: grid !important;
-  grid-template-columns: 54px 28px minmax(0, 1fr) !important;
-  align-items: center !important;
-  gap: 10px !important;
+  grid-template-columns: 24px minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 7px !important;
+  padding: 2px 0;
   color: var(--pp-slate-700);
 }
 
@@ -5653,13 +5777,13 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
   font-size: 7px;
   font-weight: 850;
-  line-height: 1;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
 .ppMetricTimelineEventTooltipRowIcon {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: inline-grid !important;
   place-items: center;
   border: 1px solid var(--pp-slate-200);
@@ -5671,8 +5795,8 @@ s-page[inline-size="large-500"] {
 
 .ppMetricTimelineEventTooltipRowIcon svg,
 .ppMetricTimelineEventTooltipRowIcon s-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .ppMetricTimelineEventTooltipRowCopy {
@@ -5681,24 +5805,30 @@ s-page[inline-size="large-500"] {
   min-width: 0;
 }
 
-.ppMetricTimelineEventTooltipRowCopy strong {
-  overflow: hidden;
+.ppMetricTimelineEventTooltipTitle {
+  display: flex !important;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ppMetricTimelineEventTooltipTitle strong {
   color: var(--pp-slate-900);
   font-size: 11px;
   font-weight: 950;
-  line-height: 1.1;
-  text-overflow: ellipsis;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .ppMetricTimelineEventTooltipRowCopy small {
-  overflow: hidden;
   color: var(--pp-slate-600);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 650;
   line-height: 1.2;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .ppMetricTimelineEventTooltipGroup em {
@@ -5821,10 +5951,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRiskHistoryHeader {
+  position: relative;
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 18px;
+  padding-right: 42px;
 }
 
 .ppProductRiskHistoryTitleBlock {
@@ -9044,8 +9176,8 @@ s-page[inline-size="large-500"] {
   grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  gap: 62px;
-  padding: 30px 30px 28px;
+  gap: 0;
+  padding: 18px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 18px;
   background: var(--pp-cloud-white);
@@ -9053,10 +9185,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRelationshipTimelineHeader {
+  position: relative;
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 18px;
+  padding-right: 42px;
 }
 
 .ppProductRelationshipTimelineHeader > div:first-child {
@@ -9148,6 +9282,7 @@ s-page[inline-size="large-500"] {
   align-items: stretch;
   gap: 66px;
   min-height: 305px;
+  margin-top: 10px;
 }
 
 .ppProductRelationshipTimelineLines {
@@ -9201,36 +9336,13 @@ s-page[inline-size="large-500"] {
   align-content: stretch;
   gap: 18px;
   min-height: 305px;
-  padding: 54px 16px 16px;
+  padding: 16px 16px 16px;
   border: 1px solid rgba(221, 229, 239, 0.92);
   border-radius: 12px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 250, 252, 0.9) 100%),
     var(--pp-cloud-white);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 8px 24px rgba(15, 23, 42, 0.04);
-}
-
-.ppProductRelationshipTimelineSide::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: -43.5px;
-  left: 50%;
-  width: 86px;
-  height: 44px;
-  border: 1.5px solid rgba(128, 144, 168, 0.32);
-  border-bottom: 0;
-  border-radius: 999px 999px 0 0;
-  transform: translateX(-50%);
-  background:
-    radial-gradient(
-      circle at 50% 110%,
-      rgba(128, 144, 168, 0.2) 0%,
-      rgba(128, 144, 168, 0.12) 35%,
-      rgba(128, 144, 168, 0.06) 55%,
-      transparent 75%
-    ),
-    linear-gradient(0deg, #F3F6FA 0%, #FBFCFE 100%);
 }
 
 .ppProductRelationshipTimelineSide-together {
@@ -9274,10 +9386,10 @@ s-page[inline-size="large-500"] {
 .ppProductRelationshipTimelineCartBadge {
   position: absolute;
   z-index: 3;
-  top: -27px;
-  left: 50%;
-  width: 58px;
-  height: 58px;
+  top: 15px;
+  left: 15px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -9285,7 +9397,6 @@ s-page[inline-size="large-500"] {
   border-radius: 999px;
   background: #F7F1FF;
   box-shadow: 0 6px 18px rgba(124, 92, 255, 0.16);
-  transform: translateX(-50%);
 }
 
 .ppProductRelationshipTimelineCartBadge-before {
@@ -9307,8 +9418,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductRelationshipTimelineCartBadge img {
-  width: 54px;
-  height: 54px;
+  width: 34px;
+  height: 34px;
   display: block;
   object-fit: cover;
   transform: scale(1.55);
@@ -10288,10 +10399,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppOrderActivityHeader {
+  position: relative;
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 18px;
+  padding-right: 42px;
 }
 
 .ppOrderActivityHeader > div:first-child {
@@ -11113,10 +11226,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppReturnPredictionHeader {
+  position: relative;
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 18px;
+  padding-right: 42px;
 }
 
 .ppReturnPredictionHeader > div:first-child {
@@ -11489,7 +11604,7 @@ s-page[inline-size="large-500"] {
 .ppProductDeepResearchGrid .ppProductOrderActivityPanel,
 .ppProductDeepResearchGrid .ppProductReturnPredictionPanel {
   align-content: start;
-  gap: 10px;
+  gap: 0;
   padding: 14px;
 }
 
@@ -11708,16 +11823,18 @@ s-page[inline-size="large-500"] {
 
 .ppProductRetentionPanel {
   display: grid;
-  gap: 16px;
+  gap: 0;
   padding: 18px;
   overflow: hidden;
 }
 
 .ppProductRetentionHeader {
+  position: relative;
   display: flex;
   align-items: start;
   justify-content: space-between;
   gap: 18px;
+  padding-right: 42px;
 }
 
 .ppProductRetentionHeader > div:first-child {
@@ -12950,6 +13067,11 @@ s-page[inline-size="large-500"] {
   gap: 18px;
 }
 
+.ppProductMomentumHeader {
+  position: relative;
+  padding-right: 42px;
+}
+
 .ppProductMomentumHeader > div:first-child {
   display: grid;
   gap: 4px;
@@ -13495,7 +13617,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailSidebar .ppProductMomentumPanel {
-  gap: 12px;
+  gap: 0;
   padding: 16px;
 }
 
@@ -24886,6 +25008,105 @@ s-page[inline-size="large-500"] {
   background: rgba(var(--pp-shadow-rgb), 0.44);
 }
 
+.ppRouteLoadingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(var(--pp-slate-100-rgb), 0.24);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  backdrop-filter: blur(3px);
+  transition: opacity 120ms ease, visibility 0s linear 120ms;
+}
+
+.ppRouteLoadingOverlay.isVisible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 120ms ease, visibility 0s;
+}
+
+.ppRouteLoadingCard {
+  display: inline-grid;
+  justify-items: center;
+  gap: 9px;
+  min-width: 118px;
+  padding: 14px 16px 13px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--pp-slate-900);
+  box-shadow: 0 18px 42px rgba(var(--pp-shadow-rgb), 0.12);
+  transform: translateY(3px) scale(0.98);
+  transition: transform 160ms ease;
+}
+
+.ppRouteLoadingOverlay.isVisible .ppRouteLoadingCard {
+  transform: translateY(0) scale(1);
+}
+
+.ppRouteLoadingSpinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 16px;
+}
+
+.ppRouteLoadingSpinner i {
+  width: 6px;
+  height: 6px;
+  display: block;
+  border-radius: 999px;
+  background: var(--pp-pulse-blue);
+  animation: ppRouteLoadingPulse 0.95s ease-in-out infinite;
+}
+
+.ppRouteLoadingSpinner i:nth-child(2) {
+  background: var(--pp-insight-violet);
+  animation-delay: 0.14s;
+}
+
+.ppRouteLoadingSpinner i:nth-child(3) {
+  background: var(--pp-signal-teal);
+  animation-delay: 0.28s;
+}
+
+.ppRouteLoadingCard strong {
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+@keyframes ppRouteLoadingPulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.85);
+  }
+
+  38% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ppRouteLoadingOverlay,
+  .ppRouteLoadingCard,
+  .ppRouteLoadingSpinner i {
+    animation: none;
+    transition: none;
+  }
+}
+
 .ppAnalysisConfirmModal {
   width: min(500px, 100%);
   max-height: calc(100vh - 32px);
@@ -25121,6 +25342,7 @@ s-page[inline-size="large-500"] {
 .ppCostConfirmCostIcon svg {
   width: 31px;
   height: 31px;
+  margin-top: 5px;
 }
 
 .ppCostConfirmCost > div > span,
@@ -33708,7 +33930,7 @@ s-page[inline-size="large-500"] {
 .ppProductRelationshipTimelineHeader > div:first-child > span,
 .ppEvidenceObservabilityHeader > div:first-child > span,
 .ppReturnRefundResolutionHeader > div:first-child > span,
-.ppProductChartAiInterpretation > span {
+.ppProductChartAiInterpretationHeader > span {
   color: var(--pp-insight-violet);
   font-size: 10px;
   font-weight: 900;
@@ -33759,4 +33981,1572 @@ s-page[inline-size="large-500"] {
   font-size: 11px;
   font-weight: 650;
   line-height: 1.45;
+}
+
+.ppPlansPage {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 24px 28px 30px;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(var(--pp-insight-violet-rgb), 0.08), transparent 28%),
+    radial-gradient(circle at 92% 28%, rgba(var(--pp-success-green-rgb), 0.09), transparent 25%),
+    linear-gradient(180deg, #fbfcff 0%, #f7faff 100%);
+  color: #172038;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.ppPlansPage *,
+.ppPlansPage *::before,
+.ppPlansPage *::after {
+  box-sizing: border-box;
+}
+
+.ppPlansTopbar,
+.ppPlansHero,
+.ppPlansMatrixCard,
+.ppPlansSecureNote,
+.ppPlansLowerGrid,
+.ppPlansBillingPanel,
+.ppPlansFooter {
+  width: 100%;
+  max-width: 1480px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.ppPlansTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 30px;
+}
+
+.ppPlansBrand,
+.ppPlansHelpLink,
+.ppPlansBadge,
+.ppPlansSecureNote,
+.ppPlansPackFootnote,
+.ppPlansFooter span,
+.ppPlansFooter a,
+.ppPlansBillingGrid a,
+.ppPlansFitPanel footer a {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ppPlansBrand {
+  gap: 12px;
+  color: #121a31;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.ppPlansBrandMark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.28);
+  border-radius: 8px;
+  background: #f3efff;
+  color: var(--pp-insight-violet);
+  box-shadow: 0 8px 18px rgba(var(--pp-insight-violet-rgb), 0.10);
+}
+
+.ppPlansBrandMark .ppPlansIcon {
+  width: 18px;
+  height: 18px;
+}
+
+.ppPlansHelpLink {
+  gap: 8px;
+  color: #6f7b95;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.ppPlansHelpLink:hover,
+.ppPlansHelpLink:focus-visible,
+.ppPlansBillingGrid a:hover,
+.ppPlansBillingGrid a:focus-visible,
+.ppPlansFitPanel footer a:hover,
+.ppPlansFitPanel footer a:focus-visible,
+.ppPlansFooter a:hover,
+.ppPlansFooter a:focus-visible {
+  color: var(--pp-pulse-blue);
+  outline: 0;
+}
+
+.ppPlansHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 620px);
+  align-items: end;
+  gap: 28px;
+  margin-bottom: 18px;
+}
+
+.ppPlansHero h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 42px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.ppPlansHero p {
+  max-width: 720px;
+  margin: 12px 0 0;
+  color: #64708c;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.ppPlansHeroBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.ppPlansBadge {
+  min-height: 40px;
+  gap: 10px;
+  padding: 0 18px;
+  border: 1px solid #dde5f2;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #56627b;
+  font-size: 14px;
+  font-weight: 850;
+  box-shadow: 0 10px 22px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppPlansBadge-purple {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.28);
+  background: #f5f1ff;
+  color: var(--pp-insight-violet);
+}
+
+.ppPlansUsageCard {
+  padding: 18px 22px;
+  border: 1px solid #dfe7f3;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.90);
+  box-shadow:
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.04),
+    0 18px 42px rgba(var(--pp-shadow-rgb), 0.08);
+}
+
+.ppPlansUsageCard > strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #18243a;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppPlansUsageCard > div {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.8fr 0.8fr;
+  overflow: hidden;
+  border: 1px solid #dfe7f3;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ppPlansUsageCard span {
+  display: flex;
+  min-height: 64px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 20px;
+  border-left: 1px solid #dfe7f3;
+}
+
+.ppPlansUsageCard span:first-child {
+  border-left: 0;
+}
+
+.ppPlansUsageCard small {
+  color: #66728b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppPlansUsageCard b {
+  color: #162036;
+  font-size: 19px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.ppPlansUsageLeft {
+  color: #16945a !important;
+}
+
+.ppPlansMatrixCard {
+  overflow: hidden;
+  border: 1px solid #dae4f0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.04),
+    0 16px 42px rgba(var(--pp-shadow-rgb), 0.07);
+}
+
+.ppPlansMatrix {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.22fr) repeat(5, minmax(160px, 1fr));
+  align-items: stretch;
+}
+
+.ppPlansFeatureHeading,
+.ppPlansPlanHead,
+.ppPlansFeatureCell,
+.ppPlansValueCell,
+.ppPlansActionCell {
+  border-right: 1px solid #e0e7f1;
+  border-bottom: 1px solid #e0e7f1;
+}
+
+.ppPlansFeatureHeading {
+  display: flex;
+  min-height: 150px;
+  align-items: end;
+  padding: 0 20px 15px;
+  color: #58657d;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ppPlansPlanHead {
+  position: relative;
+  display: flex;
+  min-height: 150px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 6px;
+  padding: 19px 14px 16px;
+  text-align: center;
+}
+
+.ppPlansPlanHead h2 {
+  margin: 0;
+  color: #172038;
+  font-size: 17px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.ppPlansPlanHead > strong {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  color: #0f172a;
+  font-size: 34px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPlansPlanHead > strong small {
+  color: #58657d;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppPlansPlanHead p {
+  margin: 4px 0 0;
+  color: #5d6b84;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppPlansPlanBadge {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 0 9px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.ppPlansPlanBadge-purple {
+  background: linear-gradient(135deg, #8c6aff, #6847dc);
+}
+
+.ppPlansPlanBadge-green {
+  background: linear-gradient(135deg, #16945a, #0b7746);
+}
+
+.ppPlansFeatureCell {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  color: #596681;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppPlansFeatureCell > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ppPlansFeatureCell .ppPlansIcon {
+  flex: 0 0 auto;
+  color: #667692;
+}
+
+.ppPlansInfoDot {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #aeb9ca;
+  border-radius: 50%;
+  color: #8390a5;
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPlansValueCell,
+.ppPlansActionCell {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: #52617d;
+  font-size: 12px;
+  font-weight: 760;
+  text-align: center;
+}
+
+.ppPlansActionCell {
+  min-height: 76px;
+  padding: 14px 12px;
+  border-bottom: 0;
+}
+
+.ppPlansFeatureCell.ppPlansActionsSpacer {
+  min-height: 76px;
+  border-bottom: 0;
+}
+
+.ppPlansColumn-growth.isFeatured {
+  background:
+    linear-gradient(180deg, rgba(var(--pp-insight-violet-rgb), 0.08), rgba(var(--pp-insight-violet-rgb), 0.03)),
+    #fff;
+  box-shadow:
+    inset 1px 0 0 rgba(var(--pp-insight-violet-rgb), 0.38),
+    inset -1px 0 0 rgba(var(--pp-insight-violet-rgb), 0.38);
+}
+
+.ppPlansColumn-growth.isFeaturedTop {
+  border-top: 1px solid rgba(var(--pp-insight-violet-rgb), 0.44);
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+}
+
+.ppPlansColumn-growth.isFeaturedBottom {
+  border-bottom: 1px solid rgba(var(--pp-insight-violet-rgb), 0.44);
+  border-bottom-left-radius: 9px;
+  border-bottom-right-radius: 9px;
+}
+
+.ppPlansColumn-premium.isPremium {
+  background:
+    linear-gradient(180deg, rgba(var(--pp-success-green-rgb), 0.08), rgba(var(--pp-success-green-rgb), 0.03)),
+    #fff;
+}
+
+.ppPlansColumn-growth.isUnavailable,
+.ppPlansColumn-pro.isUnavailable,
+.ppPlansColumn-premium.isUnavailable {
+  background: #f8fafc !important;
+  color: #8b97aa;
+  opacity: 0.52;
+  box-shadow:
+    inset 1px 0 0 #e0e7f1,
+    inset -1px 0 0 #e0e7f1;
+  filter: grayscale(0.75);
+}
+
+.ppPlansColumn-growth.isUnavailable.isFeaturedTop,
+.ppPlansColumn-growth.isUnavailable.isFeaturedBottom {
+  border-color: #e0e7f1;
+}
+
+.ppPlansColumn-growth.isUnavailable :is(h2, strong, small, p),
+.ppPlansColumn-pro.isUnavailable :is(h2, strong, small, p),
+.ppPlansColumn-premium.isUnavailable :is(h2, strong, small, p) {
+  color: #748096;
+}
+
+.ppPlansColumn-growth.isUnavailable .ppPlansPlanBadge,
+.ppPlansColumn-premium.isUnavailable .ppPlansPlanBadge {
+  background: #d5dde9;
+  color: #657186;
+}
+
+.ppPlansColumn-growth.isUnavailable .ppPlansCheck,
+.ppPlansColumn-pro.isUnavailable .ppPlansCheck,
+.ppPlansColumn-premium.isUnavailable .ppPlansCheck {
+  color: #8b97aa;
+}
+
+.ppPlansCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #168756;
+}
+
+.ppPlansCheck .ppPlansIcon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.6;
+}
+
+.ppPlansDash {
+  color: #8190a8;
+  font-size: 16px;
+  font-weight: 850;
+}
+
+.ppPlansChooseButton,
+.ppPlansPackCard button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ced9e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #172038;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppPlansChooseButton {
+  width: 100%;
+  max-width: 178px;
+}
+
+.ppPlansChooseButton:hover,
+.ppPlansChooseButton:focus-visible,
+.ppPlansPackCard button:hover,
+.ppPlansPackCard button:focus-visible {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.48);
+  color: var(--pp-insight-violet);
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(var(--pp-insight-violet-rgb), 0.12);
+}
+
+.ppPlansChooseButton.isPrimary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #8c6aff, #6847dc);
+  color: #fff;
+}
+
+.ppPlansChooseButton.isPremium {
+  border-color: transparent;
+  background: linear-gradient(135deg, #16945a, #0b7746);
+  color: #fff;
+}
+
+.ppPlansChooseButton:disabled,
+.ppPlansChooseButton.isUnavailable:disabled {
+  border-color: #d7e0ec;
+  background: #eef2f7;
+  color: #7e8ba0;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.ppPlansSecureNote {
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  margin-bottom: 18px;
+  color: #6b7891;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.ppPlansSecureNote .ppPlansIcon {
+  color: #687894;
+}
+
+.ppPlansLowerGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(360px, 0.95fr);
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.ppPlansPanel,
+.ppPlansBillingPanel {
+  border: 1px solid #dce5f1;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.04),
+    0 16px 36px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppPlansPanel {
+  padding: 20px 22px;
+}
+
+.ppPlansPanel header h2,
+.ppPlansBillingPanel h2 {
+  margin: 0;
+  color: #172038;
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.ppPlansPanel header p {
+  margin: 4px 0 0;
+  color: #697690;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppPlansPackGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.ppPlansPackCard {
+  display: flex;
+  min-height: 230px;
+  flex-direction: column;
+  align-items: center;
+  padding: 23px 16px 16px;
+  border: 1px solid #dce5f1;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+}
+
+.ppPlansPackIcon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: #f1ecff;
+  color: var(--pp-insight-violet);
+}
+
+.ppPlansPackCard > strong {
+  margin-top: 8px;
+  color: var(--pp-insight-violet);
+  font-size: 21px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPlansPackCard > small {
+  margin-top: 2px;
+  color: #56647f;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppPlansPackCard > b {
+  margin-top: 22px;
+  color: #25164f;
+  font-size: 28px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPlansPackCard > em {
+  margin-top: 14px;
+  color: #66748e;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.ppPlansPackCard button {
+  width: 100%;
+  margin-top: 24px;
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.42);
+  color: var(--pp-insight-violet);
+}
+
+.ppPlansPackFootnote {
+  gap: 8px;
+  margin: 18px 0 0;
+  color: #68748c;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppPlansFitPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.ppPlansFitList {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.ppPlansFitItem {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 82px;
+  padding: 13px 16px;
+  border: 1px solid #dce5f1;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.ppPlansFitItem > span {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.ppPlansFitItem-low > span {
+  background: #dcfce7;
+  color: #16945a;
+}
+
+.ppPlansFitItem-growth > span {
+  background: #eee7ff;
+  color: var(--pp-insight-violet);
+}
+
+.ppPlansFitItem-heavy > span {
+  background: #ffeadc;
+  color: #f97316;
+}
+
+.ppPlansFitItem div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 14px;
+  row-gap: 4px;
+}
+
+.ppPlansFitItem strong {
+  color: var(--pp-insight-violet);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppPlansFitItem-low strong {
+  color: #159052;
+}
+
+.ppPlansFitItem-heavy strong {
+  color: #f97316;
+}
+
+.ppPlansFitItem b {
+  color: #56647d;
+  font-size: 12px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.ppPlansFitItem p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #65728c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ppPlansFitPanel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.ppPlansFitPanel footer strong {
+  color: #172038;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppPlansFitPanel footer a,
+.ppPlansBillingGrid a,
+.ppPlansFooter a {
+  gap: 6px;
+  color: var(--pp-pulse-blue);
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.ppPlansBillingPanel {
+  padding: 20px 22px 22px;
+}
+
+.ppPlansBillingGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.ppPlansBillingGrid article {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 100px;
+  padding: 0 38px;
+  border-left: 1px solid #dce5f1;
+}
+
+.ppPlansBillingGrid article:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.ppPlansBillingGrid article:last-child {
+  padding-right: 0;
+}
+
+.ppPlansBillingIcon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.ppPlansBillingIcon-green {
+  background: #dcfce7;
+  color: #16945a;
+}
+
+.ppPlansBillingIcon-purple {
+  background: #f1ecff;
+  color: var(--pp-insight-violet);
+}
+
+.ppPlansBillingGrid strong {
+  display: block;
+  color: #172038;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppPlansBillingGrid p {
+  margin: 10px 0 0;
+  color: #4f5d76;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ppPlansPaymentLogos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.ppPlansPaymentLogos span {
+  display: inline-flex;
+  min-width: 38px;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 1px solid #d5deec;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 8px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppPlansPaymentLogos span:nth-child(1) {
+  color: #1d4ed8;
+}
+
+.ppPlansPaymentLogos span:nth-child(2) {
+  color: #dc2626;
+}
+
+.ppPlansPaymentLogos span:nth-child(3) {
+  color: #2563eb;
+}
+
+.ppPlansPaymentLogos span:nth-child(4) {
+  color: #f97316;
+}
+
+.ppPlansBillingGrid a {
+  margin-top: 10px;
+}
+
+.ppPlansFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 16px;
+  color: #66748d;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppPlansFooter span {
+  gap: 8px;
+}
+
+.ppPlansIcon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.ppPlansBadge .ppPlansIcon,
+.ppPlansHelpLink .ppPlansIcon,
+.ppPlansSecureNote .ppPlansIcon,
+.ppPlansPackFootnote .ppPlansIcon,
+.ppPlansFooter .ppPlansIcon {
+  width: 16px;
+  height: 16px;
+}
+
+.ppPlansPackIcon .ppPlansIcon,
+.ppPlansBillingIcon .ppPlansIcon,
+.ppPlansFitItem > span .ppPlansIcon {
+  width: 25px;
+  height: 25px;
+}
+
+@media (max-width: 1180px) {
+  .ppPlansHero {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansUsageCard {
+    max-width: 680px;
+  }
+
+  .ppPlansMatrixCard {
+    overflow-x: auto;
+  }
+
+  .ppPlansMatrix {
+    min-width: 1120px;
+  }
+
+  .ppPlansLowerGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansPackGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 840px) {
+  .ppPlansPage {
+    padding: 18px 14px 24px;
+  }
+
+  .ppPlansTopbar,
+  .ppPlansHero {
+    margin-bottom: 22px;
+  }
+
+  .ppPlansHero h1 {
+    font-size: 34px;
+  }
+
+  .ppPlansUsageCard > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppPlansUsageCard span:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid #dfe7f3;
+  }
+
+  .ppPlansUsageCard span:nth-child(4) {
+    border-top: 1px solid #dfe7f3;
+  }
+
+  .ppPlansBillingGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansBillingGrid article,
+  .ppPlansBillingGrid article:first-child,
+  .ppPlansBillingGrid article:last-child {
+    padding: 18px 0;
+    border-top: 1px solid #dce5f1;
+    border-left: 0;
+  }
+
+  .ppPlansBillingGrid article:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .ppPlansBillingGrid article:last-child {
+    padding-bottom: 0;
+  }
+
+  .ppPlansFooter {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .ppPlansTopbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ppPlansHero h1 {
+    font-size: 30px;
+  }
+
+  .ppPlansHeroBadges,
+  .ppPlansBadge {
+    width: 100%;
+  }
+
+  .ppPlansBadge {
+    justify-content: center;
+  }
+
+  .ppPlansUsageCard {
+    padding: 14px;
+  }
+
+  .ppPlansUsageCard span {
+    padding: 0 14px;
+  }
+
+  .ppPlansPackGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansFitItem {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .ppPlansFitItem > span {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ppPlansFitItem div {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansFitItem b {
+    white-space: normal;
+  }
+}
+
+.ppPlansPage {
+  min-height: 100vh;
+  padding: 20px 20px 24px;
+  background: var(--pp-mist-gray);
+  color: var(--pp-slate-900);
+}
+
+.ppPlansScreen {
+  gap: 12px;
+}
+
+.ppPlansTopbar,
+.ppPlansStatusGrid,
+.ppPlansMatrixCard,
+.ppPlansSecureNote,
+.ppPlansLowerGrid,
+.ppPlansBillingPanel,
+.ppPlansFooter {
+  max-width: none;
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.ppPlansTopbar {
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.ppPlansTopbar h1 {
+  margin: 0 0 8px;
+  color: var(--pp-slate-900);
+  font-size: 28px;
+  font-weight: 750;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.ppPlansTopbar p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.ppPlansActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ppPlansActions span,
+.ppPlansHelpLink {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 6px 18px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppPlansActions s-icon {
+  color: var(--pp-pulse-blue);
+}
+
+.ppPlansActions .ppPlansBetaPill {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.24);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.13), rgba(var(--pp-pulse-blue-rgb), 0.08)),
+    var(--pp-cloud-white);
+  color: var(--pp-insight-violet);
+  font-weight: 850;
+}
+
+.ppPlansStatusGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(420px, 0.9fr);
+  gap: 14px;
+}
+
+.ppPlansBetaBanner,
+.ppPlansUsageCard,
+.ppPlansMatrixCard,
+.ppPlansPanel,
+.ppPlansBillingPanel {
+  border: 1px solid var(--pp-slate-300);
+  border-radius: 14px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 1px rgba(var(--pp-shadow-rgb), 0.06), 0 2px 10px rgba(var(--pp-shadow-rgb), 0.06);
+}
+
+.ppPlansBetaBanner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px 18px;
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.28);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.08), rgba(var(--pp-success-green-rgb), 0.04)),
+    var(--pp-cloud-white);
+}
+
+.ppPlansBetaBanner > span {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--pp-insight-violet);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ppPlansBetaBanner strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.ppPlansBetaBanner p {
+  margin: 4px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ppPlansUsageCard {
+  padding: 16px;
+}
+
+.ppPlansUsageCard > strong {
+  margin-bottom: 10px;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ppPlansUsageCard > div {
+  grid-template-columns: 1.15fr 1fr 0.85fr 0.85fr;
+  border-color: var(--pp-slate-200);
+}
+
+.ppPlansUsageCard span {
+  min-height: 58px;
+  padding: 0 16px;
+  border-left-color: var(--pp-slate-200);
+}
+
+.ppPlansUsageCard small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppPlansUsageCard b {
+  color: var(--pp-slate-900);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.ppPlansMatrixCard {
+  overflow-x: auto;
+}
+
+.ppPlansMatrix {
+  min-width: 1120px;
+  grid-template-columns: minmax(210px, 1.12fr) repeat(5, minmax(154px, 1fr));
+}
+
+.ppPlansFeatureHeading,
+.ppPlansPlanHead,
+.ppPlansFeatureCell,
+.ppPlansValueCell,
+.ppPlansActionCell {
+  border-color: var(--pp-slate-200);
+}
+
+.ppPlansFeatureHeading {
+  min-height: 158px;
+  padding: 0 18px 15px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppPlansPlanHead {
+  min-height: 158px;
+  gap: 7px;
+  padding: 18px 12px 15px;
+}
+
+.ppPlansPlanHead.isCurrent {
+  background:
+    linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.07), rgba(var(--pp-pulse-blue-rgb), 0.02)),
+    #fff;
+}
+
+.ppPlansColumn-growth.isUnavailable,
+.ppPlansColumn-pro.isUnavailable,
+.ppPlansColumn-premium.isUnavailable {
+  background: #f8fafc !important;
+  color: #8b97aa;
+  opacity: 0.56;
+  filter: grayscale(0.75);
+  box-shadow: none;
+}
+
+.ppPlansColumn-growth.isUnavailable.isFeaturedTop,
+.ppPlansColumn-growth.isUnavailable.isFeaturedBottom {
+  border-color: var(--pp-slate-200);
+  border-radius: 0;
+}
+
+.ppPlansColumn-growth.isUnavailable :is(h2, strong, small, p, span, em),
+.ppPlansColumn-pro.isUnavailable :is(h2, strong, small, p, span, em),
+.ppPlansColumn-premium.isUnavailable :is(h2, strong, small, p, span, em) {
+  color: #7f8ca3;
+}
+
+.ppPlansColumn-growth.isUnavailable .ppPlansPlanBadge,
+.ppPlansColumn-premium.isUnavailable .ppPlansPlanBadge {
+  background: #d5dde9;
+  color: #657186;
+}
+
+.ppPlansPlanHead h2 {
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.ppPlansPriceBlock {
+  display: flex;
+  min-height: 52px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.ppPlansOriginalPrice {
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1;
+  text-decoration-line: line-through;
+}
+
+.ppPlansPriceBlock strong {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  color: var(--pp-slate-900);
+  font-size: 30px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.ppPlansPriceBlock strong small {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppPlansPriceBlock em {
+  color: var(--pp-insight-violet);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.ppPlansPlanHead p {
+  margin-top: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppPlansPlanBadge,
+.ppPlansCurrentBadge {
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.ppPlansCurrentBadge {
+  position: absolute;
+  top: 15px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.10);
+  color: var(--pp-pulse-blue);
+}
+
+.ppPlansFeatureCell {
+  min-height: 46px;
+  padding: 0 18px;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ppPlansFeatureCell .ppPlansIcon {
+  color: var(--pp-slate-500);
+}
+
+.ppPlansValueCell,
+.ppPlansActionCell {
+  min-height: 46px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ppPlansBetaLimit {
+  display: inline-grid;
+  justify-items: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.ppPlansBetaLimit span {
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 750;
+  text-decoration-line: line-through;
+}
+
+.ppPlansBetaLimit strong {
+  color: var(--pp-insight-violet);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ppPlansBetaLimit em {
+  display: inline-flex;
+  min-height: 16px;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.10);
+  color: var(--pp-insight-violet);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.ppPlansCheck {
+  color: var(--pp-success-green);
+}
+
+.ppPlansActionCell {
+  min-height: 72px;
+}
+
+.ppPlansChooseButton {
+  min-height: 38px;
+  max-width: 168px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.ppPlansChooseButton.isCurrent:disabled {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.22);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
+  cursor: default;
+}
+
+.ppPlansChooseButton.isUnavailable:disabled {
+  border-color: #d7e0ec;
+  background: #eef2f7;
+  color: #7e8ba0;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.ppPlansSecureNote {
+  margin-top: 2px;
+  margin-bottom: 4px;
+  color: var(--pp-slate-500);
+}
+
+.ppPlansLowerGrid {
+  grid-template-columns: minmax(0, 1.65fr) minmax(340px, 0.9fr);
+  gap: 14px;
+  margin-bottom: 2px;
+}
+
+.ppPlansPanel,
+.ppPlansBillingPanel {
+  padding: 18px;
+}
+
+.ppPlansPanel header h2,
+.ppPlansBillingPanel h2 {
+  color: var(--pp-slate-900);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.ppPlansPanel header p {
+  color: var(--pp-slate-600);
+  font-weight: 650;
+}
+
+.ppPlansPackGrid {
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ppPlansPackCard {
+  min-height: 222px;
+  padding: 18px 14px 14px;
+  border-color: var(--pp-slate-200);
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.03);
+}
+
+.ppPlansPackCard > strong {
+  color: var(--pp-insight-violet);
+  font-size: 20px;
+  font-weight: 850;
+}
+
+.ppPlansPackOriginalPrice {
+  margin-top: 14px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1;
+  text-decoration-line: line-through;
+}
+
+.ppPlansPackCard > b {
+  margin-top: 4px;
+  color: var(--pp-slate-900);
+  font-size: 25px;
+  font-weight: 850;
+}
+
+.ppPlansPackCard > em {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(var(--pp-insight-violet-rgb), 0.09);
+  color: var(--pp-insight-violet);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.ppPlansPackCard button {
+  min-height: 36px;
+  margin-top: 16px;
+}
+
+.ppPlansBillingGrid article {
+  min-height: 92px;
+}
+
+@media (max-width: 1180px) {
+  .ppPlansStatusGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansMatrix {
+    min-width: 1060px;
+  }
+
+  .ppPlansPackGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 840px) {
+  .ppPlansPage {
+    padding: 18px 14px 24px;
+  }
+
+  .ppPlansTopbar {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-bottom: 0;
+  }
+
+  .ppPlansActions {
+    justify-content: flex-start;
+  }
+
+  .ppPlansUsageCard > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ppPlansUsageCard span:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--pp-slate-200);
+  }
+
+  .ppPlansUsageCard span:nth-child(4) {
+    border-top: 1px solid var(--pp-slate-200);
+  }
+
+  .ppPlansLowerGrid,
+  .ppPlansBillingGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansPackGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .ppPlansStatusGrid,
+  .ppPlansBetaBanner {
+    grid-template-columns: 1fr;
+  }
+
+  .ppPlansPackGrid {
+    grid-template-columns: 1fr;
+  }
 }

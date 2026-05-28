@@ -1,4 +1,5 @@
 /* eslint-env node */
+/* global BigInt */
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -8,6 +9,10 @@ const SEED_NOW = parseDate(process.env.PRODUCT_PULSE_DEMO_SEED_NOW) || new Date(
 const DEMO_SEED_SOURCE = "product_pulse_demo_seed";
 const MONTHS_TO_SEED = 12;
 const HISTORY_POINTS = 24;
+const WATCHLIST_PRODUCT_COUNT = 10;
+const WATCHLIST_RUNS_PER_PRODUCT = 6;
+const RETENTION_LOOKBACK_DAYS = 365;
+const RETENTION_MAX_COHORT_AGE_DAYS = 180;
 
 const SOURCE_FIXTURES = [
   {
@@ -59,6 +64,36 @@ const SOURCE_FIXTURES = [
     available: true,
     health: "connected",
     coverageWeight: 60,
+  },
+  {
+    sourceKey: "chatmeReviews",
+    category: "reviews",
+    name: "ChatMe Reviews",
+    connected: false,
+    active: false,
+    available: false,
+    health: "not_connected",
+    coverageWeight: 10,
+  },
+  {
+    sourceKey: "supportTickets",
+    category: "support",
+    name: "Support tickets",
+    connected: true,
+    active: true,
+    available: true,
+    health: "connected",
+    coverageWeight: 8,
+  },
+  {
+    sourceKey: "pdpQuestions",
+    category: "pdp-questions",
+    name: "ProductPulse Q&A Block",
+    connected: true,
+    active: true,
+    available: true,
+    health: "connected",
+    coverageWeight: 6,
   },
 ];
 
@@ -520,6 +555,8 @@ async function main() {
   await seedCreditBalance(shop);
 
   const productGids = PRODUCT_FIXTURES.map((product) => product.productGid);
+  await deleteSeededRetentionData(shop, productGids);
+  await deleteSeededJobHistory(shop);
   await prisma.productAction.deleteMany({ where: { shop, productGid: { in: productGids } } });
   await prisma.productDiagnosis.deleteMany({ where: { shop, productGid: { in: productGids } } });
   await prisma.productScoreHistory.deleteMany({ where: { shop, productGid: { in: productGids } } });
@@ -533,7 +570,8 @@ async function main() {
     seededProducts.push(seededProduct);
   }
 
-  await seedWatchlist(shop, seededProducts.slice(0, 5));
+  await seedWatchlist(shop, seededProducts.slice(0, WATCHLIST_PRODUCT_COUNT));
+  await seedJobHistory(shop, seededProducts);
 
   const durationMs = Date.now() - startedAt.getTime();
   console.log(JSON.stringify({
@@ -542,12 +580,39 @@ async function main() {
     productsSeeded: seededProducts.length,
     scoreHistoryRows: seededProducts.length * HISTORY_POINTS,
     timelineEvents: seededProducts.reduce((sum, product) => sum + Number(product.timelineEventCount || 0), 0),
-    watchlistItems: Math.min(5, seededProducts.length),
+    retentionRuns: seededProducts.length,
+    watchlistItems: Math.min(WATCHLIST_PRODUCT_COUNT, seededProducts.length),
+    watchlistRunsPerProduct: WATCHLIST_RUNS_PER_PRODUCT,
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     durationMs,
     command: "npm run seed:demo",
   }, null, 2));
+}
+
+async function deleteSeededRetentionData(shop, productGids) {
+  const where = { shopId: shop, productGid: { in: productGids } };
+  await prisma.productRetentionSummary.deleteMany({ where });
+  await prisma.productRetentionSegmentDaily.deleteMany({ where });
+  await prisma.productRetentionDailyActivity.deleteMany({ where });
+  await prisma.productRetentionCohortCell.deleteMany({ where });
+  await prisma.productRetentionDailyCohort.deleteMany({ where });
+  await prisma.productRetentionRun.deleteMany({ where });
+}
+
+async function deleteSeededJobHistory(shop) {
+  const jobs = await prisma.catalogSignalJob.findMany({
+    where: {
+      shop,
+      source: { startsWith: "ProductPulse demo seed" },
+    },
+    select: { id: true },
+  });
+  const jobIds = jobs.map((job) => job.id);
+  if (jobIds.length) {
+    await prisma.productPulseJobLog.deleteMany({ where: { shop, jobId: { in: jobIds } } });
+    await prisma.catalogSignalJob.deleteMany({ where: { shop, id: { in: jobIds } } });
+  }
 }
 
 async function seedSources(shop) {
@@ -721,11 +786,16 @@ async function seedProduct(shop, product, index) {
       issues,
       evidence,
       recommendations,
+      metrics,
       creditsConsumed: 1,
       createdAt: diagnosisCreatedAt,
       completedAt: diagnosisCompletedAt,
     },
   });
+
+  const retentionResult = await seedProductRetention(shop, product, diagnosis.id, index, monthlyOrderActivity);
+  const productRetention = retentionResult?.payload || null;
+  const productRetentionSummary = productRetention?.summary || null;
 
   const metricsWithDiagnosis = {
     ...metrics,
@@ -733,6 +803,10 @@ async function seedProduct(shop, product, index) {
     latestDiagnosisAt: diagnosisCompletedAt.toISOString(),
     lastDetailedDiagnosisAt: diagnosisCompletedAt.toISOString(),
     lastAnalyzedAt: diagnosisCompletedAt.toISOString(),
+    productRetention,
+    productRetentionSummary,
+    latestRetentionRunId: productRetention?.run?.id || retentionResult?.retentionRunId || null,
+    retentionHealthScore: productRetentionSummary?.retentionHealthScore || null,
     incrementalDiagnosis: {
       ...(metrics.incrementalDiagnosis || {}),
       diagnosisId: diagnosis.id,
@@ -742,6 +816,10 @@ async function seedProduct(shop, product, index) {
 
   snapshot = await prisma.productRiskSnapshot.update({
     where: { shop_productGid: { shop, productGid: product.productGid } },
+    data: { metrics: metricsWithDiagnosis },
+  });
+  await prisma.productDiagnosis.update({
+    where: { id: diagnosis.id },
     data: { metrics: metricsWithDiagnosis },
   });
 
@@ -784,6 +862,755 @@ async function seedProduct(shop, product, index) {
     profile,
     metrics: metricsWithDiagnosis,
   };
+}
+
+async function seedProductRetention(shop, product, diagnosisId, index, monthlyOrderActivity) {
+  const orders = buildSeedRetentionOrders(product, index);
+  const dataset = buildSeedRetentionDataset({ shop, product, diagnosisId, index, monthlyOrderActivity, syntheticOrderCount: orders.length });
+  const retentionRunUpdate = { ...dataset.run };
+  delete retentionRunUpdate.id;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.productRetentionRun.upsert({
+      where: {
+        shopId_productGid_diagnosisId: {
+          shopId: shop,
+          productGid: product.productGid,
+          diagnosisId,
+        },
+      },
+      create: dataset.run,
+      update: retentionRunUpdate,
+    });
+    const where = { shopId: shop, productGid: product.productGid, diagnosisId };
+    await tx.productRetentionSummary.deleteMany({ where });
+    await tx.productRetentionSegmentDaily.deleteMany({ where });
+    await tx.productRetentionDailyActivity.deleteMany({ where });
+    await tx.productRetentionCohortCell.deleteMany({ where });
+    await tx.productRetentionDailyCohort.deleteMany({ where });
+
+    await tx.productRetentionDailyCohort.createMany({ data: dataset.dailyCohorts });
+    await tx.productRetentionCohortCell.createMany({ data: dataset.cohortCells });
+    await tx.productRetentionDailyActivity.createMany({ data: dataset.dailyActivity });
+    await tx.productRetentionSegmentDaily.createMany({ data: dataset.segmentDaily });
+    await tx.productRetentionSummary.create({ data: dataset.summary });
+  });
+
+  return {
+    status: dataset.run.status,
+    retentionRunId: dataset.run.id,
+    payload: dataset.payload,
+    syntheticOrderCount: orders.length,
+  };
+}
+
+function buildSeedRetentionDataset({ shop, product, diagnosisId, index, monthlyOrderActivity, syntheticOrderCount }) {
+  const retentionRunId = `seed-retention-${stableProductNumber(product)}`;
+  const asOfDate = SEED_NOW;
+  const windowStartDate = daysAgo(RETENTION_LOOKBACK_DAYS, SEED_NOW);
+  const windowEndDate = SEED_NOW;
+  const cohortDates = [0, 1, 2, 4, 6, 8, 10].map((monthIndex, cohortIndex) => {
+    const month = getMonthStarts(SEED_NOW, MONTHS_TO_SEED)[monthIndex] || monthsAgo(11 - monthIndex, SEED_NOW);
+    return formatDateKey(addDays(month, 5 + cohortIndex * 2));
+  });
+  const cohorts = cohortDates.map((cohortDate, cohortIndex) => buildSeedRetentionDailyCohort({
+    shop,
+    product,
+    diagnosisId,
+    retentionRunId,
+    cohortDate,
+    cohortIndex,
+    index,
+  }));
+  const cohortCells = cohorts.flatMap((cohort) => buildSeedRetentionCohortCells({
+    shop,
+    product,
+    diagnosisId,
+    retentionRunId,
+    cohort,
+    index,
+  }));
+  const dailyActivity = buildSeedRetentionDailyActivity({
+    shop,
+    product,
+    diagnosisId,
+    retentionRunId,
+    monthlyOrderActivity,
+  });
+  const segmentDaily = cohorts.flatMap((cohort) => buildSeedRetentionSegments({
+    shop,
+    product,
+    diagnosisId,
+    retentionRunId,
+    cohort,
+    index,
+  }));
+  const summary = buildSeedRetentionSummary({
+    shop,
+    product,
+    diagnosisId,
+    retentionRunId,
+    asOfDate,
+    cohorts,
+    dailyActivity,
+    syntheticOrderCount,
+  });
+  const run = {
+    id: retentionRunId,
+    shopId: shop,
+    productGid: product.productGid,
+    diagnosisId,
+    asOfDate,
+    timezone: "UTC",
+    windowStartDate,
+    windowEndDate,
+    lookbackDays: RETENTION_LOOKBACK_DAYS,
+    maxCohortAgeDays: RETENTION_MAX_COHORT_AGE_DAYS,
+    currency: "USD",
+    schemaVersion: 1,
+    status: summary.hasEnoughData ? "completed" : "partial",
+    errorMessage: null,
+    metadata: {
+      seedSource: DEMO_SEED_SOURCE,
+      syntheticOrderCount,
+      dataQuality: {
+        totalCustomersAnalyzed: summary.totalCustomersAnalyzed,
+        totalProductOrdersAnalyzed: summary.totalProductOrdersAnalyzed,
+      },
+    },
+  };
+  const payload = buildSeedRetentionPayload({ run, summary, cohorts, cohortCells, dailyActivity, segmentDaily });
+
+  return {
+    run,
+    summary: toSeedRetentionSummaryDbRow(summary),
+    dailyCohorts: cohorts.map(toSeedRetentionDailyCohortDbRow),
+    cohortCells: cohortCells.map(toSeedRetentionCohortCellDbRow),
+    dailyActivity: dailyActivity.map(toSeedRetentionDailyActivityDbRow),
+    segmentDaily: segmentDaily.map(toSeedRetentionSegmentDailyDbRow),
+    payload,
+  };
+}
+
+function buildSeedRetentionDailyCohort({ shop, product, diagnosisId, retentionRunId, cohortDate, cohortIndex, index }) {
+  const cohortSize = 5 + ((index + cohortIndex) % 5);
+  const observedDays = Math.max(0, Math.floor((SEED_NOW.getTime() - new Date(`${cohortDate}T12:00:00.000Z`).getTime()) / (24 * 60 * 60 * 1000)));
+  const repeat90 = Math.min(cohortSize, Math.max(1, Math.round(cohortSize * (0.22 + (index % 4) * 0.04 - cohortIndex * 0.008))));
+  const same90 = Math.min(repeat90, Math.max(0, Math.round(repeat90 * (product.riskScore >= 80 ? 0.32 : 0.52))));
+  const other90 = Math.min(repeat90, Math.max(0, repeat90 - same90 + (cohortIndex % 2)));
+  const firstRevenueCents = BigInt(Math.round(cohortSize * product.price * 100));
+  const ltv90Cents = BigInt(Math.round(cohortSize * product.price * 100 * (1.08 + repeat90 / Math.max(1, cohortSize) * 0.55)));
+  const sameRevenue90 = BigInt(Math.round(Number(ltv90Cents) * 0.46));
+  const otherRevenue90 = BigInt(Math.max(0, Number(ltv90Cents) - Number(firstRevenueCents) - Number(sameRevenue90)));
+
+  return {
+    shopId: shop,
+    productGid: product.productGid,
+    diagnosisId,
+    retentionRunId,
+    cohortDate,
+    cohortSize,
+    anyRepeatWithin7dCount: Math.min(repeat90, Math.round(repeat90 * 0.18)),
+    anyRepeatWithin14dCount: Math.min(repeat90, Math.round(repeat90 * 0.28)),
+    anyRepeatWithin30dCount: Math.min(repeat90, Math.round(repeat90 * 0.48)),
+    anyRepeatWithin60dCount: Math.min(repeat90, Math.round(repeat90 * 0.72)),
+    anyRepeatWithin90dCount: repeat90,
+    anyRepeatWithin180dCount: Math.min(cohortSize, repeat90 + Math.round(cohortSize * 0.12)),
+    sameProductRepeatWithin7dCount: Math.min(same90, Math.round(same90 * 0.12)),
+    sameProductRepeatWithin14dCount: Math.min(same90, Math.round(same90 * 0.2)),
+    sameProductRepeatWithin30dCount: Math.min(same90, Math.round(same90 * 0.42)),
+    sameProductRepeatWithin60dCount: Math.min(same90, Math.round(same90 * 0.68)),
+    sameProductRepeatWithin90dCount: same90,
+    sameProductRepeatWithin180dCount: Math.min(cohortSize, same90 + Math.round(cohortSize * 0.06)),
+    boughtOtherProductWithin7dCount: Math.min(other90, Math.round(other90 * 0.1)),
+    boughtOtherProductWithin14dCount: Math.min(other90, Math.round(other90 * 0.22)),
+    boughtOtherProductWithin30dCount: Math.min(other90, Math.round(other90 * 0.45)),
+    boughtOtherProductWithin60dCount: Math.min(other90, Math.round(other90 * 0.72)),
+    boughtOtherProductWithin90dCount: other90,
+    boughtOtherProductWithin180dCount: Math.min(cohortSize, other90 + Math.round(cohortSize * 0.1)),
+    nextPurchaseSameProductCount: same90,
+    nextPurchaseOtherProductCount: Math.max(0, repeat90 - same90),
+    didNotReturnCount: Math.max(0, cohortSize - repeat90),
+    firstOrderNetRevenueCents: firstRevenueCents,
+    totalNetRevenueWithin30dCents: BigInt(Math.round(Number(firstRevenueCents) * 1.08)),
+    totalNetRevenueWithin60dCents: BigInt(Math.round(Number(firstRevenueCents) * 1.18)),
+    totalNetRevenueWithin90dCents: ltv90Cents,
+    totalNetRevenueWithin180dCents: BigInt(Math.round(Number(ltv90Cents) * 1.18)),
+    sameProductRevenueWithin90dCents: sameRevenue90,
+    otherProductRevenueWithin90dCents: otherRevenue90,
+    ltv30Cents: BigInt(Math.round(Number(firstRevenueCents) * 1.08 / cohortSize)),
+    ltv60Cents: BigInt(Math.round(Number(firstRevenueCents) * 1.18 / cohortSize)),
+    ltv90Cents: BigInt(Math.round(Number(ltv90Cents) / cohortSize)),
+    ltv180Cents: BigInt(Math.round(Number(ltv90Cents) * 1.18 / cohortSize)),
+    avgDaysToNextPurchase: repeat90 ? 32 + cohortIndex * 4 + index : null,
+    medianDaysToNextPurchase: repeat90 ? 28 + cohortIndex * 3 + index : null,
+    avgDaysToSameProductRepurchase: same90 ? 42 + cohortIndex * 5 : null,
+    medianDaysToSameProductRepurchase: same90 ? 36 + cohortIndex * 4 : null,
+    isMature7d: observedDays >= 7,
+    isMature14d: observedDays >= 14,
+    isMature30d: observedDays >= 30,
+    isMature60d: observedDays >= 60,
+    isMature90d: observedDays >= 90,
+    isMature180d: observedDays >= 180,
+    observedDays,
+  };
+}
+
+function buildSeedRetentionCohortCells({ shop, product, diagnosisId, retentionRunId, cohort, index }) {
+  const ageDays = [0, 7, 14, 30, 60, 90, 180];
+  return ageDays.map((ageDay) => {
+    const progress = ageDay / RETENTION_MAX_COHORT_AGE_DAYS;
+    const isObserved = cohort.observedDays >= ageDay;
+    const anyRepeatCumulativeCount = isObserved ? Math.min(cohort.cohortSize, Math.round(cohort.anyRepeatWithin180dCount * progress)) : 0;
+    const sameProductRepeatCumulativeCount = isObserved ? Math.min(cohort.cohortSize, Math.round(cohort.sameProductRepeatWithin180dCount * progress)) : 0;
+    const boughtOtherProductCumulativeCount = isObserved ? Math.min(cohort.cohortSize, Math.round(cohort.boughtOtherProductWithin180dCount * progress)) : 0;
+    const baseLtv = Number(cohort.ltv180Cents || 0);
+    const cumulativeLtvCents = isObserved ? BigInt(Math.round(baseLtv * (0.82 + progress * 0.18))) : 0n;
+    const sameProductCumulativeLtvCents = isObserved ? BigInt(Math.round(Number(cumulativeLtvCents) * (0.34 + (index % 3) * 0.04))) : 0n;
+    const otherProductCumulativeLtvCents = isObserved ? BigInt(Math.max(0, Math.round(Number(cumulativeLtvCents) - Number(sameProductCumulativeLtvCents)))) : 0n;
+    return {
+      shopId: shop,
+      productGid: product.productGid,
+      diagnosisId,
+      retentionRunId,
+      cohortDate: cohort.cohortDate,
+      ageDay,
+      cohortSize: cohort.cohortSize,
+      anyRepeatCumulativeCount,
+      sameProductRepeatCumulativeCount,
+      boughtOtherProductCumulativeCount,
+      anyRepeatRate: ratioDecimal(anyRepeatCumulativeCount, cohort.cohortSize),
+      sameProductRepeatRate: ratioDecimal(sameProductRepeatCumulativeCount, cohort.cohortSize),
+      boughtOtherProductRate: ratioDecimal(boughtOtherProductCumulativeCount, cohort.cohortSize),
+      cumulativeNetRevenueCents: BigInt(Math.round(Number(cumulativeLtvCents) * cohort.cohortSize)),
+      cumulativeLtvCents,
+      sameProductCumulativeRevenueCents: BigInt(Math.round(Number(sameProductCumulativeLtvCents) * cohort.cohortSize)),
+      otherProductCumulativeRevenueCents: BigInt(Math.round(Number(otherProductCumulativeLtvCents) * cohort.cohortSize)),
+      sameProductCumulativeLtvCents,
+      otherProductCumulativeLtvCents,
+      isObserved,
+    };
+  });
+}
+
+function buildSeedRetentionDailyActivity({ shop, product, diagnosisId, retentionRunId, monthlyOrderActivity }) {
+  return monthlyOrderActivity.months.map((month) => ({
+    shopId: shop,
+    productGid: product.productGid,
+    diagnosisId,
+    retentionRunId,
+    metricDate: `${month.key}-15`,
+    productOrdersCount: month.orders,
+    productUnitsSold: month.orderUnits,
+    uniqueProductBuyers: Math.max(1, Math.round(month.orders * 0.84)),
+    newProductBuyers: Math.max(1, Math.round(month.orders * 0.58)),
+    returningProductBuyers: Math.max(0, Math.round(month.orders * 0.26)),
+    productGrossRevenueCents: centsBigInt(month.revenue),
+    productNetRevenueCents: centsBigInt(Math.max(0, month.revenue - month.refundAmount)),
+    sameProductRepeatRevenueCents: centsBigInt(month.revenue * 0.12),
+    postProductCustomerRevenueCents: centsBigInt(month.revenue * 1.28),
+    otherProductRevenueFromProductCustomersCents: centsBigInt(month.revenue * 0.22),
+    customersBuyingProductAgainCount: Math.max(0, Math.round(month.orders * 0.11)),
+    customersBuyingOtherProductAfterThisProductCount: Math.max(0, Math.round(month.orders * 0.16)),
+    customersWithAnyRepeatOrderCount: Math.max(0, Math.round(month.orders * 0.24)),
+    returningProductBuyerShare: ratioDecimal(Math.round(month.orders * 0.26), Math.max(1, Math.round(month.orders * 0.84))),
+    sameProductRepurchaseShare: ratioDecimal(Math.round(month.orders * 0.11), Math.max(1, Math.round(month.orders * 0.84))),
+    crossSellShare: ratioDecimal(Math.round(month.orders * 0.16), Math.max(1, Math.round(month.orders * 0.84))),
+    returningRevenueShare: ratioDecimal(Math.round(month.revenue * 0.34), Math.max(1, Math.round(month.revenue * 1.28))),
+    refundedOrdersCount: month.refundedOrders,
+    refundedRevenueCents: centsBigInt(month.refundAmount),
+    returnRate: ratioDecimal(month.returnedUnits, month.orderUnits),
+    refundRate: ratioDecimal(month.refundAmount, month.revenue),
+  }));
+}
+
+function buildSeedRetentionSegments({ shop, product, diagnosisId, retentionRunId, cohort, index }) {
+  const variants = buildAffectedVariants(product, index);
+  const segmentSpecs = [
+    { segmentType: "variant", segmentValue: variants[index % variants.length] || "Default Title", modifier: 1.05 },
+    { segmentType: "customer_type_at_first_product_purchase", segmentValue: index % 2 ? "existing_customer" : "new_to_store", modifier: index % 2 ? 1.18 : 0.94 },
+    { segmentType: "discount_used", segmentValue: index % 3 ? "no" : "yes", modifier: index % 3 ? 1 : 1.12 },
+  ];
+  return segmentSpecs.map((segment, segmentIndex) => {
+    const cohortSize = Math.max(2, Math.round(cohort.cohortSize * (0.42 - segmentIndex * 0.06)));
+    const anyRepeatWithin90dCount = Math.min(cohortSize, Math.round(cohort.anyRepeatWithin90dCount * segment.modifier));
+    const sameProductRepeatWithin90dCount = Math.min(anyRepeatWithin90dCount, Math.round(cohort.sameProductRepeatWithin90dCount * segment.modifier));
+    const boughtOtherProductWithin90dCount = Math.max(0, anyRepeatWithin90dCount - sameProductRepeatWithin90dCount);
+    const netRevenueWithin90dCents = BigInt(Math.round(Number(cohort.totalNetRevenueWithin90dCents || 0) * (cohortSize / Math.max(1, cohort.cohortSize))));
+    return {
+      shopId: shop,
+      productGid: product.productGid,
+      diagnosisId,
+      retentionRunId,
+      cohortDate: cohort.cohortDate,
+      segmentType: segment.segmentType,
+      segmentValue: segment.segmentValue,
+      cohortSize,
+      anyRepeatWithin30dCount: Math.min(anyRepeatWithin90dCount, Math.round(anyRepeatWithin90dCount * 0.48)),
+      anyRepeatWithin90dCount,
+      sameProductRepeatWithin90dCount,
+      boughtOtherProductWithin90dCount,
+      netRevenueWithin90dCents,
+      ltv90Cents: BigInt(Math.round(Number(netRevenueWithin90dCents) / cohortSize)),
+      avgDaysToNextPurchase: anyRepeatWithin90dCount ? 30 + index + segmentIndex * 4 : null,
+      medianDaysToNextPurchase: anyRepeatWithin90dCount ? 26 + index + segmentIndex * 3 : null,
+      isMature90d: cohort.isMature90d,
+      isLowSampleSize: cohortSize < 5,
+    };
+  });
+}
+
+function buildSeedRetentionSummary({ shop, product, diagnosisId, retentionRunId, asOfDate, cohorts, dailyActivity, syntheticOrderCount }) {
+  const mature90 = cohorts.filter((cohort) => cohort.isMature90d);
+  const mature180 = cohorts.filter((cohort) => cohort.isMature180d);
+  const totalCustomersAnalyzed = cohorts.reduce((sum, cohort) => sum + cohort.cohortSize, 0);
+  const totalProductOrdersAnalyzed = dailyActivity.reduce((sum, row) => sum + row.productOrdersCount, 0);
+  const repeat90 = ratioFromRows(mature90, "anyRepeatWithin90dCount", "cohortSize");
+  const repeat180 = ratioFromRows(mature180, "anyRepeatWithin180dCount", "cohortSize");
+  const same90 = ratioFromRows(mature90, "sameProductRepeatWithin90dCount", "cohortSize");
+  const same180 = ratioFromRows(mature180, "sameProductRepeatWithin180dCount", "cohortSize");
+  const cross90 = ratioFromRows(mature90, "boughtOtherProductWithin90dCount", "cohortSize");
+  const returningRevenueShare = average(dailyActivity.map((row) => row.returningRevenueShare));
+  const productLtv90Cents = Math.round(average(mature90.map((cohort) => Number(cohort.ltv90Cents || 0))));
+  const productLtv180Cents = Math.round(average(mature180.map((cohort) => Number(cohort.ltv180Cents || 0))) || productLtv90Cents * 1.14);
+  const medianDaysToSecondPurchase = average(mature90.map((cohort) => Number(cohort.medianDaysToNextPurchase || 0)).filter(Boolean));
+  const retentionHealthScore = clamp(Math.round(34 + repeat90 * 36 + same90 * 22 + cross90 * 18 - product.riskScore * 0.08), 20, 96);
+  const repeatPurchaseRate90dPrevious = clamp(repeat90 - 0.035 + deterministicWave(product.handle, 20) * 0.015, 0, 1);
+  const sameProductRepurchaseRate90dPrevious = clamp(same90 - 0.02 + deterministicWave(product.handle, 21) * 0.012, 0, 1);
+  const returningRevenueSharePrevious = clamp(returningRevenueShare - 0.025, 0, 1);
+  const ltv90PreviousCents = Math.max(0, Math.round(productLtv90Cents * 0.94));
+
+  return {
+    shopId: shop,
+    productGid: product.productGid,
+    diagnosisId,
+    retentionRunId,
+    asOfDate,
+    repeatPurchaseRate90d: repeat90,
+    repeatPurchaseRate180d: repeat180,
+    sameProductRepurchaseRate90d: same90,
+    sameProductRepurchaseRate180d: same180,
+    crossSellRetentionRate90d: cross90,
+    returningRevenueShare,
+    avgDaysToSecondPurchase: average(mature90.map((cohort) => Number(cohort.avgDaysToNextPurchase || 0)).filter(Boolean)),
+    medianDaysToSecondPurchase,
+    productLtv90Cents: BigInt(productLtv90Cents),
+    productLtv180Cents: BigInt(productLtv180Cents),
+    retentionHealthScore,
+    repeatPurchaseRate90dPrevious,
+    repeatPurchaseRate90dDelta: repeat90 - repeatPurchaseRate90dPrevious,
+    sameProductRepurchaseRate90dPrevious,
+    sameProductRepurchaseRate90dDelta: same90 - sameProductRepurchaseRate90dPrevious,
+    ltv90PreviousCents: BigInt(ltv90PreviousCents),
+    ltv90DeltaCents: BigInt(productLtv90Cents - ltv90PreviousCents),
+    returningRevenueSharePrevious,
+    returningRevenueShareDelta: returningRevenueShare - returningRevenueSharePrevious,
+    totalCustomersAnalyzed,
+    totalOrdersAnalyzed: syntheticOrderCount,
+    totalProductOrdersAnalyzed,
+    earliestOrderDate: new Date(`${cohorts[0]?.cohortDate || formatDateKey(daysAgo(RETENTION_LOOKBACK_DAYS, SEED_NOW))}T12:00:00.000Z`),
+    latestOrderDate: SEED_NOW,
+    hasEnoughData: totalCustomersAnalyzed >= 10,
+    lowSampleWarning: totalCustomersAnalyzed < 30,
+  };
+}
+
+function buildSeedRetentionPayload({ run, summary, cohorts, cohortCells, dailyActivity, segmentDaily }) {
+  const serializedSummary = serializeSeedRetentionRecord(summary);
+  const serializedCohorts = cohorts.map(serializeSeedRetentionRecord);
+  const serializedCells = cohortCells.map(serializeSeedRetentionRecord);
+  const serializedDailyActivity = dailyActivity.map(serializeSeedRetentionRecord);
+  const serializedSegmentDaily = segmentDaily.map(serializeSeedRetentionRecord);
+  const ageAggregates = aggregateSeedRetentionCellsByAge(serializedCells);
+
+  return {
+    run: {
+      id: run.id,
+      status: run.status,
+      schemaVersion: run.schemaVersion,
+      asOfDate: run.asOfDate.toISOString(),
+      timezone: run.timezone,
+      windowStartDate: run.windowStartDate.toISOString(),
+      windowEndDate: run.windowEndDate.toISOString(),
+      lookbackDays: run.lookbackDays,
+      maxCohortAgeDays: run.maxCohortAgeDays,
+      currency: run.currency,
+    },
+    summary: {
+      ...serializedSummary,
+      earliestOrderDate: summary.earliestOrderDate?.toISOString?.() || summary.earliestOrderDate,
+      latestOrderDate: summary.latestOrderDate?.toISOString?.() || summary.latestOrderDate,
+    },
+    dailyRetentionTrend: serializedCohorts.map((cohort) => ({
+      date: cohort.cohortDate,
+      cohortSize: cohort.cohortSize,
+      repeatPurchaseRate90d: cohort.isMature90d ? ratioDecimal(cohort.anyRepeatWithin90dCount, cohort.cohortSize) : null,
+      sameProductRepurchaseRate90d: cohort.isMature90d ? ratioDecimal(cohort.sameProductRepeatWithin90dCount, cohort.cohortSize) : null,
+      crossSellRetentionRate90d: cohort.isMature90d ? ratioDecimal(cohort.boughtOtherProductWithin90dCount, cohort.cohortSize) : null,
+      isMature90d: cohort.isMature90d,
+    })),
+    nextPurchaseOutcome: serializedCohorts.map((cohort) => ({
+      date: cohort.cohortDate,
+      sameProductAgainPercent: ratioDecimal(cohort.nextPurchaseSameProductCount, cohort.cohortSize),
+      boughtAnotherProductPercent: ratioDecimal(cohort.nextPurchaseOtherProductCount, cohort.cohortSize),
+      didNotReturnPercent: ratioDecimal(cohort.didNotReturnCount, cohort.cohortSize),
+    })),
+    cohortHeatmap: serializedCells.map((cell) => ({
+      cohortDate: cell.cohortDate,
+      ageDay: cell.ageDay,
+      cohortSize: cell.cohortSize,
+      anyRepeatRate: cell.anyRepeatRate,
+      sameProductRepeatRate: cell.sameProductRepeatRate,
+      boughtOtherProductRate: cell.boughtOtherProductRate,
+      cumulativeLtvCents: cell.cumulativeLtvCents,
+      isObserved: cell.isObserved,
+    })),
+    timeToRepeatPurchase: ageAggregates.map((cell) => ({
+      ageDay: cell.ageDay,
+      anyRepeatCumulativeRate: cell.anyRepeatRate,
+      sameProductRepeatCumulativeRate: cell.sameProductRepeatRate,
+      boughtOtherProductCumulativeRate: cell.boughtOtherProductRate,
+    })),
+    ltvCurve: ageAggregates.map((cell) => ({
+      ageDay: cell.ageDay,
+      cumulativeLtvCents: cell.cumulativeLtvCents,
+      sameProductLtvCents: cell.sameProductCumulativeLtvCents,
+      otherProductLtvCents: cell.otherProductCumulativeLtvCents,
+    })),
+    retentionHealthTrend: serializedCohorts
+      .filter((cohort) => cohort.isMature90d)
+      .map((cohort, trendIndex) => ({
+        date: cohort.cohortDate,
+        retentionHealthScore: clamp(Math.round(Number(summary.retentionHealthScore || 0) - 8 + trendIndex * 2), 10, 100),
+        repeatPurchaseRate90d: ratioDecimal(cohort.anyRepeatWithin90dCount, cohort.cohortSize),
+        sameProductRepurchaseRate90d: ratioDecimal(cohort.sameProductRepeatWithin90dCount, cohort.cohortSize),
+        crossSellRetentionRate90d: ratioDecimal(cohort.boughtOtherProductWithin90dCount, cohort.cohortSize),
+        productLtv90Cents: cohort.ltv90Cents,
+        totalCustomersAnalyzed: cohort.cohortSize,
+        source: DEMO_SEED_SOURCE,
+      })),
+    segments: aggregateSeedRetentionSegments(serializedSegmentDaily),
+    dailyActivity: serializedDailyActivity,
+    segmentDaily: serializedSegmentDaily,
+  };
+}
+
+function aggregateSeedRetentionCellsByAge(cells) {
+  const byAge = new Map();
+  cells.forEach((cell) => {
+    const current = byAge.get(cell.ageDay) || {
+      ageDay: cell.ageDay,
+      count: 0,
+      anyRepeatRate: 0,
+      sameProductRepeatRate: 0,
+      boughtOtherProductRate: 0,
+      cumulativeLtvCents: 0,
+      sameProductCumulativeLtvCents: 0,
+      otherProductCumulativeLtvCents: 0,
+    };
+    current.count += 1;
+    current.anyRepeatRate += Number(cell.anyRepeatRate || 0);
+    current.sameProductRepeatRate += Number(cell.sameProductRepeatRate || 0);
+    current.boughtOtherProductRate += Number(cell.boughtOtherProductRate || 0);
+    current.cumulativeLtvCents += Number(cell.cumulativeLtvCents || 0);
+    current.sameProductCumulativeLtvCents += Number(cell.sameProductCumulativeLtvCents || 0);
+    current.otherProductCumulativeLtvCents += Number(cell.otherProductCumulativeLtvCents || 0);
+    byAge.set(cell.ageDay, current);
+  });
+  return Array.from(byAge.values()).map((cell) => ({
+    ageDay: cell.ageDay,
+    anyRepeatRate: round(cell.anyRepeatRate / Math.max(1, cell.count), 4),
+    sameProductRepeatRate: round(cell.sameProductRepeatRate / Math.max(1, cell.count), 4),
+    boughtOtherProductRate: round(cell.boughtOtherProductRate / Math.max(1, cell.count), 4),
+    cumulativeLtvCents: Math.round(cell.cumulativeLtvCents / Math.max(1, cell.count)),
+    sameProductCumulativeLtvCents: Math.round(cell.sameProductCumulativeLtvCents / Math.max(1, cell.count)),
+    otherProductCumulativeLtvCents: Math.round(cell.otherProductCumulativeLtvCents / Math.max(1, cell.count)),
+  })).sort((left, right) => left.ageDay - right.ageDay);
+}
+
+function aggregateSeedRetentionSegments(segmentDaily) {
+  const bySegment = new Map();
+  segmentDaily.forEach((segment) => {
+    const key = `${segment.segmentType}:${segment.segmentValue}`;
+    const current = bySegment.get(key) || {
+      segmentType: segment.segmentType,
+      segmentValue: segment.segmentValue,
+      cohortSize: 0,
+      anyRepeatWithin90dCount: 0,
+      sameProductRepeatWithin90dCount: 0,
+      boughtOtherProductWithin90dCount: 0,
+      ltv90Cents: 0,
+      medianDaysToSecondPurchaseValues: [],
+      isLowSampleSize: false,
+    };
+    current.cohortSize += Number(segment.cohortSize || 0);
+    current.anyRepeatWithin90dCount += Number(segment.anyRepeatWithin90dCount || 0);
+    current.sameProductRepeatWithin90dCount += Number(segment.sameProductRepeatWithin90dCount || 0);
+    current.boughtOtherProductWithin90dCount += Number(segment.boughtOtherProductWithin90dCount || 0);
+    current.ltv90Cents += Number(segment.ltv90Cents || 0);
+    if (segment.medianDaysToNextPurchase != null) current.medianDaysToSecondPurchaseValues.push(Number(segment.medianDaysToNextPurchase));
+    current.isLowSampleSize = current.isLowSampleSize || Boolean(segment.isLowSampleSize);
+    bySegment.set(key, current);
+  });
+  return Array.from(bySegment.values()).map((segment) => ({
+    segmentType: segment.segmentType,
+    segmentValue: segment.segmentValue,
+    cohortSize: segment.cohortSize,
+    repeatPurchaseRate90d: ratioDecimal(segment.anyRepeatWithin90dCount, segment.cohortSize),
+    sameProductRepurchaseRate90d: ratioDecimal(segment.sameProductRepeatWithin90dCount, segment.cohortSize),
+    crossSellRetentionRate90d: ratioDecimal(segment.boughtOtherProductWithin90dCount, segment.cohortSize),
+    ltv90Cents: Math.round(segment.ltv90Cents / Math.max(1, segmentDaily.filter((item) => item.segmentType === segment.segmentType && item.segmentValue === segment.segmentValue).length)),
+    medianDaysToSecondPurchase: average(segment.medianDaysToSecondPurchaseValues),
+    isLowSampleSize: segment.isLowSampleSize,
+  })).slice(0, 12);
+}
+
+function serializeSeedRetentionRecord(record) {
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, serializeSeedRetentionValue(value)]));
+}
+
+function serializeSeedRetentionValue(value) {
+  if (typeof value === "bigint") return Number(value);
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value === "object" && !Array.isArray(value)) return serializeSeedRetentionRecord(value);
+  if (Array.isArray(value)) return value.map(serializeSeedRetentionValue);
+  return value;
+}
+
+function toSeedRetentionSummaryDbRow(row) {
+  return row;
+}
+
+function toSeedRetentionDailyCohortDbRow(row) {
+  return row;
+}
+
+function toSeedRetentionCohortCellDbRow(row) {
+  return row;
+}
+
+function toSeedRetentionDailyActivityDbRow(row) {
+  return row;
+}
+
+function toSeedRetentionSegmentDailyDbRow(row) {
+  return row;
+}
+
+function centsBigInt(value) {
+  return BigInt(Math.max(0, Math.round(Number(value || 0) * 100)));
+}
+
+function ratioDecimal(numerator, denominator) {
+  const den = Number(denominator || 0);
+  if (den <= 0) return 0;
+  return round(Number(numerator || 0) / den, 6);
+}
+
+function ratioFromRows(rows, numeratorKey, denominatorKey) {
+  const numerator = rows.reduce((sum, row) => sum + Number(row[numeratorKey] || 0), 0);
+  const denominator = rows.reduce((sum, row) => sum + Number(row[denominatorKey] || 0), 0);
+  return ratioDecimal(numerator, denominator);
+}
+
+function buildSeedRetentionOrders(product, index) {
+  const months = getMonthStarts(SEED_NOW, MONTHS_TO_SEED);
+  const cohortMonthIndexes = [0, 1, 2, 4, 6, 8, 10];
+  const customerCount = 28 + (index % 5) * 2;
+  const orders = [];
+
+  for (let customerIndex = 0; customerIndex < customerCount; customerIndex += 1) {
+    const cohortMonth = months[cohortMonthIndexes[customerIndex % cohortMonthIndexes.length]] || months[0];
+    const firstOrderDate = clampDateBeforeNow(addDays(cohortMonth, 4 + (customerIndex % 4) * 5));
+    const customerGid = `gid://shopify/Customer/pp-demo-${stableProductNumber(product)}-${String(customerIndex + 1).padStart(3, "0")}`;
+    const firstQuantity = customerIndex % 11 === 0 ? 3 : customerIndex % 5 === 0 ? 2 : 1;
+    const firstOrder = buildSeedRetentionOrder({
+      product,
+      index,
+      customerIndex,
+      orderIndex: 0,
+      customerGid,
+      orderDate: firstOrderDate,
+      quantity: firstQuantity,
+      includeDiscount: customerIndex % 4 === 0,
+      includeRefund: shouldSeedRetentionRefund(product, customerIndex, index),
+      includeOtherLine: customerIndex % 6 === 0,
+      sourceName: customerIndex % 3 === 0 ? "online_store" : "shopify_draft_order",
+    });
+    orders.push(firstOrder);
+
+    const sameProductRepeat = customerIndex % 3 === 0 || (product.riskScore < 55 && customerIndex % 4 === 0);
+    const crossSellRepeat = customerIndex % 3 === 1 || customerIndex % 7 === 0;
+    const secondOrderDate = addDays(firstOrderDate, sameProductRepeat ? 24 + (customerIndex % 5) * 9 : 32 + (customerIndex % 6) * 8);
+    if ((sameProductRepeat || crossSellRepeat) && secondOrderDate <= SEED_NOW) {
+      orders.push(buildSeedRetentionOrder({
+        product: sameProductRepeat ? product : getRelatedSeedProduct(product, index, customerIndex),
+        anchorProduct: product,
+        index,
+        customerIndex,
+        orderIndex: 1,
+        customerGid,
+        orderDate: secondOrderDate,
+        quantity: sameProductRepeat && customerIndex % 8 === 0 ? 2 : 1,
+        includeDiscount: customerIndex % 5 === 0,
+        includeRefund: sameProductRepeat && shouldSeedRetentionRefund(product, customerIndex + 3, index),
+        includeOtherLine: sameProductRepeat && crossSellRepeat,
+        sourceName: "online_store",
+      }));
+    }
+
+    const thirdOrderDate = addDays(firstOrderDate, 76 + (customerIndex % 5) * 13);
+    if (customerIndex % 5 === 0 && thirdOrderDate <= SEED_NOW) {
+      orders.push(buildSeedRetentionOrder({
+        product: customerIndex % 10 === 0 ? product : getRelatedSeedProduct(product, index, customerIndex + 4),
+        anchorProduct: product,
+        index,
+        customerIndex,
+        orderIndex: 2,
+        customerGid,
+        orderDate: thirdOrderDate,
+        quantity: 1,
+        includeDiscount: customerIndex % 10 === 0,
+        includeRefund: false,
+        includeOtherLine: customerIndex % 2 === 0,
+        sourceName: "pos",
+      }));
+    }
+  }
+
+  return orders.sort((left, right) => new Date(left.processedAt).getTime() - new Date(right.processedAt).getTime());
+}
+
+function buildSeedRetentionOrder({
+  product,
+  anchorProduct = product,
+  index,
+  customerIndex,
+  orderIndex,
+  customerGid,
+  orderDate,
+  quantity = 1,
+  includeDiscount = false,
+  includeRefund = false,
+  includeOtherLine = false,
+  sourceName = "online_store",
+}) {
+  const productNumber = stableProductNumber(anchorProduct);
+  const orderNumber = `${productNumber}${String(customerIndex + 1).padStart(3, "0")}${orderIndex + 1}`;
+  const discountRate = includeDiscount ? 0.12 : 0;
+  const productLine = buildSeedRetentionLineItem({
+    product,
+    anchorProduct,
+    index,
+    customerIndex,
+    orderIndex,
+    lineIndex: 0,
+    quantity,
+    discountRate,
+    includeRefund,
+    orderDate,
+  });
+  const lineItems = [productLine];
+
+  if (includeOtherLine) {
+    const related = getRelatedSeedProduct(anchorProduct, index, customerIndex + orderIndex + 1);
+    lineItems.push(buildSeedRetentionLineItem({
+      product: related,
+      anchorProduct,
+      index,
+      customerIndex,
+      orderIndex,
+      lineIndex: 1,
+      quantity: 1,
+      discountRate: includeDiscount ? 0.08 : 0,
+      includeRefund: false,
+      orderDate,
+    }));
+  }
+
+  return {
+    id: `gid://shopify/Order/pp-demo-${orderNumber}`,
+    name: `#PPD-${orderNumber}`,
+    customerGid,
+    processedAt: orderDate.toISOString(),
+    createdAt: addDays(orderDate, -1).toISOString(),
+    financialStatus: "PAID",
+    displayFinancialStatus: includeRefund ? "PARTIALLY_REFUNDED" : "PAID",
+    sourceName,
+    customerTags: [
+      "productpulse-demo",
+      customerIndex % 2 === 0 ? "loyalty" : "first-time",
+      customerIndex % 4 === 0 ? "email" : "organic",
+    ],
+    discountCodes: includeDiscount ? [`PPDEMO${(index % 4) + 1}`] : [],
+    currency: "USD",
+    lineItems,
+    test: true,
+  };
+}
+
+function buildSeedRetentionLineItem({
+  product,
+  anchorProduct,
+  index,
+  customerIndex,
+  orderIndex,
+  lineIndex,
+  quantity,
+  discountRate,
+  includeRefund,
+  orderDate,
+}) {
+  const priceCents = Math.max(199, Math.round(Number(product.price || 20) * 100));
+  const grossRevenueCents = priceCents * quantity;
+  const discountedRevenueCents = Math.round(grossRevenueCents * (1 - discountRate));
+  const refundQuantity = includeRefund ? Math.max(1, Math.min(quantity, customerIndex % 4 === 0 ? 2 : 1)) : 0;
+  const refundAmountCents = refundQuantity ? Math.round((discountedRevenueCents / Math.max(1, quantity)) * refundQuantity * 0.92) : 0;
+  const lineId = `gid://shopify/LineItem/pp-demo-${stableProductNumber(anchorProduct)}-${customerIndex + 1}-${orderIndex + 1}-${lineIndex + 1}`;
+  return {
+    id: lineId,
+    productGid: product.productGid,
+    variantGid: `${product.productGid.replace("/Product/", "/ProductVariant/")}${lineIndex + 1}`,
+    title: product.productTitle,
+    sku: `${buildSku(product)}-${lineIndex + 1}`,
+    variantTitle: buildAffectedVariants(product, index + customerIndex)[0] || "Default Title",
+    quantity,
+    grossRevenueCents,
+    discountedRevenueCents,
+    refundedRevenueCents: refundAmountCents,
+    netRevenueCents: Math.max(0, discountedRevenueCents - refundAmountCents),
+    currency: "USD",
+    discountCodes: discountRate ? [`PPDEMO${(index % 4) + 1}`] : [],
+    refunds: refundAmountCents
+      ? [{
+          id: `gid://shopify/Refund/pp-demo-${stableProductNumber(anchorProduct)}-${customerIndex + 1}-${orderIndex + 1}-${lineIndex + 1}`,
+          processedAt: clampDateBeforeNow(addDays(orderDate, 9 + (customerIndex % 6))).toISOString(),
+          amountCents: refundAmountCents,
+        }]
+      : [],
+  };
+}
+
+function shouldSeedRetentionRefund(product, customerIndex, index) {
+  const riskBucket = product.riskScore >= 85 ? 3 : product.riskScore >= 65 ? 5 : 8;
+  return (customerIndex + index) % riskBucket === 0;
+}
+
+function getRelatedSeedProduct(product, index, offset) {
+  const candidates = PRODUCT_FIXTURES.filter((candidate) => candidate.productGid !== product.productGid);
+  return candidates[(index + offset) % candidates.length] || product;
+}
+
+function stableProductNumber(product) {
+  const digits = String(product.productGid || "").replace(/\D+/g, "");
+  if (digits) return digits.slice(-8);
+  return String(hashString(product.productTitle || product.handle || "product")).slice(-8);
+}
+
+function clampDateBeforeNow(date) {
+  const parsed = parseDate(date) || SEED_NOW;
+  if (parsed <= SEED_NOW) return parsed;
+  return daysAgo(1, SEED_NOW);
 }
 
 async function seedActionRecords(shop, product, diagnosisId, recommendations, index) {
@@ -855,6 +1682,26 @@ async function seedTimelineEvents({
       afterValue: { riskScore: previousHistory.riskScore || product.riskScore, primaryIssue: previousHistory.primaryIssue || profile.mainIssue },
       metadata: { seedSource: DEMO_SEED_SOURCE, riskLabel: getSeedRiskLabel(previousHistory.riskScore || product.riskScore) },
       dedupeKey: `seed:${product.productGid}:quickscan`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    },
+    {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "diagnosis_completed",
+      category: "diagnosis",
+      source: "ProductPulse AI diagnosis",
+      title: "Full diagnosis completed",
+      summary: `${product.productTitle} received a full seeded diagnosis with ${metrics.signalCount || metrics.signalsCount || 0} signals and ${product.confidence}% confidence.`,
+      occurredAt: diagnosis.completedAt || daysAgo(1 + index, SEED_NOW),
+      severityTone: product.riskScore >= 75 ? "critical" : product.riskScore >= 55 ? "warning" : "success",
+      importance: 76,
+      confidence: product.confidence,
+      afterValue: { riskScore: product.riskScore, impactScore: product.impactScore, confidence: product.confidence },
+      metadata: { seedSource: DEMO_SEED_SOURCE, latestDiagnosisId: diagnosis.id, analysisDepth: "full" },
+      dedupeKey: `seed:${product.productGid}:diagnosis-completed`,
       diagnosisId: diagnosis.id,
       updatedAt: now,
     },
@@ -958,6 +1805,69 @@ async function seedTimelineEvents({
       diagnosisId: diagnosis.id,
       updatedAt: now,
     } : null,
+    metrics.productMomentum ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "product_momentum_updated",
+      category: "momentum",
+      source: "Product Momentum",
+      title: "Product Momentum updated",
+      summary: `Momentum is ${metrics.productMomentum.score}/100 (${metrics.productMomentum.tier}) with ${metrics.productMomentum.direction} direction.`,
+      occurredAt: daysAgo(6 + index, SEED_NOW),
+      severityTone: metrics.productMomentum.score >= 70 ? "success" : "info",
+      importance: 57,
+      confidence: metrics.productMomentum.confidence,
+      afterValue: { productMomentumScore: metrics.productMomentum.score, tier: metrics.productMomentum.tier, direction: metrics.productMomentum.direction },
+      metadata: { seedSource: DEMO_SEED_SOURCE, productMomentum: metrics.productMomentum },
+      dedupeKey: `seed:${product.productGid}:momentum`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
+    metrics.productRetention?.summary ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "product_retention_calculated",
+      category: "evidence",
+      source: "Product retention",
+      title: "Retention metrics calculated",
+      summary: `${metrics.productRetention.summary.totalCustomersAnalyzed || 0} cohort customers and ${metrics.productRetention.summary.retentionHealthScore || "low-sample"} retention health were stored.`,
+      occurredAt: daysAgo(2 + index, SEED_NOW),
+      severityTone: "info",
+      importance: 59,
+      confidence: product.confidence,
+      afterValue: metrics.productRetention.summary,
+      metadata: { seedSource: DEMO_SEED_SOURCE, retentionRunId: metrics.productRetention.run?.id || null },
+      dedupeKey: `seed:${product.productGid}:retention`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
+    metrics.productRelationshipIntelligenceSummary ? {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: "product_relationships_detected",
+      category: "evidence",
+      source: "Product relationships",
+      title: "Product relationships detected",
+      summary: `${metrics.productRelationshipIntelligenceSummary.strongestRelationships?.length || 0} relationship patterns were stored for basket and sequence analysis.`,
+      occurredAt: daysAgo(7 + index, SEED_NOW),
+      severityTone: "info",
+      importance: 55,
+      confidence: metrics.productRelationshipIntelligenceSummary.confidence?.score || product.confidence,
+      afterValue: {
+        strongestRelationships: metrics.productRelationshipIntelligenceSummary.strongestRelationships?.length || 0,
+        topBoughtTogether: metrics.productRelationshipIntelligenceSummary.topBoughtTogether?.[0]?.relatedProductTitle || null,
+      },
+      metadata: { seedSource: DEMO_SEED_SOURCE },
+      dedupeKey: `seed:${product.productGid}:relationships`,
+      diagnosisId: diagnosis.id,
+      updatedAt: now,
+    } : null,
     primaryActionRecord ? {
       shop,
       productGid: product.productGid,
@@ -997,7 +1907,7 @@ async function seedTimelineEvents({
       diagnosisId: diagnosis.id,
       updatedAt: now,
     } : null,
-    index < 5 ? {
+    index < WATCHLIST_PRODUCT_COUNT ? {
       shop,
       productGid: product.productGid,
       productTitle: product.productTitle,
@@ -1027,7 +1937,8 @@ async function seedTimelineEvents({
 
 async function seedWatchlist(shop, products) {
   for (const [index, product] of products.entries()) {
-    const status = index === 3 ? "Paused" : "Watching";
+    const status = index === 3 || index === 8 ? "Paused" : "Watching";
+    const addedAt = daysAgo(160 - index * 4, SEED_NOW);
     const watchlistItem = await prisma.productWatchlistItem.upsert({
       where: { shop_productGid: { shop, productGid: product.productGid } },
       create: {
@@ -1039,7 +1950,7 @@ async function seedWatchlist(shop, products) {
         status,
         imageUrl: buildImageUrl(product),
         imageAlt: product.productTitle,
-        addedAt: daysAgo(18 - index, SEED_NOW),
+        addedAt,
       },
       update: {
         productTitle: product.productTitle,
@@ -1051,35 +1962,473 @@ async function seedWatchlist(shop, products) {
       },
     });
 
-    await prisma.productWatchActivity.createMany({
+    const addedActivity = await prisma.productWatchActivity.create({
+      data: {
+        shop,
+        productGid: product.productGid,
+        productTitle: product.productTitle,
+        watchlistItemId: watchlistItem.id,
+        eventType: "product_added",
+        title: "Product added to watchlist",
+        detail: `${product.productTitle} entered automatic monitoring.`,
+        metadata: { seedSource: DEMO_SEED_SOURCE },
+        createdAt: addedAt,
+      },
+    });
+    await seedWatchTimelineEvent(shop, product, addedActivity);
+
+    let previousReport = null;
+    for (let runIndex = 0; runIndex < WATCHLIST_RUNS_PER_PRODUCT; runIndex += 1) {
+      const runDate = daysAgo((WATCHLIST_RUNS_PER_PRODUCT - runIndex) * 15 + index, SEED_NOW);
+      const report = buildSeedWatchChangeReport(product, previousReport, runIndex, runDate);
+      const reportActivity = await prisma.productWatchActivity.create({
+        data: {
+          shop,
+          productGid: product.productGid,
+          productTitle: product.productTitle,
+          watchlistItemId: watchlistItem.id,
+          eventType: "watch_change_report",
+          title: report.title,
+          detail: report.narrative || report.summary,
+          metadata: {
+            seedSource: DEMO_SEED_SOURCE,
+            source: runIndex === 0 ? "watchlist-baseline" : "full-diagnosis",
+            noChangesReused: report.status === "unchanged",
+            riskScore: report.current.riskScore,
+            riskLabel: report.current.riskLabel,
+            confidence: report.current.confidence,
+            impactScore: report.current.impactScore,
+            primaryIssue: report.current.primaryIssue,
+            report,
+            snapshotSummary: report.current,
+          },
+          createdAt: runDate,
+        },
+      });
+      await seedWatchTimelineEvent(shop, product, reportActivity);
+
+      const scanActivity = await prisma.productWatchActivity.create({
+        data: {
+          shop,
+          productGid: product.productGid,
+          productTitle: product.productTitle,
+          watchlistItemId: watchlistItem.id,
+          eventType: runIndex === 0 ? "watch_baseline_captured" : "diagnosis_completed",
+          title: runIndex === 0 ? "Watchlist baseline captured" : "Product diagnosis completed",
+          detail: runIndex === 0
+            ? `Baseline captured · ${report.current.riskLabel} risk (${report.current.riskScore}/100) · ${report.current.primaryIssue}`
+            : `${report.current.riskLabel} risk (${report.current.riskScore}/100) · ${report.current.primaryIssue}`,
+          metadata: {
+            seedSource: DEMO_SEED_SOURCE,
+            source: runIndex === 0 ? "watchlist-baseline" : "full-diagnosis",
+            riskScore: report.current.riskScore,
+            riskLabel: report.current.riskLabel,
+            confidence: report.current.confidence,
+            impactScore: report.current.impactScore,
+            primaryIssue: report.current.primaryIssue,
+            changeCount: report.changeCount,
+          },
+          createdAt: addMinutes(runDate, 2),
+        },
+      });
+      await seedWatchTimelineEvent(shop, product, scanActivity);
+      previousReport = report;
+    }
+
+    if (status === "Paused") {
+      const pausedActivity = await prisma.productWatchActivity.create({
+        data: {
+          shop,
+          productGid: product.productGid,
+          productTitle: product.productTitle,
+          watchlistItemId: watchlistItem.id,
+          eventType: "product_paused",
+          title: "Product paused",
+          detail: "Automatic rescans were paused for this demo product after the latest seeded run.",
+          metadata: { seedSource: DEMO_SEED_SOURCE, riskScore: product.riskScore, confidence: product.confidence },
+          createdAt: daysAgo(2 + index, SEED_NOW),
+        },
+      });
+      await seedWatchTimelineEvent(shop, product, pausedActivity);
+    }
+  }
+}
+
+async function seedWatchTimelineEvent(shop, product, activity) {
+  await prisma.productTimelineEvent.create({
+    data: {
+      shop,
+      productGid: product.productGid,
+      productTitle: product.productTitle,
+      handle: product.handle,
+      eventType: activity.eventType,
+      category: "watchlist",
+      source: "ProductPulse Watchlist",
+      title: activity.title,
+      summary: activity.detail,
+      occurredAt: activity.createdAt,
+      severityTone: getWatchTimelineTone(activity),
+      importance: activity.eventType === "watch_change_report" ? 72 : 52,
+      confidence: activity.metadata?.confidence || product.confidence,
+      afterValue: {
+        riskScore: activity.metadata?.riskScore || null,
+        riskLabel: activity.metadata?.riskLabel || null,
+        changeCount: activity.metadata?.changeCount || activity.metadata?.report?.changeCount || 0,
+      },
+      metadata: activity.metadata || { seedSource: DEMO_SEED_SOURCE },
+      dedupeKey: `seed:${product.productGid}:watch:${activity.eventType}:${activity.createdAt.toISOString()}`,
+      watchActivityId: activity.id,
+    },
+  });
+}
+
+function buildSeedWatchChangeReport(product, previousReport, runIndex, runDate) {
+  const current = buildSeedWatchSnapshotSummary(product, runIndex, runDate);
+  const previous = previousReport?.current || null;
+  const history = previousReport?.history ? [...previousReport.history] : [];
+  const status = !previous ? "baseline" : runIndex % 4 === 2 ? "unchanged" : "changed";
+  const sourceChanges = previous && status !== "unchanged" ? buildSeedWatchSourceChanges(product, previous, current, runIndex) : [];
+  const sections = previous && status !== "unchanged" ? buildSeedWatchSections(previous, current) : [];
+  const changes = sections.flatMap((section) => section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title })));
+  const sourceInsights = sourceChanges.map((change) => ({
+    id: `${change.id}-insight`,
+    title: change.title,
+    summary: change.detail,
+    bullets: (change.items || []).slice(0, 2).map((item) => item.text || item.summary || item.title).filter(Boolean),
+  }));
+  const changeCount = sourceChanges.length + changes.filter((change) => change.delta && change.delta !== "0").length;
+  const report = {
+    id: `seed-watch-report-${stableProductNumber(product)}-${runIndex + 1}`,
+    status,
+    title: status === "baseline" ? "Watch baseline captured" : status === "unchanged" ? "No Watchlist changes detected" : "Watchlist changes detected",
+    headline: status === "baseline"
+      ? "No previous Watchlist data"
+      : status === "unchanged"
+        ? "No meaningful changes detected"
+        : getSeedWatchHeadline(previous, current),
+    summary: status === "baseline"
+      ? "This is the first seeded Watchlist run for this product."
+      : status === "unchanged"
+        ? "No new orders, returns, refunds, reviews or meaningful calculated product-state movement were detected since the previous seeded run."
+        : `${sourceChanges.length} source changes and ${changes.length} calculated product-state changes since the previous Watchlist run.`,
+    source: runIndex === 0 ? "watchlist-baseline" : "full-diagnosis",
+    noChangesReused: status === "unchanged",
+    changeCount,
+    sourceChangeCount: sourceChanges.length,
+    previousRunAt: previous?.capturedAt || null,
+    currentRunAt: current.capturedAt,
+    previous,
+    current,
+    narrative: status === "baseline"
+      ? `ProductPulse captured ${product.productTitle} as a Watchlist baseline with ${current.riskScore}/100 risk.`
+      : `${product.productTitle} moved from ${previous?.riskScore ?? current.riskScore}/100 to ${current.riskScore}/100 risk while orders, returns, refunds, reviews and momentum were compared against the previous seeded run.`,
+    sourceChanges,
+    sourceInsights,
+    sections,
+    changes,
+  };
+  report.history = [...history, formatSeedWatchRunHistoryPoint(report)];
+  return report;
+}
+
+function buildSeedWatchSnapshotSummary(product, runIndex, runDate) {
+  const metrics = product.metrics || {};
+  const history = metrics.riskHistory || [];
+  const historyIndex = Math.min(history.length - 1, Math.max(0, Math.round((runIndex / Math.max(1, WATCHLIST_RUNS_PER_PRODUCT - 1)) * (history.length - 1))));
+  const historyPoint = history[historyIndex] || history[history.length - 1] || {};
+  const months = metrics.monthlyOrderActivity?.months || [];
+  const month = months[Math.min(months.length - 1, Math.max(0, Math.round((runIndex / Math.max(1, WATCHLIST_RUNS_PER_PRODUCT - 1)) * (months.length - 1))))] || {};
+  const riskScore = Number(historyPoint.riskScore || product.riskScore || 0);
+  const productMomentumScore = Number(historyPoint.metrics?.productMomentumScore || metrics.productMomentumScore || metrics.productMomentum?.score || 0);
+  return {
+    capturedAt: runDate.toISOString(),
+    riskScore,
+    riskLabel: getSeedRiskLabel(riskScore),
+    confidence: Number(historyPoint.confidence || product.confidence || 0),
+    impactScore: Number(historyPoint.impactScore || product.impactScore || 0),
+    estimatedImpact: round(Number(historyPoint.metrics?.financialExposure || metrics.estimatedImpact || 0), 2),
+    marginAtRisk: round(Number(historyPoint.metrics?.marginAtRisk || metrics.marginAtRisk || 0), 2),
+    revenueAtRisk: round(Number(historyPoint.metrics?.revenueAtRisk || metrics.revenueAtRisk || 0), 2),
+    primaryIssue: historyPoint.primaryIssue || metrics.primaryIssue || product.primaryIssue,
+    orderCount: Number(month.orders || 0),
+    soldUnits: Number(month.orderUnits || historyPoint.metrics?.soldUnits || 0),
+    salesAmount: round(Number(month.revenue || historyPoint.metrics?.salesAmount || 0), 2),
+    refundAmount: round(Number(month.refundAmount || historyPoint.metrics?.refundAmount || 0), 2),
+    returnRatePercent: Number(month.returnRate || historyPoint.metrics?.returnRate || 0),
+    refundRatePercent: Number(month.refundRate || historyPoint.metrics?.refundRate || 0),
+    returnUnits: Number(month.returnedUnits || historyPoint.metrics?.returnUnits || 0),
+    refundUnits: Number(month.refundedUnits || historyPoint.metrics?.refundUnits || 0),
+    negativeReviewCount: Math.max(1, Math.round(Number(metrics.negativeReviewCount || 0) * (0.58 + runIndex * 0.08))),
+    reviewCount: Math.max(1, Math.round(Number(metrics.reviewCount || 0) * (0.62 + runIndex * 0.07))),
+    signalCount: Number(historyPoint.metrics?.signalCount || metrics.signalCount || metrics.signalsCount || 0),
+    topReturnReason: metrics.topReturnReasons?.[0] || "",
+    topRefundReason: metrics.topRefundReasons?.[0] || "",
+    productMomentumScore,
+    productMomentumTier: metrics.productMomentumTier || metrics.productMomentum?.tier || "Stable",
+    productMomentumDirection: metrics.momentumDirection || metrics.productMomentum?.direction || "High-volume stable",
+    evidenceDetails: {
+      orders: { totalOrders: Number(month.orders || 0), totalUnits: Number(month.orderUnits || 0), totalRevenue: round(Number(month.revenue || 0), 2) },
+      returns: { totalUnits: Number(month.returnedUnits || 0), topReason: metrics.topReturnReasons?.[0] || "" },
+      refunds: { totalUnits: Number(month.refundedUnits || 0), amount: round(Number(month.refundAmount || 0), 2) },
+      reviews: { negativeReviews: Math.max(1, Math.round(Number(metrics.negativeReviewCount || 0) * (0.58 + runIndex * 0.08))), averageRating: metrics.avgRating || metrics.reviewRating || 0 },
+    },
+    sourceFingerprint: metrics.incrementalDiagnosis?.cache?.sourceFingerprint || null,
+    contentUpdated: runIndex === 2 || runIndex === 4,
+  };
+}
+
+function buildSeedWatchSourceChanges(product, previous, current, runIndex) {
+  const profile = product.profile || getIssueProfile(product);
+  return [
+    {
+      id: "new-returns",
+      source: "returns",
+      title: "Return evidence changed",
+      metric: "Returned units",
+      from: previous.returnUnits,
+      to: current.returnUnits,
+      delta: formatSignedNumber(current.returnUnits - previous.returnUnits),
+      direction: current.returnUnits >= previous.returnUnits ? "up" : "down",
+      detail: `${Math.abs(current.returnUnits - previous.returnUnits)} returned-unit movement mentioning ${profile.repeatedLanguage[0]}.`,
+      items: [
+        { text: `${profile.returnReasons[0]}: customer mentioned ${profile.repeatedLanguage[0]}.`, sentiment: "negative" },
+        { text: `${profile.returnReasons[1] || profile.returnReasons[0]}: expectation gap remained visible.`, sentiment: "mixed" },
+      ],
+    },
+    {
+      id: "new-refunds",
+      source: "refunds",
+      title: "Refund evidence changed",
+      metric: "Refund amount",
+      from: previous.refundAmount,
+      to: current.refundAmount,
+      delta: formatSignedMoney(current.refundAmount - previous.refundAmount),
+      direction: current.refundAmount >= previous.refundAmount ? "up" : "down",
+      detail: `Refund amount changed by ${formatMoney(Math.abs(current.refundAmount - previous.refundAmount))}.`,
+      items: [
+        { text: `Seeded refund note tied to ${profile.mainIssue.toLowerCase()}.`, sentiment: "neutral" },
+      ],
+    },
+    runIndex % 2 === 0 ? {
+      id: "product-content",
+      source: "product_content",
+      title: "Product content changed",
+      metric: "PDP content",
+      from: "Previous copy",
+      to: "Updated expectation note",
+      delta: "updated",
+      direction: "up",
+      detail: "Seeded PDP content changed so Watchlist can show a content update marker.",
+      items: [
+        { text: "Expectation note and FAQ context were refreshed.", sentiment: "positive" },
+      ],
+    } : {
+      id: "new-reviews",
+      source: "reviews",
+      title: "Review language changed",
+      metric: "Negative reviews",
+      from: previous.negativeReviewCount,
+      to: current.negativeReviewCount,
+      delta: formatSignedNumber(current.negativeReviewCount - previous.negativeReviewCount),
+      direction: current.negativeReviewCount >= previous.negativeReviewCount ? "up" : "down",
+      detail: `Review language still clusters around ${profile.repeatedLanguage[0]}.`,
+      items: [
+        { text: `Review 2/5: ${product.productTitle} felt ${profile.repeatedLanguage[0]}.`, sentiment: "negative" },
+      ],
+    },
+  ].filter(Boolean);
+}
+
+function buildSeedWatchSections(previous, current) {
+  return [
+    {
+      id: "risk",
+      title: "Risk",
+      changes: [
+        buildSeedWatchChange("risk-score", "Risk score", previous.riskScore, current.riskScore, { suffix: "/100", lowerIsGood: true }),
+        buildSeedWatchChange("return-rate", "Return rate", previous.returnRatePercent, current.returnRatePercent, { suffix: "%", lowerIsGood: true }),
+      ],
+    },
+    {
+      id: "evidence",
+      title: "Evidence",
+      changes: [
+        buildSeedWatchChange("signals", "Evidence signals", previous.signalCount, current.signalCount, { higherIsGood: true }),
+        buildSeedWatchChange("negative-reviews", "Negative reviews", previous.negativeReviewCount, current.negativeReviewCount, { lowerIsGood: true }),
+      ],
+    },
+    {
+      id: "impact",
+      title: "Business impact",
+      changes: [
+        buildSeedWatchChange("refund-amount", "Refund amount", previous.refundAmount, current.refundAmount, { money: true, lowerIsGood: true }),
+        buildSeedWatchChange("sales", "Sales amount", previous.salesAmount, current.salesAmount, { money: true, higherIsGood: true }),
+      ],
+    },
+    {
+      id: "momentum",
+      title: "Momentum",
+      changes: [
+        buildSeedWatchChange("momentum-score", "Momentum score", previous.productMomentumScore, current.productMomentumScore, { suffix: "/100", higherIsGood: true }),
+      ],
+    },
+  ];
+}
+
+function buildSeedWatchChange(id, label, from, to, options = {}) {
+  const delta = Number(to || 0) - Number(from || 0);
+  const direction = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
+  const tone = options.lowerIsGood
+    ? delta > 0 ? "bad" : delta < 0 ? "good" : "neutral"
+    : options.higherIsGood
+      ? delta > 0 ? "good" : delta < 0 ? "bad" : "neutral"
+      : "neutral";
+  return {
+    id,
+    label,
+    from: options.money ? formatMoney(from) : `${round(from, 1)}${options.suffix || ""}`,
+    to: options.money ? formatMoney(to) : `${round(to, 1)}${options.suffix || ""}`,
+    delta: options.money ? formatSignedMoney(delta) : `${delta > 0 ? "+" : ""}${round(delta, 1)}${options.suffix || ""}`,
+    direction,
+    tone,
+    summary: `${label} moved from ${options.money ? formatMoney(from) : round(from, 1)} to ${options.money ? formatMoney(to) : round(to, 1)}.`,
+  };
+}
+
+function formatSeedWatchRunHistoryPoint(report) {
+  const current = report.current || {};
+  return {
+    id: report.id,
+    status: report.status,
+    changeCount: report.changeCount,
+    currentRunAt: report.currentRunAt,
+    capturedAt: current.capturedAt || report.currentRunAt,
+    riskScore: current.riskScore,
+    returnRatePercent: current.returnRatePercent,
+    refundRatePercent: current.refundRatePercent,
+    productMomentumScore: current.productMomentumScore,
+    orderCount: current.orderCount,
+    soldUnits: current.soldUnits,
+    returnUnits: current.returnUnits,
+    refundUnits: current.refundUnits,
+    salesAmount: current.salesAmount,
+    refundAmount: current.refundAmount,
+    signalCount: current.signalCount,
+    contentUpdated: Boolean(current.contentUpdated),
+  };
+}
+
+function getSeedWatchHeadline(previous, current) {
+  const riskDelta = Number(current.riskScore || 0) - Number(previous.riskScore || 0);
+  if (Math.abs(riskDelta) >= 5) return riskDelta > 0 ? "Risk moved up materially" : "Risk improved materially";
+  const returnDelta = Number(current.returnRatePercent || 0) - Number(previous.returnRatePercent || 0);
+  if (Math.abs(returnDelta) >= 2) return returnDelta > 0 ? "Return pressure increased" : "Return pressure eased";
+  return "Evidence changed without a major risk move";
+}
+
+function getWatchTimelineTone(activity) {
+  if (activity.eventType === "product_paused") return "neutral";
+  if (activity.eventType === "watch_change_report") {
+    const status = activity.metadata?.report?.status || "";
+    if (status === "unchanged") return "success";
+    if (status === "baseline") return "info";
+    return "warning";
+  }
+  return "info";
+}
+
+async function seedJobHistory(shop, products) {
+  const jobSpecs = [
+    {
+      kind: "fast-product-scan",
+      source: "ProductPulse demo seed - quarterly QuickScan",
+      daysAgo: 330,
+      productCount: products.length,
+      eventPrefix: "quick_scan",
+    },
+    {
+      kind: "product-diagnosis",
+      source: "ProductPulse demo seed - full diagnosis batch",
+      daysAgo: 250,
+      productCount: Math.min(8, products.length),
+      eventPrefix: "product_diagnosis",
+    },
+    {
+      kind: "watchlist-cron",
+      source: "ProductPulse demo seed - watchlist scheduled run",
+      daysAgo: 120,
+      productCount: Math.min(WATCHLIST_PRODUCT_COUNT, products.length),
+      eventPrefix: "watchlist",
+    },
+    {
+      kind: "fast-product-scan",
+      source: "ProductPulse demo seed - monthly QuickScan refresh",
+      daysAgo: 90,
+      productCount: products.length,
+      eventPrefix: "quick_scan",
+    },
+    {
+      kind: "product-diagnosis",
+      source: "ProductPulse demo seed - high-risk diagnosis refresh",
+      daysAgo: 45,
+      productCount: products.filter((product) => product.riskScore >= 75).length,
+      eventPrefix: "product_diagnosis",
+    },
+    {
+      kind: "watchlist-cron",
+      source: "ProductPulse demo seed - watchlist scheduled run",
+      daysAgo: 18,
+      productCount: Math.min(WATCHLIST_PRODUCT_COUNT, products.length),
+      eventPrefix: "watchlist",
+    },
+  ];
+
+  for (const [index, spec] of jobSpecs.entries()) {
+    const startedAt = daysAgo(spec.daysAgo, SEED_NOW);
+    const finishedAt = addMinutes(startedAt, 8 + index * 3);
+    const job = await prisma.catalogSignalJob.create({
+      data: {
+        shop,
+        kind: spec.kind,
+        source: spec.source,
+        status: "Completed",
+        progress: 100,
+        payload: {
+          seedSource: DEMO_SEED_SOURCE,
+          productCount: spec.productCount,
+          productGids: products.slice(0, spec.productCount).map((product) => product.productGid),
+          completedBy: "npm run seed:demo",
+        },
+        startedAt,
+        finishedAt,
+        updatedAt: finishedAt,
+      },
+    });
+    await prisma.productPulseJobLog.createMany({
       data: [
         {
           shop,
-          productGid: product.productGid,
-          productTitle: product.productTitle,
-          watchlistItemId: watchlistItem.id,
-          eventType: "product_added",
-          title: "Product added to watchlist",
-          detail: `${product.productTitle} entered automatic monitoring.`,
-          metadata: { seedSource: DEMO_SEED_SOURCE },
-          createdAt: daysAgo(18 - index, SEED_NOW),
+          jobId: job.id,
+          event: `${spec.eventPrefix}.queued`,
+          message: `${spec.source} queued from seeded data.`,
+          data: { seedSource: DEMO_SEED_SOURCE, productCount: spec.productCount },
+          createdAt: startedAt,
         },
         {
           shop,
-          productGid: product.productGid,
-          productTitle: product.productTitle,
-          watchlistItemId: watchlistItem.id,
-          eventType: index === 3 ? "product_paused" : "watch_scan_completed",
-          title: index === 3 ? "Product paused" : "Watch scan completed",
-          detail: index === 3
-            ? "Automatic rescans were paused for this demo product."
-            : `Risk score refreshed at ${product.riskScore}/100.`,
-          metadata: {
-            seedSource: DEMO_SEED_SOURCE,
-            riskScore: product.riskScore,
-            confidence: product.confidence,
-          },
-          createdAt: daysAgo(2 + index, SEED_NOW),
+          jobId: job.id,
+          event: `${spec.eventPrefix}.running`,
+          message: `${spec.source} processed deterministic demo inputs.`,
+          data: { seedSource: DEMO_SEED_SOURCE, progress: 65 },
+          createdAt: addMinutes(startedAt, 3),
+        },
+        {
+          shop,
+          jobId: job.id,
+          event: `${spec.eventPrefix}.completed`,
+          message: `${spec.source} completed without calling Shopify.`,
+          data: { seedSource: DEMO_SEED_SOURCE, productsUpdated: spec.productCount },
+          createdAt: finishedAt,
         },
       ],
     });
@@ -1149,6 +2498,23 @@ function buildMetrics({
     diagnosisCreatedAt,
     diagnosisCompletedAt,
   });
+  const catalogDetails = buildSeedCatalogDetails(product, profile, index);
+  const relationshipContext = buildSeedRelationshipAndContextMetrics({
+    product,
+    profile,
+    index,
+    summary,
+    monthlyOrderActivity,
+    negativeReviewCount,
+  });
+  const chartInterpretations = buildSeedChartInterpretations({
+    product,
+    profile,
+    summary,
+    returnRatePrediction,
+    productMomentum,
+    riskHistory,
+  });
 
   return {
     seedSource: DEMO_SEED_SOURCE,
@@ -1164,9 +2530,11 @@ function buildMetrics({
     sku: buildSku(product),
     vendor: product.vendor,
     productType: product.productType,
+    productStory: buildSeedProductStory(product, profile, index),
     tags: product.tags,
     collections: product.collections,
     price: product.price,
+    ...catalogDetails,
     avgUnitRevenue: product.price,
     imageUrl: buildImageUrl(product),
     imageAlt: product.productTitle,
@@ -1240,9 +2608,18 @@ function buildMetrics({
     textInsights,
     refundInsights,
     reviewSourceStats: {
+      total: { reviewCount, negativeReviewCount, averageRating: avgRating },
       judgeMe: { reviewCount: Math.round(reviewCount * 0.62), negativeReviewCount: Math.round(negativeReviewCount * 0.62), averageRating: avgRating },
       csv: { reviewCount: reviewCount - Math.round(reviewCount * 0.62), negativeReviewCount: negativeReviewCount - Math.round(negativeReviewCount * 0.62), averageRating: round(Math.max(1, avgRating - 0.2), 1) },
+      chatMe: { reviewCount: Math.max(0, Math.round(reviewCount * 0.08)), negativeReviewCount: Math.max(0, Math.round(negativeReviewCount * 0.06)), averageRating: round(Math.max(1, avgRating - 0.1), 1) },
     },
+    judgeMeNegativeReviewCount: Math.round(negativeReviewCount * 0.62),
+    judgeMeAverageRating: avgRating,
+    csvNegativeReviewCount: negativeReviewCount - Math.round(negativeReviewCount * 0.62),
+    csvAverageRating: round(Math.max(1, avgRating - 0.2), 1),
+    chatMeReviewCount: Math.max(0, Math.round(reviewCount * 0.08)),
+    chatMeNegativeReviewCount: Math.max(0, Math.round(negativeReviewCount * 0.06)),
+    chatMeAverageRating: round(Math.max(1, avgRating - 0.1), 1),
     monthlyOrderActivity,
     returnRatePrediction,
     productMomentum,
@@ -1263,6 +2640,8 @@ function buildMetrics({
     priceHistory: buildPriceHistory(product, monthlyOrderActivity.months, index),
     scoreCalculationStatus: "Score calculated from persisted components",
     riskComponents,
+    chartInterpretations,
+    ...relationshipContext,
     incrementalDiagnosis,
     evidence,
   };
@@ -1324,6 +2703,518 @@ function buildSeedRiskComponents({ product, profile, summary, negativeReviewRate
     calculated: Math.round(rawScore),
     riskScore: product.riskScore,
   };
+}
+
+function buildSeedCatalogDetails(product, profile, index) {
+  const affectedVariants = buildAffectedVariants(product, index);
+  const variants = affectedVariants.map((title, variantIndex) => ({
+    id: `${product.productGid.replace("/Product/", "/ProductVariant/")}${variantIndex + 1}`,
+    title,
+    sku: `${buildSku(product)}-${variantIndex + 1}`,
+    price: getMonthPrice(product.price, MONTHS_TO_SEED - 1, index),
+    inventoryQuantity: Math.max(0, 42 - product.riskScore + variantIndex * 9 + deterministicInt(`${product.handle}:inventory:${variantIndex}`, 0, 32)),
+    selectedOptions: getSeedVariantOptions(product, title),
+  }));
+  const media = Array.from({ length: 2 + (index % 4) }, (_, mediaIndex) => ({
+    id: `seed-media-${stableProductNumber(product)}-${mediaIndex + 1}`,
+    type: "IMAGE",
+    url: buildImageUrl({ productTitle: `${product.productTitle} ${mediaIndex + 1}` }),
+    alt: mediaIndex === 0 ? product.productTitle : `${profile.mainIssue} context ${mediaIndex + 1}`,
+  }));
+  const strongestVariant = affectedVariants[index % affectedVariants.length] || "Default Title";
+
+  return {
+    productStatus: index % 11 === 0 ? "DRAFT" : "ACTIVE",
+    seoTitle: `${product.productTitle} | Seeded ProductPulse Demo`,
+    seoDescription: `Seeded demo PDP context for ${product.productTitle}, focused on ${profile.mainIssue.toLowerCase()} and one year of synthetic customer evidence.`,
+    templateSuffix: index % 3 === 0 ? "product-risk-review" : "",
+    optionNames: getSeedOptionNames(product),
+    variantCount: variants.length,
+    skuCount: variants.length,
+    variants,
+    media,
+    affectedVariantDetails: affectedVariants.map((variant, variantIndex) => ({
+      variant,
+      sku: variants[variantIndex]?.sku || buildSku(product),
+      count: Math.max(1, Math.round((product.riskScore / 9) - variantIndex * 1.4)),
+      returnRate: round(Math.max(1, product.riskScore / 5 - variantIndex * 1.8), 1),
+      issue: variant === strongestVariant ? profile.mainIssue : profile.issueTitle,
+    })),
+    variantInsights: [
+      {
+        title: `${strongestVariant} carries the clearest signal`,
+        detail: `${profile.repeatedLanguage[0]} appears most often in this variant cluster.`,
+        tone: product.riskScore >= 75 ? "critical" : "warning",
+      },
+      {
+        title: "Variant naming can reduce ambiguity",
+        detail: `Seeded PDP evidence links variant choice to ${profile.mainIssue.toLowerCase()}.`,
+        tone: "info",
+      },
+    ],
+  };
+}
+
+function getSeedOptionNames(product) {
+  const title = product.productTitle.toLowerCase();
+  if (product.productType === "Boots") return ["Size", "Color"];
+  if (product.productType === "Snowboard") return ["Length", "Flex"];
+  if (title.includes("nintendo")) return ["Bundle"];
+  if (product.productType.includes("toy") || product.productType.includes("figure")) return ["Pack"];
+  return ["Style"];
+}
+
+function getSeedVariantOptions(product, title) {
+  const optionNames = getSeedOptionNames(product);
+  return optionNames.map((name, index) => ({
+    name,
+    value: index === 0 ? title : index === 1 ? "Standard" : "Default",
+  }));
+}
+
+function buildSeedRelationshipAndContextMetrics({ product, profile, index, summary, monthlyOrderActivity, negativeReviewCount }) {
+  const soldUnits = Math.max(1, Number(summary.totalOrderUnits || 0));
+  const soldOrders = Math.max(1, Number(summary.totalOrders || 0));
+  const returnedUnits = Math.max(0, Number(summary.totalReturnedUnits || 0));
+  const returnedOrders = Math.max(0, Number(summary.totalReturnedOrders || 0));
+  const refundedUnits = Math.max(0, Number(summary.totalRefundedUnits || 0));
+  const refundedOrders = Math.max(0, Number(summary.totalRefundedOrders || 0));
+  const linkedUnits = Math.min(returnedUnits, refundedUnits, Math.max(0, Math.round(returnedUnits * (0.42 + (index % 3) * 0.08))));
+  const returnOnlyUnits = Math.max(0, returnedUnits - linkedUnits - Math.round(returnedUnits * 0.08));
+  const refundOnlyUnits = Math.max(0, refundedUnits - linkedUnits);
+  const exchangeUnits = Math.max(0, Math.round(returnedUnits * (product.riskScore >= 80 ? 0.08 : 0.16)));
+  const pendingUnits = Math.max(0, returnedUnits - linkedUnits - returnOnlyUnits - exchangeUnits);
+  const attributedRefundAmount = round(summary.totalRefundAmount * 0.82, 2);
+  const refundAmountWithReturn = round(summary.totalRefundAmount * (linkedUnits && refundedUnits ? linkedUnits / refundedUnits : 0.45), 2);
+  const refundAmountWithoutReturn = round(Math.max(0, attributedRefundAmount - refundAmountWithReturn), 2);
+  const unattributedRefundAmount = round(summary.totalRefundAmount - attributedRefundAmount, 2);
+  const returnPressureScore = clamp(Math.round(summary.returnRate * 2.4 + product.riskScore * 0.32), 0, 100);
+  const refundLeakageScore = clamp(Math.round(summary.refundRate * 3.3 + refundOnlyUnits * 1.4 + product.riskScore * 0.18), 0, 100);
+  const estimatedFutureRefundFromReturnOnlyCases = round(returnOnlyUnits * product.price * 0.58, 2);
+  const financialExposureBreakdown = {
+    hasRelationshipSummary: true,
+    confirmedRefundAmount: attributedRefundAmount,
+    attributedRefundAmount,
+    refundAmountWithReturn,
+    refundAmountWithoutReturn,
+    unattributedRefundAmount,
+    estimatedFutureRefundFromReturnOnlyCases,
+    returnRelatedRiskAmount: estimatedFutureRefundFromReturnOnlyCases,
+    relationshipAdjustedRefundAmount: round(attributedRefundAmount + estimatedFutureRefundFromReturnOnlyCases + unattributedRefundAmount * 0.25, 2),
+    totalRefundAmountRelated: round(attributedRefundAmount + unattributedRefundAmount, 2),
+    refundAttributionRate: percent(attributedRefundAmount, attributedRefundAmount + unattributedRefundAmount),
+  };
+  const returnPressure = {
+    score: returnPressureScore,
+    productFrictionUnits: returnedUnits,
+    returnedAndRefundedUnits: linkedUnits,
+    returnedNotRefundedUnits: returnOnlyUnits,
+    exchangeOrReplacementUnits: exchangeUnits,
+    pendingReturnUnits: pendingUnits,
+    returnRateUnits: summary.returnRate,
+    returnRateUnitsPercent: summary.returnRate,
+  };
+  const refundLeakage = {
+    score: refundLeakageScore,
+    attributedRefundAmount,
+    unattributedRefundAmount,
+    refundAmountWithReturn,
+    refundAmountWithoutReturn,
+    refundAttributionRate: percent(attributedRefundAmount, attributedRefundAmount + unattributedRefundAmount),
+  };
+  const customerSignalBreakdown = {
+    linkedReturnRefundCount: linkedUnits,
+    returnOnlyCount: returnOnlyUnits,
+    refundOnlyCount: refundOnlyUnits,
+    exchangeOrReplacementCount: exchangeUnits,
+    pendingOrUnknownCount: pendingUnits,
+    negativeReviewCount,
+    returnLanguageCount: Math.max(1, Math.round(returnedUnits * 0.36)),
+  };
+  const returnRefundRelationshipSummary = {
+    soldUnits,
+    soldOrders,
+    returnedUnits,
+    returnedOrders,
+    refundedUnits,
+    refundedOrders,
+    returnedAndRefundedUnits: linkedUnits,
+    returnedAndRefundedOrders: Math.min(returnedOrders, refundedOrders, Math.round(linkedUnits * 0.8)),
+    returnedNotRefundedUnits: returnOnlyUnits,
+    returnedNotRefundedOrders: Math.round(returnOnlyUnits * 0.8),
+    refundedWithoutReturnUnits: refundOnlyUnits,
+    refundedWithoutReturnOrders: Math.round(refundOnlyUnits * 0.9),
+    exchangeOrReplacementUnits: exchangeUnits,
+    pendingReturnUnits: pendingUnits,
+    relationshipUnknownCount: pendingUnits,
+    unattributedRefundAmount,
+    attributedRefundAmount,
+    refundAmountWithReturn,
+    refundAmountWithoutReturn,
+    totalProductRevenue: summary.totalRevenue,
+    totalRefundAmountRelated: round(attributedRefundAmount + unattributedRefundAmount, 2),
+    returnRateUnits: summary.returnRate,
+    refundRateUnits: summary.refundRate,
+    relationshipMatchConfidenceAvg: clamp(84 - index + Math.round(product.confidence / 12), 55, 96),
+  };
+  const productPurchaseContext = buildSeedPurchaseContext({ product, profile, index, summary, monthlyOrderActivity });
+  const productRelationship = buildSeedProductRelationshipIntelligence({ product, profile, index, summary, monthlyOrderActivity });
+
+  return {
+    returnRefundRelationshipSummary,
+    returnRefundRelationshipFactors: {
+      version: "seed-v2",
+      hasRelationshipSummary: true,
+      returnPressure,
+      refundLeakage,
+      financialExposure: financialExposureBreakdown,
+      customerSignalBreakdown,
+      diagnosisConfidence: {
+        relationshipMatchConfidenceAvg: returnRefundRelationshipSummary.relationshipMatchConfidenceAvg,
+      },
+    },
+    returnRefundScoringImpact: [
+      `Return/refund matching separated ${linkedUnits} linked units from ${returnOnlyUnits} return-only units.`,
+      `${formatMoney(financialExposureBreakdown.relationshipAdjustedRefundAmount)} relationship-adjusted exposure is stored for timeline charts.`,
+    ],
+    financialExposureBreakdown,
+    returnPressure,
+    refundLeakage,
+    returnPressureScore,
+    returnPressureRate: summary.returnRate,
+    refundLeakageScore,
+    customerSignalBreakdown,
+    productPurchaseContextSummary: productPurchaseContext.summary,
+    productPurchaseContextFactors: productPurchaseContext.factors,
+    productPurchaseContextScoringImpact: productPurchaseContext.scoringImpact,
+    purchaseContextSignalBreakdown: productPurchaseContext.signalBreakdown,
+    productRelationshipIntelligenceSummary: productRelationship.summary,
+    productRelationshipFactors: productRelationship.factors,
+    productRelationshipScoringImpact: productRelationship.scoringImpact,
+    productRelationshipAiInsights: productRelationship.aiInsights,
+  };
+}
+
+function buildSeedPurchaseContext({ product, profile, index, summary, monthlyOrderActivity }) {
+  const totalOrders = Math.max(1, summary.totalOrders);
+  const soloOrders = Math.max(1, Math.round(totalOrders * (0.38 + (index % 3) * 0.06)));
+  const multiProductOrders = Math.max(0, totalOrders - soloOrders);
+  const singleUnitOrders = Math.max(1, Math.round(totalOrders * 0.68));
+  const multiUnitOrders = Math.max(0, totalOrders - singleUnitOrders);
+  const bulkOrders = Math.max(0, Math.round(totalOrders * (product.price < 20 ? 0.12 : 0.04 + (index % 2) * 0.02)));
+  const multiVariantOrders = product.productType === "Boots" || product.productType === "Snowboard"
+    ? Math.max(2, Math.round(totalOrders * 0.18))
+    : Math.max(0, Math.round(totalOrders * 0.05));
+  const relatedProducts = buildSeedRelatedProducts(product, index);
+  const segments = {
+    bought_alone: buildSeedPurchaseSegment(soloOrders, summary, 0.88),
+    bought_with_others: buildSeedPurchaseSegment(multiProductOrders, summary, 1.14),
+    multi_variant_orders: buildSeedPurchaseSegment(multiVariantOrders, summary, product.productType === "Boots" || product.productType === "Snowboard" ? 1.35 : 0.96),
+    bulk_orders: buildSeedPurchaseSegment(bulkOrders, summary, product.price < 25 ? 1.18 : 0.9),
+  };
+  const signalBreakdown = {
+    primaryContext: multiProductOrders > soloOrders ? "mixed_basket" : "solo_purchase",
+    multiProductOrders,
+    soloOrders,
+    bulkOrders,
+    multiVariantOrders,
+    strongestSegment: product.productType === "Boots" || product.productType === "Snowboard" ? "multi_variant_orders" : "bought_with_others",
+  };
+
+  return {
+    summary: {
+      totalOrdersContainingProduct: totalOrders,
+      totalUnitsSold: summary.totalOrderUnits,
+      totalRevenueIfAvailable: summary.totalRevenue,
+      soloProductOrderCount: soloOrders,
+      multiProductOrderCount: multiProductOrders,
+      singleUnitOrderCount: singleUnitOrders,
+      multiUnitOrderCount: multiUnitOrders,
+      bulkOrderCount: bulkOrders,
+      multiVariantOrderCount: multiVariantOrders,
+      unknownOrIncompleteOrderCount: Math.max(0, Math.round(totalOrders * 0.02)),
+      bulkPurchaseThreshold: 4,
+      avgProductQuantityPerOrder: round(summary.totalOrderUnits / totalOrders, 2),
+      medianProductQuantityPerOrder: product.price < 20 ? 2 : 1,
+      avgDistinctProductsPerOrder: round(1 + multiProductOrders / totalOrders * 1.8, 2),
+      avgTotalUnitsPerOrder: round(summary.totalOrderUnits / totalOrders + multiProductOrders / totalOrders, 2),
+      quantityDistribution: {
+        oneUnitCount: singleUnitOrders,
+        twoUnitCount: Math.round(multiUnitOrders * 0.58),
+        threeUnitCount: Math.round(multiUnitOrders * 0.27),
+        fourPlusUnitCount: Math.max(0, multiUnitOrders - Math.round(multiUnitOrders * 0.85)),
+      },
+      topCoPurchasedProducts: relatedProducts.map((related, relatedIndex) => ({
+        productId: related.productGid,
+        title: related.productTitle,
+        handle: related.handle,
+        coOrderCount: Math.max(2, Math.round(multiProductOrders * (0.34 - relatedIndex * 0.08))),
+        coOrderRate: round(26 - relatedIndex * 5.5, 1),
+        affinityScore: clamp(82 - relatedIndex * 9 - (index % 4), 35, 96),
+      })),
+      monthlyContext: monthlyOrderActivity.months.map((month, monthIndex) => ({
+        key: month.key,
+        label: month.shortLabel,
+        ordersContainingProduct: month.orders,
+        unitsSold: month.orderUnits,
+        soloProductOrders: Math.round(month.orders * soloOrders / totalOrders),
+        multiProductOrders: Math.round(month.orders * multiProductOrders / totalOrders),
+        avgProductQuantityPerOrder: round(month.orderUnits / Math.max(1, month.orders), 2),
+        avgDistinctProductsPerOrder: round(1 + (multiProductOrders / totalOrders) + deterministicWave(product.handle, monthIndex) * 0.18, 2),
+        avgTotalUnitsPerOrder: round(month.orderUnits / Math.max(1, month.orders) + 0.7, 2),
+        totalBasketUnits: Math.round(month.orderUnits * 1.34),
+        otherProductUnits: Math.max(0, Math.round(month.orderUnits * 0.34)),
+        productBasketShare: round(percent(month.orderUnits, Math.round(month.orderUnits * 1.34)), 1),
+        multiVariantOrders: Math.round(month.orders * multiVariantOrders / totalOrders),
+        bulkOrders: Math.round(month.orders * bulkOrders / totalOrders),
+      })),
+      purchaseContextSegments: segments,
+      purchaseContextConfidence: clamp(78 + (index % 5) * 3, 58, 95),
+      purchaseContextConfidenceLabel: product.riskScore >= 80 ? "High" : "Medium",
+      primaryContext: signalBreakdown.primaryContext,
+      interpretation: `Seeded basket context shows ${product.productTitle} is usually bought ${signalBreakdown.primaryContext === "mixed_basket" ? "with related products" : "as a solo item"}, with ${profile.mainIssue.toLowerCase()} concentrated in ${signalBreakdown.strongestSegment.replace(/_/g, " ")}.`,
+      variantDataAvailable: true,
+    },
+    factors: {
+      hasPurchaseContextSummary: true,
+      customerSignalBreakdown: signalBreakdown,
+      productRisk: { score: clamp(Math.round(summary.returnRate * 1.8), 0, 100), primaryContext: signalBreakdown.primaryContext },
+      financialExposure: { bulkQuantityExposure: round(bulkOrders * product.price * 0.42, 2) },
+      returnPressure: {
+        returnRateWhenBoughtAlone: segments.bought_alone.returnRateUnits,
+        returnRateWhenBoughtWithOthers: segments.bought_with_others.returnRateUnits,
+        returnRateForMultiVariantOrders: segments.multi_variant_orders.returnRateUnits,
+      },
+      refundLeakage: {
+        refundRateWhenBoughtAlone: segments.bought_alone.refundRateUnits,
+        refundRateWhenBoughtWithOthers: segments.bought_with_others.refundRateUnits,
+      },
+      diagnosisConfidence: { complexBasketAmbiguityPenalty: multiProductOrders > soloOrders ? 4 : 0 },
+    },
+    signalBreakdown,
+    scoringImpact: [
+      `${multiProductOrders} seeded orders include another product, giving basket context to Product Risk.`,
+      `${multiVariantOrders} multi-variant orders support variant and expectation analysis.`,
+    ],
+  };
+}
+
+function buildSeedPurchaseSegment(orderCount, summary, multiplier) {
+  const orders = Math.max(0, Math.round(orderCount || 0));
+  const soldUnits = Math.max(0, Math.round(summary.totalOrderUnits * orders / Math.max(1, summary.totalOrders)));
+  const returnedUnits = Math.max(0, Math.round(summary.totalReturnedUnits * orders / Math.max(1, summary.totalOrders) * multiplier));
+  const refundedUnits = Math.max(0, Math.round(summary.totalRefundedUnits * orders / Math.max(1, summary.totalOrders) * multiplier));
+  const refundAmount = round(summary.totalRefundAmount * orders / Math.max(1, summary.totalOrders) * multiplier, 2);
+  return {
+    orders,
+    soldUnits,
+    returnedUnits,
+    refundedUnits,
+    refundAmount,
+    affectedOrders: Math.max(returnedUnits, refundedUnits),
+    returnRateUnits: percent(returnedUnits, soldUnits),
+    refundRateUnits: percent(refundedUnits, soldUnits),
+    affectedOrderRate: percent(Math.max(returnedUnits, refundedUnits), orders),
+    sufficientData: orders >= 5,
+  };
+}
+
+function buildSeedProductRelationshipIntelligence({ product, profile, index, summary, monthlyOrderActivity }) {
+  const relatedProducts = buildSeedRelatedProducts(product, index);
+  const relationshipItems = relatedProducts.map((related, relatedIndex) => buildSeedRelationshipItem({
+    product,
+    related,
+    profile,
+    summary,
+    months: monthlyOrderActivity.months,
+    index,
+    relatedIndex,
+  }));
+  const riskRelationships = relationshipItems.filter((item) => Number(item.deltaReturnRate || 0) > 0 || Number(item.deltaRefundRate || 0) > 0);
+
+  return {
+    summary: {
+      sourceProductId: product.productGid,
+      sourceProductHandle: product.handle,
+      sourceProductTitle: product.productTitle,
+      dataBasis: {
+        sameOrderAvailable: true,
+        customerSequenceAvailable: true,
+        orderCount: summary.totalOrders,
+        customerCount: Math.max(12, Math.round(summary.totalOrders * 0.78)),
+        knownBasketOrderCount: Math.max(1, Math.round(summary.totalOrders * 0.68)),
+        unknownBasketOrderCount: Math.max(0, Math.round(summary.totalOrders * 0.04)),
+      },
+      confidence: {
+        score: clamp(76 + (index % 6) * 3, 58, 95),
+        label: product.riskScore >= 80 ? "High" : "Medium",
+      },
+      topBoughtTogether: relationshipItems.slice(0, 3),
+      topBoughtBefore: relationshipItems.slice(1, 3).map((item) => ({
+        ...item,
+        relationshipDirection: "before",
+        relationshipType: "previous_purchase",
+        timeWindow: "90d_before",
+        medianDaysBefore: 34 + index,
+      })),
+      topBoughtAfter: relationshipItems.slice(0, 2).map((item) => ({
+        ...item,
+        relationshipDirection: "after",
+        relationshipType: "next_purchase",
+        timeWindow: "90d_after",
+        medianDaysAfter: 28 + index,
+        followOnRevenue: round(item.coOrderCount * product.price * 0.44, 2),
+      })),
+      strongestRelationships: relationshipItems,
+      emergingRelationships: relationshipItems.slice(0, 1).map((item) => ({
+        ...item,
+        trend: "rising",
+        relationshipStrength: "emerging",
+      })),
+      relationshipsWithReturnRiskImpact: riskRelationships,
+      relationshipsWithCrossSellOpportunity: relationshipItems.filter((item) => item.lift >= 1.2),
+      relationshipTrends: relationshipItems.slice(0, 2),
+      interpretation: riskRelationships.length
+        ? `Return and refund pressure is higher when ${product.productTitle} is connected to ${riskRelationships[0].relatedProductTitle}. Treat this as seeded context, not causality.`
+        : `${relationshipItems[0]?.relatedProductTitle || "A related product"} is the strongest seeded relationship for merchandising review.`,
+      warnings: index % 5 === 0 ? ["low_sample_size_for_one_related_product"] : [],
+    },
+    factors: {
+      hasProductRelationshipSummary: true,
+      context: {
+        sourceProductId: product.productGid,
+        sourceProductHandle: product.handle,
+        sourceProductTitle: product.productTitle,
+        strongestRelationships: relationshipItems,
+        topBoughtTogether: relationshipItems.slice(0, 3),
+        topBoughtAfter: relationshipItems.slice(0, 2),
+        dataBasis: {
+          sameOrderAvailable: true,
+          customerSequenceAvailable: true,
+          orderCount: summary.totalOrders,
+          customerCount: Math.max(12, Math.round(summary.totalOrders * 0.78)),
+        },
+        confidenceScore: clamp(76 + (index % 6) * 3, 58, 95),
+      },
+      productRiskContext: {
+        hasRiskImpact: riskRelationships.length > 0,
+        topRelationship: riskRelationships[0]?.relatedProductTitle || null,
+      },
+      diagnosisConfidence: {
+        complexBasketAmbiguityPenalty: riskRelationships.length ? 3 : 0,
+        sequenceStabilityScore: relationshipItems.length ? 8 : 0,
+      },
+      recommendedActionSignals: {
+        compatibilityWarning: profile.issueCode === "fit_sizing" || profile.issueCode === "color_expectation",
+        bundleOpportunity: relationshipItems.some((item) => item.lift >= 1.25),
+        crossSellOpportunity: relationshipItems.length > 1,
+      },
+      aiInsightInput: {
+        riskRelationships,
+        crossSellOpportunities: relationshipItems.filter((item) => item.lift >= 1.2),
+      },
+    },
+    scoringImpact: [
+      `${relationshipItems.length} related-product patterns were seeded for relationship tables and cross-sell context.`,
+      riskRelationships.length ? `${riskRelationships[0].relatedProductTitle} adds return/refund context to the diagnosis.` : "Relationship data is contextual and does not directly change Product Risk.",
+    ],
+    aiInsights: {
+      available: true,
+      status: "seeded",
+      generatedAt: SEED_NOW.toISOString(),
+      model: "deterministic-demo-seed",
+      insights: relationshipItems.slice(0, 2).map((item, insightIndex) => ({
+        id: `seed-relationship-insight-${index}-${insightIndex}`,
+        type: insightIndex === 0 ? "risk_context" : "cross_sell_context",
+        sourceRelationshipId: item.relatedProductId,
+        relatedProductTitle: item.relatedProductTitle,
+        summary: `${item.relatedProductTitle} appears as a seeded ${item.relationshipType.replace(/_/g, " ")} relationship for ${product.productTitle}.`,
+        recommendation: insightIndex === 0 ? "Review PDP compatibility and bundle language." : "Consider post-purchase cross-sell testing.",
+        caveat: "Seeded relationship data is synthetic and should be used for UI validation only.",
+        metrics: {
+          lift: item.lift,
+          confidence: item.confidence,
+          sampleSize: item.sampleSize,
+        },
+      })),
+    },
+  };
+}
+
+function buildSeedRelationshipItem({ product, related, profile, summary, months, index, relatedIndex }) {
+  const rate = clamp(18 - relatedIndex * 3 + (index % 4), 4, 38);
+  const lift = round(1.35 - relatedIndex * 0.16 + deterministicWave(product.handle, relatedIndex) * 0.08, 2);
+  const sampleSize = Math.max(4, Math.round(summary.totalOrders * (rate / 100)));
+  return {
+    relatedProductId: related.productGid,
+    relatedProductHandle: related.handle,
+    relatedProductTitle: related.productTitle,
+    relationshipDirection: "together",
+    relationshipType: "same_order",
+    timeWindow: "same_order",
+    relationshipRate: rate,
+    attachRate: rate,
+    relatedProductBaseRate: round(rate / Math.max(lift, 0.2), 1),
+    lift,
+    confidence: clamp(84 - relatedIndex * 9 - (index % 3), 58, 96),
+    confidenceLabel: relatedIndex === 0 ? "High" : "Medium",
+    sampleSize,
+    coOrderCount: sampleSize,
+    orderCount: sampleSize,
+    relationshipStrength: lift >= 1.2 ? "strong" : "moderate",
+    trend: relatedIndex === 0 ? "rising" : "stable",
+    deltaReturnRate: profile.issueCode === "fit_sizing" || relatedIndex === 0 ? round(2.4 + relatedIndex + index % 3, 1) : 0,
+    deltaRefundRate: profile.issueCode === "refund_pressure" || product.riskScore >= 80 ? round(1.1 + relatedIndex * 0.5, 1) : 0,
+    returnRateWhenBoughtTogether: round(summary.returnRate + relatedIndex * 1.2, 1),
+    refundRateWhenBoughtTogether: round(summary.refundRate + relatedIndex * 0.8, 1),
+    monthly: months.slice(-6).map((month, monthIndex) => ({
+      month: month.key,
+      label: month.shortLabel,
+      sourceProductOrders: month.orders,
+      relatedOrderCount: Math.max(1, Math.round(month.orders * (rate / 100) * (0.72 + monthIndex * 0.05))),
+      customerCount: Math.max(1, Math.round(month.orders * (rate / 100) * 0.86)),
+      relationshipRate: clamp(rate + deterministicWave(`${product.handle}:${related.handle}`, monthIndex) * 2.2, 1, 50),
+      lift: round(lift + deterministicWave(related.handle, monthIndex) * 0.08, 2),
+      confidence: clamp(70 + monthIndex * 3 - relatedIndex * 4, 45, 95),
+    })),
+    warnings: relatedIndex === 2 ? ["seeded_low_sample"] : [],
+  };
+}
+
+function buildSeedRelatedProducts(product, index) {
+  return [1, 2, 4].map((offset) => getRelatedSeedProduct(product, index, offset + index));
+}
+
+function buildSeedChartInterpretations({ product, profile, summary, returnRatePrediction, productMomentum, riskHistory }) {
+  const riskShape = describeRiskShape(riskHistory.map((point) => point.riskScore));
+  return {
+    status: "seeded",
+    generatedAt: SEED_NOW.toISOString(),
+    model: "deterministic-demo-seed",
+    interpretations: {
+      monthlyOrderActivity: {
+        text: `${product.productTitle} has ${summary.totalOrders} seeded orders across the last year. Returns and refunds are intentionally varied by month so the order activity chart shows seasonality and ${profile.mainIssue.toLowerCase()} pressure.`,
+      },
+      returnRatePrediction: {
+        text: `The seeded forecast projects ${returnRatePrediction.summary.forecastNext90ReturnRate}% return rate over the next 90 days, using current action status and weekly historical cohorts.`,
+      },
+      productRetentionMetrics: {
+        text: "Retention cohorts are generated from synthetic repeat purchases, cross-sells, discounts and refund events so the retention panel can render cohorts, LTV, repeat curves and segment tables.",
+      },
+      productRiskOverTime: {
+        text: `Risk over time is ${riskShape}; the latest stored score is ${product.riskScore}/100 with ${product.confidence}% confidence.`,
+      },
+      productMomentum: {
+        text: `Product Momentum is ${productMomentum.score}/100 (${productMomentum.tier}) and is stored alongside risk so analytics can compare commercial demand against product friction.`,
+      },
+    },
+  };
+}
+
+function buildSeedProductStory(product, profile, index) {
+  const launchWindow = monthsAgo(16 + index, SEED_NOW).toISOString().slice(0, 10);
+  const arc = describeRiskShape(product.forcedRiskCurve || buildRiskCurve(product, index));
+  return `${product.productTitle} launched into the ${product.collections[0] || product.productType} assortment around ${launchWindow}. The seeded story is ${arc}: demand, returns, refunds, reviews, product content, retention and watchlist runs all point to ${profile.mainIssue.toLowerCase()} with enough variation to test ProductPulse dashboard, analytics and product-detail views.`;
 }
 
 function buildSeedIncrementalDiagnosis({
@@ -1899,15 +3790,32 @@ function buildRiskHistory(product, riskCurve, monthlyOrderActivity, productMomen
       recordedAt: recordedAt.toISOString(),
       metrics: {
         seedSource: DEMO_SEED_SOURCE,
+        temporalMetricsVersion: 3,
+        granularity: "biweekly",
+        sequence: pointIndex + 1,
+        periodEnd: recordedAt.toISOString(),
         returnRate: month.returnRate,
         refundRate: month.refundRate,
+        negativeReviewRate: clamp(riskScore * 0.62 + index, 4, 78),
+        avgRating: round(clamp(4.8 - riskScore / 38, 1.8, 4.9), 1),
         soldUnits: month.orderUnits,
+        salesAmount: month.revenue,
         returnUnits: month.returnedUnits,
         refundUnits: month.refundedUnits,
+        refundAmount: month.refundAmount,
+        financialExposure: round(month.revenue * (riskScore / 100) * 0.22 + month.refundAmount * 0.45, 2),
         revenueAtRisk: round(month.revenue * (riskScore / 100) * 0.18, 2),
         marginAtRisk: round(month.revenue * (riskScore / 100) * 0.07, 2),
         signalCount: Math.max(2, Math.round(riskScore / 6) + momentumOffset + (index % 3)),
+        customerSignalCount: Math.max(1, month.returnedUnits + month.refundedUnits + Math.round(riskScore / 9)),
+        evidenceStrengthScore: clamp(Math.round(45 + riskScore * 0.38 + pointIndex * 0.4), 35, 96),
+        returnPressureScore: clamp(Math.round(month.returnRate * 2.4 + riskScore * 0.32), 0, 100),
+        returnPressureRate: month.returnRate,
+        refundLeakageScore: clamp(Math.round(month.refundRate * 3.3 + riskScore * 0.18), 0, 100),
         productMomentumScore: productMomentum.score,
+        productMomentumTier: productMomentum.tier,
+        momentumDirection: productMomentum.direction,
+        sourceCoverage: getSourceCoverage(index),
       },
     };
   });
@@ -2018,6 +3926,20 @@ function buildEvidence(product, profile, monthlyOrderActivity, productMomentum, 
       productTimeline: {
         title: "Product changes",
         cards: buildProductChangeLog(product, profile, index),
+      },
+      supportTickets: {
+        title: "Support tickets",
+        cards: [
+          { label: "Ticket themes", value: profile.repeatedLanguage[0], detail: `${Math.max(2, Math.round(summary.totalReturnedUnits * 0.18))} seeded support mentions` },
+          { label: "Support macro", value: profile.secondaryActionTitle, detail: "Synthetic support guidance for follow-up workflows" },
+        ],
+      },
+      pdpQuestions: {
+        title: "PDP Q&A",
+        cards: [
+          { label: "Top blocker", value: `Will this avoid ${profile.repeatedLanguage[0]}?`, detail: "Seeded shopper question before purchase" },
+          { label: "FAQ opportunity", value: profile.secondaryActionTitle, detail: "Question can be answered on the product page" },
+        ],
       },
     },
     raw: {
@@ -2274,8 +4196,10 @@ function getSeedActionStatuses(index) {
 }
 
 function getSourceCoverage(index) {
-  const sources = ["Shopify product", "Shopify orders", "Shopify returns", "Shopify refunds", "Judge.me reviews"];
+  const sources = ["Shopify product", "Shopify orders", "Shopify returns", "Shopify refunds", "Judge.me reviews", "Product retention"];
   if (index % 3 !== 0) sources.push("CSV reviews");
+  if (index % 4 === 0) sources.push("Support tickets");
+  if (index % 5 === 0) sources.push("PDP Q&A");
   return sources;
 }
 
@@ -2491,6 +4415,11 @@ function addDays(value, count) {
   return new Date(date.getTime() + count * 24 * 60 * 60 * 1000);
 }
 
+function addMinutes(value, count) {
+  const date = parseDate(value) || new Date(value);
+  return new Date(date.getTime() + count * 60 * 1000);
+}
+
 function formatDateKey(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -2561,6 +4490,19 @@ function formatSignedPercent(value) {
   if (value > 0) return `+${rounded}%`;
   if (value < 0) return `-${rounded}%`;
   return "0%";
+}
+
+function formatSignedNumber(value) {
+  const rounded = round(value, 1);
+  if (rounded > 0) return `+${rounded}`;
+  return String(rounded);
+}
+
+function formatSignedMoney(value) {
+  const amount = Math.abs(round(value, 2));
+  if (value > 0) return `+${formatMoney(amount)}`;
+  if (value < 0) return `-${formatMoney(amount)}`;
+  return "$0.00";
 }
 
 function formatMoney(value) {

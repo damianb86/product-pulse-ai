@@ -137,7 +137,7 @@ describe("ProductPulseJobMonitor", () => {
     expect(within(creditsDialog).getByText("+100 credits")).toBeVisible();
     expect(within(creditsDialog).getByText("1h ago")).toBeVisible();
     expect(within(creditsDialog).getByRole("button", { name: "Buy more credits" })).toBeVisible();
-    expect(within(creditsDialog).getByRole("link", { name: /View billing/ })).toHaveAttribute("href", "/app/settings");
+    expect(within(creditsDialog).getByRole("link", { name: /View billing/ })).toHaveAttribute("href", "/app/plans-and-credits");
 
     fireEvent.click(screen.getByRole("button", { name: /search products/i }));
     fireEvent.change(screen.getByPlaceholderText("Product title, handle, issue..."), {
@@ -276,8 +276,8 @@ describe("ProductPulseJobMonitor", () => {
       displayTitle: "GEN QuietDesk Mini Fan",
       status: "Running",
       productHref: "/app/products/gen-quietdesk-mini-fan",
-      imageUrl: "https://cdn.example.com/gen-quietdesk-mini-fan.jpg",
-      imageAlt: "GEN QuietDesk Mini Fan product photo",
+      productImageUrl: "https://cdn.example.com/gen-quietdesk-mini-fan.jpg",
+      productImageAlt: "GEN QuietDesk Mini Fan product photo",
       startedAtIso: new Date(Date.now() - 5000).toISOString(),
       updatedAtIso: new Date().toISOString(),
     };

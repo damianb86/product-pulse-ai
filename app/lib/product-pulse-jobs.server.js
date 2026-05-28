@@ -2330,6 +2330,7 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
   }
 
   const snapshotMetrics = snapshot.metrics || {};
+  const snapshotImage = await resolveSnapshotProductImage(shop, snapshot, options.admin);
   const job = await prisma.catalogSignalJob.create({
     data: {
       shop,
@@ -2342,8 +2343,10 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
         productGid: snapshot.productGid,
         handle: snapshot.handle,
         productTitle: snapshot.productTitle,
-        imageUrl: snapshotMetrics.imageUrl || snapshotMetrics.image || "",
-        imageAlt: snapshot.productTitle,
+        imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+        productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
+        imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
+        productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
         riskScore: snapshot.riskScore,
         pointCost: 1,
         queuedAt: new Date().toISOString(),
@@ -2721,6 +2724,7 @@ async function runProductDiagnosisJob(job) {
   });
 
   const admin = await getOfflineAdmin(job.shop);
+  const productImage = await resolveSnapshotProductImage(job.shop, snapshot, admin);
   const diagnosis = await runDetailedProductDiagnosis({
     shop: job.shop,
     jobId: job.id,
@@ -2744,6 +2748,10 @@ async function runProductDiagnosisJob(job) {
       : `AI Product Diagnosis completed - ${snapshot.productTitle}`,
     payload: {
       ...(job.payload || {}),
+      imageUrl: job.payload?.imageUrl || productImage.imageUrl || "",
+      productImageUrl: job.payload?.productImageUrl || productImage.imageUrl || "",
+      imageAlt: job.payload?.imageAlt || productImage.imageAlt || snapshot.productTitle,
+      productImageAlt: job.payload?.productImageAlt || productImage.imageAlt || snapshot.productTitle,
       creditsConsumed: diagnosis?.creditsConsumed ?? 1,
       pointsConsumed: diagnosis?.creditsConsumed ?? 1,
       pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
@@ -3175,6 +3183,62 @@ function normalizeRowsPerPage(value) {
 function normalizePositiveInteger(value, fallback) {
   const number = Number.parseInt(value, 10);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+async function resolveSnapshotProductImage(shop, snapshot, admin) {
+  const currentImage = getSnapshotProductImage(snapshot);
+  if (currentImage.imageUrl || !admin?.graphql || !snapshot?.productGid) return currentImage;
+
+  const [rowWithImage] = await attachProductImages([{ productGid: snapshot.productGid }], admin);
+  const imageUrl = normalizeJobPayloadString(rowWithImage?.imageUrl);
+  if (!imageUrl) return currentImage;
+
+  const imageAlt = normalizeJobPayloadString(rowWithImage?.imageAlt) || snapshot.productTitle || "";
+  const nextMetrics = {
+    ...(snapshot.metrics || {}),
+    imageUrl,
+    productImageUrl: imageUrl,
+    imageAlt,
+    productImageAlt: imageAlt,
+  };
+
+  await prisma.productRiskSnapshot.update({
+    where: {
+      shop_productGid: {
+        shop,
+        productGid: snapshot.productGid,
+      },
+    },
+    data: {
+      metrics: nextMetrics,
+    },
+  }).catch(() => null);
+
+  snapshot.metrics = nextMetrics;
+  return { imageUrl, imageAlt };
+}
+
+function getSnapshotProductImage(snapshot = {}) {
+  const metrics = snapshot.metrics || {};
+  const candidates = [
+    metrics.imageUrl,
+    metrics.productImageUrl,
+    metrics.featuredImageUrl,
+    typeof metrics.image === "string" ? metrics.image : metrics.image?.url,
+    metrics.featuredImage?.url,
+  ];
+  const altCandidates = [
+    metrics.imageAlt,
+    metrics.productImageAlt,
+    metrics.featuredImageAlt,
+    metrics.image?.altText,
+    metrics.featuredImage?.altText,
+    snapshot.productTitle,
+  ];
+  return {
+    imageUrl: candidates.map(normalizeJobPayloadString).find(Boolean) || "",
+    imageAlt: altCandidates.map(normalizeJobPayloadString).find(Boolean) || "",
+  };
 }
 
 async function attachProductImages(rows, admin) {
@@ -3630,6 +3694,8 @@ function buildManualProductRiskSnapshotPayload(shop, product) {
   const skuCount = variants.filter((variant) => variant.sku).length;
   const collectionTitles = collections.map((collection) => collection.title).filter(Boolean);
   const now = new Date();
+  const mediaNode = product.media?.nodes?.[0] || {};
+  const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
 
   return {
     shop,
@@ -3670,6 +3736,10 @@ function buildManualProductRiskSnapshotPayload(shop, product) {
       hasDescription: descriptionWordCount > 0,
       descriptionWordCount,
       createdFromShopifySearchAt: now.toISOString(),
+      imageUrl: image.url || "",
+      productImageUrl: image.url || "",
+      imageAlt: image.altText || product.title || "",
+      productImageAlt: image.altText || product.title || "",
     },
     calculatedAt: now,
   };
@@ -3945,6 +4015,11 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
         : [],
       purchaseContextSignalBreakdown: metrics.purchaseContextSignalBreakdown || null,
       productRelationshipIntelligenceSummary: metrics.productRelationshipIntelligenceSummary || null,
+      productRelationshipFactors: metrics.productRelationshipFactors || null,
+      productRelationshipScoringImpact: Array.isArray(metrics.productRelationshipScoringImpact)
+        ? metrics.productRelationshipScoringImpact
+        : [],
+      productRelationshipAiInsights: metrics.productRelationshipAiInsights || null,
       productRetention: metrics.productRetention || null,
       productRetentionSummary: metrics.productRetentionSummary || metrics.productRetention?.summary || null,
       productMomentumScore: metrics.productMomentumScore || metrics.productMomentum?.score || null,

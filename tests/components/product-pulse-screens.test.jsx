@@ -10,6 +10,7 @@ import {
   ProductDiagnosisScreen,
   ProductEvidenceReportScreen,
   ProductMetricTimelinesScreen,
+  PlansCreditsScreen,
   ProductsScreen,
   SettingsScreen,
   WatchlistActivityScreen,
@@ -21,6 +22,7 @@ import { defaultView } from "../fixtures/product-pulse-fixtures";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.localStorage.removeItem(__productPulseScreensTestHooks.productDetailPanelCollapseStorageKey);
 });
 
 function renderWithRouter(element) {
@@ -304,6 +306,67 @@ function getSmoothPathEndpointYValues(path = "") {
 }
 
 describe("ProductPulse screens", () => {
+  it("renders the Plans & Credits pricing and credit purchase page", () => {
+    renderWithRouter(<PlansCreditsScreen />);
+
+    expect(screen.getByRole("heading", { name: "Plans & Credits" })).toBeInTheDocument();
+    expect(screen.queryByText("Monthly billing")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 credit = 1 deep diagnosis")).not.toBeInTheDocument();
+    expect(screen.getByText(/Beta pricing is active/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Current usage")).toHaveTextContent("Free");
+    expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Monthly credits\s*10/);
+    expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Used\s*0/);
+    expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Left\s*10/);
+    expect(screen.getByRole("heading", { name: "Free" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Starter" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Growth" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Premium" })).toBeInTheDocument();
+    expect(screen.getByText("Recommended")).toBeInTheDocument();
+    expect(screen.getByText("Best value")).toBeInTheDocument();
+    expect(screen.getByText("$19")).toBeInTheDocument();
+    expect(screen.getByText("$9.50")).toBeInTheDocument();
+    expect(screen.getByText("$49")).toBeInTheDocument();
+    expect(screen.getByText("$24.50")).toBeInTheDocument();
+    expect(screen.getByText("Metric timeline")).toBeInTheDocument();
+    expect(screen.getByText("30 days")).toBeInTheDocument();
+    expect(screen.getByText("90 days")).toBeInTheDocument();
+    expect(screen.getAllByText("360 days")).toHaveLength(5);
+    expect(screen.getByText("Exports")).toBeInTheDocument();
+    expect(screen.getByText("CSV")).toBeInTheDocument();
+    expect(screen.getByText("CSV, PDF")).toBeInTheDocument();
+    expect(screen.getByText("CSV, PDF, Excel")).toBeInTheDocument();
+    expect(screen.getByText("Email")).toBeInTheDocument();
+    expect(screen.getByText("Priority email")).toBeInTheDocument();
+    expect(screen.getAllByText("Priority + Chat")).toHaveLength(2);
+    expect(screen.getByText("Dedicated")).toBeInTheDocument();
+    expect(screen.queryByText("Community")).not.toBeInTheDocument();
+    expect(screen.queryByText("API access")).not.toBeInTheDocument();
+    expect(screen.queryByText("Seats")).not.toBeInTheDocument();
+    expect(screen.queryByText("Watched products")).not.toBeInTheDocument();
+    expect(screen.getByText("Extra credit packs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy 10 credits" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy 25 credits" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy 250 credits" })).toBeInTheDocument();
+    expect(screen.getByText("$8")).toBeInTheDocument();
+    expect(screen.getByText("$4")).toBeInTheDocument();
+    expect(screen.getByText("$7.50")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Buy 500 credits" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Current plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose Starter" })).not.toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Coming soon" })).toHaveLength(3);
+    screen.getAllByRole("button", { name: "Coming soon" }).forEach((button) => {
+      expect(button).toBeDisabled();
+    });
+    expect(screen.getByText("Which option fits best?")).toBeInTheDocument();
+    expect(screen.getByText("Low usage")).toBeInTheDocument();
+    expect(screen.getByText("Growing usage")).toBeInTheDocument();
+    expect(screen.getByText("Heavy usage")).toBeInTheDocument();
+    expect(screen.getByText("Billing information")).toBeInTheDocument();
+    expect(screen.getByText("Payment methods")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Manage billing/ })).toHaveAttribute("href", "/app/plans-and-credits");
+  });
+
   it("renders dashboard KPIs and start-here product", () => {
     renderWithRouter(<DashboardScreen data={defaultView} />);
     expect(screen.getByText(/Current product quality status/)).toBeInTheDocument();
@@ -1736,8 +1799,10 @@ describe("ProductPulse screens", () => {
   it("syncs metric timeline hover state to the nearest x-axis point", () => {
     const {
       assignProductMetricTimelineEventPlotTimes,
+      getProductMetricTimelineEventTooltipItems,
       getProductMetricTimelineClickTime,
       getProductMetricTimelineLockedTooltipIndex,
+      getProductMetricTimelineLockedTooltipPoint,
       getProductMetricTimelineNearestSyncIndex,
       getProductMetricTimelineTooltipLockProps,
     } = __productPulseScreensTestHooks;
@@ -1761,6 +1826,7 @@ describe("ProductPulse screens", () => {
       ],
     };
     expect(getProductMetricTimelineLockedTooltipIndex(sparseChart, time("2026-04-20T00:00:00.000Z"))).toBe(1);
+    expect(getProductMetricTimelineLockedTooltipPoint(sparseChart, 1)).toMatchObject({ value: 30 });
     expect(getProductMetricTimelineClickTime(sparseChart, { activeLabel: time("2026-05-01T00:00:00.000Z") })).toBe(time("2026-05-01T00:00:00.000Z"));
     expect(getProductMetricTimelineClickTime(sparseChart, { activeTooltipIndex: 0 })).toBe(time("2026-02-01T00:00:00.000Z"));
     expect(getProductMetricTimelineTooltipLockProps(1)).toMatchObject({ active: true, defaultIndex: 1, trigger: "click" });
@@ -1788,6 +1854,14 @@ describe("ProductPulse screens", () => {
       { kind: "events", data: closeEvents },
       { activeLabel: closeEvents[1].plotTime, activeTooltipIndex: 1 },
     )).toBe(time("2025-08-02T00:00:00.000Z"));
+
+    expect(getProductMetricTimelineEventTooltipItems({
+      dayEvents: [
+        { id: "late", time: time("2025-08-03T10:00:00.000Z"), title: "Late event", category: "risk" },
+        { id: "early", time: time("2025-08-03T08:00:00.000Z"), title: "Early event", category: "watchlist" },
+        { id: "middle", time: time("2025-08-03T09:00:00.000Z"), title: "Middle event", category: "actions" },
+      ],
+    }).map((event) => event.id)).toEqual(["early", "middle", "late"]);
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
@@ -2067,8 +2141,8 @@ describe("ProductPulse screens", () => {
     expect(predictionPanel).toBeInTheDocument();
     expect(Boolean(predictionPanel.compareDocumentPosition(historyPanel) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(within(historyPanel).getByText("Product risk over time")).toBeInTheDocument();
-    expect(historyPanel.querySelector(".ppProductRiskHistoryScore")).toHaveTextContent("92 / 100");
-    expect(historyPanel.querySelector(".ppProductRiskHistoryScore small")).toHaveTextContent("/ 100");
+    expect(within(historyPanel).getByRole("button", { name: "Collapse Product risk over time" })).toBeInTheDocument();
+    expect(historyPanel.querySelector(".ppProductRiskHistoryCurrent")).not.toBeInTheDocument();
     expect(within(historyPanel).getByText("+4 pts")).toBeInTheDocument();
     expect(within(historyPanel).getAllByText("Return rate spike").length).toBeGreaterThan(0);
     expect(within(historyPanel).getAllByText("Refund pressure increased").length).toBeGreaterThan(0);
@@ -2119,6 +2193,92 @@ describe("ProductPulse screens", () => {
     const xTickLabels = Array.from(historyPanel.querySelectorAll(".ppProductRiskHistoryXTick text")).map((node) => node.textContent);
 
     expect(xTickLabels).toEqual(expect.arrayContaining(["Jan 26", "Mar 26"]));
+  });
+
+  it("uses spaced Product Events milestones on product risk history", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        riskHistory: [
+          { id: "history-jan", riskScore: 48, source: "quickscan", recordedAt: "2026-01-01T12:00:00.000Z" },
+          { id: "history-feb", riskScore: 54, source: "watchlist-scan", recordedAt: "2026-02-01T12:00:00.000Z" },
+          { id: "history-mar", riskScore: 66, source: "watchlist-scan", recordedAt: "2026-03-01T12:00:00.000Z" },
+          { id: "history-apr", riskScore: 72, source: "full-diagnosis", recordedAt: "2026-04-01T12:00:00.000Z" },
+          { id: "history-may", riskScore: 80, source: "full-diagnosis", recordedAt: "2026-05-01T12:00:00.000Z" },
+        ],
+      },
+      timeline: {
+        events: [
+          {
+            id: "review-surge",
+            eventType: "negative_review_surge",
+            category: "reviews",
+            title: "Negative review surge",
+            summary: "Reviews became materially more negative.",
+            occurredAt: "2026-01-10T10:00:00.000Z",
+            severityTone: "critical",
+            tone: "red",
+            importance: 94,
+          },
+          {
+            id: "cluster-top",
+            eventType: "risk_score_increased",
+            category: "risk",
+            title: "Risk spike flagged",
+            summary: "Most important event in the January cluster.",
+            occurredAt: "2026-01-12T10:00:00.000Z",
+            severityTone: "critical",
+            tone: "red",
+            importance: 95,
+          },
+          {
+            id: "returns",
+            eventType: "return_pressure_spike",
+            category: "returns",
+            title: "Return cluster detected",
+            summary: "Returns increased materially.",
+            occurredAt: "2026-03-05T10:00:00.000Z",
+            severityTone: "warning",
+            tone: "orange",
+            importance: 88,
+          },
+          {
+            id: "action",
+            eventType: "recommended_action_applied",
+            category: "action",
+            title: "Recommended action applied",
+            summary: "A remediation was applied.",
+            occurredAt: "2026-04-10T10:00:00.000Z",
+            severityTone: "info",
+            tone: "blue",
+            importance: 78,
+          },
+          {
+            id: "nearby-action",
+            eventType: "recommended_action_applied",
+            category: "action",
+            title: "Nearby action duplicate",
+            summary: "Close to the selected action event.",
+            occurredAt: "2026-04-13T10:00:00.000Z",
+            severityTone: "info",
+            tone: "blue",
+            importance: 77,
+          },
+        ],
+      },
+    };
+
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const historyPanel = container.querySelector(".ppProductRiskHistoryPanel");
+
+    expect(historyPanel).toBeInTheDocument();
+    expect(historyPanel.querySelectorAll(".ppProductRiskHistoryMilestoneRule")).toHaveLength(3);
+    expect(within(historyPanel).getAllByText("Negative review surge").length).toBeGreaterThan(0);
+    expect(within(historyPanel).getAllByText("Return cluster detected").length).toBeGreaterThan(0);
+    expect(within(historyPanel).getAllByText("Recommended action applied").length).toBeGreaterThan(0);
+    expect(within(historyPanel).queryByText("Risk spike flagged")).not.toBeInTheDocument();
+    expect(within(historyPanel).queryByText("Nearby action duplicate")).not.toBeInTheDocument();
   });
 
   it("uses evidence events instead of score-only milestones on product risk history", () => {
@@ -2684,16 +2844,18 @@ describe("ProductPulse screens", () => {
         }),
       },
     };
-    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const storageKey = __productPulseScreensTestHooks.productDetailPanelCollapseStorageKey;
+    const { container, unmount } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const orderPanel = container.querySelector(".ppProductOrderActivityPanel");
 
     expect(orderPanel).toBeInTheDocument();
     expect(within(orderPanel).getByText("Monthly order activity")).toBeInTheDocument();
-    expect(within(orderPanel).getByText("365-day window")).toBeInTheDocument();
+    expect(within(orderPanel).getByRole("button", { name: "Collapse Monthly order activity" })).toBeInTheDocument();
+    expect(within(orderPanel).queryByText("365-day window")).not.toBeInTheDocument();
     expect(within(orderPanel).getAllByText("Total orders").length).toBeGreaterThan(0);
     expect(within(orderPanel).getAllByText("Returned units").length).toBeGreaterThan(0);
     expect(within(orderPanel).getAllByText("Refunded units").length).toBeGreaterThan(0);
-    expect(within(orderPanel).getByText("Cohort month")).toBeInTheDocument();
+    expect(within(orderPanel).queryByText("Cohort month")).not.toBeInTheDocument();
     expect(within(orderPanel).getByText("$150")).toBeInTheDocument();
     expect(within(orderPanel).getByText("Apr")).toBeInTheDocument();
     expect(within(orderPanel).getByText("May")).toBeInTheDocument();
@@ -2720,6 +2882,27 @@ describe("ProductPulse screens", () => {
     expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).not.toBeInTheDocument();
     fireEvent.click(within(orderPanel).getByRole("button", { name: "Show unresolved returns line" }));
     expect(orderPanel.querySelector(".ppOrderActivityLineUnresolved")).toBeInTheDocument();
+    fireEvent.click(within(orderPanel).getByRole("button", { name: "Collapse Monthly order activity" }));
+    expect(within(orderPanel).getByRole("button", { name: "Expand Monthly order activity" })).toHaveAttribute("aria-expanded", "false");
+    expect(orderPanel.querySelector(".ppProductPanelCollapseRegion")).toHaveAttribute("aria-hidden", "true");
+    expect(within(orderPanel).getByText("AI interpretation")).toBeVisible();
+    expect(within(orderPanel).getByText(/Orders are concentrated in April and May/)).toBeVisible();
+    expect(JSON.parse(window.localStorage.getItem(storageKey))).toMatchObject({ monthlyOrderActivity: true });
+
+    unmount();
+    const nextProduct = {
+      ...product,
+      title: "GEN Other Order Product",
+      handle: "gen-other-order-product",
+    };
+    const { container: nextContainer } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={nextProduct} />);
+    const nextOrderPanel = nextContainer.querySelector(".ppProductOrderActivityPanel");
+
+    expect(nextOrderPanel).toBeInTheDocument();
+    expect(within(nextOrderPanel).getByRole("button", { name: "Expand Monthly order activity" })).toHaveAttribute("aria-expanded", "false");
+    expect(nextOrderPanel.querySelector(".ppProductPanelCollapseRegion")).toHaveAttribute("aria-hidden", "true");
+    fireEvent.click(within(nextOrderPanel).getByRole("button", { name: "Expand Monthly order activity" }));
+    expect(JSON.parse(window.localStorage.getItem(storageKey) || "{}")).not.toHaveProperty("monthlyOrderActivity");
   });
 
   it("renders a small AI interpretation fallback when chart text is missing", () => {
@@ -3458,7 +3641,8 @@ describe("ProductPulse screens", () => {
     expect(within(predictionPanel).getByText("Last 60 days")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Last 30 days")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("Next 3 months")).toBeInTheDocument();
-    expect(within(predictionPanel).getByText("Medium confidence")).toBeInTheDocument();
+    expect(within(predictionPanel).getByRole("button", { name: "Collapse Return rate prediction" })).toBeInTheDocument();
+    expect(within(predictionPanel).queryByText("Medium confidence")).not.toBeInTheDocument();
     expect(within(predictionPanel).getByText("Forecast range")).toBeInTheDocument();
     expect(within(predictionPanel).getByText("AI interpretation")).toBeInTheDocument();
     expect(within(predictionPanel).getByText(/forecast remains close/)).toBeInTheDocument();

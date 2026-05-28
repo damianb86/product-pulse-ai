@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
-const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v1";
+const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v2";
 let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
@@ -15,7 +15,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const [chatKitScriptReady, setChatKitScriptReady] = useState(false);
   const [conversationId, setConversationId] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
-  const [themeMode, setThemeMode] = useState("light");
+  const [themeMode, setThemeMode] = useState("dark");
   const chatKitMethodsRef = useRef(null);
   const conversationIdRef = useRef("");
   const pageContextRef = useRef(pageContext || { type: "unknown" });
@@ -329,7 +329,13 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
           aria-label="Open AI Assistant"
         >
           <span className="ppChatKitLauncherIcon" aria-hidden="true">
-            <span className="ppChatKitLauncherIconGlyph" />
+            <img
+              className="ppChatKitLauncherIconGlyph"
+              src="/assets/ai-assistant-icon-gradient-transparent.png"
+              alt=""
+              width="46"
+              height="46"
+            />
           </span>
         </button>
       ) : null}
@@ -428,12 +434,12 @@ function writeStoredConversationId(conversationId) {
 }
 
 function readStoredThemeMode() {
-  if (typeof window === "undefined") return "light";
+  if (typeof window === "undefined") return "dark";
   try {
     const value = String(window.localStorage?.getItem(CHATKIT_THEME_STORAGE_KEY) || "").trim();
-    return value === "dark" ? "dark" : "light";
+    return value === "light" ? "light" : "dark";
   } catch {
-    return "light";
+    return "dark";
   }
 }
 

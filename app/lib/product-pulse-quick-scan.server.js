@@ -264,8 +264,8 @@ export function buildQuickScanCandidates({
   const storeTotals = getStoreTotals(aggregateList);
   const now = new Date();
   const momentumBaselineSnapshots = buildQuickScanMomentumBaselineSnapshots(aggregateList, windowDays, now);
-  const riskMinimumScore = getQuickScanMinimumRiskScore(settings);
-  const momentumMinimumScore = getQuickScanMinimumMomentumScore(settings);
+  const riskMinimumScore = getQuickScanRuntimeMinimumRiskScore(settings);
+  const momentumMinimumScore = getQuickScanRuntimeMinimumMomentumScore(settings);
 
   return aggregateList
     .map((aggregate) => scoreProductAggregate(aggregate, storeTotals, {
@@ -279,7 +279,7 @@ export function buildQuickScanCandidates({
       productPurchaseContextSummary: productPurchaseContextSummaries.get(aggregate.product.id) || null,
       productRelationshipSummary: productRelationshipSummaries.get(aggregate.product.id) || null,
     }))
-    .filter((candidate) => isPersistableCandidate(candidate, settings))
+    .filter((candidate) => isPersistableCandidate(candidate, { riskMinimumScore, momentumMinimumScore }))
     .sort((a, b) => b.metrics.quickScanCandidateScore - a.metrics.quickScanCandidateScore)
     .slice(0, 50);
 }
@@ -627,6 +627,30 @@ async function extractProductsWithPaginatedQueries({ admin }) {
             productType
             tags
             status
+            featuredMedia {
+              preview {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+            media(first: 1) {
+              nodes {
+                preview {
+                  image {
+                    url
+                    altText
+                  }
+                }
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                  }
+                }
+              }
+            }
             options {
               name
               values
@@ -1702,6 +1726,15 @@ function buildQuickScanMomentumBaselineSnapshots(aggregateList = [], windowDays 
   }));
 }
 
+function getQuickScanProductImage(product = {}) {
+  const mediaNode = Array.isArray(product.media?.nodes) ? product.media.nodes[0] || {} : {};
+  const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
+  return {
+    imageUrl: typeof image.url === "string" ? image.url : "",
+    imageAlt: typeof image.altText === "string" ? image.altText : product.title || "",
+  };
+}
+
 function scoreProductAggregate(aggregate, storeTotals, {
   windowDays,
   extractionMode,
@@ -1811,6 +1844,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
   const riskQualified = riskScore >= riskMinimumScore;
   const momentumQualified = productMomentum.score >= momentumMinimumScore;
   const quickScanCandidateScore = Math.max(riskScore, productMomentum.score);
+  const productImage = getQuickScanProductImage(aggregate.product);
 
   return {
     productGid: aggregate.product.id,
@@ -1824,6 +1858,10 @@ function scoreProductAggregate(aggregate, storeTotals, {
     metrics: {
       windowDays,
       extractionMode,
+      imageUrl: productImage.imageUrl,
+      productImageUrl: productImage.imageUrl,
+      imageAlt: productImage.imageAlt,
+      productImageAlt: productImage.imageAlt,
       soldUnits: aggregate.soldUnits,
       salesAmount: roundMoney(aggregate.salesAmount),
       avgUnitRevenue: roundMoney(aggregate.soldUnits > 0 ? aggregate.salesAmount / aggregate.soldUnits : 0),
@@ -2029,11 +2067,27 @@ async function shopifyGraphql(admin, query, variables) {
   return json.data;
 }
 
-function isPersistableCandidate(candidate, settings = undefined) {
-  const minimumRiskScore = getQuickScanMinimumRiskScore(settings);
-  const minimumMomentumScore = getQuickScanMinimumMomentumScore(settings);
+function isPersistableCandidate(candidate, settingsOrThresholds = undefined) {
+  const minimumRiskScore = Number.isFinite(settingsOrThresholds?.riskMinimumScore)
+    ? settingsOrThresholds.riskMinimumScore
+    : getQuickScanRuntimeMinimumRiskScore(settingsOrThresholds);
+  const minimumMomentumScore = Number.isFinite(settingsOrThresholds?.momentumMinimumScore)
+    ? settingsOrThresholds.momentumMinimumScore
+    : getQuickScanRuntimeMinimumMomentumScore(settingsOrThresholds);
   const momentumScore = Number(candidate.metrics?.productMomentum?.score ?? candidate.metrics?.productMomentumScore ?? 0);
   return candidate.riskScore >= minimumRiskScore || momentumScore >= minimumMomentumScore;
+}
+
+function getQuickScanRuntimeMinimumRiskScore(settings = undefined) {
+  const explicitScore = Number(settings?.risk?.minimumScore);
+  if (Number.isFinite(explicitScore)) return clamp(explicitScore, 0, 100);
+  return getQuickScanMinimumRiskScore(settings);
+}
+
+function getQuickScanRuntimeMinimumMomentumScore(settings = undefined) {
+  const explicitScore = Number(settings?.momentum?.minimumScore);
+  if (Number.isFinite(explicitScore)) return clamp(explicitScore, 0, 101);
+  return getQuickScanMinimumMomentumScore(settings);
 }
 
 function getCsvRatingSummary(aggregate) {

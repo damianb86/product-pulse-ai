@@ -3,7 +3,7 @@
   --ai-blue: #2563eb;
   --ai-purple: #7c5cff;
   --ai-text: #ffffff;
-  --ai-shadow: rgba(37, 99, 235, 0.28);
+  --ai-shadow: rgba(4, 9, 15, 0.42);
   position: fixed;
   right: 24px;
   bottom: 24px;
@@ -21,20 +21,20 @@
 
 .ppChatKitLauncher {
   display: grid;
-  width: 56px;
-  height: 56px;
-  min-height: 56px;
+  width: 58px;
+  height: 58px;
+  min-height: 58px;
   place-items: center;
   padding: 0;
-  border: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   background:
-    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.34), transparent 30%),
-    linear-gradient(135deg, #0f766e 0%, var(--ai-blue) 48%, var(--ai-purple) 100%);
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.12), transparent 34%),
+    linear-gradient(145deg, #30363d 0%, #1f242b 48%, #11161c 100%);
   box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.1),
-    0 12px 30px var(--ai-shadow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    0 1px 2px rgba(15, 23, 42, 0.18),
+    0 14px 34px var(--ai-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
   color: var(--ai-text);
   cursor: pointer;
   transition:
@@ -44,12 +44,11 @@
 }
 
 .ppChatKitLauncher:hover {
-  filter: saturate(1.06);
   transform: translateY(-2px);
   box-shadow:
-    0 2px 4px rgba(15, 23, 42, 0.14),
-    0 16px 38px rgba(124, 92, 255, 0.32),
-    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+    0 2px 4px rgba(15, 23, 42, 0.22),
+    0 18px 42px rgba(4, 9, 15, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .ppChatKitLauncher:active {
@@ -59,23 +58,21 @@
 .ppChatKitLauncherIcon {
   position: relative;
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 48px;
+  height: 48px;
   place-items: center;
   flex: 0 0 auto;
   border-radius: 999px;
   color: #ffffff;
-  filter: drop-shadow(0 2px 5px rgba(15, 23, 42, 0.16));
+  filter: drop-shadow(0 3px 7px rgba(0, 0, 0, 0.26));
 }
 
 .ppChatKitLauncherIconGlyph {
-  width: 42px;
-  height: 42px;
+  width: 53px;
+  height: 53px;
   display: block;
-  background: currentColor;
-  mask: url("/assets/ai-assistant-icon-gradient.svg") center / contain no-repeat;
-  -webkit-mask: url("/assets/ai-assistant-icon-gradient.svg") center / contain no-repeat;
-  transform: translate(-1px, -1px);
+  object-fit: contain;
+  transform: translate(-2px, -1px) scale(1.08);
 }
 
 .ppChatKitPanel {
@@ -94,9 +91,9 @@
 }
 
 .ppChatKitAssistant-dark .ppChatKitPanel {
-  border-color: rgba(210, 232, 226, 0.14);
-  background: #101918;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  border-color: rgba(216, 224, 232, 0.12);
+  background: #11161c;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
 }
 
 .ppChatKitAssistant-expanded .ppChatKitPanel {
@@ -117,8 +114,8 @@
 }
 
 .ppChatKitAssistant-dark .ppChatKitPanelHeader {
-  border-bottom-color: rgba(210, 232, 226, 0.12);
-  background: #13201f;
+  border-bottom-color: rgba(216, 224, 232, 0.1);
+  background: #161c23;
 }
 
 .ppChatKitPanelHeader > div:first-child {
@@ -314,6 +311,13 @@
 .ppChatKitSurface::part(card) {
   width: 100%;
   max-width: none;
+}
+
+.ppChatKitAssistant-dark .ppChatKitSurface,
+.ppChatKitAssistant-dark .ppChatKitSurface::part(root),
+.ppChatKitAssistant-dark .ppChatKitSurface::part(thread),
+.ppChatKitAssistant-dark .ppChatKitSurface::part(content) {
+  background: #11161c;
 }
 
 .ppChatKitSurface::part(header),

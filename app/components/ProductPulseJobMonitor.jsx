@@ -470,7 +470,7 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
 
       <footer className="ppCreditsFooter">
         <button type="button">Buy more credits</button>
-        <Link to="/app/settings">
+        <Link to="/app/plans-and-credits">
           View billing
           <s-icon type="chevron-right" size="small"></s-icon>
         </Link>
@@ -767,8 +767,8 @@ function getJobRefreshSnapshot(job) {
     productTitle: job.productTitle || job.displayTitle || "",
     productHandle: job.productHandle || "",
     productHref: job.productHref || "",
-    imageUrl: job.imageUrl || job.productImageUrl || "",
-    imageAlt: job.imageAlt || job.productImageAlt || job.productTitle || job.displayTitle || "",
+    imageUrl: getJobNoticeImageUrl(job),
+    imageAlt: getJobNoticeImageAlt(job),
     updatedAtIso: job.updatedAtIso || "",
     finishedAtIso: job.finishedAtIso || "",
   };
@@ -848,10 +848,8 @@ function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismis
 }
 
 function JobNoticeMedia({ job, tone }) {
-  const imageUrl = typeof job?.imageUrl === "string" ? job.imageUrl.trim() : "";
-  const imageAlt = typeof job?.imageAlt === "string" && job.imageAlt.trim()
-    ? job.imageAlt.trim()
-    : getJobTitle(job);
+  const imageUrl = getJobNoticeImageUrl(job);
+  const imageAlt = getJobNoticeImageAlt(job);
 
   if (imageUrl) {
     return (
@@ -866,6 +864,31 @@ function JobNoticeMedia({ job, tone }) {
       <s-icon type={job?.kind === "fast-product-scan" ? "search" : "product"} size="base"></s-icon>
     </span>
   );
+}
+
+function getJobNoticeImageUrl(job = {}) {
+  const candidates = [
+    job.imageUrl,
+    job.productImageUrl,
+    job.featuredImageUrl,
+    typeof job.image === "string" ? job.image : job.image?.url,
+    job.featuredImage?.url,
+  ];
+  return candidates.find((value) => typeof value === "string" && value.trim())?.trim() || "";
+}
+
+function getJobNoticeImageAlt(job = {}) {
+  const candidates = [
+    job.imageAlt,
+    job.productImageAlt,
+    job.featuredImageAlt,
+    job.image?.altText,
+    job.featuredImage?.altText,
+    job.productTitle,
+    job.displayTitle,
+    getJobTitle(job),
+  ];
+  return candidates.find((value) => typeof value === "string" && value.trim())?.trim() || "Product image";
 }
 
 function getJobNoticeAction(job) {

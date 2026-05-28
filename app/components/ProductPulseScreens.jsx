@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Form, Link, useFetcher, useLocation, useNavigate, useNavigation, useRevalidator, useSubmit } from "react-router";
 import {
@@ -10,6 +10,7 @@ import {
   Line,
   Pie,
   PieChart,
+  ReferenceDot,
   Scatter,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -48,9 +49,13 @@ const PRODUCT_RISK_HISTORY_RETURN_UNIT_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_RATE_ONLY_MILESTONE_MIN = 8;
 const PRODUCT_RISK_HISTORY_REFUND_AMOUNT_ONLY_MILESTONE_MIN = 50;
+const PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MAX = 4;
+const PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MIN_SPACING_DAYS = 14;
+const PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_FALLBACK_SPACING_DAYS = 7;
 const PRODUCT_METRIC_TIMELINE_DAY_MS = 86_400_000;
 const PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS = 365;
 const PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY = "productPulse.metricTimelines.chartOrder.v1";
+const PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY = "productPulse.productDetail.collapsedPanels.v1";
 const PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES = 5;
 const PRODUCT_METRIC_TIMELINE_EVENT_MIN_SPACING_DAYS = 7;
 const PRODUCT_METRIC_TIMELINE_EVENT_MIN_VISUAL_SPACING_DAYS = 4;
@@ -59,6 +64,7 @@ const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
   height: 216,
   plot: { left: 46, right: 1194, top: 28, bottom: 176 },
 });
+const useProductPulseIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -4418,6 +4424,460 @@ export function SettingsScreen({ data = {}, actionData }) {
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+const PLANS_CREDIT_BETA_DISCOUNT_PERCENT = 50;
+const PLANS_CREDIT_CURRENT_PLAN_KEY = "free";
+
+const PLANS_CREDIT_PLANS = [
+  {
+    key: "free",
+    name: "Free",
+    basePriceCents: 0,
+    credits: "10 credits included",
+    monthlyCredits: 10,
+    limits: {
+      deepDiagnostics: "10 total",
+      aiAssistant: "Limited",
+      analyticsDashboard: true,
+      metricTimeline: { base: "30 days", beta: "360 days" },
+      exports: null,
+      support: "Email",
+      extraCredits: true,
+    },
+  },
+  {
+    key: "starter",
+    name: "Starter",
+    basePriceCents: 1900,
+    credits: "50 credits /mo",
+    monthlyCredits: 50,
+    limits: {
+      deepDiagnostics: "50 /mo",
+      aiAssistant: true,
+      analyticsDashboard: true,
+      metricTimeline: { base: "90 days", beta: "360 days" },
+      exports: null,
+      support: "Priority email",
+      extraCredits: true,
+    },
+  },
+  {
+    key: "growth",
+    name: "Growth",
+    basePriceCents: 4900,
+    credits: "150 credits /mo",
+    monthlyCredits: 150,
+    badge: "Recommended",
+    featured: true,
+    unavailable: true,
+    limits: {
+      deepDiagnostics: "150 /mo",
+      aiAssistant: true,
+      analyticsDashboard: true,
+      metricTimeline: "360 days",
+      exports: "CSV",
+      support: "Priority + Chat",
+      extraCredits: true,
+    },
+  },
+  {
+    key: "pro",
+    name: "Pro",
+    basePriceCents: 9900,
+    credits: "400 credits /mo",
+    monthlyCredits: 400,
+    unavailable: true,
+    limits: {
+      deepDiagnostics: "400 /mo",
+      aiAssistant: true,
+      analyticsDashboard: true,
+      metricTimeline: "360 days",
+      exports: "CSV, PDF",
+      support: "Priority + Chat",
+      extraCredits: true,
+    },
+  },
+  {
+    key: "premium",
+    name: "Premium",
+    basePriceCents: 19900,
+    credits: "1,000 credits /mo",
+    monthlyCredits: 1000,
+    badge: "Best value",
+    premium: true,
+    unavailable: true,
+    limits: {
+      deepDiagnostics: "1,000 /mo",
+      aiAssistant: true,
+      analyticsDashboard: true,
+      metricTimeline: "360 days",
+      exports: "CSV, PDF, Excel",
+      support: "Dedicated",
+      extraCredits: true,
+    },
+  },
+];
+
+const PLANS_CREDIT_FEATURES = [
+  { icon: "spark", label: "Deep diagnostics", info: true, getValue: (plan) => plan.limits.deepDiagnostics },
+  { icon: "assistant", label: "AI assistant", getValue: (plan) => plan.limits.aiAssistant },
+  { icon: "chart", label: "Analytics dashboard", getValue: (plan) => plan.limits.analyticsDashboard },
+  { icon: "timeline", label: "Metric timeline", getValue: (plan) => plan.limits.metricTimeline },
+  { icon: "export", label: "Exports", getValue: (plan) => plan.limits.exports },
+  { icon: "support", label: "Support level", getValue: (plan) => plan.limits.support },
+  { icon: "shield", label: "Can buy extra credits", getValue: (plan) => plan.limits.extraCredits },
+];
+
+const EXTRA_CREDIT_PACKS = [
+  { credits: 10, basePriceCents: 800 },
+  { credits: 25, basePriceCents: 1500 },
+  { credits: 50, basePriceCents: 2900 },
+  { credits: 100, basePriceCents: 5500 },
+  { credits: 250, basePriceCents: 12500 },
+];
+
+const PLAN_USAGE_OPTIONS = [
+  {
+    tone: "low",
+    icon: "pulse",
+    title: "Low usage",
+    volume: "Under 50 / month",
+    detail: "Starter is a great way to get started with core diagnostics and insights.",
+  },
+  {
+    tone: "growth",
+    icon: "heart",
+    title: "Growing usage",
+    volume: "50-200 / month",
+    detail: "Growth offers the best balance of credits, features, and flexibility.",
+  },
+  {
+    tone: "heavy",
+    icon: "bars",
+    title: "Heavy usage",
+    volume: "200+ / month",
+    detail: "Pro or Premium gives you more credits, exports, and the strongest support coverage.",
+  },
+];
+
+function getPlansCreditBetaPriceCents(basePriceCents = 0) {
+  return Math.round(Number(basePriceCents || 0) * (100 - PLANS_CREDIT_BETA_DISCOUNT_PERCENT) / 100);
+}
+
+function formatPlansCreditMoney(cents = 0) {
+  const value = Number(cents || 0) / 100;
+  const hasCents = Math.round(value) !== value;
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 })}`;
+}
+
+function getPlansCreditCurrentPlanKey(data = {}) {
+  return data?.billing?.planKey || data?.billing?.currentPlanKey || data?.subscription?.planKey || PLANS_CREDIT_CURRENT_PLAN_KEY;
+}
+
+function getPlansCreditPlanCta(plan, currentPlanKey) {
+  if (plan.key === currentPlanKey) return "Current plan";
+  if (plan.unavailable) return "Coming soon";
+  return `Choose ${plan.name}`;
+}
+
+export function PlansCreditsScreen({ data = {} }) {
+  const currentPlanKey = getPlansCreditCurrentPlanKey(data);
+  const currentPlan = PLANS_CREDIT_PLANS.find((plan) => plan.key === currentPlanKey) || PLANS_CREDIT_PLANS[0];
+  const usedCredits = Number(data?.billing?.usedCredits ?? data?.billing?.creditsUsed ?? data?.credits?.used ?? 0);
+  const remainingCredits = Math.max(0, Number(currentPlan.monthlyCredits || 0) - usedCredits);
+  return (
+    <FullWidthPage label="Plans & Credits" className="ppPlansPage">
+      <ScreenShell className="ppDashboard ppPlansScreen">
+        <div className="ppPlansTopbar">
+          <div>
+            <h1>Plans &amp; Credits</h1>
+            <p>Scale ProductPulse diagnostics with monthly credits, then top up with extra credits when needed.</p>
+          </div>
+        </div>
+
+        <section className="ppPlansStatusGrid">
+          <aside className="ppPlansBetaBanner" aria-label="Beta pricing">
+            <span>Beta</span>
+            <div>
+              <strong>Beta pricing is active: plans and extra credit packs are 50% off.</strong>
+              <p>The beta period is open-ended while ProductPulse is still in active rollout. Beta limits are shown directly in the plan matrix.</p>
+            </div>
+          </aside>
+
+          <aside className="ppPlansUsageCard" aria-label="Current usage">
+            <strong>Current usage</strong>
+            <div>
+              <span>
+                <small>Current plan</small>
+                <b>{currentPlan.name}</b>
+              </span>
+              <span>
+                <small>Monthly credits</small>
+                <b>{formatInteger(currentPlan.monthlyCredits)}</b>
+              </span>
+              <span>
+                <small>Used</small>
+                <b>{formatInteger(usedCredits)}</b>
+              </span>
+              <span>
+                <small>Left</small>
+                <b className="ppPlansUsageLeft">{formatInteger(remainingCredits)}</b>
+              </span>
+            </div>
+          </aside>
+        </section>
+
+      <section className="ppPlansMatrixCard" id="plans-comparison" aria-label="Plan comparison">
+        <div className="ppPlansMatrix">
+          <div className="ppPlansFeatureHeading">Features</div>
+          {PLANS_CREDIT_PLANS.map((plan) => (
+            <div
+              className={`ppPlansPlanHead ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedTop" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
+              key={plan.key}
+            >
+              {plan.badge && <span className={`ppPlansPlanBadge ppPlansPlanBadge-${plan.premium ? "green" : "purple"}`}>{plan.badge}</span>}
+              {plan.key === currentPlanKey && <span className="ppPlansCurrentBadge">Current</span>}
+              <h2>{plan.name}</h2>
+              <div className="ppPlansPriceBlock">
+                {plan.basePriceCents > 0 && <span className="ppPlansOriginalPrice">{formatPlansCreditMoney(plan.basePriceCents)}</span>}
+                <strong>{formatPlansCreditMoney(getPlansCreditBetaPriceCents(plan.basePriceCents))}{plan.basePriceCents > 0 && <small>/mo</small>}</strong>
+                {plan.basePriceCents > 0 && <em>Beta price</em>}
+              </div>
+              <p>{plan.credits}</p>
+            </div>
+          ))}
+
+          {PLANS_CREDIT_FEATURES.map((feature) => (
+            <PlanFeatureRow feature={feature} plans={PLANS_CREDIT_PLANS} key={feature.label} />
+          ))}
+
+          <div className="ppPlansFeatureCell ppPlansActionsSpacer" aria-hidden="true" />
+          {PLANS_CREDIT_PLANS.map((plan) => (
+            <div
+              className={`ppPlansActionCell ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedBottom" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
+              key={`${plan.key}-action`}
+            >
+              <button
+                className={`ppPlansChooseButton${plan.featured ? " isPrimary" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`}
+                disabled={plan.key === currentPlanKey || plan.unavailable ? true : undefined}
+                type="button"
+              >
+                {getPlansCreditPlanCta(plan, currentPlanKey)}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <p className="ppPlansSecureNote">
+        <PlansCreditsIcon type="shield" />
+        Secure, cancel anytime. Upgrade or downgrade at any time&mdash;changes apply next billing cycle.
+      </p>
+
+      <section className="ppPlansLowerGrid">
+        <div className="ppPlansPanel ppPlansCreditPacks">
+          <header>
+            <h2>Extra credit packs</h2>
+            <p>Need more? Top up anytime. Pack credits never expire.</p>
+          </header>
+          <div className="ppPlansPackGrid">
+            {EXTRA_CREDIT_PACKS.map((pack) => (
+              <article className="ppPlansPackCard" key={pack.credits}>
+                <span className="ppPlansPackIcon" aria-hidden="true"><PlansCreditsIcon type="wallet" /></span>
+                <strong>{pack.credits}</strong>
+                <small>credits</small>
+                <span className="ppPlansPackOriginalPrice">{formatPlansCreditMoney(pack.basePriceCents)}</span>
+                <b>{formatPlansCreditMoney(getPlansCreditBetaPriceCents(pack.basePriceCents))}</b>
+                <em>{formatPlansCreditMoney(Math.round(getPlansCreditBetaPriceCents(pack.basePriceCents) / pack.credits))} / credit · Beta</em>
+                <button type="button">Buy {pack.credits} credits</button>
+              </article>
+            ))}
+          </div>
+          <p className="ppPlansPackFootnote">
+            <PlansCreditsIcon type="info" />
+            Pack credits are more expensive than credits included in your monthly plan.
+          </p>
+        </div>
+
+        <div className="ppPlansPanel ppPlansFitPanel">
+          <header>
+            <h2>Which option fits best?</h2>
+            <p>Based on deep diagnoses per month</p>
+          </header>
+          <div className="ppPlansFitList">
+            {PLAN_USAGE_OPTIONS.map((option) => (
+              <article className={`ppPlansFitItem ppPlansFitItem-${option.tone}`} key={option.title}>
+                <span aria-hidden="true"><PlansCreditsIcon type={option.icon} /></span>
+                <div>
+                  <strong>{option.title}</strong>
+                  <b>{option.volume}</b>
+                  <p>{option.detail}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+          <footer>
+            <strong>Need help choosing?</strong>
+            <a href="#plans-comparison">Compare all features <span aria-hidden="true">-&gt;</span></a>
+          </footer>
+        </div>
+      </section>
+
+      <section className="ppPlansBillingPanel" aria-label="Billing information">
+        <h2>Billing information</h2>
+        <div className="ppPlansBillingGrid">
+          <article>
+            <span className="ppPlansBillingIcon ppPlansBillingIcon-green" aria-hidden="true"><PlansCreditsIcon type="rollover" /></span>
+            <div>
+              <strong>Rollover policy</strong>
+              <p>Monthly plan credits reset every cycle; extra credits do not expire.</p>
+            </div>
+          </article>
+          <article>
+            <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="card" /></span>
+            <div>
+              <strong>Payment methods</strong>
+              <p>We accept all major credit cards.</p>
+              <div className="ppPlansPaymentLogos" aria-label="Accepted cards">
+                <span>VISA</span>
+                <span>MC</span>
+                <span>AMEX</span>
+                <span>DISCOVER</span>
+              </div>
+            </div>
+          </article>
+          <article>
+            <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="gear" /></span>
+            <div>
+              <strong>Manage billing</strong>
+              <p>Update payment method, view invoices, or cancel your plan.</p>
+              <Link to="/app/plans-and-credits">Manage billing <span aria-hidden="true">-&gt;</span></Link>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <footer className="ppPlansFooter">
+        <span><PlansCreditsIcon type="lock" /> Secure checkout. Your data is encrypted and never shared.</span>
+        <span>Questions? <Link to="/app/help">Contact support <span aria-hidden="true">-&gt;</span></Link></span>
+      </footer>
+      </ScreenShell>
+    </FullWidthPage>
+  );
+}
+
+function PlanFeatureRow({ feature, plans = PLANS_CREDIT_PLANS }) {
+  return (
+    <>
+      <div className="ppPlansFeatureCell">
+        <PlansCreditsIcon type={feature.icon} />
+        <strong>{feature.label}</strong>
+        {feature.info && <span className="ppPlansInfoDot" aria-hidden="true">i</span>}
+      </div>
+      {plans.map((plan) => {
+        const value = feature.getValue(plan);
+        return (
+          <div
+            className={`ppPlansValueCell ppPlansColumn-${plan.key}${plan.featured ? " isFeatured" : ""}${plan.premium ? " isPremium" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
+            key={`${feature.label}-${plan.key}`}
+          >
+            <PlanFeatureValue value={value} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function PlanFeatureValue({ value }) {
+  if (value === true) {
+    return <span className="ppPlansCheck" aria-label="Included"><PlansCreditsIcon type="check" /></span>;
+  }
+  if (value && typeof value === "object") {
+    return (
+      <span className="ppPlansBetaLimit">
+        <span>{value.base}</span>
+        <strong>{value.beta}</strong>
+        <em>Beta</em>
+      </span>
+    );
+  }
+  if (!value) return <span className="ppPlansDash">&mdash;</span>;
+  return <span>{value}</span>;
+}
+
+function PlansCreditsIcon({ type }) {
+  const common = {
+    className: `ppPlansIcon ppPlansIcon-${type}`,
+    viewBox: "0 0 24 24",
+    "aria-hidden": "true",
+    focusable: "false",
+  };
+  if (type === "brand") {
+    return (
+      <svg {...common}>
+        <path d="M6.5 14.5 14.8 6.2a2.8 2.8 0 0 1 4 4l-8.3 8.3H6.5v-4Z" />
+        <path d="M13.5 7.5 17 11" />
+        <circle cx="18.5" cy="18.5" r="1.6" />
+      </svg>
+    );
+  }
+  if (type === "calendar") {
+    return <svg {...common}><rect x="4.5" y="5.5" width="15" height="14" rx="2.2" /><path d="M8 3.8v3.5M16 3.8v3.5M4.5 9h15" /></svg>;
+  }
+  if (type === "info" || type === "help") {
+    return <svg {...common}><circle cx="12" cy="12" r="8.2" /><path d="M12 16v-4" /><path d="M12 8.2h.01" /></svg>;
+  }
+  if (type === "tag") {
+    return <svg {...common}><path d="M4.5 12.2 12 4.7h5.2l2.1 2.1V12l-7.5 7.5-7.3-7.3Z" /><circle cx="15.7" cy="8.3" r="1.2" /></svg>;
+  }
+  if (type === "users") {
+    return <svg {...common}><circle cx="9" cy="8.4" r="2.4" /><path d="M4.8 18c.8-2.7 2.2-4 4.2-4s3.5 1.3 4.2 4" /><circle cx="16.3" cy="9.5" r="1.9" /><path d="M14.4 14.2c2.2 0 3.7 1.1 4.4 3.3" /></svg>;
+  }
+  if (type === "spark") {
+    return <svg {...common}><path d="M12 3.8 14 9l5.2 2-5.2 2-2 5.2-2-5.2-5.2-2 5.2-2 2-5.2Z" /><path d="m18 4.5.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" /></svg>;
+  }
+  if (type === "assistant" || type === "support") {
+    return <svg {...common}><path d="M5 12.8a7 7 0 0 1 14 0v3.7a2 2 0 0 1-2 2h-2.2" /><path d="M5 13h3v5H6.8A1.8 1.8 0 0 1 5 16.2V13ZM19 13h-3v5h1.2a1.8 1.8 0 0 0 1.8-1.8V13Z" /><path d="M10.5 19h3" /></svg>;
+  }
+  if (type === "chart" || type === "bars") {
+    return <svg {...common}><path d="M5 19V5" /><path d="M5 19h14" /><rect x="7.5" y="12" width="2.7" height="4.5" rx=".8" /><rect x="11.2" y="8.5" width="2.7" height="8" rx=".8" /><rect x="15" y="5.8" width="2.7" height="10.7" rx=".8" /></svg>;
+  }
+  if (type === "timeline" || type === "pulse") {
+    return <svg {...common}><path d="M4 13h3l2-5 4 9 2.5-6H20" /></svg>;
+  }
+  if (type === "export") {
+    return <svg {...common}><path d="M12 4v10" /><path d="m8 10 4 4 4-4" /><path d="M5 17.5h14" /></svg>;
+  }
+  if (type === "code") {
+    return <svg {...common}><path d="m9 8-4 4 4 4" /><path d="m15 8 4 4-4 4" /><path d="m13 6-2 12" /></svg>;
+  }
+  if (type === "shield") {
+    return <svg {...common}><path d="M12 4.3 18.5 7v5.2c0 4-2.4 6.6-6.5 7.7-4.1-1.1-6.5-3.7-6.5-7.7V7L12 4.3Z" /><path d="m9.2 12.3 1.8 1.8 3.8-4" /></svg>;
+  }
+  if (type === "wallet") {
+    return <svg {...common}><rect x="4" y="6.8" width="16" height="11.5" rx="2.2" /><path d="M4 9.5h13.5a2 2 0 0 1 2 2v4.8" /><path d="M16 12h4v3.4h-4a1.7 1.7 0 0 1 0-3.4Z" /></svg>;
+  }
+  if (type === "heart") {
+    return <svg {...common}><path d="M12 19s-7-4.4-7-9.2A3.7 3.7 0 0 1 11.5 7l.5.7.5-.7A3.7 3.7 0 0 1 19 9.8C19 14.6 12 19 12 19Z" /><path d="M6.7 12.5h3l1.2-2.4 2.2 4.8 1.4-2.4h2.9" /></svg>;
+  }
+  if (type === "rollover") {
+    return <svg {...common}><path d="M18.2 9.4A6.8 6.8 0 1 0 19 13" /><path d="M18.2 4.8v4.6h-4.6" /><path d="M10 9.5v5l4 2" /></svg>;
+  }
+  if (type === "card") {
+    return <svg {...common}><rect x="4" y="6.5" width="16" height="11" rx="2" /><path d="M4 10h16" /><path d="M7.2 14.3h4.5" /></svg>;
+  }
+  if (type === "gear") {
+    return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 4.5v2M12 17.5v2M4.5 12h2M17.5 12h2M6.7 6.7l1.4 1.4M15.9 15.9l1.4 1.4M17.3 6.7l-1.4 1.4M8.1 15.9l-1.4 1.4" /></svg>;
+  }
+  if (type === "lock") {
+    return <svg {...common}><rect x="5.5" y="10" width="13" height="9" rx="2" /><path d="M8.2 10V7.8a3.8 3.8 0 0 1 7.6 0V10" /></svg>;
+  }
+  if (type === "check") {
+    return <svg {...common}><path d="m5.5 12.5 4 4 9-9" /></svg>;
+  }
+  return <svg {...common}><circle cx="12" cy="12" r="7.5" /></svg>;
 }
 
 function HtmlStylePresetSettings({ value, onPresetChange, customTemplate, onCustomTemplateChange }) {
@@ -12443,6 +12903,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 export function ProductMetricTimelinesScreen({ product }) {
   const [savedChartOrder, setSavedChartOrder] = useState([]);
   const [lockedHoverTime, setLockedHoverTime] = useState(null);
+  const [lockedHoverChartKey, setLockedHoverChartKey] = useState(null);
   const productMetricTimelineIdentity = product?.id || product?.productGid || product?.handle || product?.title || "";
 
   useEffect(() => {
@@ -12451,16 +12912,22 @@ export function ProductMetricTimelinesScreen({ product }) {
 
   useEffect(() => {
     setLockedHoverTime(null);
+    setLockedHoverChartKey(null);
   }, [productMetricTimelineIdentity]);
 
   const handleTimelineHoverLockToggle = useCallback((chart, active) => {
     const nextTime = getProductMetricTimelineClickTime(chart, active);
     if (!Number.isFinite(nextTime)) return;
-    setLockedHoverTime((currentTime) => (
-      Number.isFinite(currentTime) && Math.abs(currentTime - nextTime) < 1 ? null : nextTime
-    ));
-  }, []);
+    setLockedHoverTime((currentTime) => {
+      const shouldUnlock = Number.isFinite(currentTime)
+        && Math.abs(currentTime - nextTime) < 1
+        && lockedHoverChartKey === chart?.key;
+      setLockedHoverChartKey(shouldUnlock ? null : chart?.key || null);
+      return shouldUnlock ? null : nextTime;
+    });
+  }, [lockedHoverChartKey]);
 
+  const hasLockedHover = Number.isFinite(lockedHoverTime);
   if (!product) {
     return (
       <FullWidthPage heading="Product not found">
@@ -12519,6 +12986,7 @@ export function ProductMetricTimelinesScreen({ product }) {
                 canMoveUp={!isProductMetricTimelinePinnedChart(chart) && orderableIndex > 0}
                 chart={chart}
                 key={chart.key}
+                isHoverLockSource={hasLockedHover && lockedHoverChartKey === chart.key}
                 lockedHoverTime={lockedHoverTime}
                 onHoverLockToggle={handleTimelineHoverLockToggle}
                 onMove={handleMoveChart}
@@ -12537,13 +13005,19 @@ export function ProductMetricTimelinesScreen({ product }) {
   );
 }
 
-function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, chart, lockedHoverTime = null, onHoverLockToggle, onMove }) {
+function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, chart, isHoverLockSource = false, lockedHoverTime = null, onHoverLockToggle, onMove }) {
   const gradientId = `ppMetricTimelineGradient-${chart.key}-${useId().replace(/:/g, "")}`;
   const lockedTooltipIndex = getProductMetricTimelineLockedTooltipIndex(chart, lockedHoverTime);
+  const lockedTooltipPoint = getProductMetricTimelineLockedTooltipPoint(chart, lockedTooltipIndex);
   const tooltipLockProps = getProductMetricTimelineTooltipLockProps(lockedTooltipIndex);
+  const hasLockedTooltip = Boolean(lockedTooltipPoint);
   const handleHoverLockToggle = (active) => onHoverLockToggle?.(chart, active);
   return (
-    <article className={`ppMetricTimelineChart ppMetricTimelineChart-${chart.tone}`} aria-label={`${chart.title} timeline`} data-metric-key={chart.key}>
+    <article
+      className={`ppMetricTimelineChart ppMetricTimelineChart-${chart.tone}${isHoverLockSource ? " isHoverLockSource" : ""}`}
+      aria-label={`${chart.title} timeline`}
+      data-metric-key={chart.key}
+    >
       <div className="ppMetricTimelineSummary">
         <div className="ppMetricTimelineReorderControls" aria-label={`${chart.title} reorder controls`}>
           <button
@@ -12587,12 +13061,14 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
               <ProductMetricTimelineOrderActivityChart
                 chart={chart}
                 lockedTooltipIndex={lockedTooltipIndex}
+                lockedTooltipPoint={lockedTooltipPoint}
                 onHoverLockToggle={handleHoverLockToggle}
               />
             ) : chart.kind === "events" ? (
               <ProductMetricTimelineEventsChart
                 chart={chart}
                 lockedTooltipIndex={lockedTooltipIndex}
+                lockedTooltipPoint={lockedTooltipPoint}
                 onHoverLockToggle={handleHoverLockToggle}
               />
             ) : (
@@ -12633,8 +13109,8 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
                 />
                 <RechartsTooltip
                   {...tooltipLockProps}
-                  content={<ProductMetricTimelineTooltip chart={chart} />}
-                  cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+                  content={<ProductMetricTimelineTooltip chart={chart} lockedPoint={lockedTooltipPoint} />}
+                  cursor={hasLockedTooltip ? false : { stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
                   wrapperStyle={{ outline: "none", zIndex: 8 }}
                 />
                 <Area
@@ -12644,7 +13120,7 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
                   strokeWidth={2.8}
                   fill={`url(#${gradientId})`}
                   dot={false}
-                  activeDot={<ProductMetricTimelineActiveDot color={chart.color} />}
+                  activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color={chart.color} />}
                   isAnimationActive={false}
                 />
                 {getProductMetricTimelineSecondaryLines(chart).map((line) => (
@@ -12656,10 +13132,23 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
                     strokeWidth={2.4}
                     strokeDasharray={line.strokeDasharray || "5 5"}
                     dot={false}
-                    activeDot={<ProductMetricTimelineActiveDot color={line.color} />}
+                    activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color={line.color} />}
                     isAnimationActive={false}
                   />
                 ))}
+                {lockedTooltipPoint && (
+                  <ReferenceDot
+                    className="ppMetricTimelineLockedDot"
+                    x={lockedTooltipPoint.time}
+                    y={lockedTooltipPoint.value}
+                    r={7}
+                    fill={chart.color}
+                    stroke="var(--pp-cloud-white)"
+                    strokeWidth={3}
+                    ifOverflow="visible"
+                    isFront
+                  />
+                )}
               </AreaChart>
             )
           ) : (
@@ -12672,8 +13161,9 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
   );
 }
 
-function ProductMetricTimelineOrderActivityChart({ chart, lockedTooltipIndex = undefined, onHoverLockToggle }) {
+function ProductMetricTimelineOrderActivityChart({ chart, lockedTooltipIndex = undefined, lockedTooltipPoint = null, onHoverLockToggle }) {
   const tooltipLockProps = getProductMetricTimelineTooltipLockProps(lockedTooltipIndex);
+  const hasLockedTooltip = Boolean(lockedTooltipPoint);
   return (
     <ComposedChart
       responsive
@@ -12718,21 +13208,36 @@ function ProductMetricTimelineOrderActivityChart({ chart, lockedTooltipIndex = u
       />
       <RechartsTooltip
         {...tooltipLockProps}
-        content={<ProductMetricTimelineOrderActivityTooltip />}
-        cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+        content={<ProductMetricTimelineOrderActivityTooltip lockedPoint={lockedTooltipPoint} />}
+        cursor={hasLockedTooltip ? false : { stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
         wrapperStyle={{ outline: "none", zIndex: 8 }}
       />
-      <Line yAxisId="volume" type="monotone" dataKey="orders" stroke="var(--pp-pulse-blue)" strokeWidth={2.5} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-pulse-blue)" />} isAnimationActive={false} />
-      <Line yAxisId="volume" type="monotone" dataKey="returnedOrders" stroke="var(--pp-warning-amber)" strokeWidth={2.4} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-warning-amber)" />} isAnimationActive={false} />
-      <Line yAxisId="volume" type="monotone" dataKey="refundedOrders" stroke="var(--pp-risk-red)" strokeWidth={2.4} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-risk-red)" />} isAnimationActive={false} />
-      <Line yAxisId="revenue" type="monotone" dataKey="revenue" stroke="var(--pp-success-green)" strokeWidth={2.6} dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-success-green)" />} isAnimationActive={false} />
-      <Line yAxisId="volume" type="monotone" dataKey="unresolvedReturns" stroke="var(--pp-insight-violet)" strokeWidth={2.4} strokeDasharray="5 5" dot={false} activeDot={<ProductMetricTimelineActiveDot color="var(--pp-insight-violet)" />} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="orders" stroke="var(--pp-pulse-blue)" strokeWidth={2.5} dot={false} activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color="var(--pp-pulse-blue)" />} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="returnedOrders" stroke="var(--pp-warning-amber)" strokeWidth={2.4} dot={false} activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color="var(--pp-warning-amber)" />} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="refundedOrders" stroke="var(--pp-risk-red)" strokeWidth={2.4} dot={false} activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color="var(--pp-risk-red)" />} isAnimationActive={false} />
+      <Line yAxisId="revenue" type="monotone" dataKey="revenue" stroke="var(--pp-success-green)" strokeWidth={2.6} dot={false} activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color="var(--pp-success-green)" />} isAnimationActive={false} />
+      <Line yAxisId="volume" type="monotone" dataKey="unresolvedReturns" stroke="var(--pp-insight-violet)" strokeWidth={2.4} strokeDasharray="5 5" dot={false} activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color="var(--pp-insight-violet)" />} isAnimationActive={false} />
+      {lockedTooltipPoint && (
+        <ReferenceDot
+          yAxisId="volume"
+          className="ppMetricTimelineLockedDot"
+          x={lockedTooltipPoint.time}
+          y={Number(lockedTooltipPoint.orders || 0)}
+          r={7}
+          fill="var(--pp-pulse-blue)"
+          stroke="var(--pp-cloud-white)"
+          strokeWidth={3}
+          ifOverflow="visible"
+          isFront
+        />
+      )}
     </ComposedChart>
   );
 }
 
-function ProductMetricTimelineEventsChart({ chart, lockedTooltipIndex = undefined, onHoverLockToggle }) {
+function ProductMetricTimelineEventsChart({ chart, lockedTooltipIndex = undefined, lockedTooltipPoint = null, onHoverLockToggle }) {
   const tooltipLockProps = getProductMetricTimelineTooltipLockProps(lockedTooltipIndex);
+  const hasLockedTooltip = Boolean(lockedTooltipPoint);
   return (
     <ComposedChart
       responsive
@@ -12767,8 +13272,8 @@ function ProductMetricTimelineEventsChart({ chart, lockedTooltipIndex = undefine
       <RechartsTooltip
         {...tooltipLockProps}
         animationDuration={0}
-        content={<ProductMetricTimelineTooltip chart={chart} />}
-        cursor={{ stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
+        content={<ProductMetricTimelineTooltip chart={chart} lockedPoint={lockedTooltipPoint} />}
+        cursor={hasLockedTooltip ? false : { stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
         isAnimationActive={false}
         wrapperClassName="ppMetricTimelineEventTooltipWrapper"
         wrapperStyle={{ outline: "none", zIndex: 8 }}
@@ -12777,7 +13282,12 @@ function ProductMetricTimelineEventsChart({ chart, lockedTooltipIndex = undefine
         data={chart.data}
         dataKey="value"
         fill={chart.color}
-        shape={<ProductMetricTimelineEventMarker />}
+        shape={(props) => {
+          const payload = props.payload || {};
+          const isLocked = (Number.isFinite(lockedTooltipIndex) && Number(props.index) === lockedTooltipIndex)
+            || (lockedTooltipPoint && payload.id === lockedTooltipPoint.id && payload.time === lockedTooltipPoint.time);
+          return <ProductMetricTimelineEventMarker {...props} locked={isLocked} />;
+        }}
         isAnimationActive={false}
       />
     </ComposedChart>
@@ -12792,7 +13302,7 @@ function ProductMetricTimelineEventMarker(props = {}) {
   const color = event.color || getProductMetricTimelineEventColor(event);
   return (
     <g
-      className={`ppMetricTimelineEventMarker ppMetricTimelineEventMarker-${event.tone || "slate"}`}
+      className={`ppMetricTimelineEventMarker ppMetricTimelineEventMarker-${event.tone || "slate"}${props.locked ? " isLocked" : ""}`}
       transform={`translate(${cx} ${cy})`}
       style={{ "--pp-metric-timeline-event-color": color }}
     >
@@ -12890,8 +13400,8 @@ function ProductMetricTimelineLegend({ chart }) {
   );
 }
 
-function ProductMetricTimelineTooltip({ active, payload, chart }) {
-  const point = Array.isArray(payload) && payload.length ? payload[0]?.payload : null;
+function ProductMetricTimelineTooltip({ active, payload, chart, lockedPoint = null }) {
+  const point = lockedPoint || (Array.isArray(payload) && payload.length ? payload[0]?.payload : null);
   if (!active || !point) return null;
   if (chart.kind === "events") return <ProductMetricTimelineEventTooltip event={point} />;
   return (
@@ -12911,10 +13421,7 @@ function ProductMetricTimelineTooltip({ active, payload, chart }) {
 }
 
 function ProductMetricTimelineEventTooltip({ event = {} }) {
-  const dayEvents = Array.isArray(event.dayEvents) && event.dayEvents.length ? event.dayEvents : [event];
-  const groups = Array.isArray(event.dayEventGroups) && event.dayEventGroups.length
-    ? event.dayEventGroups
-    : getProductMetricTimelineEventTooltipGroups(dayEvents);
+  const dayEvents = getProductMetricTimelineEventTooltipItems(event);
   const eventCount = dayEvents.length;
   return (
     <div className={`ppRetentionLinePopover ppMetricTimelineTooltip ppMetricTimelineEventTooltip ppMetricTimelineEventTooltip-${event.tone || "slate"}`} role="tooltip">
@@ -12923,42 +13430,43 @@ function ProductMetricTimelineEventTooltip({ event = {} }) {
         <span>{formatInteger(eventCount)} {eventCount === 1 ? "event" : "events"}</span>
       </span>
       <span className="ppMetricTimelineEventTooltipGroups">
-        {groups.map((group) => {
-          const visibleEvents = group.events.slice(0, 3);
-          const hiddenCount = Math.max(0, group.events.length - visibleEvents.length);
-          return (
-            <span
-              className="ppMetricTimelineEventTooltipGroup"
-              key={`${event.dayKey || event.id}-${group.key}`}
-              style={{ "--pp-metric-timeline-event-tooltip-color": group.color }}
-            >
-              <span className="ppMetricTimelineEventTooltipGroupTitle">
-                <i aria-hidden="true" />
-                <b>{group.label} ({formatInteger(group.events.length)})</b>
+        {dayEvents.map((item) => (
+          <span
+            className="ppMetricTimelineEventTooltipRow"
+            key={item.id || `${item.eventType}-${item.time}`}
+            style={{ "--pp-metric-timeline-event-tooltip-color": item.color }}
+          >
+            <ProductPulseIconBadge
+              className="ppMetricTimelineEventTooltipRowIcon"
+              color={item.color}
+              icon={item.icon || getProductTimelineIcon(item.category, item.eventType)}
+              size="tooltip"
+              tone={item.tone || "slate"}
+            />
+            <span className="ppMetricTimelineEventTooltipRowCopy">
+              <span className="ppMetricTimelineEventTooltipTitle">
+                <strong>{item.title}</strong>
+                <time>{item.timeLabel || formatProductMetricTimelinePointTime(item.time)}</time>
               </span>
-              {visibleEvents.map((item) => (
-                <span className="ppMetricTimelineEventTooltipRow" key={item.id || `${item.eventType}-${item.time}`}>
-                  <time>{item.timeLabel || formatProductMetricTimelinePointTime(item.time)}</time>
-                  <ProductPulseIconBadge
-                    className="ppMetricTimelineEventTooltipRowIcon"
-                    color={group.color}
-                    icon={item.icon || getProductTimelineIcon(item.category, item.eventType)}
-                    size="tooltip"
-                    tone={group.tone || item.tone || "slate"}
-                  />
-                  <span className="ppMetricTimelineEventTooltipRowCopy">
-                    <strong>{item.title}</strong>
-                    <small>{item.summary || item.source || "ProductPulse timeline event"}</small>
-                  </span>
-                </span>
-              ))}
-              {hiddenCount > 0 && <em>+{formatInteger(hiddenCount)} more {group.label.toLowerCase()}</em>}
+              <small>{item.summary || item.source || "ProductPulse timeline event"}</small>
             </span>
-          );
-        })}
+          </span>
+        ))}
       </span>
     </div>
   );
+}
+
+function getProductMetricTimelineEventTooltipItems(event = {}) {
+  const dayEvents = Array.isArray(event.dayEvents) && event.dayEvents.length ? event.dayEvents : [event];
+  return [...dayEvents]
+    .sort((left, right) => (left.time || 0) - (right.time || 0))
+    .map((item) => ({
+      ...item,
+      color: item.color || getProductMetricTimelineEventColor(item),
+      icon: item.icon || getProductTimelineIcon(item.category, item.eventType),
+      tone: item.tone || "slate",
+    }));
 }
 
 function getProductMetricTimelineEventsWithDayGroups(points = []) {
@@ -13028,8 +13536,8 @@ function formatProductMetricTimelinePointTime(time) {
   return date ? formatTimelineClock(date) : "";
 }
 
-function ProductMetricTimelineOrderActivityTooltip({ active, payload }) {
-  const point = Array.isArray(payload) && payload.length ? payload[0]?.payload : null;
+function ProductMetricTimelineOrderActivityTooltip({ active, payload, lockedPoint = null }) {
+  const point = lockedPoint || (Array.isArray(payload) && payload.length ? payload[0]?.payload : null);
   if (!active || !point) return null;
   return (
     <div className="ppRetentionLinePopover ppMetricTimelineTooltip" role="tooltip">
@@ -13074,6 +13582,12 @@ function getProductMetricTimelineLockedTooltipIndex(chart = {}, lockedTime) {
   if (!data.length) return undefined;
   const ticks = data.map((point) => ({ value: point?.time }));
   return getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: targetTime });
+}
+
+function getProductMetricTimelineLockedTooltipPoint(chart = {}, lockedTooltipIndex) {
+  if (!Number.isFinite(lockedTooltipIndex)) return null;
+  const data = getProductMetricTimelineTooltipData(chart);
+  return data[lockedTooltipIndex] || null;
 }
 
 function getProductMetricTimelineTooltipData(chart = {}) {
@@ -13183,14 +13697,18 @@ function isProductMetricTimelinePinnedChart(chart = {}) {
 
 export const __productPulseScreensTestHooks = {
   assignProductMetricTimelineEventPlotTimes,
+  getProductMetricTimelineEventTooltipItems,
   getProductMetricTimelineClickTime,
   getProductMetricTimelineLockedTooltipIndex,
+  getProductMetricTimelineLockedTooltipPoint,
   getProductMetricTimelineNearestSyncIndex,
   getProductMetricTimelineTooltipLockProps,
   getProductMetricTimelineOrderedCharts,
   getProductDetailModel,
   getProductMetricTimelineModel,
+  getProductRiskHistoryTimelineMilestones,
   moveProductMetricTimelineChartOrder,
+  productDetailPanelCollapseStorageKey: PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY,
   productMetricTimelineOrderStorageKey: PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY,
 };
 
@@ -15076,12 +15594,13 @@ function getProductRelationshipSignalTopRelated({ boughtTogether = [], boughtAft
 }
 
 function ProductRelationshipTimelineCard({ detail, relationship }) {
+  const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("productRelationshipTimeline");
   const currentIdentity = getProductRelationshipCurrentIdentity(detail, relationship);
   const boughtTogether = getProductRelationshipTimelineItems(relationship.topBoughtTogether, currentIdentity, "together");
   const boughtBefore = getProductRelationshipTimelineItems(relationship.topBoughtBefore, currentIdentity, "before");
   const boughtAfter = getProductRelationshipTimelineItems(relationship.topBoughtAfter, currentIdentity, "after");
   return (
-    <article className="ppProductRelationshipTimelineCard" id="product-relationship-timeline">
+    <article className={`ppProductRelationshipTimelineCard${collapsed ? " isCollapsed" : ""}`} id="product-relationship-timeline">
       <div className="ppProductRelationshipTimelineHeader">
         <div>
           <span>Relationship context</span>
@@ -15090,40 +15609,42 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
           </h2>
           <p>Products customers buy before, together, and after your main product.</p>
         </div>
-        <div className="ppProductRelationshipTimelineLegend" aria-label="Relationship legend">
-          <span><i className="isBefore"></i>Bought before</span>
-          <span><i className="isTogether"></i>Same cart</span>
-          <span><i className="isAfter"></i>Bought after</span>
+        <ProductDetailPanelCollapseButton
+          collapsed={collapsed}
+          label="Product relationship timeline"
+          onToggle={() => setCollapsed((current) => !current)}
+        />
+      </div>
+      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+        <div className="ppProductRelationshipTimelineStage">
+          <ProductRelationshipTimelineConnectors
+            beforeCount={Math.min(boughtBefore.length, 4)}
+            togetherCount={Math.min(boughtTogether.length, 4)}
+            afterCount={Math.min(boughtAfter.length, 4)}
+          />
+          <ProductRelationshipTimelineSideNode
+            items={boughtBefore}
+            kind="before"
+            title="Bought before"
+            subtitle="Items purchased in the 90 days before"
+            sequenceAvailable={relationship.customerSequenceAvailable}
+          />
+          <ProductRelationshipTimelineSideNode
+            items={boughtTogether}
+            kind="together"
+            title="Same cart"
+            subtitle="Items purchased together"
+            sameOrderAvailable={relationship.sameOrderAvailable}
+          />
+          <ProductRelationshipTimelineSideNode
+            items={boughtAfter}
+            kind="after"
+            title="Bought after"
+            subtitle="Items purchased in the 90 days after"
+            sequenceAvailable={relationship.customerSequenceAvailable}
+          />
         </div>
-      </div>
-      <div className="ppProductRelationshipTimelineStage">
-        <ProductRelationshipTimelineConnectors
-          beforeCount={Math.min(boughtBefore.length, 4)}
-          togetherCount={Math.min(boughtTogether.length, 4)}
-          afterCount={Math.min(boughtAfter.length, 4)}
-        />
-        <ProductRelationshipTimelineSideNode
-          items={boughtBefore}
-          kind="before"
-          title="Bought before"
-          subtitle="Items purchased in the 90 days before"
-          sequenceAvailable={relationship.customerSequenceAvailable}
-        />
-        <ProductRelationshipTimelineSideNode
-          items={boughtTogether}
-          kind="together"
-          title="Same cart"
-          subtitle="Items purchased together"
-          sameOrderAvailable={relationship.sameOrderAvailable}
-        />
-        <ProductRelationshipTimelineSideNode
-          items={boughtAfter}
-          kind="after"
-          title="Bought after"
-          subtitle="Items purchased in the 90 days after"
-          sequenceAvailable={relationship.customerSequenceAvailable}
-        />
-      </div>
+      </ProductDetailPanelCollapseRegion>
     </article>
   );
 }
@@ -16229,22 +16750,98 @@ const ORDER_ACTIVITY_LEGEND_ITEMS = Object.freeze([
 
 const PRODUCT_CHART_AI_INTERPRETATION_FALLBACK = "No AI interpretation generated for this chart yet.";
 
+function readProductDetailPanelCollapseState() {
+  if (typeof window === "undefined" || !window.localStorage) return {};
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY) || "{}");
+    return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  } catch {
+    return {};
+  }
+}
+
+function getProductDetailPanelCollapsed(panelKey) {
+  return Boolean(panelKey && readProductDetailPanelCollapseState()[panelKey]);
+}
+
+function saveProductDetailPanelCollapsed(panelKey, collapsed) {
+  if (typeof window === "undefined" || !window.localStorage || !panelKey) return;
+  try {
+    const state = readProductDetailPanelCollapseState();
+    if (collapsed) {
+      state[panelKey] = true;
+    } else {
+      delete state[panelKey];
+    }
+    window.localStorage.setItem(PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Browsers can reject localStorage in private or embedded contexts.
+  }
+}
+
+function useProductDetailPanelCollapsed(panelKey) {
+  const [collapsed, setCollapsedState] = useState(false);
+  useProductPulseIsomorphicLayoutEffect(() => {
+    setCollapsedState(getProductDetailPanelCollapsed(panelKey));
+  }, [panelKey]);
+  const setCollapsed = useCallback((nextValue) => {
+    setCollapsedState((current) => {
+      const resolved = typeof nextValue === "function" ? nextValue(current) : nextValue;
+      const nextCollapsed = Boolean(resolved);
+      saveProductDetailPanelCollapsed(panelKey, nextCollapsed);
+      return nextCollapsed;
+    });
+  }, [panelKey]);
+  return [collapsed, setCollapsed];
+}
+
+function ProductDetailPanelCollapseButton({ collapsed, label, onToggle }) {
+  return (
+    <button
+      type="button"
+      className="ppProductPanelCollapseButton"
+      aria-expanded={!collapsed}
+      aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+      onClick={onToggle}
+    >
+      <s-icon type={collapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
+    </button>
+  );
+}
+
+function ProductDetailPanelCollapseRegion({ children, collapsed, className = "" }) {
+  return (
+    <div
+      className={`ppProductPanelCollapseRegion${collapsed ? "" : " isExpanded"}${className ? ` ${className}` : ""}`}
+      aria-hidden={collapsed}
+    >
+      <div className="ppProductPanelCollapseRegionInner">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ProductChartAiInterpretation({ detail, chartKey }) {
   const text = getProductChartInterpretation(detail, chartKey);
   const hasText = Boolean(text);
   return (
     <aside className={`ppProductChartAiInterpretation${hasText ? "" : " ppProductChartAiInterpretation-empty"}`}>
-      <span>
-        <ProductPulseGlyph type="ai-evidence-synthesis" />
-        <strong>AI interpretation</strong>
-      </span>
-      <p>{hasText ? text : PRODUCT_CHART_AI_INTERPRETATION_FALLBACK}</p>
+      <div className="ppProductChartAiInterpretationHeader">
+        <span>
+          <ProductPulseGlyph type="ai-evidence-synthesis" />
+          ProductPulse AI
+        </span>
+        <h3>AI interpretation</h3>
+      </div>
+      <p className="ppProductChartAiInterpretationText">{hasText ? text : PRODUCT_CHART_AI_INTERPRETATION_FALLBACK}</p>
     </aside>
   );
 }
 
 function ProductOrderActivityPanel({ detail }) {
   const [visibleOrderActivitySeries, setVisibleOrderActivitySeries] = useState(() => ({ ...ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES }));
+  const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("monthlyOrderActivity");
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
   const months = activity.months || [];
   const summary = activity.summary || {};
@@ -16263,74 +16860,74 @@ function ProductOrderActivityPanel({ detail }) {
   const maxRevenue = effectiveVisibleSeries.revenue
     ? Math.max(Number(summary.maxRevenue || 0), ...months.map((month) => Number(month.revenue || 0)), 1)
     : 1;
-  const windowLabel = activity.windowDays ? `${activity.windowDays}-day window` : "Stored window";
-  const rangeLabel = getMonthlyOrderActivityRangeLabel(months);
   const chartDescription = "Orders, return cohorts, refund cohorts, revenue and optional unresolved return balance grouped by cohort month.";
   const toggleOrderActivitySeries = (key) => {
     setVisibleOrderActivitySeries((current) => ({ ...current, [key]: !current[key] }));
   };
 
   return (
-    <section className="ppProductOrderActivityPanel" aria-label="Monthly order activity">
+    <section className={`ppProductOrderActivityPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Monthly order activity">
       <div className="ppOrderActivityHeader">
         <div>
           <span>Deep research</span>
           <h2>Monthly order activity</h2>
           <p>{chartDescription}</p>
         </div>
-        <div className="ppOrderActivityControls">
-          <div className="ppOrderActivityWindow">
-            <s-icon type="calendar" size="small"></s-icon>
-            <span>{windowLabel}</span>
-            {rangeLabel && <small>{rangeLabel}</small>}
-            <b>Cohort month</b>
-          </div>
-        </div>
+        <ProductDetailPanelCollapseButton
+          collapsed={collapsed}
+          label="Monthly order activity"
+          onToggle={() => setCollapsed((current) => !current)}
+        />
       </div>
 
-      <div className="ppOrderActivitySummary">
-        <OrderActivityStat icon="shopify-orders" label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
-        <OrderActivityStat icon="shopify-returns" label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />
-        <OrderActivityStat icon="shopify-refunds" label="Refunded units" value={formatInteger(summary.totalRefundedUnits)} detail={`${formatPercent(summary.refundRate)} of ordered units`} tone="red" />
-        <OrderActivityStat icon="financial-exposure" label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
-      </div>
-
-      {hasActivity ? (
-        <div className="ppOrderActivityChart" aria-label={`Monthly Shopify order activity chart for ${detail.title}`}>
-          <OrderActivityComboChart
-            months={months}
-            maxOrders={maxOrders}
-            maxRevenue={maxRevenue}
-            unresolvedReturnSeries={unresolvedReturnSeries}
-            visibleSeries={effectiveVisibleSeries}
-          />
-          <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
-            {ORDER_ACTIVITY_LEGEND_ITEMS.filter((item) => !item.requiresUnresolvedSeries || hasUnresolvedReturnSeries).map((item) => {
-              const active = Boolean(effectiveVisibleSeries[item.key]);
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={`ppOrderActivityLegendToggle${active ? " isActive" : ""}`}
-                  aria-pressed={active}
-                  aria-label={`${active ? "Hide" : "Show"} ${item.ariaLabel}`}
-                  onClick={() => toggleOrderActivitySeries(item.key)}
-                >
-                  <i className={item.className} />{item.label}
-                </button>
-              );
-            })}
+      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+        <>
+          <div className="ppOrderActivitySummary">
+            <OrderActivityStat icon="shopify-orders" label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
+            <OrderActivityStat icon="shopify-returns" label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />
+            <OrderActivityStat icon="shopify-refunds" label="Refunded units" value={formatInteger(summary.totalRefundedUnits)} detail={`${formatPercent(summary.refundRate)} of ordered units`} tone="red" />
+            <OrderActivityStat icon="financial-exposure" label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
           </div>
-        </div>
-      ) : (
-        <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
-      )}
+
+          {hasActivity ? (
+            <div className="ppOrderActivityChart" aria-label={`Monthly Shopify order activity chart for ${detail.title}`}>
+              <OrderActivityComboChart
+                months={months}
+                maxOrders={maxOrders}
+                maxRevenue={maxRevenue}
+                unresolvedReturnSeries={unresolvedReturnSeries}
+                visibleSeries={effectiveVisibleSeries}
+              />
+              <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
+                {ORDER_ACTIVITY_LEGEND_ITEMS.filter((item) => !item.requiresUnresolvedSeries || hasUnresolvedReturnSeries).map((item) => {
+                  const active = Boolean(effectiveVisibleSeries[item.key]);
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`ppOrderActivityLegendToggle${active ? " isActive" : ""}`}
+                      aria-pressed={active}
+                      aria-label={`${active ? "Hide" : "Show"} ${item.ariaLabel}`}
+                      onClick={() => toggleOrderActivitySeries(item.key)}
+                    >
+                      <i className={item.className} />{item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
+          )}
+        </>
+      </ProductDetailPanelCollapseRegion>
       <ProductChartAiInterpretation detail={detail} chartKey="monthlyOrderActivity" />
     </section>
   );
 }
 
 function ProductReturnRatePredictionPanel({ detail }) {
+  const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("returnRatePrediction");
   const prediction = detail.returnRatePrediction || normalizeProductReturnRatePrediction(null);
   const observedPoints = prediction.observedPoints || [];
   const forecastPoints = prediction.forecastPoints || [];
@@ -16340,159 +16937,168 @@ function ProductReturnRatePredictionPanel({ detail }) {
   const actionCopy = getReturnRatePredictionActionCopy(prediction.actionAdjustment);
 
   return (
-    <section className="ppProductReturnPredictionPanel" aria-label="Return rate prediction">
+    <section className={`ppProductReturnPredictionPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Return rate prediction">
       <div className="ppReturnPredictionHeader">
         <div>
           <span>Prediction model</span>
           <h2>Return rate prediction</h2>
           <p>Weekly Shopify order cohorts, smoothed from observed return behavior and projected three months forward. The lilac range widens as forecast uncertainty grows.</p>
         </div>
-        <s-badge tone={getReturnRatePredictionConfidenceTone(summary.confidence)}>{summary.confidence || "Unavailable"} confidence</s-badge>
-      </div>
-
-      <div className="ppReturnPredictionStats">
-        <OrderActivityStat
-          icon="shopify-returns"
-          label="Total return rate"
-          value={formatPercent(summary.totalReturnRate)}
-          detail={`${formatInteger(summary.totalReturnedUnits || summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrderUnits || summary.totalOrders)} units`}
-          tone="blue"
+        <ProductDetailPanelCollapseButton
+          collapsed={collapsed}
+          label="Return rate prediction"
+          onToggle={() => setCollapsed((current) => !current)}
         />
-        <OrderActivityStat icon="product-momentum" label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
-        <OrderActivityStat icon="product-risk" label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
-        <OrderActivityStat icon="diagnostic-confidence" label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />
       </div>
 
-      {hasPrediction ? (
+      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
         <>
-          <div className="ppReturnPredictionChartWrap">
-            <div className="ppReturnPredictionPlot">
-              <div className="ppReturnPredictionYAxis" aria-hidden="true">
-                <span className="ppReturnPredictionYAxisTitle">Return rate</span>
-                {chart.yTicks.map((tick) => (
-                  <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
-                ))}
-              </div>
-              <div className="ppReturnPredictionChartArea">
-                <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
-                  {chart.yTicks.map((tick) => (
-                    <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
-                  ))}
-                  {chart.monthTicks.map((tick) => (
-                    <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
-                  ))}
-                  {chart.forecastRangePath && <path className="ppReturnPredictionForecastRange" d={chart.forecastRangePath} />}
-                  {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
-                  {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
-                  {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
-                </svg>
-                <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
-              </div>
-              <div className="ppReturnPredictionXAxis">
-                {chart.monthTicks.map((tick) => (
-                  <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
-                ))}
-                {chart.boundaryX > 0 && <strong style={{ left: `${chart.boundaryX}%` }}>Today</strong>}
-              </div>
-            </div>
-            <div className="ppReturnPredictionLegend">
-              <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
-              <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
-              <span><i className="ppReturnPredictionLegendRange" />Forecast range</span>
-            </div>
+          <div className="ppReturnPredictionStats">
+            <OrderActivityStat
+              icon="shopify-returns"
+              label="Total return rate"
+              value={formatPercent(summary.totalReturnRate)}
+              detail={`${formatInteger(summary.totalReturnedUnits || summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrderUnits || summary.totalOrders)} units`}
+              tone="blue"
+            />
+            <OrderActivityStat icon="product-momentum" label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
+            <OrderActivityStat icon="product-risk" label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
+            <OrderActivityStat icon="diagnostic-confidence" label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />
           </div>
+
+          {hasPrediction ? (
+            <div className="ppReturnPredictionChartWrap">
+              <div className="ppReturnPredictionPlot">
+                <div className="ppReturnPredictionYAxis" aria-hidden="true">
+                  <span className="ppReturnPredictionYAxisTitle">Return rate</span>
+                  {chart.yTicks.map((tick) => (
+                    <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
+                  ))}
+                </div>
+                <div className="ppReturnPredictionChartArea">
+                  <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
+                    {chart.yTicks.map((tick) => (
+                      <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
+                    ))}
+                    {chart.monthTicks.map((tick) => (
+                      <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
+                    ))}
+                    {chart.forecastRangePath && <path className="ppReturnPredictionForecastRange" d={chart.forecastRangePath} />}
+                    {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
+                    {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
+                    {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
+                  </svg>
+                  <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
+                </div>
+                <div className="ppReturnPredictionXAxis">
+                  {chart.monthTicks.map((tick) => (
+                    <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
+                  ))}
+                  {chart.boundaryX > 0 && <strong style={{ left: `${chart.boundaryX}%` }}>Today</strong>}
+                </div>
+              </div>
+              <div className="ppReturnPredictionLegend">
+                <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
+                <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
+                <span><i className="ppReturnPredictionLegendRange" />Forecast range</span>
+              </div>
+            </div>
+          ) : (
+            <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
+          )}
         </>
-      ) : (
-        <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
-      )}
+      </ProductDetailPanelCollapseRegion>
       <ProductChartAiInterpretation detail={detail} chartKey="returnRatePrediction" />
     </section>
   );
 }
 
 function ProductRetentionMetricsPanel({ detail }) {
+  const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("productRetentionMetrics");
   const retention = detail.productRetention || normalizeProductRetention(null);
   const summary = retention.summary || {};
   const hasData = detail.hasProductRetention || hasProductRetentionData(retention);
   const ltvChart = useMemo(() => getProductRetentionLtvBreakdownChart(retention.ltvCurve), [retention.ltvCurve]);
   const retentionActions = useMemo(() => getRetentionPanelActionCards(detail), [detail]);
-  const rangeLabel = getProductRetentionRangeLabel(retention.run, summary);
-  const warningLabel = getProductRetentionWarningLabel(summary, retention.run);
   const emptyMessage = getProductRetentionEmptyMessage(summary, retention.run);
 
   return (
-    <section className="ppProductRetentionPanel" aria-label="Product retention metrics">
+    <section className={`ppProductRetentionPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product retention metrics">
       <div className="ppProductRetentionHeader">
         <div>
           <span>Retention</span>
           <h2>Product retention metrics</h2>
           <p>Deterministic Shopify order cohorts, LTV and follow-on purchase behavior for customers who first bought this product.</p>
         </div>
-        <div className="ppProductRetentionMeta">
-          {retention.run?.status && <s-badge tone={getProductRetentionStatusTone(retention.run.status)}>{formatProductRetentionStatus(retention.run.status)}</s-badge>}
-          {warningLabel && <s-badge tone="warning">{warningLabel}</s-badge>}
-          {rangeLabel && <small>{rangeLabel}</small>}
-        </div>
+        <ProductDetailPanelCollapseButton
+          collapsed={collapsed}
+          label="Product retention metrics"
+          onToggle={() => setCollapsed((current) => !current)}
+        />
       </div>
 
-      {!hasData ? (
-        <EmptyProductDetailState message={emptyMessage} />
-      ) : (
+      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
         <>
-          <div className="ppProductRetentionBody">
-            <div className="ppProductRetentionMain">
-              <div className="ppRetentionMetricGrid">
-                <ProductRetentionMetricCard
-                  icon="shopify-orders"
-                  label="180-day customer retention"
-                  value={formatRetentionRate(summary.repeatPurchaseRate180d)}
-                  detail={`${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`}
-                  tone="blue"
-                />
-                <ProductRetentionMetricCard
-                  icon="shopify-product"
-                  label="Same-product repurchase rate"
-                  value={formatRetentionRate(summary.sameProductRepurchaseRate90d)}
-                  detail="90-day same-product repeat"
-                  tone="teal"
-                />
-                <ProductRetentionMetricCard
-                  icon="diagnostic-confidence"
-                  label="Median time to 2nd purchase"
-                  value={formatRetentionDays(summary.medianDaysToSecondPurchase)}
-                  detail={summary.avgDaysToSecondPurchase == null ? "Average unavailable" : `${formatRetentionDays(summary.avgDaysToSecondPurchase)} average`}
-                  tone="blue"
-                />
-                <ProductRetentionMetricCard
-                  icon="financial-exposure"
-                  label="Product LTV"
-                  value={formatRetentionMoneyCents(summary.productLtv90Cents)}
-                  detail="90-day LTV per cohort customer"
-                  tone="teal"
-                />
-                <ProductRetentionMetricCard
-                  icon="product-momentum"
-                  label="Retention health"
-                  value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
-                  detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
-                  tone={summary.hasEnoughData ? "blue" : "amber"}
-                />
+          {!hasData ? (
+            <EmptyProductDetailState message={emptyMessage} />
+          ) : (
+            <>
+              <div className="ppProductRetentionBody">
+                <div className="ppProductRetentionMain">
+                  <div className="ppRetentionMetricGrid">
+                    <ProductRetentionMetricCard
+                      icon="shopify-orders"
+                      label="180-day customer retention"
+                      value={formatRetentionRate(summary.repeatPurchaseRate180d)}
+                      detail={`${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`}
+                      tone="blue"
+                    />
+                    <ProductRetentionMetricCard
+                      icon="shopify-product"
+                      label="Same-product repurchase rate"
+                      value={formatRetentionRate(summary.sameProductRepurchaseRate90d)}
+                      detail="90-day same-product repeat"
+                      tone="teal"
+                    />
+                    <ProductRetentionMetricCard
+                      icon="diagnostic-confidence"
+                      label="Median time to 2nd purchase"
+                      value={formatRetentionDays(summary.medianDaysToSecondPurchase)}
+                      detail={summary.avgDaysToSecondPurchase == null ? "Average unavailable" : `${formatRetentionDays(summary.avgDaysToSecondPurchase)} average`}
+                      tone="blue"
+                    />
+                    <ProductRetentionMetricCard
+                      icon="financial-exposure"
+                      label="Product LTV"
+                      value={formatRetentionMoneyCents(summary.productLtv90Cents)}
+                      detail="90-day LTV per cohort customer"
+                      tone="teal"
+                    />
+                    <ProductRetentionMetricCard
+                      icon="product-momentum"
+                      label="Retention health"
+                      value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
+                      detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
+                      tone={summary.hasEnoughData ? "blue" : "amber"}
+                    />
+                  </div>
+                  <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
+                </div>
+                <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
+                  <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
+                  {ltvChart.hasData && (
+                    <>
+                      <ProductRetentionLtvContributionDonut contribution={ltvChart.contribution} />
+                      <ProductRetentionLtvInsights contribution={ltvChart.contribution} summary={summary} />
+                    </>
+                  )}
+                </aside>
               </div>
-              <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
-            </div>
-            <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
-              <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
-              {ltvChart.hasData && (
-                <>
-                  <ProductRetentionLtvContributionDonut contribution={ltvChart.contribution} />
-                  <ProductRetentionLtvInsights contribution={ltvChart.contribution} summary={summary} />
-                </>
-              )}
-            </aside>
-          </div>
-          <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />
+            </>
+          )}
         </>
-      )}
+      </ProductDetailPanelCollapseRegion>
+      {hasData && <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />}
     </section>
   );
 }
@@ -17736,19 +18342,26 @@ function getProductRetentionStatusTone(status = "") {
 }
 
 function ProductMomentumPanel({ detail }) {
+  const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("productMomentum");
   const momentum = detail.productMomentum;
   if (!momentum) {
     return (
-      <section className="ppProductMomentumPanel" aria-label="Product Momentum">
+      <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
         <div className="ppProductMomentumHeader">
           <div>
             <span>Commercial signal</span>
             <h2>Product Momentum</h2>
             <p>Commercial strength is calculated from recent Shopify order velocity, growth and catalog position.</p>
           </div>
-          <s-badge tone="warning">Deep diagnosis needed</s-badge>
+          <ProductDetailPanelCollapseButton
+            collapsed={collapsed}
+            label="Product Momentum"
+            onToggle={() => setCollapsed((current) => !current)}
+          />
         </div>
-        <EmptyProductDetailState message="Run product diagnosis to calculate Product Momentum for this product." />
+        <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+          <EmptyProductDetailState message="Run product diagnosis to calculate Product Momentum for this product." />
+        </ProductDetailPanelCollapseRegion>
       </section>
     );
   }
@@ -17763,39 +18376,48 @@ function ProductMomentumPanel({ detail }) {
   const trendCallout = getProductMomentumTrendInsight(momentum.inputs?.weeklyUnitsLast4Weeks, momentum.display?.trendLabel);
 
   return (
-    <section className="ppProductMomentumPanel" aria-label="Product Momentum">
+    <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
       <div className="ppProductMomentumHeader">
         <div>
           <span>Commercial signal</span>
           <h2>Product Momentum</h2>
           <p>This score answers whether the product matters commercially right now. It is separate from Product Risk.</p>
         </div>
+        <ProductDetailPanelCollapseButton
+          collapsed={collapsed}
+          label="Product Momentum"
+          onToggle={() => setCollapsed((current) => !current)}
+        />
       </div>
-      <div className="ppProductMomentumBody">
-        <ProductMomentumGauge momentum={momentum} />
-        <ProductMomentumWeeklyChart momentum={momentum} />
-      </div>
-      <div className={`ppProductMomentumTrendCallout ppProductMomentumTrendCallout-${trendCallout.tone}`}>
-        <span>
-          <ProductMomentumComponentIcon type={trendCallout.icon} />
-        </span>
-        <strong>{trendCallout.label}</strong>
-      </div>
-      <div className="ppProductMomentumBreakdown">
-        {componentRows.map(({ key, label, value }) => (
-          <ProductMomentumComponentMetric
-            componentKey={key}
-            key={key}
-            label={label}
-            momentum={momentum}
-            value={value}
-          />
-        ))}
-      </div>
-      <div className="ppProductMomentumMeta">
-        <span><b>{momentum.confidenceLabel}</b> · {formatInteger(momentum.confidence)}/100</span>
-        <span>{formatInteger(momentum.inputs.unitsLast30Days)} units · {formatMoney(momentum.inputs.revenueLast30Days)} revenue in the last 30 days</span>
-      </div>
+      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+        <>
+          <div className="ppProductMomentumBody">
+            <ProductMomentumGauge momentum={momentum} />
+            <ProductMomentumWeeklyChart momentum={momentum} />
+          </div>
+          <div className={`ppProductMomentumTrendCallout ppProductMomentumTrendCallout-${trendCallout.tone}`}>
+            <span>
+              <ProductMomentumComponentIcon type={trendCallout.icon} />
+            </span>
+            <strong>{trendCallout.label}</strong>
+          </div>
+          <div className="ppProductMomentumBreakdown">
+            {componentRows.map(({ key, label, value }) => (
+              <ProductMomentumComponentMetric
+                componentKey={key}
+                key={key}
+                label={label}
+                momentum={momentum}
+                value={value}
+              />
+            ))}
+          </div>
+          <div className="ppProductMomentumMeta">
+            <span><b>{momentum.confidenceLabel}</b> · {formatInteger(momentum.confidence)}/100</span>
+            <span>{formatInteger(momentum.inputs.unitsLast30Days)} units · {formatMoney(momentum.inputs.revenueLast30Days)} revenue in the last 30 days</span>
+          </div>
+        </>
+      </ProductDetailPanelCollapseRegion>
       <ProductChartAiInterpretation detail={detail} chartKey="productMomentum" />
     </section>
   );
@@ -18716,6 +19338,7 @@ function EvidenceSummaryCompactRow({ source, onSelect }) {
 }
 
 function ProductRiskHistoryPanel({ detail }) {
+  const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("productRiskOverTime");
   const gradientId = `ppProductRiskHistoryAreaGradient-${useId().replace(/:/g, "")}`;
   const historyPoints = getProductRiskHistoryPoints(detail);
   const chart = getProductRiskHistoryChart(historyPoints);
@@ -18728,12 +19351,11 @@ function ProductRiskHistoryPanel({ detail }) {
   const changeLabel = getProductRiskHistoryChangeLabel(change, hasSavedHistory);
   const windowLabel = getProductRiskHistoryWindowLabel(historyPoints, hasSavedHistory);
   const statCards = getProductRiskHistoryStatCards(detail, historyPoints, change, changeLabel, windowLabel);
-  const milestones = getProductRiskHistoryMilestones(historyPoints, chart.points);
+  const milestones = getProductRiskHistoryMilestones(detail, historyPoints, chart.points, chart);
   const footerCards = getProductRiskHistoryFooterCards(historyPoints, changeLabel, windowLabel, milestones);
-  const trendLabel = detail.riskTrendLabel || getProductRiskHistoryTrendLabel(historyPoints);
 
   return (
-    <section className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}`} aria-label="Product risk over time">
+    <section className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}${collapsed ? " isCollapsed" : ""}`} aria-label="Product risk over time">
       <div className="ppProductRiskHistoryHeader">
         <div className="ppProductRiskHistoryTitleBlock">
           <div>
@@ -18742,70 +19364,68 @@ function ProductRiskHistoryPanel({ detail }) {
             <p>Saved ProductPulse risk scores, signal changes and diagnosis milestones for this product.</p>
           </div>
         </div>
-        <div className="ppProductRiskHistoryCurrent">
-          <span>Current risk</span>
-          <strong className="ppProductRiskHistoryScore">
-            <span>{formatInteger(currentRisk)}</span>
-            <small> / 100</small>
-          </strong>
-          <em className={`ppProductRiskHistoryTrendBadge ppProductRiskHistoryTrendBadge-${trendTone}`}>
-            {trendLabel}
-            <s-icon type="chart-line" size="small"></s-icon>
-          </em>
-        </div>
+        <ProductDetailPanelCollapseButton
+          collapsed={collapsed}
+          label="Product risk over time"
+          onToggle={() => setCollapsed((current) => !current)}
+        />
       </div>
-      <div className="ppProductRiskHistoryStats" aria-label="Product risk history summary">
-        {statCards.map((card) => (
-          <ProductRiskHistoryStatCard card={card} key={card.id} />
-        ))}
-      </div>
-      <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
-        <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={changeLabel}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="currentColor" stopOpacity="0.24" />
-              <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-          {chart.yTicks.map((tick) => (
-            <g className="ppProductRiskHistoryGridLine" key={tick.value}>
-              <line x1={chart.plot.left} x2={chart.plot.right} y1={tick.y} y2={tick.y} />
-              <text x={chart.plot.left - 16} y={tick.y + 5} textAnchor="end">{tick.label}</text>
-            </g>
-          ))}
-          <line className="ppProductRiskHistoryAxis" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
-          <line className="ppProductRiskHistoryAxis" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
-          <g className="ppProductRiskHistoryReference">
-            <line x1={chart.plot.left} x2={chart.plot.right} y1={chart.reference.y} y2={chart.reference.y} />
-            <text x={chart.plot.left + 10} y={chart.reference.y - 10}>{chart.reference.label}</text>
-          </g>
-          {chart.xTicks.map((tick) => (
-            <g className="ppProductRiskHistoryXTick" key={`${tick.label}-${tick.x}`}>
-              <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
-              <text x={tick.x} y={chart.plot.bottom + 28} textAnchor={tick.anchor}>{tick.label}</text>
-            </g>
-          ))}
-          <path className="ppProductRiskHistoryArea" d={chart.areaPath} style={{ fill: `url(#${gradientId})` }} />
-          <path className="ppProductRiskHistoryLine" d={chart.linePath} />
-        </svg>
-        {chart.points.map((point, index) => (
-          <ProductRiskHistoryPointButton
-            key={historyPoints[index]?.id || historyPoints[index]?.recordedAt || `${historyPoints[index]?.label}-${index}`}
-            point={historyPoints[index]}
-            previousPoint={index > 0 ? historyPoints[index - 1] : null}
-            chartPoint={point}
-            chart={chart}
-          />
-        ))}
-        {milestones.map((milestone) => (
-          <ProductRiskHistoryMilestoneLabel milestone={milestone} key={milestone.id} chart={chart} />
-        ))}
-      </div>
-      <div className="ppProductRiskHistoryMeta">
-        {footerCards.map((card) => (
-          <ProductRiskHistoryMetaCard card={card} key={card.id} />
-        ))}
-      </div>
+      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+        <>
+          <div className="ppProductRiskHistoryStats" aria-label="Product risk history summary">
+            {statCards.map((card) => (
+              <ProductRiskHistoryStatCard card={card} key={card.id} />
+            ))}
+          </div>
+          <div className="ppProductRiskHistoryChart" aria-label="Product risk history chart">
+            <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={changeLabel}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="currentColor" stopOpacity="0.24" />
+                  <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+                </linearGradient>
+              </defs>
+              {chart.yTicks.map((tick) => (
+                <g className="ppProductRiskHistoryGridLine" key={tick.value}>
+                  <line x1={chart.plot.left} x2={chart.plot.right} y1={tick.y} y2={tick.y} />
+                  <text x={chart.plot.left - 16} y={tick.y + 5} textAnchor="end">{tick.label}</text>
+                </g>
+              ))}
+              <line className="ppProductRiskHistoryAxis" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
+              <line className="ppProductRiskHistoryAxis" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
+              <g className="ppProductRiskHistoryReference">
+                <line x1={chart.plot.left} x2={chart.plot.right} y1={chart.reference.y} y2={chart.reference.y} />
+                <text x={chart.plot.left + 10} y={chart.reference.y - 10}>{chart.reference.label}</text>
+              </g>
+              {chart.xTicks.map((tick) => (
+                <g className="ppProductRiskHistoryXTick" key={`${tick.label}-${tick.x}`}>
+                  <line x1={tick.x} x2={tick.x} y1={chart.plot.bottom} y2={chart.plot.bottom + 6} />
+                  <text x={tick.x} y={chart.plot.bottom + 28} textAnchor={tick.anchor}>{tick.label}</text>
+                </g>
+              ))}
+              <path className="ppProductRiskHistoryArea" d={chart.areaPath} style={{ fill: `url(#${gradientId})` }} />
+              <path className="ppProductRiskHistoryLine" d={chart.linePath} />
+            </svg>
+            {chart.points.map((point, index) => (
+              <ProductRiskHistoryPointButton
+                key={historyPoints[index]?.id || historyPoints[index]?.recordedAt || `${historyPoints[index]?.label}-${index}`}
+                point={historyPoints[index]}
+                previousPoint={index > 0 ? historyPoints[index - 1] : null}
+                chartPoint={point}
+                chart={chart}
+              />
+            ))}
+            {milestones.map((milestone) => (
+              <ProductRiskHistoryMilestoneLabel milestone={milestone} key={milestone.id} chart={chart} />
+            ))}
+          </div>
+          <div className="ppProductRiskHistoryMeta">
+            {footerCards.map((card) => (
+              <ProductRiskHistoryMetaCard card={card} key={card.id} />
+            ))}
+          </div>
+        </>
+      </ProductDetailPanelCollapseRegion>
       <ProductChartAiInterpretation detail={detail} chartKey="productRiskOverTime" />
     </section>
   );
@@ -19029,6 +19649,9 @@ function getProductRiskHistoryChart(historyPoints = []) {
     width,
     height,
     plot,
+    hasDatedRange: false,
+    minTime: null,
+    maxTime: null,
     linePath: "",
     areaPath: "",
     points: [],
@@ -19075,6 +19698,9 @@ function getProductRiskHistoryChart(historyPoints = []) {
     areaPath,
     points,
     xTicks,
+    hasDatedRange,
+    minTime: hasDatedRange ? minTime : null,
+    maxTime: hasDatedRange ? maxTime : null,
   };
 }
 
@@ -19248,7 +19874,13 @@ function getProductRiskHistoryFooterCards(historyPoints = [], changeLabel = "", 
   ];
 }
 
-function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
+function getProductRiskHistoryMilestones(detail = {}, historyPoints = [], chartPoints = [], chart = {}) {
+  const timelineMilestones = getProductRiskHistoryTimelineMilestones(detail, chart);
+  if (timelineMilestones.length) return timelineMilestones;
+  return getProductRiskHistoryEvidenceMilestones(historyPoints, chartPoints);
+}
+
+function getProductRiskHistoryEvidenceMilestones(historyPoints = [], chartPoints = []) {
   const candidates = [];
   for (let index = 1; index < historyPoints.length; index += 1) {
     const point = historyPoints[index];
@@ -19286,6 +19918,115 @@ function getProductRiskHistoryMilestones(historyPoints = [], chartPoints = []) {
       ...milestone,
       topPercent: index === 0 ? 8 : 22,
     }));
+}
+
+function getProductRiskHistoryTimelineMilestones(detail = {}, chart = {}) {
+  if (!chart?.hasDatedRange || !Number.isFinite(chart.minTime) || !Number.isFinite(chart.maxTime)) return [];
+  const events = getProductMetricTimelineEventPoints(detail)
+    .filter((event) => Number.isFinite(event.time) && event.time >= chart.minTime && event.time <= chart.maxTime)
+    .filter((event) => !isProductRiskHistoryRiskOnlyTimelineEvent(event))
+    .map((event) => {
+      const x = getProductRiskHistoryChartXForTime(chart, event.time);
+      return {
+        id: `timeline-${event.id || event.eventType || event.time}`,
+        title: event.title,
+        detail: event.summary || event.source || event.categoryLabel || "Product timeline event",
+        label: event.dateLabel || formatProductMetricTimelinePointLabel(new Date(event.time)),
+        dateKey: event.dayKey || new Date(event.time).toISOString().slice(0, 10),
+        time: event.time,
+        xPercent: Math.max(12, Math.min(88, (x / chart.width) * 100)),
+        topPercent: 8,
+        align: x > chart.width * 0.76 ? "right" : "left",
+        tone: getProductRiskHistoryTimelineMilestoneTone(event),
+        priority: getProductRiskHistoryTimelineMilestonePriority(event),
+      };
+    })
+    .filter((event) => event.title && Number.isFinite(event.time));
+
+  if (!events.length) return [];
+
+  const preferredSpacing = PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MIN_SPACING_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS;
+  const fallbackSpacing = PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_FALLBACK_SPACING_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS;
+  const targetCount = Math.min(PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MAX, events.length);
+  let selected = selectProductRiskHistoryTimelineMilestones(events, preferredSpacing);
+  if (selected.length < Math.min(3, targetCount)) {
+    selected = selectProductRiskHistoryTimelineMilestones(events, fallbackSpacing);
+  }
+
+  return selected
+    .sort((a, b) => a.time - b.time)
+    .slice(0, PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MAX)
+    .map((milestone, index) => ({
+      ...milestone,
+      topPercent: index % 2 === 0 ? 8 : 22,
+    }));
+}
+
+function selectProductRiskHistoryTimelineMilestones(events = [], minSpacingMs = 0) {
+  const selected = [];
+  [...events]
+    .sort((left, right) => right.priority - left.priority || Math.abs(right.xPercent - 50) - Math.abs(left.xPercent - 50))
+    .forEach((candidate) => {
+      if (selected.length >= PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MAX) return;
+      const tooClose = selected.some((item) => Math.abs(item.time - candidate.time) < minSpacingMs);
+      if (tooClose) return;
+      selected.push(candidate);
+    });
+  return selected;
+}
+
+function isProductRiskHistoryRiskOnlyTimelineEvent(event = {}) {
+  const category = String(event.category || "").toLowerCase();
+  const eventType = String(event.eventType || "").toLowerCase();
+  const title = String(event.title || "").toLowerCase();
+  const categoryLabel = String(event.categoryLabel || "").toLowerCase();
+  if (category === "risk" || categoryLabel === "risk") return true;
+  if (eventType.includes("risk_score") || eventType.includes("product_risk") || eventType.includes("risk_level") || eventType.includes("risk_tone")) return true;
+  if (title.includes("product risk") || title.includes("risk score")) return true;
+  if (/\bmoved to (low|medium|high|critical)\b/.test(title) || /\b(low|medium|high|critical) risk\b/.test(title)) return true;
+  return false;
+}
+
+function getProductRiskHistoryChartXForTime(chart = {}, time) {
+  const minTime = Number(chart.minTime);
+  const maxTime = Number(chart.maxTime);
+  const width = Number(chart.width || 1000);
+  const plot = chart.plot || { left: 56, right: width - 28 };
+  if (!Number.isFinite(time) || !Number.isFinite(minTime) || !Number.isFinite(maxTime) || maxTime <= minTime) {
+    return plot.left || 0;
+  }
+  return Math.round(((plot.left || 0) + ((time - minTime) / Math.max(1, maxTime - minTime)) * ((plot.right || width) - (plot.left || 0))) * 10) / 10;
+}
+
+function getProductRiskHistoryTimelineMilestonePriority(event = {}) {
+  const category = String(event.category || "").toLowerCase();
+  const eventType = String(event.eventType || "").toLowerCase();
+  const tone = String(event.tone || mapProductTimelineTone(event.severityTone) || "").toLowerCase();
+  const categoryWeight = category.includes("risk")
+    ? 36
+    : category.includes("return") || category.includes("refund") || category.includes("review")
+      ? 30
+      : category.includes("action")
+        ? 22
+        : category.includes("diagnosis") || category.includes("watch")
+          ? 14
+          : category.includes("scan")
+            ? 5
+            : 10;
+  const typeWeight = eventType.includes("increased") || eventType.includes("spike") || eventType.includes("pressure")
+    ? 18
+    : eventType.includes("applied") || eventType.includes("resolved")
+      ? 10
+      : 0;
+  const toneWeight = tone === "red" ? 24 : tone === "orange" ? 16 : tone === "green" ? 8 : tone === "blue" ? 6 : 0;
+  return Number(event.importance || 0) + categoryWeight + typeWeight + toneWeight;
+}
+
+function getProductRiskHistoryTimelineMilestoneTone(event = {}) {
+  const tone = String(event.tone || mapProductTimelineTone(event.severityTone) || "").toLowerCase();
+  if (tone === "green") return "green";
+  if (tone === "orange" || tone === "blue" || tone === "violet") return "orange";
+  return "red";
 }
 
 function getProductRiskHistoryPointEvents(point = {}, previous = null) {
