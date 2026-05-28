@@ -27846,10 +27846,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchSnapshotCompareHeader {
-  min-height: 48px;
+  min-height: 42px;
   align-items: center;
   color: var(--pp-slate-600);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 850;
 }
 
@@ -27872,7 +27872,7 @@ s-page[inline-size="large-500"] {
 
 .ppWatchSnapshotCompareHeader strong {
   color: var(--pp-pulse-blue);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 950;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -27899,7 +27899,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchSnapshotCompareRow {
-  min-height: 54px;
+  min-height: 52px;
   border-bottom: 1px solid var(--pp-slate-200);
 }
 
@@ -27909,15 +27909,17 @@ s-page[inline-size="large-500"] {
 
 .ppWatchSnapshotMetric {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: center;
   min-width: 0;
-  padding: 8px 18px;
+  padding: 8px 14px;
   background: rgba(255, 255, 255, 0.86);
 }
 
 .ppWatchSnapshotMetric .ppDashboardIcon {
+  --pp-icon-badge-size: 32px;
+  --pp-icon-badge-glyph-size: 22px;
   width: 32px;
   height: 32px;
   display: inline-grid;
@@ -27928,16 +27930,10 @@ s-page[inline-size="large-500"] {
   border-radius: 999px;
 }
 
-.ppWatchSnapshotMetric .ppDashboardIcon s-icon,
-.ppWatchSnapshotMetric .ppDashboardIcon svg {
-  width: 40px;
-  height: 40px;
-}
-
 .ppWatchSnapshotMetric span {
   min-width: 0;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: baseline;
 }
 
@@ -27951,20 +27947,20 @@ s-page[inline-size="large-500"] {
 
 .ppWatchSnapshotMetric strong {
   color: var(--pp-slate-800);
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 900;
 }
 
 .ppWatchSnapshotMetric small {
   color: var(--pp-slate-500);
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
 .ppWatchSnapshotMetric > b,
 .ppWatchSnapshotCurrent strong {
   color: var(--pp-slate-950);
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 950;
 }
 
@@ -27972,12 +27968,12 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  padding: 8px 14px;
+  padding: 8px 12px;
   background: rgba(var(--pp-pulse-blue-rgb), 0.035);
   color: var(--pp-slate-600);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -28001,7 +27997,7 @@ s-page[inline-size="large-500"] {
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 8px 28px;
+  padding: 8px 20px;
   background: rgba(var(--pp-success-green-rgb), 0.075);
 }
 

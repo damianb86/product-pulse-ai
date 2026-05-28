@@ -2014,7 +2014,7 @@ function WatchChangeReportContent({ product, report }) {
   const sourceChanges = isBaselineReport ? [] : getWatchSourceChangeCards(report);
   const biggestChanges = isBaselineReport ? [] : getWatchReportBiggestChanges(report, sourceChanges, visibleSections);
   const customerLanguageCards = isBaselineReport ? [] : getWatchCustomerLanguageChangeCards(report);
-  const showCustomerLanguagePanel = !isBaselineReport && (customerLanguageCards.length > 0 || hasWatchCustomerLanguagePanelContext(report));
+  const showCustomerLanguagePanel = !isBaselineReport && customerLanguageCards.length > 0;
   const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
   const categoryCards = isBaselineReport ? [] : getWatchCategoryChangeCards(report, sourceChanges);
   const trendCharts = isBaselineReport ? [] : getWatchRunTrendCharts(report);
@@ -2242,20 +2242,16 @@ function WatchRunHistoryTable({ rows = [] }) {
   );
 }
 
-function WatchSnapshotComparisonTable({ report, rows = [] }) {
-  const previousTimestamp = formatWatchReportTimestamp(report?.previousRunAt || report?.previous?.capturedAt);
-  const currentTimestamp = formatWatchReportTimestamp(report?.currentRunAt || report?.current?.capturedAt || report?.createdAt);
+function WatchSnapshotComparisonTable({ rows = [] }) {
   return (
     <section className="ppWatchSnapshotCompare" aria-label="Watchlist snapshot comparison">
       <div className="ppWatchSnapshotCompareHeader">
         <div>
           <strong>Previous snapshot</strong>
-          {previousTimestamp ? <span>({previousTimestamp})</span> : null}
         </div>
         <div>Change</div>
         <div>
           <strong>Current snapshot</strong>
-          {currentTimestamp ? <span>({currentTimestamp})</span> : null}
         </div>
       </div>
       <div className="ppWatchSnapshotCompareRows">
@@ -2656,18 +2652,6 @@ function getWatchCustomerLanguageChangeCards(report = {}) {
       signalCount: Math.max(items.length, Number(sentiment.total || 0), Number(change?.items?.length || 0)),
     };
   }).filter(Boolean);
-}
-
-function hasWatchCustomerLanguagePanelContext(report = {}) {
-  return Boolean(
-    report?.previousRunAt
-    || report?.currentRunAt
-    || report?.createdAt
-    || report?.previous?.capturedAt
-    || report?.current?.capturedAt
-    || report?.previous?.evidenceDetails
-    || report?.current?.evidenceDetails,
-  );
 }
 
 function getWatchCustomerLanguageTone(fallbackTone, insight = {}, change = {}, sentiment = {}) {
