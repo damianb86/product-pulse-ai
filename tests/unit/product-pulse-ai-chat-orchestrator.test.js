@@ -198,6 +198,24 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(result.warnings.join(" ")).toContain("safe text-only fallback");
   });
 
+  it("does not expose raw assistant response JSON when the model output is truncated", async () => {
+    const store = new InMemoryConversationStore();
+    const truncatedJson = "{\"assistantText\":\"Listo. Armé un reporte ejecutivo para marketing.\\n\\n1) Resumen ejecutivo\\n- Cobertura: 30 productos.\\n- Riesgo promedio alto";
+    const openAiCreate = vi.fn()
+      .mockResolvedValueOnce({ id: "bad-json-1", output_text: truncatedJson })
+      .mockResolvedValueOnce({ id: "bad-json-2", output_text: truncatedJson });
+    const orchestrator = createTestOrchestrator({ store, openAiCreate });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Analizame todos los productos y dame un reporte.",
+    });
+
+    expect(result.assistantText).toContain("Listo. Armé un reporte ejecutivo");
+    expect(result.assistantText).not.toContain("\"assistantText\"");
+    expect(result.assistantText).not.toContain("{");
+    expect(result.warnings.join(" ")).toContain("safe text-only fallback");
+  });
+
   it("recovers assistant text and safe cards when model JSON has oversized block arrays", async () => {
     const store = new InMemoryConversationStore();
     const oversizedResponse = validAssistantResponse({

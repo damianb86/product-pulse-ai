@@ -811,7 +811,8 @@ export class AiChatOrchestrator {
       }
     }
 
-    const text = extractOutputText(input.rawResponse) || extractOutputText(retries[retries.length - 1] || {});
+    const text = extractReadableFallbackText(input.rawResponse)
+      || extractReadableFallbackText(retries[retries.length - 1] || {});
     return {
       response: createFallbackAssistantResponse(
         text ? truncateText(text, 1600) : "I found data, but could not format the answer correctly.",
@@ -910,6 +911,59 @@ function extractStructuredResponseValue(response: OpenAiResponseLike): unknown {
   } catch {
     return null;
   }
+}
+
+function extractReadableFallbackText(response: OpenAiResponseLike): string {
+  const rawText = extractOutputText(response);
+  if (!rawText) return "";
+  const text = unwrapJsonMarkdownFence(rawText);
+  const assistantText = extractJsonStringProperty(text, "assistantText");
+  if (assistantText) return assistantText;
+  if (/^\s*[{[]/.test(text)) return "";
+  return text;
+}
+
+function unwrapJsonMarkdownFence(value: string): string {
+  const text = value.trim();
+  const match = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : text;
+}
+
+function extractJsonStringProperty(value: string, propertyName: string): string {
+  const propertyIndex = value.indexOf(`"${propertyName}"`);
+  if (propertyIndex < 0) return "";
+  const colonIndex = value.indexOf(":", propertyIndex + propertyName.length + 2);
+  if (colonIndex < 0) return "";
+  let cursor = colonIndex + 1;
+  while (cursor < value.length && /\s/.test(value[cursor] || "")) cursor += 1;
+  if (value[cursor] !== "\"") return "";
+  cursor += 1;
+
+  let result = "";
+  while (cursor < value.length) {
+    const char = value[cursor];
+    if (char === "\"") return result.trim();
+    if (char !== "\\") {
+      result += char;
+      cursor += 1;
+      continue;
+    }
+
+    const next = value[cursor + 1];
+    if (next === "n") result += "\n";
+    else if (next === "r") result += "\r";
+    else if (next === "t") result += "\t";
+    else if (next === "b") result += "\b";
+    else if (next === "f") result += "\f";
+    else if (next === "\"" || next === "\\" || next === "/") result += next;
+    else if (next === "u") {
+      const hex = value.slice(cursor + 2, cursor + 6);
+      result += /^[0-9a-fA-F]{4}$/.test(hex) ? String.fromCharCode(parseInt(hex, 16)) : "";
+      cursor += 4;
+    }
+    cursor += 2;
+  }
+  return result.trim();
 }
 
 function extractOutputText(response: OpenAiResponseLike): string {

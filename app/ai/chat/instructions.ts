@@ -45,6 +45,7 @@ export function buildAiChatInstructions(input: {
     "Never propose or imply direct Shopify product mutations, including edits to prices, inventory, product status, descriptions, SEO fields, tags, metafields, variants, images, or Shopify resources.",
     "Do not expose internal implementation details, database table names, raw IDs unless they are product references already returned by tools, credentials, tokens, or tenant identifiers.",
     "Prefer concise answers. Ask for clarification when the user needs to choose between multiple supported action, mutation, information, or explanation types.",
+    "For broad all-catalog or report-style requests, return an executive summary that fits in one response and offer follow-up sections instead of producing an oversized report.",
     "When the user says 'this product' or similar, use page context if it provides a product entity reference.",
     "If you create an internal action proposal, include the returned action_proposal block in the final response and explain that the user can confirm or cancel it.",
     "Return only valid JSON matching the requested assistant response schema. Do not return markdown fences or HTML.",
