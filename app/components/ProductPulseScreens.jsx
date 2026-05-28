@@ -1889,6 +1889,7 @@ function WatchlistProductRow({ product, onRequestAction, pending = false }) {
             aria-label={`View Watchlist report for ${product.title}`}
           >
             <s-icon type="chart-line" size="small"></s-icon>
+            <span>View report</span>
           </Link>
           <button
             className={`ppWatchActionsButton ppWatchActionsButton-toggle ${paused ? "ppWatchActionsButton-resume" : "ppWatchActionsButton-pause"}`}
