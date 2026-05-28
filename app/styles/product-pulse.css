@@ -222,6 +222,16 @@ s-page[inline-size="large-500"] {
   line-height: 1.1;
 }
 
+.ppDashboardKpiValueLabel {
+  display: block;
+  margin-top: 2px;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
 .ppTrend,
 .ppKpiDetail {
   display: inline-flex;
@@ -231,6 +241,117 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-500);
   font-size: 13px;
   line-height: 1.25;
+}
+
+.ppDashboardKpiResolvedDetail {
+  width: 100%;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ppDashboardKpiBreakdown {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ppDashboardKpiBreakdown > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 21px;
+  padding: 3px 7px;
+  border: 1px solid rgba(var(--pp-success-green-rgb), 0.16);
+  border-radius: 999px;
+  background: rgba(var(--pp-success-green-rgb), 0.08);
+  color: var(--pp-slate-600);
+  font-size: 10.5px;
+  font-weight: 680;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppDashboardKpiBreakdown b {
+  color: var(--pp-success-green);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.ppDashboardKpiInfoWrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.ppDashboardKpiInfoButton {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pp-slate-400);
+  cursor: help;
+}
+
+.ppDashboardKpiInfoButton s-icon {
+  transform: scale(0.9);
+}
+
+.ppDashboardKpiInfoBubble {
+  position: absolute;
+  right: -8px;
+  bottom: calc(100% + 9px);
+  z-index: 50;
+  width: min(260px, calc(100vw - 48px));
+  display: none;
+  gap: 4px;
+  padding: 10px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: var(--pp-midnight-ink);
+  color: var(--pp-cloud-white);
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 16px 38px rgba(var(--pp-shadow-rgb), 0.24);
+}
+
+.ppDashboardKpiInfoBubble::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  background: var(--pp-midnight-ink);
+  transform: rotate(45deg);
+}
+
+.ppDashboardKpiInfoBubble strong,
+.ppDashboardKpiInfoBubble span {
+  display: block;
+  color: var(--pp-cloud-white);
+}
+
+.ppDashboardKpiInfoBubble strong {
+  font-size: 11px;
+  font-weight: 820;
+  line-height: 1.2;
+}
+
+.ppDashboardKpiInfoBubble span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1.38;
+}
+
+.ppDashboardKpiInfoWrap:hover .ppDashboardKpiInfoBubble,
+.ppDashboardKpiInfoWrap:focus-within .ppDashboardKpiInfoBubble {
+  display: grid;
 }
 
 .ppTrend::before {
@@ -412,12 +533,17 @@ s-page[inline-size="large-500"] {
 .ppProductPulseIconBadge-dashboardSmall,
 .ppProductPulseIconBadge-small {
   --pp-icon-badge-size: 24px;
-  --pp-icon-badge-glyph-size: 14px;
+  --pp-icon-badge-glyph-size: 18px;
+}
+
+.ppProductPulseIconBadge-dashboard {
+  --pp-icon-badge-size: 62px;
+  --pp-icon-badge-glyph-size: 44px;
 }
 
 .ppProductPulseIconBadge-metric {
   --pp-icon-badge-size: 44px;
-  --pp-icon-badge-glyph-size: 24px;
+  --pp-icon-badge-glyph-size: 31px;
 }
 
 .ppProductPulseIconBadge-legend {
@@ -26242,6 +26368,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchlistStatCard .ppDashboardIcon {
+  --pp-icon-badge-glyph-size: 38px;
   width: 52px;
   height: 52px;
   display: inline-grid;

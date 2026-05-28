@@ -172,7 +172,7 @@ export function DashboardScreen({ data, actionData }) {
         <s-section padding="none">
           <div className="ppStartPanel ppNextBestActionPanel">
             <div className="ppStartHeading">
-              <DashboardIcon type="wand" tone="purple" size="small" />
+              <DashboardIcon type="next-best-action" tone="purple" size="metric" />
               <h2>Next best action</h2>
             </div>
             <div className="ppStartContent">
@@ -20528,6 +20528,8 @@ function getPreviewWatchlistData(data = {}) {
 }
 function DashboardKpiCard({ kpi }) {
   const [trendValue, trendContext] = kpi.trend ? kpi.trend.split(" vs ") : [];
+  const help = getDashboardKpiHelp(kpi);
+  const resolutionBreakdown = getDashboardResolutionKpiBreakdown(kpi);
 
   return (
     <article className="ppDashboardKpi">
@@ -20535,20 +20537,103 @@ function DashboardKpiCard({ kpi }) {
       <div>
         <h2>{kpi.label}</h2>
         <strong>{kpi.value}</strong>
+        {resolutionBreakdown && <span className="ppDashboardKpiValueLabel">{resolutionBreakdown.valueLabel}</span>}
         {kpi.trend ? (
           <span className="ppTrend">
             <strong>{trendValue}</strong>
             <span>vs {trendContext}</span>
           </span>
+        ) : resolutionBreakdown ? (
+          <span className="ppKpiDetail ppDashboardKpiResolvedDetail">
+            <span className="ppDashboardKpiBreakdown" aria-label={resolutionBreakdown.ariaLabel}>
+              {resolutionBreakdown.items.map((item) => (
+                <span key={item.label}>
+                  <b>{item.value}</b>
+                  {item.label}
+                </span>
+              ))}
+            </span>
+            <DashboardKpiInfoPopover help={help} />
+          </span>
         ) : (
           <span className="ppKpiDetail">
-            {kpi.detail}
-            <s-icon type="info" size="small" color="subdued"></s-icon>
+            <span>{kpi.detail}</span>
+            <DashboardKpiInfoPopover help={help} />
           </span>
         )}
       </div>
     </article>
   );
+}
+
+function DashboardKpiInfoPopover({ help }) {
+  const title = help?.title || "Dashboard metric";
+  const body = help?.body || "This summarizes the current ProductPulse dashboard state for the connected shop.";
+  return (
+    <span className="ppDashboardKpiInfoWrap">
+      <button className="ppDashboardKpiInfoButton" type="button" aria-label={`About ${title}`}>
+        <s-icon type="info" size="small" color="subdued"></s-icon>
+      </button>
+      <span className="ppDashboardKpiInfoBubble" role="tooltip">
+        <strong>{`${title} details`}</strong>
+        <span>{body}</span>
+      </span>
+    </span>
+  );
+}
+
+function getDashboardKpiHelp(kpi = {}) {
+  const label = String(kpi.label || "").toLowerCase();
+  if (label.includes("products needing")) {
+    return {
+      title: "Products needing attention",
+      body: "Products currently showing medium or high operational risk from stored diagnostics and evidence. Use this to decide what needs review first.",
+    };
+  }
+  if (label.includes("pending recommended")) {
+    return {
+      title: "Pending recommended actions",
+      body: "Recommended actions still waiting for a decision, review, or application. This excludes actions already applied, dismissed, or reviewed.",
+    };
+  }
+  if (label.includes("margin at risk")) {
+    return {
+      title: "Margin at risk",
+      body: "Estimated product margin exposed by current risk signals. The supporting text separates the broader revenue exposure from the margin estimate.",
+    };
+  }
+  if (label.includes("resolved") || label.includes("risk reduced")) {
+    return {
+      title: "Issues resolved / risk reduced",
+      body: "The main number combines risk-reduction outcomes. The breakdown separates products marked resolved from recommendation actions that were applied.",
+    };
+  }
+  return {
+    title: kpi.label || "Dashboard metric",
+    body: kpi.detail || "This card summarizes one current ProductPulse dashboard signal.",
+  };
+}
+
+function getDashboardResolutionKpiBreakdown(kpi = {}) {
+  const label = String(kpi.label || "").toLowerCase();
+  if (!label.includes("resolved") && !label.includes("risk reduced")) return null;
+  const detail = String(kpi.detail || "");
+  const match = detail.match(/([\d,.]+)\s+products?\s+resolved,\s+([\d,.]+)\s+actions?\s+applied/i);
+  if (!match) {
+    return {
+      valueLabel: "risk-reduction outcomes",
+      ariaLabel: detail || "Risk reduction outcome breakdown",
+      items: [{ value: kpi.value || "0", label: "outcomes" }],
+    };
+  }
+  return {
+    valueLabel: "risk-reduction outcomes",
+    ariaLabel: `${match[1]} products resolved and ${match[2]} actions applied`,
+    items: [
+      { value: match[1], label: "products resolved" },
+      { value: match[2], label: "actions applied" },
+    ],
+  };
 }
 
 function ProductPulseIconBadge({
@@ -20583,6 +20668,7 @@ function getProductPulseIconBadgeGlyph(icon) {
     "alert-triangle": "product-risk",
     "cash-dollar": "shopify-refunds",
     "chart-line": "product-momentum",
+    "check": "check-circle",
     "check-circle": "check-circle",
     "content": "shopify-product",
     "catalog": "shopify-product",
@@ -20599,6 +20685,17 @@ function getProductPulseIconBadgeGlyph(icon) {
 }
 
 function ProductPulseGlyph({ type }) {
+  if (type === "next-best-action") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-nextBestAction" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M5.2 17.6C8.25 13.35 12.05 10.45 18.7 8.2" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M15.4 6.7L19.1 8.05L17.75 11.75" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="6.4" cy="17.2" r="2.1" stroke="currentColor" strokeWidth="1.75" />
+        <path d="M11.7 4.4L12.25 5.95L13.8 6.5L12.25 7.05L11.7 8.6L11.15 7.05L9.6 6.5L11.15 5.95L11.7 4.4Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M18.6 15.2L19.05 16.45L20.3 16.9L19.05 17.35L18.6 18.6L18.15 17.35L16.9 16.9L18.15 16.45L18.6 15.2Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+      </svg>
+    );
+  }
   if (type === "star") {
     return (
       <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-star" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
@@ -20827,11 +20924,12 @@ function ProductPulseGlyph({ type }) {
 }
 
 function DashboardIcon({ type, tone = "blue", size = "base" }) {
+  const badgeSize = size === "small" ? "dashboardSmall" : size === "metric" ? "metric" : "dashboard";
   return (
     <ProductPulseIconBadge
       className={`ppDashboardIcon ppDashboardIcon-${tone} ppDashboardIcon-${size}`}
       icon={type}
-      size={size === "small" ? "dashboardSmall" : "dashboard"}
+      size={badgeSize}
       tone={tone}
     />
   );
