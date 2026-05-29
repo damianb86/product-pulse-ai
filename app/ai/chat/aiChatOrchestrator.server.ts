@@ -344,10 +344,12 @@ export class AiChatOrchestrator {
       actionNames: actionDefinitions.map((definition) => definition.actionName),
       appMutationNames: appMutationDefinitions.map((definition) => definition.mutationName),
     });
+    const supportContactSignal = detectSupportContactSignal(message);
     const inputItems = buildOpenAiInputItems({
       messages: recentMessages,
       pageContext,
       currentUserMessageId: userMessage.id,
+      supportContactSignal,
     });
 
     try {
@@ -861,6 +863,7 @@ function buildOpenAiInputItems(input: {
   messages: StoredAiConversationMessage[];
   pageContext: AiPageContext;
   currentUserMessageId: string;
+  supportContactSignal?: SupportContactSignal | null;
 }): Array<Record<string, unknown>> {
   const items: Array<Record<string, unknown>> = [];
   const pageReference = getPageContextReference(input.pageContext);
@@ -868,6 +871,17 @@ function buildOpenAiInputItems(input: {
     items.push({
       role: "system",
       content: `Current product reference from page context: ${pageReference}`,
+    });
+  }
+  if (input.supportContactSignal) {
+    items.push({
+      role: "system",
+      content: [
+        "Support/report signal detected in the current user message.",
+        input.supportContactSignal.reason,
+        "If the user is only confused or the report lacks enough detail, apologize briefly, ask what happened, what they expected, and whether they want ProductPulse to send a support report.",
+        "If the user clearly describes a problem or asks to contact support, use the support contact tool with the shop/page context and recent transcript; do not invent missing details.",
+      ].join(" "),
     });
   }
 
@@ -879,6 +893,37 @@ function buildOpenAiInputItems(input: {
     });
   });
   return items;
+}
+
+interface SupportContactSignal {
+  reason: string;
+}
+
+function detectSupportContactSignal(message: string): SupportContactSignal | null {
+  const text = normalizeSupportSignalText(message);
+  if (!text) return null;
+  const wantsContact = /\b(contact|contactar|contacten|soporte|support|ayuda|help|email|e-mail|mail|mensaje)\b/.test(text)
+    && /\b(equipo|team|soporte|support|productpulse|alguien|someone|enviar|send|avisar|reportar|report|contact|contactar)\b/.test(text);
+  if (wantsContact) {
+    return { reason: "The user appears to be asking to contact ProductPulse support or send the team a message." };
+  }
+  const describesProblem = /\b(problem|problema|bug|error|falla|fallo|failed|failure|broken|rompio|roto|mal|incorrect|incorrecto|wrong|raro|extrano|strange|something went wrong)\b/.test(text)
+    || /\b(no funciona|not working|doesnt work|does not work|no abre|no carga|no aparece|no se muestra|no veo|no encuentro|no puedo ver|no pude|no puedo|me lleva a login|login)\b/.test(text)
+    || /\b(confundido|confundida|confuso|confusa|confusion|no entiendo|unclear|perdido|perdida)\b/.test(text);
+  if (describesProblem) {
+    return { reason: "The user appears to describe app confusion, missing UI, incorrect behavior, or a possible ProductPulse problem." };
+  }
+  return null;
+}
+
+function normalizeSupportSignalText(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractFunctionCalls(response: OpenAiResponseLike): OpenAiResponseOutputItem[] {

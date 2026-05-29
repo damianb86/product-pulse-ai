@@ -574,6 +574,30 @@ describe("ProductPulse AI chat orchestrator", () => {
     });
   });
 
+  it("adds a support-report hint when the user describes app confusion or a problem", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn().mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+      assistantText: "Perdón por el problema. Contame qué esperabas ver y puedo enviarlo a soporte.",
+    })));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate });
+
+    await orchestrator.runAiChatTurnWithContext(baseContext, {
+      conversationId: "conversation-1",
+      message: "No veo la evidencia del producto y el botón no abre nada.",
+      pageContext: {
+        type: "product",
+        entityId: "gid://shopify/Product/1",
+        entityHandle: "mona-lisa",
+      },
+    });
+
+    const request = openAiCreate.mock.calls[0][0];
+    const inputText = JSON.stringify(request.input);
+    expect(inputText).toContain("Support/report signal detected");
+    expect(inputText).toContain("possible ProductPulse problem");
+    expect(inputText).toContain("support contact tool");
+  });
+
   it("lets the model send a support contact report through the backend tool", async () => {
     const store = new InMemoryConversationStore();
     const supportContactExecutor = vi.fn().mockResolvedValue({

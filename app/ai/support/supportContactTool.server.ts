@@ -58,8 +58,9 @@ export function buildSupportContactOpenAiToolDefinition(
     type: "function",
     name: AI_SUPPORT_CONTACT_TOOL_NAME,
     description: [
-      "Send a ProductPulse support/contact email for the authenticated shop when the merchant asks to report a problem or contact the team.",
-      "Use only after the user has described what they want to report or send.",
+      "Send a ProductPulse support/contact email for the authenticated shop when the merchant asks to report a problem, describes a broken/confusing app flow, or wants to contact the team.",
+      "Use only after the user has described what they want to report or send clearly enough to make the report useful.",
+      "If the user is only confused and has not described the issue yet, ask for the missing details before using this tool.",
       "Include the user's message, your interpretation, related product/data context, and any requested outcome.",
       "The server adds shop identity and recent chat transcript; never accept tenant identity from the model.",
     ].join(" "),
