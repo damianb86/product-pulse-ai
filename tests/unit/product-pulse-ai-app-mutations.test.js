@@ -224,6 +224,27 @@ describe("ProductPulse AI app-only mutation registry", () => {
     });
   });
 
+  it("limits SEO app-only proposals to clean title and meta description lengths", async () => {
+    const { registry } = createAppMutationRegistry();
+
+    const result = await registry.createAiAppMutationProposal(
+      context,
+      PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createSeoDraft,
+      {
+        productRef: "core-linen-trouser",
+        seoTitle: "Core Linen Trouser breathable relaxed summer pant with travel-ready pockets and fit...",
+        seoDescription: "Core Linen Trouser is a breathable relaxed summer pant with travel-ready pockets, tailored comfort, and clear fit guidance for shoppers comparing waist, inseam, fabric, and seasonal styling...",
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.data.proposal.proposedInput.seoTitle.length).toBeLessThanOrEqual(70);
+    expect(result.data.proposal.proposedInput.seoDescription.length).toBeLessThanOrEqual(160);
+    expect(result.data.proposal.proposedInput.seoTitle).not.toMatch(/(?:\.\.\.|…)$/);
+    expect(result.data.proposal.proposedInput.seoDescription).not.toMatch(/(?:\.\.\.|…)$/);
+    expect(result.data.proposal.proposedInput.seoDescription).toMatch(/[.!?]$/);
+  });
+
   it("normalizes root-level app mutation tool fields into mutation input", async () => {
     const { registry } = createAppMutationRegistry();
 

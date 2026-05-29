@@ -47,6 +47,8 @@ const appActionStatusSchema = z.enum(["draft", "active", "reviewed", "dismissed"
 const editableActionStatusSchema = z.enum(["draft", "active", "reviewed", "dismissed"]);
 const actionPrioritySchema = z.enum(["low", "medium", "high"]);
 const descriptionOperationSchema = z.enum(["prepend", "append", "replace"]);
+const SEO_TITLE_MAX_LENGTH = 70;
+const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 
 const compactStringRecordSchema = z.record(
   z.string(),
@@ -947,8 +949,12 @@ function getSeoDraftFields(input: Record<string, unknown>): { seoTitle: string; 
   const genericIsTitle = targetField.includes("title") || draftType.includes("title");
   const genericIsDescription = targetField.includes("description") || targetField.includes("meta") || draftType.includes("description") || draftType.includes("meta");
   return {
-    seoTitle: titleCandidate || (genericIsTitle ? genericText.slice(0, 90) : ""),
-    seoDescription: descriptionCandidate || (genericIsDescription || !genericIsTitle ? genericText.slice(0, 220) : ""),
+    seoTitle: limitSeoText(titleCandidate || (genericIsTitle ? genericText : ""), SEO_TITLE_MAX_LENGTH),
+    seoDescription: limitSeoText(
+      descriptionCandidate || (genericIsDescription || !genericIsTitle ? genericText : ""),
+      SEO_META_DESCRIPTION_MAX_LENGTH,
+      { terminalPeriod: true },
+    ),
   };
 }
 
@@ -1499,6 +1505,45 @@ function normalizeDescriptionInferenceText(value: unknown): string {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function limitSeoText(value: unknown, maxLength: number, options: { terminalPeriod?: boolean } = {}): string {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length <= maxLength) return finishSeoText(text, maxLength, options);
+  const clipped = text.slice(0, maxLength + 1);
+  const sentenceEnd = findLastSeoSentenceEnd(clipped, maxLength);
+  const candidate = sentenceEnd >= Math.min(80, Math.floor(maxLength * 0.55))
+    ? clipped.slice(0, sentenceEnd)
+    : clipped.replace(/\s+\S*$/, "");
+  return finishSeoText(candidate || clipped.slice(0, maxLength), maxLength, options);
+}
+
+function findLastSeoSentenceEnd(value: string, maxLength: number): number {
+  let lastEnd = -1;
+  const regex = /[.!?](?=\s|$)/g;
+  let match = regex.exec(value);
+  while (match) {
+    const end = match.index + 1;
+    if (end <= maxLength) lastEnd = end;
+    match = regex.exec(value);
+  }
+  return lastEnd;
+}
+
+function finishSeoText(value: unknown, maxLength: number, options: { terminalPeriod?: boolean } = {}): string {
+  let text = String(value || "")
+    .replace(/(?:\.\.\.|…)$/g, "")
+    .replace(/\s+[|/-]?\s*$/g, "")
+    .replace(/\b(?:and|or|with|for|to|of|the|a|an|y|o|con|para|de|del|la|el|los|las)$/i, "")
+    .replace(/[,:;|\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (options.terminalPeriod && text && !/[.!?]$/.test(text) && text.length + 1 <= maxLength) {
+    text = `${text}.`;
+  }
+  return text.length > maxLength
+    ? text.slice(0, maxLength).replace(/\s+\S*$/, "").replace(/[,:;|\-–—.]+$/g, "").trim()
+    : text;
 }
 
 function normalizeActionId(value: unknown): string {

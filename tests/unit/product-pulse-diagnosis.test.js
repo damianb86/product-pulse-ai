@@ -3326,6 +3326,28 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(issues[0]?.action).toBe("Update product description");
   });
 
+  it("keeps generated SEO title and meta description within clean character limits", () => {
+    const seoTitle = __productPulseDiagnosisTestHooks.buildSuggestedSeoTitle({
+      product: { vendor: "HydroFlow" },
+      snapshot: { productTitle: "HydroFlow insulated water bottle with leak proof travel lid and stainless steel thermal body for long commutes" },
+      aiTitle: "HydroFlow insulated water bottle with leak proof travel lid and stainless steel thermal body for long commutes...",
+    });
+    const metaDescription = __productPulseDiagnosisTestHooks.buildSuggestedMetaDescription({
+      product: {
+        title: "HydroFlow Insulated Water Bottle",
+        description: "HydroFlow Insulated Water Bottle keeps drinks cold for long commutes, gym bags, and daily travel with a leak proof lid, stainless steel body, and clear care guidance for shoppers who compare bottle size, lid fit, and thermal performance before buying.",
+      },
+      mainIssue: "setup_expectation",
+      aiDescription: "HydroFlow Insulated Water Bottle keeps drinks cold for long commutes, gym bags, and daily travel with a leak proof lid, stainless steel body, and clear care guidance...",
+    });
+
+    expect(seoTitle.length).toBeLessThanOrEqual(70);
+    expect(seoTitle).not.toMatch(/(?:\.\.\.|…)$/);
+    expect(metaDescription.length).toBeLessThanOrEqual(160);
+    expect(metaDescription).not.toMatch(/(?:\.\.\.|…)$/);
+    expect(metaDescription).toMatch(/[.!?]$/);
+  });
+
   it("keeps subjective softness feedback out of QA and variant actions without concentration", () => {
     const deterministic = {
       mainIssue: "quality_defect",

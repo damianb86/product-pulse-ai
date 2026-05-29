@@ -47,6 +47,8 @@ const RECONSTRUCTED_RISK_HISTORY_MIN_LOOKBACK_DAYS = 365;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
 const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 3;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
+const SEO_TITLE_MAX_LENGTH = 70;
+const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
@@ -7936,7 +7938,7 @@ function buildSuggestedSeoTitle({ product = {}, snapshot = {}, mainIssue = "", a
   const base = normalizeSuggestedTitle(aiTitle || product.title || snapshot.productTitle || buildSuggestedProductTitle(product, mainIssue));
   const vendor = String(product.vendor || "").trim();
   const withVendor = vendor && !normalizeText(base).includes(normalizeText(vendor)) ? `${base} | ${vendor}` : base;
-  return normalizeSuggestedTitle(withVendor).slice(0, 70).replace(/\s+[|-]?\s*$/, "");
+  return limitSeoText(normalizeSuggestedTitle(withVendor), SEO_TITLE_MAX_LENGTH);
 }
 
 function buildSuggestedMetaDescription({ product = {}, snapshot = {}, mainIssue = "", aiDescription = "" } = {}) {
@@ -7946,7 +7948,7 @@ function buildSuggestedMetaDescription({ product = {}, snapshot = {}, mainIssue 
   const base = aiDescription || description || `${title} with clear product details, specifications, included items and expectation-setting guidance for shoppers.`;
   const prefix = base.toLowerCase().startsWith(title.toLowerCase()) ? base : `${title}: ${base}`;
   const suffix = issueLabel && !["product quality", "no issue"].includes(issueLabel) ? ` Includes guidance around ${issueLabel}.` : "";
-  return truncateSentence(`${prefix}${suffix}`, 155);
+  return limitSeoText(`${prefix}${suffix}`, SEO_META_DESCRIPTION_MAX_LENGTH, { terminalPeriod: true });
 }
 
 function buildSuggestedProductHandle({ product = {}, snapshot = {} } = {}) {
@@ -8329,12 +8331,41 @@ function getRecommendedWorkflowTags({ mainIssue, deterministic = {} } = {}) {
   return uniqueBy(tags, normalizeText);
 }
 
-function truncateSentence(value = "", maxLength = 155) {
+function limitSeoText(value = "", maxLength, options = {}) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (text.length <= maxLength) return text;
+  if (!text || text.length <= maxLength) return finishSeoText(text, maxLength, options);
   const clipped = text.slice(0, maxLength + 1);
-  const sentence = clipped.replace(/\s+\S*$/, "").replace(/[,:;.-]+$/, "");
-  return `${sentence || clipped.slice(0, maxLength).trim()}...`;
+  const sentenceEnd = findLastSeoSentenceEnd(clipped, maxLength);
+  const candidate = sentenceEnd >= Math.min(80, Math.floor(maxLength * 0.55))
+    ? clipped.slice(0, sentenceEnd)
+    : clipped.replace(/\s+\S*$/, "");
+  return finishSeoText(candidate || clipped.slice(0, maxLength), maxLength, options);
+}
+
+function findLastSeoSentenceEnd(value = "", maxLength) {
+  let lastEnd = -1;
+  const regex = /[.!?](?=\s|$)/g;
+  let match = regex.exec(value);
+  while (match) {
+    const end = match.index + 1;
+    if (end <= maxLength) lastEnd = end;
+    match = regex.exec(value);
+  }
+  return lastEnd;
+}
+
+function finishSeoText(value = "", maxLength, options = {}) {
+  let text = String(value || "")
+    .replace(/(?:\.\.\.|…)$/g, "")
+    .replace(/\s+[|/-]?\s*$/g, "")
+    .replace(/\b(?:and|or|with|for|to|of|the|a|an|y|o|con|para|de|del|la|el|los|las)$/i, "")
+    .replace(/[,:;|\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (options.terminalPeriod && text && !/[.!?]$/.test(text) && text.length + 1 <= maxLength) {
+    text = `${text}.`;
+  }
+  return text.length > maxLength ? text.slice(0, maxLength).replace(/\s+\S*$/, "").replace(/[,:;|\-–—.]+$/g, "").trim() : text;
 }
 
 function normalizeSuggestedTitle(value) {
@@ -15433,6 +15464,8 @@ export const __productPulseDiagnosisTestHooks = {
   buildIncrementalSinceDate,
   buildDiagnosisSourceFingerprint,
   buildProductRelationshipCandidateSnapshotPayloads,
+  buildSuggestedMetaDescription,
+  buildSuggestedSeoTitle,
   buildNoChangeDiagnosisRefreshData,
   normalizeAiClassifiedSignals,
   countAiSignalsByIssue,

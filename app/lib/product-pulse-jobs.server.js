@@ -65,6 +65,8 @@ const BACKGROUND_PROCESS_ACTIVE_LIMIT = 10;
 const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
 const ANALYTICS_SCORE_HISTORY_TAKE = 520;
 const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
+const SEO_TITLE_MAX_LENGTH = 70;
+const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
@@ -1345,7 +1347,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
   }
 
   if (payload.field === "seo.title" || normalizedId.includes("seo-title")) {
-    const title = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
+    const title = limitSeoText(payload.draftText || payload.draftTitle || "", SEO_TITLE_MAX_LENGTH);
     if (!title) return { status: "validation_error", message: "This SEO title action does not include text to apply." };
     const result = await updateProductFields(admin, snapshot.productGid, { seo: { title } });
     if (result.status === "validation_error") return result;
@@ -1360,7 +1362,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
   }
 
   if (payload.field === "seo.description" || normalizedId.includes("meta-description")) {
-    const description = String(payload.draftText || "").replace(/\s+/g, " ").trim();
+    const description = limitSeoText(payload.draftText || "", SEO_META_DESCRIPTION_MAX_LENGTH, { terminalPeriod: true });
     if (!description) return { status: "validation_error", message: "This meta description action does not include text to apply." };
     const result = await updateProductFields(admin, snapshot.productGid, { seo: { description } });
     if (result.status === "validation_error") return result;
@@ -2125,6 +2127,45 @@ function replaceTextCaseInsensitive(value, from, to) {
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function limitSeoText(value = "", maxLength, options = {}) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length <= maxLength) return finishSeoText(text, maxLength, options);
+  const clipped = text.slice(0, maxLength + 1);
+  const sentenceEnd = findLastSeoSentenceEnd(clipped, maxLength);
+  const candidate = sentenceEnd >= Math.min(80, Math.floor(maxLength * 0.55))
+    ? clipped.slice(0, sentenceEnd)
+    : clipped.replace(/\s+\S*$/, "");
+  return finishSeoText(candidate || clipped.slice(0, maxLength), maxLength, options);
+}
+
+function findLastSeoSentenceEnd(value = "", maxLength) {
+  let lastEnd = -1;
+  const regex = /[.!?](?=\s|$)/g;
+  let match = regex.exec(value);
+  while (match) {
+    const end = match.index + 1;
+    if (end <= maxLength) lastEnd = end;
+    match = regex.exec(value);
+  }
+  return lastEnd;
+}
+
+function finishSeoText(value = "", maxLength, options = {}) {
+  let text = String(value || "")
+    .replace(/(?:\.\.\.|…)$/g, "")
+    .replace(/\s+[|/-]?\s*$/g, "")
+    .replace(/\b(?:and|or|with|for|to|of|the|a|an|y|o|con|para|de|del|la|el|los|las)$/i, "")
+    .replace(/[,:;|\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (options.terminalPeriod && text && !/[.!?]$/.test(text) && text.length + 1 <= maxLength) {
+    text = `${text}.`;
+  }
+  return text.length > maxLength
+    ? text.slice(0, maxLength).replace(/\s+\S*$/, "").replace(/[,:;|\-–—.]+$/g, "").trim()
+    : text;
 }
 
 function buildProductPulseDescriptionBlock(text, action, htmlStyle) {
