@@ -4,7 +4,16 @@ import { getProductScoreHistoryForProductsForShop, recordProductScoreHistoryBatc
 import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 import { recordTimelineForWatchActivities } from "./product-pulse-timeline.server";
 
-export const WATCHLIST_MAX_PRODUCTS = 50;
+export const WATCHLIST_MAX_PRODUCTS = 99;
+export const PRODUCT_PULSE_BETA_ACTIVE_ENV = "PRODUCT_PULSE_BETA_ACTIVE";
+export const PRODUCT_PULSE_PLAN_KEY_ENV = "PRODUCT_PULSE_PLAN_KEY";
+export const WATCHLIST_PLAN_PRODUCT_LIMITS = Object.freeze({
+  free: { base: 1, beta: 5, name: "Free" },
+  starter: { base: 5, beta: 10, name: "Starter" },
+  growth: { base: 25, beta: 25, name: "Growth" },
+  pro: { base: 50, beta: 50, name: "Pro" },
+  premium: { base: 99, beta: 99, name: "Premium" },
+});
 export const WATCH_SCAN_CADENCE_OPTIONS = [
   { value: "1", label: "Every day" },
   { value: "2", label: "Every 2 days" },
@@ -39,11 +48,97 @@ const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const WATCHLIST_BASELINE_SOURCE = "watchlist-baseline";
 const FULL_DIAGNOSIS_SOURCE = "full-diagnosis";
 
-export async function getWatchlistForShop(shop) {
-  const items = await prisma.productWatchlistItem.findMany({
+export function isProductPulseBetaActive(env = process.env) {
+  const raw = env?.[PRODUCT_PULSE_BETA_ACTIVE_ENV] ?? env?.PRODUCT_PULSE_BETA ?? "true";
+  return !["0", "false", "off", "no"].includes(String(raw).trim().toLowerCase());
+}
+
+export function normalizeProductPulsePlanKey(planKey = "") {
+  const normalized = String(planKey || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return WATCHLIST_PLAN_PRODUCT_LIMITS[normalized] ? normalized : "free";
+}
+
+export function getWatchlistProductLimitForPlan(planKey = "free", options = {}) {
+  const normalizedPlanKey = normalizeProductPulsePlanKey(planKey);
+  const betaActive = typeof options.betaActive === "boolean"
+    ? options.betaActive
+    : isProductPulseBetaActive(options.env || process.env);
+  const planLimit = WATCHLIST_PLAN_PRODUCT_LIMITS[normalizedPlanKey] || WATCHLIST_PLAN_PRODUCT_LIMITS.free;
+  return Math.max(0, Number(betaActive ? planLimit.beta : planLimit.base) || 0);
+}
+
+export function getWatchlistLimitContext(options = {}) {
+  const env = options.env || process.env;
+  const planKey = normalizeProductPulsePlanKey(
+    options.planKey
+      || env?.[PRODUCT_PULSE_PLAN_KEY_ENV]
+      || env?.PRODUCT_PULSE_CURRENT_PLAN_KEY
+      || "free",
+  );
+  const betaActive = typeof options.betaActive === "boolean" ? options.betaActive : isProductPulseBetaActive(env);
+  const maxProducts = getWatchlistProductLimitForPlan(planKey, { betaActive, env });
+  const plan = WATCHLIST_PLAN_PRODUCT_LIMITS[planKey] || WATCHLIST_PLAN_PRODUCT_LIMITS.free;
+  return {
+    planKey,
+    planName: plan.name,
+    betaActive,
+    maxProducts,
+  };
+}
+
+export async function enforceWatchlistPlanLimitForShop(shop, options = {}) {
+  const db = options.db || prisma;
+  const limitContext = getWatchlistLimitContext(options);
+  if (!shop) return { ...limitContext, items: [], removedItems: [], removedCount: 0 };
+
+  const items = await db.productWatchlistItem.findMany({
     where: { shop },
-    orderBy: { addedAt: "asc" },
+    orderBy: [{ addedAt: "asc" }, { id: "asc" }],
   });
+  const keptItems = items.slice(0, limitContext.maxProducts);
+  const removedItems = items.slice(limitContext.maxProducts);
+  if (!removedItems.length) {
+    return { ...limitContext, items: keptItems, removedItems: [], removedCount: 0 };
+  }
+
+  const removedIds = removedItems.map((item) => item.id).filter(Boolean);
+  if (removedIds.length) {
+    await db.productWatchlistItem.deleteMany({
+      where: { shop, id: { in: removedIds } },
+    });
+  }
+
+  if (options.recordActivity !== false) {
+    for (const item of removedItems) {
+      await recordWatchActivityForShop(shop, {
+        eventType: "product_removed_plan_limit",
+        title: "Product removed by plan limit",
+        detail: `${item.productTitle} was removed because the ${limitContext.planName} plan allows ${limitContext.maxProducts} watched product${limitContext.maxProducts === 1 ? "" : "s"}.`,
+        productGid: item.productGid,
+        productTitle: item.productTitle,
+        watchlistItemId: item.id,
+        metadata: {
+          reason: "watchlist_plan_limit",
+          planKey: limitContext.planKey,
+          planName: limitContext.planName,
+          betaActive: limitContext.betaActive,
+          maxProducts: limitContext.maxProducts,
+        },
+      });
+    }
+  }
+
+  return {
+    ...limitContext,
+    items: keptItems,
+    removedItems,
+    removedCount: removedItems.length,
+  };
+}
+
+export async function getWatchlistForShop(shop, options = {}) {
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop, options);
+  const items = limitContext.items;
   const productGids = items.map((item) => item.productGid).filter(Boolean);
   const [snapshots, latestChangeReports, activeDiagnosisJobs] = productGids.length
     ? await Promise.all([
@@ -72,11 +167,16 @@ export async function getWatchlistForShop(shop) {
   ]);
 
   return {
-    maxProducts: WATCHLIST_MAX_PRODUCTS,
+    maxProducts: limitContext.maxProducts,
+    planKey: limitContext.planKey,
+    planName: limitContext.planName,
+    betaActive: limitContext.betaActive,
+    removedForPlanLimit: limitContext.removedCount,
     watchedCount,
-    slotsAvailable: Math.max(0, WATCHLIST_MAX_PRODUCTS - watchedCount),
+    slotsAvailable: Math.max(0, limitContext.maxProducts - watchedCount),
     rows,
     activities,
+    selectedRunId: optionalString(options.selectedRunId || options.runId),
     trend: buildWatchlistTrend(rows, trendHistoryByProductGid, productPulseSettings),
     settings,
     mock: getWatchlistOverviewSections({ rows, activities, activityStats, settings }),
@@ -217,6 +317,7 @@ export async function addWatchedProductForShop(shop, product = {}) {
     return { status: "validation_error", message: "Select a Shopify product to add to the watchlist." };
   }
 
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop);
   const existing = await prisma.productWatchlistItem.findUnique({
     where: { shop_productGid: { shop, productGid } },
   });
@@ -231,11 +332,11 @@ export async function addWatchedProductForShop(shop, product = {}) {
     };
   }
 
-  const watchedCount = await prisma.productWatchlistItem.count({ where: { shop } });
-  if (watchedCount >= WATCHLIST_MAX_PRODUCTS) {
+  const watchedCount = limitContext.items.length;
+  if (watchedCount >= limitContext.maxProducts) {
     return {
       status: "validation_error",
-      message: `Watchlist is full. Remove a watched product before adding another one.`,
+      message: `Watchlist is full for the ${limitContext.planName} plan (${limitContext.maxProducts} product${limitContext.maxProducts === 1 ? "" : "s"}). Remove a watched product before adding another one.`,
     };
   }
 
@@ -277,18 +378,17 @@ export async function addWatchedProductsForShop(shop, products = []) {
     return { status: "validation_error", message: "Select at least one product to add to the watchlist." };
   }
 
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop);
   const productGids = normalizedProducts.map((product) => product.productGid);
-  const [existingItems, watchedCount] = await Promise.all([
-    prisma.productWatchlistItem.findMany({
-      where: { shop, productGid: { in: productGids } },
-      select: { productGid: true, productTitle: true },
-    }),
-    prisma.productWatchlistItem.count({ where: { shop } }),
-  ]);
+  const existingItems = await prisma.productWatchlistItem.findMany({
+    where: { shop, productGid: { in: productGids } },
+    select: { productGid: true, productTitle: true },
+  });
+  const watchedCount = limitContext.items.length;
   const existingProductGids = new Set(existingItems.map((item) => item.productGid));
   const candidates = normalizedProducts.filter((product) => !existingProductGids.has(product.productGid));
   const existingCount = normalizedProducts.length - candidates.length;
-  const slotsAvailable = Math.max(0, WATCHLIST_MAX_PRODUCTS - watchedCount);
+  const slotsAvailable = Math.max(0, limitContext.maxProducts - watchedCount);
 
   if (!candidates.length) {
     return {
@@ -304,7 +404,7 @@ export async function addWatchedProductsForShop(shop, products = []) {
   if (slotsAvailable <= 0) {
     return {
       status: "validation_error",
-      message: "Watchlist is full. Remove a watched product before adding selected products.",
+      message: `Watchlist is full for the ${limitContext.planName} plan (${limitContext.maxProducts} product${limitContext.maxProducts === 1 ? "" : "s"}). Remove a watched product before adding selected products.`,
       action: { id: "add-watched-products" },
     };
   }
@@ -481,17 +581,16 @@ export async function resumeAllWatchesForShop(shop) {
 
 export async function getActiveWatchedProductsForShop(shop) {
   if (!shop) return [];
-  return prisma.productWatchlistItem.findMany({
-    where: { shop, status: { not: "Paused" } },
-    orderBy: { addedAt: "asc" },
-    select: {
-      id: true,
-      productGid: true,
-      productTitle: true,
-      handle: true,
-      sku: true,
-    },
-  });
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop);
+  return limitContext.items
+    .filter((item) => item.status !== "Paused")
+    .map((item) => ({
+      id: item.id,
+      productGid: item.productGid,
+      productTitle: item.productTitle,
+      handle: item.handle,
+      sku: item.sku,
+    }));
 }
 
 export async function getWatchlistActivityForShop(shop, { take = 100 } = {}) {
@@ -628,6 +727,7 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
         metadata: {
           source,
           noChangesReused,
+          jobId,
           riskScore: report.current.riskScore,
           riskLabel: report.current.riskLabel,
           confidence: report.current.confidence,
@@ -662,6 +762,7 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
         metadata: {
           source,
           noChangesReused,
+          jobId,
           riskScore,
           riskLabel,
           confidence: snapshot.confidence,
@@ -857,6 +958,11 @@ async function getLatestWatchChangeReportsForProducts(shop, productGids = []) {
   const byProductGid = new Map();
   groupedReports.forEach((activities, productGid) => {
     const latest = formatWatchChangeReportActivity(activities[0]);
+    latest.runReports = activities
+      .slice()
+      .reverse()
+      .map(formatWatchChangeReportActivity)
+      .filter(Boolean);
     latest.history = activities
       .slice()
       .reverse()
@@ -917,6 +1023,8 @@ function formatWatchChangeReportActivity(activity = {}) {
     id: activity.id,
     productGid: activity.productGid || "",
     productTitle: activity.productTitle || "",
+    jobId: metadata.jobId || report.jobId || "",
+    source: metadata.source || report.source || "",
     title: report.title || activity.title || "Watchlist change report",
     summary: report.summary || activity.detail || "",
     status: report.status || "changed",
@@ -946,8 +1054,11 @@ function formatWatchRunHistoryPoint(activity = {}) {
   const sourceChanges = Array.isArray(report.sourceChanges) ? report.sourceChanges : [];
   return {
     id: activity.id,
+    jobId: metadata.jobId || report.jobId || "",
+    source: metadata.source || report.source || "",
     status: report.status || "",
     changeCount: Number(report.changeCount || 0),
+    actionCount: findWatchNumber(current.actionCount, current.actionsCount, current.openActionCount, current.recommendedActionCount, current.recommendationCount),
     currentRunAt: timestamp,
     capturedAt: current.capturedAt || timestamp,
     riskScore: findWatchNumber(current.riskScore),
@@ -959,6 +1070,7 @@ function formatWatchRunHistoryPoint(activity = {}) {
     returnUnits: findWatchNumber(current.returnUnits),
     refundUnits: findWatchNumber(current.refundUnits),
     salesAmount: findWatchNumber(current.salesAmount),
+    marginAtRisk: findWatchNumber(current.marginAtRisk),
     refundAmount: findWatchNumber(current.refundAmount, current.evidenceDetails?.refunds?.amount),
     signalCount: findWatchNumber(current.signalCount),
     contentUpdated: sourceChanges.some((change) => String(change?.source || change?.id || "").toLowerCase().includes("content")),
@@ -1026,7 +1138,7 @@ function buildWatchChangeReport({
     };
   }
 
-  const sourceChanges = buildWatchSourceChangeCards(previous, current);
+  const sourceChanges = noChangesReused ? [] : buildWatchSourceChangeCards(previous, current);
   const sourceInsights = buildWatchEvidenceChangeInsights(previous, current);
   const sections = [
     buildRiskChangeSection(previous, current),
@@ -1056,7 +1168,7 @@ function buildWatchChangeReport({
     currentRunAt: current.capturedAt,
     previous,
     current,
-    narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceChanges, sourceInsights, changes, current, previous } }),
+    narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceChanges, sourceInsights, changes, current, previous }, noChangesReused }),
     sourceChanges,
     sourceInsights,
     sections: status === "unchanged" ? [] : sections,
@@ -1780,7 +1892,9 @@ function getWatchReportHeadline(changes = [], sourceChanges = []) {
 }
 
 function buildWatchChangeDeterministicNarrative({ productTitle = "This product", report = {}, noChangesReused = false } = {}) {
-  if (noChangesReused || report.status === "unchanged") {
+  const hasReportedMovement = (Array.isArray(report.sourceChanges) && report.sourceChanges.length)
+    || (Array.isArray(report.changes) && report.changes.length);
+  if (report.status === "unchanged" || (noChangesReused && !hasReportedMovement)) {
     return `${productTitle} did not show new orders, returns, refunds, reviews or meaningful calculated Watchlist movement since the previous run. Product risk, source evidence, financial exposure and commercial momentum stayed close to the last stored report.`;
   }
   if (report.status === "baseline") {
@@ -1911,13 +2025,18 @@ function getActivityIcon(eventType) {
   if (eventType === "product_paused") return "pause";
   if (eventType === "product_resumed") return "play";
   if (eventType === "all_watches_paused") return "pause";
+  if (eventType === "all_watches_resumed") return "play";
   if (eventType === "diagnosis_completed") return "wand";
   if (eventType === WATCH_CHANGE_REPORT_EVENT) return "chart-line";
   if (eventType === "watch_baseline_captured") return "flag";
   if (eventType === "watch_scan_completed") return "refresh";
   if (eventType === "watch_scan_queued") return "play";
+  if (eventType === "watch_manual_scan_queued") return "play";
+  if (eventType === "watch_cron_credit_exhausted" || eventType === "watch_manual_scan_credit_exhausted") return "alert-triangle";
   if (eventType === "settings_changed") return "settings";
-  if (eventType === "alert_sent") return "email";
+  if (eventType === "alert_sent" || eventType === "watch_alert_sent") return "email";
+  if (eventType === "watch_alert_skipped") return "info";
+  if (eventType === "watch_alert_failed") return "alert-triangle";
   return "info";
 }
 
@@ -1926,6 +2045,7 @@ function getActivityTone(eventType, metadata = {}) {
   if (eventType === "product_paused") return "purple";
   if (eventType === "product_resumed") return "green";
   if (eventType === "all_watches_paused") return "purple";
+  if (eventType === "all_watches_resumed") return "green";
   if (eventType === "product_added") return "blue";
   if (eventType === "diagnosis_completed") return "purple";
   if (eventType === "watch_baseline_captured") return "blue";
@@ -1936,6 +2056,11 @@ function getActivityTone(eventType, metadata = {}) {
     return "orange";
   }
   if (eventType === "watch_scan_queued") return "blue";
+  if (eventType === "watch_manual_scan_queued") return "purple";
+  if (eventType === "watch_cron_credit_exhausted" || eventType === "watch_manual_scan_credit_exhausted") return "orange";
+  if (eventType === "watch_alert_sent") return "green";
+  if (eventType === "watch_alert_skipped") return "blue";
+  if (eventType === "watch_alert_failed") return "red";
   if (eventType === "watch_scan_completed") {
     const riskScore = Number(metadata.riskScore || 0);
     if (riskScore >= 75) return "red";

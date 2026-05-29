@@ -52,6 +52,7 @@ import {
   getStorePointSummaryForShop,
   validateStorePointsForShop,
 } from "./product-pulse-points.server";
+import { maybeSendWatchlistRunAlertForJob } from "./product-pulse-watchlist-alerts.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -2606,6 +2607,11 @@ function ensureProductDiagnosisQueueWorker(shop) {
             data: { error: serializeError(error), payload: job.payload },
           });
           await markJobFailed(job.id, error, "AI Product Diagnosis failed");
+          await maybeSendWatchlistRunAlertForJob({
+            ...job,
+            status: "Failed",
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
         }
       }
     } finally {
@@ -2784,6 +2790,18 @@ async function runProductDiagnosisJob(job) {
       model: diagnosis?.model,
       modelsUsed: diagnosis?.modelsUsed,
       aiUsage: diagnosis?.aiUsage,
+    },
+  });
+
+  await maybeSendWatchlistRunAlertForJob({
+    ...job,
+    status: "Completed",
+    payload: {
+      ...(job.payload || {}),
+      creditsConsumed: diagnosis?.creditsConsumed ?? 1,
+      pointsConsumed: diagnosis?.creditsConsumed ?? 1,
+      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+      pointDebitStatus: pointDebit?.status || "not_charged",
     },
   });
 }

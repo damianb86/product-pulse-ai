@@ -70,7 +70,7 @@ Manual candidate creation exists via `addShopifyProductCandidateForShop`; it can
 
 Implementation: `app/lib/product-pulse-watchlist.server.js`.
 
-Watchlist is an app-owned list capped at 50 products. It stores product GID/title/handle/SKU/status/image metadata and can be scanned/refreshed. Settings include scan cadence, trigger rule, summary schedule, alert recipients, and alerts enabled. Alert recipient emails are not safe for AI output; expose counts only.
+Watchlist is an app-owned list capped by the current plan. Beta expands Free from 1 to 5 products and Starter from 5 to 10 products; Premium tops out at 99 products. It stores product GID/title/handle/SKU/status/image metadata and can be scanned/refreshed. Settings include scan cadence, trigger rule, summary schedule, alert recipients, and alerts enabled. Alert recipient emails are not safe for AI output; expose counts only.
 
 Allowed statuses include `Watching` and `Paused`. Watch activity records product-added/removed/paused/resumed, settings changes, scan updates, diagnosis completions, and change reports.
 

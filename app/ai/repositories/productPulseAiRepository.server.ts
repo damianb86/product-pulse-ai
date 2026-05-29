@@ -55,7 +55,7 @@ export const AI_MAX_EVIDENCE_LIMIT = 12;
 
 const SETTINGS_SOURCE_KEY = "__productpulse_settings";
 const ANALYTICS_SAMPLE_LIMIT = 1000;
-const WATCHLIST_MAX_PRODUCTS = 50;
+const WATCHLIST_MAX_PRODUCTS = 99;
 const DEFAULT_RISK_SETTINGS = {
   minimumScore: 18,
   mediumThreshold: 55,

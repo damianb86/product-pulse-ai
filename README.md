@@ -23,6 +23,7 @@ Set real local values in `.env`:
 SHOPIFY_API_KEY=
 SHOPIFY_API_SECRET=
 SHOPIFY_APP_URL=
+SHOPIFY_ADMIN_APP_HANDLE=product-pulse-ai
 SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,read_customers,write_customers,read_returns,write_returns,read_inventory,write_inventory,read_locations
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
 PRODUCT_PULSE_AI_LEVEL=1

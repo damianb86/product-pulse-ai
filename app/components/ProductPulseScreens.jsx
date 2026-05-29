@@ -1621,12 +1621,12 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
   const [watchlistActionConfirmation, setWatchlistActionConfirmation] = useState(null);
   const [watchOverviewSort, setWatchOverviewSort] = useState("urgency");
-  const [watchOverviewRunId, setWatchOverviewRunId] = useState("");
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const watchlist = data.watchlist || {};
   const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
   const activities = Array.isArray(watchlist.activities) ? watchlist.activities : [];
   const trend = watchlist.trend || {};
+  const selectedRunId = String(watchlist.selectedRunId || "");
   const settings = watchlist.settings || {};
   const mock = watchlist.mock || {};
   const maxProducts = Number(watchlist.maxProducts || WATCHLIST_MAX_PRODUCTS_DEFAULT);
@@ -1652,7 +1652,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
     : "";
   const atCapacity = watchedCount >= maxProducts;
   const hasActiveWatchlistDiagnosisJobs = rows.some((row) => getProductDiagnosisState(row));
-  const overviewDashboard = useMemo(() => buildWatchlistOverviewDashboard(rows, activities, watchOverviewSort, watchOverviewRunId), [rows, activities, watchOverviewSort, watchOverviewRunId]);
+  const overviewDashboard = useMemo(() => buildWatchlistOverviewDashboard(rows, activities, watchOverviewSort, selectedRunId), [rows, activities, watchOverviewSort, selectedRunId]);
 
   useEffect(() => {
     shopifyProductSearchSubmitRef.current = shopifyProductSearchFetcher.submit;
@@ -1736,9 +1736,9 @@ export function WatchlistScreen({ data = {}, actionData }) {
 
         <WatchlistOverviewDashboard
           overview={overviewDashboard}
+          trend={trend}
           sort={watchOverviewSort}
           onSortChange={setWatchOverviewSort}
-          onRunSelect={(run) => setWatchOverviewRunId(run?.id || "")}
         />
 
         <s-section padding="none">
@@ -1784,7 +1784,6 @@ export function WatchlistScreen({ data = {}, actionData }) {
         </s-section>
 
         <div className="ppWatchlistBottomGrid">
-          <WatchlistTrendPanel trend={trend} />
           <WatchlistActivityPanel activities={activities} />
           <WatchlistSettingsPanel settings={settings} watchedCount={watchedCount} activeWatchedCount={activeWatchedCount} pausedWatchedCount={Math.max(0, watchedCount - activeWatchedCount)} actionData={actionData} />
         </div>
@@ -1832,7 +1831,7 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
   );
 }
 
-function WatchlistOverviewDashboard({ overview = {}, sort = "urgency", onSortChange, onRunSelect }) {
+function WatchlistOverviewDashboard({ overview = {}, trend = {}, sort = "urgency", onSortChange }) {
   const hasRuns = Array.isArray(overview.runRows) && overview.runRows.length > 0;
   const hasProducts = Array.isArray(overview.productRows) && overview.productRows.length > 0;
   const hasCategories = Array.isArray(overview.categoryRows) && overview.categoryRows.length > 0;
@@ -1841,14 +1840,17 @@ function WatchlistOverviewDashboard({ overview = {}, sort = "urgency", onSortCha
 
   return (
     <section className="ppWatchOverviewDashboard" aria-label="Watchlist run overview">
-      {hasRuns ? <WatchRecentRunsTimeline rows={overview.runRows} onSelectRun={onRunSelect} /> : null}
+      {hasRuns ? <WatchRecentRunsTimeline rows={overview.runRows} /> : null}
       <div className="ppWatchOverviewDashboardGrid">
-        <WatchlistOverviewProductChanges
-          rows={overview.productRows || []}
-          windowLabel={overview.windowLabel}
-          sort={sort}
-          onSortChange={onSortChange}
-        />
+        <div className="ppWatchOverviewMain">
+          <WatchlistOverviewProductChanges
+            rows={overview.productRows || []}
+            windowLabel={overview.windowLabel}
+            sort={sort}
+            onSortChange={onSortChange}
+          />
+          <WatchlistTrendPanel trend={trend} />
+        </div>
         <div className="ppWatchOverviewSide">
           <WatchlistOverviewWhatChanged rows={overview.categoryRows || []} total={overview.totalChangeCount || 0} />
           <WatchlistOverviewEvents rows={overview.eventRows || []} />
@@ -1916,9 +1918,9 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
         <span>{row.changeDetail}</span>
       </div>
       <div className="ppWatchOverviewMetricPack">
-        <WatchOverviewTinyMetric label="Risk" value={row.riskDeltaLabel} tone={row.riskDeltaTone} points={row.riskSparkline} />
-        <WatchOverviewTinyMetric label="Momentum" value={row.momentumDeltaLabel} tone={row.momentumDeltaTone} points={row.momentumSparkline} />
-        <WatchOverviewTinyMetric label="Margin" value={row.marginDeltaLabel} tone={row.marginDeltaTone} points={row.marginSparkline} />
+        <WatchOverviewTinyMetric label="Risk" value={row.riskDeltaLabel} tone={row.riskDeltaTone} />
+        <WatchOverviewTinyMetric label="Momentum" value={row.momentumDeltaLabel} tone={row.momentumDeltaTone} />
+        <WatchOverviewTinyMetric label="Margin" value={row.marginDeltaLabel} tone={row.marginDeltaTone} />
       </div>
       <div className="ppWatchOverviewSourceDeltas" aria-label={`${row.title} source deltas`}>
         {row.sourceDeltas.map((item) => (
@@ -1937,33 +1939,12 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
   );
 }
 
-function WatchOverviewTinyMetric({ label, value, tone = "neutral", points = [] }) {
+function WatchOverviewTinyMetric({ label, value, tone = "neutral" }) {
   return (
     <span className={`ppWatchOverviewTinyMetric ppWatchOverviewTinyMetric-${tone}`}>
       <b>{label}</b>
       <strong>{value}</strong>
-      <WatchOverviewSparkline points={points} tone={tone} />
     </span>
-  );
-}
-
-function WatchOverviewSparkline({ points = [], tone = "neutral" }) {
-  const values = points.map(Number).filter(Number.isFinite);
-  const plotted = values.length >= 2 ? values.slice(-8) : [0, 0];
-  const min = Math.min(...plotted);
-  const max = Math.max(...plotted);
-  const range = Math.max(1, max - min);
-  const width = 58;
-  const height = 18;
-  const path = plotted.map((value, index) => {
-    const x = plotted.length === 1 ? 0 : (index / (plotted.length - 1)) * width;
-    const y = height - ((value - min) / range) * height;
-    return `${index === 0 ? "M" : "L"}${formatDecimal(x, 1)} ${formatDecimal(y, 1)}`;
-  }).join(" ");
-  return (
-    <svg className={`ppWatchOverviewSparkline ppWatchOverviewSparkline-${tone}`} viewBox={`0 0 ${width} ${height}`} aria-hidden="true" focusable="false">
-      <path d={path} />
-    </svg>
   );
 }
 
@@ -2119,19 +2100,6 @@ function getWatchOverviewFallbackReportForRun(latestReport = {}, selectedRunId =
   };
 }
 
-function getWatchOverviewHistoryPointsForReport(latestReport = {}, selectedReport = {}) {
-  const points = getWatchRunHistoryPoints(latestReport || selectedReport);
-  const selectedTimestamp = getWatchOverviewReportTimestamp(selectedReport);
-  if (!selectedTimestamp || !points.length) return points;
-  const selectedTime = new Date(selectedTimestamp).getTime();
-  if (Number.isNaN(selectedTime)) return points;
-  return points.filter((point) => {
-    const timestamp = point.currentRunAt || point.capturedAt;
-    const time = new Date(timestamp).getTime();
-    return Number.isNaN(time) || time <= selectedTime;
-  });
-}
-
 function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "" } = {}) {
   const report = getWatchOverviewReportForRun(product, selectedRunId);
   if (!report || !watchOverviewReportHasChanges(report)) return null;
@@ -2143,7 +2111,6 @@ function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "" } =
   const riskDelta = watchNumberDeltaValue(current.riskScore, previous.riskScore);
   const momentumDelta = watchNumberDeltaValue(current.productMomentumScore, previous.productMomentumScore);
   const marginDelta = watchNumberDeltaValue(current.marginAtRisk, previous.marginAtRisk);
-  const historyPoints = getWatchOverviewHistoryPointsForReport(product.latestChangeReport || report, report);
   const riskTone = getWatchDeltaTone(riskDelta, { lowerIsGood: true });
   const momentumTone = getWatchDeltaTone(momentumDelta, { higherIsGood: true });
   const marginTone = getWatchDeltaTone(marginDelta, { lowerIsGood: true });
@@ -2176,13 +2143,10 @@ function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "" } =
     sourceDeltas,
     riskDeltaLabel: formatWatchOverviewDelta(riskDelta),
     riskDeltaTone: riskTone,
-    riskSparkline: getWatchOverviewSparklineValues(historyPoints, "riskScore", current.riskScore),
     momentumDeltaLabel: formatWatchOverviewDelta(momentumDelta),
     momentumDeltaTone: momentumTone,
-    momentumSparkline: getWatchOverviewSparklineValues(historyPoints, "productMomentumScore", current.productMomentumScore),
     marginDeltaLabel: formatWatchOverviewDelta(marginDelta, { formatter: formatMoney }),
     marginDeltaTone: marginTone,
-    marginSparkline: getWatchOverviewSparklineValues(historyPoints, "marginAtRisk", current.marginAtRisk),
     recommendationLabel: getWatchOverviewRecommendationLabel({ tone, report }),
     recommendationDetail: getWatchOverviewRecommendationDetail({ report, biggestChange, tone }),
     report,
@@ -2230,7 +2194,7 @@ function getWatchlistOverviewRunRows(rows = [], selectedRunId = "") {
         timestamp,
         label: formatWatchRunHistoryTimestamp(timestamp),
         timestampLabel: formatWatchRunHistoryTimestamp(timestamp),
-        href: "/app/watchlist/activity",
+        href: `/app/watchlist?runId=${encodeURIComponent(key)}`,
         changeCount: 0,
         signalCount: 0,
         actionCount: 0,
@@ -2414,13 +2378,6 @@ function watchOverviewReportHasChanges(report = {}) {
     || Number(report.sourceChangeCount || 0) > 0
     || (Array.isArray(report.sourceChanges) && report.sourceChanges.length > 0)
     || (Array.isArray(report.changes) && report.changes.length > 0);
-}
-
-function getWatchOverviewSparklineValues(history = [], key = "", currentValue = null) {
-  const values = (Array.isArray(history) ? history : []).map((point) => Number(point?.[key])).filter(Number.isFinite);
-  const current = Number(currentValue);
-  if (Number.isFinite(current) && values[values.length - 1] !== current) values.push(current);
-  return values;
 }
 
 function watchNumberDeltaValue(current, previous) {
@@ -2835,7 +2792,7 @@ function getWatchCategorySecondaryBadge(card = {}, focus = {}) {
   };
 }
 
-function WatchRecentRunsTimeline({ rows = [], onSelectRun = null }) {
+function WatchRecentRunsTimeline({ rows = [] }) {
   const orderedRows = useMemo(() => rows.slice().reverse(), [rows]);
   const windowSize = 5;
   const maxStart = Math.max(0, orderedRows.length - windowSize);
@@ -2869,7 +2826,7 @@ function WatchRecentRunsTimeline({ rows = [], onSelectRun = null }) {
         <ol className="ppWatchRecentRunsList" style={{ "--pp-watch-run-count": String(Math.max(1, visibleRows.length)) }}>
           {visibleRows.map((row) => (
             <li className="ppWatchRecentRunsItem" key={row.id || row.label}>
-              <WatchRecentRunCard row={row} onSelectRun={onSelectRun} />
+              <WatchRecentRunCard row={row} />
             </li>
           ))}
         </ol>
@@ -2887,7 +2844,7 @@ function WatchRecentRunsTimeline({ rows = [], onSelectRun = null }) {
   );
 }
 
-function WatchRecentRunCard({ row = {}, onSelectRun = null }) {
+function WatchRecentRunCard({ row = {} }) {
   const className = [
     "ppWatchRecentRunCard",
     row.isSelected ? "isSelected" : "",
@@ -2906,13 +2863,6 @@ function WatchRecentRunCard({ row = {}, onSelectRun = null }) {
       </span>
     </>
   );
-  if (onSelectRun) {
-    return (
-      <button className={className} type="button" onClick={() => onSelectRun(row)} aria-label={`Select Watchlist run ${row.timestampLabel || row.label}`}>
-        {content}
-      </button>
-    );
-  }
   return row.href ? (
     <Link className={className} to={row.href} aria-label={`View Watchlist run ${row.timestampLabel || row.label}`}>
       {content}

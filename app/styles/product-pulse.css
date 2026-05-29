@@ -26467,6 +26467,12 @@ s-page[inline-size="large-500"] {
   align-items: start;
 }
 
+.ppWatchOverviewMain {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
 .ppWatchOverviewSide {
   display: grid;
   gap: 14px;
@@ -26698,27 +26704,6 @@ s-page[inline-size="large-500"] {
 .ppWatchOverviewTinyMetric-bad strong,
 .ppWatchOverviewSourceDelta-bad em {
   color: var(--pp-risk-red);
-}
-
-.ppWatchOverviewSparkline {
-  width: 58px;
-  height: 18px;
-}
-
-.ppWatchOverviewSparkline path {
-  fill: none;
-  stroke: var(--pp-slate-400);
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.ppWatchOverviewSparkline-good path {
-  stroke: var(--pp-success-green);
-}
-
-.ppWatchOverviewSparkline-bad path {
-  stroke: var(--pp-risk-red);
 }
 
 .ppWatchOverviewSourceDeltas {
@@ -29046,6 +29031,20 @@ s-page[inline-size="large-500"] {
 .ppWatchTrendPanel {
   grid-column: 1 / -1;
   min-height: 430px;
+}
+
+.ppWatchOverviewMain .ppWatchTrendPanel {
+  grid-column: auto;
+  min-height: 310px;
+  padding: 12px;
+}
+
+.ppWatchOverviewMain .ppWatchTrendChart {
+  height: 170px;
+}
+
+.ppWatchOverviewMain .ppWatchTrendLegend {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
 .ppWatchTrendChart {

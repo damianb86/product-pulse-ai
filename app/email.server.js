@@ -23,7 +23,34 @@ export async function sendContactEmail({
   replyEmail,
   shop,
 }) {
+  return sendProductPulseEmail({
+    type,
+    subject,
+    message: [
+      `Reply email: ${replyEmail ?? "not provided"}`,
+      "",
+      message,
+    ].join("\n"),
+    html,
+    replyEmail,
+    shop,
+    to: getSmtpConfig().recipient,
+    requiredRecipientEnv: "CONTACT_EMAIL",
+  });
+}
+
+export async function sendProductPulseEmail({
+  type,
+  subject,
+  message,
+  html,
+  replyEmail,
+  shop,
+  to,
+  requiredRecipientEnv = "email recipient",
+}) {
   const smtp = getSmtpConfig();
+  const recipients = normalizeEmailRecipients(to);
   const payload = {
     app: APP_NAME,
     type,
@@ -31,11 +58,12 @@ export async function sendContactEmail({
     message,
     replyEmail,
     shop,
-    recipient: smtp.recipient,
+    recipient: recipients.join(", "),
+    recipients,
   };
 
   const missing = [
-    ["CONTACT_EMAIL", smtp.recipient],
+    [requiredRecipientEnv, recipients.length ? recipients.join(", ") : ""],
     ["EMAIL_HOST", smtp.host],
     ["EMAIL_USER", smtp.user],
     ["EMAIL_PASS", smtp.pass],
@@ -49,7 +77,7 @@ export async function sendContactEmail({
     }
 
     console.log(
-      "[email.server] SMTP not configured; contact email not sent:",
+      "[email.server] SMTP not configured; email not sent:",
       payload,
     );
     return payload;
@@ -67,14 +95,13 @@ export async function sendContactEmail({
 
   await transporter.sendMail({
     from: smtp.user,
-    to: smtp.recipient,
+    to: recipients,
     replyTo: replyEmail,
     subject: `[${APP_NAME}] ${subject || type}`,
     text: [
       `App: ${APP_NAME}`,
       `Shop: ${shop}`,
       `Type: ${type}`,
-      `Reply email: ${replyEmail ?? "not provided"}`,
       "",
       message,
     ].join("\n"),
@@ -86,4 +113,13 @@ export async function sendContactEmail({
   });
 
   return payload;
+}
+
+function normalizeEmailRecipients(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value || "")
+      .split(/[,\n;]/)
+      .map((item) => item.trim());
+  return [...new Set(values.filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }

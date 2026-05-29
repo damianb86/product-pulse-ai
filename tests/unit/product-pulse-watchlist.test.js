@@ -1,9 +1,76 @@
 import { describe, expect, it } from "vitest";
-import { WATCHLIST_MAX_PRODUCTS, __productPulseWatchlistTestHooks } from "../../app/lib/product-pulse-watchlist.server";
+import {
+  WATCHLIST_MAX_PRODUCTS,
+  __productPulseWatchlistTestHooks,
+  enforceWatchlistPlanLimitForShop,
+  getWatchlistLimitContext,
+  getWatchlistProductLimitForPlan,
+  isProductPulseBetaActive,
+} from "../../app/lib/product-pulse-watchlist.server";
 
 describe("ProductPulse watchlist helpers", () => {
-  it("allows up to fifty watched products per shop", () => {
-    expect(WATCHLIST_MAX_PRODUCTS).toBe(50);
+  it("allows up to ninety-nine watched products per shop", () => {
+    expect(WATCHLIST_MAX_PRODUCTS).toBe(99);
+  });
+
+  it("resolves watchlist capacity from plan and beta state", () => {
+    expect(getWatchlistProductLimitForPlan("free", { betaActive: true })).toBe(5);
+    expect(getWatchlistProductLimitForPlan("free", { betaActive: false })).toBe(1);
+    expect(getWatchlistProductLimitForPlan("starter", { betaActive: true })).toBe(10);
+    expect(getWatchlistProductLimitForPlan("starter", { betaActive: false })).toBe(5);
+    expect(getWatchlistProductLimitForPlan("growth", { betaActive: true })).toBe(25);
+    expect(getWatchlistProductLimitForPlan("pro", { betaActive: true })).toBe(50);
+    expect(getWatchlistProductLimitForPlan("premium", { betaActive: true })).toBe(99);
+  });
+
+  it("treats beta as active by default and allows env override", () => {
+    expect(isProductPulseBetaActive({})).toBe(true);
+    expect(isProductPulseBetaActive({ PRODUCT_PULSE_BETA_ACTIVE: "false" })).toBe(false);
+    expect(getWatchlistLimitContext({ env: { PRODUCT_PULSE_PLAN_KEY: "starter", PRODUCT_PULSE_BETA_ACTIVE: "0" } })).toMatchObject({
+      planKey: "starter",
+      planName: "Starter",
+      betaActive: false,
+      maxProducts: 5,
+    });
+  });
+
+  it("removes products beyond the active plan limit and keeps the oldest items", async () => {
+    const db = createWatchlistLimitTestDb([
+      buildWatchlistLimitItem(1),
+      buildWatchlistLimitItem(2),
+      buildWatchlistLimitItem(3),
+      buildWatchlistLimitItem(4),
+      buildWatchlistLimitItem(5),
+      buildWatchlistLimitItem(6),
+    ]);
+
+    const result = await enforceWatchlistPlanLimitForShop("test-shop.myshopify.com", {
+      db,
+      planKey: "free",
+      betaActive: true,
+      recordActivity: false,
+    });
+
+    expect(result).toMatchObject({
+      planKey: "free",
+      betaActive: true,
+      maxProducts: 5,
+      removedCount: 1,
+    });
+    expect(result.items.map((item) => item.productGid)).toEqual([
+      "gid://shopify/Product/1",
+      "gid://shopify/Product/2",
+      "gid://shopify/Product/3",
+      "gid://shopify/Product/4",
+      "gid://shopify/Product/5",
+    ]);
+    expect(db.state.items.map((item) => item.productGid)).toEqual([
+      "gid://shopify/Product/1",
+      "gid://shopify/Product/2",
+      "gid://shopify/Product/3",
+      "gid://shopify/Product/4",
+      "gid://shopify/Product/5",
+    ]);
   });
 
   it("labels watchlist row risk with configured ProductPulse thresholds", () => {
@@ -826,6 +893,64 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.changes.some((change) => change.id === "risk-score")).toBe(true);
   });
 
+  it("keeps reused no-change runs focused on calculated movement instead of aggregate source deltas", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-20T10:00:00.000Z",
+      riskScore: 54,
+      confidence: 70,
+      primaryIssue: "Product quality",
+      reviewCount: 5,
+      negativeReviewCount: 2,
+      productMomentumScore: 42,
+      productMomentumTier: "Warm",
+      evidenceDetails: {
+        reviews: {
+          total: 5,
+          negative: 2,
+          averageRating: 3,
+          items: [{ key: "review-old", text: "Older complaint", rating: 2, createdAt: "2026-05-10T10:00:00.000Z" }],
+        },
+      },
+      sourceFingerprint: "previous-window",
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      noChangesReused: true,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 54,
+        confidence: 71,
+        primaryIssue: "Product quality",
+        metrics: {
+          reviewCount: 5,
+          negativeReviewCount: 2,
+          avgRating: 4,
+          productMomentum: { score: 69, tier: "Hot", direction: "Accelerating" },
+          productMomentumScore: 69,
+          productMomentumTier: "Hot",
+          momentumDirection: "Accelerating",
+          incrementalDiagnosis: {
+            cache: {
+              sourceFingerprint: "current-window",
+              customerText: {
+                reviewItems: [{ key: "review-old", text: "Older complaint", rating: 2, createdAt: "2026-05-10T10:00:00.000Z" }],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-21T10:00:00.000Z"),
+    });
+
+    expect(report.status).toBe("changed");
+    expect(report.sourceChangeCount).toBe(0);
+    expect(report.sourceChanges).toEqual([]);
+    expect(report.changes.some((change) => change.id === "momentum-score")).toBe(true);
+    expect(report.narrative).toContain("had no concrete new orders");
+    expect(report.narrative).toContain("Secondary calculated context");
+  });
+
   it("does not report tiny financial-exposure drift as a meaningful Watchlist change", () => {
     const previousSummary = {
       capturedAt: "2026-05-19T02:00:00.000Z",
@@ -914,3 +1039,42 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.changes).toEqual([]);
   });
 });
+
+function buildWatchlistLimitItem(index) {
+  return {
+    id: `watch-${index}`,
+    shop: "test-shop.myshopify.com",
+    productGid: `gid://shopify/Product/${index}`,
+    productTitle: `Watched product ${index}`,
+    handle: `watched-product-${index}`,
+    status: "Watching",
+    addedAt: new Date(Date.UTC(2026, 4, index)),
+  };
+}
+
+function createWatchlistLimitTestDb(items = []) {
+  const state = {
+    items: items.slice(),
+  };
+  return {
+    state,
+    productWatchlistItem: {
+      async findMany(query = {}) {
+        const where = query.where || {};
+        return state.items
+          .filter((item) => !where.shop || item.shop === where.shop)
+          .sort((a, b) => {
+            const byAddedAt = new Date(a.addedAt).getTime() - new Date(b.addedAt).getTime();
+            if (byAddedAt) return byAddedAt;
+            return String(a.id).localeCompare(String(b.id));
+          });
+      },
+      async deleteMany(query = {}) {
+        const ids = new Set(query.where?.id?.in || []);
+        const before = state.items.length;
+        state.items = state.items.filter((item) => !ids.has(item.id));
+        return { count: before - state.items.length };
+      },
+    },
+  };
+}

@@ -38,7 +38,7 @@ Evidence strength:
 
 Watchlist:
 
-- ProductPulse monitored product list capped at 50 products.
+- ProductPulse monitored product list capped by the current plan, with beta-expanded Free and Starter limits.
 
 ProductAction:
 

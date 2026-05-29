@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  creditStorePointsForShop,
   debitStorePointsForShop,
   getStorePointBalanceForShop,
   getStorePointSummaryForShop,
+  recordExtraCreditPackForShop,
+  recordPlanMonthlyPointGrantForShop,
   recordChatMessagePointDebitForShop,
   validateChatMessagePointsForShop,
 } from "../../app/lib/product-pulse-points.server";
@@ -61,6 +64,107 @@ describe("ProductPulse store points", () => {
       balance: { available: 8.7 },
     });
     expect(db.state.entries.filter((entry) => entry.direction === "debit")).toHaveLength(1);
+  });
+
+  it("credits monthly plan grants and extra packs with idempotent ledger entries", async () => {
+    const db = createPointTestDb();
+    await getStorePointBalanceForShop("test-shop.myshopify.com", {
+      db,
+      env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "10" },
+    });
+
+    const monthlyGrant = await recordPlanMonthlyPointGrantForShop("test-shop.myshopify.com", {
+      db,
+      amount: 50,
+      planKey: "starter",
+      planName: "Starter",
+      periodStart: new Date(Date.UTC(2026, 4, 1)),
+    });
+    const duplicateMonthlyGrant = await recordPlanMonthlyPointGrantForShop("test-shop.myshopify.com", {
+      db,
+      amount: 50,
+      planKey: "starter",
+      planName: "Starter",
+      periodStart: new Date(Date.UTC(2026, 4, 1)),
+    });
+    const packGrant = await recordExtraCreditPackForShop("test-shop.myshopify.com", {
+      db,
+      credits: 25,
+      packLabel: "25 beta credits",
+      orderId: "order-1",
+      priceCents: 750,
+    });
+
+    expect(monthlyGrant).toMatchObject({
+      status: "success",
+      credited: true,
+      amount: 50,
+      balance: { available: 60 },
+    });
+    expect(duplicateMonthlyGrant).toMatchObject({
+      status: "already_recorded",
+      credited: false,
+      balance: { available: 60 },
+    });
+    expect(packGrant).toMatchObject({
+      status: "success",
+      credited: true,
+      amount: 25,
+      balance: { available: 85 },
+    });
+    expect(db.state.entries.filter((entry) => entry.direction === "credit")).toHaveLength(3);
+
+    const summary = await getStorePointSummaryForShop("test-shop.myshopify.com", {
+      db,
+      env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "10" },
+      limit: 3,
+    });
+    expect(summary.activity[0]).toMatchObject({
+      title: "Extra credit pack",
+      detail: "25 beta credits",
+      amountLabel: "+25 credits",
+      balanceAfterLabel: "85",
+    });
+    expect(summary.activity[1]).toMatchObject({
+      title: "Monthly plan credits",
+      detail: "Starter",
+      amountLabel: "+50 credits",
+      balanceAfterLabel: "60",
+    });
+  });
+
+  it("credits arbitrary point events once for an idempotency key", async () => {
+    const db = createPointTestDb();
+    await getStorePointBalanceForShop("test-shop.myshopify.com", {
+      db,
+      env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "5" },
+    });
+
+    const firstCredit = await creditStorePointsForShop("test-shop.myshopify.com", {
+      db,
+      amount: 2.24,
+      reason: "Manual adjustment adjustment-1",
+      idempotencyKey: "adjustment-1",
+    });
+    const secondCredit = await creditStorePointsForShop("test-shop.myshopify.com", {
+      db,
+      amount: 2.24,
+      reason: "Manual adjustment adjustment-1",
+      idempotencyKey: "adjustment-1",
+    });
+
+    expect(firstCredit).toMatchObject({
+      status: "success",
+      credited: true,
+      amount: 2.2,
+      balance: { available: 7.2 },
+    });
+    expect(secondCredit).toMatchObject({
+      status: "already_recorded",
+      credited: false,
+      balance: { available: 7.2 },
+    });
+    expect(db.state.entries.filter((entry) => entry.reason.includes("Manual adjustment"))).toHaveLength(1);
   });
 
   it("charges chat points only after five successful assistant responses", async () => {

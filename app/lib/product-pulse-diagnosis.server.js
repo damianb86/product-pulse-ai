@@ -3537,9 +3537,10 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
   const reusableDiagnosis = await findReusableCompletedDiagnosis({ shop, snapshot });
   if (!reusableDiagnosis) return null;
 
-  await persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, reuseDecision });
+  const refreshedSnapshot = await persistNoChangeDiagnosisRefresh({ shop, snapshot, deterministic, reuseDecision });
+  const activitySnapshot = refreshedSnapshot || snapshot;
 
-  const estimatedImpact = Number(snapshot.metrics?.estimatedImpact ?? snapshot.metrics?.impactRange?.mid ?? 0);
+  const estimatedImpact = Number(activitySnapshot.metrics?.estimatedImpact ?? activitySnapshot.metrics?.impactRange?.mid ?? 0);
   const modelsUsed = {
     classification: buildCachedAiModelSummary("signal_classification"),
     emergentSentiment: buildCachedAiModelSummary("emergent_sentiment"),
@@ -3562,9 +3563,9 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     shop,
     jobId,
     event: "product_diagnosis.no_changes_reused",
-    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse reused the previous deep diagnosis without AI calls or point consumption.",
+    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse refreshed deterministic date-based metrics and reused the previous deep diagnosis without AI calls or point consumption.",
     data: {
-      productGid: snapshot.productGid,
+      productGid: activitySnapshot.productGid,
       previousDiagnosisId: reusableDiagnosis.id,
       previousCompletedAt: toIso(reusableDiagnosis.completedAt),
       creditsConsumed: 0,
@@ -3582,18 +3583,19 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
   });
 
   await Promise.all([
-    recordWatchlistScanActivities(shop, [snapshot], { source: "full-diagnosis", noChangesReused: true, jobId }),
-    recordTimelineForNoChangeDiagnosis({ shop, snapshot, diagnosisId: reusableDiagnosis.id, jobId }),
+    recordProductScoreHistory({ shop, snapshot: activitySnapshot, source: "full-diagnosis-date-refresh", diagnosisId: reusableDiagnosis.id }),
+    recordWatchlistScanActivities(shop, [activitySnapshot], { source: "full-diagnosis", noChangesReused: true, jobId }),
+    recordTimelineForNoChangeDiagnosis({ shop, snapshot: activitySnapshot, diagnosisId: reusableDiagnosis.id, jobId }),
   ]);
 
   return {
     status: "skipped",
     skipped: true,
     skipReason: "no_changes_since_previous_diagnosis",
-    message: "No product, order, return, refund, review, or source changes were detected. The previous deep diagnosis was reused and no diagnostic point was consumed.",
+    message: "No product, order, return, refund, review, or source changes were detected. Deterministic date-based metrics were refreshed, the previous deep diagnosis was reused, and no diagnostic point was consumed.",
     diagnosisId: reusableDiagnosis.id,
-    riskScore: snapshot.riskScore,
-    confidence: snapshot.confidence,
+    riskScore: activitySnapshot.riskScore,
+    confidence: activitySnapshot.confidence,
     estimatedImpact,
     provider: "cache",
     model: "previous-detailed-diagnosis",
@@ -3630,11 +3632,20 @@ async function findReusableCompletedDiagnosis({ shop, snapshot }) {
   });
 }
 
-async function persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, reuseDecision }) {
+async function persistNoChangeDiagnosisRefresh({ shop, snapshot, deterministic, reuseDecision }) {
+  const data = buildNoChangeDiagnosisRefreshData({ snapshot, deterministic, reuseDecision });
+  return prisma.productRiskSnapshot.update({
+    where: { shop_productGid: { shop, productGid: snapshot.productGid } },
+    data,
+  });
+}
+
+function buildNoChangeDiagnosisRefreshData({ snapshot = {}, deterministic = {}, reuseDecision = {} } = {}) {
   const currentMetrics = deterministic.metrics || {};
   const previousMetrics = snapshot.metrics || {};
   const previousIncremental = previousMetrics.incrementalDiagnosis || {};
   const currentIncremental = currentMetrics.incrementalDiagnosis || {};
+  const refreshedAt = new Date().toISOString();
   const mergedIncremental = {
     ...previousIncremental,
     ...currentIncremental,
@@ -3643,22 +3654,138 @@ async function persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, re
       ...(currentIncremental.cache || {}),
     },
     noChangeReuse: {
-      checkedAt: new Date().toISOString(),
+      checkedAt: refreshedAt,
       reason: reuseDecision.reason,
       matchedBy: reuseDecision.matchedBy,
     },
   };
-
-  await prisma.productRiskSnapshot.update({
-    where: { shop_productGid: { shop, productGid: snapshot.productGid } },
-    data: {
-      metrics: {
-        ...previousMetrics,
-        incrementalDiagnosis: mergedIncremental,
-        lastNoChangeDiagnosisAt: new Date().toISOString(),
-      },
+  const mergedMetrics = {
+    ...previousMetrics,
+    ...pickNoChangeRefreshMetrics(currentMetrics),
+    incrementalDiagnosis: mergedIncremental,
+    latestDiagnosisId: previousMetrics.latestDiagnosisId || null,
+    latestDiagnosisAt: previousMetrics.latestDiagnosisAt || null,
+    lastDetailedDiagnosisAt: previousMetrics.lastDetailedDiagnosisAt || null,
+    lastNoChangeDiagnosisAt: refreshedAt,
+    noChangeRefresh: {
+      checkedAt: refreshedAt,
+      reason: reuseDecision.reason,
+      matchedBy: reuseDecision.matchedBy,
+      creditsConsumed: 0,
+      aiCallsSkipped: true,
+      dateDerivedMetricsRefreshed: true,
     },
-  });
+  };
+  const revenueAtRisk = Number(deterministic.estimatedImpact?.revenueAtRisk ?? currentMetrics.revenueAtRisk ?? previousMetrics.revenueAtRisk ?? 0);
+  const riskScore = clampInteger(snapshot.riskScore ?? deterministic.riskScore, 0, 100);
+  const confidence = clampInteger(deterministic.confidence ?? snapshot.confidence, 0, 100);
+  const primaryIssue = snapshot.primaryIssue || deterministic.mainIssueLabel || "No primary issue";
+  const sourceCoverage = Array.isArray(deterministic.sourceCoverage) && deterministic.sourceCoverage.length
+    ? deterministic.sourceCoverage
+    : snapshot.sourceCoverage || [];
+
+  return {
+    riskScore,
+    impactScore: Math.min(100, Math.max(0, Math.round(revenueAtRisk / 100))),
+    confidence,
+    primaryIssue,
+    sourceCoverage,
+    metrics: mergedMetrics,
+    calculatedAt: new Date(),
+  };
+}
+
+function pickNoChangeRefreshMetrics(metrics = {}) {
+  const keys = [
+    "returnRate",
+    "refundRate",
+    "reviewRating",
+    "avgRating",
+    "issueCount",
+    "customerSignalCount",
+    "revenueAtRisk",
+    "marginAtRisk",
+    "estimatedImpact",
+    "impactRange",
+    "impactFactors",
+    "priorityScore",
+    "evidenceStrengthScore",
+    "scoreCalculationStatus",
+    "signalCount",
+    "salesAmount",
+    "avgUnitRevenue",
+    "refundAmount",
+    "refundInsights",
+    "returnRefundRelationshipSummary",
+    "productPurchaseContextSummary",
+    "productRelationshipIntelligenceSummary",
+    "productPurchaseContextFactors",
+    "productPurchaseContextScoringImpact",
+    "purchaseContextSignalBreakdown",
+    "productRelationshipFactors",
+    "productRelationshipScoringImpact",
+    "returnRefundRelationshipFactors",
+    "returnRefundScoringImpact",
+    "returnPressure",
+    "refundLeakage",
+    "customerSignalBreakdown",
+    "financialExposureBreakdown",
+    "scoringVersion",
+    "monthlyOrderActivity",
+    "orderGeography",
+    "returnRatePrediction",
+    "productMomentum",
+    "productMomentumScore",
+    "productMomentumTier",
+    "momentumDirection",
+    "momentumConfidence",
+    "momentumConfidenceLabel",
+    "returnUnits",
+    "refundUnits",
+    "soldUnits",
+    "recentSignalUnits",
+    "windowDays",
+    "lastSignalAt",
+    "signalTrend",
+    "trendMeta",
+    "issueSignalTrends",
+    "topReturnReasons",
+    "topReturnReasonDetails",
+    "topRefundReasons",
+    "topRefundReasonDetails",
+    "affectedVariants",
+    "affectedVariantDetails",
+    "variantInsights",
+    "reviewCount",
+    "negativeReviewCount",
+    "negativeReviewRate",
+    "recentNegativeReviewCount",
+    "recentNegativeReviewWindowDays",
+    "judgeMeReviewCount",
+    "judgeMeNegativeReviewCount",
+    "judgeMeAverageRating",
+    "csvReviewCount",
+    "csvNegativeReviewCount",
+    "csvAverageRating",
+    "reviewSourceStats",
+    "judgeMeInternalProductId",
+    "judgeMeMatchConfidence",
+    "csvReviewMatchConfidence",
+    "orderAccessDenied",
+    "sourceCoverage",
+    "productRetention",
+    "productRetentionSummary",
+  ];
+  return keys.reduce((acc, key) => {
+    if (metrics[key] !== undefined) acc[key] = metrics[key];
+    return acc;
+  }, {});
+}
+
+function clampInteger(value, min = 0, max = Number.POSITIVE_INFINITY) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return Math.max(0, Number(min || 0));
+  return Math.round(Math.max(min, Math.min(max, number)));
 }
 
 function buildCachedAiModelSummary(task) {
@@ -3709,7 +3836,20 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     marginAtRisk: deterministic.estimatedImpact?.marginAtRisk ?? metrics.marginAtRisk,
   });
   const materialUnchanged = !sourceFingerprintCompared && materialComparison.unchanged;
-  const matchedBy = sourceFingerprintUnchanged ? "source_fingerprint" : materialUnchanged ? "material_metrics" : null;
+  const dateOnlyRefresh = isDateOnlyDiagnosisRefresh({
+    sourceChanges,
+    productContentReused,
+    customerTextUnchanged,
+    refundsUnchanged,
+    noNewAiEvidence,
+  });
+  const matchedBy = sourceFingerprintUnchanged
+    ? "source_fingerprint"
+    : materialUnchanged
+      ? "material_metrics"
+      : dateOnlyRefresh
+        ? "date_derived_metrics"
+        : null;
   const blockers = [
     !hasPreviousCompletedDiagnosis ? "missing_previous_completed_diagnosis" : null,
     !productContentReused ? "product_content_changed_or_not_cached" : null,
@@ -3746,6 +3886,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     noNewAiEvidence,
     sourceFingerprintCompared,
     sourceFingerprintUnchanged,
+    dateOnlyRefresh,
     sourceChanges,
     materialComparison,
     chartInterpretationReuse,
@@ -3778,9 +3919,38 @@ function buildRecommendationReevaluationDecision({
       "Reevaluate when new return, refund, review, or customer-text evidence was analyzed.",
       "Reevaluate when source extraction is incomplete because reuse would be unsafe.",
       "Reevaluate when source fingerprints or material diagnosis metrics changed.",
+      "Reuse existing recommendations when the only movement is date-window recalculation with no newly fetched source events.",
       "Reuse existing recommendations only when all concrete sources and material metrics are unchanged.",
     ],
   };
+}
+
+function isDateOnlyDiagnosisRefresh({
+  sourceChanges = {},
+  productContentReused = false,
+  customerTextUnchanged = false,
+  refundsUnchanged = false,
+  noNewAiEvidence = false,
+} = {}) {
+  if (sourceChanges.sourceExtractionComplete === false) return false;
+  return Boolean(
+    productContentReused
+      && customerTextUnchanged
+      && refundsUnchanged
+      && noNewAiEvidence
+      && sourceChanges.unchanged === false
+      && isIncrementalSourceFetchWithoutNewEvents(sourceChanges.sourceEventFetch),
+  );
+}
+
+function isIncrementalSourceFetchWithoutNewEvents(sourceEventFetch = {}) {
+  if (!sourceEventFetch || typeof sourceEventFetch !== "object") return false;
+  if (sourceEventFetch.fetchComplete === false) return false;
+  if (sourceEventFetch.mode !== "incremental_fetch") return false;
+  if (!sourceEventFetch.rawFetchedCounts || typeof sourceEventFetch.rawFetchedCounts !== "object") return false;
+  const counts = sourceEventFetch.rawFetchedCounts || {};
+  const knownKeys = ["salesEvents", "refundEvents", "returnEvents"];
+  return knownKeys.every((key) => Number(counts[key] || 0) === 0);
 }
 
 function isIncrementalAnalysisUnchanged(state = {}) {
@@ -15263,6 +15433,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildIncrementalSinceDate,
   buildDiagnosisSourceFingerprint,
   buildProductRelationshipCandidateSnapshotPayloads,
+  buildNoChangeDiagnosisRefreshData,
   normalizeAiClassifiedSignals,
   countAiSignalsByIssue,
   classifyIssueText,

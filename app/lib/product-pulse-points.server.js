@@ -175,6 +175,105 @@ export async function debitStorePointsForShop(shop, input = {}) {
   });
 }
 
+export async function creditStorePointsForShop(shop, input = {}) {
+  const db = input.db || prisma;
+  const normalizedShop = normalizeShop(shop);
+  const amount = normalizePointAmount(input.amount);
+  const reason = String(input.reason || "ProductPulse points credit").trim();
+  const idempotencyKey = String(input.idempotencyKey || "").trim();
+  if (!normalizedShop || amount <= 0) {
+    return {
+      status: "validation_error",
+      message: "A valid shop and positive point amount are required.",
+      credited: false,
+    };
+  }
+
+  return withPointTransaction(db, async (tx) => {
+    if (idempotencyKey) {
+      const existing = await findLedgerEntryByIdempotencyKey(tx, normalizedShop, idempotencyKey);
+      if (existing) {
+        return {
+          status: "already_recorded",
+          message: "Point credit was already recorded.",
+          credited: false,
+          ledgerEntry: existing,
+          balance: buildPointBalance(normalizedShop, existing.balanceAfter, existing),
+        };
+      }
+    }
+
+    const currentBalance = await ensureStorePointBalanceForShopInTransaction(tx, normalizedShop, input.env || process.env);
+    const nextBalance = roundPointAmount(currentBalance.available + amount);
+    const created = await tx.creditLedgerEntry.create({
+      data: {
+        shop: normalizedShop,
+        direction: "credit",
+        amount,
+        reason,
+        balanceAfter: nextBalance,
+        metadata: normalizeLedgerMetadata({
+          ...(input.metadata || {}),
+          idempotencyKey: idempotencyKey || undefined,
+        }),
+      },
+    });
+    return {
+      status: "success",
+      message: `${formatPointAmount(amount)} point${amount === 1 ? "" : "s"} added.`,
+      credited: true,
+      amount,
+      ledgerEntry: created,
+      balance: buildPointBalance(normalizedShop, created.balanceAfter, created),
+    };
+  });
+}
+
+export async function recordPlanMonthlyPointGrantForShop(shop, input = {}) {
+  const normalizedShop = normalizeShop(shop);
+  const amount = normalizePointAmount(input.amount);
+  const planKey = String(input.planKey || "free").trim();
+  const planName = String(input.planName || "Free plan").trim();
+  const periodStart = input.periodStart || new Date();
+  const periodStartKey = formatPointPeriodKey(periodStart);
+  return creditStorePointsForShop(normalizedShop, {
+    ...input,
+    amount,
+    reason: `Monthly plan credits ${planName} ${periodStartKey}`,
+    idempotencyKey: input.idempotencyKey || `plan-monthly:${normalizedShop}:${planKey}:${periodStartKey}`,
+    metadata: {
+      ...(input.metadata || {}),
+      source: "plan_monthly_allowance",
+      planKey,
+      planName,
+      periodStart: toIso(periodStart),
+      periodEnd: toIso(input.periodEnd),
+      subscriptionId: input.subscriptionId || null,
+    },
+  });
+}
+
+export async function recordExtraCreditPackForShop(shop, input = {}) {
+  const normalizedShop = normalizeShop(shop);
+  const amount = normalizePointAmount(input.amount ?? input.credits);
+  const packLabel = input.packLabel || `${formatCompactPointAmount(amount)} credit pack`;
+  return creditStorePointsForShop(normalizedShop, {
+    ...input,
+    amount,
+    reason: `Extra credit pack ${packLabel}`,
+    idempotencyKey: input.idempotencyKey || input.orderId || input.purchaseId || "",
+    metadata: {
+      ...(input.metadata || {}),
+      source: "extra_credit_pack",
+      packCredits: amount,
+      packLabel,
+      orderId: input.orderId || null,
+      purchaseId: input.purchaseId || null,
+      priceCents: input.priceCents ?? null,
+    },
+  });
+}
+
 export async function validateChatMessagePointsForShop(shop, input = {}) {
   const db = input.db || prisma;
   const normalizedShop = normalizeShop(shop);
@@ -416,6 +515,7 @@ function formatPointActivityEntry(entry) {
   const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
   const amount = normalizePointAmount(entry?.amount);
   const signedAmount = entry?.direction === "debit" ? -amount : amount;
+  const balanceAfter = normalizePointAmount(entry?.balanceAfter);
   const spec = getPointActivitySpec(entry, metadata);
   return {
     id: entry?.id || `${spec.title}-${entry?.createdAt || ""}`,
@@ -424,7 +524,11 @@ function formatPointActivityEntry(entry) {
     detail: spec.detail,
     amount: signedAmount,
     amountLabel: formatSignedCreditAmount(signedAmount),
+    balanceAfter,
+    balanceAfterLabel: formatCompactPointAmount(balanceAfter),
     timeLabel: formatRelativePointTime(entry?.createdAt),
+    createdAtIso: toIso(entry?.createdAt),
+    reason: String(entry?.reason || ""),
     direction: entry?.direction || "credit",
   };
 }
@@ -460,6 +564,20 @@ function getPointActivitySpec(entry, metadata = {}) {
       detail: "Initial balance",
     };
   }
+  if (source === "plan_monthly_allowance") {
+    return {
+      icon: "product",
+      title: "Monthly plan credits",
+      detail: metadata.planName || "Plan allowance",
+    };
+  }
+  if (source === "extra_credit_pack") {
+    return {
+      icon: "product",
+      title: "Extra credit pack",
+      detail: metadata.packLabel || "Purchased credits",
+    };
+  }
   return {
     icon: entry?.direction === "debit" ? "clock" : "product",
     title: entry?.direction === "debit" ? "Credit usage" : "Credit added",
@@ -492,6 +610,13 @@ function formatRelativePointTime(value, now = new Date()) {
   if (elapsedHours < 24) return `${elapsedHours}h ago`;
   const elapsedDays = Math.round(elapsedHours / 24);
   return `${elapsedDays}d ago`;
+}
+
+function formatPointPeriodKey(value) {
+  const date = value instanceof Date ? value : new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "unknown-period";
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}`;
 }
 
 function normalizeLedgerMetadata(metadata = {}) {

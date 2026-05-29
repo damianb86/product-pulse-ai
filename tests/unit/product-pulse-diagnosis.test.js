@@ -1600,6 +1600,163 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("refreshes date-derived deterministic metrics without replacing cached AI diagnosis data", () => {
+    const snapshot = {
+      productGid: "gid://shopify/Product/123",
+      riskScore: 48,
+      impactScore: 2,
+      confidence: 70,
+      primaryIssue: "Product quality",
+      sourceCoverage: ["Shopify orders"],
+      metrics: {
+        latestDiagnosisId: "diagnosis-1",
+        lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+        productMomentumScore: 68,
+        productMomentumTier: "Warm",
+        momentumDirection: "Stable",
+        contentQualityRisk: 9,
+        contentAnalysis: {
+          issues: [{ code: "missing_fit_guidance", label: "Missing fit guidance" }],
+        },
+        diagnosisReport: {
+          mainFinding: { title: "Previous AI finding" },
+          chartInterpretations: { insightVersion: "product_chart_interpretations_v1" },
+        },
+        chartInterpretations: {
+          insightVersion: "product_chart_interpretations_v1",
+          interpretations: {
+            productMomentum: { text: "Previous momentum interpretation." },
+          },
+        },
+        incrementalDiagnosis: {
+          cache: {
+            sourceFingerprint: "fingerprint-1",
+            productContent: { signature: "content-1" },
+          },
+        },
+      },
+    };
+    const deterministic = {
+      riskScore: 51,
+      confidence: 72,
+      mainIssueLabel: "Product quality",
+      estimatedImpact: { estimatedImpact: 160, revenueAtRisk: 340, marginAtRisk: 90 },
+      sourceCoverage: ["Shopify orders"],
+      metrics: {
+        productMomentum: { score: 74, tier: "Hot", direction: "Accelerating" },
+        productMomentumScore: 74,
+        productMomentumTier: "Hot",
+        momentumDirection: "Accelerating",
+        monthlyOrderActivity: { summary: { totalOrders: 3 } },
+        estimatedImpact: 160,
+        revenueAtRisk: 340,
+        marginAtRisk: 90,
+        contentQualityRisk: 2,
+        incrementalDiagnosis: {
+          productContent: { reused: true },
+          customerText: { mode: "incremental", analyzedItems: 0 },
+          refunds: { mode: "incremental", analyzedItems: 0 },
+          cache: {
+            sourceFingerprint: "fingerprint-1",
+            sourceEvents: { sales: [] },
+          },
+        },
+      },
+    };
+
+    const data = __productPulseDiagnosisTestHooks.buildNoChangeDiagnosisRefreshData({
+      snapshot,
+      deterministic,
+      reuseDecision: { reason: "no_changes_since_previous_diagnosis", matchedBy: "source_fingerprint" },
+    });
+
+    expect(data.riskScore).toBe(48);
+    expect(data.confidence).toBe(72);
+    expect(data.impactScore).toBe(3);
+    expect(data.metrics.productMomentumScore).toBe(74);
+    expect(data.metrics.productMomentumTier).toBe("Hot");
+    expect(data.metrics.momentumDirection).toBe("Accelerating");
+    expect(data.metrics.contentQualityRisk).toBe(9);
+    expect(data.metrics.contentAnalysis.issues[0].code).toBe("missing_fit_guidance");
+    expect(data.metrics.latestDiagnosisId).toBe("diagnosis-1");
+    expect(data.metrics.lastDetailedDiagnosisAt).toBe("2026-05-10T12:00:00.000Z");
+    expect(data.metrics.diagnosisReport.mainFinding.title).toBe("Previous AI finding");
+    expect(data.metrics.chartInterpretations.insightVersion).toBe("product_chart_interpretations_v1");
+    expect(data.metrics.noChangeRefresh).toMatchObject({
+      creditsConsumed: 0,
+      aiCallsSkipped: true,
+      dateDerivedMetricsRefreshed: true,
+    });
+  });
+
+  it("reuses cached diagnosis when only date-window metrics changed and no source events were fetched", () => {
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        productGid: "gid://shopify/Product/123",
+        riskScore: 48,
+        confidence: 70,
+        metrics: {
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+          soldUnits: 8,
+          returnUnits: 2,
+          productMomentumScore: 68,
+          chartInterpretations: {
+            insightVersion: "product_chart_interpretations_v1",
+            interpretations: {
+              productMomentum: { text: "Momentum was warm on the previous run." },
+            },
+          },
+        },
+      },
+      deterministic: {
+        riskScore: 45,
+        confidence: 71,
+        estimatedImpact: { estimatedImpact: 100, revenueAtRisk: 220, marginAtRisk: 70 },
+        evidenceSnippets: [],
+        metrics: {
+          soldUnits: 8,
+          returnUnits: 1,
+          productMomentum: { score: 74, tier: "Hot", direction: "Accelerating" },
+          productMomentumScore: 74,
+          productMomentumTier: "Hot",
+          momentumDirection: "Accelerating",
+          incrementalDiagnosis: {
+            productContent: { reused: true },
+            customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 1 },
+            refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            sourceChanges: {
+              previousFingerprint: "previous-window-fingerprint",
+              currentFingerprint: "current-window-fingerprint",
+              unchanged: false,
+              sourceExtractionComplete: true,
+              sourceEventFetch: {
+                mode: "incremental_fetch",
+                fetchComplete: true,
+                rawFetchedCounts: {
+                  salesEvents: 0,
+                  refundEvents: 0,
+                  returnEvents: 0,
+                },
+              },
+            },
+            aiEvidenceSnippetCount: 0,
+          },
+        },
+      },
+    });
+
+    expect(decision.shouldReuse).toBe(true);
+    expect(decision.matchedBy).toBe("date_derived_metrics");
+    expect(decision.dateOnlyRefresh).toBe(true);
+    expect(decision.blockers).not.toContain("source_or_material_metrics_changed");
+    expect(decision.recommendationReevaluation).toMatchObject({
+      required: false,
+      sufficientToSkip: true,
+      sourceFingerprintChanged: true,
+    });
+  });
+
   it("does not reuse cached diagnosis when stored chart interpretations are missing", () => {
     const fingerprint = __productPulseDiagnosisTestHooks.buildDiagnosisSourceFingerprint({
       productContentSignature: "product-signature-1",

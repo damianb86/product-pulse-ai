@@ -17,13 +17,24 @@ import {
   runSelectedProductDiagnosesForShop,
   searchShopifyProductsForDiagnosis,
 } from "../lib/product-pulse-jobs.server";
+import { getStorePointBalanceForShop } from "../lib/product-pulse-points.server";
+import {
+  formatCreditSkippedItem,
+  splitWatchlistItemsByAvailableCredits,
+} from "../lib/product-pulse-watchlist-cron.server";
+import {
+  maybeSendWatchlistRunAlertForQueuedActivity,
+  sendWatchlistCreditExhaustedEmailForShop,
+} from "../lib/product-pulse-watchlist-alerts.server";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  const url = new URL(request.url);
+  const selectedRunId = String(url.searchParams.get("runId") || "");
   return {
     data: {
-      watchlist: await getWatchlistForShop(session.shop),
+      watchlist: await getWatchlistForShop(session.shop, { selectedRunId }),
     },
   };
 };
@@ -77,9 +88,10 @@ export const action = async ({ request }) => {
   }
 
   if (actionType === "run-watch-scan") {
+    const now = new Date();
     const watchedProducts = await getActiveWatchedProductsForShop(session.shop);
-    const productIds = watchedProducts.map((product) => product.productGid).filter(Boolean);
-    if (!productIds.length) {
+    const productItems = watchedProducts.filter((product) => product.productGid);
+    if (!productItems.length) {
       return {
         status: "validation_error",
         message: "There are no active watched products to diagnose.",
@@ -87,24 +99,68 @@ export const action = async ({ request }) => {
       };
     }
 
-    const result = await runSelectedProductDiagnosesForShop(session.shop, productIds, { admin });
-    if (result?.status === "success") {
+    const pointBalance = await getStorePointBalanceForShop(session.shop);
+    const creditPlan = splitWatchlistItemsByAvailableCredits(productItems, pointBalance?.available);
+    if (!creditPlan.queueItems.length) {
       await recordWatchActivityForShop(session.shop, {
-        eventType: "watch_scan_queued",
-        title: "Watch diagnostics queued",
-        detail: `${result.queuedCount || productIds.length} deep product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued from Watchlist.`,
+        eventType: "watch_manual_scan_credit_exhausted",
+        title: "Manual watch diagnostics skipped",
+        detail: "The manual Watchlist scan could not queue diagnostics because the shop has no available credits.",
         metadata: {
-          queuedCount: result.queuedCount || productIds.length,
-          productGids: productIds,
-          productTitles: watchedProducts.map((product) => product.productTitle).filter(Boolean),
+          triggeredBy: "watchlist-manual-run",
+          forceEmail: true,
+          ignoreCadence: true,
+          ignoreTriggerRule: true,
+          availableCredits: creditPlan.availableCredits,
+          watchedCount: productItems.length,
+          skippedForCredits: creditPlan.skippedForCredits.map(formatCreditSkippedItem),
+          ranAt: now.toISOString(),
         },
       });
+      await sendWatchlistCreditExhaustedEmailForShop({
+        shop: session.shop,
+        items: creditPlan.skippedForCredits,
+        pointBalance,
+        now,
+        forceEmail: true,
+        triggeredBy: "watchlist-manual-run",
+      });
+      return {
+        status: "validation_error",
+        message: "No watched product diagnostics were queued because this shop has no available credits.",
+        action: { id: "run-watch-scan" },
+      };
+    }
+
+    const productIds = creditPlan.queueItems.map((product) => product.productGid).filter(Boolean);
+    const result = await runSelectedProductDiagnosesForShop(session.shop, productIds, { admin });
+    if (result?.status === "success") {
+      const queuedActivity = await recordWatchActivityForShop(session.shop, {
+        eventType: "watch_manual_scan_queued",
+        title: "Manual watch diagnostics queued",
+        detail: `${result.queuedCount || productIds.length} deep product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued from Watchlist.`,
+        metadata: {
+          triggeredBy: "watchlist-manual-run",
+          forceEmail: true,
+          ignoreCadence: true,
+          ignoreTriggerRule: true,
+          queuedCount: result.queuedCount || productIds.length,
+          productGids: productIds,
+          productTitles: creditPlan.queueItems.map((product) => product.productTitle).filter(Boolean),
+          jobIds: Array.isArray(result.jobs) ? result.jobs.map((job) => job.id).filter(Boolean) : [],
+          availableCreditsAtQueue: creditPlan.availableCredits,
+          availableCredits: Math.max(0, creditPlan.availableCredits - productIds.length),
+          skippedForCredits: creditPlan.skippedForCredits.map(formatCreditSkippedItem),
+          creditExhausted: creditPlan.skippedForCredits.length > 0,
+        },
+      });
+      await maybeSendWatchlistRunAlertForQueuedActivity(session.shop, queuedActivity);
     }
     return {
       ...result,
       action: { id: "run-watch-scan" },
       message: result?.status === "success"
-        ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued.`
+        ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued. A confirmation email will be sent when the run finishes.`
         : result?.message || "Watch diagnostics could not be queued.",
       suppressBanner: result?.status === "success",
     };

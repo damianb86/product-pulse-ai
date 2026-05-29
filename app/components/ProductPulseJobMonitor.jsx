@@ -469,7 +469,7 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
       </section>
 
       <footer className="ppCreditsFooter">
-        <button type="button">Buy more credits</button>
+        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">Buy more credits</Link>
         <Link to="/app/plans-and-credits">
           View billing
           <s-icon type="chevron-right" size="small"></s-icon>

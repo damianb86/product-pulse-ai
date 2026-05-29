@@ -922,9 +922,8 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("link", { name: /View all changed/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /View all signals/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /View all events/i })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Select Watchlist run May 16/i }));
-    expect(screen.getAllByText("New orders").length).toBeGreaterThan(0);
-    expect(screen.queryByText("New returns")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Select Watchlist run/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /View Watchlist run May 16/ })).toHaveAttribute("href", "/app/watchlist?runId=2026-05-16T10%3A00%3A00.000Z");
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "product" } });
     expect(screen.getByRole("combobox")).toHaveValue("product");
     expect(screen.queryByRole("link", { name: /learn more/i })).not.toBeInTheDocument();

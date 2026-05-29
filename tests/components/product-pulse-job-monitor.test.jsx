@@ -136,7 +136,7 @@ describe("ProductPulseJobMonitor", () => {
     expect(within(creditsDialog).getByText("Initial balance")).toBeVisible();
     expect(within(creditsDialog).getByText("+100 credits")).toBeVisible();
     expect(within(creditsDialog).getByText("1h ago")).toBeVisible();
-    expect(within(creditsDialog).getByRole("button", { name: "Buy more credits" })).toBeVisible();
+    expect(within(creditsDialog).getByRole("link", { name: "Buy more credits" })).toHaveAttribute("href", "/app/plans-and-credits");
     expect(within(creditsDialog).getByRole("link", { name: /View billing/ })).toHaveAttribute("href", "/app/plans-and-credits");
 
     fireEvent.click(screen.getByRole("button", { name: /search products/i }));
