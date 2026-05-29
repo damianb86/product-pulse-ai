@@ -11321,6 +11321,7 @@ function getRecommendedActionDetail(action) {
   if (payload.qaNote) return payload.qaNote;
   if (payload.productStatus) return `Set Shopify product status to ${payload.productStatus}.`;
   if (Array.isArray(payload.tags) && payload.tags.length) return payload.tags.join(", ");
+  if (payload.collectionId && payload.collectionName) return `Add this product to the existing ${payload.collectionName} collection.`;
   if (payload.collectionName) return `Add or move this product to ${payload.collectionName}.`;
   if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
     return payload.reviewSections
@@ -12404,7 +12405,8 @@ function getRecommendedActionEvidence(action, product) {
   if (Array.isArray(payload.tags) && payload.tags.length) evidence.push(`${payload.tags.length} tags`);
   if (payload.mediaWithoutAltCount) evidence.push(`${payload.mediaWithoutAltCount} media without alt text`);
   if (payload.productStatus) evidence.push(`Status: ${payload.productStatus}`);
-  if (payload.collectionName) evidence.push(payload.collectionName);
+  if (payload.collectionId && payload.collectionName) evidence.push(`Existing collection: ${payload.collectionName}`);
+  else if (payload.collectionName) evidence.push(payload.collectionName);
   if (payload.applicationRisk) evidence.push(`${payload.applicationRisk} apply risk`);
   if (!evidence.length && Number(metrics.signalCount || 0) > 0) evidence.push(`${formatInteger(metrics.signalCount)} product signals`);
   if (!evidence.length && Number(metrics.confidence || product.confidence || 0) > 0) evidence.push(`${metrics.confidence || product.confidence}% confidence`);

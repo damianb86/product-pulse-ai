@@ -143,6 +143,14 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     taxonomyCategorySuggestions,
     storedReconstructedRiskHistory,
   });
+  const relationshipCollectionSuggestions = await fetchProductRelationshipCollectionSuggestions({
+    admin,
+    product: shopifyData.product,
+    relationshipSummary: baseDeterministic.metrics.productRelationshipIntelligenceSummary,
+  });
+  const relationshipEnrichedDeterministic = relationshipCollectionSuggestions.length
+    ? attachRelationshipCollectionSuggestionsToDeterministic(baseDeterministic, relationshipCollectionSuggestions)
+    : baseDeterministic;
   const retentionPreview = await calculateProductRetentionPreviewForDiagnosis({
     shop,
     jobId,
@@ -150,7 +158,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     snapshot,
     windowDays,
   });
-  const deterministic = attachProductRetentionPreviewToDeterministic(baseDeterministic, retentionPreview?.payload);
+  const deterministic = attachProductRetentionPreviewToDeterministic(relationshipEnrichedDeterministic, retentionPreview?.payload);
   const recommendationCandidates = buildRuleRecommendationCandidates(deterministic);
   const aiInput = {
     product: buildAiProductInput(shopifyData.product, snapshot),
@@ -518,6 +526,172 @@ async function fetchProductTaxonomyCategorySuggestions({ admin, product = {} } =
   return rankProductTaxonomyCategories([...seen.values()], product).slice(0, 8);
 }
 
+async function fetchProductRelationshipCollectionSuggestions({ admin, product = {}, relationshipSummary = {} } = {}) {
+  if (!admin?.graphql || !product?.id || hasProductCollectionMembership(product)) return [];
+
+  const relationshipItems = getProductRelationshipCandidateItems(relationshipSummary)
+    .map(normalizeRelationshipCollectionCandidate)
+    .filter((item) => item.productGid && item.productGid !== product.id)
+    .sort((first, second) => second.score - first.score)
+    .slice(0, 20);
+  if (!relationshipItems.length) return [];
+
+  const relationshipByProductGid = new Map();
+  relationshipItems.forEach((item) => {
+    const current = relationshipByProductGid.get(item.productGid);
+    if (!current || item.score > current.score) relationshipByProductGid.set(item.productGid, item);
+  });
+
+  try {
+    const data = await shopifyGraphql(
+      admin,
+      `#graphql
+      query ProductPulseRelatedProductCollections($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product {
+            id
+            title
+            handle
+            collections(first: 20) {
+              nodes {
+                id
+                title
+                handle
+                ruleSet {
+                  appliedDisjunctively
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { ids: [...relationshipByProductGid.keys()] },
+    );
+
+    return rankRelationshipCollectionSuggestions({
+      product,
+      relatedProducts: (data?.nodes || []).filter(Boolean),
+      relationshipByProductGid,
+    });
+  } catch {
+    return [];
+  }
+}
+
+function attachRelationshipCollectionSuggestionsToDeterministic(deterministic = {}, suggestions = []) {
+  return {
+    ...deterministic,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      relationshipCollectionSuggestions: Array.isArray(suggestions) ? suggestions : [],
+    },
+  };
+}
+
+function normalizeRelationshipCollectionCandidate(item = {}) {
+  const productGid = String(item.related_product_id || item.relatedProductId || "").trim();
+  const title = String(item.related_product_title || item.relatedProductTitle || item.title || "").replace(/\s+/g, " ").trim();
+  const relationshipType = String(item.relationship_type || item.relationshipType || "").trim();
+  const relationshipDirection = String(item.relationship_direction || item.relationshipDirection || item.direction || "").trim();
+  const timeWindow = String(item.time_window || item.timeWindow || "").trim();
+  const sampleSize = Number(item.sample_size || item.sampleSize || item.co_order_count || item.co_customer_count || item.order_count || item.customer_count || 0);
+  const confidence = normalizePercentLike(item.confidence?.score ?? item.confidence_score ?? item.confidence ?? 0);
+  const lift = Number(item.lift ?? item.lift_after ?? item.lift_before ?? 0);
+  const relationshipStrength = String(item.relationship_strength || item.relationshipStrength || "").trim();
+  const score = Math.round(
+    Math.min(30, sampleSize * 5)
+      + Math.min(25, confidence / 4)
+      + Math.min(20, Math.max(0, lift - 1) * 8)
+      + (relationshipType === "same_order" || relationshipDirection === "together" ? 12 : 8)
+      + (relationshipStrength.includes("very") ? 8 : relationshipStrength ? 4 : 0),
+  );
+
+  return {
+    productGid,
+    title,
+    handle: String(item.related_product_handle || item.relatedProductHandle || item.handle || "").trim(),
+    relationshipType,
+    relationshipDirection,
+    timeWindow,
+    sampleSize,
+    confidence,
+    lift: Number.isFinite(lift) ? lift : 0,
+    relationshipStrength,
+    score,
+  };
+}
+
+function rankRelationshipCollectionSuggestions({ product = {}, relatedProducts = [], relationshipByProductGid = new Map() } = {}) {
+  const currentCollectionKeys = new Set(getProductCollectionRecords(product).flatMap((collection) => [
+    collection.id,
+    normalizeText(collection.title),
+    normalizeText(collection.handle),
+  ]).filter(Boolean));
+  const byCollectionId = new Map();
+
+  relatedProducts.forEach((relatedProduct) => {
+    const relationship = relationshipByProductGid.get(relatedProduct.id);
+    if (!relationship) return;
+
+    getProductCollectionRecords(relatedProduct).forEach((collection) => {
+      if (!collection.id || !collection.title) return;
+      if (collection.isRuleBased) return;
+      if (currentCollectionKeys.has(collection.id) || currentCollectionKeys.has(normalizeText(collection.title)) || currentCollectionKeys.has(normalizeText(collection.handle))) return;
+
+      const current = byCollectionId.get(collection.id) || {
+        collectionId: collection.id,
+        collectionName: collection.title,
+        collectionHandle: collection.handle,
+        score: 0,
+        relatedProducts: [],
+        evidence: [],
+      };
+      const sourceScore = relationship.score + (current.relatedProducts.length ? 6 : 0);
+      current.score += sourceScore;
+      current.relatedProducts.push({
+        productGid: relatedProduct.id,
+        title: relatedProduct.title || relationship.title,
+        handle: relatedProduct.handle || relationship.handle,
+        relationshipType: relationship.relationshipType,
+        relationshipDirection: relationship.relationshipDirection,
+        timeWindow: relationship.timeWindow,
+        sampleSize: relationship.sampleSize,
+        confidence: relationship.confidence,
+        lift: relationship.lift,
+      });
+      current.evidence.push(formatRelationshipCollectionEvidence({ collection, relationship, relatedProduct }));
+      byCollectionId.set(collection.id, current);
+    });
+  });
+
+  return [...byCollectionId.values()]
+    .map((suggestion) => ({
+      ...suggestion,
+      score: Math.round(suggestion.score),
+      relatedProducts: suggestion.relatedProducts
+        .sort((first, second) => Number(second.sampleSize || 0) - Number(first.sampleSize || 0))
+        .slice(0, 5),
+      evidence: uniqueBy(suggestion.evidence, (item) => normalizeText(item)).slice(0, 4),
+      source: "product_relationship_intelligence",
+    }))
+    .filter((suggestion) => suggestion.score >= 35 && suggestion.relatedProducts.length)
+    .sort((first, second) => second.score - first.score || second.relatedProducts.length - first.relatedProducts.length || first.collectionName.localeCompare(second.collectionName))
+    .slice(0, 3);
+}
+
+function formatRelationshipCollectionEvidence({ collection = {}, relationship = {}, relatedProduct = {} } = {}) {
+  const relation = relationship.relationshipType === "same_order" || relationship.relationshipDirection === "together"
+    ? "bought together"
+    : relationship.relationshipDirection === "before"
+      ? "bought before this product"
+      : relationship.relationshipDirection === "after"
+        ? "bought after this product"
+        : "related";
+  const liftText = relationship.lift ? `, ${roundRate(relationship.lift, 1)}x lift` : "";
+  const sampleText = relationship.sampleSize ? ` across ${relationship.sampleSize} matched order${relationship.sampleSize === 1 ? "" : "s"}` : "";
+  return `${relatedProduct.title || relationship.title || "Related product"} is ${relation}${liftText}${sampleText} and belongs to ${collection.title}.`;
+}
+
 function buildProductTaxonomySearches(product = {}) {
   const productText = [
     product.title,
@@ -705,6 +879,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
             }
             collections(first: 20) {
               nodes {
+                id
                 title
                 handle
               }
@@ -806,6 +981,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
           }
           collections(first: 20) {
             nodes {
+              id
               title
               handle
             }
@@ -2590,6 +2766,8 @@ function calculateDeterministicDiagnosis({
       templateSuffix: product.templateSuffix || snapshotMetrics.templateSuffix || "",
       tags: product.tags || [],
       collections: product.collections || [],
+      collectionRecords: product.collectionRecords || [],
+      relationshipCollectionSuggestions: [],
       variantCount: product.variants?.length || Number(snapshotMetrics.variantCount || 0),
       skuCount: (product.variants || []).filter((variant) => variant.sku).length,
       optionNames: (product.options || []).map((option) => option.name).filter(Boolean),
@@ -5152,6 +5330,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.relationshipBundle.shouldRecommend) candidates.push({ id: "test-product-bundle", type: "Bundle opportunity", reason: recipeSignals.relationshipBundle.reason });
   if (recipeSignals.relationshipCrossSell.shouldRecommend) candidates.push({ id: "create-post-purchase-cross-sell", type: "Cross-sell", reason: recipeSignals.relationshipCrossSell.reason });
   if (recipeSignals.relationshipJourney.shouldRecommend) candidates.push({ id: "position-as-upgrade-path", type: "Journey insight", reason: recipeSignals.relationshipJourney.reason });
+  if (recipeSignals.relationshipCollection.shouldRecommend) candidates.push({ id: "add-to-related-product-collection", type: "Collection merchandising", reason: recipeSignals.relationshipCollection.reason });
   if (recipeSignals.retentionRepurchaseCampaign.shouldRecommend) candidates.push({ id: "create-repurchase-campaign", type: "Retention campaign", reason: recipeSignals.retentionRepurchaseCampaign.reason });
   if (recipeSignals.retentionCrossSellCampaign.shouldRecommend) candidates.push({ id: "create-retention-cross-sell-campaign", type: "Lifecycle campaign", reason: recipeSignals.retentionCrossSellCampaign.reason });
   if (recipeSignals.retentionBundleOffer.shouldRecommend) candidates.push({ id: "test-retention-bundle-offer", type: "Bundle campaign", reason: recipeSignals.retentionBundleOffer.reason });
@@ -6188,6 +6367,22 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
+  if (recipeSignals.relationshipCollection.shouldRecommend) {
+    const suggestion = recipeSignals.relationshipCollection.suggestion;
+    recommendations.push({
+      id: "add-to-related-product-collection",
+      label: `Add to ${suggestion.collectionName}`,
+      type: "Collection merchandising",
+      effort: "Low",
+      status: "Ready",
+      payload: buildProductRelationshipCollectionPayload(recipeSignals.relationshipCollection, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipCollection.reason,
+        recommendationKind: "collection_placement",
+      }),
+    });
+  }
+
   if (recipeSignals.retentionRepurchaseCampaign.shouldRecommend) {
     recommendations.push({
       id: "create-repurchase-campaign",
@@ -6812,6 +7007,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     relationshipJourney: merchandisingRelationshipSuppressionReason
       ? suppressRecommendationSignal(productRelationshipSignals.journeyInsight, merchandisingRelationshipSuppressionReason)
       : productRelationshipSignals.journeyInsight,
+    relationshipCollection: productRelationshipSignals.collectionPlacement,
     retentionRepurchaseCampaign: productRetentionSignals.repurchaseCampaign,
     retentionCrossSellCampaign: productRetentionSignals.crossSellCampaign,
     retentionBundleOffer: productRetentionSignals.bundleOffer,
@@ -6943,6 +7139,7 @@ function getProductRelationshipRecommendationSignals(deterministic = {}) {
   const confidence = normalizePercentLike(summary.confidence?.score ?? factors.context?.confidenceScore);
   const orderCount = Number(summary.data_basis?.order_count || factors.context?.orderCount || 0);
   const enoughSummary = orderCount >= 3 && confidence >= 55;
+  const collectionSuggestion = getPrimaryRelationshipCollectionSuggestion(deterministic);
 
   const normalizeSignal = (signal, fallbackReason) => {
     const relationship = signal || null;
@@ -6978,7 +7175,26 @@ function getProductRelationshipRecommendationSignals(deterministic = {}) {
       actionSignals.journeyInsightRelationship,
       (title) => `Customers often buy ${title} before this product; review whether this product should be positioned as an upgrade, refill, replacement or next step.`,
     ),
+    collectionPlacement: {
+      suggestion: collectionSuggestion,
+      shouldRecommend: Boolean(
+        collectionSuggestion?.collectionId
+        && !hasProductCollectionMembership(deterministic.product || {})
+        && !hasProductCollectionMembership({ collections: metrics.collections, collectionRecords: metrics.collectionRecords }),
+      ),
+      reason: collectionSuggestion?.collectionName
+        ? `This product is not in a collection, and related products point to the existing "${collectionSuggestion.collectionName}" collection.`
+        : "This product is not in a collection, but relationship evidence did not identify a strong existing collection.",
+    },
   };
+}
+
+function getPrimaryRelationshipCollectionSuggestion(deterministic = {}) {
+  const suggestions = deterministic.metrics?.relationshipCollectionSuggestions;
+  if (!Array.isArray(suggestions) || !suggestions.length) return null;
+  return suggestions
+    .filter((suggestion) => suggestion?.collectionId && suggestion.collectionName)
+    .sort((first, second) => Number(second.score || 0) - Number(first.score || 0))[0] || null;
 }
 
 function isRelationshipExpectationMismatchDiagnosis(deterministic = {}, productRelationshipSignals = null) {
@@ -7245,6 +7461,22 @@ function buildProductRelationshipRecommendationPayload(signal = {}, extra = {}) 
     deltaRefundRate: relationship.deltaRefundRate || relationship.delta_refund_rate || 0,
     source: "product_relationship_intelligence",
     readOnly: true,
+  };
+}
+
+function buildProductRelationshipCollectionPayload(signal = {}, extra = {}) {
+  const suggestion = signal.suggestion || {};
+  return {
+    ...extra,
+    field: "collection",
+    collectionId: suggestion.collectionId || "",
+    collectionName: suggestion.collectionName || "",
+    collectionHandle: suggestion.collectionHandle || "",
+    relationshipCollectionScore: suggestion.score || 0,
+    relationshipEvidence: Array.isArray(suggestion.evidence) ? suggestion.evidence : [],
+    relatedProducts: Array.isArray(suggestion.relatedProducts) ? suggestion.relatedProducts : [],
+    source: "product_relationship_intelligence",
+    readOnly: false,
   };
 }
 
@@ -7895,6 +8127,19 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       applicationRisk: "Medium",
       approval: "Manual approval required",
       priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "add-to-related-product-collection") {
+    return {
+      ...common,
+      proposedChange: `Add this product to the existing "${payload.collectionName || "related"}" collection.`,
+      shopifyField: "Collection membership",
+      expectedImpact: "Place an uncollected product near related catalog items that customers already buy together or in sequence.",
+      applicationRisk: "Low",
+      approval: payload.collectionId ? "Review required before applying" : "Manual approval required",
+      priorityGroup: "Merchandising insight",
       impactLevel: "Medium impact",
       actionTier: 2,
     };
@@ -10092,6 +10337,7 @@ async function judgeMeGet({ baseUrl, path, shop, token, params = {} }) {
 
 function normalizeShopifyProduct(product, snapshot) {
   if (!product) return normalizeSnapshotProduct(snapshot);
+  const collectionRecords = getProductCollectionRecords(product);
   const variants = getNodes(product.variants).map((variant) => ({
     id: variant.id,
     numericId: String(variant.legacyResourceId || extractNumericShopifyId(variant.id) || ""),
@@ -10137,7 +10383,8 @@ function normalizeShopifyProduct(product, snapshot) {
     tags: Array.isArray(product.tags) ? product.tags : [],
     options: Array.isArray(product.options) ? product.options : [],
     variants,
-    collections: getNodes(product.collections).map((collection) => collection.title).filter(Boolean),
+    collections: collectionRecords.map((collection) => collection.title).filter(Boolean),
+    collectionRecords,
     metafields: getNodes(product.metafields).map((metafield) => ({
       namespace: metafield.namespace,
       key: metafield.key,
@@ -10150,6 +10397,7 @@ function normalizeShopifyProduct(product, snapshot) {
 
 function normalizeSnapshotProduct(snapshot) {
   const metrics = snapshot.metrics || {};
+  const collectionRecords = getProductCollectionRecords(metrics.collectionRecords || metrics.collections || []);
   return {
     id: snapshot.productGid,
     numericId: extractNumericShopifyId(snapshot.productGid),
@@ -10173,10 +10421,45 @@ function normalizeSnapshotProduct(snapshot) {
     tags: Array.isArray(metrics.tags) ? metrics.tags : [],
     options: [],
     variants: [],
-    collections: Array.isArray(metrics.collections) ? metrics.collections : [],
+    collections: collectionRecords.map((collection) => collection.title).filter(Boolean),
+    collectionRecords,
     metafields: [],
     media: [],
   };
+}
+
+function getProductCollectionRecords(source = {}) {
+  const raw = Array.isArray(source)
+    ? source
+    : getNodes(source.collections).length
+      ? getNodes(source.collections)
+      : Array.isArray(source.collectionRecords)
+        ? source.collectionRecords
+        : [];
+  return raw
+    .map(normalizeCollectionRecord)
+    .filter((collection) => collection.id || collection.title || collection.handle);
+}
+
+function normalizeCollectionRecord(collection = {}) {
+  if (typeof collection === "string") {
+    return {
+      id: "",
+      title: collection.replace(/\s+/g, " ").trim(),
+      handle: "",
+      isRuleBased: false,
+    };
+  }
+  return {
+    id: String(collection.id || collection.collectionId || "").trim(),
+    title: String(collection.title || collection.collectionName || collection.name || "").replace(/\s+/g, " ").trim(),
+    handle: String(collection.handle || collection.collectionHandle || "").trim(),
+    isRuleBased: Boolean(collection.ruleSet || collection.isRuleBased || collection.smartCollection),
+  };
+}
+
+function hasProductCollectionMembership(product = {}) {
+  return getProductCollectionRecords(product).length > 0;
 }
 
 function normalizeProductCategory(category = null) {

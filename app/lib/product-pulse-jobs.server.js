@@ -1302,6 +1302,27 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
+  if (payload.collectionId || normalizedId.includes("related-product-collection")) {
+    const collectionId = String(payload.collectionId || "").trim();
+    const collectionName = String(payload.collectionName || "selected collection").replace(/\s+/g, " ").trim();
+    if (!collectionId) return { status: "validation_error", message: "This collection action does not include a Shopify collection ID to apply." };
+    const result = await addProductToCollection(admin, snapshot.productGid, collectionId);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `${snapshot.productTitle} was added to ${collectionName}.`,
+      change: {
+        target: "Collection membership",
+        operation: "add",
+        value: {
+          collectionId,
+          collectionName,
+          productGid: snapshot.productGid,
+          jobId: result.jobId || null,
+        },
+      },
+    };
+  }
+
   if (payload.tag || Array.isArray(payload.tags) || normalizedType.includes("tag")) {
     const tags = uniqueActionTags([...(Array.isArray(payload.tags) ? payload.tags : []), payload.tag]);
     if (!tags.length) return { status: "validation_error", message: "This action does not include a product tag to apply." };
@@ -1716,6 +1737,35 @@ async function addProductTags(admin, productGid, tags) {
     return { status: "success" };
   } catch (error) {
     return { status: "validation_error", message: `Unable to add product tag: ${error.message}` };
+  }
+}
+
+async function addProductToCollection(admin, productGid, collectionId) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseAddProductToCollection($id: ID!, $productIds: [ID!]!) {
+        collectionAddProductsV2(id: $id, productIds: $productIds) {
+          job {
+            id
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+      { variables: { id: collectionId, productIds: [productGid] } },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.collectionAddProductsV2?.userErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return {
+      status: "success",
+      jobId: json.data?.collectionAddProductsV2?.job?.id || null,
+    };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to add product to collection: ${error.message}` };
   }
 }
 

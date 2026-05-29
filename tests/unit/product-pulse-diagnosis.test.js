@@ -4443,6 +4443,124 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("recommends adding an uncollected product to an existing related-product collection", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 28,
+      confidence: 76,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "GEN Gallery Wall Print",
+        description: "Decorative wall print.",
+        collections: [],
+        collectionRecords: [],
+        variants: [],
+      },
+      metrics: {
+        signalCount: 0,
+        customerSignalCount: 0,
+        contentIssueCount: 0,
+        topReturnReasons: [],
+        affectedVariants: [],
+        productMomentumScore: 0,
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 11 },
+          confidence: { score: 82, label: "High" },
+        },
+        relationshipCollectionSuggestions: [{
+          collectionId: "gid://shopify/Collection/987",
+          collectionName: "Wall Art",
+          collectionHandle: "wall-art",
+          score: 91,
+          relatedProducts: [{
+            productGid: "gid://shopify/Product/related-print",
+            title: "GEN Related Print",
+            relationshipType: "same_order",
+            relationshipDirection: "together",
+            sampleSize: 5,
+            confidence: 78,
+            lift: 3.2,
+          }],
+          evidence: ["GEN Related Print is bought together, 3.2x lift across 5 matched orders and belongs to Wall Art."],
+        }],
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/source-print",
+        productTitle: "GEN Gallery Wall Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    const collectionAction = recommendations.find((item) => item.id === "add-to-related-product-collection");
+
+    expect(collectionAction).toMatchObject({
+      label: "Add to Wall Art",
+      type: "Collection merchandising",
+      payload: {
+        collectionId: "gid://shopify/Collection/987",
+        collectionName: "Wall Art",
+        collectionHandle: "wall-art",
+        recommendationKind: "collection_placement",
+        actionTier: 2,
+        priorityGroup: "Merchandising insight",
+      },
+    });
+  });
+
+  it("does not recommend related-product collection placement when the product already belongs to a collection", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 28,
+      confidence: 76,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "GEN Gallery Wall Print",
+        description: "Decorative wall print.",
+        collections: ["Existing Collection"],
+        collectionRecords: [{ id: "gid://shopify/Collection/current", title: "Existing Collection", handle: "existing-collection" }],
+        variants: [],
+      },
+      metrics: {
+        signalCount: 0,
+        customerSignalCount: 0,
+        contentIssueCount: 0,
+        topReturnReasons: [],
+        affectedVariants: [],
+        productMomentumScore: 0,
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 11 },
+          confidence: { score: 82, label: "High" },
+        },
+        relationshipCollectionSuggestions: [{
+          collectionId: "gid://shopify/Collection/987",
+          collectionName: "Wall Art",
+          collectionHandle: "wall-art",
+          score: 91,
+          relatedProducts: [{ productGid: "gid://shopify/Product/related-print", title: "GEN Related Print" }],
+          evidence: ["GEN Related Print belongs to Wall Art."],
+        }],
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/source-print",
+        productTitle: "GEN Gallery Wall Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("add-to-related-product-collection");
+  });
+
   it("builds specs details blocks as technical placeholders instead of catalog metadata", () => {
     const deterministic = {
       mainIssue: "quality_defect",
