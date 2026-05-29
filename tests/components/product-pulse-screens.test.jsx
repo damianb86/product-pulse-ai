@@ -5852,13 +5852,54 @@ describe("ProductPulse screens", () => {
     expect(riskPointGroup).not.toHaveClass("isPersistent");
     fireEvent.mouseEnter(riskHoverTarget);
     expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Margin at risk");
-    expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent(/Saved score-history exposure|Reconstructed saved risk trend/);
+    expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent(/Saved score-history exposure|Reconstructed saved risk trend|No saved exposure yet/);
     fireEvent.mouseLeave(riskPointGroup);
 
     const actionTarget = container.querySelector(".ppAnalyticsActionImpactBarTarget");
     fireEvent.mouseEnter(actionTarget);
     expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Actions applied");
     expect(document.body.querySelector(".ppAnalyticsSvgPopover")).toHaveTextContent("Applied recommendation history");
+  });
+
+  it("uses calendar windows for the analytics risk and margin trend range selector", () => {
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-05-28T12:00:00.000Z").getTime());
+    const data = {
+      ...defaultView,
+      analytics: {
+        ...defaultView.analytics,
+        deepDiagnosisCharts: {
+          ...defaultView.analytics.deepDiagnosisCharts,
+          riskMarginTrend: {
+            hasData: true,
+            labels: ["May 10", "May 26"],
+            pointDetails: [
+              { label: "May 10", time: new Date("2026-05-10T10:00:00.000Z").getTime(), sourceLabel: "Saved score-history exposure" },
+              { label: "May 26", time: new Date("2026-05-26T10:00:00.000Z").getTime(), sourceLabel: "Saved score-history exposure" },
+            ],
+            series: [
+              { key: "marginAtRisk", label: "Margin at risk (USD)", color: "green", axis: "left", values: [120, 280] },
+              { key: "revenueAtRisk", label: "Revenue at risk (USD)", color: "purple", axis: "right", values: [300, 620] },
+            ],
+          },
+        },
+      },
+    };
+
+    const { container } = renderWithRouter(<AnalyticsScreen data={data} />);
+    fireEvent.click(screen.getByRole("tab", { name: "7D" }));
+    const chart = container.querySelector(".ppAnalyticsRiskMarginTrendSvg");
+    expect(chart).toHaveTextContent("May 21");
+    expect(chart).toHaveTextContent("May 28");
+    expect(container.querySelectorAll(".ppAnalyticsRiskMarginPointGroup")).toHaveLength(16);
+
+    fireEvent.click(screen.getByRole("tab", { name: "30D" }));
+    expect(chart).toHaveTextContent("Apr 28");
+    expect(chart).toHaveTextContent("May 28");
+    expect(container.querySelectorAll(".ppAnalyticsRiskMarginPointGroup")).toHaveLength(62);
+
+    fireEvent.click(screen.getByRole("tab", { name: "YTD" }));
+    expect(chart).toHaveTextContent("Jan");
+    expect(chart).toHaveTextContent("May");
   });
 
   it("toggles extra impact breakdown rows from a centered view-more control", () => {

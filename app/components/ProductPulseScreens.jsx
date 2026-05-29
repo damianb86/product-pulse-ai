@@ -30653,10 +30653,10 @@ function getAnalyticsPanelInfo(title = "") {
 }
 
 const ANALYTICS_RISK_MARGIN_RANGE_OPTIONS = [
-  { key: "7d", label: "7D", pointLimit: 7 },
-  { key: "30d", label: "30D", pointLimit: 30 },
-  { key: "90d", label: "90D", pointLimit: 90 },
-  { key: "ytd", label: "YTD", pointLimit: Infinity },
+  { key: "7d", label: "7D", days: 7, pointLimit: 7 },
+  { key: "30d", label: "30D", days: 30, pointLimit: 30 },
+  { key: "90d", label: "90D", days: 90, pointLimit: 90 },
+  { key: "ytd", label: "YTD", mode: "year", pointLimit: Infinity },
 ];
 
 const ANALYTICS_SOURCE_MIX_COLORS = {
@@ -30702,25 +30702,16 @@ function AnalyticsRiskMarginTrendPanel({ chart }) {
 
 function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
-  const sourceSeries = Array.isArray(chart?.series) ? chart.series : [];
-  const sourceLabels = Array.isArray(chart?.labels) ? chart.labels : [];
-  const sourcePointDetails = Array.isArray(chart?.pointDetails) ? chart.pointDetails : [];
-  const range = ANALYTICS_RISK_MARGIN_RANGE_OPTIONS.find((item) => item.key === rangeKey) || ANALYTICS_RISK_MARGIN_RANGE_OPTIONS[1];
-  const pointCount = Math.max(sourceLabels.length, ...sourceSeries.map((row) => row.values?.length || 0), 0);
-  const sliceStart = Number.isFinite(range.pointLimit) ? Math.max(0, pointCount - range.pointLimit) : 0;
-  const labels = (sourceLabels.length ? sourceLabels : Array.from({ length: pointCount }, (_, index) => (index === pointCount - 1 ? "Today" : ""))).slice(sliceStart);
-  const pointDetails = sourcePointDetails.slice(sliceStart);
-  const series = sourceSeries.map((row) => ({
-    ...row,
-    values: (Array.isArray(row.values) ? row.values : []).slice(sliceStart),
-  }));
-  const hasData = Boolean(chart?.hasData && series.some((row) => row.values.some((value) => Number(value || 0) > 0)));
+  const { labels, pointDetails, series } = useMemo(() => (
+    getAnalyticsRiskMarginRangeView(chart, rangeKey)
+  ), [chart, rangeKey]);
+  const hasData = Boolean(chart?.hasData || series.some((row) => row.values.some((value) => Number(value || 0) > 0)));
   const layout = { left: 64, right: 858, top: 24, bottom: 252, width: 794, height: 228, labelY: 294, viewBoxWidth: 930, viewBoxHeight: 316 };
   const marginSeries = series.find((row) => row.key === "marginAtRisk") || series[0] || { values: [] };
   const revenueSeries = series.find((row) => row.key === "revenueAtRisk") || series[1] || { values: [] };
   const leftAxisMax = getAnalyticsChartAxisMax(marginSeries.values);
   const rightAxisMax = getAnalyticsChartAxisMax(revenueSeries.values);
-  const labelIndexes = getAnalyticsChartLabelIndexes(labels.length);
+  const labelIndexes = getAnalyticsRiskMarginLabelIndexes(labels.length, rangeKey);
   const showPersistentDots = rangeKey === "7d" || rangeKey === "30d";
 
   if (!hasData) {
@@ -30804,6 +30795,154 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
       <AnalyticsSvgPopover point={hoveredPoint} offsetY={12} />
     </div>
   );
+}
+
+function getAnalyticsRiskMarginRangeView(chart, rangeKey = "30d") {
+  const sourceSeries = Array.isArray(chart?.series) ? chart.series : [];
+  const sourceLabels = Array.isArray(chart?.labels) ? chart.labels : [];
+  const sourcePointDetails = Array.isArray(chart?.pointDetails) ? chart.pointDetails : [];
+  const pointCount = Math.max(sourceLabels.length, ...sourceSeries.map((row) => row.values?.length || 0), 0);
+  const range = ANALYTICS_RISK_MARGIN_RANGE_OPTIONS.find((item) => item.key === rangeKey) || ANALYTICS_RISK_MARGIN_RANGE_OPTIONS[1];
+  const sourcePoints = getAnalyticsRiskMarginTimedSourcePoints({ sourceSeries, sourceLabels, sourcePointDetails, pointCount });
+
+  if (!sourcePoints.length) {
+    const sliceStart = Number.isFinite(range.pointLimit) ? Math.max(0, pointCount - range.pointLimit) : 0;
+    return {
+      labels: (sourceLabels.length ? sourceLabels : Array.from({ length: pointCount }, (_, index) => (index === pointCount - 1 ? "Today" : ""))).slice(sliceStart),
+      pointDetails: sourcePointDetails.slice(sliceStart),
+      series: sourceSeries.map((row) => ({
+        ...row,
+        values: (Array.isArray(row.values) ? row.values : []).slice(sliceStart),
+      })),
+    };
+  }
+
+  const targets = getAnalyticsRiskMarginRangeTargets(range, sourcePoints);
+  return {
+    labels: targets.map((target) => target.label),
+    pointDetails: targets.map((target) => {
+      const latest = getAnalyticsRiskMarginLatestSourcePoint(sourcePoints, target.valueTime);
+      return {
+        label: target.label,
+        time: target.time,
+        sourceLabel: latest?.detail?.sourceLabel || "No saved exposure yet",
+        basisLabel: latest
+          ? latest.detail?.basisLabel || "Carried forward the latest saved exposure values available by this date."
+          : "No saved exposure value existed by this date, so the chart stays at zero.",
+        productCountLabel: latest?.detail?.productCountLabel || "",
+      };
+    }),
+    series: sourceSeries.map((row) => ({
+      ...row,
+      values: targets.map((target) => {
+        const latest = getAnalyticsRiskMarginLatestSourcePoint(sourcePoints, target.valueTime);
+        return latest ? Number(latest.values[row.key] ?? latest.values[row.label] ?? 0) : 0;
+      }),
+    })),
+  };
+}
+
+function getAnalyticsRiskMarginTimedSourcePoints({ sourceSeries = [], sourceLabels = [], sourcePointDetails = [], pointCount = 0 }) {
+  return Array.from({ length: pointCount }, (_, index) => {
+    const detail = sourcePointDetails[index] || {};
+    const time = normalizeAnalyticsRiskMarginTimestamp(detail.time);
+    if (!Number.isFinite(time)) return null;
+    return {
+      time,
+      label: detail.label || sourceLabels[index] || formatAnalyticsRiskMarginDayLabel(time),
+      detail,
+      values: sourceSeries.reduce((values, row) => {
+        const seriesValues = Array.isArray(row.values) ? row.values : [];
+        values[row.key || row.label] = Number(seriesValues[index] || 0);
+        return values;
+      }, {}),
+    };
+  }).filter(Boolean).sort((first, second) => first.time - second.time);
+}
+
+function getAnalyticsRiskMarginRangeTargets(range = {}, sourcePoints = []) {
+  const latestSourceDay = sourcePoints.length
+    ? getAnalyticsUtcDayStart(sourcePoints[sourcePoints.length - 1].time)
+    : getAnalyticsUtcDayStart(Date.now());
+  const today = getAnalyticsUtcDayStart(Date.now());
+  const endDay = Math.max(today, latestSourceDay);
+
+  if (range.mode === "year") {
+    const startMonth = Date.UTC(new Date(endDay).getUTCFullYear(), 0, 1);
+    const targets = [];
+    for (let cursor = startMonth; cursor <= endDay; cursor = addAnalyticsUtcMonths(cursor, 1)) {
+      const isCurrentMonth = getAnalyticsUtcMonthStart(endDay) === cursor;
+      const nextMonth = addAnalyticsUtcMonths(cursor, 1);
+      targets.push({
+        time: cursor,
+        valueTime: isCurrentMonth ? endDay + PRODUCT_METRIC_TIMELINE_DAY_MS - 1 : nextMonth - 1,
+        label: formatAnalyticsRiskMarginMonthLabel(cursor),
+      });
+    }
+    return targets.length ? targets : [{ time: endDay, valueTime: endDay + PRODUCT_METRIC_TIMELINE_DAY_MS - 1, label: formatAnalyticsRiskMarginDayLabel(endDay) }];
+  }
+
+  const days = Math.max(1, Number(range.days || 30));
+  const startDay = endDay - days * PRODUCT_METRIC_TIMELINE_DAY_MS;
+  return Array.from({ length: days + 1 }, (_, index) => {
+    const time = startDay + index * PRODUCT_METRIC_TIMELINE_DAY_MS;
+    return {
+      time,
+      valueTime: time + PRODUCT_METRIC_TIMELINE_DAY_MS - 1,
+      label: formatAnalyticsRiskMarginDayLabel(time),
+    };
+  });
+}
+
+function getAnalyticsRiskMarginLatestSourcePoint(sourcePoints = [], valueTime = 0) {
+  let latest = null;
+  for (const point of sourcePoints) {
+    if (Number(point.time || 0) <= valueTime) latest = point;
+    else break;
+  }
+  return latest;
+}
+
+function normalizeAnalyticsRiskMarginTimestamp(value) {
+  const number = Number(value);
+  if (Number.isFinite(number) && number > 0) return number;
+  const parsed = new Date(value || 0).getTime();
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : NaN;
+}
+
+function getAnalyticsUtcDayStart(value) {
+  const date = new Date(Number(value || 0));
+  if (!Number.isFinite(date.getTime())) return Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function getAnalyticsUtcMonthStart(value) {
+  const date = new Date(Number(value || 0));
+  if (!Number.isFinite(date.getTime())) return Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+}
+
+function addAnalyticsUtcMonths(value, amount) {
+  const date = new Date(Number(value || 0));
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + Number(amount || 0), 1);
+}
+
+function formatAnalyticsRiskMarginDayLabel(value) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(Number(value || 0)));
+}
+
+function formatAnalyticsRiskMarginMonthLabel(value) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(new Date(Number(value || 0)));
+}
+
+function getAnalyticsRiskMarginLabelIndexes(length, rangeKey = "30d") {
+  if (rangeKey !== "ytd") return getAnalyticsChartLabelIndexes(length);
+  if (length <= 0) return [];
+  const spacing = length > 9 ? 2 : 1;
+  return [...new Set([
+    ...Array.from({ length }, (_, index) => index).filter((index) => index % spacing === 0),
+    length - 1,
+  ])];
 }
 
 function AnalyticsIssueDistributionPanel({ distribution }) {

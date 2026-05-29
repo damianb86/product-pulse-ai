@@ -10,6 +10,8 @@ import {
 import { REQUIRED_SHOPIFY_SCOPES } from "./product-pulse-scopes";
 import { validateProductAction } from "./product-pulse-validation";
 
+const ANALYTICS_DAY_MS = 86_400_000;
+
 export const sourceGroups = [
   {
     category: "Product data",
@@ -1734,6 +1736,7 @@ function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {
         const directSnapshots = histories.filter((row) => row.history.some((point) => point.time === time)).length;
         return {
           label: formatAnalyticsDateLabel(time),
+          time,
           sourceLabel: "Saved score-history exposure",
           basisLabel: directSnapshots
             ? `${formatDashboardNumber(directSnapshots)} product snapshot${directSnapshots === 1 ? "" : "s"} recorded on this date.`
@@ -1761,12 +1764,15 @@ function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {
     return sum + row.revenueAtRisk * clampAnalyticsValue(trendValue / 100, 0.08, 1);
   }, 0));
 
+  const fallbackLabels = getAnalyticsTrendWindowLabels(length, windowDays);
+  const fallbackTimes = getAnalyticsTrendWindowTimes(length, windowDays, getAnalyticsRiskMarginReferenceTime(products));
   return buildAnalyticsRiskMarginTrendPayload({
-    labels: getAnalyticsTrendWindowLabels(length, windowDays),
+    labels: fallbackLabels,
     marginValues,
     revenueValues,
-    pointDetails: getAnalyticsTrendWindowLabels(length, windowDays).map((label) => ({
+    pointDetails: fallbackLabels.map((label, index) => ({
       label,
+      time: fallbackTimes[index],
       sourceLabel: "Reconstructed saved risk trend",
       basisLabel: "Estimated from stored risk trend values when full exposure history is not available.",
       productCountLabel: `${formatDashboardNumber(products.length)} deep diagnosis product${products.length === 1 ? "" : "s"}`,
@@ -1839,6 +1845,24 @@ function getAnalyticsProductExposureHistory(product = {}) {
   }
 
   return rows;
+}
+
+function getAnalyticsRiskMarginReferenceTime(products = []) {
+  const timestamps = (Array.isArray(products) ? products : [])
+    .map((product) => new Date(product?.analysisCompletedAt || product?.lastAnalysis || product?.metrics?.lastSignalAt || 0).getTime())
+    .filter(Number.isFinite)
+    .filter((time) => time > 0);
+  return timestamps.length ? Math.max(...timestamps) : Date.now();
+}
+
+function getAnalyticsTrendWindowTimes(length, windowDays = 90, endTime = Date.now()) {
+  const count = Math.max(Number(length || 0), 1);
+  const safeEnd = Number.isFinite(Number(endTime)) ? Number(endTime) : Date.now();
+  if (count === 1) return [safeEnd];
+  const safeWindow = Math.max(1, Number(windowDays || 90)) * ANALYTICS_DAY_MS;
+  const start = safeEnd - safeWindow;
+  const step = safeWindow / Math.max(count - 1, 1);
+  return Array.from({ length: count }, (_, index) => Math.round(start + step * index));
 }
 
 function getAnalyticsExposureValueAtTime(history = [], time = 0, key = "") {
