@@ -2020,6 +2020,8 @@ async function setProductMetafields(admin, productGid, metafields = []) {
 function getDescriptionOperationForAction(action) {
   const payload = action.payload || {};
   if (["replace", "prepend", "append"].includes(payload.operation)) return payload.operation;
+  if (["replace", "prepend", "append"].includes(payload.descriptionOperation)) return payload.descriptionOperation;
+  if (["replace", "prepend", "append"].includes(payload.insertionPosition)) return payload.insertionPosition;
   if (["prepend", "append"].includes(payload.placement)) return payload.placement;
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("rewrite-product-description") || normalized.includes("rewrite")) return "replace";
@@ -2137,15 +2139,18 @@ function buildProductPulseDescriptionBlock(text, action, htmlStyle) {
   });
 }
 
-function buildProductPulseDescriptionReplacement(text, action, htmlStyle) {
-  const actionId = escapeHtml(action.id || "product-action");
-  return buildProductPulseStyledHtmlBlock({
-    actionId,
-    className: "productpulse-description-update",
-    title: "Updated product description",
-    contentHtml: buildHtmlParagraphs(text, htmlStyle),
-    htmlStyle,
-  });
+function buildProductPulseDescriptionReplacement(text) {
+  return buildProductPulseDescriptionBodyHtml(text);
+}
+
+function buildProductPulseDescriptionBodyHtml(text) {
+  if (containsAllowedProductPulseHtml(text)) return sanitizeProductPulseDescriptionBodyHtml(text);
+  return String(text || "")
+    .split(/\n{2,}|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join("\n");
 }
 
 function buildHtmlParagraphs(text, htmlStyle) {
@@ -2179,6 +2184,22 @@ function sanitizeProductPulseDescriptionHtml(value = "") {
     .trim();
 }
 
+function sanitizeProductPulseDescriptionBodyHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/(<[^>]+>)/g)
+    .map((part) => {
+      if (!part) return "";
+      if (part.startsWith("<")) return sanitizeProductPulseDescriptionBodyTag(part);
+      return escapeHtml(part);
+    })
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function sanitizeProductPulseDescriptionTag(tag = "") {
   const match = String(tag || "").match(/^<\s*(\/)?\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/)?>$/i);
   if (!match) return escapeHtml(tag);
@@ -2195,6 +2216,18 @@ function sanitizeProductPulseDescriptionTag(tag = "") {
   if (tagName === "ol") return closing ? "</ol>" : "<ol style=\"margin:0 0 10px 20px;padding:0;color:#374151;line-height:1.6;\">";
   if (tagName === "li") return closing ? "</li>" : "<li style=\"margin:0 0 6px;\">";
   return escapeHtml(selfClosing ? `<${tagName} />` : tag);
+}
+
+function sanitizeProductPulseDescriptionBodyTag(tag = "") {
+  const match = String(tag || "").match(/^<\s*(\/)?\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/)?>$/i);
+  if (!match) return escapeHtml(tag);
+  const closing = Boolean(match[1]);
+  const tagName = String(match[2] || "").toLowerCase();
+  const selfClosing = Boolean(match[3]);
+  const allowedTags = new Set(["strong", "b", "em", "i", "br", "p", "h3", "h4", "ul", "ol", "li"]);
+  if (!allowedTags.has(tagName)) return escapeHtml(selfClosing ? `<${tagName} />` : tag);
+  if (tagName === "br") return "<br>";
+  return closing ? `</${tagName}>` : `<${tagName}>`;
 }
 
 function buildProductPulseStyledHtmlBlock({ actionId, className, title, contentHtml, htmlStyle, includeHeading = true }) {

@@ -217,12 +217,13 @@ export function createProductPulseAiAppMutationDefinitions(
       async buildProposal(context, input: ProductDescriptionDraftInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
         const text = getDraftText(input);
+        const descriptionOperation = inferDescriptionOperation(input, {}, "append");
         const proposedValue = buildActionProposedValue({
           ...input,
           title: getActionTitle(input) || "Update product description",
           draftText: text,
           field: getTargetField(input) || "product.description",
-          descriptionOperation: input.descriptionOperation || "append",
+          descriptionOperation,
           priority: input.priority || "medium",
           status: input.status || "draft",
         }, product);
@@ -1021,7 +1022,7 @@ function buildActionProposedValue(
   const description = String(input.description || existingPayload.description || input.reason || "").trim()
     || (draftText ? "AI-regenerated app-owned action text." : `App-owned action for ${product.title}.`);
   const field = getTargetField(input) || String(existingPayload.field || "").trim();
-  const descriptionOperation = normalizeDescriptionOperation(input.descriptionOperation || input.insertionPosition || existingPayload.descriptionOperation);
+  const descriptionOperation = inferDescriptionOperation(input, existingPayload, "prepend");
   const priority = normalizePriority(input.priority || existingPayload.priority);
   const status = normalizeEditableStatus(input.status || existingAction?.status || "draft");
 
@@ -1134,7 +1135,7 @@ function buildProductActionPayload(input: {
   sourceActionId: string;
 }): Record<string, unknown> {
   const draftText = String(input.fields.draftText || getDraftText(input.input) || "").trim();
-  const descriptionOperation = normalizeDescriptionOperation(input.fields.descriptionOperation || input.input.descriptionOperation || input.input.insertionPosition);
+  const descriptionOperation = inferDescriptionOperation({ ...input.input, ...input.fields }, {}, "prepend");
   return stripEmptyObject({
     ...copyDefinedActionInput(input.input),
     source: input.source,
@@ -1267,7 +1268,7 @@ function mergeStoredRecommendation(
 
 function buildStoredRecommendationPayload(input: Record<string, unknown>, options: { created: boolean }): Record<string, unknown> {
   const draftText = getDraftText(input);
-  const descriptionOperation = normalizeDescriptionOperation(input.descriptionOperation || input.insertionPosition);
+  const descriptionOperation = inferDescriptionOperation(input, {}, "prepend");
   return stripEmptyObject({
     source: options.created ? "ai_app_only_action_create" : "ai_app_only_action_update",
     sourceActionId: input.actionId || input.sourceActionId,
@@ -1397,6 +1398,10 @@ function inferActionDraftText(input: Record<string, unknown>, product: AiProduct
 
 function actionInferenceText(input: Record<string, unknown>): string {
   return [
+    input.actionId,
+    input.sourceActionId,
+    input.sourceRecommendationId,
+    input.canonicalActionId,
     input.field,
     input.targetField,
     input.shopifyField,
@@ -1443,10 +1448,57 @@ function normalizeSavedActionStatus(value: unknown): string {
   return "draft";
 }
 
-function normalizeDescriptionOperation(value: unknown): "prepend" | "append" | "replace" {
+function inferDescriptionOperation(
+  input: Record<string, unknown>,
+  existingPayload: Record<string, unknown> = {},
+  fallback: "prepend" | "append" | "replace" = "prepend",
+): "prepend" | "append" | "replace" {
+  const explicit = normalizeExplicitDescriptionOperation(
+    input.descriptionOperation
+      || input.insertionPosition
+      || input.operation
+      || existingPayload.descriptionOperation
+      || existingPayload.insertionPosition
+      || existingPayload.operation
+      || existingPayload.placement,
+  );
+  if (explicit) return explicit;
+
+  const text = normalizeDescriptionInferenceText([
+    actionInferenceText({ ...existingPayload, ...input }),
+    existingPayload.changeStrategy,
+    existingPayload.proposedChange,
+  ].join(" "));
+
+  if (!text) return fallback;
+  if (/\b(faq|question|answer|pregunta|respuesta)\b/.test(text)) return "append";
+  if (/\b(prepend|before|top|beginning|start|intro|inicio|principio|arriba|antes)\b/.test(text)) return "prepend";
+  if (/\b(append|after|end|bottom|footer|final|abajo|despues)\b/.test(text)) return "append";
+
+  const descriptionTarget = /\b(description|copy|pdp|descripcion)\b/.test(text);
+  const replacementIntent = /\b(rewrite|replace|overwrite|regenerate|generate|update|modify|rework|correct|reescribir|reemplazar|sobrescribir|regenerar|generar|actualizar|modificar|corregir)\b/.test(text);
+  const additiveIntent = /\b(add|insert|append|prepend|note|guidance|block|section|snippet|expectation|agregar|anadir|insertar|sumar|nota|guia|aclaracion|bloque|seccion)\b/.test(text);
+  const fullDescriptionIntent = /\b(full|complete|entire|whole|completa|completo|toda|todo)\b/.test(text);
+
+  if (descriptionTarget && replacementIntent && (fullDescriptionIntent || !additiveIntent)) return "replace";
+  return fallback;
+}
+
+function normalizeExplicitDescriptionOperation(value: unknown): "prepend" | "append" | "replace" | null {
   const normalized = String(value || "").toLowerCase();
   if (normalized === "append" || normalized === "replace") return normalized;
-  return "prepend";
+  if (normalized === "prepend") return "prepend";
+  return null;
+}
+
+function normalizeDescriptionInferenceText(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function normalizeActionId(value: unknown): string {

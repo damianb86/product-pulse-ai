@@ -215,6 +215,23 @@ describe("ProductPulse product job helpers", () => {
     expect(html).toContain("Product note");
   });
 
+  it("replaces full product descriptions without a ProductPulse wrapper", () => {
+    const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
+      currentHtml: "<div><p>Old product description.</p></div>",
+      draftText: "<h3>Updated product description</h3><p>New copy with <strong>safe HTML</strong>.</p><script>alert('x')</script>",
+      operation: "replace",
+      action: { id: "rewrite-product-description", payload: {} },
+    });
+
+    expect(html).toContain("<h3>Updated product description</h3>");
+    expect(html).toContain("<p>New copy with <strong>safe HTML</strong>.</p>");
+    expect(html).not.toContain("Old product description");
+    expect(html).not.toContain("productpulse-callout");
+    expect(html).not.toContain("data-productpulse-action");
+    expect(html).not.toContain("Updated product description</p>");
+    expect(html).not.toContain("<script");
+  });
+
   it("applies grouped description changes as separate wrapped blocks", () => {
     const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtmlFromChanges({
       currentHtml: "<div><p>Current product description.</p></div>",

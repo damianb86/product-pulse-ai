@@ -156,6 +156,74 @@ describe("ProductPulse AI app-only mutation registry", () => {
     });
   });
 
+  it("infers full description rewrites as replace while keeping additive guidance appendable", async () => {
+    const { registry } = createAppMutationRegistry();
+
+    const rewrite = await registry.createAiAppMutationProposal(
+      context,
+      PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
+      {
+        productRef: "core-linen-trouser",
+        title: "Rewrite product description",
+        targetField: "product.description",
+        draftText: "<p>Fresh full product description.</p>",
+      },
+    );
+    const guidance = await registry.createAiAppMutationProposal(
+      context,
+      PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductDescriptionDraft,
+      {
+        productRef: "core-linen-trouser",
+        title: "Add FAQ after the product description",
+        targetField: "product.description",
+        draftText: "What should shoppers check before buying?\nReview fit, color, and variant details.",
+      },
+    );
+
+    expect(rewrite.ok).toBe(true);
+    expect(rewrite.data.proposal.proposedValue.descriptionOperation).toBe("replace");
+    expect(guidance.ok).toBe(true);
+    expect(guidance.data.proposal.proposedValue.descriptionOperation).toBe("append");
+  });
+
+  it("stores chat-created full description updates with replace operation", async () => {
+    const { registry, db } = createAppMutationRegistry();
+    const proposal = await registry.createAiAppMutationProposal(
+      context,
+      PRODUCT_PULSE_AI_APP_MUTATION_NAMES.createProductAction,
+      {
+        productRef: "core-linen-trouser",
+        actionId: "rewrite-product-description",
+        title: "Rewrite product description",
+        draftText: "<p>Fresh full product description.</p>",
+        field: "product.description",
+      },
+    );
+
+    expect(proposal.ok).toBe(true);
+    expect(proposal.data.proposal.proposedValue.descriptionOperation).toBe("replace");
+
+    const result = await registry.saveAiAppMutation(context, proposal.data.proposal.id, {
+      title: "Rewrite product description",
+      draftText: "<p>Fresh full product description.</p>",
+      field: "product.description",
+      priority: "medium",
+      status: "draft",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(db.productAction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actionType: "rewrite-product-description",
+        payload: expect.objectContaining({
+          descriptionOperation: "replace",
+          insertionPosition: "replace",
+          draftText: "<p>Fresh full product description.</p>",
+        }),
+      }),
+    });
+  });
+
   it("normalizes root-level app mutation tool fields into mutation input", async () => {
     const { registry } = createAppMutationRegistry();
 
