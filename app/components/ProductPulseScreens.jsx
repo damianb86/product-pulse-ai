@@ -30459,11 +30459,11 @@ function getAnalyticsPanelInfo(title = "") {
   if (normalizedTitle.includes("margin at risk over time")) {
     return {
       title: "Margin at risk over time",
-      body: "The top KPI is current total margin at risk. This chart reconstructs the shape over time, so the trend-weighted margin can be different.",
+      body: "The top KPI is current total margin at risk. The timeline uses saved score history when available and only falls back to reconstructed risk trends when dated history is missing.",
       items: [
-        "Trend-weighted margin multiplies each product's margin exposure by its stored risk trend at each point.",
-        "Products needing attention count products whose trend lands in medium or high risk.",
-        "High, medium and low lines show how products move between operational risk buckets.",
+        "Trend-weighted margin uses saved margin exposure by date when available.",
+        "Products needing attention, high, medium and low use the products axis on the right.",
+        "Products are not counted before their first stored score-history point.",
       ],
     };
   }
@@ -31396,13 +31396,23 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
   const layout = {
     left: 62,
     top: 24,
-    width: 812,
+    width: 790,
     height: 236,
     labelY: 316,
     viewBoxWidth: 900,
     viewBoxHeight: 340,
   };
-  const yTicks = getAnalyticsTrendYAxisTicks(safeSeries[0]?.values || [], layout);
+  const moneySeries = safeSeries.filter((row) => row.axis !== "count");
+  const countSeries = safeSeries.filter((row) => row.axis === "count");
+  const moneyAxisMax = getAnalyticsTrendAxisMax(moneySeries.flatMap((row) => row.values || []));
+  const countAxisMax = Math.max(
+    Number(summary?.countAxisMax || 0),
+    ...countSeries.flatMap((row) => row.values || []).map((value) => Number(value || 0)),
+    1,
+  );
+  const yTicks = getAnalyticsTrendYAxisTicks(moneySeries.flatMap((row) => row.values || []), layout, moneyAxisMax);
+  const countTicks = countSeries.length ? getAnalyticsTrendCountYAxisTicks(countAxisMax, layout) : [];
+  const visibleLabelIndexes = getAnalyticsChartLabelIndexes(labels.length);
   const [activeLegend, setActiveLegend] = useState(null);
 
   return (
@@ -31417,8 +31427,28 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
           ))}
           <line className="ppChartAxisLine" x1={layout.left} y1={layout.top} x2={layout.left} y2={layout.top + layout.height} />
           <text className="ppChartAxisTitle" x="10" y="18">Margin</text>
+          {countTicks.length ? (
+            <>
+              <line className="ppChartAxisLine" x1={layout.left + layout.width} y1={layout.top} x2={layout.left + layout.width} y2={layout.top + layout.height} />
+              <text className="ppChartAxisTitle" x={layout.viewBoxWidth - 10} y="18" textAnchor="end">Products</text>
+              {countTicks.map((tick, index) => (
+                <text
+                  className="ppChartAxisText ppChartAxisText-y ppChartAxisText-right"
+                  key={`${tick.label}-${index}`}
+                  x={layout.viewBoxWidth - 10}
+                  y={tick.y + 4}
+                  textAnchor="end"
+                >
+                  {tick.label}
+                </text>
+              ))}
+            </>
+          ) : null}
           {safeSeries.map((row) => {
-            const points = getAnalyticsLinePointList(row.values, layout);
+            const points = getAnalyticsLinePointList(row.values, layout, {
+              min: 0,
+              max: row.axis === "count" ? countAxisMax : moneyAxisMax,
+            });
             return (
               <path
                 key={row.label}
@@ -31427,8 +31457,8 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
               />
             );
           })}
-          {labels.map((label, index) => label && (
-            <text className="ppChartAxisText" key={`${label}-${index}`} x={layout.left + index * (layout.width / Math.max(labels.length - 1, 1))} y={layout.labelY}>{label}</text>
+          {visibleLabelIndexes.map((index) => labels[index] && (
+            <text className="ppChartAxisText" key={`${labels[index]}-${index}`} x={layout.left + index * (layout.width / Math.max(labels.length - 1, 1))} y={layout.labelY}>{labels[index]}</text>
           ))}
         </svg>
         <div className="ppAnalyticsTrendLegend" aria-label="Trend line legend">
@@ -32082,11 +32112,27 @@ function buildBusinessImpactModalFallbackCalculation(metrics = [], windowLabel =
   };
 }
 
-function getAnalyticsTrendYAxisTicks(values = [], layout = {}) {
+function getAnalyticsTrendAxisMax(values = []) {
   const cleanValues = (Array.isArray(values) && values.length ? values : [0])
     .map((value) => Math.max(0, Number(value || 0)))
     .filter(Number.isFinite);
   const max = Math.max(...cleanValues, 1);
+  if (max <= 10) return 10;
+  if (max <= 100) return Math.ceil(max / 25) * 25;
+  if (max <= 1000) return Math.ceil(max / 100) * 100;
+  const magnitude = 10 ** Math.floor(Math.log10(max));
+  const normalized = max / magnitude;
+  const step = normalized <= 2 ? 0.25 : normalized <= 5 ? 0.5 : 1;
+  return Math.ceil(normalized / step) * step * magnitude;
+}
+
+function getAnalyticsTrendYAxisTicks(values = [], layout = {}, axisMax = null) {
+  const cleanValues = (Array.isArray(values) && values.length ? values : [0])
+    .map((value) => Math.max(0, Number(value || 0)))
+    .filter(Number.isFinite);
+  const max = Number.isFinite(Number(axisMax)) && Number(axisMax) > 0
+    ? Number(axisMax)
+    : getAnalyticsTrendAxisMax(cleanValues);
   const ticks = [1, 0.75, 0.5, 0.25, 0];
   const top = Number(layout.top ?? 28);
   const height = Number(layout.height ?? 160);
@@ -32096,11 +32142,22 @@ function getAnalyticsTrendYAxisTicks(values = [], layout = {}) {
   }));
 }
 
-function getAnalyticsLinePointList(values = [], layout = {}) {
+function getAnalyticsTrendCountYAxisTicks(maxValue = 1, layout = {}) {
+  const max = Math.max(1, Number(maxValue || 1));
+  const ticks = [1, 0.5, 0];
+  const top = Number(layout.top ?? 28);
+  const height = Number(layout.height ?? 160);
+  return ticks.map((ratio) => ({
+    y: top + (1 - ratio) * height,
+    label: formatInteger(max * ratio),
+  }));
+}
+
+function getAnalyticsLinePointList(values = [], layout = {}, options = {}) {
   const cleanValues = (Array.isArray(values) && values.length ? values : [0, 0, 0, 0, 0, 0, 0])
     .map((value) => Math.max(0, Number(value || 0)));
-  const max = Math.max(...cleanValues, 1);
-  const min = Math.min(...cleanValues);
+  const max = Number.isFinite(Number(options.max)) ? Number(options.max) : Math.max(...cleanValues, 1);
+  const min = Number.isFinite(Number(options.min)) ? Number(options.min) : Math.min(...cleanValues);
   const range = Math.max(max - min, 1);
   const left = Number(layout.left ?? 50);
   const top = Number(layout.top ?? 28);

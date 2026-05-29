@@ -397,6 +397,7 @@ describe("ProductPulse actions", () => {
       title: "Windowed Product",
       riskScore: 64,
       analysisDepth: "full",
+      lastAnalysis: "2026-05-20T00:00:00.000Z",
       metrics: {
         marginAtRisk: 900,
         revenueAtRisk: 1800,
@@ -411,7 +412,8 @@ describe("ProductPulse actions", () => {
 
     expect(analytics.windowDays).toBe(45);
     expect(analytics.windowLabel).toBe("Last 45 days");
-    expect(analytics.impactTrend.labels[0]).toBe("45d ago");
+    expect(analytics.impactTrend.labels[0]).toBe("Apr 5");
+    expect(analytics.impactTrend.labels.at(-1)).toBe("May 20");
   });
 
   it("builds analytics chart data from deep diagnosis products only", () => {

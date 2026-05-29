@@ -2013,43 +2013,61 @@ function buildAnalyticsAnalysisCoverage({ totalProducts, fullDiagnoses, quickSca
 }
 
 function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAtRisk = 0 } = {}) {
-  const trends = productList.map((product) => ({
+  const products = (Array.isArray(productList) ? productList : []).filter(Boolean);
+  const rows = products.map((product) => ({
     product,
-    values: getAnalyticsProductTrendValues(product),
-    marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+    history: getAnalyticsProductRiskScoreHistory(product),
   }));
-  const length = Math.max(...trends.map((row) => row.values.length), 7);
-  const normalized = trends.map((row) => ({
-    ...row,
-    values: resizeAnalyticsTrend(row.values, length, Number(row.product.riskScore || 0)),
-  }));
-  const marginValues = Array.from({ length }, (_, index) => normalized.reduce((sum, row) => {
-    const trendValue = Number(row.values[index] || 0);
-    return sum + row.marginAtRisk * clampAnalyticsValue(trendValue / 100, 0.08, 1);
+  const timeline = getAnalyticsImpactTrendTimeline(rows, { windowDays });
+  const marginValues = timeline.map((time) => rows.reduce((sum, row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    if (!state) return sum;
+    return sum + Number(state.marginAtRisk || 0);
   }, 0));
-  const attentionValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) >= 55).length);
-  const highValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) >= 75).length);
-  const mediumValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) >= 55 && Number(row.values[index] || 0) < 75).length);
-  const lowValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) < 55).length);
+  const attentionValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    return state && Number(state.riskScore || 0) >= 55;
+  }).length);
+  const highValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    return state && Number(state.riskScore || 0) >= 75;
+  }).length);
+  const mediumValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    const riskScore = Number(state?.riskScore || 0);
+    return state && riskScore >= 55 && riskScore < 75;
+  }).length);
+  const lowValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    return state && Number(state.riskScore || 0) < 55;
+  }).length);
+  const labels = timeline.map(formatAnalyticsDateLabel);
+  const scoreHistoryProducts = rows.filter((row) => row.history.some((point) => point.source === "scoreHistory")).length;
+  const usesSavedScoreHistory = scoreHistoryProducts > 0;
 
   const series = [
     {
       label: "Trend-weighted margin",
       color: "purple",
+      axis: "money",
       values: marginValues,
       displayValue: formatDashboardMoney(marginValues[marginValues.length - 1] || 0),
-      detail: `Reconstructed timeline: current product margin exposure is weighted by each product's stored risk trend. The top KPI remains the current total margin at risk.`,
+      detail: usesSavedScoreHistory
+        ? `Uses saved score-history dates for ${formatDashboardNumber(scoreHistoryProducts)} product${scoreHistoryProducts === 1 ? "" : "s"}; products without a dated score are not counted before their first stored point.`
+        : "Reconstructed timeline: current product margin exposure is weighted by each product's stored risk trend. The top KPI remains the current total margin at risk.",
     },
     {
       label: "Products needing attention",
       color: "blue",
+      axis: "count",
       values: attentionValues,
       displayValue: formatDashboardNumber(attentionValues[attentionValues.length - 1] || 0),
-      detail: "Products whose stored trend currently lands in medium or high risk.",
+      detail: "Products whose saved or reconstructed risk score lands in medium or high risk at that date.",
     },
     {
       label: "High risk",
       color: "red",
+      axis: "count",
       values: highValues,
       displayValue: formatDashboardNumber(highValues[highValues.length - 1] || 0),
       detail: "Products at or above 75 product risk.",
@@ -2057,6 +2075,7 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAt
     {
       label: "Medium risk",
       color: "orange",
+      axis: "count",
       values: mediumValues,
       displayValue: formatDashboardNumber(mediumValues[mediumValues.length - 1] || 0),
       detail: "Products from 55 to 74 product risk.",
@@ -2064,21 +2083,123 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAt
     {
       label: "Low risk",
       color: "green",
+      axis: "count",
       values: lowValues,
       displayValue: formatDashboardNumber(lowValues[lowValues.length - 1] || 0),
-      detail: "Products below 55 product risk.",
+      detail: "Products below 55 product risk among products with a score available by that date.",
     },
   ];
 
   return {
     series,
-    labels: getAnalyticsTrendWindowLabels(length, windowDays),
+    labels,
     summary: {
       currentTotalLabel: formatDashboardMoney(totalMarginAtRisk),
       trendWeightedLabel: formatDashboardMoney(marginValues[marginValues.length - 1] || 0),
-      detail: "Top KPI = current total exposure. Trend line = reconstructed exposure shape over time.",
+      countAxisMax: Math.max(products.length, ...attentionValues, ...highValues, ...mediumValues, ...lowValues, 1),
+      detail: usesSavedScoreHistory
+        ? "Top KPI = current total exposure. Timeline uses saved score-history dates when available; count lines use the products axis."
+        : "Top KPI = current total exposure. Trend line = reconstructed exposure shape over time.",
     },
   };
+}
+
+function getAnalyticsProductRiskScoreHistory(product = {}) {
+  const metrics = product.metrics || {};
+  const currentTime = new Date(product.analysisCompletedAt || product.lastAnalysis || metrics.lastSignalAt || Date.now()).getTime();
+  const currentRisk = Number(product.riskScore || 0);
+  const currentMargin = getDashboardMetric(product, "marginAtRisk");
+  const rows = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((point) => {
+      const time = new Date(point.recordedAt || 0).getTime();
+      if (!Number.isFinite(time) || time <= 0) return null;
+      const riskScore = Number(point.riskScore ?? currentRisk);
+      if (!Number.isFinite(riskScore)) return null;
+      const riskWeight = clampAnalyticsValue(riskScore / 100, 0.08, 1);
+      const marginAtRisk = point.marginAtRisk != null && Number.isFinite(Number(point.marginAtRisk))
+        ? Number(point.marginAtRisk)
+        : currentMargin * riskWeight;
+      return {
+        time,
+        riskScore,
+        marginAtRisk,
+        source: "scoreHistory",
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+
+  if (rows.length) {
+    if (Number.isFinite(currentTime) && currentTime > 0) {
+      const hasCurrentTime = rows.some((point) => Math.abs(point.time - currentTime) < 60 * 1000);
+      if (!hasCurrentTime) {
+        rows.push({
+          time: currentTime,
+          riskScore: currentRisk,
+          marginAtRisk: currentMargin,
+          source: "currentSnapshot",
+        });
+        rows.sort((left, right) => left.time - right.time);
+      }
+    }
+    return rows;
+  }
+
+  const trend = getAnalyticsProductTrendValues(product);
+  if (trend.length) {
+    const times = getAnalyticsTrendWindowTimes(trend.length, metrics.windowDays || 90, Number.isFinite(currentTime) ? currentTime : Date.now());
+    return trend.map((riskScore, index) => ({
+      time: times[index],
+      riskScore: Number(riskScore || 0),
+      marginAtRisk: currentMargin * clampAnalyticsValue(Number(riskScore || 0) / 100, 0.08, 1),
+      source: "riskTrend",
+    }));
+  }
+
+  if (Number.isFinite(currentTime) && currentTime > 0) {
+    return [{
+      time: currentTime,
+      riskScore: currentRisk,
+      marginAtRisk: currentMargin,
+      source: "currentSnapshot",
+    }];
+  }
+
+  return [];
+}
+
+function getAnalyticsImpactTrendTimeline(rows = [], { windowDays = 90 } = {}) {
+  const timestamps = (Array.isArray(rows) ? rows : [])
+    .flatMap((row) => (Array.isArray(row.history) ? row.history.map((point) => point.time) : []))
+    .filter(Number.isFinite)
+    .filter((time) => time > 0);
+  const referenceTime = timestamps.length
+    ? Math.max(...timestamps)
+    : getAnalyticsRiskMarginReferenceTime((Array.isArray(rows) ? rows : []).map((row) => row.product));
+  const safeWindowDays = Math.max(1, Math.round(Number(windowDays || 90)));
+  const startTime = referenceTime - safeWindowDays * ANALYTICS_DAY_MS;
+  const pointCount = getAnalyticsImpactTrendPointCount(safeWindowDays);
+  return buildAnalyticsTimeSeriesPoints(startTime, referenceTime, pointCount);
+}
+
+function getAnalyticsImpactTrendPointCount(windowDays = 90) {
+  const safeWindowDays = Math.max(1, Math.round(Number(windowDays || 90)));
+  if (safeWindowDays >= 330) return 13;
+  if (safeWindowDays >= 180) return 10;
+  if (safeWindowDays >= 90) return 10;
+  if (safeWindowDays >= 45) return 9;
+  if (safeWindowDays >= 14) return 8;
+  return Math.max(2, Math.min(8, safeWindowDays + 1));
+}
+
+function getAnalyticsProductRiskStateAtTime(history = [], time = 0) {
+  if (!Array.isArray(history) || !history.length || !Number.isFinite(Number(time))) return null;
+  let state = null;
+  for (const point of history) {
+    if (Number(point.time || 0) > time) break;
+    state = point;
+  }
+  return state;
 }
 
 function getAnalyticsProductTrendValues(product) {

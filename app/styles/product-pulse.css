@@ -22486,9 +22486,10 @@ s-page[inline-size="large-500"] {
   align-items: center;
   gap: 6px;
   padding: 8px 9px;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.06), rgba(var(--pp-slate-100-rgb), 0.68));
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppAnalyticsTrendContext span {
@@ -22530,7 +22531,8 @@ s-page[inline-size="large-500"] {
   padding: 8px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
-  background: linear-gradient(180deg, var(--pp-cloud-white), rgba(var(--pp-slate-100-rgb), 0.72));
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppAnalyticsTrendSummaryCard-green {
