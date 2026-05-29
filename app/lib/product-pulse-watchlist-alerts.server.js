@@ -16,7 +16,6 @@ const REPORT_LOOKBACK_MINUTES = 30;
 const EMAIL_MAX_DETAIL_PRODUCTS = 6;
 const EMAIL_PRODUCT_IMAGE_SIZE = 72;
 const PRODUCT_PULSE_EMAIL_APP_NAME = "ProductPulse AI";
-const PRODUCT_PULSE_EMAIL_ASSISTANT_ICON_PATH = "/assets/ai-assistant-icon-gradient.png";
 const CALCULATED_CHANGE_PRIORITY = [
   "primary-issue",
   "risk-score",
@@ -748,8 +747,8 @@ function buildWatchlistReportHtmlEmail({
 </html>`;
 }
 
-function buildEmailTopBarHtml({ generatedAt, appBaseUrl = "" } = {}) {
-  const iconHtml = buildEmailAssistantIconHtml(appBaseUrl);
+function buildEmailTopBarHtml({ generatedAt } = {}) {
+  const iconHtml = buildEmailAssistantIconHtml();
   return `<tr>
     <td style="padding:0;background:#07162e;">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background:#07162e;">
@@ -766,12 +765,13 @@ function buildEmailTopBarHtml({ generatedAt, appBaseUrl = "" } = {}) {
   </tr>`;
 }
 
-function buildEmailAssistantIconHtml(appBaseUrl = "") {
-  const iconUrl = buildAbsoluteAppUrl(PRODUCT_PULSE_EMAIL_ASSISTANT_ICON_PATH, appBaseUrl);
-  if (!iconUrl) {
-    return `<span style="display:inline-block;width:22px;height:22px;margin-right:8px;border-radius:7px;background:#2563eb;color:#ffffff;font-size:10px;line-height:22px;text-align:center;font-weight:800;vertical-align:-6px;">AI</span>`;
-  }
-  return `<img src="${escapeAttribute(iconUrl)}" width="22" height="22" alt="${escapeAttribute(PRODUCT_PULSE_EMAIL_APP_NAME)}" style="display:inline-block;width:22px;height:22px;margin-right:8px;border:0;border-radius:7px;vertical-align:-6px;background:#2563eb;">`;
+function buildEmailAssistantIconHtml() {
+  return `<span class="gw-watchlist-brand-icon" role="img" aria-label="Watchlist" style="display:inline-block;width:22px;height:22px;margin-right:8px;border-radius:7px;background:#eef2ff;border:1px solid #a5b4fc;box-sizing:border-box;vertical-align:-6px;">
+    <span style="display:block;width:3px;height:3px;margin:5px 0 0 5px;border-radius:50%;background:#4f46e5;"></span>
+    <span style="display:block;width:8px;height:2px;margin:-2px 0 0 10px;border-radius:999px;background:#2563eb;"></span>
+    <span style="display:block;width:3px;height:3px;margin:4px 0 0 5px;border-radius:50%;background:#4f46e5;"></span>
+    <span style="display:block;width:8px;height:2px;margin:-2px 0 0 10px;border-radius:999px;background:#2563eb;"></span>
+  </span>`;
 }
 
 function buildSummaryTableHtml(reports = [], context = {}) {
