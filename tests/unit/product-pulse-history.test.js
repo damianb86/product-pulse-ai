@@ -13,6 +13,7 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock("../../app/db.server", () => ({ default: prismaMock }));
 
 const {
+  getProductScoreHistoryForShop,
   getReconstructedProductScoreHistoryForShop,
   recordReconstructedProductScoreHistory,
 } = await import("../../app/lib/product-pulse-history.server.js");
@@ -209,5 +210,49 @@ describe("ProductPulse score history persistence", () => {
         temporalMetricsVersion: 3,
       }),
     ]);
+  });
+
+  it("loads analytics history since a date with a baseline point before the window", async () => {
+    const baseline = {
+      id: "baseline-history-row",
+      source: "full-diagnosis-reconstructed",
+      riskScore: 48,
+      recordedAt: new Date("2025-05-15T00:00:00.000Z"),
+      metrics: { marginAtRisk: 120 },
+    };
+    const inWindow = {
+      id: "window-history-row",
+      source: "full-diagnosis-reconstructed",
+      riskScore: 64,
+      recordedAt: new Date("2025-06-30T00:00:00.000Z"),
+      metrics: { marginAtRisk: 260 },
+    };
+    prismaMock.productScoreHistory.findMany.mockResolvedValue([inWindow]);
+    prismaMock.productScoreHistory.findFirst.mockResolvedValue(baseline);
+
+    const rows = await getProductScoreHistoryForShop("peak-outfitters.myshopify.com", "gid://shopify/Product/1", {
+      take: 520,
+      since: new Date("2025-06-01T00:00:00.000Z"),
+      includeBaselineBefore: true,
+    });
+
+    expect(prismaMock.productScoreHistory.findMany).toHaveBeenCalledWith({
+      where: {
+        shop: "peak-outfitters.myshopify.com",
+        productGid: "gid://shopify/Product/1",
+        recordedAt: { gte: new Date("2025-06-01T00:00:00.000Z") },
+      },
+      orderBy: { recordedAt: "desc" },
+      take: 520,
+    });
+    expect(prismaMock.productScoreHistory.findFirst).toHaveBeenCalledWith({
+      where: {
+        shop: "peak-outfitters.myshopify.com",
+        productGid: "gid://shopify/Product/1",
+        recordedAt: { lt: new Date("2025-06-01T00:00:00.000Z") },
+      },
+      orderBy: { recordedAt: "desc" },
+    });
+    expect(rows.map((row) => row.id)).toEqual(["baseline-history-row", "window-history-row"]);
   });
 });

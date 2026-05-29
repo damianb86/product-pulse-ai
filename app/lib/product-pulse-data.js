@@ -1634,26 +1634,84 @@ function buildAnalyticsRiskSignalSeries(productList) {
 function buildAnalyticsIssueDistribution(productList, { limit = 6 } = {}) {
   const grouped = new Map();
   productList.forEach((product) => {
-    const metrics = product.metrics || {};
-    const addIssue = (issue, signals = 1) => {
-      const label = getDashboardIssueLabel(issue);
+    getAnalyticsIssueContributions(product).forEach((contribution) => {
+      const label = getDashboardIssueLabel(contribution.issue);
       const current = grouped.get(label) || { label, value: 0 };
-      current.value += Math.max(1, Number(signals || 1));
+      current.value += Math.max(1, Number(contribution.signals || 1));
       grouped.set(label, current);
-    };
-
-    if (Array.isArray(product.issues) && product.issues.length) {
-      product.issues.forEach((issue) => addIssue(issue.issueCode || issue.issue, issue.signals));
-    } else if (product.primaryIssue) {
-      addIssue(product.primaryIssue, metrics.signalCount || metrics.issueCount || 1);
-    }
-
-    if (Array.isArray(metrics.contentIssues)) {
-      metrics.contentIssues.forEach((issue) => addIssue(issue.issueCode || issue.label || "Product content", 1));
-    }
+    });
   });
 
   return withAnalyticsColors(normalizeDashboardRows(Array.from(grouped.values()), limit, "No issues detected"));
+}
+
+function getAnalyticsIssueContributions(product = {}) {
+  const metrics = product.metrics || {};
+  const historyIssues = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((point) => {
+      const issue = point?.primaryIssue;
+      if (!issue || isAnalyticsNoIssueLabel(issue)) return null;
+      return {
+        issue,
+        signals: firstAnalyticsNumber(point.signalCount, point.mainIssueIntensity, point.returnUnits, point.refundUnits, 1),
+        confidence: firstAnalyticsNumber(point.confidence, product.confidence, metrics.confidence, 0),
+        marginAtRisk: firstAnalyticsNumber(point.marginAtRisk, null),
+        source: "history",
+      };
+    })
+    .filter(Boolean);
+
+  const currentIssues = [];
+  if (Array.isArray(product.issues) && product.issues.length) {
+    product.issues.forEach((issue) => {
+      currentIssues.push({
+        issue: issue.issueCode || issue.issue || issue.label,
+        signals: issue.signals,
+        confidence: firstAnalyticsNumber(product.confidence, metrics.confidence, 0),
+        marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+        source: "current",
+      });
+    });
+  } else if (product.primaryIssue && !isAnalyticsNoIssueLabel(product.primaryIssue)) {
+    currentIssues.push({
+      issue: product.primaryIssue,
+      signals: metrics.signalCount || metrics.issueCount || 1,
+      confidence: firstAnalyticsNumber(product.confidence, metrics.confidence, 0),
+      marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+      source: "current",
+    });
+  }
+
+  if (Array.isArray(metrics.contentIssues)) {
+    metrics.contentIssues.forEach((issue) => {
+      currentIssues.push({
+        issue: issue.issueCode || issue.label || "Product content",
+        signals: issue.signals || 1,
+        confidence: firstAnalyticsNumber(product.confidence, metrics.confidence, 0),
+        marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+        source: "content",
+      });
+    });
+  }
+
+  return historyIssues.length ? [...historyIssues, ...currentIssues.filter((issue) => issue.source === "content")] : currentIssues;
+}
+
+function isAnalyticsNoIssueLabel(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return !normalized
+    || normalized === "no primary issue"
+    || normalized === "no issue"
+    || normalized === "none"
+    || normalized === "unknown";
+}
+
+function firstAnalyticsNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
 }
 
 function buildAnalyticsSourceContribution(productList) {
@@ -2229,11 +2287,11 @@ function buildAnalyticsIssueImpact(productList) {
   const grouped = new Map();
   productList.forEach((product) => {
     const metrics = product.metrics || {};
-    const productLabels = new Set();
-    const addIssue = (issue, signals = 1) => {
-      const label = getDashboardIssueLabel(issue);
+    const contributions = getAnalyticsIssueContributions(product);
+    const productLabels = new Set(contributions.map((contribution) => getDashboardIssueLabel(contribution.issue)).filter(Boolean));
+    contributions.forEach((contribution) => {
+      const label = getDashboardIssueLabel(contribution.issue);
       if (!label) return;
-      productLabels.add(label);
       const current = grouped.get(label) || {
         label,
         products: new Set(),
@@ -2243,21 +2301,11 @@ function buildAnalyticsIssueImpact(productList) {
         confidenceSamples: 0,
       };
       current.products.add(product.id || product.handle || product.title);
-      current.signalCount += Math.max(1, Number(signals || 1));
-      current.confidenceTotal += Number(product.confidence || metrics.confidence || 0);
+      current.signalCount += Math.max(1, Number(contribution.signals || 1));
+      current.confidenceTotal += Number(contribution.confidence ?? product.confidence ?? metrics.confidence ?? 0);
       current.confidenceSamples += 1;
       grouped.set(label, current);
-    };
-
-    if (Array.isArray(product.issues) && product.issues.length) {
-      product.issues.forEach((issue) => addIssue(issue.issueCode || issue.issue || issue.label, issue.signals));
-    } else if (product.primaryIssue) {
-      addIssue(product.primaryIssue, metrics.signalCount || metrics.issueCount || 1);
-    }
-
-    if (Array.isArray(metrics.contentIssues)) {
-      metrics.contentIssues.forEach((issue) => addIssue(issue.issueCode || issue.label || "Product content", issue.signals || 1));
-    }
+    });
 
     const labels = productLabels.size ? [...productLabels] : ["Product quality"];
     const weightedMargin = getDashboardMetric(product, "marginAtRisk") / Math.max(labels.length, 1);

@@ -121,17 +121,43 @@ export async function getReconstructedProductScoreHistoryForShop(
   return rows.map(normalizeProductScoreHistoryPoint).filter(Boolean);
 }
 
-export async function getProductScoreHistoryForShop(shop, productGid, { take = 40 } = {}) {
+export async function getProductScoreHistoryForShop(shop, productGid, { take = 40, since = null, includeBaselineBefore = false } = {}) {
   if (!shop || !productGid) return [];
-  const rows = await prisma.productScoreHistory.findMany({
-    where: { shop, productGid },
+  const sinceDate = parseDate(since);
+  const where = {
+    shop,
+    productGid,
+    ...(sinceDate ? { recordedAt: { gte: sinceDate } } : {}),
+  };
+  const query = {
+    where,
     orderBy: { recordedAt: "desc" },
-    take,
+  };
+  if (Number(take) > 0) query.take = Number(take);
+  const rows = await prisma.productScoreHistory.findMany({
+    ...query,
   });
-  return rows.reverse();
+
+  if (sinceDate && includeBaselineBefore) {
+    const baseline = await prisma.productScoreHistory.findFirst({
+      where: {
+        shop,
+        productGid,
+        recordedAt: { lt: sinceDate },
+      },
+      orderBy: { recordedAt: "desc" },
+    });
+    if (baseline) rows.push(baseline);
+  }
+
+  return rows.sort((left, right) => {
+    const leftTime = parseDate(left.recordedAt)?.getTime() || 0;
+    const rightTime = parseDate(right.recordedAt)?.getTime() || 0;
+    return leftTime - rightTime;
+  });
 }
 
-export async function getProductScoreHistoryForProductsForShop(shop, productGids = [], { take = 40 } = {}) {
+export async function getProductScoreHistoryForProductsForShop(shop, productGids = [], { take = 40, since = null, includeBaselineBefore = false } = {}) {
   if (!shop) return new Map();
   const uniqueProductGids = [...new Set(productGids.filter(Boolean))];
   if (!uniqueProductGids.length) return new Map();
@@ -139,7 +165,7 @@ export async function getProductScoreHistoryForProductsForShop(shop, productGids
   const entries = await Promise.all(
     uniqueProductGids.map(async (productGid) => [
       productGid,
-      await getProductScoreHistoryForShop(shop, productGid, { take }),
+      await getProductScoreHistoryForShop(shop, productGid, { take, since, includeBaselineBefore }),
     ]),
   );
   return new Map(entries);

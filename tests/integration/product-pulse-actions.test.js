@@ -496,6 +496,70 @@ describe("ProductPulse actions", () => {
     expect(actionImpactSeries.find((series) => series.key === "reducedReturns").values.at(-1)).toBe(5);
   });
 
+  it("builds analytics risk, margin, and issue charts from retroactive score history", () => {
+    const analytics = buildAnalyticsViewData([{
+      id: "gid://shopify/Product/retroactive",
+      handle: "retroactive-product",
+      title: "Retroactive Product",
+      riskScore: 80,
+      confidence: 90,
+      analysisDepth: "full",
+      primaryIssue: "Current issue should not replace historical mix",
+      lastAnalysis: "2026-05-20T00:00:00.000Z",
+      metrics: {
+        latestDiagnosisId: "diagnosis-retroactive",
+        marginAtRisk: 800,
+        revenueAtRisk: 2000,
+        signalCount: 99,
+        riskHistory: [
+          {
+            recordedAt: "2025-06-30T00:00:00.000Z",
+            riskScore: 40,
+            marginAtRisk: 100,
+            revenueAtRisk: 300,
+            primaryIssue: "Return pressure",
+            signalCount: 2,
+          },
+          {
+            recordedAt: "2025-12-31T00:00:00.000Z",
+            riskScore: 72,
+            marginAtRisk: 500,
+            revenueAtRisk: 1500,
+            primaryIssue: "Product quality",
+            signalCount: 5,
+          },
+          {
+            recordedAt: "2026-05-20T00:00:00.000Z",
+            riskScore: 80,
+            marginAtRisk: 800,
+            revenueAtRisk: 2000,
+            primaryIssue: "Product quality",
+            signalCount: 6,
+          },
+        ],
+      },
+    }]);
+
+    const trend = analytics.deepDiagnosisCharts.riskMarginTrend;
+    expect(trend.labels).toEqual(["Jun 30", "Dec 31", "May 20"]);
+    expect(trend.detail).toContain("saved score-history exposure");
+    expect(trend.series.find((series) => series.key === "marginAtRisk").values).toEqual([100, 500, 800]);
+    expect(trend.series.find((series) => series.key === "revenueAtRisk").values).toEqual([300, 1500, 2000]);
+    expect(analytics.deepDiagnosisCharts.issueDistribution.rows[0]).toMatchObject({
+      label: "Product quality",
+      count: 11,
+    });
+    expect(analytics.deepDiagnosisCharts.issueDistribution.rows[1]).toMatchObject({
+      label: "Return pressure",
+      count: 2,
+    });
+    expect(analytics.issueImpact.rows[0]).toMatchObject({
+      label: "Product quality",
+      signalCount: 11,
+      productsAffected: 1,
+    });
+  });
+
   it("creates expanded recommended action recipes with impact tiers", () => {
     const product = {
       id: "gid://shopify/Product/action-recipes",

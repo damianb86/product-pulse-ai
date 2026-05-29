@@ -62,6 +62,9 @@ const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const BACKGROUND_PROCESS_PAGE_SIZE = 10;
 const BACKGROUND_PROCESS_ACTIVE_LIMIT = 10;
+const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
+const ANALYTICS_SCORE_HISTORY_TAKE = 520;
+const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
@@ -417,10 +420,21 @@ export async function getAnalyticsDataForShop(shop) {
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
 
   const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
+  const analyticsHistoryWindowDays = Math.max(
+    ANALYTICS_RETROACTIVE_HISTORY_DAYS,
+    Number(settings?.analysis?.lookbackDays || 0),
+  );
+  const analyticsHistorySince = new Date(
+    Date.now() - (analyticsHistoryWindowDays + ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS) * 24 * 60 * 60 * 1000,
+  );
   const scoreHistoryByProductGid = await getProductScoreHistoryForProductsForShop(
     shop,
     snapshots.map((snapshot) => snapshot.productGid),
-    { take: 80 },
+    {
+      take: Math.max(ANALYTICS_SCORE_HISTORY_TAKE, analyticsHistoryWindowDays + 30),
+      since: analyticsHistorySince,
+      includeBaselineBefore: true,
+    },
   );
   const analyticsProducts = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
     snapshot,
